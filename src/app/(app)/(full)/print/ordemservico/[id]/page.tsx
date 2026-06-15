@@ -3,13 +3,13 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import Image from "next/image";
 import Script from "next/script";
-import { PrintButton } from "../../../components/PrintButton";
 import { Car, ClipboardList, Cog, User, Power } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { formatCep } from "@/app/(app)/(pages)/clientes/components/customerDialogRegister/utils";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { ObservacoesToggle } from "../../../components/ObservacoesToggle";
+import { OSShareMenu } from "../../../components/OSShareMenu";
 import { fetchPrimeiroLogoEmpresa } from "@/lib/empresa-logo";
 import { fetchPrintColors } from "@/lib/print-config";
 
@@ -750,7 +750,7 @@ export default async function OSFullPage({ params }: PageProps) {
             </Link>
           </Button>
 
-          <PrintButton />
+          <OSShareMenu osId={os.id} />
         </div>
       </div>
       <div className="toolbar no-print">
@@ -760,7 +760,7 @@ export default async function OSFullPage({ params }: PageProps) {
       </div>
 
       <div className="folha-scaler">
-        <div className="folha">
+        <div className="folha" data-os-export-target>
           <div className="header-os">
             {finalLogo ? (
               <div className="logo-container">
