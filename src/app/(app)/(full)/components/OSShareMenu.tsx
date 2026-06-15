@@ -8,7 +8,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ChevronDown, ImageDown, Loader2, Printer, Share2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toBlob } from "html-to-image";
 
 type OSShareMenuProps = {
@@ -16,6 +16,13 @@ type OSShareMenuProps = {
 };
 
 const EXPORT_PIXEL_RATIO = 3;
+
+function detectMobile() {
+  return (
+    window.matchMedia("(hover: none) and (pointer: coarse)").matches ||
+    window.matchMedia("(max-width: 768px)").matches
+  );
+}
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -31,6 +38,20 @@ function downloadBlob(blob: Blob, filename: string) {
 
 export function OSShareMenu({ osId }: OSShareMenuProps) {
   const [isExporting, setIsExporting] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const updateMobile = () => setIsMobile(detectMobile());
+
+    updateMobile();
+    window.addEventListener("resize", updateMobile);
+    window.addEventListener("orientationchange", updateMobile);
+
+    return () => {
+      window.removeEventListener("resize", updateMobile);
+      window.removeEventListener("orientationchange", updateMobile);
+    };
+  }, []);
 
   async function exportImage() {
     if (isExporting) return;
@@ -73,7 +94,7 @@ export function OSShareMenu({ osId }: OSShareMenuProps) {
         "canShare" in navigator &&
         navigator.canShare?.({ files: [file] });
 
-      if (canShareFile) {
+      if (isMobile && canShareFile) {
         await navigator.share({ files: [file] });
         return;
       }
@@ -114,7 +135,11 @@ export function OSShareMenu({ osId }: OSShareMenuProps) {
           ) : (
             <ImageDown className="w-4 h-4" />
           )}
-          {isExporting ? "Gerando..." : "Imagem"}
+          {isExporting
+            ? "Gerando..."
+            : isMobile
+              ? "Compartilhar imagem"
+              : "Baixar imagem"}
         </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={() => window.print()}
