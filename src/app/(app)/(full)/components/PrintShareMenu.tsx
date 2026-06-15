@@ -11,11 +11,16 @@ import { ChevronDown, ImageDown, Loader2, Printer, Share2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toBlob } from "html-to-image";
 
-type OSShareMenuProps = {
-  osId: number;
+type PrintShareMenuProps = {
+  documentId: number | string;
+  filenamePrefix: string;
+  targetSelector?: string;
+  fixedHeight?: number;
 };
 
 const EXPORT_PIXEL_RATIO = 3;
+const DEFAULT_EXPORT_WIDTH = 794;
+const DEFAULT_TARGET_SELECTOR = "[data-print-export-target]";
 
 function detectMobile() {
   return (
@@ -36,7 +41,12 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-export function OSShareMenu({ osId }: OSShareMenuProps) {
+export function PrintShareMenu({
+  documentId,
+  filenamePrefix,
+  targetSelector = DEFAULT_TARGET_SELECTOR,
+  fixedHeight,
+}: PrintShareMenuProps) {
   const [isExporting, setIsExporting] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
@@ -56,9 +66,9 @@ export function OSShareMenu({ osId }: OSShareMenuProps) {
   async function exportImage() {
     if (isExporting) return;
 
-    const folha = document.querySelector<HTMLElement>("[data-os-export-target]");
-    if (!folha) {
-      alert("Nao foi possivel localizar a ordem de servico para exportar.");
+    const target = document.querySelector<HTMLElement>(targetSelector);
+    if (!target) {
+      alert("Nao foi possivel localizar o documento para exportar.");
       return;
     }
 
@@ -67,19 +77,33 @@ export function OSShareMenu({ osId }: OSShareMenuProps) {
     try {
       await document.fonts?.ready;
 
-      const blob = await toBlob(folha, {
+      const width = DEFAULT_EXPORT_WIDTH;
+      const height =
+        fixedHeight ??
+        Math.max(
+          1123,
+          Math.ceil(target.scrollHeight || target.getBoundingClientRect().height),
+        );
+
+      const blob = await toBlob(target, {
         backgroundColor: "#ffffff",
         cacheBust: true,
         pixelRatio: EXPORT_PIXEL_RATIO,
-        width: 794,
-        height: 1123,
+        width,
+        height,
         style: {
           border: "0",
           boxShadow: "none",
-          height: "1123px",
+          height: `${height}px`,
+          left: "0",
+          margin: "0",
+          minHeight: `${height}px`,
+          overflow: "visible",
           position: "static",
+          right: "auto",
+          top: "0",
           transform: "none",
-          width: "794px",
+          width: `${width}px`,
         },
       });
 
@@ -87,7 +111,7 @@ export function OSShareMenu({ osId }: OSShareMenuProps) {
         throw new Error("Falha ao gerar a imagem.");
       }
 
-      const filename = `ordem-servico-${osId}.png`;
+      const filename = `${filenamePrefix}-${documentId}.png`;
       const file = new File([blob], filename, { type: "image/png" });
       const canShareFile =
         typeof navigator !== "undefined" &&
@@ -101,8 +125,8 @@ export function OSShareMenu({ osId }: OSShareMenuProps) {
 
       downloadBlob(blob, filename);
     } catch (error) {
-      console.error("Erro ao exportar OS como imagem:", error);
-      alert("Nao foi possivel exportar a imagem da ordem de servico.");
+      console.error("Erro ao exportar documento como imagem:", error);
+      alert("Nao foi possivel exportar a imagem do documento.");
     } finally {
       setIsExporting(false);
     }
@@ -121,7 +145,7 @@ export function OSShareMenu({ osId }: OSShareMenuProps) {
           <ChevronDown className="w-4 h-4 ml-1" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-40">
+      <DropdownMenuContent align="end" className="w-44">
         <DropdownMenuItem
           disabled={isExporting}
           onSelect={(event) => {

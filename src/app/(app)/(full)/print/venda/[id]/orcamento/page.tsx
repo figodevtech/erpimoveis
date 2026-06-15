@@ -3,8 +3,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { PrintButton } from "../../../../components/PrintButton";
 import { ObservacoesToggle } from "../../../../components/ObservacoesToggle";
+import { PrintShareMenu } from "../../../../components/PrintShareMenu";
 import { FileText, Power, ShoppingCart, User } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { formatCep } from "@/app/(app)/(pages)/clientes/components/customerDialogRegister/utils";
@@ -330,7 +330,10 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
               Sair
             </Link>
           </Button>
-          <PrintButton />
+          <PrintShareMenu
+            documentId={venda.id}
+            filenamePrefix="orcamento-venda"
+          />
         </div>
       </div>
 
@@ -342,7 +345,7 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
         </div>
       )}
 
-      <div className="folha">
+      <div className="folha" data-print-export-target>
         <div className="header-os">
           <div className="logo-box">
             {finalLogo ? (

@@ -9,7 +9,7 @@ import { formatCep } from "@/app/(app)/(pages)/clientes/components/customerDialo
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { ObservacoesToggle } from "../../../components/ObservacoesToggle";
-import { OSShareMenu } from "../../../components/OSShareMenu";
+import { PrintShareMenu } from "../../../components/PrintShareMenu";
 import { fetchPrimeiroLogoEmpresa } from "@/lib/empresa-logo";
 import { fetchPrintColors } from "@/lib/print-config";
 
@@ -750,7 +750,11 @@ export default async function OSFullPage({ params }: PageProps) {
             </Link>
           </Button>
 
-          <OSShareMenu osId={os.id} />
+          <PrintShareMenu
+            documentId={os.id}
+            filenamePrefix="ordem-servico"
+            fixedHeight={1123}
+          />
         </div>
       </div>
       <div className="toolbar no-print">
@@ -760,7 +764,7 @@ export default async function OSFullPage({ params }: PageProps) {
       </div>
 
       <div className="folha-scaler">
-        <div className="folha" data-os-export-target>
+        <div className="folha" data-print-export-target>
           <div className="header-os">
             {finalLogo ? (
               <div className="logo-container">
