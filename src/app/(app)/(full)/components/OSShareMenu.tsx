@@ -74,11 +74,7 @@ export function OSShareMenu({ osId }: OSShareMenuProps) {
         navigator.canShare?.({ files: [file] });
 
       if (canShareFile) {
-        await navigator.share({
-          files: [file],
-          title: `Ordem de Servico #${osId}`,
-          text: `Ordem de Servico #${osId}`,
-        });
+        await navigator.share({ files: [file] });
         return;
       }
 
