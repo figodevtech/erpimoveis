@@ -53,7 +53,7 @@ function NavSettingsCollapsibleItem({ item }: { item: Item & { items: NonNullabl
           <SidebarMenuButton
             // ⚠️ sem tooltip aqui
             isActive={isGroupActive}
-            className="hover:text-white transition-all hover:cursor-pointer hover:bg-primary"
+            className="transition-all hover:cursor-pointer hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             aria-controls={contentId}
           >
             {item.icon ? <item.icon /> : null}
@@ -72,7 +72,7 @@ function NavSettingsCollapsibleItem({ item }: { item: Item & { items: NonNullabl
                     asChild
                     isActive={subActive as any}
                     data-active={subActive || undefined}
-                    className="hover:text-white transition-all hover:cursor-pointer hover:bg-primary"
+                    className="transition-all hover:cursor-pointer hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                   >
                     <Link href={sub.url} aria-current={subActive ? "page" : undefined} title={sub.title}>
                       {sub.icon ? <sub.icon /> : null}
@@ -111,7 +111,7 @@ export function NavSettings({ items }: { items: Item[] }) {
                 asChild
                 // ⚠️ sem tooltip aqui
                 isActive={isActive}
-                className="hover:text-white transition-all hover:cursor-pointer hover:bg-primary"
+                className="transition-all hover:cursor-pointer hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               >
                 <Link href={item.url} aria-current={isActive ? "page" : undefined} title={item.title}>
                   {item.icon ? <item.icon /> : null}

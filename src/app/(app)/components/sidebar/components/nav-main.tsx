@@ -53,7 +53,7 @@ function NavMainCollapsibleItem({ item }: { item: Item & { items: NonNullable<It
           <SidebarMenuButton
             // ⚠️ sem tooltip aqui para evitar wrapper do Radix e mismatch
             isActive={isGroupActive}
-            className="hover:text-white transition-all hover:cursor-pointer hover:bg-primary"
+            className="transition-all hover:cursor-pointer hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             aria-controls={contentId}
           >
             {item.icon ? <item.icon /> : null}
@@ -72,7 +72,7 @@ function NavMainCollapsibleItem({ item }: { item: Item & { items: NonNullable<It
                     asChild
                     isActive={subActive as any}
                     data-active={subActive || undefined}
-                    className="hover:text-white transition-all hover:cursor-pointer hover:bg-primary"
+                    className="transition-all hover:cursor-pointer hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                   >
                     <Link href={sub.url} aria-current={subActive ? "page" : undefined} title={sub.title}>
                       {sub.icon ? <sub.icon /> : null}
@@ -111,7 +111,7 @@ export function NavMain({ items }: { items: Item[] }) {
                 asChild
                 // ⚠️ sem tooltip aqui também
                 isActive={isActive}
-                className="hover:text-white transition-all hover:cursor-pointer hover:bg-primary"
+                className="transition-all hover:cursor-pointer hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               >
                 <Link href={item.url} aria-current={isActive ? "page" : undefined} title={item.title}>
                   {item.icon ? <item.icon /> : null}

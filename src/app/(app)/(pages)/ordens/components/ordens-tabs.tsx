@@ -82,9 +82,9 @@ const statusTabs: {
     key: "ABERTAS",
     label: "Abertas",
     icon: <ClipboardList className="h-4 w-4" />,
-    dot: "bg-slate-400",
+    dot: "bg-violet-500",
     active:
-      "data-[state=active]:bg-slate-500/15 data-[state=active]:text-slate-200 data-[state=active]:ring-slate-500/30",
+      "data-[state=active]:bg-violet-600/15 data-[state=active]:text-violet-700 dark:data-[state=active]:text-violet-200 data-[state=active]:ring-violet-500/30",
     statuses: OPEN_STATUSES,
   },
   {
@@ -93,7 +93,7 @@ const statusTabs: {
     icon: <ClipboardList className="h-4 w-4" />,
     dot: "bg-fuchsia-500",
     active:
-      "data-[state=active]:bg-fuchsia-500/15 data-[state=active]:text-fuchsia-200 data-[state=active]:ring-fuchsia-500/30",
+      "data-[state=active]:bg-fuchsia-500/15 data-[state=active]:text-fuchsia-800 dark:data-[state=active]:text-fuchsia-200 data-[state=active]:ring-fuchsia-500/30",
     statuses: ["ORCAMENTO", "ORCAMENTO_RECUSADO", "AGUARDANDO_CHECKLIST"],
   },
   {
@@ -102,7 +102,7 @@ const statusTabs: {
     icon: <ClipboardCheck className="h-4 w-4" />,
     dot: "bg-sky-500",
     active:
-      "data-[state=active]:bg-sky-500/15 data-[state=active]:text-sky-200 data-[state=active]:ring-sky-500/30",
+      "data-[state=active]:bg-sky-500/15 data-[state=active]:text-sky-800 dark:data-[state=active]:text-sky-200 data-[state=active]:ring-sky-500/30",
     statuses: ["APROVACAO_ORCAMENTO", "ORCAMENTO_APROVADO"],
   },
   {
@@ -111,7 +111,7 @@ const statusTabs: {
     icon: <Loader2 className="h-4 w-4" />,
     dot: "bg-amber-500",
     active:
-      "data-[state=active]:bg-amber-500/15 data-[state=active]:text-amber-200 data-[state=active]:ring-amber-500/30",
+      "data-[state=active]:bg-amber-500/15 data-[state=active]:text-amber-800 dark:data-[state=active]:text-amber-200 data-[state=active]:ring-amber-500/30",
     statuses: ["EM_ANDAMENTO"],
   },
   {
@@ -120,7 +120,7 @@ const statusTabs: {
     icon: <CreditCard className="h-4 w-4" />,
     dot: "bg-indigo-500",
     active:
-      "data-[state=active]:bg-indigo-500/15 data-[state=active]:text-indigo-200 data-[state=active]:ring-indigo-500/30",
+      "data-[state=active]:bg-indigo-500/15 data-[state=active]:text-indigo-800 dark:data-[state=active]:text-indigo-200 data-[state=active]:ring-indigo-500/30",
     statuses: ["PAGAMENTO"],
   },
   {
@@ -129,7 +129,7 @@ const statusTabs: {
     icon: <CheckCircle2 className="h-4 w-4" />,
     dot: "bg-emerald-600",
     active:
-      "data-[state=active]:bg-emerald-600/15 data-[state=active]:text-emerald-200 data-[state=active]:ring-emerald-600/30",
+      "data-[state=active]:bg-emerald-600/15 data-[state=active]:text-emerald-800 dark:data-[state=active]:text-emerald-200 data-[state=active]:ring-emerald-600/30",
     statuses: ["CONCLUIDO", "SEM_COBRANCA", "CANCELADO"],
   },
 ];
@@ -168,7 +168,7 @@ export function OrdensTabs({
   };
 
   useEffect(() => {
-    loadStats();
+    void Promise.resolve().then(loadStats);
   }, []);
 
   // Realtime contadores
@@ -227,8 +227,8 @@ export function OrdensTabs({
           className={[
             "w-full overflow-x-auto justify-start gap-2",
             "rounded-lg px-1 py-1",
-            "bg-muted/30 supports-[backdrop-filter]:bg-muted/25 backdrop-blur",
-            "ring-1 ring-border",
+            "bg-violet-50/80 dark:bg-card supports-[backdrop-filter]:backdrop-blur",
+            "ring-1 ring-violet-200/80 dark:ring-border",
           ].join(" ")}
         >
           {statusTabs.map((t) => (
@@ -236,9 +236,10 @@ export function OrdensTabs({
               key={t.key}
               value={t.key}
               className={[
-                "whitespace-nowrap px-3 not-dark:data-[state=active]:text-black py-1.5 rounded-md text-xs md:text-sm",
+                "whitespace-nowrap px-3 py-1.5 rounded-md text-xs md:text-sm",
                 "ring-1 ring-transparent transition-colors",
-                "hover:bg-muted/50",
+                "hover:bg-violet-100/70 dark:hover:bg-muted/60",
+                "dark:data-[state=active]:bg-violet-500/15",
                 t.active,
               ].join(" ")}
             >
@@ -282,42 +283,42 @@ function SummaryGrid({
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-8 gap-2">
       <MiniCard
-        accent="text-slate-300"
+        accent="text-violet-700 dark:text-violet-300"
         title="Total (Abertas)"
         value={totalAbertas}
         icon={<ClipboardList className="h-4 w-4" />}
       />
 
       <MiniCard
-        accent="text-fuchsia-300"
+        accent="text-fuchsia-700 dark:text-fuchsia-300"
         title="Orçamento"
         value={sumByStatuses(stats, tabOrcamento)} // inclui AGUARDANDO_CHECKLIST
         icon={<ClipboardList className="h-4 w-4" />}
       />
 
       <MiniCard
-        accent="text-sky-300"
+        accent="text-sky-700 dark:text-sky-300"
         title="Aprovação"
         value={sumByStatuses(stats, tabAprovacao)} // inclui ORCAMENTO_APROVADO
         icon={<ClipboardCheck className="h-4 w-4" />}
       />
 
       <MiniCard
-        accent="text-amber-300"
+        accent="text-amber-700 dark:text-amber-300"
         title="Em Andamento"
         value={sumByStatuses(stats, tabEmAndamento)}
         icon={<Loader2 className="h-4 w-4" />}
       />
 
       <MiniCard
-        accent="text-indigo-300"
+        accent="text-indigo-700 dark:text-indigo-300"
         title="Pagamento"
         value={sumByStatuses(stats, tabPagamento)}
         icon={<CreditCard className="h-4 w-4" />}
       />
 
       <MiniCard
-        accent="text-emerald-300"
+        accent="text-emerald-700 dark:text-emerald-300"
         title="Concluído "
         value={stats.CONCLUIDO || 0}
         icon={<CheckCircle2 className="h-4 w-4" />}
@@ -325,13 +326,13 @@ function SummaryGrid({
 
 
       <MiniCard
-        accent="text-cyan-300"
+        accent="text-cyan-700 dark:text-cyan-300"
         title="Sem cobrança"
         value={stats.SEM_COBRANCA || 0}
         icon={<CheckCircle2 className="h-4 w-4" />}
       />
       <MiniCard
-        accent="text-rose-300"
+        accent="text-rose-700 dark:text-rose-300"
         title="Cancelado"
         value={stats.CANCELADO || 0}
         icon={<XCircle className="h-4 w-4" />}

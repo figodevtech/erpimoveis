@@ -5,22 +5,34 @@ import type { StatusOS } from "./ordens-tabs";
 
 // Cores dos status (mantive seu padrão e ajustei APROVADO p/ consistência)
 export const statusClasses: Record<string, string> = {
-  AGUARDANDO_CHECKLIST: "bg-slate-600/15 text-slate-300",
-  ORCAMENTO: "bg-fuchsia-600/15 text-fuchsia-400",
-  APROVACAO_ORCAMENTO: "bg-sky-600/15 text-sky-400",
-  ORCAMENTO_APROVADO: "bg-emerald-600/15 text-emerald-400",
-  EM_ANDAMENTO: "bg-amber-600/15 text-amber-400",
-  PAGAMENTO: "bg-indigo-600/15 text-indigo-400",
-  SEM_COBRANCA: "bg-cyan-600/15 text-cyan-400",
-  CONCLUIDO: "bg-green-600/15 text-green-400",
-  CANCELADO: "bg-red-600/15 text-red-400",
+  AGUARDANDO_CHECKLIST:
+    "border-slate-400/40 bg-slate-100 text-slate-800 dark:border-slate-500/30 dark:bg-slate-600/15 dark:text-slate-300",
+  ORCAMENTO:
+    "border-fuchsia-500/35 bg-fuchsia-100 text-fuchsia-900 dark:border-fuchsia-500/30 dark:bg-fuchsia-600/15 dark:text-fuchsia-300",
+  APROVACAO_ORCAMENTO:
+    "border-sky-500/35 bg-sky-100 text-sky-900 dark:border-sky-500/30 dark:bg-sky-600/15 dark:text-sky-300",
+  ORCAMENTO_APROVADO:
+    "border-emerald-500/35 bg-emerald-100 text-emerald-900 dark:border-emerald-500/30 dark:bg-emerald-600/15 dark:text-emerald-300",
+  EM_ANDAMENTO:
+    "border-amber-500/35 bg-amber-100 text-amber-900 dark:border-amber-500/30 dark:bg-amber-600/15 dark:text-amber-300",
+  PAGAMENTO:
+    "border-indigo-500/35 bg-indigo-100 text-indigo-900 dark:border-indigo-500/30 dark:bg-indigo-600/15 dark:text-indigo-300",
+  SEM_COBRANCA:
+    "border-cyan-500/35 bg-cyan-100 text-cyan-900 dark:border-cyan-500/30 dark:bg-cyan-600/15 dark:text-cyan-300",
+  CONCLUIDO:
+    "border-green-500/35 bg-green-100 text-green-900 dark:border-green-500/30 dark:bg-green-600/15 dark:text-green-300",
+  CANCELADO:
+    "border-red-500/35 bg-red-100 text-red-900 dark:border-red-500/30 dark:bg-red-600/15 dark:text-red-300",
 };
 
 // Cores de prioridade
 export const prioClasses: Record<string, string> = {
-  ALTA: "bg-red-600/15 text-red-500",
-  NORMAL: "bg-amber-600/15 text-amber-500",
-  BAIXA: "bg-emerald-600/15 text-emerald-500",
+  ALTA:
+    "border-red-500/35 bg-red-100 text-red-900 dark:border-red-500/30 dark:bg-red-600/15 dark:text-red-300",
+  NORMAL:
+    "border-amber-500/35 bg-amber-100 text-amber-900 dark:border-amber-500/30 dark:bg-amber-600/15 dark:text-amber-300",
+  BAIXA:
+    "border-emerald-500/35 bg-emerald-100 text-emerald-900 dark:border-emerald-500/30 dark:bg-emerald-600/15 dark:text-emerald-300",
 };
 
 export function fmtDate(s?: string | null) {
@@ -66,7 +78,7 @@ export function fmtDuration(ms: number) {
 }
 
 export function useNowTick(periodMs = 60000) {
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), periodMs);
     return () => clearInterval(id);

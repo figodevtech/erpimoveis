@@ -584,7 +584,7 @@ export function POSSystem() {
   }
 
   return (
-    <div className="min-h-screen bg-blue-50 dark:bg-background p-4">
+    <div className="min-h-screen bg-background p-4">
       <div className="mx-auto ">
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">

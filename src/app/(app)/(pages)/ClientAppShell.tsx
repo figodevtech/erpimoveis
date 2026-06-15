@@ -191,7 +191,7 @@ export default function ClientAppShell({
 
       <SidebarInset className="flex min-h-screen min-w-0">
         {!hideHeader ? (
-          <header className="flex h-16 w-full shrink-0 items-center gap-2 border-b px-4">
+          <header className="flex h-16 w-full shrink-0 items-center gap-2 border-b bg-card/95 px-4 shadow-sm backdrop-blur">
             <SidebarTrigger className="-ml-1" />
             <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4" />
 
@@ -208,7 +208,7 @@ export default function ClientAppShell({
           </div>
         )}
 
-        <main className="flex-1 min-w-0 bg-blue-600/5 dark:bg-muted-foreground/5">
+        <main className="flex-1 min-w-0 bg-background dark:bg-muted-foreground/5">
           {/* se estiver sem header, adiciona padding-top pra não ficar por baixo do trigger flutuante */}
           <div className={`mx-auto w-full px-4 md:px-6 py-4 md:py-6 ${hideHeader ? "pt-14" : ""}`}>{children}</div>
         </main>

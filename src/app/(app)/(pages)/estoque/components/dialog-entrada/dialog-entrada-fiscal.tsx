@@ -353,7 +353,7 @@ export default function DialogEntradaFiscal({ children, isOpen, setIsOpen }: Ent
           )}
 
           {parsed && (
-            <div className="h-full min-h-0 overflow-auto dark:bg-muted-foreground/5 bg-blue-700/5 px-6 py-10 space-y-2 relative">
+            <div className="h-full min-h-0 overflow-auto bg-muted/60 px-6 py-10 space-y-2 relative">
               <div className="inline-flex items-center gap-2 px-2 py-1 bg-muted rounded-md">
                 <span className="text-xs text-muted-foreground">1 arquivo selecionado</span>
                 <X onClick={handleClearFile} className="w-4 h-4 hover:cursor-pointer text-red-200 hover:text-red-400" />
