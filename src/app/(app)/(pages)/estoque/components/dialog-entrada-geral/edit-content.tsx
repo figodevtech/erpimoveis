@@ -397,9 +397,9 @@ export default function EditContent({ selectedEntradaId, onSaved }: EditContentP
           setOpen={setOpenProduto}
         />
 
-        <div className="h-full min-h-0 overflow-auto dark:bg-muted-foreground/5 px-6 py-6 space-y-4">
+        <div className="h-full min-h-0 overflow-auto px-6 py-6 space-y-4">
           {/* Dados da entrada */}
-          <div className="border rounded-xl p-4 space-y-4">
+          <div className="border rounded-xl p-4 space-y-4 bg-card">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label>Tipo da entrada</Label>
@@ -512,7 +512,7 @@ export default function EditContent({ selectedEntradaId, onSaved }: EditContentP
           </div>
 
           {/* Lista de itens */}
-          <div className="border rounded-xl p-4 min-h-0">
+          <div className="border rounded-xl p-4 min-h-0 bg-card">
             <div className="flex items-center justify-between mb-3">
               <div>
                 <h3 className="text-sm font-semibold">Itens da entrada</h3>
@@ -531,7 +531,7 @@ export default function EditContent({ selectedEntradaId, onSaved }: EditContentP
                 itens.map((item, index) => (
                   <div
                     key={`${item.id ?? "novo"}-${item.produto_id}-${index}`}
-                    className="rounded-xl border p-4 space-y-4"
+                    className="rounded-xl border p-4 space-y-4 bg-muted/20 hover:bg-muted/40 hover:shadow transition-all"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">

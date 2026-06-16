@@ -85,7 +85,7 @@ export function TabFluxo({ produto }: { produto: Produto }) {
                 <TableHead className="w-[80px]">ID</TableHead>
                 <TableHead>Data</TableHead>
                 <TableHead>Fornecedor</TableHead>
-                <TableHead>Status</TableHead>
+                {/* <TableHead>Status</TableHead> */}
                 <TableHead className="text-right">Quantidade</TableHead>
                 <TableHead className="w-[50px]"></TableHead>
               </TableRow>
@@ -102,7 +102,7 @@ export function TabFluxo({ produto }: { produto: Produto }) {
                       <TableCell className="font-medium text-muted-foreground">#{e.id}</TableCell>
                       <TableCell>{formatDate(e.created_at)}</TableCell>
                       <TableCell className="max-w-[200px] truncate" title={fornecedorNome}>{fornecedorNome}</TableCell>
-                      <TableCell>{getStatusBadge(entradaInfo.status)}</TableCell>
+                      {/* <TableCell>{getStatusBadge(entradaInfo.status)}</TableCell> */}
                       <TableCell className="text-right font-bold text-green-600 dark:text-green-500">+ {e.quantidade}</TableCell>
                       <TableCell>
                         <DropdownMenu>

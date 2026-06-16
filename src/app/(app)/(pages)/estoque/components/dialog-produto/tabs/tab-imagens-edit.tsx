@@ -102,7 +102,9 @@ export function TabImagensEdit({
             {previews.map((src, idx) => (
               <div key={idx} className="overflow-hidden rounded-lg border bg-card opacity-70">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={src} alt={`preview-${idx}`} className="h-32 w-full object-cover grayscale transition-all hover:grayscale-0" />
+                <div className="aspect-square overflow-hidden flex items-center justify-center">
+                  <img src={src} alt={`preview-${idx}`} className="w-full object-cover grayscale transition-all hover:grayscale-0" />
+                </div>
                 <div className="space-y-1 p-3">
                   <Badge variant="outline" className="mb-1 text-[10px]">Não Enviada</Badge>
                   <p className="truncate text-sm font-semibold">Nova Imagem {idx + 1}</p>
@@ -139,8 +141,9 @@ export function TabImagensEdit({
                 return (
                   <div key={img.id} className={`overflow-hidden rounded-lg border bg-card transition-all ${ehPrincipal ? "ring-2 ring-primary border-transparent" : ""}`}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={img.url} alt={`img-${img.id}`} className="h-32 w-full object-cover" />
-                    
+                    <div className="group aspect-square overflow-hidden flex items-center justify-center">
+                      <img src={img.url} alt={`img-${img.id}`} className="aspect-auto group-hover:scale-105 transition-transform duration-300" />
+                    </div>
                     <div className="space-y-2 p-3">
                       <div className="min-w-0 space-y-1">
                         {ehPrincipal ? (

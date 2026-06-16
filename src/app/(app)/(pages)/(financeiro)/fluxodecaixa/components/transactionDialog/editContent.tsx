@@ -231,6 +231,8 @@ export default function EditContent({
 
         <div className="h-full min-h-0 overflow-hidden p-0">
           <div className="h-full min-h-0 overflow-auto space-y-2 bg-muted-foreground/5 px-4 py-10">
+                                                     <div className="rounded-lg border bg-card p-4 gap-3 flex flex-col">
+
             <div className="grid space-y-4 gap-4 sm:grid-cols-3">
               <div className="space-y-2 w-full">
                 <Label htmlFor="tipo">Tipo</Label>
@@ -500,6 +502,7 @@ export default function EditContent({
               </div>
             </div>
           </div>
+        </div>
         </div>
 
         <Footer className="px-6 py-4">

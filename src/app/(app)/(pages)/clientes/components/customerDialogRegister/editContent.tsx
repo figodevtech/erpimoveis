@@ -568,6 +568,8 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                 </div>
 
                 {/* Dados Principais */}
+                                <div className="rounded-lg border bg-card p-4 gap-3 flex flex-col">
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="cpfcnpj" className="text-sm">
@@ -716,6 +718,7 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                     </div>
                   </div>
                 </div>
+
 
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
                   <div className="min-w-0 space-y-2">
@@ -872,12 +875,14 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                     />
                   </div>
                 </div>
+                </div>
 
                 {/* Dados fiscais - Apenas para Pessoa Jurídica */}
                 {selectedCustomer.tipopessoa === "JURIDICA" && (
                   <>
                     <Separator />
-                    <div className="space-y-3 sm:space-y-4">
+                    
+                    <div className="space-y-3 sm:space-y-4 rounded-lg border bg-card p-4">
                       <div className="flex items-center gap-2">
                         <FileText className="h-3 w-3 sm:h-4 sm:w-4" />
                         <h3 className="text-base sm:text-lg font-semibold">Dados Fiscais</h3>
@@ -952,6 +957,26 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                     <Plus /> Veículo
                   </Button>
                 </div>
+                <div className="flex min-w-0 flex-col gap-3 rounded-lg border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <ClipboardList className="h-4 w-4 text-muted-foreground" />
+                      <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                        Veículos
+                      </h3>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Histórico de veículos vinculados a este cliente.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 shadow-sm">
+                    <span className="text-xs font-medium text-muted-foreground">Total:</span>
+                    <span className="text-sm font-bold">{selectedCustomer.veiculos?.length ?? 0}</span>
+                  </div>
+                </div>
+                                <div className="w-full max-w-[calc(100vw-1rem)] overflow-hidden rounded-md border bg-card sm:max-w-full">
+                  <div className="max-w-full overflow-x-auto">
+
                 <Table className="text-xs">
                   <TableHeader>
                     <TableRow>
@@ -1024,6 +1049,8 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                     )}
                   </TableBody>
                 </Table>
+                </div>
+                </div>
               </div>
             </TabsContent>
 

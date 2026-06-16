@@ -216,6 +216,8 @@ export default function Page() {
 
             {/* conteúdo rolável */}
             <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 dark:bg-muted-foreground/5">
+                                            <div className="rounded-lg border bg-card p-4 gap-3 flex flex-col">
+
               <TemplateForm
                 value={modeloEmEdicao}
                 categorias={categorias}
@@ -228,6 +230,7 @@ export default function Page() {
                   submitRef.current = fn;
                 }}
               />
+            </div>
             </div>
 
             <DialogFooter className="shrink-0 border-t px-6 py-4">

@@ -882,7 +882,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
         </div>
 
         <DialogFooter className="px-6 py-4 border-t">
-          <div className="flex w-full flex-col justify-start gap-2.5 text-xs">
+          <div className="flex w-full flex-col justify-start gap-2.5 text-xs rounded-lg border bg-card p-4">
             <span className="text-sm font-medium">Resumo:</span>
             <Separator />
             <div className="grid w-full grid-cols-[max-content_minmax(24px,1fr)_max-content] items-center gap-2">

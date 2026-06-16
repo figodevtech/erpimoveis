@@ -247,7 +247,7 @@ export default function DialogEntrada({
         </DrawerContent>
       </Drawer>
     );
-  }
+  } 
 
   return (
     <Dialog
@@ -269,7 +269,7 @@ export default function DialogEntrada({
           </DialogHeader>
 
           <div className="h-full min-h-0 overflow-auto dark:bg-muted-foreground/5 bg-muted px-6 py-10 space-y-2 relative">
-            <div className="h-full min-h-0 rounded-md px-4 py-8 space-y-4">
+            <div className="h-full min-h-0 rounded-md px-4 py-8 space-y-4 bg-card">
               <div className="space-y-2">
                 <Label>Tipo:</Label>
                 <Select value={selectedType} onValueChange={(v:Entrada_tipo)=> setSelectedType(v)}>

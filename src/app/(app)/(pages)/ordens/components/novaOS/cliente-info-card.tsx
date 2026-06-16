@@ -44,18 +44,18 @@ export function ClienteInfoCard({ customer }: CustomerInfoCardProps) {
       <div className="bg-primary/20 px-4 py-4 md:px-6 md:py-5">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-start gap-3">
-            <div className="p-2 bg-primary-foreground/10 rounded-lg">
+            <div className="p-2 dark:bg-primary-foreground/10 not-dark:bg-primary-foreground rounded-lg">
               {customer.tipopessoa === "FISICA" ? (
-                <User className="w-5 h-5 text-primary-foreground" />
+                <User className="w-5 h-5 text-primary" />
               ) : (
                 <Building2 className="w-5 h-5 text-primary-foreground" />
               )}
             </div>
             <div>
-              <h2 className="text-lg md:text-xl font-semibold text-primary-foreground text-balance">
+              <h2 className="text-lg md:text-xl font-semibold text-primary text-balance">
                 {customer.nomerazaosocial || ""}
               </h2>
-              <p className="text-sm text-primary-foreground/80 mt-0.5">
+              <p className="text-sm text-primary-foreground mt-0.5">
                 {customer.tipopessoa === "FISICA" ? "Pessoa Física" : "Pessoa Jurídica"}
               </p>
             </div>
