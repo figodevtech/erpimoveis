@@ -228,7 +228,7 @@ export default function ServiceOrdersDashboard({
   }, [servicesByUserSorted.length]);
 
   const total = data?.totalOrders ?? 0;
-  const open = data?.ordersOpen ?? 0;
+  const inProgress = data?.countsByStatus?.EM_ANDAMENTO ?? 0;
   const completed = data?.ordersCompleted ?? 0;
   const avgHrs = data?.avgCompletionHours ?? 0;
 
@@ -294,7 +294,7 @@ export default function ServiceOrdersDashboard({
           <Kpi icon={ClipboardList} label="Total de OS" value={formatNumber(total)} />
           <Kpi icon={Activity} label="OS do dia" value={formatNumber(data?.ordersToday ?? 0)} />
           <Kpi icon={CheckCircle2} label="Concluídas" value={formatNumber(completed)} />
-          <Kpi icon={CircleAlert} label="Em andamento" value={formatNumber(open)} />
+          <Kpi icon={CircleAlert} label="Em andamento" value={formatNumber(inProgress)} />
           <Kpi icon={Timer} label="Tempo médio" value={formatDurationHours(avgHrs)} />
           <Kpi icon={DollarSign} label="Receita (30d)" value={formatCurrencyBRL(data?.revenue30d ?? 0)} />
           <Kpi icon={UserX} label="Serviços sem realizador" value={formatNumber(servicesWithoutRealizador)} />
