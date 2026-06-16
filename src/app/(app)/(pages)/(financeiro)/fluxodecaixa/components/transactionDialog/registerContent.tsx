@@ -180,7 +180,9 @@ export default function RegisterContent({
   };
 
   const setParcelas = (
-    updater: ParcelaFormulario[] | ((prev: ParcelaFormulario[]) => ParcelaFormulario[]),
+    updater:
+      | ParcelaFormulario[]
+      | ((prev: ParcelaFormulario[]) => ParcelaFormulario[]),
   ) => {
     setParcelasDetalhadas((prev) =>
       typeof updater === "function" ? updater(prev) : updater,
@@ -334,7 +336,13 @@ export default function RegisterContent({
         cpfcnpjpagador: transactionCustomer.cpfcnpj,
       }));
     })();
-  }, [canUseMesmoCliente, osId, vendaId, setNewTransaction, setSelectedCustomer]);
+  }, [
+    canUseMesmoCliente,
+    osId,
+    vendaId,
+    setNewTransaction,
+    setSelectedCustomer,
+  ]);
 
   useEffect(() => {
     if (!pagoPeloMesmo) return;
@@ -358,7 +366,14 @@ export default function RegisterContent({
         cpfcnpjpagador: transactionCustomer.cpfcnpj,
       }));
     })();
-  }, [dialogOpen, canUseMesmoCliente, osId, vendaId, setNewTransaction, setSelectedCustomer]);
+  }, [
+    dialogOpen,
+    canUseMesmoCliente,
+    osId,
+    vendaId,
+    setNewTransaction,
+    setSelectedCustomer,
+  ]);
 
   const handleCreateTransaction = async () => {
     setIsSubmitting(true);
@@ -379,16 +394,18 @@ export default function RegisterContent({
         if (
           parcelasDetalhadas.some(
             (parcela) =>
-              !parcela.valor ||
-              parcela.valor <= 0 ||
-              !parcela.dataVencimento,
+              !parcela.valor || parcela.valor <= 0 || !parcela.dataVencimento,
           )
         ) {
           toast.error("As parcelas ainda não foram geradas corretamente.");
           return;
         }
 
-        if (parcelasDetalhadas.some((parcela) => !parcela.valor || parcela.valor <= 0)) {
+        if (
+          parcelasDetalhadas.some(
+            (parcela) => !parcela.valor || parcela.valor <= 0,
+          )
+        ) {
           toast.error("Todas as parcelas precisam ter valor maior que zero.");
           return;
         }
@@ -492,8 +509,8 @@ export default function RegisterContent({
         dataVencimento:
           prev[index]?.dataVencimento ?? addMonths(dataBase, index),
         valor: parcelasIguais
-          ? valoresPadrao[index] ?? 0
-          : prev[index]?.valor ?? valoresPadrao[index] ?? 0,
+          ? (valoresPadrao[index] ?? 0)
+          : (prev[index]?.valor ?? valoresPadrao[index] ?? 0),
       }));
     });
   }, [
@@ -572,640 +589,658 @@ export default function RegisterContent({
         </Header>
         <div className="h-full min-h-0 overflow-hidden">
           <div className="h-full min-h-0 overflow-auto px-6 py-4 space-y-4 bg-background">
-            {/* dados da transação */}
-            <div className="space-y-4 grid sm:grid-cols-3 gap-4">
-              <div className="space-y-2 w-full">
-                <Label htmlFor="tipo">Tipo</Label>
-                {osId || vendaId ? (
+            <div className="rounded-lg border bg-card p-4 gap-3 flex flex-col">
+              {/* dados da transação */}
+              <div className="space-y-4 grid sm:grid-cols-3 gap-4">
+                <div className="space-y-2 w-full">
+                  <Label htmlFor="tipo">Tipo</Label>
+                  {osId || vendaId ? (
+                    <Select
+                      disabled
+                      value={"RECEITA"}
+                      onValueChange={(v) => handleChange("tipo", v)}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Selecione" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="RECEITA">RECEITA</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Select
+                      value={newTransaction.tipo || ""}
+                      onValueChange={(v) => handleChange("tipo", v)}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Selecione" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.values(Tipo_transacao).map((u) => (
+                          <SelectItem key={u} value={u}>
+                            {u}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+                <div className="space-y-2 w-full">
+                  <Label htmlFor="metodopagamento">Método de pagamento</Label>
                   <Select
-                    disabled
-                    value={"RECEITA"}
-                    onValueChange={(v) => handleChange("tipo", v)}
+                    value={newTransaction.metodopagamento || ""}
+                    onValueChange={(v) => handleChange("metodopagamento", v)}
                   >
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder="Selecione" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="RECEITA">RECEITA</SelectItem>
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Select
-                    value={newTransaction.tipo || ""}
-                    onValueChange={(v) => handleChange("tipo", v)}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Selecione" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Object.values(Tipo_transacao).map((u) => (
+                      {Object.values(Metodo_pagamento).map((u) => (
                         <SelectItem key={u} value={u}>
                           {u}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                )}
-              </div>
-              <div className="space-y-2 w-full">
-                <Label htmlFor="metodopagamento">Método de pagamento</Label>
-                <Select
-                  value={newTransaction.metodopagamento || ""}
-                  onValueChange={(v) => handleChange("metodopagamento", v)}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Selecione" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.values(Metodo_pagamento).map((u) => (
-                      <SelectItem key={u} value={u}>
-                        {u}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-4 w-full">
-                <Label>Lançamento futuro</Label>
-                <div className="flex felx-row items-center gap-2">
-                  <Switch
-                    className="hover:cursor-pointer"
-                    disabled={
-                      newTransaction.tipo === Tipo_transacao.SAQUE ||
-                      newTransaction.tipo === Tipo_transacao.DEPOSITO
-                        ? true
-                        : false
-                    }
-                    checked={newTransaction.pendente || false}
-                    onCheckedChange={(checked) =>
-                      setNewTransaction({
-                        ...newTransaction,
-                        pendente: checked,
-                      })
-                    }
-                  />
-
-                  {newTransaction.tipo === Tipo_transacao.RECEITA && (
-                    <div
-                      className={`flex flex-row gap-1 items-center text-xs text-muted-foreground ${
-                        newTransaction.pendente ? "opacity-100" : "opacity-50"
-                      }`}
-                    >
-                      <Info className="w-3 h-3" />
-                      <span>LANÇAMENTO A RECEBER</span>
-                    </div>
-                  )}
-                  {newTransaction.tipo === Tipo_transacao.DESPESA && (
-                    <div
-                      className={`flex flex-row gap-1 items-center text-xs text-muted-foreground ${
-                        newTransaction.pendente ? "opacity-100" : "opacity-50"
-                      }`}
-                    >
-                      <Info className="w-3 h-3" />
-                      <span>LANÇAMENTO A PAGAR</span>
-                    </div>
-                  )}
                 </div>
-              </div>
-
-              <div className="hidden space-y-2 w-full col-span-full">
-                <Label htmlFor="descricao">Descrição*</Label>
-                <Input
-                  disabled={osId || vendaId ? true : false}
-                  id="descricao"
-                  value={newTransaction.descricao || ""}
-                  onChange={(e) => handleChange("descricao", e.target.value)}
-                  placeholder="Descrição"
-                  className="w-full"
-                />
-              </div>
-              <div className="space-y-2 w-full">
-                <div className="p-0 m-0 mb-1 flex flex-row justify-between items-center">
-                  <Label htmlFor="valor">Valor* </Label>
-                  {(newTransaction.tipo === Tipo_transacao.RECEITA ||
-                    newTransaction.tipo === Tipo_transacao.SAQUE) && (
-                    <div className="flex flex-row gap-2">
-                      <span className="text-xs text-muted-foreground">
-                        Taxa de recebimento
-                      </span>
-                      <Switch
-                        checked={isChecked}
-                        onCheckedChange={() => {
-                          setIsChecked(!isChecked);
-                          if (!isChecked) {
-                            setNewTransaction({
-                              ...newTransaction,
-                              valorLiquido: newTransaction.valor,
-                            });
-                          } else {
-                            setNewTransaction({
-                              ...newTransaction,
-                              valorLiquido: newTransaction.valor,
-                            });
-                          }
-                        }}
-                      />
-                    </div>
-                  )}
-                </div>
-                <ValueInput
-                  price={newTransaction.valor || 0}
-                  setPrice={(v) => handleChange("valor", v)}
-                ></ValueInput>
-                {isChecked && (
-                  <>
-                    <div className="flex flex-row items-center justify-between">
-                      <span className="text-xs text-muted-foreground">
-                        Valor líquido recebido:
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        Taxa:{" "}
-                        {newTransaction.valor && newTransaction.valorLiquido
-                          ? formatarEmReal(
-                              newTransaction.valor -
-                                newTransaction.valorLiquido,
-                            )
-                          : 0}
-                      </span>
-                    </div>
-                    <ValueInput
-                      price={newTransaction.valorLiquido || 0}
-                      setPrice={(v) => handleChange("valorLiquido", v)}
-                    ></ValueInput>
-                  </>
-                )}
-              </div>
-              {!canManageParcelas && (
-                <div className="space-y-2 w-full">
-                  <Label htmlFor="data">Data</Label>
-                  <DatePickerField
-                    value={newTransaction.data}
-                    onChange={(selecionada) => {
-                      if (!selecionada) {
-                        setNewTransaction({ ...newTransaction, data: undefined });
-                        return;
+                <div className="space-y-4 w-full">
+                  <Label>Lançamento futuro</Label>
+                  <div className="flex felx-row items-center gap-2">
+                    <Switch
+                      className="hover:cursor-pointer"
+                      disabled={
+                        newTransaction.tipo === Tipo_transacao.SAQUE ||
+                        newTransaction.tipo === Tipo_transacao.DEPOSITO
+                          ? true
+                          : false
                       }
-
-                      const agora = new Date();
-
-                      if (
-                        !newTransaction.pendente &&
-                        selecionada.getTime() > agora.getTime()
-                      ) {
-                        toast.warning(
-                          "Ative o pagamento futuro para selecionar uma data futura.",
-                        );
-                        return;
+                      checked={newTransaction.pendente || false}
+                      onCheckedChange={(checked) =>
+                        setNewTransaction({
+                          ...newTransaction,
+                          pendente: checked,
+                        })
                       }
-
-                      if (
-                        newTransaction.pendente &&
-                        selecionada.getTime() < agora.getTime()
-                      ) {
-                        toast.warning(
-                          "Desative o pagamento futuro para selecionar uma data passada.",
-                        );
-                        return;
-                      }
-
-                      setNewTransaction({ ...newTransaction, data: selecionada });
-                    }}
-                  />
-                </div>
-              )}
-              <div className="space-y-2 w-full">
-                <Label htmlFor="banco">Banco</Label>
-                <Select
-                  value={newTransaction.banco_id?.toString() || ""}
-                  onValueChange={(v) => handleChange("banco_id", Number(v))}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Selecione" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {banks.map((b) => (
-                      <SelectItem key={b.id} value={b.id.toString()}>
-                        {b.titulo}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2 w-full">
-                <Label htmlFor="categoria-topo">Categoria</Label>
-                {osId && (
-                  <Select
-                    disabled
-                    value={newTransaction.categoria}
-                    onValueChange={(v) => handleChange("categoria", v)}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Selecione" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ORDEM DE SERVIÃ‡O">
-                        ORDEM DE SERVIÃ‡O
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                )}
-                {vendaId && (
-                  <Select
-                    disabled
-                    value={newTransaction.categoria}
-                    onValueChange={(v) => handleChange("categoria", v)}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Selecione" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="VENDA">VENDA</SelectItem>
-                    </SelectContent>
-                  </Select>
-                )}
-                {!osId && !vendaId && (
-                  <Select
-                    disabled={loadingCategorias || !!errorCategorias}
-                    value={newTransaction.categoria}
-                    onValueChange={(v) => handleChange("categoria", v)}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue
-                        placeholder={
-                          loadingCategorias
-                            ? "Carregando..."
-                            : errorCategorias
-                              ? "Erro ao carregar"
-                              : "Selecione"
-                        }
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {categorias.map((c) => (
-                        <SelectItem
-                          className="hover:cursor-pointer"
-                          key={c.id}
-                          value={c.nome}
-                        >
-                          {c.nome}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-              <div className="space-y-2 w-full col-span-full">
-                <Label htmlFor="descricao-topo">Descrição*</Label>
-                <Input
-                  disabled={osId || vendaId ? true : false}
-                  id="descricao-topo"
-                  value={newTransaction.descricao || ""}
-                  onChange={(e) => handleChange("descricao", e.target.value)}
-                  placeholder="Descrição"
-                  className="w-full"
-                />
-              </div>
-              {newTransaction.metodopagamento === Metodo_pagamento.BOLETO &&
-                !newTransaction.pendente && (
-                  <div className="w-full sm:col-span-3 rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">
-                    Ative `Lançamento futuro` para habilitar o parcelamento do
-                    boleto.
-                  </div>
-                )}
-              {canManageParcelas && (
-                <div className="space-y-3 w-full sm:col-span-3 rounded-xl border bg-background/70 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium">Parcelas do boleto</p>
-                      <p className="text-xs text-muted-foreground">
-                        Adicione parcelas como na entrada fiscal.
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Label htmlFor="parcelas-iguais" className="text-xs">
-                        Parcelas iguais
-                      </Label>
-                      <Switch
-                        id="parcelas-iguais"
-                        checked={parcelasIguais}
-                        onCheckedChange={setParcelasIguais}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-2">
-                    {parcelasDetalhadas.map((parcela, index) => (
-                      <div
-                        key={parcela.id ?? index}
-                        className="relative flex flex-row items-center justify-between gap-4 rounded-xl bg-muted-foreground/5 px-3 py-6"
-                      >
-                        <span className="absolute left-3 top-1 text-xs text-muted-foreground">
-                          {index + 1}º parcela
-                        </span>
-                        <button
-                          type="button"
-                          className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 hover:cursor-pointer"
-                          onClick={() => {
-                            if (parcelasDetalhadas.length === 1) {
-                              toast.error("E necessario ao menos uma parcela");
-                              return;
-                            }
-
-                            setParcelas((prev) => {
-                              const next = prev.filter(
-                                (_, itemIndex) => itemIndex !== index,
-                              );
-
-                              if (!parcelasIguais) {
-                                return next;
-                              }
-
-                              const valoresRedistribuidos =
-                                distribuirValoresIguais(
-                                  newTransaction.valor ?? 0,
-                                  next.length,
-                                );
-
-                              return next.map((parcela, parcelaIndex) => ({
-                                ...parcela,
-                                valor: valoresRedistribuidos[parcelaIndex] ?? 0,
-                              }));
-                            });
-                          }}
-                        >
-                          <Minus className="h-3 w-3" />
-                        </button>
-                        <div className="flex flex-col gap-1">
-                          <span className="text-xs text-muted-foreground">
-                            Data vencimento:
-                          </span>
-                          <DatePickerField
-                            value={parcela.dataVencimento}
-                            onChange={(date) =>
-                              setParcelas((prev) =>
-                                prev.map((item, itemIndex) =>
-                                  itemIndex === index
-                                    ? {
-                                        ...item,
-                                        dataVencimento: date,
-                                      }
-                                    : item,
-                                ),
-                              )
-                            }
-                          />
-                        </div>
-                        <div className="flex flex-col gap-1">
-                          <span className="text-xs text-muted-foreground">
-                            Valor:
-                          </span>
-                          <ValueInput
-                            price={parcela.valor}
-                            disabled={parcelasIguais}
-                            setPrice={(valor) =>
-                              setParcelas((prev) =>
-                                prev.map((item, itemIndex) =>
-                                  itemIndex === index
-                                    ? { ...item, valor }
-                                    : item,
-                                ),
-                              )
-                            }
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>
-                      Valor total: {formatarEmReal(newTransaction.valor || 0)}
-                    </span>
-                    <span>
-                      Soma das parcelas:{" "}
-                      {formatarEmReal(
-                        parcelasDetalhadas.reduce(
-                          (acc, parcela) => acc + (parcela.valor || 0),
-                          0,
-                        ),
-                      )}
-                    </span>
-                  </div>
-
-                  <div
-                    className="group mt-3 flex w-max flex-row items-center gap-2 hover:cursor-pointer"
-                    onClick={() =>
-                      setParcelas((prev) => {
-                        const next = [
-                          ...prev,
-                          {
-                            id: Date.now(),
-                            dataVencimento: addMonths(
-                              prev[prev.length - 1]?.dataVencimento ??
-                                newTransaction.data ??
-                                new Date(),
-                              1,
-                            ),
-                            valor: 0,
-                          },
-                        ];
-
-                        if (!parcelasIguais) {
-                          return next;
-                        }
-
-                        const valoresRedistribuidos = distribuirValoresIguais(
-                          newTransaction.valor ?? 0,
-                          next.length,
-                        );
-
-                        return next.map((parcela, index) => ({
-                          ...parcela,
-                          valor: valoresRedistribuidos[index] ?? 0,
-                        }));
-                      })
-                    }
-                  >
-                    <Plus className="h-4 w-4 text-green-300 group-hover:text-green-600" />
-                    <span className="text-xs text-card-foreground">
-                      Adicionar Parcela
-                    </span>
-                  </div>
-                </div>
-              )}
-              <div className="hidden space-y-2 w-full">
-                <Label htmlFor="categoria">Categoria</Label>
-                {osId && (
-                  <Select
-                    disabled
-                    value={newTransaction.categoria}
-                    onValueChange={(v) => handleChange("categoria", v)}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Selecione" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ORDEM DE SERVIÇO">
-                        ORDEM DE SERVIÇO
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                )}
-                {vendaId && (
-                  <Select
-                    disabled
-                    value={newTransaction.categoria}
-                    onValueChange={(v) => handleChange("categoria", v)}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Selecione" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="VENDA">VENDA</SelectItem>
-                    </SelectContent>
-                  </Select>
-                )}
-                {!osId && !vendaId && (
-                  <Select
-                    disabled={loadingCategorias || !!errorCategorias}
-                    value={newTransaction.categoria}
-                    onValueChange={(v) => handleChange("categoria", v)}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue
-                        placeholder={
-                          loadingCategorias
-                            ? "Carregando..."
-                            : errorCategorias
-                              ? "Erro ao carregar"
-                              : "Selecione"
-                        }
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {categorias.map((c) => (
-                        <SelectItem
-                          className="hover:cursor-pointer"
-                          key={c.id}
-                          value={c.nome}
-                        >
-                          {c.nome}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-            </div>
-
-            {/* dados do cliente */}
-            <div>
-              <span className=" text-xs text-muted-foreground">
-                Dados do pagador
-              </span>
-              <Separator />
-            </div>
-
-            <div className="flex justify-end">
-              <div className="flex w-full items-center justify-end gap-4">
-                {canUseMesmoCliente && (
-                  <div className="flex items-center gap-2">
-                    <Checkbox
-                      id="pago-pelo-mesmo"
-                      checked={pagoPeloMesmo}
-                      onCheckedChange={(checked) => {
-                        const next = checked === true;
-                        setPagoPeloMesmo(next);
-
-                        if (!next) {
-                          setSelectedCustomer(undefined);
-                          setNewTransaction((prev) => ({
-                            ...prev,
-                            cliente_id: null,
-                            nomepagador: "",
-                            cpfcnpjpagador: "",
-                          }));
-                        }
-                      }}
                     />
-                    <Label htmlFor="pago-pelo-mesmo" className="cursor-pointer">
-                      Pago pelo mesmo
-                    </Label>
-                  </div>
-                )}
 
-                {selectedCustomer ? (
-                  <Button
-                    disabled={pagoPeloMesmo}
-                    onClick={() => {
-                      setNewTransaction({
-                        ...newTransaction,
-                        nomepagador: "",
-                        cpfcnpjpagador: "",
-                        cliente_id: null,
-                      });
-                      setSelectedCustomer(undefined);
-                    }}
-                    className="hover:cursor-pointer"
-                    variant={"ghost"}
-                    size={"sm"}
-                  >
-                    Remover Cliente
-                  </Button>
-                ) : (
-                  <>
-                    <CustomerSelect
-                      open={isCustomerSelectOpen}
-                      setOpen={setIsCustomerSelectOpen}
-                      OnSelect={(c) => {
-                        setSelectedCustomer({
-                          cpfcnpj: c.cpfcnpj,
-                          nome: c.nomerazaosocial,
-                          id: c.id,
+                    {newTransaction.tipo === Tipo_transacao.RECEITA && (
+                      <div
+                        className={`flex flex-row gap-1 items-center text-xs text-muted-foreground ${
+                          newTransaction.pendente ? "opacity-100" : "opacity-50"
+                        }`}
+                      >
+                        <Info className="w-3 h-3" />
+                        <span>LANÇAMENTO A RECEBER</span>
+                      </div>
+                    )}
+                    {newTransaction.tipo === Tipo_transacao.DESPESA && (
+                      <div
+                        className={`flex flex-row gap-1 items-center text-xs text-muted-foreground ${
+                          newTransaction.pendente ? "opacity-100" : "opacity-50"
+                        }`}
+                      >
+                        <Info className="w-3 h-3" />
+                        <span>LANÇAMENTO A PAGAR</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="hidden space-y-2 w-full col-span-full">
+                  <Label htmlFor="descricao">Descrição*</Label>
+                  <Input
+                    disabled={osId || vendaId ? true : false}
+                    id="descricao"
+                    value={newTransaction.descricao || ""}
+                    onChange={(e) => handleChange("descricao", e.target.value)}
+                    placeholder="Descrição"
+                    className="w-full"
+                  />
+                </div>
+                <div className="space-y-2 w-full">
+                  <div className="p-0 m-0 mb-1 flex flex-row justify-between items-center">
+                    <Label htmlFor="valor">Valor* </Label>
+                    {(newTransaction.tipo === Tipo_transacao.RECEITA ||
+                      newTransaction.tipo === Tipo_transacao.SAQUE) && (
+                      <div className="flex flex-row gap-2">
+                        <span className="text-xs text-muted-foreground">
+                          Taxa de recebimento
+                        </span>
+                        <Switch
+                          checked={isChecked}
+                          onCheckedChange={() => {
+                            setIsChecked(!isChecked);
+                            if (!isChecked) {
+                              setNewTransaction({
+                                ...newTransaction,
+                                valorLiquido: newTransaction.valor,
+                              });
+                            } else {
+                              setNewTransaction({
+                                ...newTransaction,
+                                valorLiquido: newTransaction.valor,
+                              });
+                            }
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <ValueInput
+                    price={newTransaction.valor || 0}
+                    setPrice={(v) => handleChange("valor", v)}
+                  ></ValueInput>
+                  {isChecked && (
+                    <>
+                      <div className="flex flex-row items-center justify-between">
+                        <span className="text-xs text-muted-foreground">
+                          Valor líquido recebido:
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          Taxa:{" "}
+                          {newTransaction.valor && newTransaction.valorLiquido
+                            ? formatarEmReal(
+                                newTransaction.valor -
+                                  newTransaction.valorLiquido,
+                              )
+                            : 0}
+                        </span>
+                      </div>
+                      <ValueInput
+                        price={newTransaction.valorLiquido || 0}
+                        setPrice={(v) => handleChange("valorLiquido", v)}
+                      ></ValueInput>
+                    </>
+                  )}
+                </div>
+                {!canManageParcelas && (
+                  <div className="space-y-2 w-full">
+                    <Label htmlFor="data">Data</Label>
+                    <DatePickerField
+                      value={newTransaction.data}
+                      onChange={(selecionada) => {
+                        if (!selecionada) {
+                          setNewTransaction({
+                            ...newTransaction,
+                            data: undefined,
+                          });
+                          return;
+                        }
+
+                        const agora = new Date();
+
+                        if (
+                          !newTransaction.pendente &&
+                          selecionada.getTime() > agora.getTime()
+                        ) {
+                          toast.warning(
+                            "Ative o pagamento futuro para selecionar uma data futura.",
+                          );
+                          return;
+                        }
+
+                        if (
+                          newTransaction.pendente &&
+                          selecionada.getTime() < agora.getTime()
+                        ) {
+                          toast.warning(
+                            "Desative o pagamento futuro para selecionar uma data passada.",
+                          );
+                          return;
+                        }
+
+                        setNewTransaction({
+                          ...newTransaction,
+                          data: selecionada,
                         });
                       }}
                     />
+                  </div>
+                )}
+                <div className="space-y-2 w-full">
+                  <Label htmlFor="banco">Banco</Label>
+                  <Select
+                    value={newTransaction.banco_id?.toString() || ""}
+                    onValueChange={(v) => handleChange("banco_id", Number(v))}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Selecione" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {banks.map((b) => (
+                        <SelectItem key={b.id} value={b.id.toString()}>
+                          {b.titulo}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2 w-full">
+                  <Label htmlFor="categoria-topo">Categoria</Label>
+                  {osId && (
+                    <Select
+                      disabled
+                      value={newTransaction.categoria}
+                      onValueChange={(v) => handleChange("categoria", v)}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Selecione" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ORDEM DE SERVIÃ‡O">
+                          ORDEM DE SERVIÃ‡O
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {vendaId && (
+                    <Select
+                      disabled
+                      value={newTransaction.categoria}
+                      onValueChange={(v) => handleChange("categoria", v)}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Selecione" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="VENDA">VENDA</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {!osId && !vendaId && (
+                    <Select
+                      disabled={loadingCategorias || !!errorCategorias}
+                      value={newTransaction.categoria}
+                      onValueChange={(v) => handleChange("categoria", v)}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue
+                          placeholder={
+                            loadingCategorias
+                              ? "Carregando..."
+                              : errorCategorias
+                                ? "Erro ao carregar"
+                                : "Selecione"
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {categorias.map((c) => (
+                          <SelectItem
+                            className="hover:cursor-pointer"
+                            key={c.id}
+                            value={c.nome}
+                          >
+                            {c.nome}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+                <div className="space-y-2 w-full col-span-full">
+                  <Label htmlFor="descricao-topo">Descrição*</Label>
+                  <Input
+                    disabled={osId || vendaId ? true : false}
+                    id="descricao-topo"
+                    value={newTransaction.descricao || ""}
+                    onChange={(e) => handleChange("descricao", e.target.value)}
+                    placeholder="Descrição"
+                    className="w-full"
+                  />
+                </div>
+                {newTransaction.metodopagamento === Metodo_pagamento.BOLETO &&
+                  !newTransaction.pendente && (
+                    <div className="w-full sm:col-span-3 rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">
+                      Ative `Lançamento futuro` para habilitar o parcelamento do
+                      boleto.
+                    </div>
+                  )}
+                {canManageParcelas && (
+                  <div className="space-y-3 w-full sm:col-span-3 rounded-xl border bg-background/70 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium">
+                          Parcelas do boleto
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Adicione parcelas como na entrada fiscal.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="parcelas-iguais" className="text-xs">
+                          Parcelas iguais
+                        </Label>
+                        <Switch
+                          id="parcelas-iguais"
+                          checked={parcelasIguais}
+                          onCheckedChange={setParcelasIguais}
+                        />
+                      </div>
+                    </div>
 
+                    <div className="flex flex-col gap-2">
+                      {parcelasDetalhadas.map((parcela, index) => (
+                        <div
+                          key={parcela.id ?? index}
+                          className="relative flex flex-row items-center justify-between gap-4 rounded-xl bg-muted-foreground/5 px-3 py-6"
+                        >
+                          <span className="absolute left-3 top-1 text-xs text-muted-foreground">
+                            {index + 1}º parcela
+                          </span>
+                          <button
+                            type="button"
+                            className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 hover:cursor-pointer"
+                            onClick={() => {
+                              if (parcelasDetalhadas.length === 1) {
+                                toast.error(
+                                  "E necessario ao menos uma parcela",
+                                );
+                                return;
+                              }
+
+                              setParcelas((prev) => {
+                                const next = prev.filter(
+                                  (_, itemIndex) => itemIndex !== index,
+                                );
+
+                                if (!parcelasIguais) {
+                                  return next;
+                                }
+
+                                const valoresRedistribuidos =
+                                  distribuirValoresIguais(
+                                    newTransaction.valor ?? 0,
+                                    next.length,
+                                  );
+
+                                return next.map((parcela, parcelaIndex) => ({
+                                  ...parcela,
+                                  valor:
+                                    valoresRedistribuidos[parcelaIndex] ?? 0,
+                                }));
+                              });
+                            }}
+                          >
+                            <Minus className="h-3 w-3" />
+                          </button>
+                          <div className="flex flex-col gap-1">
+                            <span className="text-xs text-muted-foreground">
+                              Data vencimento:
+                            </span>
+                            <DatePickerField
+                              value={parcela.dataVencimento}
+                              onChange={(date) =>
+                                setParcelas((prev) =>
+                                  prev.map((item, itemIndex) =>
+                                    itemIndex === index
+                                      ? {
+                                          ...item,
+                                          dataVencimento: date,
+                                        }
+                                      : item,
+                                  ),
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <span className="text-xs text-muted-foreground">
+                              Valor:
+                            </span>
+                            <ValueInput
+                              price={parcela.valor}
+                              disabled={parcelasIguais}
+                              setPrice={(valor) =>
+                                setParcelas((prev) =>
+                                  prev.map((item, itemIndex) =>
+                                    itemIndex === index
+                                      ? { ...item, valor }
+                                      : item,
+                                  ),
+                                )
+                              }
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>
+                        Valor total: {formatarEmReal(newTransaction.valor || 0)}
+                      </span>
+                      <span>
+                        Soma das parcelas:{" "}
+                        {formatarEmReal(
+                          parcelasDetalhadas.reduce(
+                            (acc, parcela) => acc + (parcela.valor || 0),
+                            0,
+                          ),
+                        )}
+                      </span>
+                    </div>
+
+                    <div
+                      className="group mt-3 flex w-max flex-row items-center gap-2 hover:cursor-pointer"
+                      onClick={() =>
+                        setParcelas((prev) => {
+                          const next = [
+                            ...prev,
+                            {
+                              id: Date.now(),
+                              dataVencimento: addMonths(
+                                prev[prev.length - 1]?.dataVencimento ??
+                                  newTransaction.data ??
+                                  new Date(),
+                                1,
+                              ),
+                              valor: 0,
+                            },
+                          ];
+
+                          if (!parcelasIguais) {
+                            return next;
+                          }
+
+                          const valoresRedistribuidos = distribuirValoresIguais(
+                            newTransaction.valor ?? 0,
+                            next.length,
+                          );
+
+                          return next.map((parcela, index) => ({
+                            ...parcela,
+                            valor: valoresRedistribuidos[index] ?? 0,
+                          }));
+                        })
+                      }
+                    >
+                      <Plus className="h-4 w-4 text-green-300 group-hover:text-green-600" />
+                      <span className="text-xs text-card-foreground">
+                        Adicionar Parcela
+                      </span>
+                    </div>
+                  </div>
+                )}
+                <div className="hidden space-y-2 w-full">
+                  <Label htmlFor="categoria">Categoria</Label>
+                  {osId && (
+                    <Select
+                      disabled
+                      value={newTransaction.categoria}
+                      onValueChange={(v) => handleChange("categoria", v)}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Selecione" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ORDEM DE SERVIÇO">
+                          ORDEM DE SERVIÇO
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {vendaId && (
+                    <Select
+                      disabled
+                      value={newTransaction.categoria}
+                      onValueChange={(v) => handleChange("categoria", v)}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Selecione" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="VENDA">VENDA</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {!osId && !vendaId && (
+                    <Select
+                      disabled={loadingCategorias || !!errorCategorias}
+                      value={newTransaction.categoria}
+                      onValueChange={(v) => handleChange("categoria", v)}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue
+                          placeholder={
+                            loadingCategorias
+                              ? "Carregando..."
+                              : errorCategorias
+                                ? "Erro ao carregar"
+                                : "Selecione"
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {categorias.map((c) => (
+                          <SelectItem
+                            className="hover:cursor-pointer"
+                            key={c.id}
+                            value={c.nome}
+                          >
+                            {c.nome}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              </div>
+
+              {/* dados do cliente */}
+              <div>
+                <span className=" text-xs text-muted-foreground">
+                  Dados do pagador
+                </span>
+                <Separator />
+              </div>
+
+              <div className="flex justify-end">
+                <div className="flex w-full items-center justify-end gap-4">
+                  {canUseMesmoCliente && (
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="pago-pelo-mesmo"
+                        checked={pagoPeloMesmo}
+                        onCheckedChange={(checked) => {
+                          const next = checked === true;
+                          setPagoPeloMesmo(next);
+
+                          if (!next) {
+                            setSelectedCustomer(undefined);
+                            setNewTransaction((prev) => ({
+                              ...prev,
+                              cliente_id: null,
+                              nomepagador: "",
+                              cpfcnpjpagador: "",
+                            }));
+                          }
+                        }}
+                      />
+                      <Label
+                        htmlFor="pago-pelo-mesmo"
+                        className="cursor-pointer"
+                      >
+                        Pago pelo mesmo
+                      </Label>
+                    </div>
+                  )}
+
+                  {selectedCustomer ? (
                     <Button
                       disabled={pagoPeloMesmo}
-                      onClick={() => setIsCustomerSelectOpen(true)}
+                      onClick={() => {
+                        setNewTransaction({
+                          ...newTransaction,
+                          nomepagador: "",
+                          cpfcnpjpagador: "",
+                          cliente_id: null,
+                        });
+                        setSelectedCustomer(undefined);
+                      }}
                       className="hover:cursor-pointer"
-                      variant={"outline"}
+                      variant={"ghost"}
                       size={"sm"}
                     >
-                      Selecionar Cliente
+                      Remover Cliente
                     </Button>
-                  </>
-                )}
+                  ) : (
+                    <>
+                      <CustomerSelect
+                        open={isCustomerSelectOpen}
+                        setOpen={setIsCustomerSelectOpen}
+                        OnSelect={(c) => {
+                          setSelectedCustomer({
+                            cpfcnpj: c.cpfcnpj,
+                            nome: c.nomerazaosocial,
+                            id: c.id,
+                          });
+                        }}
+                      />
+
+                      <Button
+                        disabled={pagoPeloMesmo}
+                        onClick={() => setIsCustomerSelectOpen(true)}
+                        className="hover:cursor-pointer"
+                        variant={"outline"}
+                        size={"sm"}
+                      >
+                        Selecionar Cliente
+                      </Button>
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
-            <div className="space-y-4 grid sm:grid-cols-2 gap-4">
-              <div className="space-y-2 w-full">
-                <Label htmlFor="nomepagador">Nome do pagador*</Label>
-                <Input
-                  disabled={selectedCustomer ? true : false}
-                  id="descricao"
-                  value={newTransaction.nomepagador || ""}
-                  onChange={(e) => handleChange("nomepagador", e.target.value)}
-                  placeholder="Nome do pagador"
-                  className="w-full"
-                />
-              </div>
-              <div className="space-y-2 w-full">
-                <Label htmlFor="nomepagador">CPF/CNPJ do pagador*</Label>
-                <Input
-                  disabled={selectedCustomer ? true : false}
-                  id="cpfcnpjpagador"
-                  maxLength={14}
-                  value={
-                    formatCpfCnpj(newTransaction.cpfcnpjpagador || "") || ""
-                  }
-                  onChange={(e) =>
-                    handleChange("cpfcnpjpagador", e.target.value)
-                  }
-                  placeholder="CPF/CNPJ"
-                  className="w-full"
-                />
+              <div className="space-y-4 grid sm:grid-cols-2 gap-4">
+                <div className="space-y-2 w-full">
+                  <Label htmlFor="nomepagador">Nome do pagador*</Label>
+                  <Input
+                    disabled={selectedCustomer ? true : false}
+                    id="descricao"
+                    value={newTransaction.nomepagador || ""}
+                    onChange={(e) =>
+                      handleChange("nomepagador", e.target.value)
+                    }
+                    placeholder="Nome do pagador"
+                    className="w-full"
+                  />
+                </div>
+                <div className="space-y-2 w-full">
+                  <Label htmlFor="nomepagador">CPF/CNPJ do pagador*</Label>
+                  <Input
+                    disabled={selectedCustomer ? true : false}
+                    id="cpfcnpjpagador"
+                    maxLength={14}
+                    value={
+                      formatCpfCnpj(newTransaction.cpfcnpjpagador || "") || ""
+                    }
+                    onChange={(e) =>
+                      handleChange("cpfcnpjpagador", e.target.value)
+                    }
+                    placeholder="CPF/CNPJ"
+                    className="w-full"
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -1242,5 +1277,3 @@ export default function RegisterContent({
     </Content>
   );
 }
-
-

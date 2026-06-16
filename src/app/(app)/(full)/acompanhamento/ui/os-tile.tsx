@@ -82,7 +82,7 @@ export default function OsTile({ os, now, compact = false }: { os: QuadItem; now
   const temItens = (os.produtos?.length ?? 0) > 0 || (os.servicos?.length ?? 0) > 0;
 
   return (
-    <Card className={cx("border border-border/70 bg-card/95 gap-2", compact ? "p-3" : "p-3.5")}>
+    <Card className={cx("border border-muted bg-primary/1 hover:bg-primary/3 transition-all gap-2", compact ? "p-3" : "p-3.5")}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -130,9 +130,9 @@ export default function OsTile({ os, now, compact = false }: { os: QuadItem; now
               {lacreBadge ? (
                 <Badge
                   variant="outline"
-                  className="text-[11px] font-semibold uppercase tracking-wide border-amber-500/60 bg-amber-500/15 text-amber-200"
+                  className="text-[11px] font-semibold uppercase tracking-wide border-amber-500/60 bg-amber-500/15 text-muted-foreground"
                 >
-                  Lacre: {lacreBadge}
+                  Identificação: {lacreBadge}
                 </Badge>
               ) : null}
             </div>
@@ -179,12 +179,12 @@ export default function OsTile({ os, now, compact = false }: { os: QuadItem; now
 
       {temItens ? (
         <div className="mt-3 rounded-md border border-amber-600/20 bg-amber-600/10 p-2.5">
-          <div className="text-xs font-semibold uppercase tracking-wide text-amber-300/90">Itens do orçamento</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Itens do orçamento</div>
 
           {produtos.length ? (
             <div className="mt-2">
-              <div className="text-xs font-semibold text-amber-200/80">Produtos</div>
-              <ul className="mt-1 space-y-1 text-sm text-amber-50/90">
+              <div className="text-xs font-semibold text-muted-foreground">Produtos</div>
+              <ul className="mt-1 space-y-1 text-sm text-primary/90">
                 {produtos.map((p, i) => (
                   <li key={`p-${i}`} className="truncate">
                     • {p.quantidade ?? 1}x {p.produto?.titulo ?? "Produto"}
@@ -196,9 +196,9 @@ export default function OsTile({ os, now, compact = false }: { os: QuadItem; now
 
           {servicos.length ? (
             <div className={cx("mt-3", !produtos.length && "mt-2")}>
-              <div className="text-xs font-semibold text-amber-200/80">Serviços</div>
+              <div className="text-xs font-semibold text-muted-foreground">Serviços</div>
 
-              <ul className="mt-1 space-y-1 text-sm text-amber-50/90">
+              <ul className="mt-1 space-y-1 text-sm text-primary/90">
                 {servicos.map((s: any, i) => (
                   <li key={`s-${i}`} className="min-w-0 flex items-center gap-2">
                     <span className="min-w-0 truncate">

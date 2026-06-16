@@ -195,8 +195,8 @@ export default function FornecedorDialog({
               {fornecedorToEdit ? "Editar fornecedor" : "Novo fornecedor"}
             </DialogTitle>
           </DialogHeader>
-          <div className="h-full min-h-0 overflow-auto dark:bg-muted-foreground/5 px-6 py-10 space-y-2">
-            <div className="mt-4 space-y-4">
+          <div className="h-full min-h-0 overflow-auto dark:bg-muted-foreground/5 p-4 space-y-2">
+            <div className="mt-4 space-y-4 rounded-lg border p-4 bg-card">
               <div className="grid gap-4 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,2fr)]">
                 <div className="space-y-1.5">
                   <Label>CPF/CNPJ</Label>

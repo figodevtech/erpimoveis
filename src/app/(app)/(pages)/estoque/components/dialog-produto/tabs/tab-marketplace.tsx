@@ -24,7 +24,7 @@ export function TabMarketplace({ produto, onChange }: Props) {
     <TabsContent value="MarketPlace" className="h-full min-h-0 overflow-auto dark:bg-muted-foreground/5 px-2 py-3 md:px-6 md:py-6 space-y-6">
       
       {/* Visibilidade */}
-      <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
+      <div className="rounded-xl border bg-card p-4 space-y-4">
         <div className="flex items-center gap-2 mb-2">
           <Store className="h-4 w-4 text-muted-foreground" />
           <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
@@ -32,7 +32,7 @@ export function TabMarketplace({ produto, onChange }: Props) {
           </h3>
         </div>
 
-        <div className="flex flex-row items-center justify-between rounded-lg border bg-background/80 p-4">
+        <div className="flex flex-row items-center justify-between rounded-lg border bg-card p-4">
           <div className="space-y-0.5">
             <Label className="text-base">Exibir no Marketplace</Label>
             <p className="text-sm text-muted-foreground">
@@ -47,7 +47,7 @@ export function TabMarketplace({ produto, onChange }: Props) {
       </div>
 
       {/* Informações de Exibição */}
-      <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
+      <div className="rounded-xl border bg-card p-4 space-y-4">
         <div className="flex items-center gap-2 mb-2">
           <AlignLeft className="h-4 w-4 text-muted-foreground" />
           <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
@@ -55,7 +55,7 @@ export function TabMarketplace({ produto, onChange }: Props) {
           </h3>
         </div>
 
-        <div className="grid gap-6 p-4 rounded-lg border bg-background/80">
+        <div className="grid gap-6 p-4 rounded-lg border bg-card">
           <div className="space-y-2">
             <div className="flex justify-between items-center">
               <Label htmlFor="tituloMarketplace">Título no Marketplace *</Label>

@@ -414,6 +414,8 @@ export default function RegisterContent({
           </div>
 
           {/* Dados Principais */}
+                                          <div className="rounded-lg border bg-card p-4 gap-3 flex flex-col">
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             <div className="space-y-2">
               <Label htmlFor="cpfcnpj" className="text-sm">
@@ -773,12 +775,13 @@ export default function RegisterContent({
               </div>
             </div>
           </div>
+          </div>
 
           {/* Dados fiscais - Apenas para Pessoa Jurídica */}
           {newCustomer.tipopessoa === "JURIDICA" && (
             <>
               <Separator />
-              <div className="space-y-3 sm:space-y-4">
+                    <div className="space-y-3 sm:space-y-4 rounded-lg border bg-card p-4">
                 <div className="flex items-center gap-2">
                   <FileText className="h-3 w-3 sm:h-4 sm:w-4" />
                   <h3 className="text-base sm:text-lg font-semibold">

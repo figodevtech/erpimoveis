@@ -19,7 +19,7 @@ export function TabFiscal({ produto, onChange }: Props) {
     <TabsContent value="Fiscal" className="h-full min-h-0 overflow-auto dark:bg-muted-foreground/5 px-2 py-3 md:px-6 md:py-6 space-y-6">
 
       {/* Classificação Fiscal */}
-      <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
+      <div className="rounded-xl border p-4 space-y-4 bg-card">
         <div className="flex items-center gap-2 mb-2">
           <FileText className="h-4 w-4 text-muted-foreground" />
           <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
@@ -74,7 +74,7 @@ export function TabFiscal({ produto, onChange }: Props) {
       </div>
 
       {/* Impostos */}
-      <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
+      <div className="rounded-xl border p-4 space-y-4 bg-card">
         <div className="flex items-center gap-2 mb-2">
           <Calculator className="h-4 w-4 text-muted-foreground" />
           <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
@@ -84,7 +84,7 @@ export function TabFiscal({ produto, onChange }: Props) {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-6">
           {/* ICMS */}
-          <div className="space-y-4 p-4 rounded-lg border bg-background/80">
+          <div className="space-y-4 p-4 rounded-lg border bg-card">
             <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground border-b pb-2">ICMS</h4>
             <div className="grid grid-cols-1 gap-4">
               <div className="space-y-2">
@@ -133,7 +133,7 @@ export function TabFiscal({ produto, onChange }: Props) {
           </div>
 
           {/* PIS / COFINS */}
-          <div className="space-y-4 p-4 rounded-lg border bg-background/80">
+          <div className="space-y-4 p-4 rounded-lg border bg-card">
             <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground border-b pb-2">PIS / COFINS</h4>
 
             <div className="grid grid-cols-1 gap-4">

@@ -544,6 +544,8 @@ export default function EditContent({
             >
               <div className="h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-6 sm:px-6">
                 {/* Tipo */}
+                                                <div className="rounded-lg border bg-card p-4 gap-3 flex flex-col">
+
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
 
                   <div className="space-y-2">
@@ -1123,6 +1125,7 @@ export default function EditContent({
                         setPrice={(value: number) => handleInputChange("fipe", value)}
                       />
                       <Button
+                      className="hover:cursor-pointer"
                         variant="secondary"
                         onClick={handleBuscarFipe}
                         disabled={isOffline || disabledForm || loadingPrice || !selectedVeiculo?.ano_modelo || !selectedVeiculo?.versao}
@@ -1132,6 +1135,7 @@ export default function EditContent({
                     </div>
                   </div>
                 </div>
+              </div>
               </div>
             </TabsContent>
             <TabsContent
