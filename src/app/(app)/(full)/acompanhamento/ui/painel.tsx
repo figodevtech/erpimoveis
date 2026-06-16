@@ -462,7 +462,7 @@ export default function PainelAcompanhamento({
       {/* Conteúdo */}
       {!precisaSelecionar ? (
         modoGeral ? (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4 ">
             <BoardColumn
               title="Aguardando"
               hint={rawAguardando.some((x) => IS_ORCAMENTO(x.status)) ? "Contém itens em orçamento" : undefined}
