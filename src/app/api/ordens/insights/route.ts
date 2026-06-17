@@ -67,7 +67,15 @@ export async function GET(req: Request) {
     const dateFrom = url.searchParams.get("dateFrom"); // YYYY-MM-DD
     const dateTo = url.searchParams.get("dateTo"); // YYYY-MM-DD
 
-    // base da query
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
+    const monthKeys: string[] = [];
+    for (let i = 0; i < months; i++) {
+      const d = new Date(start.getFullYear(), start.getMonth() + i, 1);
+      monthKeys.push(ymKey(d));
+    }
+
+    // base da query filtrada pelos controles do dashboard
     let query = supabaseAdmin
       .from("ordemservico")
       .select("id, status, statusaprovacao, prioridade, dataentrada, datasaida, orcamentototal, clienteid, setorid");
@@ -82,16 +90,19 @@ export async function GET(req: Request) {
     const rows = ((data ?? []) as Row[]).filter((r) => r.dataentrada);
     const totalOrders = rows.length;
 
-    const now = new Date();
+    // Base independente do filtro da tela para os graficos mensais.
+    const monthlyStartIso = new Date(start.getFullYear(), start.getMonth(), 1).toISOString();
+    const { data: monthlyData, error: monthlyError } = await supabaseAdmin
+      .from("ordemservico")
+      .select("id, status, dataentrada, datasaida, orcamentototal")
+      .or(`dataentrada.gte.${monthlyStartIso},datasaida.gte.${monthlyStartIso}`);
+
+    if (monthlyError) throw monthlyError;
+
+    const monthlyRows = ((monthlyData ?? []) as Row[]).filter((r) => r.dataentrada || r.datasaida);
+
     const ms30 = 30 * 24 * 60 * 60 * 1000;
     const start30 = new Date(now.getTime() - ms30);
-
-    const start = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
-    const monthKeys: string[] = [];
-    for (let i = 0; i < months; i++) {
-      const d = new Date(start.getFullYear(), start.getMonth() + i, 1);
-      monthKeys.push(ymKey(d));
-    }
 
     const monthlyNew: Record<string, number> = Object.fromEntries(monthKeys.map((k) => [k, 0]));
     const monthlyCompleted: Record<string, number> = Object.fromEntries(monthKeys.map((k) => [k, 0]));
@@ -148,9 +159,6 @@ export async function GET(req: Request) {
       else ordersOpen += 1;
 
       if (ve) {
-        const key = ymKey(new Date(ve.getFullYear(), ve.getMonth(), 1));
-        if (monthlyNew[key] !== undefined) monthlyNew[key] += 1;
-
         const dk = dateKey(ve);
         if (daily7[dk] !== undefined) daily7[dk] += 1;
 
@@ -158,10 +166,6 @@ export async function GET(req: Request) {
       }
 
       if (isCompleted(r) && vs) {
-        const key2 = ymKey(new Date(vs.getFullYear(), vs.getMonth(), 1));
-        if (monthlyCompleted[key2] !== undefined) monthlyCompleted[key2] += 1;
-        if (monthlyRevenue[key2] !== undefined) monthlyRevenue[key2] += budget;
-
         const dk2 = dateKey(vs);
         if (dk2 === today) {
           ordersTodayCompleted += 1;
@@ -173,6 +177,23 @@ export async function GET(req: Request) {
           const hrs = (vs.getTime() - ve.getTime()) / MS_PER_HOUR;
           if (Number.isFinite(hrs) && hrs >= 0) durationsHours.push(hrs);
         }
+      }
+    }
+
+    for (const r of monthlyRows) {
+      const ve = r.dataentrada ? new Date(r.dataentrada) : null;
+      const vs = r.datasaida ? new Date(r.datasaida) : null;
+      const budget = toNum(r.orcamentototal);
+
+      if (ve) {
+        const key = ymKey(new Date(ve.getFullYear(), ve.getMonth(), 1));
+        if (monthlyNew[key] !== undefined) monthlyNew[key] += 1;
+      }
+
+      if (isCompleted(r) && vs) {
+        const key2 = ymKey(new Date(vs.getFullYear(), vs.getMonth(), 1));
+        if (monthlyCompleted[key2] !== undefined) monthlyCompleted[key2] += 1;
+        if (monthlyRevenue[key2] !== undefined) monthlyRevenue[key2] += budget;
       }
     }
 
