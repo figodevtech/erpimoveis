@@ -53,6 +53,7 @@ export default function DialogFluxo() {
             Selecione dados para gerar o relatório
           </DialogDescription>
         </DialogHeader>
+
         <div className="flex flex-col gap-6 bg-muted/50 p-4 rounded-2xl">
           <div className="flex flex-col gap-2">
             <Label>Tipo de Transação:</Label>
@@ -103,7 +104,7 @@ export default function DialogFluxo() {
             </Select>
           </div>
           
-          <div className="flex flex-row md:flex-row gap-6">
+          <div className="flex flex-col md:flex-row gap-6">
             <div className="flex flex-row gap-2">
               <Label>De:</Label>
               <Input

@@ -93,7 +93,7 @@ export default function DialogDespesaCategoria() {
             </Select>
           </div>
           
-          <div className="flex flex-row md:flex-row gap-6">
+          <div className="flex flex-col md:flex-row gap-6">
             <div className="flex flex-row gap-2">
               <Label>De:</Label>
               <Input
