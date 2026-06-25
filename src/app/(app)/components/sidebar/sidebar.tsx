@@ -18,6 +18,7 @@ import {
   DollarSign,
   Calculator,
   ArrowDownUp,
+  Landmark,
   Receipt,
   Store,
   Headset,
@@ -129,6 +130,12 @@ const data = {
           title: "Fluxo de Caixa",
           url: "/fluxodecaixa",
           icon: ArrowDownUp,
+          perm: PERMS.FINANCEIRO,
+        },
+        {
+          title: "Bancos",
+          url: "/bancos",
+          icon: Landmark,
           perm: PERMS.FINANCEIRO,
         },
         {
@@ -256,14 +263,17 @@ export function AppSidebar({ user, setOpen, hoverHabilitado, ...props }: AppSide
   const { data: session, status } = useSession();
 
   // Se tiver sessão, usa usuário da sessão; senão, usa o user vindo por props (do layout)
-  const effectiveUser =
-    (session?.user as any) ??
-    (user
-      ? {
-          nome: user.nome,
-          email: user.email,
-        }
-      : null);
+  const effectiveUser = React.useMemo(
+    () =>
+      (session?.user as any) ??
+      (user
+        ? {
+            nome: user.nome,
+            email: user.email,
+          }
+        : null),
+    [session?.user, user]
+  );
   const isSessionLoading = status === "loading" && !effectiveUser;
 
   const navOptions = React.useMemo(
