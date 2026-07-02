@@ -738,7 +738,7 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange }: VendaDetails
                       </TabsContent>
 
                       <TabsContent value="Entrega" className="m-0 space-y-6">
-                        {venda.canal === "ONLINE" ? (
+                        {isMarketplaceCanal(venda.canal) ? (
                           <div className="space-y-6">
                             <div className="grid gap-4 md:grid-cols-2">
                               <div className="flex items-start gap-3 rounded-lg border bg-card p-4">
@@ -1016,4 +1016,9 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange }: VendaDetails
       </Content>
     </Dialog>
   )
+}
+
+function isMarketplaceCanal(canal: unknown) {
+  const value = String(canal ?? "").toUpperCase();
+  return value === "ONLINE" || value === "MERCADO_LIVRE" || value === "SHOPEE";
 }

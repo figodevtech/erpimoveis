@@ -85,7 +85,7 @@ export function PedidoOnlineForm({
 
   const [data, setData] = useState<VendaOnlineData | null>(null);
 
-  const canEdit = useMemo(() => String(data?.canal ?? "").toUpperCase() === "ONLINE", [data?.canal]);
+  const canEdit = useMemo(() => isMarketplaceCanal(data?.canal), [data?.canal]);
   const [codigoRastreio, setCodigoRastreio] = useState("");
   const [transportadora, setTransportadora] = useState("CORREIOS");
   const [nfeChave, setNfeChave] = useState("");
@@ -103,7 +103,7 @@ export function PedidoOnlineForm({
     if (!vendaId) return;
     const res = await fetch(`/api/venda/${vendaId}`);
     const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(json?.error || "Erro ao carregar pedido online.");
+    if (!res.ok) throw new Error(json?.error || "Erro ao carregar pedido de marketplace.");
 
     const v = json?.data as VendaOnlineData;
     setData(v);
@@ -116,7 +116,7 @@ export function PedidoOnlineForm({
   const handleUploadDanfe = async (file: File) => {
     if (!vendaId) return;
     if (!canEdit) {
-      toast.error("Este pedido nao e ONLINE.");
+      toast.error("Este pedido nao e de marketplace.");
       return;
     }
 
@@ -192,7 +192,7 @@ export function PedidoOnlineForm({
   const handleSave = async () => {
     if (!vendaId) return;
     if (!canEdit) {
-      toast.error("Este pedido nao e ONLINE.");
+      toast.error("Este pedido nao e de marketplace.");
       return;
     }
     if (nfeChave.trim() && nfeChave.trim().length !== 44) {
@@ -215,7 +215,7 @@ export function PedidoOnlineForm({
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Erro ao salvar pedido.");
 
-      toast.success("Pedido online atualizado.");
+      toast.success("Pedido de marketplace atualizado.");
       await refreshVenda();
       onSaved();
       onDone();
@@ -233,7 +233,7 @@ export function PedidoOnlineForm({
       return;
     }
     if (!canEdit) {
-      if (!opts?.silent) toast.error("Este pedido nao e ONLINE.");
+      if (!opts?.silent) toast.error("Este pedido nao e de marketplace.");
       return;
     }
 
@@ -489,4 +489,9 @@ export function PedidoOnlineForm({
       </div>
     </div>
   );
+}
+
+function isMarketplaceCanal(canal: unknown) {
+  const value = String(canal ?? "").toUpperCase();
+  return value === "ONLINE" || value === "MERCADO_LIVRE" || value === "SHOPEE";
 }

@@ -337,9 +337,9 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       const canalUpper = String((vendaBase as any).canal ?? "").toUpperCase();
       const statusAtual = String((vendaBase as any).status ?? "").toUpperCase();
 
-      if (canalUpper !== "ONLINE") {
+      if (!isMarketplaceCanal(canalUpper)) {
         return NextResponse.json(
-          { error: "Campos de entrega/rastreio sao permitidos apenas para vendas ONLINE." },
+          { error: "Campos de entrega/rastreio sao permitidos apenas para vendas de marketplace." },
           { status: 400 }
         );
       }
@@ -457,6 +457,11 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       { status: 500 }
     );
   }
+}
+
+function isMarketplaceCanal(canal: unknown) {
+  const value = String(canal ?? "").toUpperCase();
+  return value === "ONLINE" || value === "MERCADO_LIVRE" || value === "SHOPEE";
 }
 
 /* ========================= DELETE /api/venda/[id] ========================= */

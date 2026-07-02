@@ -141,10 +141,24 @@ const getStatusBadge = (status: vendaStatus) => {
 
 const getCanalBadge = (canal: VendaCanal | string | null | undefined) => {
   const c = String(canal || "").toUpperCase();
+  if (c === "MERCADO_LIVRE") {
+    return (
+      <Badge variant="secondary" className="text-xs bg-yellow-500 text-slate-950">
+        MERCADO LIVRE
+      </Badge>
+    );
+  }
+  if (c === "SHOPEE") {
+    return (
+      <Badge variant="secondary" className="text-xs bg-orange-600 not-dark:text-white">
+        SHOPEE
+      </Badge>
+    );
+  }
   if (c === "ONLINE") {
     return (
       <Badge variant="secondary" className="text-xs bg-sky-600 not-dark:text-white">
-        ONLINE
+        MARKETPLACE
       </Badge>
     );
   }
@@ -157,7 +171,7 @@ const getCanalBadge = (canal: VendaCanal | string | null | undefined) => {
 
 const getEntregaBadge = (canal: VendaCanal | string | null | undefined, statusEntrega?: string | null) => {
   const c = String(canal || "").toUpperCase();
-  if (c !== "ONLINE") {
+  if (c !== "ONLINE" && c !== "MERCADO_LIVRE" && c !== "SHOPEE") {
     return <span className="text-xs text-muted-foreground">-</span>;
   }
 
@@ -224,6 +238,7 @@ export default function VendasDataTable({
   const [approveVendaId, setApproveVendaId] = useState<number | null>(null);
   const [approvalPaymentMethod, setApprovalPaymentMethod] = useState<ApprovalPaymentMethod>("NAO_INFORMAR");
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [syncingMercadoLivre, setSyncingMercadoLivre] = useState(false);
   const config = useConfig();
   const canEdit = permissionSetHas((session?.user as any)?.permissoes, PERMS.VENDAS_EDITAR);
   const canDelete = permissionSetHas((session?.user as any)?.permissoes, PERMS.VENDAS_EXCLUIR);
@@ -290,6 +305,33 @@ export default function VendasDataTable({
       }
     }
   };
+
+  const handleSyncMercadoLivre = async () => {
+    if (!canEdit) return;
+
+    setSyncingMercadoLivre(true);
+    try {
+      const response = await axios.post("/api/integracoes/mercadolivre/sync-orders", {
+        days: 15,
+        limit: 50,
+      });
+
+      const created = Number(response.data?.created ?? 0);
+      toast.success(created > 0 ? `${created} venda(s) importada(s) do Mercado Livre.` : "Nenhuma venda nova no Mercado Livre.");
+      handleGetVendas(1, pagination.limit, search, status, filters);
+      fetchStatusCounts();
+    } catch (error) {
+      if (isAxiosError(error)) {
+        toast.error("Erro ao sincronizar Mercado Livre", {
+          description: error.response?.data?.error || "Tente novamente.",
+        });
+      } else {
+        toast.error("Erro ao sincronizar Mercado Livre");
+      }
+    } finally {
+      setSyncingMercadoLivre(false);
+    }
+  };
   return (
     <Card>
       <CardHeader className="border-b-2 pb-4">
@@ -311,6 +353,22 @@ export default function VendasDataTable({
           </div>
 
           <div className="flex items-center gap-2">
+            {canEdit && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="bg-transparent hover:cursor-pointer"
+                onClick={handleSyncMercadoLivre}
+                disabled={syncingMercadoLivre}
+              >
+                {syncingMercadoLivre ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Package className="h-4 w-4" />
+                )}
+                Mercado Livre
+              </Button>
+            )}
             {hasActiveFilters && (
               <Button
                 variant="ghost"
@@ -444,7 +502,7 @@ export default function VendasDataTable({
                           Imprimir venda
                         </DropdownMenuItem>
 
-                        {canEdit && String((p as any).canal ?? "").toUpperCase() === "ONLINE" && (
+                        {canEdit && isMarketplaceCanal((p as any).canal) && (
                           <DropdownMenuItem
                             onClick={() => {
                               setOnlineVendaId(p.id);
@@ -452,7 +510,7 @@ export default function VendasDataTable({
                             }}
                           >
                             <Package className="h-4 w-4" />
-                            Pedido online
+                            Pedido marketplace
                           </DropdownMenuItem>
                         )}
 
@@ -594,4 +652,9 @@ export default function VendasDataTable({
       </AlertDialog>
     </Card>
   );
+}
+
+function isMarketplaceCanal(canal: unknown) {
+  const value = String(canal ?? "").toUpperCase();
+  return value === "ONLINE" || value === "MERCADO_LIVRE" || value === "SHOPEE";
 }

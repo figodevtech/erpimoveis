@@ -520,7 +520,7 @@ export async function POST(req: Request) {
       );
     }
 
-    if (String((vendaCanalRow as any)?.canal ?? "").toUpperCase() !== "ONLINE") {
+    if (!isMarketplaceCanal((vendaCanalRow as any)?.canal)) {
       const { error: sanitizeEntregaError } = await supabaseAdmin
         .from("venda")
         .update({
@@ -588,4 +588,9 @@ export async function POST(req: Request) {
       msg.toLowerCase().includes("ausentes");
     return NextResponse.json({ error: msg }, { status: isBadReq ? 400 : 500 });
   }
+}
+
+function isMarketplaceCanal(canal: unknown) {
+  const value = String(canal ?? "").toUpperCase();
+  return value === "ONLINE" || value === "MERCADO_LIVRE" || value === "SHOPEE";
 }

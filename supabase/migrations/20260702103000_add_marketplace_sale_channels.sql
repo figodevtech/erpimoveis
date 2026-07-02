@@ -1,0 +1,2 @@
+ALTER TYPE public.enum_canal_venda ADD VALUE IF NOT EXISTS 'MERCADO_LIVRE';
+ALTER TYPE public.enum_canal_venda ADD VALUE IF NOT EXISTS 'SHOPEE';

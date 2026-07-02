@@ -49,7 +49,7 @@ export enum vendaStatus {
   CANCELADO = "CANCELADO",
 }
 
-export type VendaCanal = "PDV" | "ONLINE";
+export type VendaCanal = "PDV" | "ONLINE" | "MERCADO_LIVRE" | "SHOPEE";
 
 export type VendaStatusEntrega = "SEPARACAO" | "ENVIO" | "ENTREGUE";
 

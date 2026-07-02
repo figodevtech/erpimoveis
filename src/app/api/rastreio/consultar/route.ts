@@ -53,8 +53,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Venda nao encontrada." }, { status: 404 });
     }
 
-    if (String((venda as any).canal ?? "").toUpperCase() !== "ONLINE") {
-      return NextResponse.json({ error: "Rastreio disponivel apenas para vendas ONLINE." }, { status: 400 });
+    if (!isMarketplaceCanal((venda as any).canal)) {
+      return NextResponse.json({ error: "Rastreio disponivel apenas para vendas de marketplace." }, { status: 400 });
     }
 
     const carrier = String(body?.transportadora ?? (venda as any).transportadora_rastreio ?? "CORREIOS").toUpperCase();
@@ -128,4 +128,9 @@ export async function POST(req: Request) {
     console.error("[rastreio/consultar] erro:", e);
     return NextResponse.json({ error: e?.message || "Erro interno." }, { status: 500 });
   }
+}
+
+function isMarketplaceCanal(canal: unknown) {
+  const value = String(canal ?? "").toUpperCase();
+  return value === "ONLINE" || value === "MERCADO_LIVRE" || value === "SHOPEE";
 }

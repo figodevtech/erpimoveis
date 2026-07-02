@@ -31,10 +31,10 @@ export function PedidoOnlineDialog({ vendaId, open, onOpenChange, onSaved }: Pro
       title={
         <span className="flex items-center gap-2">
           <Truck className="h-5 w-5 text-primary" />
-          Pedido online{headerData?.id ? ` #${headerData.id}` : ""}
+          Pedido marketplace{headerData?.id ? ` #${headerData.id}` : ""}
         </span>
       }
-      description="Rastreio, entrega e NF-e/DANFE do pedido."
+      description="Rastreio, entrega e NF-e/DANFE do pedido de marketplace."
       maxW="lg:max-w-5xl xl:max-w-6xl"
       footer={
         <>
