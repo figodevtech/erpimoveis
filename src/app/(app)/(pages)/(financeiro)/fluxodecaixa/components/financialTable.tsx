@@ -4,9 +4,27 @@ import * as React from "react";
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import {
   Calendar,
   Check,
@@ -92,14 +110,25 @@ export default function FinancialTable({
   dateFrom,
 }: FinancialTableProps) {
   const { data: session } = useSession();
-  const [selectedTransactionId, setSelectedTransactionId] = useState<number | undefined>(undefined);
+  const [selectedTransactionId, setSelectedTransactionId] = useState<
+    number | undefined
+  >(undefined);
   const [isOpen, setIsOpen] = useState(false);
   const [isAlertOpen, setIsAlertOpen] = useState(false);
   const [isAlertOpen2, setIsAlertOpen2] = useState(false);
   const [, setIsDeleting] = useState(false);
-  const canCreate = permissionSetHas((session?.user as any)?.permissoes, PERMS.FINANCEIRO_CRIAR);
-  const canEdit = permissionSetHas((session?.user as any)?.permissoes, PERMS.FINANCEIRO_EDITAR);
-  const canDelete = permissionSetHas((session?.user as any)?.permissoes, PERMS.FINANCEIRO_EXCLUIR);
+  const canCreate = permissionSetHas(
+    (session?.user as any)?.permissoes,
+    PERMS.FINANCEIRO_CRIAR,
+  );
+  const canEdit = permissionSetHas(
+    (session?.user as any)?.permissoes,
+    PERMS.FINANCEIRO_EDITAR,
+  );
+  const canDelete = permissionSetHas(
+    (session?.user as any)?.permissoes,
+    PERMS.FINANCEIRO_EXCLUIR,
+  );
 
   useEffect(() => {
     if (selectedTransactionId) setIsOpen(true);
@@ -110,7 +139,8 @@ export default function FinancialTable({
     toast(
       <div className="flex flex-row flex-nowrap items-center gap-1 ">
         {" "}
-        <span>Marcando como concluído</span> <Loader2 className="w-3 h-3 animate-spin" />
+        <span>Marcando como concluído</span>{" "}
+        <Loader2 className="w-3 h-3 animate-spin" />
       </div>,
     );
     try {
@@ -126,7 +156,15 @@ export default function FinancialTable({
         toast(error.code, { description: error.message });
       }
     } finally {
-      handleGetTransactions(pagination.page, pagination.limit, search, dateFrom, dateTo, tipo, pendenteFilter);
+      handleGetTransactions(
+        pagination.page,
+        pagination.limit,
+        search,
+        dateFrom,
+        dateTo,
+        tipo,
+        pendenteFilter,
+      );
     }
   };
 
@@ -143,7 +181,15 @@ export default function FinancialTable({
       const response = await axios.delete(`/api/transaction/${id}`, {});
       if (response.status === 204) {
         toast("Transação deletada!");
-        handleGetTransactions(pagination.page, pagination.limit, search, dateFrom, dateTo, tipo, pendenteFilter);
+        handleGetTransactions(
+          pagination.page,
+          pagination.limit,
+          search,
+          dateFrom,
+          dateTo,
+          tipo,
+          pendenteFilter,
+        );
         handleGetStatusCounter();
       } else {
         toast.warning(`Status inesperado: ${response.status}`);
@@ -163,8 +209,6 @@ export default function FinancialTable({
   // ID estável para o Select de "itens por página"
   const limitUid = React.useId();
   const limitListboxId = `${limitUid}-limit-listbox`;
-
-
 
   const title =
     viewMode === "A_RECEBER"
@@ -197,7 +241,10 @@ export default function FinancialTable({
                 className="inline-flex items-center gap-1 text-foreground/50 hover:text-foreground/70 hover:cursor-pointer"
               >
                 <span>Recarregar</span>
-                <Loader2 width={12} className={isLoading ? "animate-spin" : ""} />
+                <Loader2
+                  width={12}
+                  className={isLoading ? "animate-spin" : ""}
+                />
               </button>
             </CardDescription>
           </div>
@@ -236,21 +283,21 @@ export default function FinancialTable({
               />
 
               {canCreate ? (
-              <TransactionDialog
-                open={isOpen}
-                setOpen={setIsOpen}
-                selectedTransactionId={selectedTransactionId}
-                setSelectedTransactionId={setSelectedTransactionId}
-              >
-                <Button
-                  size="sm"
-                  className="h-9 w-full whitespace-nowrap hover:cursor-pointer sm:w-auto"
-                  onClick={() => setSelectedTransactionId(undefined)}
+                <TransactionDialog
+                  open={isOpen}
+                  setOpen={setIsOpen}
+                  selectedTransactionId={selectedTransactionId}
+                  setSelectedTransactionId={setSelectedTransactionId}
                 >
-                  <Plus className="h-4 w-4" />
-                  Transação
-                </Button>
-              </TransactionDialog>
+                  <Button
+                    size="sm"
+                    className="h-9 w-full whitespace-nowrap hover:cursor-pointer sm:w-auto"
+                    onClick={() => setSelectedTransactionId(undefined)}
+                  >
+                    <Plus className="h-4 w-4" />
+                    Transação
+                  </Button>
+                </TransactionDialog>
               ) : null}
             </div>
           </div>
@@ -259,38 +306,45 @@ export default function FinancialTable({
           <div className="inline-flex h-10 items-center justify-center rounded-md rounded-b-none bg-muted p-1 text-muted-foreground">
             <button
               type="button"
-              onClick={() => setViewMode(viewMode === "A_PAGAR" ? "TODAS" : "A_PAGAR")}
-              className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm rounded-b-none px-3 py-1.5 text-sm font-medium transition-all cursor-pointer ${viewMode === "A_PAGAR"
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "hover:bg-background/50 hover:text-foreground"
-                }`}
+              onClick={() =>
+                setViewMode(viewMode === "A_PAGAR" ? "TODAS" : "A_PAGAR")
+              }
+              className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm rounded-b-none px-3 py-1.5 text-sm font-medium transition-all cursor-pointer ${
+                viewMode === "A_PAGAR"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "hover:bg-background/50 hover:text-foreground"
+              }`}
             >
               A Pagar
             </button>
             <button
               type="button"
-              onClick={() => setViewMode(viewMode === "A_RECEBER" ? "TODAS" : "A_RECEBER")}
-              className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm rounded-b-none px-3 py-1.5 text-sm font-medium transition-all cursor-pointer ${viewMode === "A_RECEBER"
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "hover:bg-background/50 hover:text-foreground"
-                }`}
+              onClick={() =>
+                setViewMode(viewMode === "A_RECEBER" ? "TODAS" : "A_RECEBER")
+              }
+              className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm rounded-b-none px-3 py-1.5 text-sm font-medium transition-all cursor-pointer ${
+                viewMode === "A_RECEBER"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "hover:bg-background/50 hover:text-foreground"
+              }`}
             >
               A Receber
             </button>
           </div>
         </div>
-
       </CardHeader>
 
       <CardContent className="min-h-[300px] -mt-[24px] px-4 pb-4 pt-0 relative">
         {/* barra superior de loading */}
         <div
-          className={`${isLoading && "opacity-100"
-            } transition-all opacity-0 h-0.5 bg-slate-400 w-full overflow-hidden absolute left-0 right-0 top-0`}
+          className={`${
+            isLoading && "opacity-100"
+          } transition-all opacity-0 h-0.5 bg-slate-400 w-full overflow-hidden absolute left-0 right-0 top-0`}
         >
           <div
-            className={`w-1/2 bg-primary h-full absolute left-0 rounded-lg -translate-x-[100%] ${isLoading && "animate-slideIn"
-              }`}
+            className={`w-1/2 bg-primary h-full absolute left-0 rounded-lg -translate-x-[100%] ${
+              isLoading && "animate-slideIn"
+            }`}
           />
         </div>
 
@@ -321,34 +375,62 @@ export default function FinancialTable({
                   className="hover:cursor-pointer"
                 >
                   <TableCell className="flex flex-row items-center gap-2">
-                    <div className="rounded-full p-2 bg-primary/50">{getCategoryIcon(t.categoria)}</div>
+                    <div className="rounded-full p-2 bg-primary/50">
+                      {getCategoryIcon(t.categoria)}
+                    </div>
                     <div className="flex flex-col items-start">
                       {t.descricao}
-                      {t.nomepagador && <span className="text-xs text-muted-foreground">{t.nomepagador}</span>}
-                      <span className="text-xs text-muted-foreground">ID: {t.id}</span>
+                      {t.nomepagador && (
+                        <span className="text-xs text-muted-foreground">
+                          {t.nomepagador}
+                        </span>
+                      )}
+                      <span className="text-xs text-muted-foreground">
+                        ID: {t.id}
+                      </span>
                       <span className="text-xs text-muted-foreground md:hidden">
                         {t.banco?.titulo ?? "Sem banco"} - {t.metodopagamento}
                       </span>
                       <span className="text-muted-foreground text-nowrap flex-nowrap flex justify-center items-center gap-2 md:hidden">
                         <Calendar className="w-[10px] h-[10px]" />
-                        {formatDate(t.data)}
+                        {Intl.DateTimeFormat("pt-BR", {
+                          timeZone: "America/Fortaleza",
+                          dateStyle: "short",
+                        }).format(new Date(t.data))}
                       </span>
                     </div>
                   </TableCell>
 
-                  <TableCell className="hidden md:table-cell">{formatDate(t.data)}</TableCell>
-                  <TableCell className={`hidden md:table-cell ${t.pendente && "text-primary font-semibold"}`}>
+                  <TableCell className="hidden md:table-cell">
+                    {Intl.DateTimeFormat("pt-BR", {
+                      timeZone: "America/Fortaleza",
+                      dateStyle: "short",
+                    }).format(new Date(t.data))}
+                  </TableCell>
+                  <TableCell
+                    className={`hidden md:table-cell ${t.pendente && "text-primary font-semibold"}`}
+                  >
                     {t.pendente && t.tipo === Tipo_transacao.DESPESA ? (
-                      <span className=" flex flex-nowrap gap-1 items-center">A PAGAR</span>
+                      <span className=" flex flex-nowrap gap-1 items-center">
+                        A PAGAR
+                      </span>
                     ) : t.pendente && t.tipo === Tipo_transacao.RECEITA ? (
-                      <span className=" flex flex-nowrap gap-1 items-center">A RECEBER</span>
+                      <span className=" flex flex-nowrap gap-1 items-center">
+                        A RECEBER
+                      </span>
                     ) : (
                       t.tipo
                     )}
                   </TableCell>
-                  <TableCell className="hidden md:table-cell">{t.categoria}</TableCell>
-                  <TableCell className="hidden md:table-cell">{t.banco?.titulo ?? "Sem banco"}</TableCell>
-                  <TableCell className="hidden md:table-cell">{t.metodopagamento}</TableCell>
+                  <TableCell className="hidden md:table-cell">
+                    {t.categoria}
+                  </TableCell>
+                  <TableCell className="hidden md:table-cell">
+                    {t.banco?.titulo ?? "Sem banco"}
+                  </TableCell>
+                  <TableCell className="hidden md:table-cell">
+                    {t.metodopagamento}
+                  </TableCell>
 
                   <TableCell className={`text-right ${getTypeColor(t.tipo)}`}>
                     <div className="flex flex-col items-end">
@@ -356,7 +438,9 @@ export default function FinancialTable({
                       {(t.tipo === "DESPESA" || t.tipo === "SAQUE") && "- "}
                       {formatarEmReal(t.valorLiquido)}
                       {t.valorLiquido !== t.valor && (
-                        <span className="text-xs text-muted-foreground">Bruto: {formatarEmReal(t.valor)}</span>
+                        <span className="text-xs text-muted-foreground">
+                          Bruto: {formatarEmReal(t.valor)}
+                        </span>
                       )}
                     </div>
                   </TableCell>
@@ -374,7 +458,11 @@ export default function FinancialTable({
                         </Button>
                       </DropdownMenuTrigger>
 
-                      <DropdownMenuContent id={menuId} aria-labelledby={triggerId} align="center">
+                      <DropdownMenuContent
+                        id={menuId}
+                        aria-labelledby={triggerId}
+                        align="center"
+                      >
                         <DropdownMenuItem
                           onClick={() => {
                             setSelectedTransactionId(t.id);
@@ -392,7 +480,9 @@ export default function FinancialTable({
                             handleSetConcluido={(value) => handleSetPago(value)}
                             idConcluido={t.id}
                           >
-                            <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                            <DropdownMenuItem
+                              onSelect={(e) => e.preventDefault()}
+                            >
                               <Check className="mr-2 h-4 w-4" />
                               Pago
                             </DropdownMenuItem>
@@ -400,17 +490,20 @@ export default function FinancialTable({
                         )}
 
                         {canDelete ? (
-                        <DeleteAlert
-                          handleDeleteTransaction={handleDeleteTransaction}
-                          isAlertOpen={isAlertOpen}
-                          setIsAlertOpen={setIsAlertOpen}
-                          idToDelete={t.id}
-                        >
-                          <DropdownMenuItem onSelect={(e) => e.preventDefault()} variant="destructive">
-                            <Trash2Icon className="mr-2 h-4 w-4" />
-                            Excluir
-                          </DropdownMenuItem>
-                        </DeleteAlert>
+                          <DeleteAlert
+                            handleDeleteTransaction={handleDeleteTransaction}
+                            isAlertOpen={isAlertOpen}
+                            setIsAlertOpen={setIsAlertOpen}
+                            idToDelete={t.id}
+                          >
+                            <DropdownMenuItem
+                              onSelect={(e) => e.preventDefault()}
+                              variant="destructive"
+                            >
+                              <Trash2Icon className="mr-2 h-4 w-4" />
+                              Excluir
+                            </DropdownMenuItem>
+                          </DeleteAlert>
                         ) : null}
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -425,7 +518,9 @@ export default function FinancialTable({
           <div className="text-xs text-muted-foreground mr-2 flex flex-nowrap">
             <span>{pagination.limit * (pagination.page - 1) + 1}</span>
             {" - "}
-            <span>{pagination.limit * (pagination.page - 1) + transactions.length}</span>
+            <span>
+              {pagination.limit * (pagination.page - 1) + transactions.length}
+            </span>
           </div>
 
           <div className="flex items-center justify-center space-x-2">
@@ -434,7 +529,15 @@ export default function FinancialTable({
               size="icon"
               className="hover:cursor-pointer"
               onClick={() =>
-                handleGetTransactions(1, pagination.limit, search, dateFrom, dateTo, tipo, pendenteFilter)
+                handleGetTransactions(
+                  1,
+                  pagination.limit,
+                  search,
+                  dateFrom,
+                  dateTo,
+                  tipo,
+                  pendenteFilter,
+                )
               }
               disabled={pagination.page === 1}
             >
@@ -480,7 +583,10 @@ export default function FinancialTable({
                   pendenteFilter,
                 )
               }
-              disabled={pagination.page === pagination.totalPages || pagination.totalPages === 0}
+              disabled={
+                pagination.page === pagination.totalPages ||
+                pagination.totalPages === 0
+              }
             >
               <ChevronRightIcon className="h-4 w-4" />
             </Button>
@@ -500,7 +606,10 @@ export default function FinancialTable({
                   pendenteFilter,
                 )
               }
-              disabled={pagination.page === pagination.totalPages || pagination.totalPages === 0}
+              disabled={
+                pagination.page === pagination.totalPages ||
+                pagination.totalPages === 0
+              }
             >
               <ChevronsRight className="h-4 w-4" />
             </Button>
@@ -509,7 +618,10 @@ export default function FinancialTable({
           {/* Select de itens por página com IDs estáveis */}
           <div>
             <Select /* você pode controlar com value/onValueChange depois */>
-              <SelectTrigger className="hover:cursor-pointer ml-2" aria-controls={limitListboxId}>
+              <SelectTrigger
+                className="hover:cursor-pointer ml-2"
+                aria-controls={limitListboxId}
+              >
                 <SelectValue placeholder={pagination.limit} />
               </SelectTrigger>
               <SelectContent id={limitListboxId}>

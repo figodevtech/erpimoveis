@@ -17,7 +17,7 @@ export default function Kpi({ label, value, icon: Icon, className }: KpiProps) {
         <p className="text-sm text-muted-foreground">{label}</p>
         {Icon ? <Icon className="h-4 w-4 text-muted-foreground" aria-hidden="true" /> : null}
       </div>
-      <div className="mt-1 text-2xl font-semibold tracking-tight">{value}</div>
+      <div className="mt-1 md:text-2xl font-semibold tracking-tight">{value}</div>
     </div>
   );
 }
