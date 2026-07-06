@@ -141,7 +141,7 @@ function MiniStats({ items }: { items: Array<{ label: string; value: string | nu
       {items.map((item) => (
         <div key={item.label} className="rounded-lg border bg-muted/20 p-3">
           <p className="text-[11px] text-muted-foreground">{item.label}</p>
-          <p className={cn("mt-1 text-lg font-semibold", item.tone)}>{item.value}</p>
+          <p className={cn("mt-1 text-sm font-semibold", item.tone)}>{item.value}</p>
         </div>
       ))}
     </div>
