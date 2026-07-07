@@ -66,13 +66,28 @@ function marcaCompativel(nomeFipe: string, marca: string) {
   const alvo = normalizarTextoBusca(marca);
   if (!alvo) return false;
   if (fipe === alvo) return true;
-  if ((alvo === "VW" || alvo === "VOLKSWAGEN") && (fipe.includes("VW") || fipe.includes("VOLKSWAGEN"))) return true;
-  if ((alvo === "GM" || alvo === "CHEVROLET") && (fipe.includes("GM") || fipe.includes("CHEVROLET"))) return true;
-  if ((alvo === "M BENZ" || alvo === "MERCEDES BENZ") && fipe.includes("MERCEDES")) return true;
+  if (
+    (alvo === "VW" || alvo === "VOLKSWAGEN") &&
+    (fipe.includes("VW") || fipe.includes("VOLKSWAGEN"))
+  )
+    return true;
+  if (
+    (alvo === "GM" || alvo === "CHEVROLET") &&
+    (fipe.includes("GM") || fipe.includes("CHEVROLET"))
+  )
+    return true;
+  if (
+    (alvo === "M BENZ" || alvo === "MERCEDES BENZ") &&
+    fipe.includes("MERCEDES")
+  )
+    return true;
   return fipe.split(" ").includes(alvo);
 }
 
-function encontrarMarcaFipe<T extends { name: string; code: string }>(marcas: T[], marca?: string) {
+function encontrarMarcaFipe<T extends { name: string; code: string }>(
+  marcas: T[],
+  marca?: string,
+) {
   if (!marca) return undefined;
   return marcas.find((m) => marcaCompativel(m.name, marca));
 }
@@ -130,7 +145,10 @@ export default function RegisterContent({
     setAnosFipe,
   } = useFipe();
 
-  const handleInputChange = (field: keyof Veiculo, value: string | number | null) => {
+  const handleInputChange = (
+    field: keyof Veiculo,
+    value: string | number | null,
+  ) => {
     setNovoVeiculo({ ...novoVeiculo, [field]: value });
   };
 
@@ -138,7 +156,8 @@ export default function RegisterContent({
     if (!novoVeiculo.placa || novoVeiculo.placa.length < 7) return;
     if (!novoVeiculo.tipo) {
       toast.warning("Selecione o tipo de veículo", {
-        description: "É obrigatório escolher um tipo antes de consultar a placa.",
+        description:
+          "É obrigatório escolher um tipo antes de consultar a placa.",
       });
       return;
     }
@@ -146,27 +165,52 @@ export default function RegisterContent({
     setLoadingPlaca(true);
     const toastId = toast.loading("Consultando placa...");
     try {
-      const response = await axios.get(`/api/veiculos/consulta-placa/${novoVeiculo.placa}`);
+      const response = await axios.get(
+        `/api/veiculos/consulta-placa/${novoVeiculo.placa}`,
+      );
       const data = response.data;
 
       let combustivelRaw = "";
       if (typeof data.extra?.combustivel === "string") {
         combustivelRaw = data.extra.combustivel;
-      } else if (data.extra?.combustivel && typeof data.extra.combustivel === "object") {
-        combustivelRaw = data.extra.combustivel.descricao || data.extra.combustivel.nome || "";
+      } else if (
+        data.extra?.combustivel &&
+        typeof data.extra.combustivel === "object"
+      ) {
+        combustivelRaw =
+          data.extra.combustivel.descricao || data.extra.combustivel.nome || "";
       }
 
       let combustivelMapped = combustivelRaw || "";
-      if (combustivelMapped.toUpperCase().includes("FLEX") || combustivelMapped.toUpperCase().includes("ALCOOL / GASOLINA")) combustivelMapped = "FLEX";
-      else if (combustivelMapped.toUpperCase().includes("GASOLINA")) combustivelMapped = "GASOLINA";
-      else if (combustivelMapped.toUpperCase().includes("ALCOOL") || combustivelMapped.toUpperCase().includes("ETANOL")) combustivelMapped = "ETANOL";
-      else if (combustivelMapped.toUpperCase().includes("DIESEL")) combustivelMapped = "DIESEL";
-      else if (combustivelMapped.toUpperCase().includes("HIBRIDO") || combustivelMapped.toUpperCase().includes("HÍBRIDO")) combustivelMapped = "HIBRIDO";
-      else if (combustivelMapped.toUpperCase().includes("ELETRICO") || combustivelMapped.toUpperCase().includes("ELÉTRICO")) combustivelMapped = "ELETRICO";
+      if (
+        combustivelMapped.toUpperCase().includes("FLEX") ||
+        combustivelMapped.toUpperCase().includes("ALCOOL / GASOLINA")
+      )
+        combustivelMapped = "FLEX";
+      else if (combustivelMapped.toUpperCase().includes("GASOLINA"))
+        combustivelMapped = "GASOLINA";
+      else if (
+        combustivelMapped.toUpperCase().includes("ALCOOL") ||
+        combustivelMapped.toUpperCase().includes("ETANOL")
+      )
+        combustivelMapped = "ETANOL";
+      else if (combustivelMapped.toUpperCase().includes("DIESEL"))
+        combustivelMapped = "DIESEL";
+      else if (
+        combustivelMapped.toUpperCase().includes("HIBRIDO") ||
+        combustivelMapped.toUpperCase().includes("HÍBRIDO")
+      )
+        combustivelMapped = "HIBRIDO";
+      else if (
+        combustivelMapped.toUpperCase().includes("ELETRICO") ||
+        combustivelMapped.toUpperCase().includes("ELÉTRICO")
+      )
+        combustivelMapped = "ELETRICO";
 
       const rawMarca = data.MARCA || data.marca || "";
       let cleanedMarca = rawMarca.toUpperCase();
-      if (cleanedMarca.includes(" - ")) cleanedMarca = cleanedMarca.split(" - ")[1];
+      if (cleanedMarca.includes(" - "))
+        cleanedMarca = cleanedMarca.split(" - ")[1];
       if (cleanedMarca.includes("/")) cleanedMarca = cleanedMarca.split("/")[0];
       cleanedMarca = cleanedMarca.trim();
       const marcaFipe = encontrarMarcaFipe(marcasFipe, cleanedMarca);
@@ -176,8 +220,11 @@ export default function RegisterContent({
 
       const anoFabricacao = data.ano || data.extra?.ano_fabricacao || "";
       const anoModelo = data.anoModelo || data.extra?.ano_modelo || "";
-      const marcaSelecionada = marcaFipe?.name.toUpperCase() || cleanedMarca || novoVeiculo.marca;
-      const anoModeloNumero = anoModelo ? parseInt(String(anoModelo)) : novoVeiculo.ano_modelo;
+      const marcaSelecionada =
+        marcaFipe?.name.toUpperCase() || cleanedMarca || novoVeiculo.marca;
+      const anoModeloNumero = anoModelo
+        ? parseInt(String(anoModelo))
+        : novoVeiculo.ano_modelo;
 
       setNovoVeiculo({
         ...novoVeiculo,
@@ -189,11 +236,12 @@ export default function RegisterContent({
         chassi: data.extra?.chassi || data.chassi || novoVeiculo.chassi,
         cor: data.cor?.toUpperCase() || novoVeiculo.cor,
         combustivel: combustivelMapped || "",
-        fipe: undefined
+        fipe: undefined,
       });
       setModelosRaw([]);
       setAnosFipe([]);
-      const marcaParaBusca = marcaFipe || encontrarMarcaFipe(marcasFipe, marcaSelecionada);
+      const marcaParaBusca =
+        marcaFipe || encontrarMarcaFipe(marcasFipe, marcaSelecionada);
       if (novoVeiculo.tipo && marcaParaBusca) {
         await Promise.all([
           fetchModels(String(novoVeiculo.tipo), marcaParaBusca.code),
@@ -201,7 +249,10 @@ export default function RegisterContent({
         ]);
       }
 
-      toast.success("Placa consultada", { id: toastId, description: "Dados do veículo preenchidos." });
+      toast.success("Placa consultada", {
+        id: toastId,
+        description: "Dados do veículo preenchidos.",
+      });
     } catch (error: any) {
       console.error(error);
       const msg = error.response?.data?.error || "Erro ao consultar a placa.";
@@ -214,7 +265,8 @@ export default function RegisterContent({
   const handleCreateVeiculo = async () => {
     if (!novoVeiculo.tipo) {
       toast.warning("Selecione o tipo de veículo", {
-        description: "É obrigatório escolher um tipo antes de salvar o veículo.",
+        description:
+          "É obrigatório escolher um tipo antes de salvar o veículo.",
       });
       return;
     }
@@ -223,13 +275,19 @@ export default function RegisterContent({
     try {
       const response = await axios.post("/api/veiculos", { novoVeiculo });
       if (response.status === 201) {
-        toast.success("Sucesso!", { description: "Veículo cadastrado.", duration: 2000 });
+        toast.success("Sucesso!", {
+          description: "Veículo cadastrado.",
+          duration: 2000,
+        });
         if (setSelectedVeiculoId) setSelectedVeiculoId(response.data.data.id);
         onRegister?.(response.data.data);
       }
     } catch (error) {
       if (isAxiosError(error)) {
-        toast.error("Erro", { description: error.response?.data.error, duration: 2000 });
+        toast.error("Erro", {
+          description: error.response?.data.error,
+          duration: 2000,
+        });
       }
     } finally {
       setIsSubmitting(false);
@@ -262,101 +320,197 @@ export default function RegisterContent({
         fetchYearsByBrand(String(novoVeiculo.tipo), m.code);
       }
     }
-  }, [isOpen, novoVeiculo.tipo, novoVeiculo.marca, marcasFipe, fetchModels, fetchYearsByBrand]);
+  }, [
+    isOpen,
+    novoVeiculo.tipo,
+    novoVeiculo.marca,
+    marcasFipe,
+    fetchModels,
+    fetchYearsByBrand,
+  ]);
 
   const selectedYearCode = useMemo(() => {
     if (!novoVeiculo.ano_modelo || !novoVeiculo.combustivel) return undefined;
-    return anosFipe.find(a => {
+    return anosFipe.find((a) => {
       const anoMatch = a.name.match(/\d+/);
       const aAno = anoMatch ? Number(anoMatch[0]) : null;
       const aCombustivel = handleCombustivelFromAno(a.name);
-      return aAno === novoVeiculo.ano_modelo && (!novoVeiculo.combustivel || aCombustivel === novoVeiculo.combustivel);
+      return (
+        aAno === novoVeiculo.ano_modelo &&
+        (!novoVeiculo.combustivel || aCombustivel === novoVeiculo.combustivel)
+      );
     })?.code;
   }, [anosFipe, novoVeiculo.ano_modelo, novoVeiculo.combustivel]);
 
   // Flow 2: Fetch specific models when Ano is selected
   useEffect(() => {
-    if (isOpen && novoVeiculo.tipo && novoVeiculo.marca && novoVeiculo.ano_modelo && selectedYearCode) {
+    if (
+      isOpen &&
+      novoVeiculo.tipo &&
+      novoVeiculo.marca &&
+      novoVeiculo.ano_modelo &&
+      selectedYearCode
+    ) {
       const m = encontrarMarcaFipe(marcasFipe, novoVeiculo.marca);
       if (m) {
-        fetchModelsByBrandAndYear(String(novoVeiculo.tipo), m.code, selectedYearCode);
+        fetchModelsByBrandAndYear(
+          String(novoVeiculo.tipo),
+          m.code,
+          selectedYearCode,
+        );
       }
     }
-  }, [isOpen, novoVeiculo.tipo, novoVeiculo.marca, novoVeiculo.ano_modelo, selectedYearCode, marcasFipe, fetchModelsByBrandAndYear]);
+  }, [
+    isOpen,
+    novoVeiculo.tipo,
+    novoVeiculo.marca,
+    novoVeiculo.ano_modelo,
+    selectedYearCode,
+    marcasFipe,
+    fetchModelsByBrandAndYear,
+  ]);
 
-  const extractModeloBase = (name: string) => name.trim().split(" ")[0].toUpperCase();
+  const extractModeloBase = (name: string) =>
+    name.trim().split(" ")[0].toUpperCase();
 
-  const modelosOptions = useMemo(() => Array.from(
-    new Set(modelosRaw.map((m) => extractModeloBase(m.name)))
-  ).sort(), [modelosRaw]);
+  const modelosOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(modelosRaw.map((m) => extractModeloBase(m.name))),
+      ).sort(),
+    [modelosRaw],
+  );
 
-  const versoesOptions = useMemo(() => modelosRaw
-    .filter(
-      (m) =>
-        novoVeiculo.modelo &&
-        (m.name.toUpperCase().startsWith(novoVeiculo.modelo.toUpperCase() + " ") ||
-          m.name.toUpperCase() === novoVeiculo.modelo.toUpperCase())
-    )
-    .map((m) => {
-      let v = m.name.substring(novoVeiculo.modelo!.length).trim();
-      if (!v) v = "Standard";
-      return { code: m.code, name: v.toUpperCase(), originalName: m.name };
-    })
-    .sort((a, b) => a.name.localeCompare(b.name)), [modelosRaw, novoVeiculo.modelo]);
+  const versoesOptions = useMemo(
+    () =>
+      modelosRaw
+        .filter(
+          (m) =>
+            novoVeiculo.modelo &&
+            (m.name
+              .toUpperCase()
+              .startsWith(novoVeiculo.modelo.toUpperCase() + " ") ||
+              m.name.toUpperCase() === novoVeiculo.modelo.toUpperCase()),
+        )
+        .map((m) => {
+          let v = m.name.substring(novoVeiculo.modelo!.length).trim();
+          if (!v) v = "Standard";
+          return { code: m.code, name: v.toUpperCase(), originalName: m.name };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [modelosRaw, novoVeiculo.modelo],
+  );
 
   // Cleanup: Clear modelo and versao if they are no longer valid after a list update (e.g., brand or year change)
   useEffect(() => {
-    if (isOpen && novoVeiculo.modelo && !loadingModelos && modelosOptions.length > 0) {
+    if (
+      isOpen &&
+      novoVeiculo.modelo &&
+      !loadingModelos &&
+      modelosOptions.length > 0
+    ) {
       if (!modelosOptions.includes(novoVeiculo.modelo.toUpperCase())) {
-        setNovoVeiculo({ ...novoVeiculo, modelo: "", versao: "", fipe: undefined });
+        setNovoVeiculo({
+          ...novoVeiculo,
+          modelo: "",
+          versao: "",
+          fipe: undefined,
+        });
       }
     }
-  }, [isOpen, modelosOptions, loadingModelos, novoVeiculo.modelo, novoVeiculo, setNovoVeiculo]);
+  }, [
+    isOpen,
+    modelosOptions,
+    loadingModelos,
+    novoVeiculo.modelo,
+    novoVeiculo,
+    setNovoVeiculo,
+  ]);
 
   const selectedVersaoCode = useMemo(() => {
-    return versoesOptions.find((v) => v.name === novoVeiculo.versao?.toUpperCase())?.code;
+    return versoesOptions.find(
+      (v) => v.name === novoVeiculo.versao?.toUpperCase(),
+    )?.code;
   }, [versoesOptions, novoVeiculo.versao]);
 
   // Flow 1: Fetch specific years when Versao is selected
   useEffect(() => {
-    if (isOpen && novoVeiculo.tipo && novoVeiculo.marca && novoVeiculo.modelo && novoVeiculo.versao && selectedVersaoCode) {
+    if (
+      isOpen &&
+      novoVeiculo.tipo &&
+      novoVeiculo.marca &&
+      novoVeiculo.modelo &&
+      novoVeiculo.versao &&
+      selectedVersaoCode
+    ) {
       const m = encontrarMarcaFipe(marcasFipe, novoVeiculo.marca);
       if (m) {
         fetchYears(String(novoVeiculo.tipo), m.code, selectedVersaoCode);
       }
     }
-  }, [isOpen, novoVeiculo.tipo, novoVeiculo.marca, novoVeiculo.modelo, novoVeiculo.versao, marcasFipe, selectedVersaoCode, fetchYears]);
+  }, [
+    isOpen,
+    novoVeiculo.tipo,
+    novoVeiculo.marca,
+    novoVeiculo.modelo,
+    novoVeiculo.versao,
+    marcasFipe,
+    selectedVersaoCode,
+    fetchYears,
+  ]);
 
-
-
-  const isOffline = !!novoVeiculo.tipo && !loadingMarcas && marcasFipe.length === 0;
+  const isOffline =
+    !!novoVeiculo.tipo && !loadingMarcas && marcasFipe.length === 0;
 
   const handleBuscarFipe = async () => {
-    if (!novoVeiculo.ano_modelo || !novoVeiculo.tipo || !novoVeiculo.marca || !novoVeiculo.versao || !novoVeiculo.modelo) return;
+    if (
+      !novoVeiculo.ano_modelo ||
+      !novoVeiculo.tipo ||
+      !novoVeiculo.marca ||
+      !novoVeiculo.versao ||
+      !novoVeiculo.modelo
+    )
+      return;
     if (!novoVeiculo.combustivel) {
-      toast.error("Dados incompletos", { description: "Selecione o ano/combustivel FIPE correspondente." });
+      toast.error("Dados incompletos", {
+        description: "Selecione o ano/combustivel FIPE correspondente.",
+      });
       return;
     }
     const m = encontrarMarcaFipe(marcasFipe, novoVeiculo.marca);
-    const selectedVersao = versoesOptions.find((v) => v.name === novoVeiculo.versao?.toUpperCase());
+    const selectedVersao = versoesOptions.find(
+      (v) => v.name === novoVeiculo.versao?.toUpperCase(),
+    );
 
-    const y = anosFipe.find(a => {
+    const y = anosFipe.find((a) => {
       const anoMatch = a.name.match(/\d+/);
       const aAno = anoMatch ? Number(anoMatch[0]) : null;
       const aCombustivel = handleCombustivelFromAno(a.name);
-      return aAno === novoVeiculo.ano_modelo && (!novoVeiculo.combustivel || aCombustivel === novoVeiculo.combustivel);
+      return (
+        aAno === novoVeiculo.ano_modelo &&
+        (!novoVeiculo.combustivel || aCombustivel === novoVeiculo.combustivel)
+      );
     });
 
     if (m && selectedVersao && y) {
-      const data = await fetchPrice(String(novoVeiculo.tipo), m.code, selectedVersao.code, y.code);
+      const data = await fetchPrice(
+        String(novoVeiculo.tipo),
+        m.code,
+        selectedVersao.code,
+        y.code,
+      );
       if (data && data.price) {
         const num = Number(data.price.replace(/[^\d,]/g, "").replace(",", "."));
         if (!isNaN(num)) handleInputChange("fipe", num);
       } else {
-        toast.error("Erro na busca", { description: "Não foi possível resgatar o valor FIPE." });
+        toast.error("Erro na busca", {
+          description: "Não foi possível resgatar o valor FIPE.",
+        });
       }
     } else {
-      toast.error("Dados incompletos", { description: "Selecione o ano FIPE correspondente." });
+      toast.error("Dados incompletos", {
+        description: "Selecione o ano FIPE correspondente.",
+      });
     }
   };
 
@@ -366,7 +520,9 @@ export default function RegisterContent({
         <DialogHeader className="shrink-0 border-b px-4 py-3 sm:px-6">
           <DialogTitle className="text-sm sm:text-lg">
             Veículo
-            <span className="ml-1 text-xs font-light text-muted-foreground sm:text-sm">| Novo</span>
+            <span className="ml-1 text-xs font-light text-muted-foreground sm:text-sm">
+              | Novo
+            </span>
           </DialogTitle>
           <DialogDescription>
             Preencha dados para registrar um novo veículo
@@ -383,7 +539,9 @@ export default function RegisterContent({
 
         <div className="h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-6 sm:px-6">
           {/* Tipo */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
+                <div className="rounded-lg border bg-card p-4 gap-3 flex flex-col">
+                              <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
+
             <div className="space-y-2">
               <Label htmlFor="tipo" className="text-sm">
                 Tipo de Veículo *
@@ -391,7 +549,16 @@ export default function RegisterContent({
               <Select
                 value={(novoVeiculo.tipo as unknown as string) || ""}
                 onValueChange={(value: Veiculo_tipos) => {
-                  setNovoVeiculo({ ...novoVeiculo, tipo: value, marca: "", modelo: "", versao: "", ano_modelo: undefined, fipe: undefined, combustivel: "" });
+                  setNovoVeiculo({
+                    ...novoVeiculo,
+                    tipo: value,
+                    marca: "",
+                    modelo: "",
+                    versao: "",
+                    ano_modelo: undefined,
+                    fipe: undefined,
+                    combustivel: "",
+                  });
                   setModelosRaw([]);
                   setAnosFipe([]);
                 }}
@@ -425,14 +592,18 @@ export default function RegisterContent({
                     const digitado = e.target.value;
                     const semHifen = somenteAlphaNumMaiusculo(digitado).slice(
                       0,
-                      7
+                      7,
                     );
                     setNovoVeiculo({ ...novoVeiculo, placa: semHifen });
                   }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
-                      if (!loadingPlaca && novoVeiculo.placa && novoVeiculo.placa.length >= 7) {
+                      if (
+                        !loadingPlaca &&
+                        novoVeiculo.placa &&
+                        novoVeiculo.placa.length >= 7
+                      ) {
                         handleBuscarPlaca();
                       }
                     }
@@ -446,7 +617,11 @@ export default function RegisterContent({
                   type="button"
                   size="icon"
                   onClick={handleBuscarPlaca}
-                  disabled={loadingPlaca || !novoVeiculo.placa || novoVeiculo.placa.length < 7}
+                  disabled={
+                    loadingPlaca ||
+                    !novoVeiculo.placa ||
+                    novoVeiculo.placa.length < 7
+                  }
                   title="Buscar dados da Placa"
                   className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2"
                 >
@@ -455,7 +630,6 @@ export default function RegisterContent({
               </div>
             </div>
             {!clienteId && (
-
               <div className="col-span-2 space-y-2">
                 <Label htmlFor="cliente" className="text-sm">
                   Cliente proprietário
@@ -478,8 +652,6 @@ export default function RegisterContent({
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
-
-
             <div className="min-w-0 space-y-2">
               <Label htmlFor="marca" className="text-sm">
                 Marca *
@@ -496,7 +668,7 @@ export default function RegisterContent({
                       versao: "",
                       ano_modelo: undefined,
                       fipe: undefined,
-                      combustivel: ""
+                      combustivel: "",
                     });
                     setModelosRaw([]);
                     setAnosFipe([]);
@@ -552,7 +724,7 @@ export default function RegisterContent({
                                   versao: "",
                                   ano_modelo: undefined,
                                   fipe: undefined,
-                                  combustivel: ""
+                                  combustivel: "",
                                 });
                                 setModelosRaw([]);
                                 setAnosFipe([]);
@@ -565,7 +737,7 @@ export default function RegisterContent({
                                   "ml-auto",
                                   novoVeiculo.marca === m.name.toUpperCase()
                                     ? "opacity-100"
-                                    : "opacity-0"
+                                    : "opacity-0",
                                 )}
                               />
                             </CommandItem>
@@ -590,7 +762,9 @@ export default function RegisterContent({
                     role="combobox"
                     aria-expanded={open1}
                     className="h-9 w-full justify-between text-sm"
-                    disabled={loadingModelos || !novoVeiculo.tipo || !novoVeiculo.marca}
+                    disabled={
+                      loadingModelos || !novoVeiculo.tipo || !novoVeiculo.marca
+                    }
                   >
                     {loadingModelos
                       ? "Carregando..."
@@ -627,7 +801,7 @@ export default function RegisterContent({
                                 ...novoVeiculo,
                                 modelo: m.toUpperCase(),
                                 versao: "",
-                                fipe: undefined
+                                fipe: undefined,
                               });
                               setOpen1(false);
                             }}
@@ -638,7 +812,7 @@ export default function RegisterContent({
                                 "ml-auto",
                                 novoVeiculo.modelo === m.toUpperCase()
                                   ? "opacity-100"
-                                  : "opacity-0"
+                                  : "opacity-0",
                               )}
                             />
                           </CommandItem>
@@ -693,7 +867,10 @@ export default function RegisterContent({
                     onWheelCapture={(e) => e.stopPropagation()}
                   >
                     <Command>
-                      <CommandInput placeholder="Buscar versão..." className="h-9 text-base" />
+                      <CommandInput
+                        placeholder="Buscar versão..."
+                        className="h-9 text-base"
+                      />
                       <CommandList className="max-h-64 overflow-y-auto overscroll-contain">
                         <CommandEmpty>Nenhuma versão encontrada.</CommandEmpty>
                         <CommandGroup>
@@ -715,7 +892,9 @@ export default function RegisterContent({
                               <Check
                                 className={cn(
                                   "ml-auto",
-                                  novoVeiculo.versao === v.name.toUpperCase() ? "opacity-100" : "opacity-0"
+                                  novoVeiculo.versao === v.name.toUpperCase()
+                                    ? "opacity-100"
+                                    : "opacity-0",
                                 )}
                               />
                             </CommandItem>
@@ -753,21 +932,31 @@ export default function RegisterContent({
                   inputMode="numeric"
                   maxLength={4}
                   value={novoVeiculo.ano_modelo || ""}
-                  onChange={(e) => handleInputChange("ano_modelo", parseInt(e.target.value) || null)}
+                  onChange={(e) =>
+                    handleInputChange(
+                      "ano_modelo",
+                      parseInt(e.target.value) || null,
+                    )
+                  }
                   placeholder="Ex.: 2020"
                 />
               ) : (
                 <Select
-                  value={novoVeiculo.ano_modelo && novoVeiculo.combustivel ? (
-                    anosFipe.find(a => {
-                      const anoMatch = a.name.match(/\d+/);
-                      const aAno = anoMatch ? Number(anoMatch[0]) : null;
-                      const aCombustivel = handleCombustivelFromAno(a.name);
-                      return aAno === novoVeiculo.ano_modelo && aCombustivel === novoVeiculo.combustivel;
-                    })?.code || ""
-                  ) : ""}
+                  value={
+                    novoVeiculo.ano_modelo && novoVeiculo.combustivel
+                      ? anosFipe.find((a) => {
+                          const anoMatch = a.name.match(/\d+/);
+                          const aAno = anoMatch ? Number(anoMatch[0]) : null;
+                          const aCombustivel = handleCombustivelFromAno(a.name);
+                          return (
+                            aAno === novoVeiculo.ano_modelo &&
+                            aCombustivel === novoVeiculo.combustivel
+                          );
+                        })?.code || ""
+                      : ""
+                  }
                   onValueChange={(code) => {
-                    const y = anosFipe.find(a => a.code === code);
+                    const y = anosFipe.find((a) => a.code === code);
                     if (y) {
                       const anoMatch = y.name.match(/\d+/);
                       const ano = anoMatch ? Number(anoMatch[0]) : null;
@@ -776,23 +965,29 @@ export default function RegisterContent({
                         ...novoVeiculo,
                         ano_modelo: ano || undefined,
                         combustivel: combustivel || novoVeiculo.combustivel,
-                        fipe: undefined
+                        fipe: undefined,
                       });
                     }
                   }}
-                  disabled={loadingAnos || !novoVeiculo.marca || anosFipe.length === 0}
+                  disabled={
+                    loadingAnos || !novoVeiculo.marca || anosFipe.length === 0
+                  }
                 >
                   <SelectTrigger className="h-9 w-full" id="ano_modelo">
-                    <SelectValue placeholder={loadingAnos ? "Buscando..." : "Selecione"} />
+                    <SelectValue
+                      placeholder={loadingAnos ? "Buscando..." : "Selecione"}
+                    />
                   </SelectTrigger>
                   <SelectContent className="min-w-[var(--radix-select-trigger-width)]">
-                    {anosFipe.map(a => {
+                    {anosFipe.map((a) => {
                       let displayName = a.name;
                       if (displayName.includes("32000")) {
                         displayName = displayName.replace("32000", "Zero KM");
                       }
                       return (
-                        <SelectItem key={a.code} value={a.code}>{displayName}</SelectItem>
+                        <SelectItem key={a.code} value={a.code}>
+                          {displayName}
+                        </SelectItem>
                       );
                     })}
                   </SelectContent>
@@ -820,21 +1015,24 @@ export default function RegisterContent({
                 className="w-full"
                 id="chassi"
                 value={novoVeiculo.chassi || ""}
-                onChange={(e) => handleInputChange("chassi", e.target.value.toUpperCase())}
+                onChange={(e) =>
+                  handleInputChange("chassi", e.target.value.toUpperCase())
+                }
                 placeholder="Ex.: 9BW..."
               />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
-
             <div className="space-y-2">
               <Label htmlFor="combustivel" className="text-sm">
                 Combustível
               </Label>
               <Select
                 value={novoVeiculo.combustivel || ""}
-                onValueChange={(value) => handleInputChange("combustivel", value)}
+                onValueChange={(value) =>
+                  handleInputChange("combustivel", value)
+                }
               >
                 <SelectTrigger className="h-9 w-full" id="combustivel">
                   <SelectValue placeholder="Selecione" />
@@ -857,7 +1055,9 @@ export default function RegisterContent({
               </Label>
               <Select
                 value={novoVeiculo.transmissao || ""}
-                onValueChange={(value) => handleInputChange("transmissao", value)}
+                onValueChange={(value) =>
+                  handleInputChange("transmissao", value)
+                }
               >
                 <SelectTrigger className="h-9 w-full" id="transmissao">
                   <SelectValue placeholder="Selecione" />
@@ -883,13 +1083,19 @@ export default function RegisterContent({
                 <Button
                   variant="secondary"
                   onClick={handleBuscarFipe}
-                  disabled={isOffline || loadingPrice || !novoVeiculo.ano_modelo || !novoVeiculo.versao}
+                  disabled={
+                    isOffline ||
+                    loadingPrice ||
+                    !novoVeiculo.ano_modelo ||
+                    !novoVeiculo.versao
+                  }
                 >
                   {loadingPrice ? "Buscando..." : "Buscar"}
                 </Button>
               </div>
             </div>
           </div>
+        </div>
         </div>
 
         <DialogFooter className="shrink-0 border-t px-4 py-3 sm:px-6">

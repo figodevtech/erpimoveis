@@ -5,7 +5,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { DollarSign, LayoutDashboard, UsersIcon } from "lucide-react";
+import { CalendarDays, DollarSign, LayoutDashboard, UsersIcon } from "lucide-react";
 
 export default function TabsOptions() {
   const tabTheme =
@@ -52,6 +52,20 @@ export default function TabsOptions() {
           </span>
         </TooltipTrigger>
         <TooltipContent>Financeiro</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span>
+            <TabsTrigger
+              value="resumo-diario"
+              className={tabTheme}
+            >
+              <CalendarDays className="h-4 w-4" />
+            </TabsTrigger>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>Resumo Diário</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );

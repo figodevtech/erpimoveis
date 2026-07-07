@@ -29,6 +29,11 @@ type TransacaoRow = {
   data: string;
 };
 
+type TransacaoResumoRow = Pick<
+  TransacaoRow,
+  "banco_id" | "tipo" | "valor" | "valorLiquido" | "pendente" | "data"
+>;
+
 const PAGE_SIZE = 1000;
 const FORTALEZA_OFFSET = "-03:00";
 
@@ -53,27 +58,49 @@ function signedAmount(tipo: string, value: number) {
   return 0;
 }
 
+function applyDateFilters<T>(query: T, dateFrom?: string | null, dateTo?: string | null) {
+  let nextQuery = query as any;
+  if (dateFrom) nextQuery = nextQuery.gte("data", localDayStartToUtcIso(dateFrom));
+  if (dateTo) nextQuery = nextQuery.lt("data", localNextDayStartToUtcIso(dateTo));
+  return nextQuery as T;
+}
+
+function mapTransacao(transacao: TransacaoRow) {
+  const valor = toMoney(transacao.valorLiquido ?? transacao.valor);
+  return {
+    id: Number(transacao.id),
+    descricao: transacao.descricao,
+    nomepagador: transacao.nomepagador,
+    tipo: transacao.tipo,
+    categoria: transacao.categoria,
+    metodopagamento: transacao.metodopagamento,
+    valor,
+    valorAssinado: signedAmount(String(transacao.tipo), valor),
+    pendente: Boolean(transacao.pendente),
+    data: transacao.data,
+  };
+}
+
 async function fetchAllTransactions(dateFrom?: string | null, dateTo?: string | null) {
-  const rows: TransacaoRow[] = [];
+  const rows: TransacaoResumoRow[] = [];
 
   for (let from = 0; ; from += PAGE_SIZE) {
     const to = from + PAGE_SIZE - 1;
 
     let query = supabaseAdmin
       .from("transacao")
-      .select("id, banco_id, descricao, nomepagador, tipo, categoria, metodopagamento, valor, valorLiquido, pendente, data")
+      .select("banco_id, tipo, valor, valorLiquido, pendente, data")
       .not("banco_id", "is", null)
       .eq("is_deleted", false)
       .order("data", { ascending: false });
 
-    if (dateFrom) query = query.gte("data", localDayStartToUtcIso(dateFrom));
-    if (dateTo) query = query.lt("data", localNextDayStartToUtcIso(dateTo));
+    query = applyDateFilters(query, dateFrom, dateTo);
 
     const { data, error } = await query.range(from, to);
 
     if (error) throw error;
 
-    const batch = (data ?? []) as TransacaoRow[];
+    const batch = (data ?? []) as TransacaoResumoRow[];
     rows.push(...batch);
 
     if (batch.length < PAGE_SIZE) break;
@@ -82,19 +109,92 @@ async function fetchAllTransactions(dateFrom?: string | null, dateTo?: string | 
   return rows;
 }
 
+async function fetchTransactionsPage({
+  bancoId,
+  dateFrom,
+  dateTo,
+  page,
+  limit,
+}: {
+  bancoId: number | null;
+  dateFrom?: string | null;
+  dateTo?: string | null;
+  page: number;
+  limit: number;
+}) {
+  if (!bancoId) {
+    return { bancoId: null, items: [], page, limit, total: 0, totalPages: 1 };
+  }
+
+  const from = (page - 1) * limit;
+  const to = from + limit - 1;
+
+  let query = supabaseAdmin
+    .from("transacao")
+    .select("id, banco_id, descricao, nomepagador, tipo, categoria, metodopagamento, valor, valorLiquido, pendente, data", {
+      count: "exact",
+    })
+    .eq("banco_id", bancoId)
+    .eq("is_deleted", false)
+    .order("data", { ascending: false });
+
+  query = applyDateFilters(query, dateFrom, dateTo);
+
+  const { data, error, count } = await query.range(from, to);
+  if (error) throw error;
+
+  const total = count ?? 0;
+
+  return {
+    bancoId,
+    items: ((data ?? []) as TransacaoRow[]).map(mapTransacao),
+    page,
+    limit,
+    total,
+    totalPages: Math.max(1, Math.ceil(total / limit)),
+  };
+}
+
 export async function GET(req: Request) {
   try {
     await requireFinanceirosAccess();
     const { searchParams } = new URL(req.url);
     const dateFrom = searchParams.get("dateFrom");
     const dateTo = searchParams.get("dateTo");
+    const bancoIdParam = searchParams.get("bancoId");
+    const bancoId = bancoIdParam ? Number(bancoIdParam) : null;
+    const page = Math.max(Number(searchParams.get("page") ?? 1), 1);
+    const limit = Math.min(Math.max(Number(searchParams.get("limit") ?? 10), 1), 100);
+    const onlyTransactions = searchParams.get("onlyTransactions") === "true";
 
-    const [{ data: bancos, error: bancosError }, transacoes] = await Promise.all([
+    if (onlyTransactions) {
+      const transacoesPaginadas = await fetchTransactionsPage({
+        bancoId: Number.isFinite(bancoId) ? bancoId : null,
+        dateFrom,
+        dateTo,
+        page,
+        limit,
+      });
+
+      return NextResponse.json({
+        transacoes: transacoesPaginadas,
+        filters: {
+          dateFrom,
+          dateTo,
+          bancoId,
+          page,
+          limit,
+        },
+      });
+    }
+
+    const [{ data: bancos, error: bancosError }, transacoes, transacoesPaginadas] = await Promise.all([
       supabaseAdmin
         .from("bancoconta")
         .select("id, titulo, valorinicial, agencia, contanumero, tipo, proprietario, ativo")
         .order("titulo", { ascending: true }),
       fetchAllTransactions(dateFrom, dateTo),
+      fetchTransactionsPage({ bancoId: Number.isFinite(bancoId) ? bancoId : null, dateFrom, dateTo, page, limit }),
     ]);
 
     if (bancosError) throw bancosError;
@@ -108,7 +208,6 @@ export async function GET(req: Request) {
         pendenteSaida: number;
         totalTransacoes: number;
         ultimaMovimentacao: string | null;
-        transacoes: TransacaoRow[];
       }
     >();
 
@@ -125,7 +224,6 @@ export async function GET(req: Request) {
           pendenteSaida: 0,
           totalTransacoes: 0,
           ultimaMovimentacao: null,
-          transacoes: [],
         };
 
       const valor = toMoney(transacao.valorLiquido ?? transacao.valor);
@@ -134,7 +232,6 @@ export async function GET(req: Request) {
       const abs = Math.abs(signed);
 
       current.totalTransacoes += 1;
-      current.transacoes.push(transacao);
       if (!current.ultimaMovimentacao || new Date(transacao.data) > new Date(current.ultimaMovimentacao)) {
         current.ultimaMovimentacao = transacao.data;
       }
@@ -159,7 +256,6 @@ export async function GET(req: Request) {
         pendenteSaida: 0,
         totalTransacoes: 0,
         ultimaMovimentacao: null,
-        transacoes: [],
       };
       const valorInicial = toMoney(banco.valorinicial);
       const saldoAtual = valorInicial + resumo.entradas - resumo.saidas;
@@ -180,23 +276,6 @@ export async function GET(req: Request) {
         saldoAtual,
         totalTransacoes: resumo.totalTransacoes,
         ultimaMovimentacao: resumo.ultimaMovimentacao,
-        transacoes: resumo.transacoes
-          .sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime())
-          .map((transacao) => {
-            const valor = toMoney(transacao.valorLiquido ?? transacao.valor);
-            return {
-              id: Number(transacao.id),
-              descricao: transacao.descricao,
-              nomepagador: transacao.nomepagador,
-              tipo: transacao.tipo,
-              categoria: transacao.categoria,
-              metodopagamento: transacao.metodopagamento,
-              valor,
-              valorAssinado: signedAmount(String(transacao.tipo), valor),
-              pendente: Boolean(transacao.pendente),
-              data: transacao.data,
-            };
-          }),
       };
     });
 
@@ -222,9 +301,13 @@ export async function GET(req: Request) {
     return NextResponse.json({
       items,
       totals,
+      transacoes: transacoesPaginadas,
       filters: {
         dateFrom,
         dateTo,
+        bancoId,
+        page,
+        limit,
       },
     });
   } catch (error: any) {

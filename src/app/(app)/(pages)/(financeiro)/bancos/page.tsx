@@ -26,7 +26,6 @@ import { SheetFinanceiroFiltros } from "../../dashboard/components/dashboard-fin
 import {
   formatarDataCompleta,
   formatarDataYYYYMMDD,
-  obterPeriodoInicial,
 } from "../../dashboard/components/dashboard-financeiro/lib/datas";
 
 type BancoTransacao = {
@@ -58,7 +57,6 @@ type BancoResumo = {
   saldoAtual: number;
   totalTransacoes: number;
   ultimaMovimentacao: string | null;
-  transacoes: BancoTransacao[];
 };
 
 type TotaisResumo = {
@@ -77,6 +75,24 @@ const totaisVazios: TotaisResumo = {
   pendenteEntrada: 0,
   pendenteSaida: 0,
   saldoAtual: 0,
+};
+
+type TransacoesPaginadas = {
+  bancoId: number | null;
+  items: BancoTransacao[];
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+};
+
+const transacoesVazias: TransacoesPaginadas = {
+  bancoId: null,
+  items: [],
+  page: 1,
+  limit: 10,
+  total: 0,
+  totalPages: 1,
 };
 
 function ResumoCard({
@@ -105,14 +121,15 @@ function ResumoCard({
 }
 
 export default function BancosFinanceiroPage() {
-  const periodoInicial = React.useMemo(() => obterPeriodoInicial(), []);
   const [items, setItems] = React.useState<BancoResumo[]>([]);
   const [totals, setTotals] = React.useState<TotaisResumo>(totaisVazios);
   const [isLoading, setIsLoading] = React.useState(true);
+  const [isLoadingTransacoes, setIsLoadingTransacoes] = React.useState(false);
+  const [transacoesPageData, setTransacoesPageData] = React.useState<TransacoesPaginadas>(transacoesVazias);
   const [selectedBancoId, setSelectedBancoId] = React.useState<number | null>(null);
   const [filtroAberto, setFiltroAberto] = React.useState(false);
-  const [dataInicio, setDataInicio] = React.useState<Date | null>(periodoInicial.inicio);
-  const [dataFim, setDataFim] = React.useState<Date | null>(periodoInicial.fim);
+  const [dataInicio, setDataInicio] = React.useState<Date | null>(null);
+  const [dataFim, setDataFim] = React.useState<Date | null>(null);
   const [transacaoPage, setTransacaoPage] = React.useState(1);
   const [transacaoLimit, setTransacaoLimit] = React.useState(10);
 
@@ -141,26 +158,62 @@ export default function BancosFinanceiroPage() {
     }
   }, [dataFim, dataInicio]);
 
+  const carregarTransacoes = React.useCallback(async () => {
+    if (!selectedBancoId) {
+      setTransacoesPageData(transacoesVazias);
+      return;
+    }
+
+    setIsLoadingTransacoes(true);
+    try {
+      const response = await axios.get<{ transacoes: TransacoesPaginadas }>("/api/bancos/resumo", {
+        params: {
+          onlyTransactions: true,
+          bancoId: selectedBancoId,
+          page: transacaoPage,
+          limit: transacaoLimit,
+          dateFrom: dataInicio ? formatarDataYYYYMMDD(dataInicio) : undefined,
+          dateTo: dataFim ? formatarDataYYYYMMDD(dataFim) : undefined,
+        },
+      });
+
+      setTransacoesPageData(response.data.transacoes ?? transacoesVazias);
+    } catch (error: any) {
+      setTransacoesPageData(transacoesVazias);
+      toast.error("Erro ao carregar transações", {
+        description: error?.response?.data?.error ?? error?.message,
+      });
+    } finally {
+      setIsLoadingTransacoes(false);
+    }
+  }, [dataFim, dataInicio, selectedBancoId, transacaoLimit, transacaoPage]);
+
   React.useEffect(() => {
     void carregarResumo();
   }, [carregarResumo]);
 
+  React.useEffect(() => {
+    void carregarTransacoes();
+  }, [carregarTransacoes]);
+
   function tratarDataInicio(date?: Date) {
+    setTransacaoPage(1);
     if (!date) return setDataInicio(null);
     if (dataFim && date > dataFim) setDataFim(date);
     setDataInicio(date);
   }
 
   function tratarDataFim(date?: Date) {
+    setTransacaoPage(1);
     if (!date) return setDataFim(null);
     if (dataInicio && date < dataInicio) setDataInicio(date);
     setDataFim(date);
   }
 
   function limparFiltros() {
-    const { inicio, fim } = obterPeriodoInicial();
-    setDataInicio(inicio);
-    setDataFim(fim);
+    setTransacaoPage(1);
+    setDataInicio(null);
+    setDataFim(null);
   }
 
   const selectedBanco = React.useMemo(
@@ -168,20 +221,23 @@ export default function BancosFinanceiroPage() {
     [items, selectedBancoId]
   );
 
-  React.useEffect(() => {
-    setTransacaoPage(1);
-  }, [dataFim, dataInicio, selectedBancoId, transacaoLimit]);
-
   const textoPeriodo =
     dataInicio && dataFim
       ? `${formatarDataCompleta(dataInicio)} até ${formatarDataCompleta(dataFim)}`
-      : "Período não definido";
+      : dataInicio
+        ? `A partir de ${formatarDataCompleta(dataInicio)}`
+        : dataFim
+          ? `Até ${formatarDataCompleta(dataFim)}`
+          : "Todo o período";
 
-  const transacoesSelecionadas = selectedBanco?.transacoes ?? [];
-  const transacaoTotalPages = Math.max(1, Math.ceil(transacoesSelecionadas.length / transacaoLimit));
+  const transacoesSelecionadas = transacoesPageData.items;
+  const transacaoTotal = transacoesPageData.total;
+  const transacaoTotalPages = transacoesPageData.totalPages;
   const transacaoCurrentPage = Math.min(transacaoPage, transacaoTotalPages);
-  const transacaoStart = (transacaoCurrentPage - 1) * transacaoLimit;
-  const transacoesPaginadas = transacoesSelecionadas.slice(transacaoStart, transacaoStart + transacaoLimit);
+  const transacaoStart = transacaoTotal === 0 ? 0 : (transacaoCurrentPage - 1) * transacaoLimit;
+  const transacoesPaginadas = transacoesSelecionadas;
+  const isPrimeiroCarregamentoTransacoes =
+    isLoadingTransacoes && transacoesPageData.bancoId == null && transacoesSelecionadas.length === 0;
 
   return (
     <div className="space-y-4">
@@ -251,7 +307,10 @@ export default function BancosFinanceiroPage() {
                   return (
                   <TableRow
                     key={banco.id}
-                    onClick={() => setSelectedBancoId(banco.id)}
+                    onClick={() => {
+                      setTransacaoPage(1);
+                      setSelectedBancoId(banco.id);
+                    }}
                     className={cn("cursor-pointer", selecionado && "bg-muted/70")}
                     data-state={selecionado ? "selected" : undefined}
                   >
@@ -321,10 +380,18 @@ export default function BancosFinanceiroPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {transacoesSelecionadas.length === 0 ? (
+              {isPrimeiroCarregamentoTransacoes ? (
+                Array.from({ length: Math.min(transacaoLimit, 5) }).map((_, index) => (
+                  <TableRow key={index}>
+                    <TableCell colSpan={6}>
+                      <div className="h-10 animate-pulse rounded-md bg-muted" />
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : transacoesSelecionadas.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                    Selecione uma conta com movimentações.
+                    {selectedBanco ? "Nenhuma movimentação encontrada para esta conta." : "Selecione uma conta com movimentações."}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -365,12 +432,12 @@ export default function BancosFinanceiroPage() {
             </TableBody>
           </Table>
 
-          {transacoesSelecionadas.length > 0 ? (
+          {transacaoTotal > 0 ? (
             <div className="mt-4 flex items-center justify-between">
               <div className="flex flex-nowrap text-xs text-muted-foreground">
                 <span>{transacaoStart + 1}</span> -{" "}
-                <span>{Math.min(transacaoStart + transacoesPaginadas.length, transacoesSelecionadas.length)}</span>
-                <span className="ml-1 hidden sm:block">de {transacoesSelecionadas.length}</span>
+                <span>{Math.min(transacaoStart + transacoesPaginadas.length, transacaoTotal)}</span>
+                <span className="ml-1 hidden sm:block">de {transacaoTotal}</span>
               </div>
 
               <div className="flex flex-wrap items-center justify-end gap-2">
@@ -399,7 +466,7 @@ export default function BancosFinanceiroPage() {
                     className="h-8 w-8"
                     aria-label="Primeira página"
                     onClick={() => setTransacaoPage(1)}
-                    disabled={transacaoCurrentPage === 1}
+                    disabled={isLoadingTransacoes || transacaoCurrentPage === 1}
                   >
                     <ChevronsLeft className="h-4 w-4" />
                   </Button>
@@ -409,7 +476,7 @@ export default function BancosFinanceiroPage() {
                     size="icon"
                     className="h-8 w-8"
                     onClick={() => setTransacaoPage((page) => Math.max(1, page - 1))}
-                    disabled={transacaoCurrentPage === 1}
+                    disabled={isLoadingTransacoes || transacaoCurrentPage === 1}
                   >
                     <ChevronLeftIcon className="h-4 w-4" />
                   </Button>
@@ -422,7 +489,7 @@ export default function BancosFinanceiroPage() {
                     size="icon"
                     className="h-8 w-8"
                     onClick={() => setTransacaoPage((page) => Math.min(transacaoTotalPages || 1, page + 1))}
-                    disabled={transacaoCurrentPage === transacaoTotalPages || transacaoTotalPages === 0}
+                    disabled={isLoadingTransacoes || transacaoCurrentPage === transacaoTotalPages || transacaoTotalPages === 0}
                   >
                     <ChevronRightIcon className="h-4 w-4" />
                   </Button>
@@ -433,7 +500,7 @@ export default function BancosFinanceiroPage() {
                     className="h-8 w-8"
                     aria-label="Última página"
                     onClick={() => setTransacaoPage(transacaoTotalPages || 1)}
-                    disabled={transacaoCurrentPage === transacaoTotalPages || transacaoTotalPages === 0}
+                    disabled={isLoadingTransacoes || transacaoCurrentPage === transacaoTotalPages || transacaoTotalPages === 0}
                   >
                     <ChevronsRight className="h-4 w-4" />
                   </Button>

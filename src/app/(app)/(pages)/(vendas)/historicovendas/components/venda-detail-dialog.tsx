@@ -529,7 +529,7 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange }: VendaDetails
                   {venda ? `Venda #${venda.id}` : "Venda"}
                 </Title>
                 <Description>
-                  {venda ? "Detalhes completos da transacao" : error ? "Erro ao carregar dados" : "Carregando..."}
+                  {venda ? "Detalhes completos da venda" : error ? "Erro ao carregar dados" : "Carregando..."}
                 </Description>
               </Header>
 
@@ -618,9 +618,9 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange }: VendaDetails
                           </div>
                         </div>
 
-                        <div className="rounded-xl border bg-muted/20 p-4">
+                        <div className="rounded-xl border bg-card p-4">
                           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                            Informacoes do Sistema
+                            Informações do Sistema
                           </h3>
 
                           
@@ -718,11 +718,11 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange }: VendaDetails
                           </div>
                         </div>
 
-                        <div className="space-y-4">
+                        <div className="space-y-4 rounded-lg border bg-card p-4">
                           <div className="flex items-center gap-2">
                             <FileText className="h-4 w-4 text-muted-foreground" />
                             <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                              Observacoes internas
+                              Observações internas
                             </h3>
                           </div>
                           <div className="space-y-2">
@@ -782,7 +782,7 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange }: VendaDetails
                       </TabsContent>
 
                       <TabsContent value="Financeiro" className="m-0 space-y-6">
-                        <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+                        <div className="space-y-3 rounded-lg border bg-card p-4">
                           <div className="flex items-center justify-between text-sm">
                             <span className="text-muted-foreground">Subtotal</span>
                             <span className="font-medium">{formatCurrency(venda.sub_total)}</span>
@@ -828,11 +828,11 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange }: VendaDetails
                       </TabsContent>
 
                       <TabsContent value="Fiscal" className="m-0 space-y-6">
-                        <div className="space-y-4">
+                        <div className="space-y-4 rounded-lg border bg-card p-4">
                           <div className="flex items-center gap-2">
                             <FileText className="h-4 w-4 text-muted-foreground" />
                             <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                              Observacoes fiscais
+                              Observações fiscais
                             </h3>
                           </div>
                           <div className="space-y-2">
@@ -849,7 +849,7 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange }: VendaDetails
 
                       <TabsContent value="Anexos" className="m-0 space-y-6">
                         <div className="space-y-4">
-                          <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="flex flex-col gap-3 rounded-lg border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
                             <div className="space-y-1">
                               <div className="flex items-center gap-2">
                                 <Paperclip className="h-4 w-4 text-muted-foreground" />
