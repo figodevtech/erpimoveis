@@ -29,6 +29,7 @@ export async function GET(req: NextRequest) {
     const token = await exchangeMercadoLivreCode(code);
     const user = await getMercadoLivreMe(token.access_token);
     const config = getMercadoLivreConfig();
+    const existingAccount = await getExistingAccount(empresaId);
 
     const { error: upsertError } = await supabaseAdmin
       .from("mercadolivre_account")
@@ -39,7 +40,7 @@ export async function GET(req: NextRequest) {
           nickname: user.nickname ?? null,
           site_id: user.site_id ?? config.siteId,
           access_token: token.access_token,
-          refresh_token: token.refresh_token ?? null,
+          refresh_token: token.refresh_token ?? existingAccount?.refresh_token ?? null,
           token_type: token.token_type ?? null,
           scope: token.scope ?? null,
           expires_at: tokenExpiresAt(token.expires_in),
@@ -72,6 +73,17 @@ async function getDefaultEmpresaId() {
 
   if (error) throw error;
   return data?.id ?? null;
+}
+
+async function getExistingAccount(empresaId: number) {
+  const { data, error } = await supabaseAdmin
+    .from("mercadolivre_account")
+    .select("refresh_token")
+    .eq("empresa_id", empresaId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data ?? null;
 }
 
 function htmlResponse(title: string, message: string, status = 200) {

@@ -71,11 +71,9 @@ export class NFSeService {
 
     const url = `${this.apiUrl}/v2/nfse?ref=${params.referencia}`;
 
-    const agora = new Date();
     // Ajuste manual de Timezone para fuso Brasília (UTC-3)
     // Isso evita que, à noite, o envio seja visto como "dia seguinte" pela prefeitura em UTC.
-    const brDate = new Date(agora.getTime() - (3 * 60 * 60 * 1000));
-    const dataEmissao = brDate.toISOString().substring(0, 19);
+    const dataEmissao = formatDateTimeForFocus(new Date(Date.now() - 5 * 60 * 1000));
 
     const payload: any = {
       data_emissao: dataEmissao,
@@ -313,5 +311,21 @@ export class NFSeService {
       },
     };
   }
+}
+
+function formatDateTimeForFocus(date: Date) {
+  const parts = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+
+  const byType = new Map(parts.map((part) => [part.type, part.value]));
+  return `${byType.get("year")}-${byType.get("month")}-${byType.get("day")}T${byType.get("hour")}:${byType.get("minute")}:${byType.get("second")}`;
 }
 

@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Link as LinkIcon, Loader2, Paperclip, Truck } from "lucide-react";
+import { FileDown, Link as LinkIcon, Loader2, Paperclip, RefreshCcw, Truck } from "lucide-react";
 import { toast } from "sonner";
 
 type TrackingEvent = {
@@ -81,6 +81,7 @@ export function PedidoOnlineForm({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [syncingMercadoEnvios, setSyncingMercadoEnvios] = useState(false);
   const [uploadingDanfe, setUploadingDanfe] = useState(false);
 
   const [data, setData] = useState<VendaOnlineData | null>(null);
@@ -95,9 +96,9 @@ export function PedidoOnlineForm({
 
   const correiosTrackingUrl = useMemo(() => {
     const code = codigoRastreio.trim();
-    if (!code) return null;
+    if (!code || transportadora !== "CORREIOS") return null;
     return `https://rastreamento.correios.com.br/app/index.php?objeto=${encodeURIComponent(code)}`;
-  }, [codigoRastreio]);
+  }, [codigoRastreio, transportadora]);
 
   const refreshVenda = async () => {
     if (!vendaId) return;
@@ -149,6 +150,7 @@ export function PedidoOnlineForm({
   useEffect(() => {
     setSaving(false);
     setChecking(false);
+    setSyncingMercadoEnvios(false);
   }, [open, vendaId]);
 
   useEffect(() => {
@@ -228,6 +230,10 @@ export function PedidoOnlineForm({
 
   const handleCheckTracking = async (opts?: { silent?: boolean }) => {
     if (!vendaId) return;
+    if (transportadora === "MERCADO_ENVIOS") {
+      await handleSyncMercadoEnvios();
+      return;
+    }
     if (!codigoRastreio.trim()) {
       if (!opts?.silent) toast.error("Informe o codigo de rastreio.");
       return;
@@ -268,6 +274,36 @@ export function PedidoOnlineForm({
     } finally {
       setChecking(false);
     }
+  };
+
+  const handleSyncMercadoEnvios = async () => {
+    if (!vendaId) return;
+    if (!canEdit) {
+      toast.error("Este pedido nao e de marketplace.");
+      return;
+    }
+
+    setSyncingMercadoEnvios(true);
+    try {
+      const res = await fetch(`/api/integracoes/mercadolivre/shipments/venda/${vendaId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Falha ao sincronizar Mercado Envios.");
+
+      toast.success("Mercado Envios sincronizado.");
+      await refreshVenda();
+    } catch (e: any) {
+      toast.error("Não foi possível sincronizar Mercado Envios", { description: e?.message });
+    } finally {
+      setSyncingMercadoEnvios(false);
+    }
+  };
+
+  const openMercadoEnviosLabel = () => {
+    if (!vendaId) return;
+    window.open(`/api/integracoes/mercadolivre/shipments/venda/${vendaId}/label`, "_blank", "noopener,noreferrer");
   };
 
   // expor acoes para o footer do DialogShell
@@ -316,6 +352,7 @@ export function PedidoOnlineForm({
                       <SelectValue placeholder="Selecione" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="MERCADO_ENVIOS">Mercado Envios</SelectItem>
                       <SelectItem value="CORREIOS">Correios</SelectItem>
                     </SelectContent>
                   </Select>
@@ -340,6 +377,29 @@ export function PedidoOnlineForm({
                     </a>
                   )}
                 </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="bg-transparent"
+                  onClick={handleSyncMercadoEnvios}
+                  disabled={!canEdit || syncingMercadoEnvios}
+                >
+                  {syncingMercadoEnvios ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCcw className="mr-2 h-4 w-4" />}
+                  Sincronizar Mercado Envios
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="bg-transparent"
+                  onClick={openMercadoEnviosLabel}
+                  disabled={!canEdit}
+                >
+                  <FileDown className="mr-2 h-4 w-4" />
+                  Abrir etiqueta
+                </Button>
               </div>
 
               <div className="grid gap-3 md:grid-cols-2">

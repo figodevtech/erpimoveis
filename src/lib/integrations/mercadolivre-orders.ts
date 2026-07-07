@@ -7,6 +7,7 @@ import {
   type MercadoLivreOrder,
   type MercadoLivreOrderItem,
 } from "@/lib/integrations/mercadolivre";
+import { normalizeShipment, type MercadoLivreShipment } from "@/lib/integrations/mercadolivre-shipping";
 
 type MercadoLivreAccount = {
   id: number;
@@ -22,6 +23,7 @@ type ImportResult = {
   vendaId: number | null;
   created: boolean;
   skipped?: string;
+  error?: string;
 };
 
 export async function syncMercadoLivreOrders(params?: { accountId?: number; days?: number; limit?: number }) {
@@ -33,19 +35,35 @@ export async function syncMercadoLivreOrders(params?: { accountId?: number; days
     const dateFrom = new Date(Date.now() - (params?.days ?? 15) * 24 * 60 * 60 * 1000).toISOString();
     const limit = Math.min(Math.max(params?.limit ?? 50, 1), 50);
 
-    const search = await searchMercadoLivreOrders(accessToken, {
+    let search = await searchMercadoLivreOrders(accessToken, {
       sellerId: account.ml_user_id,
       limit,
       orderDateFrom: dateFrom,
     });
 
+    if (!search.results?.length) {
+      search = await searchMercadoLivreOrders(accessToken, {
+        sellerId: account.ml_user_id,
+        limit,
+      });
+    }
+
     for (const summary of search.results ?? []) {
       const orderId = Number(summary.id);
       if (!Number.isFinite(orderId)) continue;
 
-      const order = await getMercadoLivreOrder(accessToken, orderId);
-      const result = await importMercadoLivreOrder(account, order);
-      results.push(result);
+      try {
+        const order = await getMercadoLivreOrder(accessToken, orderId);
+        const result = await importMercadoLivreOrder(account, order);
+        results.push(result);
+      } catch (e: any) {
+        results.push({
+          mlOrderId: orderId,
+          vendaId: null,
+          created: false,
+          error: e?.message || "Falha ao importar pedido.",
+        });
+      }
     }
   }
 
@@ -58,11 +76,16 @@ export async function importMercadoLivreOrder(account: MercadoLivreAccount, orde
     return { mlOrderId: 0, vendaId: null, created: false, skipped: "Pedido sem id valido." };
   }
 
+  const accessToken = await ensureValidAccessToken(account);
+  const shipment = await fetchOrderShipment(accessToken, order);
   const existing = await findExistingOrder(mlOrderId);
   if (existing?.venda_id) {
-    await upsertOrderRecord(account, order, existing.venda_id);
+    await upsertOrderRecord(account, order, existing.venda_id, shipment);
+    await updateVendaOrderStatus(existing.venda_id, order);
     return { mlOrderId, vendaId: existing.venda_id, created: false, skipped: "Venda ja importada." };
   }
+
+  await upsertOrderRecord(account, order, null, shipment);
 
   const clienteId = await getOrCreateMarketplaceCustomer();
   const vendaPayload = buildVendaPayload(clienteId, order);
@@ -97,7 +120,7 @@ export async function importMercadoLivreOrder(account: MercadoLivreAccount, orde
     if (itemError) throw itemError;
   }
 
-  await upsertOrderRecord(account, order, vendaId);
+  await upsertOrderRecord(account, order, vendaId, shipment);
   return { mlOrderId, vendaId, created: true };
 }
 
@@ -149,7 +172,11 @@ async function findExistingOrder(mlOrderId: number) {
   return data as { id: number; venda_id: number | null } | null;
 }
 
-async function upsertOrderRecord(account: MercadoLivreAccount, order: MercadoLivreOrder, vendaId: number | null) {
+async function upsertOrderRecord(account: MercadoLivreAccount, order: MercadoLivreOrder, vendaId: number | null, shipment?: MercadoLivreShipment | null) {
+  const normalizedShipment = shipment ? normalizeShipment(shipment) : null;
+  const nowIso = new Date().toISOString();
+  const paymentSummary = getOrderPaymentSummary(order);
+  const tags = getOrderTags(order);
   const { error } = await supabaseAdmin.from("mercadolivre_order").upsert(
     {
       empresa_id: account.empresa_id,
@@ -157,17 +184,37 @@ async function upsertOrderRecord(account: MercadoLivreAccount, order: MercadoLiv
       venda_id: vendaId,
       ml_order_id: Number(order.id),
       status: order.status ?? null,
+      status_detail: typeof order.status_detail === "string" ? order.status_detail : null,
+      payment_status: paymentSummary.status,
+      payment_status_detail: paymentSummary.statusDetail,
+      order_tags: tags,
+      date_closed: typeof order.date_closed === "string" ? order.date_closed : null,
       date_created: order.date_created ?? null,
       total_amount: Number(order.total_amount ?? order.paid_amount ?? 0),
       currency_id: order.currency_id ?? null,
       buyer_id: order.buyer?.id ?? null,
+      ml_shipment_id: normalizedShipment?.id || toNullableNumber(order.shipping?.id),
+      shipment_status: normalizedShipment?.status ?? null,
+      shipment_substatus: normalizedShipment?.substatus ?? null,
+      shipping_mode: normalizedShipment?.mode ?? null,
+      logistic_type: normalizedShipment?.logisticType ?? null,
+      tracking_number: normalizedShipment?.trackingNumber ?? null,
+      tracking_method: normalizedShipment?.trackingMethod ?? null,
       raw_order: order,
-      updated_at: new Date().toISOString(),
+      raw_payments: paymentSummary.payments,
+      raw_shipment: shipment ?? {},
+      shipment_updated_at: shipment ? nowIso : null,
+      last_synced_at: nowIso,
+      updated_at: nowIso,
     },
     { onConflict: "ml_order_id" },
   );
 
   if (error) throw error;
+
+  if (vendaId && normalizedShipment) {
+    await updateVendaShipment(vendaId, normalizedShipment);
+  }
 }
 
 async function getOrCreateMarketplaceCustomer() {
@@ -202,14 +249,14 @@ async function getOrCreateMarketplaceCustomer() {
 
 function buildVendaPayload(clienteId: number, order: MercadoLivreOrder) {
   const total = Number(order.total_amount ?? order.paid_amount ?? calculateItemsTotal(order.order_items ?? []));
-  const status = mapOrderStatusToVendaStatus(order.status);
+  const status = mapOrderToVendaStatus(order);
   const externalId = Number(order.id);
 
   return {
     clienteid: clienteId,
     status,
     canal: "MERCADO_LIVRE",
-    status_entrega: status === "PAGO" || status === "FINALIZADA" ? "SEPARACAO" : null,
+    status_entrega: status === "FINALIZADA" ? "SEPARACAO" : null,
     valortotal: total,
     sub_total: total,
     desconto_tipo: null,
@@ -220,6 +267,63 @@ function buildVendaPayload(clienteId: number, order: MercadoLivreOrder) {
     updatedat: new Date().toISOString(),
     observacoes: `Pedido Mercado Livre #${externalId}`,
   };
+}
+
+async function fetchOrderShipment(accessToken: string, order: MercadoLivreOrder) {
+  const shipmentId = toNullableNumber(order.shipping?.id);
+  if (!shipmentId) return null;
+
+  try {
+    const response = await fetch(`https://api.mercadolibre.com/shipments/${encodeURIComponent(String(shipmentId))}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
+        "x-format-new": "true",
+      },
+      cache: "no-store",
+    });
+
+    if (!response.ok) return null;
+    return (await response.json()) as MercadoLivreShipment;
+  } catch {
+    return null;
+  }
+}
+
+async function updateVendaShipment(vendaId: number, shipment: ReturnType<typeof normalizeShipment>) {
+  const nowIso = new Date().toISOString();
+  const patch: Record<string, unknown> = {
+    transportadora_rastreio: "MERCADO_ENVIOS",
+    codigo_rastreio: shipment.trackingNumber,
+    status_rastreio: shipment.statusRastreio,
+    ultimo_evento_rastreio: shipment.lastEventTitle,
+    ultimo_evento_rastreio_em: shipment.lastUpdated,
+    eventos_rastreio: shipment.events,
+    rastreio_atualizado_em: nowIso,
+    updatedat: nowIso,
+  };
+
+  if (shipment.statusEntrega) patch.status_entrega = shipment.statusEntrega;
+  if (shipment.receiverAddress) patch.endereco_entrega_snapshot = shipment.receiverAddress;
+
+  const { error } = await supabaseAdmin.from("venda").update(patch).eq("id", vendaId);
+  if (error) throw error;
+}
+
+async function updateVendaOrderStatus(vendaId: number, order: MercadoLivreOrder) {
+  const status = mapOrderToVendaStatus(order);
+  const patch: Record<string, unknown> = {
+    status,
+    updatedat: new Date().toISOString(),
+  };
+
+  if (status === "CANCELADA") {
+    patch.status_entrega = null;
+    patch.observacoes = `Pedido Mercado Livre #${Number(order.id)} cancelado no marketplace.`;
+  }
+
+  const { error } = await supabaseAdmin.from("venda").update(patch).eq("id", vendaId);
+  if (error) throw error;
 }
 
 async function resolveProdutoId(empresaId: number, item: MercadoLivreOrderItem) {
@@ -282,15 +386,57 @@ function calculateItemsTotal(items: MercadoLivreOrderItem[]) {
   }, 0);
 }
 
-function mapOrderStatusToVendaStatus(status?: string): string {
-  const normalized = String(status ?? "").toLowerCase();
-  if (normalized === "cancelled" || normalized === "canceled") return "CANCELADA";
-  if (normalized === "paid") return "PAGO";
+function mapOrderToVendaStatus(order: MercadoLivreOrder): string {
+  const normalized = String(order.status ?? "").toLowerCase();
+  const paymentSummary = getOrderPaymentSummary(order);
+  const paymentStatus = String(paymentSummary.status ?? "").toLowerCase();
+  const paymentStatusDetail = String(paymentSummary.statusDetail ?? "").toLowerCase();
+  const tags = getOrderTags(order).map((tag) => tag.toLowerCase());
+
+  if (
+    normalized === "cancelled" ||
+    normalized === "canceled" ||
+    paymentStatus === "refunded" ||
+    paymentStatus === "charged_back" ||
+    paymentStatusDetail.includes("refund") ||
+    paymentStatusDetail.includes("chargeback") ||
+    tags.some((tag) => tag.includes("cancel") || tag.includes("refund"))
+  ) {
+    return "CANCELADA";
+  }
+
+  if (normalized === "paid") return "FINALIZADA";
   if (normalized === "confirmed" || normalized === "payment_required") return "PAGAMENTO";
   return "ABERTA";
 }
 
+function getOrderPaymentSummary(order: MercadoLivreOrder) {
+  const payments = Array.isArray(order.payments) ? order.payments : [];
+  const normalizedPayments = payments.filter((payment): payment is Record<string, unknown> => Boolean(payment && typeof payment === "object"));
+  const priority = ["refunded", "charged_back", "rejected", "cancelled", "canceled", "approved", "paid", "pending", "in_process"];
+  const selected =
+    normalizedPayments.find((payment) => priority.includes(String(payment.status ?? "").toLowerCase())) ??
+    normalizedPayments[0] ??
+    null;
+
+  return {
+    status: selected?.status ? String(selected.status) : null,
+    statusDetail: selected?.status_detail ? String(selected.status_detail) : null,
+    payments: normalizedPayments,
+  };
+}
+
+function getOrderTags(order: MercadoLivreOrder) {
+  return Array.isArray(order.tags) ? order.tags.map((tag) => String(tag)).filter(Boolean) : [];
+}
+
 function toPositiveInt(value: unknown) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.trunc(n);
+}
+
+function toNullableNumber(value: unknown) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return null;
   return Math.trunc(n);

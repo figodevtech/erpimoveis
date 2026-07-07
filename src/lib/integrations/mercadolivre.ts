@@ -92,6 +92,7 @@ export function buildMercadoLivreAuthorizationUrl(params: { empresaId?: number }
   url.searchParams.set("response_type", "code");
   url.searchParams.set("client_id", config.clientId);
   url.searchParams.set("redirect_uri", config.redirectUri);
+  url.searchParams.set("scope", "offline_access");
   url.searchParams.set("state", state);
 
   return url.toString();
@@ -170,6 +171,46 @@ export async function searchMercadoLivreOrders(
 export async function mercadoLivreApiGet<T>(accessToken: string, path: string) {
   const response = await fetch(`${ML_API_BASE_URL}${path}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Mercado Livre ${path} falhou (${response.status}): ${text}`);
+  }
+
+  return (await response.json()) as T;
+}
+
+export async function mercadoLivreApiPut<T>(accessToken: string, path: string, body: unknown) {
+  const response = await fetch(`${ML_API_BASE_URL}${path}`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Mercado Livre ${path} falhou (${response.status}): ${text}`);
+  }
+
+  return (await response.json()) as T;
+}
+
+export async function mercadoLivreApiPost<T>(accessToken: string, path: string, body: unknown) {
+  const response = await fetch(`${ML_API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(body),
     cache: "no-store",
   });
 

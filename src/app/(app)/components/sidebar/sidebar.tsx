@@ -28,6 +28,7 @@ import {
   Car,
   Wrench,
   CalendarDays,
+  ShoppingBag,
 } from "lucide-react";
 
 import { NavMain } from "./components/nav-main";
@@ -116,6 +117,12 @@ const data = {
           title: "Ponto de Venda",
           url: "/pdv",
           icon: Headset,
+          perm: PERMS.VENDAS,
+        },
+        {
+          title: "Marketplace",
+          url: "/marketplace",
+          icon: ShoppingBag,
           perm: PERMS.VENDAS,
         },
       ],
