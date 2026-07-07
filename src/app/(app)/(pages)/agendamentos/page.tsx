@@ -1749,7 +1749,7 @@ export default function AgendamentosPage() {
             <DialogDescription>Preencha os dados do atendimento agendado.</DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-5">
+          <div className="space-y-5 rounded-lg border bg-card p-4">
             {!form.id ? (
               <div className="hidden">
                 <Label>Cliente</Label>
@@ -1804,7 +1804,7 @@ export default function AgendamentosPage() {
             ) : null}
 
             {hasFormSolicitante(form) || clienteSelecionado || !form.id ? (
-              <div className="space-y-3">
+              <div className="space-y-3 ">
                 <div className="flex items-center justify-between gap-2">
                   <Label>{clienteSelecionado ? "Dados do cliente" : "Dados do solicitante"}</Label>
                   <div className="flex items-center gap-1.5">
@@ -1981,7 +1981,7 @@ export default function AgendamentosPage() {
               </div>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-3 ">
               <div className="space-y-2">
                 <Label>Data</Label>
                 <Popover>
@@ -2039,8 +2039,8 @@ export default function AgendamentosPage() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label>Descricao</Label>
+            <div className="space-y-2 ">
+              <Label>Descrição</Label>
               <Textarea value={form.descricao} onChange={(event) => setField("descricao", event.target.value)} />
             </div>
 
