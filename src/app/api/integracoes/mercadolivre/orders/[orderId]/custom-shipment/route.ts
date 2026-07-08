@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireVendasEdit } from "@/app/api/_authz/perms";
-import { mercadoLivreApiPost, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
+import { mercadoLivreApiGet, mercadoLivreApiPost, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -23,6 +23,7 @@ type MercadoLivreOrder = {
   account_id: number | null;
   venda_id: number | null;
   ml_order_id: number;
+  ml_shipment_id: number | null;
   buyer_id: number | null;
   raw_order: any;
   raw_shipment: any;
@@ -43,12 +44,17 @@ export async function POST(req: NextRequest, ctx: ParamsCtx) {
     const trackingUrl = String(body?.trackingUrl ?? "").trim();
     const deadline = String(body?.deadline ?? "").trim();
     const notifyBuyer = body?.notifyBuyer !== false;
+    const markAsShipped = body?.markAsShipped !== false;
 
     if (!carrier) {
       return NextResponse.json({ error: "Informe a transportadora." }, { status: 400 });
     }
     if (!trackingCode && !trackingUrl) {
       return NextResponse.json({ error: "Informe o código de rastreio ou o link de acompanhamento." }, { status: 400 });
+    }
+
+    if (markAsShipped && !trackingCode) {
+      return NextResponse.json({ error: "Informe o código de rastreio para marcar o pedido como enviado no Mercado Livre." }, { status: 400 });
     }
 
     const order = await getOrder(id);
@@ -66,14 +72,31 @@ export async function POST(req: NextRequest, ctx: ParamsCtx) {
     });
 
     const now = new Date().toISOString();
+    const shipmentId = await resolveShipmentId(accessToken, order);
+    let sellerNotification: any = null;
+    if (markAsShipped) {
+      sellerNotification = await markMercadoLivreShipmentAsShipped(accessToken, {
+        shipmentId,
+        carrier,
+        trackingCode,
+        trackingUrl: finalTrackingUrl,
+        date: now,
+      });
+    }
+
     const rawShipment = {
       ...(order.raw_shipment && typeof order.raw_shipment === "object" ? order.raw_shipment : {}),
+      id: shipmentId,
+      status: markAsShipped ? "shipped" : order.raw_shipment?.status,
+      substatus: markAsShipped ? null : order.raw_shipment?.substatus,
       custom: {
         carrier,
         tracking_code: trackingCode || null,
         tracking_url: finalTrackingUrl || null,
         deadline: deadline || null,
         notified_buyer_at: notifyBuyer ? now : null,
+        marketplace_status_sent_at: markAsShipped ? now : null,
+        seller_notification: sellerNotification,
       },
     };
 
@@ -82,7 +105,9 @@ export async function POST(req: NextRequest, ctx: ParamsCtx) {
       .update({
         shipping_mode: "custom",
         logistic_type: "custom",
-        shipment_status: "shipped",
+        ml_shipment_id: shipmentId,
+        shipment_status: markAsShipped ? "shipped" : "ready_to_ship",
+        shipment_substatus: null,
         tracking_number: trackingCode || null,
         tracking_method: carrier,
         raw_shipment: rawShipment,
@@ -116,7 +141,7 @@ export async function POST(req: NextRequest, ctx: ParamsCtx) {
       messageSent = true;
     }
 
-    return NextResponse.json({ ok: true, data: updatedOrder, messageSent, message });
+    return NextResponse.json({ ok: true, data: updatedOrder, messageSent, marketplaceStatusUpdated: markAsShipped, message });
   } catch (e: any) {
     console.error("POST /api/integracoes/mercadolivre/orders/[orderId]/custom-shipment", e);
     return NextResponse.json({ error: friendlyMercadoLivreError(e, "Falha ao registrar envio personalizado.") }, { status: 500 });
@@ -126,7 +151,7 @@ export async function POST(req: NextRequest, ctx: ParamsCtx) {
 async function getOrder(orderId: number) {
   const { data, error } = await supabaseAdmin
     .from("mercadolivre_order")
-    .select("id, empresa_id, account_id, venda_id, ml_order_id, buyer_id, raw_order, raw_shipment")
+    .select("id, empresa_id, account_id, venda_id, ml_order_id, ml_shipment_id, buyer_id, raw_order, raw_shipment")
     .eq("id", orderId)
     .maybeSingle();
 
@@ -145,6 +170,41 @@ async function getAccount(order: MercadoLivreOrder) {
   const { data, error } = await query.order("updated_at", { ascending: false }).limit(1).single();
   if (error) throw error;
   return data as MercadoLivreAccount;
+}
+
+async function resolveShipmentId(accessToken: string, order: MercadoLivreOrder) {
+  const existingId = Number(order.ml_shipment_id ?? order.raw_shipment?.id ?? order.raw_order?.shipping?.id ?? 0);
+  if (Number.isFinite(existingId) && existingId > 0) return existingId;
+
+  const response = await mercadoLivreApiGet<any>(accessToken, `/orders/${encodeURIComponent(String(order.ml_order_id))}/shipments`);
+  const shipmentId = Number(response?.id ?? response?.shipment?.id ?? response?.results?.[0]?.id ?? 0);
+  if (!Number.isFinite(shipmentId) || shipmentId <= 0) {
+    throw new Error("Pedido sem shipment_id no Mercado Livre. Sincronize o pedido antes de marcar como enviado.");
+  }
+  return shipmentId;
+}
+
+async function markMercadoLivreShipmentAsShipped(
+  accessToken: string,
+  params: {
+    shipmentId: number;
+    carrier: string;
+    trackingCode: string;
+    trackingUrl: string;
+    date: string;
+  },
+) {
+  return mercadoLivreApiPost<any>(accessToken, `/shipments/${encodeURIComponent(String(params.shipmentId))}/seller_notifications`, {
+    payload: {
+      service_id: 11,
+      comment: `Enviado por ${formatCarrierLabel(params.carrier)}`,
+      date: params.date,
+    },
+    tracking_number: params.trackingCode || undefined,
+    tracking_url: params.trackingUrl || undefined,
+    status: "shipped",
+    substatus: null,
+  });
 }
 
 async function ensureValidAccessToken(account: MercadoLivreAccount) {
@@ -196,6 +256,19 @@ function buildTrackingUrl(carrier: string, trackingCode: string) {
     return `https://rastreamento.correios.com.br/app/index.php?objeto=${encodeURIComponent(trackingCode)}`;
   }
   return "";
+}
+
+function formatCarrierLabel(carrier: string) {
+  const labels: Record<string, string> = {
+    CORREIOS: "Correios",
+    JADLOG: "Jadlog",
+    LOGGI: "Loggi",
+    AZUL_CARGO: "Azul Cargo",
+    GRUPO_SBF: "Grupo SBF",
+    TRANSPORTADORA: "transportadora",
+    RETIRADA: "retirada",
+  };
+  return labels[carrier] || carrier;
 }
 
 function buildTrackingMessage(params: {

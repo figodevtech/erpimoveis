@@ -193,16 +193,14 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
             <TabMarketplace produto={selectedProduct} onChange={handleChange} />
 
             <TabImagensEdit
-              previews={imagensHook.novasPreview}
               carregando={imagensHook.carregandoImagens}
               subindo={imagensHook.subindoImagens}
+              removendoImagemId={imagensHook.removendoImagemId}
               imagens={imagensHook.imagens}
               imgUrlPrincipal={(selectedProduct as any).imgUrl ?? null}
               onPick={imagensHook.onPick}
-              onEnviar={imagensHook.enviarImagens}
               onDefinirPrincipal={imagensHook.definirImagemPrincipal}
               onRemover={imagensHook.removerImagem}
-              hasSelection={imagensHook.hasSelection}
             />
 
             <TabFiscal produto={selectedProduct} onChange={handleChange} />
