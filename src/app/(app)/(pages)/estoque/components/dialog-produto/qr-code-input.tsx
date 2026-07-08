@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import jsQR from "jsqr";
 import { Camera, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -25,6 +26,7 @@ export function QrCodeInput({ id, label, value, placeholder, onChange }: Props) 
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number | null>(null);
 
@@ -36,17 +38,17 @@ export function QrCodeInput({ id, label, value, placeholder, onChange }: Props) 
     async function startCamera() {
       setError(null);
 
-      const BarcodeDetectorCtor = (window as any).BarcodeDetector;
-      if (!BarcodeDetectorCtor) {
-        setError("Leitura por câmera não suportada neste navegador. Digite o código manualmente.");
-        return;
-      }
-
       try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          setError("Camera nao disponivel neste navegador. Digite o codigo manualmente.");
+          return;
+        }
+
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: { ideal: "environment" } },
           audio: false,
         });
+
         if (!active) {
           stream.getTracks().forEach((track) => track.stop());
           return;
@@ -58,21 +60,51 @@ export function QrCodeInput({ id, label, value, placeholder, onChange }: Props) 
           await videoRef.current.play();
         }
 
-        const detector = new BarcodeDetectorCtor({ formats: ["qr_code"] });
+        const BarcodeDetectorCtor = (window as any).BarcodeDetector;
+        const detector = BarcodeDetectorCtor
+          ? new BarcodeDetectorCtor({ formats: ["qr_code"] })
+          : null;
 
         const scan = async () => {
           if (!active || !videoRef.current) return;
 
-          try {
-            const codes = await detector.detect(videoRef.current);
-            const rawValue = codes?.[0]?.rawValue;
-            if (rawValue) {
-              onChange(normalizeQrValue(String(rawValue)));
-              setOpen(false);
-              return;
+          let rawValue: string | undefined;
+
+          if (detector) {
+            try {
+              const codes = await detector.detect(videoRef.current);
+              rawValue = codes?.[0]?.rawValue ? String(codes[0].rawValue) : undefined;
+            } catch {
+              rawValue = undefined;
             }
-          } catch {
-            // Mantem a câmera aberta e tenta novamente no próximo frame.
+          }
+
+          if (!rawValue) {
+            const video = videoRef.current;
+            const canvas = canvasRef.current;
+            const width = video.videoWidth;
+            const height = video.videoHeight;
+
+            if (canvas && width > 0 && height > 0) {
+              canvas.width = width;
+              canvas.height = height;
+              const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+              if (ctx) {
+                ctx.drawImage(video, 0, 0, width, height);
+                const imageData = ctx.getImageData(0, 0, width, height);
+                const result = jsQR(imageData.data, width, height, {
+                  inversionAttempts: "dontInvert",
+                });
+                rawValue = result?.data;
+              }
+            }
+          }
+
+          if (rawValue) {
+            onChange(normalizeQrValue(rawValue));
+            setOpen(false);
+            return;
           }
 
           rafRef.current = window.requestAnimationFrame(scan);
@@ -80,7 +112,7 @@ export function QrCodeInput({ id, label, value, placeholder, onChange }: Props) 
 
         rafRef.current = window.requestAnimationFrame(scan);
       } catch {
-        setError("Não foi possível acessar a câmera. Verifique as permissões do navegador.");
+        setError("Nao foi possivel acessar a camera. Verifique as permissoes do navegador.");
       }
     }
 
@@ -115,17 +147,21 @@ export function QrCodeInput({ id, label, value, placeholder, onChange }: Props) 
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Ler QR Code</DialogTitle>
-            <DialogDescription>Aponte a câmera para a etiqueta.</DialogDescription>
+            <DialogDescription>Aponte a camera para a etiqueta.</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3">
             <div className="overflow-hidden rounded-lg border bg-muted">
               <video ref={videoRef} className="aspect-square w-full object-cover" muted playsInline />
+              <canvas ref={canvasRef} className="hidden" />
             </div>
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
+            <p className="text-xs text-muted-foreground">
+              Se a camera nao abrir, confira as permissoes do navegador ou digite o codigo manualmente.
+            </p>
             <Button type="button" variant="outline" className="w-full gap-2" onClick={() => setOpen(false)}>
               <X className="h-4 w-4" />
-              Fechar câmera
+              Fechar camera
             </Button>
           </div>
         </DialogContent>
