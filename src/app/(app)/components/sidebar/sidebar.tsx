@@ -96,6 +96,12 @@ const data = {
       perm: PERMS.VEICULOS,
     },
     {
+      title: "Desmanche",
+      url: "/desmanche",
+      icon: Car,
+      perm: PERMS.DESMANCHE,
+    },
+    {
       title: "Estoque",
       url: "/estoque",
       icon: Package,
