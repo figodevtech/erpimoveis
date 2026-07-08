@@ -120,6 +120,8 @@ export interface Produto {
   cst_cofins?: string;
   aliquota_cofins?: number;
   codigobarras?: string;
+  etiqueta?: string;
+  local?: string;
   createdat?: Date; // timestamp no banco, pode ser null
   updatedat?: Date; // timestamp no banco, pode ser null
   referencia?: string;

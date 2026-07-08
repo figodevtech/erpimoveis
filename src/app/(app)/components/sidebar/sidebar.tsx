@@ -7,6 +7,7 @@ import {
   NotepadText,
   Tv,
   Package,
+  Tags,
   Settings2,
   ClipboardList,
   Users,
@@ -29,6 +30,8 @@ import {
   Wrench,
   CalendarDays,
   ShoppingBag,
+  MapPinned,
+  ScanLine,
 } from "lucide-react";
 
 import { NavMain } from "./components/nav-main";
@@ -97,9 +100,35 @@ const data = {
     },
     {
       title: "Estoque",
-      url: "/estoque",
+      url: "#",
       icon: Package,
-      perm: PERMS.ESTOQUE,
+      isActive: true,
+      items: [
+        {
+          title: "Produtos",
+          url: "/estoque",
+          icon: Package,
+          perm: PERMS.ESTOQUE,
+        },
+        {
+          title: "Etiquetas",
+          url: "/estoque/etiquetas",
+          icon: Tags,
+          perm: PERMS.ESTOQUE,
+        },
+        {
+          title: "Movimentação",
+          url: "/estoque/movimentacao",
+          icon: MapPinned,
+          perm: PERMS.ESTOQUE,
+        },
+        {
+          title: "Registrar Etiqueta",
+          url: "/estoque/registrar-etiqueta",
+          icon: ScanLine,
+          perm: PERMS.ESTOQUE,
+        },
+      ],
     },
     {
       title: "Vendas",

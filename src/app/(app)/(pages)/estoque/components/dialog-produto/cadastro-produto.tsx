@@ -1,7 +1,7 @@
 "use client";
 
 import { TabsTrigger } from "@/components/ui/tabs";
-import { Package, FileText, Boxes, Image as ImageIcon } from "lucide-react";
+import { Package, FileText, Boxes, Image as ImageIcon, Tag } from "lucide-react";
 import axios, { isAxiosError } from "axios";
 import { toast } from "sonner";
 import { Estoque_status, Produto } from "../../types";
@@ -10,6 +10,7 @@ import { TabGeral } from "./tabs/tab-geral";
 import { TabFiscal } from "./tabs/tab-fiscal";
 import { TabEstoque } from "./tabs/tab-estoque";
 import { TabImagensCreate } from "./tabs/tab-imagens-create";
+import { TabEtiquetas } from "./tabs/tab-etiquetas";
 import { useUnidadesMedida } from "./hooks/use-unidades-medida";
 import { useEffect, useRef, useState } from "react";
 import { Unidade_medida } from "../../types";
@@ -216,6 +217,12 @@ export default function CadastroProduto({
                 Imagens
               </span>
             </TabsTrigger>
+          <TabsTrigger onClick={() => setCurrentTab("Etiquetas")} value="Etiquetas" className={"hover:cursor-pointer " + tabTheme}>
+              <span className="flex items-center gap-2">
+                <Tag className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                Etiquetas
+              </span>
+            </TabsTrigger>
         </>
       }
     >
@@ -237,6 +244,7 @@ export default function CadastroProduto({
         onPick={handlePickImages}
         onRemove={removerImagemSelecionada}
       />
+      <TabEtiquetas produto={newProduct} onChange={handleChange} />
     </ProductDialogLayout>
   );
 }
