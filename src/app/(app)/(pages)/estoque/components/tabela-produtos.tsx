@@ -38,7 +38,6 @@ import {
   BadgeCheck,
   ShieldCheck,
   ShieldX,
-  Pin,
   MapPin,
   Tag,
 } from "lucide-react";
@@ -450,29 +449,27 @@ export default function TabelaProdutos({
                               </Tooltip>
                             )}
                         </div>
-                        <p className="text-xs text-muted-foreground flex flex-row gap-1 max-w-[350px] truncate">
+                        <div className="text-xs text-muted-foreground flex flex-row gap-1 max-w-[350px] truncate">
                           {p.etiqueta && (
-                            <>
-                              <div className="flex flex-row items-center justify-center w-min font-semibold">
-                                <Tag  className="w-3 h-3 mr-1 " />
-                                {p.etiqueta}
-                              </div>
-                            </>
+                            <div className="flex flex-row items-center justify-center w-min font-semibold">
+                              <Tag className="w-3 h-3 mr-1" />
+                              {p.etiqueta}
+                            </div>
                           )}
                           {p.etiqueta && p.unidade && <span>-</span>}
                           {p.unidade}
                           {p.fabricante && ` • ${p.fabricante}`}
-                        </p>
+                        </div>
                         {/* {p.codigobarras && (
                           <p className="text-xs text-muted-foreground">
                             CODIGOBARRAS: {p.codigobarras || "-"}
                           </p>
                         )} */}
                         {p.local && (
-                          <p className="mt-1 rounded-2xl w-min py-0.5 px-1.5 text-[10px] flex items-center justify-center bg-primary text-primary-foreground">
+                          <div className="mt-1 rounded-2xl w-min py-0.5 px-1.5 text-[10px] flex items-center justify-center bg-primary text-primary-foreground">
                             <MapPin className="w-3 h-3 mr-0.5" />
                             {p.local || "-"}
-                          </p>
+                          </div>
                         )}
                       </div>
                     </div>
