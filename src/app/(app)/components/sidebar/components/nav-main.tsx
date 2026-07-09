@@ -28,6 +28,7 @@ type Item = {
 function pathActive(href: string, pathname: string) {
   if (!href || href === "#") return false;
   if (pathname === href) return true;
+  if (href === "/estoque") return false;
   return pathname.startsWith(href.endsWith("/") ? href : href + "/");
 }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { TabsTrigger } from "@/components/ui/tabs";
-import { Package, FileText, Boxes, Image as ImageIcon } from "lucide-react";
+import { Package, FileText, Boxes, Image as ImageIcon, Tag } from "lucide-react";
 import axios, { isAxiosError } from "axios";
 import { toast } from "sonner";
 import { Estoque_status, Produto } from "../../types";
@@ -10,8 +10,9 @@ import { TabGeral } from "./tabs/tab-geral";
 import { TabFiscal } from "./tabs/tab-fiscal";
 import { TabEstoque } from "./tabs/tab-estoque";
 import { TabImagensCreate } from "./tabs/tab-imagens-create";
+import { TabEtiquetas } from "./tabs/tab-etiquetas";
 import { useUnidadesMedida } from "./hooks/use-unidades-medida";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Unidade_medida } from "../../types";
 import { useGruposProduto } from "./hooks/use-grupo-produtos";
 
@@ -44,6 +45,7 @@ export default function CadastroProduto({
   const [salvando, setSalvando] = useState(false);
   const [imagensArquivos, setImagensArquivos] = useState<File[]>([]);
   const [imagensPreview, setImagensPreview] = useState<string[]>([]);
+  const imagensPreviewRef = useRef<string[]>([]);
   const [currentTab, setCurrentTab] = useState<string>("Geral");
   const { unidades, loadingUnidades, errorUnidades } = useUnidadesMedida();
   const { grupos } = useGruposProduto();
@@ -69,9 +71,37 @@ export default function CadastroProduto({
   }, [grupos]);
 
   const handlePickImages = (files: File[]) => {
-    setImagensArquivos(files);
-    setImagensPreview(files.map((f) => URL.createObjectURL(f)));
+    if (files.length === 0) return;
+
+    const previews = files.map((f) => URL.createObjectURL(f));
+    imagensPreviewRef.current = [...imagensPreviewRef.current, ...previews];
+
+    setImagensArquivos((current) => [...current, ...files]);
+    setImagensPreview((current) => [...current, ...previews]);
   };
+
+  const limparImagensSelecionadas = () => {
+    imagensPreviewRef.current.forEach((url) => URL.revokeObjectURL(url));
+    imagensPreviewRef.current = [];
+    setImagensArquivos([]);
+    setImagensPreview([]);
+  };
+
+  const removerImagemSelecionada = (index: number) => {
+    const preview = imagensPreviewRef.current[index];
+    if (preview) URL.revokeObjectURL(preview);
+
+    imagensPreviewRef.current = imagensPreviewRef.current.filter((_, idx) => idx !== index);
+    setImagensArquivos((current) => current.filter((_, idx) => idx !== index));
+    setImagensPreview((current) => current.filter((_, idx) => idx !== index));
+  };
+
+  useEffect(() => {
+    return () => {
+      imagensPreviewRef.current.forEach((url) => URL.revokeObjectURL(url));
+      imagensPreviewRef.current = [];
+    };
+  }, []);
 
   const cadastrarProduto = async (registerAgain?: boolean) => {
     setSalvando(true);
@@ -117,16 +147,14 @@ export default function CadastroProduto({
 
           handleSearchFornecedor?.();
 
-          setImagensArquivos([]);
-          setImagensPreview([]);
+          limparImagensSelecionadas();
           setCurrentTab("Geral");
           onAfterSaveProduct?.();
         } else {
           setSelectedProductId?.(produtoId);
           handleSearchFornecedor?.();
 
-          setImagensArquivos([]);
-          setImagensPreview([]);
+          limparImagensSelecionadas();
           onAfterSaveProduct?.();
         }
       }
@@ -189,6 +217,12 @@ export default function CadastroProduto({
                 Imagens
               </span>
             </TabsTrigger>
+          <TabsTrigger onClick={() => setCurrentTab("Etiquetas")} value="Etiquetas" className={"hover:cursor-pointer " + tabTheme}>
+              <span className="flex items-center gap-2">
+                <Tag className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                Etiquetas
+              </span>
+            </TabsTrigger>
         </>
       }
     >
@@ -204,7 +238,13 @@ export default function CadastroProduto({
 
       <TabFiscal produto={newProduct} onChange={handleChange} />
       <TabEstoque mode="create" produto={newProduct} onChange={handleChange} />
-      <TabImagensCreate previews={imagensPreview} onPick={handlePickImages} />
+      <TabImagensCreate
+        previews={imagensPreview}
+        saving={salvando}
+        onPick={handlePickImages}
+        onRemove={removerImagemSelecionada}
+      />
+      <TabEtiquetas produto={newProduct} onChange={handleChange} />
     </ProductDialogLayout>
   );
 }

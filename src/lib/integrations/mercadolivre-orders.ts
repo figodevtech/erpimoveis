@@ -78,10 +78,14 @@ export async function importMercadoLivreOrder(account: MercadoLivreAccount, orde
 
   const accessToken = await ensureValidAccessToken(account);
   const shipment = await fetchOrderShipment(accessToken, order);
+  const shouldDecrementStock = mapOrderToVendaStatus(order) === "FINALIZADA";
   const existing = await findExistingOrder(mlOrderId);
   if (existing?.venda_id) {
     await upsertOrderRecord(account, order, existing.venda_id, shipment);
     await updateVendaOrderStatus(existing.venda_id, order);
+    if (shouldDecrementStock) {
+      await applyMarketplaceStockDecrement(existing.venda_id, account.empresa_id, order.order_items ?? []);
+    }
     return { mlOrderId, vendaId: existing.venda_id, created: false, skipped: "Venda ja importada." };
   }
 
@@ -89,37 +93,42 @@ export async function importMercadoLivreOrder(account: MercadoLivreAccount, orde
 
   const clienteId = await getOrCreateMarketplaceCustomer();
   const vendaPayload = buildVendaPayload(clienteId, order);
-
-  const { data: venda, error: vendaError } = await supabaseAdmin
-    .from("venda")
-    .insert(vendaPayload)
-    .select("id")
-    .single();
-
-  if (vendaError) throw vendaError;
-
-  const vendaId = Number(venda.id);
   const orderItems = Array.isArray(order.order_items) ? order.order_items : [];
+  const vendaItems = [];
 
   for (const item of orderItems) {
-    const produtoId = await resolveProdutoId(account.empresa_id, item);
+    const resolvedProduct = await resolveProdutoId(account.empresa_id, item);
     const quantity = toPositiveInt(item.quantity) ?? 1;
     const unitPrice = Number(item.unit_price ?? item.full_unit_price ?? 0);
     const itemTotal = Number((unitPrice * quantity).toFixed(2));
 
-    const { error: itemError } = await supabaseAdmin.from("vendaproduto").insert({
-      venda_id: vendaId,
-      produtoid: produtoId,
+    vendaItems.push({
+      produtoId: resolvedProduct.produtoId,
       quantidade: quantity,
-      sub_total: itemTotal,
-      valor_total: itemTotal,
-      valor_desconto: null,
-      tipo_desconto: null,
+      subTotal: itemTotal,
+      valorTotal: itemTotal,
+      baixarEstoque: resolvedProduct.baixarEstoque && shouldDecrementStock,
     });
-
-    if (itemError) throw itemError;
   }
 
+  const { data: vendaIdResult, error: vendaError } = await supabaseAdmin.rpc("fn_criar_venda_marketplace_com_itens", {
+    p_venda: {
+      ...vendaPayload,
+      clienteId,
+      statusEntrega: vendaPayload.status_entrega,
+      valorTotal: vendaPayload.valortotal,
+      subTotal: vendaPayload.sub_total,
+      descontoTipo: vendaPayload.desconto_tipo,
+      descontoValor: vendaPayload.desconto_valor,
+      formaPagamento: vendaPayload.forma_pagamento,
+      dataVenda: vendaPayload.datavenda,
+      itens: vendaItems,
+    },
+  });
+
+  if (vendaError) throw vendaError;
+
+  const vendaId = Number(vendaIdResult);
   await upsertOrderRecord(account, order, vendaId, shipment);
   return { mlOrderId, vendaId, created: true };
 }
@@ -326,6 +335,61 @@ async function updateVendaOrderStatus(vendaId: number, order: MercadoLivreOrder)
   if (error) throw error;
 }
 
+async function applyMarketplaceStockDecrement(vendaId: number, empresaId: number, orderItems: MercadoLivreOrderItem[]) {
+  for (const item of orderItems) {
+    const resolvedProduct = await resolveProdutoId(empresaId, item);
+    if (!resolvedProduct.baixarEstoque) continue;
+
+    const quantity = toPositiveInt(item.quantity) ?? 1;
+    const { data: currentBaixa, error: baixaError } = await supabaseAdmin
+      .from("vendaproduto_baixa")
+      .select("quantidade")
+      .eq("venda_id", vendaId)
+      .eq("produtoid", resolvedProduct.produtoId)
+      .maybeSingle();
+
+    if (baixaError) throw baixaError;
+
+    const alreadyDecremented = Number(currentBaixa?.quantidade ?? 0);
+    const delta = quantity - alreadyDecremented;
+    if (delta === 0) continue;
+
+    if (delta > 0) {
+      const { error: decrementError } = await supabaseAdmin.rpc("fn_baixa_estoque_produto", {
+        p_produto_id: resolvedProduct.produtoId,
+        p_quantidade: delta,
+      });
+      if (decrementError) throw decrementError;
+    } else {
+      const restoreQuantity = Math.abs(delta);
+      const { data: product, error: productError } = await supabaseAdmin
+        .from("produto")
+        .select("estoque")
+        .eq("id", resolvedProduct.produtoId)
+        .single();
+      if (productError) throw productError;
+
+      const { error: stockRestoreError } = await supabaseAdmin
+        .from("produto")
+        .update({ estoque: Number(product.estoque ?? 0) + restoreQuantity })
+        .eq("id", resolvedProduct.produtoId);
+      if (stockRestoreError) throw stockRestoreError;
+    }
+
+    const { error: upsertError } = await supabaseAdmin.from("vendaproduto_baixa").upsert(
+      {
+        venda_id: vendaId,
+        produtoid: resolvedProduct.produtoId,
+        quantidade: quantity,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "venda_id,produtoid" },
+    );
+
+    if (upsertError) throw upsertError;
+  }
+}
+
 async function resolveProdutoId(empresaId: number, item: MercadoLivreOrderItem) {
   const mlItemId = item.item?.id ? String(item.item.id) : null;
   const mlVariationId = item.item?.variation_id ?? null;
@@ -341,10 +405,10 @@ async function resolveProdutoId(empresaId: number, item: MercadoLivreOrderItem) 
 
     const { data, error } = await query.maybeSingle();
     if (error) throw error;
-    if (data?.produto_id) return Number(data.produto_id);
+    if (data?.produto_id) return { produtoId: Number(data.produto_id), baixarEstoque: true };
   }
 
-  return getOrCreatePlaceholderProduct();
+  return { produtoId: await getOrCreatePlaceholderProduct(), baixarEstoque: false };
 }
 
 async function getOrCreatePlaceholderProduct() {

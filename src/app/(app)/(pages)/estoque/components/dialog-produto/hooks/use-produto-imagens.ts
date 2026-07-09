@@ -21,19 +21,7 @@ export function useProdutoImagens(params: {
   const [imagens, setImagens] = useState<ProdutoImagem[]>([]);
   const [carregandoImagens, setCarregandoImagens] = useState(false);
   const [subindoImagens, setSubindoImagens] = useState(false);
-
-  const [novasImagens, setNovasImagens] = useState<File[]>([]);
-  const [novasPreview, setNovasPreview] = useState<string[]>([]);
-
-  const limparSelecao = useCallback(() => {
-    setNovasImagens([]);
-    setNovasPreview([]);
-  }, []);
-
-  const onPick = useCallback((files: File[]) => {
-    setNovasImagens(files);
-    setNovasPreview(files.map((f) => URL.createObjectURL(f)));
-  }, []);
+  const [removendoImagemId, setRemovendoImagemId] = useState<number | null>(null);
 
   const carregarImagens = useCallback(async () => {
     if (!productId) return;
@@ -49,21 +37,20 @@ export function useProdutoImagens(params: {
     }
   }, [productId]);
 
-  const enviarImagens = useCallback(async () => {
+  const enviarArquivos = useCallback(async (files: File[]) => {
     if (!productId) return;
-    if (novasImagens.length === 0) return;
+    if (files.length === 0) return;
 
     setSubindoImagens(true);
     try {
       const fd = new FormData();
-      novasImagens.forEach((f) => fd.append("files", f));
+      files.forEach((f) => fd.append("files", f));
 
       await axios.post(`/api/products/${productId}/images`, fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
       toast.success("Sucesso!", { description: "Imagens enviadas.", duration: 2000 });
-      limparSelecao();
       await carregarImagens();
       await onAfterChangeCapa?.();
     } catch (err) {
@@ -72,7 +59,13 @@ export function useProdutoImagens(params: {
     } finally {
       setSubindoImagens(false);
     }
-  }, [carregarImagens, limparSelecao, novasImagens, onAfterChangeCapa, productId]);
+  }, [carregarImagens, onAfterChangeCapa, productId]);
+
+  const onPick = useCallback((files: File[]) => {
+    if (files.length === 0) return;
+
+    void enviarArquivos(files);
+  }, [enviarArquivos]);
 
   const definirImagemPrincipal = useCallback(
     async (imageId: number) => {
@@ -93,6 +86,7 @@ export function useProdutoImagens(params: {
   const removerImagem = useCallback(
     async (imageId: number) => {
       if (!productId) return;
+      setRemovendoImagemId(imageId);
       try {
         await axios.delete(`/api/products/${productId}/images/${imageId}`);
         toast.success("Sucesso!", { description: "Imagem removida.", duration: 2000 });
@@ -101,6 +95,8 @@ export function useProdutoImagens(params: {
       } catch (err) {
         console.error("Erro ao remover imagem:", err);
         toast.error("Erro", { description: "Não foi possível remover a imagem.", duration: 2500 });
+      } finally {
+        setRemovendoImagemId(null);
       }
     },
     [carregarImagens, onAfterChangeCapa, productId]
@@ -110,20 +106,14 @@ export function useProdutoImagens(params: {
     if (productId) carregarImagens();
   }, [carregarImagens, productId]);
 
-  const hasSelection = novasImagens.length > 0;
-
   return {
     imagens,
     carregandoImagens,
     subindoImagens,
-    novasImagens,
-    novasPreview,
-    hasSelection,
+    removendoImagemId,
     onPick,
-    enviarImagens,
     definirImagemPrincipal,
     removerImagem,
     carregarImagens,
-    limparSelecao,
   };
 }

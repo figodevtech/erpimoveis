@@ -865,6 +865,7 @@ export default function MarketplacePage() {
     trackingCode: "",
     trackingUrl: "",
     deadline: "",
+    markAsShipped: true,
     notifyBuyer: true,
   });
   const [actionKey, setActionKey] = useState<string | null>(null);
@@ -1375,6 +1376,10 @@ export default function MarketplacePage() {
       toast.error("Informe o código de rastreio ou o link de acompanhamento.");
       return;
     }
+    if (customShipmentForm.markAsShipped && !customShipmentForm.trackingCode.trim()) {
+      toast.error("Informe o código de rastreio para marcar como enviado no Mercado Livre.");
+      return;
+    }
 
     setActionKey(`custom-shipment:${order.id}`);
     try {
@@ -1389,7 +1394,11 @@ export default function MarketplacePage() {
       const updated = json.data as MlOrder;
       setOrders((current) => current.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)));
       setSelectedOrderDetails((current) => (current?.id === updated.id ? { ...current, ...updated } : current));
-      toast.success(json.messageSent ? "Envio registrado e comprador avisado." : "Envio registrado.");
+      if (json.marketplaceStatusUpdated) {
+        toast.success(json.messageSent ? "Pedido marcado como enviado e comprador avisado." : "Pedido marcado como enviado.");
+      } else {
+        toast.success(json.messageSent ? "Envio registrado e comprador avisado." : "Envio registrado.");
+      }
       await loadDashboard();
     } catch (e: any) {
       toast.error("Erro ao registrar envio", { description: marketplaceErrorMessage(e) });
@@ -2010,6 +2019,7 @@ export default function MarketplacePage() {
       trackingCode: String(selectedOrderDetails.tracking_number || customShipment.tracking_code || ""),
       trackingUrl: String(customShipment.tracking_url || ""),
       deadline: String(customShipment.deadline || ""),
+      markAsShipped: true,
       notifyBuyer: true,
     });
   }, [selectedOrderDetails]);
@@ -3957,6 +3967,7 @@ export default function MarketplacePage() {
                                 <SelectItem value="JADLOG">Jadlog</SelectItem>
                                 <SelectItem value="LOGGI">Loggi</SelectItem>
                                 <SelectItem value="AZUL_CARGO">Azul Cargo</SelectItem>
+                                <SelectItem value="GRUPO_SBF">Grupo SBF</SelectItem>
                                 <SelectItem value="TRANSPORTADORA">Transportadora</SelectItem>
                                 <SelectItem value="RETIRADA">Retirada / própria</SelectItem>
                               </SelectContent>
@@ -3988,6 +3999,13 @@ export default function MarketplacePage() {
                           </div>
                           <label className="flex items-center gap-3 rounded-md border bg-muted/20 px-3 py-2 text-sm">
                             <Checkbox
+                              checked={customShipmentForm.markAsShipped}
+                              onCheckedChange={(checked) => setCustomShipmentForm((current) => ({ ...current, markAsShipped: checked === true }))}
+                            />
+                            Marcar como enviado no Mercado Livre
+                          </label>
+                          <label className="flex items-center gap-3 rounded-md border bg-muted/20 px-3 py-2 text-sm">
+                            <Checkbox
                               checked={customShipmentForm.notifyBuyer}
                               onCheckedChange={(checked) => setCustomShipmentForm((current) => ({ ...current, notifyBuyer: checked === true }))}
                             />
@@ -4000,7 +4018,7 @@ export default function MarketplacePage() {
                           disabled={actionKey === `custom-shipment:${selectedOrderDetails.id}`}
                         >
                           {actionKey === `custom-shipment:${selectedOrderDetails.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                          Salvar e avisar comprador
+                          Salvar envio
                         </Button>
                       </div>
                     )}

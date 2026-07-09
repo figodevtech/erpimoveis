@@ -1,7 +1,7 @@
 "use client";
 
 import { TabsTrigger } from "@/components/ui/tabs";
-import { Upload, Package, Store, Image as ImageIcon, FileText, Boxes, ShoppingCart, ClipboardList, ArrowRightLeft } from "lucide-react";
+import { Upload, Package, Store, Image as ImageIcon, FileText, Boxes, ShoppingCart, ClipboardList, ArrowRightLeft, Tag } from "lucide-react";
 import axios from "axios";
 import { toast } from "sonner";
 import { Produto } from "../../types";
@@ -9,6 +9,7 @@ import { ProductDialogLayout } from "./tabs/dialog-layout";
 import { TabGeral } from "./tabs/tab-geral";
 import { TabMarketplace } from "./tabs/tab-marketplace";
 import { TabImagensEdit } from "./tabs/tab-imagens-edit";
+import { TabEtiquetas } from "./tabs/tab-etiquetas";
 import { TabFiscal } from "./tabs/tab-fiscal";
 import { TabEstoque } from "./tabs/tab-estoque";
 import { TabVendas } from "./tabs/tab-vendas";
@@ -121,6 +122,12 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
           Imagens
         </span>
       </TabsTrigger>
+      <TabsTrigger onClick={()=>setCurrentTab("Etiquetas")} value="Etiquetas" className={"hover:cursor-pointer" + tabTheme}>
+        <span className="flex items-center gap-2">
+          <Tag className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+          Etiquetas
+        </span>
+      </TabsTrigger>
       <TabsTrigger onClick={()=>setCurrentTab("Fiscal")} value="Fiscal" className={"hover:cursor-pointer" + tabTheme}>
         <span className="flex items-center gap-2">
           <FileText className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
@@ -193,18 +200,17 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
             <TabMarketplace produto={selectedProduct} onChange={handleChange} />
 
             <TabImagensEdit
-              previews={imagensHook.novasPreview}
               carregando={imagensHook.carregandoImagens}
               subindo={imagensHook.subindoImagens}
+              removendoImagemId={imagensHook.removendoImagemId}
               imagens={imagensHook.imagens}
               imgUrlPrincipal={(selectedProduct as any).imgUrl ?? null}
               onPick={imagensHook.onPick}
-              onEnviar={imagensHook.enviarImagens}
               onDefinirPrincipal={imagensHook.definirImagemPrincipal}
               onRemover={imagensHook.removerImagem}
-              hasSelection={imagensHook.hasSelection}
             />
 
+            <TabEtiquetas produto={selectedProduct} onChange={handleChange} />
             <TabFiscal produto={selectedProduct} onChange={handleChange} />
             <TabEstoque mode="edit" produto={selectedProduct} onChange={handleChange} />
             <TabVendas produto={selectedProduct} />
