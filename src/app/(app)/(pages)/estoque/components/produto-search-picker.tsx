@@ -6,13 +6,15 @@ import { Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Produto } from "../types";
+import { ProdutoIdentificadoCard } from "./produto-identificado-card";
 
 type Props = {
   selected?: Produto | null;
   onSelect: (produto: Produto) => void;
+  showSelected?: boolean;
 };
 
-export function ProdutoSearchPicker({ selected, onSelect }: Props) {
+export function ProdutoSearchPicker({ selected, onSelect, showSelected = true }: Props) {
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<Produto[]>([]);
@@ -50,19 +52,12 @@ export function ProdutoSearchPicker({ selected, onSelect }: Props) {
         <Input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Pesquise por nome, código de barras, etiqueta ou referência"
+          placeholder="Pesquise por nome, codigo de barras, etiqueta ou referencia"
           className="pl-9"
         />
       </div>
 
-      {selected ? (
-        <div className="rounded-lg border bg-muted/30 p-3 text-sm">
-          <div className="font-medium">{selected.titulo}</div>
-          <div className="text-xs text-muted-foreground">
-            Código: {selected.codigobarras || "-"} | Etiqueta: {selected.etiqueta || "-"} | Local: {selected.local || "-"}
-          </div>
-        </div>
-      ) : null}
+      {showSelected && selected ? <ProdutoIdentificadoCard produto={selected} /> : null}
 
       <div className="space-y-2">
         {loading ? <p className="text-sm text-muted-foreground">Buscando...</p> : null}
@@ -75,7 +70,7 @@ export function ProdutoSearchPicker({ selected, onSelect }: Props) {
           >
             <div className="font-medium">{produto.titulo}</div>
             <div className="text-xs text-muted-foreground">
-              Código: {produto.codigobarras || "-"} | Estoque: {produto.estoque ?? 0}
+              Codigo: {produto.codigobarras || "-"} | Estoque: {produto.estoque ?? 0}
             </div>
           </button>
         ))}

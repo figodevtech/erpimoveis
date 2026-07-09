@@ -1,40 +1,79 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import axios from "axios";
-import { CheckCircle2, ChevronLeft, ChevronRight, MapPinned } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ChevronRight, Loader2, MapPinned } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { QrCodeInput } from "../components/dialog-produto/qr-code-input";
+import { ProdutoIdentificadoCard } from "../components/produto-identificado-card";
 import { ProdutoSearchPicker } from "../components/produto-search-picker";
 import type { Produto } from "../types";
 
 type Step = 1 | 2 | 3 | 4;
 
+function findExactProduct(items: Produto[], code: string) {
+  const normalized = code.trim().toLowerCase();
+  return (
+    items.find(
+      (item) =>
+        String(item.etiqueta ?? "").trim().toLowerCase() === normalized ||
+        String(item.codigobarras ?? "").trim().toLowerCase() === normalized ||
+        String(item.id ?? "").trim().toLowerCase() === normalized
+    ) ?? null
+  );
+}
+
 export default function MovimentacaoPage() {
   const [step, setStep] = useState<Step>(1);
   const [codigoProduto, setCodigoProduto] = useState("");
   const [produto, setProduto] = useState<Produto | null>(null);
+  const [produtoError, setProdutoError] = useState<string | null>(null);
+  const [buscandoProduto, setBuscandoProduto] = useState(false);
   const [local, setLocal] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const buscarProduto = async () => {
+  useEffect(() => {
     const q = codigoProduto.trim();
-    if (!q) return;
+    setProdutoError(null);
 
-    const res = await axios.get("/api/products", { params: { search: q, limit: 5 } });
-    const items: Produto[] = res.data?.data ?? [];
-    const match =
-      items.find((item) => item.etiqueta === q || item.codigobarras === q || String(item.id) === q) ??
-      items[0];
-
-    if (!match) {
-      toast.error("Produto não encontrado");
+    if (!q) {
+      setProduto(null);
       return;
     }
 
-    setProduto(match);
-  };
+    let active = true;
+    const timeout = window.setTimeout(async () => {
+      setBuscandoProduto(true);
+      try {
+        const res = await axios.get("/api/products", { params: { search: q, limit: 10 } });
+        const items: Produto[] = res.data?.data ?? [];
+        const match = findExactProduct(items, q);
+
+        if (!active) return;
+
+        if (!match) {
+          setProduto(null);
+          setProdutoError("Etiqueta nao vinculada a um produto.");
+          toast.error("Nao existem produtos vinculados a esta etiqueta");
+          return;
+        }
+
+        setProduto(match);
+      } catch (err: any) {
+        if (!active) return;
+        setProduto(null);
+        setProdutoError(err?.response?.data?.error ?? "Nao foi possivel buscar o produto.");
+      } finally {
+        if (active) setBuscandoProduto(false);
+      }
+    }, 250);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+    };
+  }, [codigoProduto]);
 
   const confirmar = async () => {
     if (!produto?.id || !local.trim()) return;
@@ -45,7 +84,7 @@ export default function MovimentacaoPage() {
       toast.success("Local atualizado");
       setStep(4);
     } catch (err: any) {
-      toast.error("Não foi possível registrar movimentação", {
+      toast.error("Nao foi possivel registrar movimentacao", {
         description: err?.response?.data?.error ?? "Tente novamente.",
       });
     } finally {
@@ -56,7 +95,7 @@ export default function MovimentacaoPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
-        <h1 className="text-xl font-semibold">Movimentação</h1>
+        <h1 className="text-xl font-semibold">Movimentacao</h1>
         <p className="text-sm text-muted-foreground">Atualize o local de armazenamento de um produto.</p>
       </div>
 
@@ -66,7 +105,7 @@ export default function MovimentacaoPage() {
           <span className="text-muted-foreground">
             {step === 1 && "Produto"}
             {step === 2 && "Local"}
-            {step === 3 && "Conferência"}
+            {step === 3 && "Conferencia"}
             {step === 4 && "Finalizado"}
           </span>
         </div>
@@ -75,17 +114,33 @@ export default function MovimentacaoPage() {
           <div className="space-y-4">
             <QrCodeInput
               id="mov-produto"
-              label="Etiqueta/código do produto"
+              label="Etiqueta/codigo do produto"
               value={codigoProduto}
-              placeholder="Leia o QR, código de barras ou digite"
+              placeholder="Leia o QR, codigo de barras ou digite"
               onChange={setCodigoProduto}
             />
-            <Button type="button" variant="outline" className="w-full" onClick={buscarProduto}>
-              Buscar por código
-            </Button>
-            <ProdutoSearchPicker selected={produto} onSelect={setProduto} />
+
+            {buscandoProduto ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Buscando produto...
+              </div>
+            ) : null}
+
+            {produtoError ? <p className="text-sm text-destructive">{produtoError}</p> : null}
+            {produto ? <ProdutoIdentificadoCard produto={produto} /> : null}
+
+            <ProdutoSearchPicker
+              selected={produto}
+              onSelect={(item) => {
+                setProduto(item);
+                setProdutoError(null);
+              }}
+              showSelected={false}
+            />
+
             <Button className="w-full gap-2" disabled={!produto} onClick={() => setStep(2)}>
-              Próximo
+              Proximo
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
@@ -106,7 +161,7 @@ export default function MovimentacaoPage() {
                 Voltar
               </Button>
               <Button className="flex-1 gap-2" disabled={!local.trim()} onClick={() => setStep(3)}>
-                Próximo
+                Proximo
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
@@ -118,12 +173,13 @@ export default function MovimentacaoPage() {
             <div className="rounded-lg border bg-muted/30 p-4 text-sm">
               <div className="mb-2 flex items-center gap-2 font-medium">
                 <MapPinned className="h-4 w-4" />
-                Conferir movimentação
+                Conferir movimentacao
               </div>
-              <p>Produto: <b>{produto?.titulo}</b></p>
-              <p>Etiqueta: <b>{produto?.etiqueta || "-"}</b></p>
-              <p>Local atual: <b>{produto?.local || "-"}</b></p>
-              <p>Novo local: <b>{local}</b></p>
+              {produto ? <ProdutoIdentificadoCard produto={produto} /> : null}
+              <div className="mt-3 space-y-1">
+                <p>Local atual: <b>{produto?.local || "-"}</b></p>
+                <p>Novo local: <b>{local}</b></p>
+              </div>
             </div>
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1 gap-2" onClick={() => setStep(2)}>
@@ -150,16 +206,17 @@ export default function MovimentacaoPage() {
                 setStep(1);
                 setCodigoProduto("");
                 setProduto(null);
+                setProdutoError(null);
                 setLocal("");
               }}
             >
-              Registrar outra movimentação
+              Registrar outra movimentacao
             </Button>
           </div>
         )}
 
         <div className="mt-4 rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
-          Esta versão simples atualiza apenas o campo local do produto. Histórico e quantidade por caixa podem ser adicionados depois.
+          Esta versao simples atualiza apenas o campo local do produto. Historico e quantidade por caixa podem ser adicionados depois.
         </div>
       </div>
     </div>
