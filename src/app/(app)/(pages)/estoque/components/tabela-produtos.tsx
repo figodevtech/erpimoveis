@@ -1,9 +1,22 @@
 "use client";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import {
   AlertTriangle,
   Clock,
@@ -25,8 +38,16 @@ import {
   BadgeCheck,
   ShieldCheck,
   ShieldX,
+  MapPin,
+  Tag,
 } from "lucide-react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,7 +63,11 @@ import { toast } from "sonner";
 import { useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { BotaoExportarProdutos } from "./botao-exportar-produtos";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 
 import EntradaDialog from "./dialog-entrada/dialog-entrada-unica";
@@ -54,7 +79,12 @@ interface TabelaProdutosProps {
   products: Produto[];
   pagination: Pagination;
   search: string;
-  handleGetProducts: (pageNumber?: number, limit?: number, search?: string, status?: Estoque_status) => void;
+  handleGetProducts: (
+    pageNumber?: number,
+    limit?: number,
+    search?: string,
+    status?: Estoque_status,
+  ) => void;
   fetchStatusCounts: () => void;
   status: Estoque_status;
 
@@ -77,7 +107,10 @@ const getStatusBadge = (status: Estoque_status | undefined) => {
   }
   if (status === "BAIXO") {
     return (
-      <Badge variant="secondary" className="text-xs bg-yellow-600 not-dark:text-white">
+      <Badge
+        variant="secondary"
+        className="text-xs bg-yellow-600 not-dark:text-white"
+      >
         <Clock className="h-3 w-3 mr-1" />
         Baixo
       </Badge>
@@ -85,7 +118,10 @@ const getStatusBadge = (status: Estoque_status | undefined) => {
   }
   if (status === "SEM_ESTOQUE") {
     return (
-      <Badge variant="secondary" className="text-xs bg-purple-800 not-dark:text-white">
+      <Badge
+        variant="secondary"
+        className="text-xs bg-purple-800 not-dark:text-white"
+      >
         <CircleOff className="h-3 w-3 mr-1" />
         Sem Estoque
       </Badge>
@@ -113,9 +149,18 @@ export default function TabelaProdutos({
 }: TabelaProdutosProps) {
   const { data: session } = useSession();
   const [isDeleting, setIsDeleting] = useState(false);
-  const canCreate = permissionSetHas((session?.user as any)?.permissoes, PERMS.ESTOQUE_CRIAR);
-  const canEdit = permissionSetHas((session?.user as any)?.permissoes, PERMS.ESTOQUE_EDITAR);
-  const canDelete = permissionSetHas((session?.user as any)?.permissoes, PERMS.ESTOQUE_EXCLUIR);
+  const canCreate = permissionSetHas(
+    (session?.user as any)?.permissoes,
+    PERMS.ESTOQUE_CRIAR,
+  );
+  const canEdit = permissionSetHas(
+    (session?.user as any)?.permissoes,
+    PERMS.ESTOQUE_EDITAR,
+  );
+  const canDelete = permissionSetHas(
+    (session?.user as any)?.permissoes,
+    PERMS.ESTOQUE_EXCLUIR,
+  );
 
   // ✅ Dialogs controlados por estado
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -129,7 +174,7 @@ export default function TabelaProdutos({
   } | null>(null);
 
   const [entradaFiscalOpen, setEntradaFiscalOpen] = useState(false);
-  const [entradaGeralOpen,setEntradaGeralOpen] = useState(false)
+  const [entradaGeralOpen, setEntradaGeralOpen] = useState(false);
 
   const abrirNovoProduto = () => {
     if (!canCreate) return;
@@ -180,7 +225,7 @@ export default function TabelaProdutos({
       <div className="flex gap-2 items-center flex-nowrap">
         <Loader className=" animate-spin w-4" />
         <span className="text-nowrap">Deletando produto...</span>
-      </div>
+      </div>,
     );
 
     try {
@@ -205,7 +250,8 @@ export default function TabelaProdutos({
 
   const rangeText = useMemo(() => {
     const start = pagination.limit * (pagination.page - 1) + 1;
-    const end = pagination.limit * (pagination.page - 1) + (pagination.pageCount || 0);
+    const end =
+      pagination.limit * (pagination.page - 1) + (pagination.pageCount || 0);
     return { start, end };
   }, [pagination]);
 
@@ -218,13 +264,21 @@ export default function TabelaProdutos({
             <CardDescription>
               <button
                 onClick={() => {
-                  handleGetProducts(pagination.page, pagination.limit, search, status);
+                  handleGetProducts(
+                    pagination.page,
+                    pagination.limit,
+                    search,
+                    status,
+                  );
                   fetchStatusCounts();
                 }}
                 className="inline-flex items-center gap-1 text-foreground/50 hover:text-foreground/70 hover:cursor-pointer"
               >
                 <span>Recarregar</span>
-                <Loader2 width={12} className={isLoading ? "animate-spin" : ""} />
+                <Loader2
+                  width={12}
+                  className={isLoading ? "animate-spin" : ""}
+                />
               </button>
             </CardDescription>
           </div>
@@ -242,23 +296,32 @@ export default function TabelaProdutos({
               {/* ✅ DropdownMenuItem no lugar de Button */}
               <DropdownMenuContent align="center">
                 {canCreate ? (
-                <DropdownMenuItem onClick={abrirNovoProduto} className="cursor-pointer">
-                  <Plus className="mr-2 h-4 w-4" />
-                  Novo Produto
-                </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={abrirNovoProduto}
+                    className="cursor-pointer"
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Novo Produto
+                  </DropdownMenuItem>
                 ) : null}
 
                 {canEdit ? (
-                <DropdownMenuItem onClick={() => setEntradaGeralOpen(true)} className="cursor-pointer">
-                  <PackagePlus className="mr-2 h-4 w-4" />
-                  Entrada
-                </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setEntradaGeralOpen(true)}
+                    className="cursor-pointer"
+                  >
+                    <PackagePlus className="mr-2 h-4 w-4" />
+                    Entrada
+                  </DropdownMenuItem>
                 ) : null}
                 {canEdit ? (
-                <DropdownMenuItem onClick={() => setEntradaFiscalOpen(true)} className="cursor-pointer">
-                  <FileText className="mr-2 h-4 w-4" />
-                  Entrada Fiscal (NF-e)
-                </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setEntradaFiscalOpen(true)}
+                    className="cursor-pointer"
+                  >
+                    <FileText className="mr-2 h-4 w-4" />
+                    Entrada Fiscal (NF-e)
+                  </DropdownMenuItem>
                 ) : null}
               </DropdownMenuContent>
             </DropdownMenu>
@@ -271,7 +334,9 @@ export default function TabelaProdutos({
           productId={selectedProductId}
           isOpen={isOpen}
           setIsOpen={setIsOpen}
-          onAfterSaveProduct={()=>handleGetProducts(pagination.page, pagination.limit, search, status)}
+          onAfterSaveProduct={() =>
+            handleGetProducts(pagination.page, pagination.limit, search, status)
+          }
         />
 
         {/* ✅ Entrada Fiscal (1 instância) */}
@@ -280,16 +345,22 @@ export default function TabelaProdutos({
           isOpen={entradaFiscalOpen}
           setIsOpen={setEntradaFiscalOpen}
         />
-        <DialogEntradaGeral  open={entradaGeralOpen} onOpenChange={
-          (open)=>{
-            if(!open){
-              setEntradaGeralOpen(false)
-              handleGetProducts(pagination.page, pagination.limit, search, status)
-            }else{
-              setEntradaGeralOpen(true)
+        <DialogEntradaGeral
+          open={entradaGeralOpen}
+          onOpenChange={(open) => {
+            if (!open) {
+              setEntradaGeralOpen(false);
+              handleGetProducts(
+                pagination.page,
+                pagination.limit,
+                search,
+                status,
+              );
+            } else {
+              setEntradaGeralOpen(true);
             }
-          }
-          }/>
+          }}
+        />
       </CardHeader>
 
       <CardContent className="min-h-[300px] -mt-[24px] px-4 pb-4 pt-0 relative">
@@ -331,29 +402,33 @@ export default function TabelaProdutos({
                   onDoubleClick={() => canEdit && abrirEdicaoProduto(id)}
                   className="hover:cursor-pointer"
                 >
-                  <TableCell>{id ?? "-"}</TableCell>
+                  <TableCell>{id}</TableCell>
 
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <div>
                         <div className="flex flex-row gap-2 items-center">
-                          <p className="font-medium max-w-[350px] truncate">{p.titulo || "-"}</p>
+                          <p className="font-medium max-w-[350px] truncate">
+                            {p.titulo || "-"}
+                          </p>
                           {p.exibirPdv && (
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Store className="w-4 h-4 text-primary/80 not-dark:text-primary" />
                               </TooltipTrigger>
-                              <TooltipContent>Exibindo no Marketplace</TooltipContent>
+                              <TooltipContent>
+                                Exibindo no Marketplace
+                              </TooltipContent>
                             </Tooltip>
                           )}
                           {p.conservacao && p.conservacao === "NOVO" && (
                             <Tooltip>
                               <TooltipTrigger asChild>
-                              <BadgeCheck className="w-4 h-4 text-primary" />
+                                <BadgeCheck className="w-4 h-4 text-primary" />
                               </TooltipTrigger>
                               <TooltipContent>Produto Novo</TooltipContent>
                             </Tooltip>
-                            )}
+                          )}
                           {p.conservacao && p.conservacao === "USADO" && (
                             <Tooltip>
                               <TooltipTrigger asChild>
@@ -361,44 +436,75 @@ export default function TabelaProdutos({
                               </TooltipTrigger>
                               <TooltipContent>Produto Usado</TooltipContent>
                             </Tooltip>
-                            )}
-                          {p.conservacao && p.conservacao === "RECONDICIONADO" && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <ShieldCheck className="w-4 h-4 text-green-500" />
-                              </TooltipTrigger>
-                              <TooltipContent>Produto Recondicionado</TooltipContent>
-                            </Tooltip>
+                          )}
+                          {p.conservacao &&
+                            p.conservacao === "RECONDICIONADO" && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <ShieldCheck className="w-4 h-4 text-green-500" />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  Produto Recondicionado
+                                </TooltipContent>
+                              </Tooltip>
                             )}
                         </div>
-                        <p className="text-xs text-muted-foreground max-w-[350px] truncate">
-                          {p.unidade || "-"}
-                          {p.fabricante ? ` • ${p.fabricante}` : "-"}
-                        </p>
-                        {p.codigobarras && (
-                          <p className="text-xs text-muted-foreground">CODIGOBARRAS: {p.codigobarras || "-"}</p>
+                        <div className="text-xs text-muted-foreground flex flex-row gap-1 max-w-[350px] truncate">
+                          {p.etiqueta && (
+                            <div className="flex flex-row items-center justify-center w-min font-semibold">
+                              <Tag className="w-3 h-3 mr-1" />
+                              {p.etiqueta}
+                            </div>
+                          )}
+                          {p.etiqueta && p.unidade && <span>-</span>}
+                          {p.unidade}
+                          {p.fabricante && ` • ${p.fabricante}`}
+                        </div>
+                        {/* {p.codigobarras && (
+                          <p className="text-xs text-muted-foreground">
+                            CODIGOBARRAS: {p.codigobarras || "-"}
+                          </p>
+                        )} */}
+                        {p.local && (
+                          <div className="mt-1 rounded-2xl w-min py-0.5 px-1.5 text-[10px] flex items-center justify-center bg-primary text-primary-foreground">
+                            <MapPin className="w-3 h-3 mr-0.5" />
+                            {p.local || "-"}
+                          </div>
                         )}
                       </div>
                     </div>
                   </TableCell>
 
-                  <TableCell className="font-mono text-xs max-w-[300px] truncate">{p.referencia || "-"}</TableCell>
-                  <TableCell className="max-w-[200px] truncate">{p.fabricante || "-"}</TableCell>
+                  <TableCell className="font-mono text-xs max-w-[300px] truncate">
+                    {p.referencia || "-"}
+                  </TableCell>
+                  <TableCell className="max-w-[200px] truncate">
+                    {p.fabricante || "-"}
+                  </TableCell>
 
-                  <TableCell className="font-medium">{p.estoque ?? 0}</TableCell>
-                  <TableCell className="text-muted-foreground">{p.estoqueminimo ?? 0}</TableCell>
+                  <TableCell className="font-medium">
+                    {p.estoque ?? 0}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {p.estoqueminimo ?? 0}
+                  </TableCell>
 
                   <TableCell>{getStatusBadge(p.status_estoque)}</TableCell>
 
                   <TableCell>
                     R{"$ "}
-                    {p.precovenda?.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                    {p.precovenda?.toLocaleString("pt-BR", {
+                      minimumFractionDigits: 2,
+                    })}
                   </TableCell>
 
                   <TableCell>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" className="h-8 w-8 p-0 cursor-pointer">
+                        <Button
+                          variant="ghost"
+                          className="h-8 w-8 p-0 cursor-pointer"
+                        >
                           <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
@@ -406,28 +512,34 @@ export default function TabelaProdutos({
                       {/* ✅ DropdownMenuItem no lugar de Button */}
                       <DropdownMenuContent align="center">
                         {canEdit ? (
-                        <DropdownMenuItem disabled={!canAct} onClick={() => abrirEdicaoProduto(id)}>
-                          <Edit className="mr-2 h-4 w-4" />
-                          Editar
-                        </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={!canAct}
+                            onClick={() => abrirEdicaoProduto(id)}
+                          >
+                            <Edit className="mr-2 h-4 w-4" />
+                            Editar
+                          </DropdownMenuItem>
                         ) : null}
 
                         {canEdit ? (
-                        <DropdownMenuItem disabled={!canAct} onClick={() => abrirEntrada(p)}>
-                          <PackagePlus className="mr-2 h-4 w-4" />
-                          Entrada
-                        </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={!canAct}
+                            onClick={() => abrirEntrada(p)}
+                          >
+                            <PackagePlus className="mr-2 h-4 w-4" />
+                            Entrada
+                          </DropdownMenuItem>
                         ) : null}
 
                         {canDelete ? (
-                        <DropdownMenuItem
-                          disabled={!canAct || isDeleting}
-                          onClick={() => abrirExcluir(id)}
-                          variant="destructive"
-                        >
-                          <Trash2Icon className="mr-2 h-4 w-4" />
-                          Excluir
-                        </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={!canAct || isDeleting}
+                            onClick={() => abrirExcluir(id)}
+                            variant="destructive"
+                          >
+                            <Trash2Icon className="mr-2 h-4 w-4" />
+                            Excluir
+                          </DropdownMenuItem>
                         ) : null}
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -443,7 +555,9 @@ export default function TabelaProdutos({
           <div className="text-xs text-muted-foreground flex flex-nowrap">
             <span>{rangeText.start}</span> - <span>{rangeText.end}</span>
             <span className="ml-1 hidden sm:block">de {pagination.total}</span>
-            <Loader className={`w-4 h-full animate-spin transition-all opacity-0 ${isLoading && "opacity-100"}`} />
+            <Loader
+              className={`w-4 h-full animate-spin transition-all opacity-0 ${isLoading && "opacity-100"}`}
+            />
           </div>
 
           <div className="flex items-center justify-center space-x-1 sm:space-x-3">
@@ -451,7 +565,9 @@ export default function TabelaProdutos({
               variant="outline"
               size="sm"
               className="hover:cursor-pointer"
-              onClick={() => handleGetProducts(1, pagination.limit, search, status)}
+              onClick={() =>
+                handleGetProducts(1, pagination.limit, search, status)
+              }
               disabled={pagination.page === 1}
             >
               <ChevronsLeft className="h-4 w-4" />
@@ -460,7 +576,14 @@ export default function TabelaProdutos({
               variant="outline"
               size="sm"
               className="hover:cursor-pointer"
-              onClick={() => handleGetProducts(pagination.page - 1, pagination.limit, search, status)}
+              onClick={() =>
+                handleGetProducts(
+                  pagination.page - 1,
+                  pagination.limit,
+                  search,
+                  status,
+                )
+              }
               disabled={pagination.page === 1}
             >
               <ChevronLeftIcon className="h-4 w-4" />
@@ -472,8 +595,18 @@ export default function TabelaProdutos({
               className="hover:cursor-pointer"
               variant="outline"
               size="sm"
-              onClick={() => handleGetProducts(pagination.page + 1, pagination.limit, search, status)}
-              disabled={pagination.page === pagination.totalPages || pagination.totalPages === 0}
+              onClick={() =>
+                handleGetProducts(
+                  pagination.page + 1,
+                  pagination.limit,
+                  search,
+                  status,
+                )
+              }
+              disabled={
+                pagination.page === pagination.totalPages ||
+                pagination.totalPages === 0
+              }
             >
               <ChevronRightIcon className="h-4 w-4" />
             </Button>
@@ -481,8 +614,18 @@ export default function TabelaProdutos({
               className="hover:cursor-pointer"
               variant="outline"
               size="sm"
-              onClick={() => handleGetProducts(pagination.totalPages, pagination.limit, search, status)}
-              disabled={pagination.page === pagination.totalPages || pagination.totalPages === 0}
+              onClick={() =>
+                handleGetProducts(
+                  pagination.totalPages,
+                  pagination.limit,
+                  search,
+                  status,
+                )
+              }
+              disabled={
+                pagination.page === pagination.totalPages ||
+                pagination.totalPages === 0
+              }
             >
               <ChevronsRight className="h-4 w-4" />
             </Button>
