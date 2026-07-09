@@ -57,6 +57,11 @@ export const PERMS = {
   VEICULOS_EDITAR: "veiculos:editar",
   VEICULOS_EXCLUIR: "veiculos:excluir",
 
+  DESMANCHE: "desmanche:visualizar",
+  DESMANCHE_CRIAR: "desmanche:criar",
+  DESMANCHE_EDITAR: "desmanche:editar",
+  DESMANCHE_EXCLUIR: "desmanche:excluir",
+
   EXECUCAO_OS: "execucao_os:visualizar",
   EXECUCAO_OS_EDITAR: "execucao_os:editar",
 } as const;

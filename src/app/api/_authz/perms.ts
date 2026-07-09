@@ -250,6 +250,22 @@ export async function requireVeiculosDelete() {
   return requirePerm(PERMS.VEICULOS_EXCLUIR);
 }
 
+export async function hasDesmancheAccess() {
+  return hasPerm(PERMS.DESMANCHE);
+}
+export async function requireDesmancheAccess() {
+  return requirePerm(PERMS.DESMANCHE);
+}
+export async function requireDesmancheCreate() {
+  return requirePerm(PERMS.DESMANCHE_CRIAR);
+}
+export async function requireDesmancheEdit() {
+  return requirePerm(PERMS.DESMANCHE_EDITAR);
+}
+export async function requireDesmancheDelete() {
+  return requirePerm(PERMS.DESMANCHE_EXCLUIR);
+}
+
 export async function hasExecucaoOSAccess() {
   return hasPerm(PERMS.EXECUCAO_OS);
 }
