@@ -32,6 +32,7 @@ import {
   ShoppingBag,
   MapPinned,
   ScanLine,
+  Repeat2,
 } from "lucide-react";
 
 import { NavMain } from "./components/nav-main";
@@ -101,7 +102,7 @@ const data = {
     {
       title: "Desmanche",
       url: "/desmanche",
-      icon: Car,
+      icon: Repeat2,
       perm: PERMS.DESMANCHE,
     },
     {
