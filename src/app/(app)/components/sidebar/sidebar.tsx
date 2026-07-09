@@ -182,6 +182,12 @@ const data = {
           perm: PERMS.FINANCEIRO,
         },
         {
+          title: "Fiscal",
+          url: "/fiscal",
+          icon: Receipt,
+          perm: PERMS.FINANCEIRO,
+        },
+        {
           title: "Pagamento de Ordens",
           url: "/pagamentodeordens",
           icon: Calculator,
