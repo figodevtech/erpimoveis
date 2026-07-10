@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import jsQR from "jsqr";
-import { Camera, X } from "lucide-react";
+import { Camera, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -13,6 +12,8 @@ type Props = {
   label: string;
   value?: string | null;
   placeholder?: string;
+  loading?: boolean;
+  loadingLabel?: string;
   onChange: (value: string) => void;
 };
 
@@ -22,7 +23,7 @@ function normalizeQrValue(value: string) {
   return trimmed;
 }
 
-export function QrCodeInput({ id, label, value, placeholder, onChange }: Props) {
+export function QrCodeInput({ id, label, value, placeholder, loading = false, loadingLabel, onChange }: Props) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -64,6 +65,7 @@ export function QrCodeInput({ id, label, value, placeholder, onChange }: Props) 
         const detector = BarcodeDetectorCtor
           ? new BarcodeDetectorCtor({ formats: ["qr_code"] })
           : null;
+        const { default: decodeQr } = await import("jsqr");
 
         const scan = async () => {
           if (!active || !videoRef.current) return;
@@ -93,7 +95,7 @@ export function QrCodeInput({ id, label, value, placeholder, onChange }: Props) 
               if (ctx) {
                 ctx.drawImage(video, 0, 0, width, height);
                 const imageData = ctx.getImageData(0, 0, width, height);
-                const result = jsQR(imageData.data, width, height, {
+                const result = decodeQr(imageData.data, width, height, {
                   inversionAttempts: "dontInvert",
                 });
                 rawValue = result?.data;
@@ -131,12 +133,21 @@ export function QrCodeInput({ id, label, value, placeholder, onChange }: Props) 
     <div className="space-y-2">
       <Label htmlFor={id}>{label}</Label>
       <div className="flex gap-2">
-        <Input
-          id={id}
-          value={value ?? ""}
-          placeholder={placeholder}
-          onChange={(event) => onChange(event.target.value)}
-        />
+        <div className="relative flex-1">
+          <Input
+            id={id}
+            value={value ?? ""}
+            placeholder={placeholder}
+            className={loading ? "pr-10" : undefined}
+            onChange={(event) => onChange(event.target.value)}
+          />
+          {loading ? (
+            <Loader2
+              aria-label={loadingLabel ?? "Carregando"}
+              className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground"
+            />
+          ) : null}
+        </div>
         <Button type="button" variant="outline" className="shrink-0 gap-2" onClick={() => setOpen(true)}>
           <Camera className="h-4 w-4" />
           QR
