@@ -29,6 +29,9 @@ export interface NotaFiscal {
   direcao: Exclude<FiscalViewMode, "TODAS">;
   nsu?: string | null;
   tipoDocumento?: string | null;
+  statusManifestacao?: string | null;
+  xmlStatus?: "XML_COMPLETO" | "AGUARDANDO_XML" | "AGUARDANDO_MANIFESTACAO" | "NAO_AUTORIZADO" | string;
+  xmlStatusLabel?: string | null;
   destinatarioOuEmitente: FiscalPessoa | null;
   empresa: {
     id: number;

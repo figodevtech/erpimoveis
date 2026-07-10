@@ -75,7 +75,7 @@ export default function FiscalPage() {
       });
       await handleGetNotas(1, pagination.limit);
     } catch (error: any) {
-      const blockedUntil = error?.response?.data?.consumoIndevidoUntil;
+      const blockedUntil = error?.response?.data?.consumoIndevidoUntil ?? error?.response?.data?.nextSyncAfter;
       const blockedMessage = blockedUntil
         ? `Tente novamente após ${new Date(blockedUntil).toLocaleString("pt-BR")}.`
         : undefined;

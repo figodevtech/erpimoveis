@@ -14,6 +14,7 @@ import {
   Loader2,
   MoreHorizontal,
   RefreshCw,
+  Send,
   UploadCloud,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -97,13 +98,26 @@ function formatCpfCnpj(value?: string | null) {
 
 function statusClass(status: string) {
   const value = status.toUpperCase();
-  if (["AUTORIZADA", "AUTORIZADO", "EMITIDA"].includes(value)) {
+  if (["AUTORIZADA", "AUTORIZADO", "EMITIDA", "USO AUTORIZADO", "USO AUTORIZADO FORA DO PRAZO"].includes(value)) {
     return "border-emerald-500/40 bg-emerald-500/10 text-emerald-700";
   }
-  if (value === "CANCELADA") {
+  if (value === "CANCELADA" || value === "NF-E CANCELADA" || value === "CANCELADA FORA DO PRAZO") {
     return "border-destructive/40 bg-destructive/10 text-destructive";
   }
-  if (value === "REJEITADA") {
+  if (value === "REJEITADA" || value === "USO DENEGADO") {
+    return "border-yellow-500/40 bg-yellow-500/10 text-yellow-700";
+  }
+  return "border-muted-foreground/30 bg-muted text-muted-foreground";
+}
+
+function xmlStatusClass(status?: string | null) {
+  if (status === "XML_COMPLETO") {
+    return "border-emerald-500/40 bg-emerald-500/10 text-emerald-700";
+  }
+  if (status === "AGUARDANDO_XML") {
+    return "border-blue-500/40 bg-blue-500/10 text-blue-700";
+  }
+  if (status === "NAO_AUTORIZADO") {
     return "border-yellow-500/40 bg-yellow-500/10 text-yellow-700";
   }
   return "border-muted-foreground/30 bg-muted text-muted-foreground";
@@ -160,12 +174,93 @@ export default function FiscalTable({
     }
   }
 
-  function baixarXml(id: number) {
+  async function baixarXml(id: number) {
     const endpoint =
       viewMode === "EMITIDAS_TERCEIROS"
         ? `/api/fiscal/notas-recebidas/${id}/xml`
         : `/api/fiscal/notas-emitidas/${id}/xml`;
-    window.open(endpoint, "_blank", "noopener,noreferrer");
+    const toastId = toast.loading("Preparando XML...");
+
+    try {
+      const response = await fetch(endpoint);
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        toast.error("XML indisponível", {
+          id: toastId,
+          description: body?.detail ?? body?.error ?? "Não foi possível baixar o XML.",
+        });
+        return;
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") ?? "";
+      const xmlCompleto = response.headers.get("X-DFe-Xml-Completo") !== "false";
+      const motivo = decodeURIComponent(response.headers.get("X-DFe-Xml-Motivo") ?? "");
+      const nextCheckAfter = response.headers.get("X-DFe-Xml-Next-Check-After");
+      const filenameMatch = disposition.match(/filename="?([^"]+)"?/i);
+      const filename = filenameMatch?.[1] ?? `nota-fiscal-${id}.xml`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+
+      if (xmlCompleto) {
+        toast.success("XML baixado", { id: toastId });
+      } else {
+        const nextCheckText = nextCheckAfter
+          ? ` Próxima tentativa segura após ${new Date(nextCheckAfter).toLocaleString("pt-BR")}.`
+          : "";
+        toast.warning("Resumo XML baixado", {
+          id: toastId,
+          description:
+            `${motivo || "O XML completo da NF-e ainda não está disponível na SEFAZ."}${nextCheckText}`,
+        });
+      }
+    } catch (error) {
+      const description = error instanceof Error ? error.message : "Erro ao baixar XML.";
+      toast.error("Falha no download", { id: toastId, description });
+    }
+  }
+
+  async function manifestarTerceiros(
+    id: number,
+    tipo: "CIENCIA" | "CONFIRMACAO" | "DESCONHECIMENTO" | "OPERACAO_NAO_REALIZADA",
+  ) {
+    const labels = {
+      CIENCIA: "Ciência da operação",
+      CONFIRMACAO: "Confirmação da operação",
+      DESCONHECIMENTO: "Desconhecimento da operação",
+      OPERACAO_NAO_REALIZADA: "Operação não realizada",
+    };
+    const justificativa =
+      tipo === "OPERACAO_NAO_REALIZADA"
+        ? window.prompt("Informe a justificativa da operação não realizada:")
+        : undefined;
+
+    if (tipo === "OPERACAO_NAO_REALIZADA" && !justificativa?.trim()) return;
+
+    const toastId = toast.loading("Enviando manifestação para a SEFAZ...");
+    try {
+      const response = await axios.post(`/api/fiscal/notas-recebidas/${id}/manifestar`, {
+        tipo,
+        justificativa,
+      });
+
+      toast.success(labels[tipo], {
+        id: toastId,
+        description: response.data?.xMotivo ?? "Manifestação enviada.",
+      });
+      await handleGetNotas(pagination.page, pagination.limit);
+    } catch (error) {
+      const description = isAxiosError(error)
+        ? error.response?.data?.detail ?? error.response?.data?.error ?? error.message
+        : "Erro ao enviar manifestação.";
+      toast.error("Falha na manifestação", { id: toastId, description });
+    }
   }
 
   return (
@@ -327,6 +422,10 @@ export default function FiscalTable({
               const pessoa = nota.destinatarioOuEmitente;
               const triggerId = `nota-${nota.id}-menu-btn`;
               const menuId = `nota-${nota.id}-menu`;
+              const canManifestarTerceiros =
+                viewMode === "EMITIDAS_TERCEIROS" &&
+                nota.modelo !== "EVENTO" &&
+                !nota.tipoDocumento?.includes("EVENTO");
 
               return (
                 <TableRow key={nota.id} className="hover:cursor-pointer">
@@ -339,6 +438,14 @@ export default function FiscalTable({
                         {nota.serie ? <Badge variant="outline">Série {nota.serie}</Badge> : null}
                         <Badge variant="outline">{direcaoLabel(nota.direcao)}</Badge>
                         {nota.nsu ? <Badge variant="outline">NSU {nota.nsu}</Badge> : null}
+                        {nota.xmlStatusLabel ? (
+                          <Badge variant="outline" className={xmlStatusClass(nota.xmlStatus)}>
+                            {nota.xmlStatusLabel}
+                          </Badge>
+                        ) : null}
+                        {nota.statusManifestacao ? (
+                          <Badge variant="outline">Manifestação {nota.statusManifestacao}</Badge>
+                        ) : null}
                       </div>
                       <span className="text-xs text-muted-foreground">ID: {nota.id}</span>
                       <span className="text-xs text-muted-foreground md:hidden">
@@ -418,6 +525,26 @@ export default function FiscalTable({
                             <FileSearch className="mr-2 h-4 w-4" />
                             Consultar SEFAZ
                           </DropdownMenuItem>
+                        ) : null}
+                        {canManifestarTerceiros ? (
+                          <>
+                            <DropdownMenuItem onClick={() => manifestarTerceiros(nota.id, "CIENCIA")}>
+                              <Send className="mr-2 h-4 w-4" />
+                              Ciência da operação
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => manifestarTerceiros(nota.id, "CONFIRMACAO")}>
+                              <Send className="mr-2 h-4 w-4" />
+                              Confirmar operação
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => manifestarTerceiros(nota.id, "DESCONHECIMENTO")}>
+                              <Send className="mr-2 h-4 w-4" />
+                              Desconhecer operação
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => manifestarTerceiros(nota.id, "OPERACAO_NAO_REALIZADA")}>
+                              <Send className="mr-2 h-4 w-4" />
+                              Operação não realizada
+                            </DropdownMenuItem>
+                          </>
                         ) : null}
                       </DropdownMenuContent>
                     </DropdownMenu>

@@ -30,11 +30,17 @@ export async function GET(_req: NextRequest, { params }: Context) {
       return NextResponse.json({ error: "Documento fiscal sem XML salvo." }, { status: 404 });
     }
 
+    const isCompleto = documento.completo !== false;
+    const filenamePrefix = isCompleto ? "dfe" : "resumo-dfe";
+
     return new NextResponse(documento.xml, {
       status: 200,
       headers: {
         "Content-Type": "application/xml; charset=utf-8",
-        "Content-Disposition": `attachment; filename="dfe-${documento.chave || documento.id}.xml"`,
+        "Content-Disposition": `attachment; filename="${filenamePrefix}-${documento.chave || documento.id}.xml"`,
+        "X-DFe-Xml-Completo": String(isCompleto),
+        "X-DFe-Xml-Motivo": encodeURIComponent(documento.motivo ?? ""),
+        "X-DFe-Xml-Next-Check-After": documento.nextCheckAfter ?? "",
       },
     });
   } catch (error: any) {

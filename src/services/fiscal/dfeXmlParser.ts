@@ -28,6 +28,22 @@ function onlyDigits(value: unknown) {
   return String(value ?? "").replace(/\D/g, "");
 }
 
+function getXmlTagValue(xml: string, tag: string) {
+  const match = xml.match(new RegExp(`<${tag}[^>]*>([^<]+)</${tag}>`, "i"));
+  return match?.[1]?.trim() ?? null;
+}
+
+function normalizeChaveAcesso(value: unknown, xml: string) {
+  const digits = onlyDigits(value);
+  if (digits.length === 44) return digits;
+
+  const fromTag = onlyDigits(getXmlTagValue(xml, "chNFe"));
+  if (fromTag.length === 44) return fromTag;
+
+  const idMatch = xml.match(/<infNFe\b[^>]*\bId=["']NFe(\d{44})["']/i);
+  return idMatch?.[1] ?? null;
+}
+
 function toNumber(value: unknown) {
   const numeric = Number(String(value ?? "").replace(",", "."));
   return Number.isFinite(numeric) ? numeric : null;
@@ -54,12 +70,12 @@ function schemaToTipo(schema: string) {
   return "OUTRO";
 }
 
-function parseResumoNfe(parsed: any, schema: string): ParsedDfe {
+function parseResumoNfe(parsed: any, schema: string, xml: string): ParsedDfe {
   const resNFe = findFirstObjectWithKey(parsed, "resNFe");
   return {
     schema,
     tipoDocumento: schemaToTipo(schema),
-    chaveAcesso: resNFe?.chNFe ? String(resNFe.chNFe) : null,
+    chaveAcesso: normalizeChaveAcesso(resNFe?.chNFe, xml),
     dataEmissao: resNFe?.dhEmi ? String(resNFe.dhEmi) : null,
     emitenteNome: resNFe?.xNome ? String(resNFe.xNome) : null,
     emitenteCnpj: resNFe?.CNPJ ? onlyDigits(resNFe.CNPJ) : null,
@@ -74,7 +90,7 @@ function parseResumoNfe(parsed: any, schema: string): ParsedDfe {
   };
 }
 
-function parseProcNfe(parsed: any, schema: string): ParsedDfe {
+function parseProcNfe(parsed: any, schema: string, xml: string): ParsedDfe {
   const nfe = findFirstObjectWithKey(parsed, "NFe");
   const infNFe = nfe?.infNFe;
   const ide = infNFe?.ide;
@@ -86,7 +102,7 @@ function parseProcNfe(parsed: any, schema: string): ParsedDfe {
   return {
     schema,
     tipoDocumento: schemaToTipo(schema),
-    chaveAcesso: prot?.chNFe ? String(prot.chNFe) : onlyDigits(id) || null,
+    chaveAcesso: normalizeChaveAcesso(prot?.chNFe ?? id, xml),
     dataEmissao: ide?.dhEmi ? String(ide.dhEmi) : null,
     emitenteNome: emit?.xNome ? String(emit.xNome) : null,
     emitenteCnpj: emit?.CNPJ ? onlyDigits(emit.CNPJ) : null,
@@ -101,7 +117,7 @@ function parseProcNfe(parsed: any, schema: string): ParsedDfe {
   };
 }
 
-function parseEvento(parsed: any, schema: string): ParsedDfe {
+function parseEvento(parsed: any, schema: string, xml: string): ParsedDfe {
   const evento = findFirstObjectWithKey(parsed, "evento");
   const infEvento = evento?.infEvento;
   const retEvento = findFirstObjectWithKey(parsed, "retEvento")?.infEvento;
@@ -109,7 +125,7 @@ function parseEvento(parsed: any, schema: string): ParsedDfe {
   return {
     schema,
     tipoDocumento: schemaToTipo(schema),
-    chaveAcesso: infEvento?.chNFe ? String(infEvento.chNFe) : retEvento?.chNFe ? String(retEvento.chNFe) : null,
+    chaveAcesso: normalizeChaveAcesso(infEvento?.chNFe ?? retEvento?.chNFe, xml),
     dataEmissao: infEvento?.dhEvento ? String(infEvento.dhEvento) : retEvento?.dhRegEvento ? String(retEvento.dhRegEvento) : null,
     emitenteNome: null,
     emitenteCnpj: infEvento?.CNPJ ? onlyDigits(infEvento.CNPJ) : null,
@@ -132,10 +148,10 @@ export function unzipDocZip(base64Gzip: string) {
 export function parseDfeXml(xml: string, schema: string): ParsedDfe {
   const parsed = parser.parse(xml);
 
-  if (schema.startsWith("resNFe")) return parseResumoNfe(parsed, schema);
-  if (schema.startsWith("procNFe")) return parseProcNfe(parsed, schema);
+  if (schema.startsWith("resNFe")) return parseResumoNfe(parsed, schema, xml);
+  if (schema.startsWith("procNFe")) return parseProcNfe(parsed, schema, xml);
   if (schema.startsWith("procEventoNFe") || schema.startsWith("resEvento")) {
-    return parseEvento(parsed, schema);
+    return parseEvento(parsed, schema, xml);
   }
 
   return {
