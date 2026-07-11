@@ -82,6 +82,7 @@ const SELECT_NOTAS = `
   fornecedorid,
   empresaid,
   tpNF,
+  destinatario_snapshot,
   cliente:clienteid (
     id,
     nomerazaosocial,
@@ -117,6 +118,7 @@ function notaDirecao(row: any): Exclude<FiscalViewMode, "TODAS"> {
 
 function mapNotaFiscal(row: any): NotaFiscalListItem {
   const direcao = notaDirecao(row);
+  const snapshot = row.destinatario_snapshot;
   const pessoa = row.cliente ?? row.fornecedor;
 
   return {
@@ -146,6 +148,12 @@ function mapNotaFiscal(row: any): NotaFiscalListItem {
           nomerazaosocial: pessoa.nomerazaosocial ?? null,
           cpfcnpj: pessoa.cpfcnpj ?? null,
         }
+      : snapshot
+        ? {
+            id: 0,
+            nomerazaosocial: snapshot.razaoSocial ?? null,
+            cpfcnpj: snapshot.cnpj ?? snapshot.cpf ?? null,
+          }
       : null,
     empresa: row.empresa
       ? {

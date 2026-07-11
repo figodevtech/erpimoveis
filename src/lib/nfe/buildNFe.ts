@@ -52,6 +52,9 @@ export interface IdeOptions {
   tpNF?: 0 | 1;
   natOp?: string;
   indFinal?: 0 | 1;
+  indPres?: 0 | 1 | 2 | 3 | 4 | 9;
+  finNFe?: 1 | 2 | 3 | 4;
+  tpImp?: 1 | 2 | 3 | 4 | 5;
   observacoesFiscais?: string | null;
 }
 
@@ -98,13 +101,13 @@ export function criarIdeParaEmpresa(
     tpNF: options?.tpNF ?? 1,
     idDest: 1,
     cMunFG: empresa.codigomunicipio,
-    tpImp: 1,
+    tpImp: options?.tpImp ?? 1,
     tpEmis,
     cDV: dv,
     tpAmb,
-    finNFe: 1,
+    finNFe: options?.finNFe ?? 1,
     indFinal: options?.indFinal ?? (options?.tpNF === 0 ? 0 : 1),
-    indPres: 1,
+    indPres: options?.indPres ?? 1,
     procEmi: 0,
     verProc: 'ERPOficina 1.0.0',
   };

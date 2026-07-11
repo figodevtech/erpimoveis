@@ -207,12 +207,12 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
     // -------------------------------------------------------------------
     // 4) Buscar cliente destinatario (cliente da OS vinculado a esta NF-e)
     // -------------------------------------------------------------------
-    if (!nfe.clienteid && !nfe.entradaid) {
+    if (!nfe.clienteid && !nfe.entradaid && !nfe.destinatario_snapshot) {
       console.log("[nfe] NF-e sem cliente associado (clienteid nulo)", nfe);
       return NextResponse.json(
         {
           ok: false,
-          mensagem: "NF-e sem cliente associado (clienteid nulo).",
+          mensagem: "NF-e sem cliente, entrada ou destinatário avulso associado.",
         },
         { status: 500 }
       );

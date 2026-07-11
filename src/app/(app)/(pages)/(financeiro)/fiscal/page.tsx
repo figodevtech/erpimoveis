@@ -1,9 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import axios from "axios";
+import { FilePlus2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
 import FiscalCards from "./components/fiscal-cards";
 import FiscalTable from "./components/fiscal-table";
 import type { FiscalKpis, FiscalViewMode, NotaFiscal, Pagination } from "./types";
@@ -103,6 +106,14 @@ export default function FiscalPage() {
   return (
     <div className="space-y-4">
       <FiscalCards kpis={kpis} isLoading={isLoading} />
+      <div className="flex justify-end">
+        <Button asChild>
+          <Link href="/fiscal/nfe-avulsa">
+            <FilePlus2 className="h-4 w-4" />
+            Emitir NF-e
+          </Link>
+        </Button>
+      </div>
       <FiscalTable
         notas={notas}
         pagination={pagination}
