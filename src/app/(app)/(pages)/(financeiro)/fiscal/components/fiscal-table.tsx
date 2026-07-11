@@ -272,8 +272,15 @@ export default function FiscalTable({
       });
       await handleGetNotas(pagination.page, pagination.limit);
     } catch (error) {
+      const responseData = isAxiosError(error) ? error.response?.data : null;
+      const motivoSefaz = responseData?.xMotivo
+        ? `${responseData?.cStat ? `cStat ${responseData.cStat}: ` : ""}${responseData.xMotivo}`
+        : null;
       const description = isAxiosError(error)
-        ? error.response?.data?.detail ?? error.response?.data?.error ?? error.message
+        ? motivoSefaz ??
+          responseData?.detail ??
+          responseData?.error ??
+          "Erro ao enviar manifestação."
         : "Erro ao enviar manifestação.";
       toast.error("Falha na manifestação", { id: toastId, description });
     }

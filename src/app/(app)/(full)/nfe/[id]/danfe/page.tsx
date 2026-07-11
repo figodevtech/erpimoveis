@@ -1,5 +1,6 @@
 // src/app/(app)/(pages)/nfe/[id]/danfe/page.tsx
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PrintButton } from "./components/PrintButton";
 import type { Metadata } from "next";
@@ -922,10 +923,32 @@ export default async function DanfePage({ params, searchParams }: PageProps) {
 
         .actions {
           display: flex;
+          gap: 8px;
           justify-content: flex-end;
+          align-items: center;
           width: 210mm;
           margin: 0 auto 8px auto;
           padding: 0 2px;
+        }
+
+        .exit-link {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          height: 32px;
+          padding: 0 12px;
+          border: 1px solid hsl(214.3 31.8% 91.4%);
+          border-radius: 6px;
+          background: #ffffff;
+          color: #111827;
+          font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          font-size: 14px;
+          font-weight: 500;
+          text-decoration: none;
+        }
+
+        .exit-link:hover {
+          background: #f9fafb;
         }
 
         .block-title {
@@ -1055,6 +1078,9 @@ export default async function DanfePage({ params, searchParams }: PageProps) {
 
       <div className="danfe-page">
         <div className="actions">
+          <Link href="/fiscal" className="exit-link">
+            Sair
+          </Link>
           <PrintButton />
         </div>
 

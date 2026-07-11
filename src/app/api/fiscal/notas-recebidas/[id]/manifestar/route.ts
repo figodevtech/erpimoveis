@@ -20,7 +20,22 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       justificativa: body?.justificativa ? String(body.justificativa) : undefined,
     });
 
-    return NextResponse.json(result, { status: result.success ? 200 : 409 });
+    if (!result.success) {
+      const message = result.xMotivo
+        ? `${result.cStat ? `cStat ${result.cStat}: ` : ""}${result.xMotivo}`
+        : "Manifestação rejeitada pela SEFAZ.";
+
+      return NextResponse.json(
+        {
+          ...result,
+          error: message,
+          detail: message,
+        },
+        { status: 409 },
+      );
+    }
+
+    return NextResponse.json(result);
   } catch (error: any) {
     const status = error?.statusCode === 403 ? 403 : 500;
     return NextResponse.json(
