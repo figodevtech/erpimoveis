@@ -188,15 +188,10 @@ export default function RegistrarEtiquetaPage() {
               label="Etiqueta"
               value={etiqueta}
               placeholder="Ex: PRD-000123"
+              loading={checandoEtiqueta}
+              loadingLabel="Verificando etiqueta"
               onChange={setEtiqueta}
             />
-
-            {checandoEtiqueta ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Verificando etiqueta...
-              </div>
-            ) : null}
 
             {etiquetaError ? <p className="text-sm text-destructive">{etiquetaError}</p> : null}
             {etiquetaVinculada ? <ProdutoIdentificadoCard produto={etiquetaVinculada} /> : null}
