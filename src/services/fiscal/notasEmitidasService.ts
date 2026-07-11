@@ -197,8 +197,10 @@ function applyFilters(query: any, params: NotaFiscalListParams) {
         `protocolo.ilike.%${onlyDigits}%`,
       ];
       const numeric = Number(onlyDigits);
-      if (Number.isFinite(numeric)) {
+      if (Number.isFinite(numeric) && onlyDigits.length <= 9) {
         clauses.push(`numero.eq.${numeric}`);
+      }
+      if (Number.isFinite(numeric) && onlyDigits.length <= 3) {
         clauses.push(`serie.eq.${numeric}`);
       }
       query = query.or(clauses.join(","));

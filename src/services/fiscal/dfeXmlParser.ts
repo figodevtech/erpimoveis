@@ -44,6 +44,22 @@ function normalizeChaveAcesso(value: unknown, xml: string) {
   return idMatch?.[1] ?? null;
 }
 
+function extractIdentificacaoFromChave(chave: string | null) {
+  if (!chave || chave.length !== 44) {
+    return {
+      modelo: null,
+      serie: null,
+      nNF: null,
+    };
+  }
+
+  return {
+    modelo: chave.slice(20, 22),
+    serie: Number(chave.slice(22, 25)),
+    nNF: Number(chave.slice(25, 34)),
+  };
+}
+
 function toNumber(value: unknown) {
   const numeric = Number(String(value ?? "").replace(",", "."));
   return Number.isFinite(numeric) ? numeric : null;
@@ -72,10 +88,13 @@ function schemaToTipo(schema: string) {
 
 function parseResumoNfe(parsed: any, schema: string, xml: string): ParsedDfe {
   const resNFe = findFirstObjectWithKey(parsed, "resNFe");
+  const chaveAcesso = normalizeChaveAcesso(resNFe?.chNFe, xml);
+  const identificacao = extractIdentificacaoFromChave(chaveAcesso);
+
   return {
     schema,
     tipoDocumento: schemaToTipo(schema),
-    chaveAcesso: normalizeChaveAcesso(resNFe?.chNFe, xml),
+    chaveAcesso,
     dataEmissao: resNFe?.dhEmi ? String(resNFe.dhEmi) : null,
     emitenteNome: resNFe?.xNome ? String(resNFe.xNome) : null,
     emitenteCnpj: resNFe?.CNPJ ? onlyDigits(resNFe.CNPJ) : null,
@@ -84,6 +103,9 @@ function parseResumoNfe(parsed: any, schema: string, xml: string): ParsedDfe {
     resumo: {
       cSitNFe: resNFe?.cSitNFe ?? null,
       tpNF: resNFe?.tpNF ?? null,
+      modelo: identificacao.modelo,
+      serie: identificacao.serie,
+      nNF: identificacao.nNF,
       dhRecbto: resNFe?.dhRecbto ?? null,
       digVal: resNFe?.digVal ?? null,
     },
@@ -98,11 +120,13 @@ function parseProcNfe(parsed: any, schema: string, xml: string): ParsedDfe {
   const total = infNFe?.total?.ICMSTot;
   const prot = findFirstObjectWithKey(parsed, "protNFe")?.infProt;
   const id = String(infNFe?.["@_Id"] ?? "");
+  const chaveAcesso = normalizeChaveAcesso(prot?.chNFe ?? id, xml);
+  const identificacao = extractIdentificacaoFromChave(chaveAcesso);
 
   return {
     schema,
     tipoDocumento: schemaToTipo(schema),
-    chaveAcesso: normalizeChaveAcesso(prot?.chNFe ?? id, xml),
+    chaveAcesso,
     dataEmissao: ide?.dhEmi ? String(ide.dhEmi) : null,
     emitenteNome: emit?.xNome ? String(emit.xNome) : null,
     emitenteCnpj: emit?.CNPJ ? onlyDigits(emit.CNPJ) : null,
@@ -113,6 +137,9 @@ function parseProcNfe(parsed: any, schema: string, xml: string): ParsedDfe {
       xMotivo: prot?.xMotivo ?? null,
       dhRecbto: prot?.dhRecbto ?? null,
       tpNF: ide?.tpNF ?? null,
+      modelo: ide?.mod ?? identificacao.modelo,
+      serie: ide?.serie ?? identificacao.serie,
+      nNF: ide?.nNF ?? identificacao.nNF,
     },
   };
 }

@@ -703,7 +703,8 @@ export async function manifestarDfeRecebida(params: ManifestarParams) {
   const infEvento = await callRecepcaoEvento(empresa, xmlEventoAssinado, agent);
   const cStat = String(infEvento.cStat ?? "");
   const xMotivo = String(infEvento.xMotivo ?? "");
-  const aceito = ["135", "136", "573"].includes(cStat);
+  const isDuplicidadeEvento = cStat === "573" || xMotivo.toLowerCase().includes("duplicidade de evento");
+  const aceito = ["135", "136"].includes(cStat) || isDuplicidadeEvento;
   let xmlCompletoConsulta: { cStat?: string; xMotivo?: string; novosDocumentos?: number } | null = null;
 
   if (aceito) {
@@ -717,33 +718,48 @@ export async function manifestarDfeRecebida(params: ManifestarParams) {
 
     const resumo = documento.resumo && typeof documento.resumo === "object" ? documento.resumo : {};
     const procNfe = await buscarProcNfePorChave(Number(empresa.id), chaveFromXml);
-    const { error: updateError } = await supabaseAdmin
-      .from("fiscal_dfe_documento")
-      .update({
-        chave_acesso: chaveFromXml,
-        status_manifestacao: config.status,
-        resumo: {
-          ...resumo,
-          manifestacao: {
-            tipo: params.tipo,
-            cStat,
-            xMotivo,
-            nProt: infEvento.nProt ?? null,
-            manifestadoEm: new Date().toISOString(),
-          },
-          xmlCompletoConsulta: {
-            cStat: xmlCompletoConsulta?.cStat ?? null,
-            xMotivo: xmlCompletoConsulta?.xMotivo ?? null,
-            novosDocumentos: xmlCompletoConsulta?.novosDocumentos ?? 0,
-            disponivel: Boolean(procNfe?.xml && isXmlCompletoNfe(procNfe)),
-            consultadoEm: new Date().toISOString(),
-          },
-        },
-        updatedat: new Date().toISOString(),
-      })
-      .eq("id", params.documentoId);
+    const manifestacaoPayload = {
+      tipo: params.tipo,
+      cStat,
+      xMotivo,
+      nProt: infEvento.nProt ?? null,
+      duplicidade: isDuplicidadeEvento,
+      manifestadoEm: new Date().toISOString(),
+    };
+    const xmlCompletoConsultaPayload = {
+      cStat: xmlCompletoConsulta?.cStat ?? null,
+      xMotivo: xmlCompletoConsulta?.xMotivo ?? null,
+      novosDocumentos: xmlCompletoConsulta?.novosDocumentos ?? 0,
+      disponivel: Boolean(procNfe?.xml && isXmlCompletoNfe(procNfe)),
+      consultadoEm: new Date().toISOString(),
+    };
 
-    if (updateError) throw updateError;
+    const { data: documentosMesmaChave, error: selectMesmaChaveError } = await supabaseAdmin
+      .from("fiscal_dfe_documento")
+      .select("id, resumo")
+      .eq("empresa_id", Number(empresa.id))
+      .eq("chave_acesso", chaveFromXml);
+
+    if (selectMesmaChaveError) throw selectMesmaChaveError;
+
+    for (const doc of documentosMesmaChave ?? [{ id: params.documentoId, resumo }]) {
+      const docResumo = doc.resumo && typeof doc.resumo === "object" ? doc.resumo : {};
+      const { error: updateError } = await supabaseAdmin
+        .from("fiscal_dfe_documento")
+        .update({
+          chave_acesso: chaveFromXml,
+          status_manifestacao: config.status,
+          resumo: {
+            ...docResumo,
+            manifestacao: manifestacaoPayload,
+            xmlCompletoConsulta: xmlCompletoConsultaPayload,
+          },
+          updatedat: new Date().toISOString(),
+        })
+        .eq("id", doc.id);
+
+      if (updateError) throw updateError;
+    }
   }
 
   return {
@@ -752,6 +768,139 @@ export async function manifestarDfeRecebida(params: ManifestarParams) {
     xMotivo,
     statusManifestacao: aceito ? config.status : documento.status_manifestacao,
     xmlCompletoConsulta,
+  };
+}
+
+function buildConsultaProtocoloEnvelope(params: { empresa: EmpresaRow; chave: string }) {
+  const tpAmb = params.empresa.ambiente === "PRODUCAO" ? "1" : "2";
+
+  const consSitNFeXml =
+    `<consSitNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">` +
+    `<tpAmb>${tpAmb}</tpAmb>` +
+    `<xServ>CONSULTAR</xServ>` +
+    `<chNFe>${params.chave}</chNFe>` +
+    `</consSitNFe>`;
+
+  return (
+    `<?xml version="1.0" encoding="utf-8"?>` +
+    `<soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ` +
+    `xmlns:xsd="http://www.w3.org/2001/XMLSchema" ` +
+    `xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">` +
+    `<soap12:Body>` +
+    `<nfeDadosMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeConsultaProtocolo4">` +
+    consSitNFeXml +
+    `</nfeDadosMsg>` +
+    `</soap12:Body>` +
+    `</soap12:Envelope>`
+  );
+}
+
+function mapStatusConsultaProtocolo(cStat?: string | null) {
+  if (cStat === "100") return "100";
+  if (cStat === "101") return "101";
+  if (["110", "301", "302"].includes(cStat ?? "")) return "110";
+  return cStat ?? null;
+}
+
+export async function consultarStatusDfeRecebida(id: number) {
+  const { data: documento, error } = await supabaseAdmin
+    .from("fiscal_dfe_documento")
+    .select("id, empresa_id, chave_acesso, xml, resumo, status")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!documento) throw new Error("Documento fiscal recebido não encontrado.");
+
+  const chave = onlyDigits(documento.chave_acesso).length === 44
+    ? onlyDigits(documento.chave_acesso)
+    : extractChaveAcessoFromXml(documento.xml);
+  if (!chave || chave.length !== 44) {
+    throw new Error("Documento fiscal recebido não possui chave de acesso válida.");
+  }
+
+  const empresa = await getEmpresa(Number(documento.empresa_id));
+  const { privateKeyPem, certificatePem } = await carregarCertificadoA1(empresa);
+  const agent = new https.Agent({
+    key: privateKeyPem,
+    cert: certificatePem,
+    rejectUnauthorized: false,
+  });
+  const url =
+    empresa.ambiente === "PRODUCAO"
+      ? "https://nfe.svrs.rs.gov.br/ws/NfeConsulta/NfeConsulta4.asmx"
+      : "https://nfe-homologacao.svrs.rs.gov.br/ws/NfeConsulta/NfeConsulta4.asmx";
+  const response = await postSoapComCert(
+    url,
+    buildConsultaProtocoloEnvelope({ empresa, chave }),
+    agent,
+    "http://www.portalfiscal.inf.br/nfe/wsdl/NFeConsultaProtocolo4/nfeConsultaNF",
+  );
+
+  if (response.httpStatus !== 200) {
+    throw new Error(`Erro HTTP ${response.httpStatus} ao consultar status da NF-e.`);
+  }
+
+  const parsed = parser.parse(response.body);
+  const retConsSitNFe = findXmlNode(parsed, "retConsSitNFe");
+  const cStat = retConsSitNFe?.cStat != null ? String(retConsSitNFe.cStat) : null;
+  const xMotivo = retConsSitNFe?.xMotivo != null ? String(retConsSitNFe.xMotivo) : null;
+  const infProt = retConsSitNFe?.protNFe?.infProt;
+  const protCStat = infProt?.cStat != null ? String(infProt.cStat) : null;
+  const protXMotivo = infProt?.xMotivo != null ? String(infProt.xMotivo) : null;
+  const nProt = infProt?.nProt != null ? String(infProt.nProt) : null;
+  const dhRecbto = infProt?.dhRecbto != null ? String(infProt.dhRecbto) : null;
+  const statusFinal = mapStatusConsultaProtocolo(protCStat ?? cStat);
+
+  const { data: documentosMesmaChave, error: selectError } = await supabaseAdmin
+    .from("fiscal_dfe_documento")
+    .select("id, resumo")
+    .eq("empresa_id", Number(documento.empresa_id))
+    .eq("chave_acesso", chave);
+
+  if (selectError) throw selectError;
+
+  for (const doc of documentosMesmaChave ?? []) {
+    const resumo = doc.resumo && typeof doc.resumo === "object" ? doc.resumo : {};
+    const { error: updateError } = await supabaseAdmin
+      .from("fiscal_dfe_documento")
+      .update({
+        status: statusFinal ?? documento.status,
+        resumo: {
+          ...resumo,
+          nProt: nProt ?? resumo.nProt ?? null,
+          xMotivo: protXMotivo ?? xMotivo ?? resumo.xMotivo ?? null,
+          dhRecbto: dhRecbto ?? resumo.dhRecbto ?? null,
+          consultaStatus: {
+            cStat,
+            xMotivo,
+            protCStat,
+            protXMotivo,
+            nProt,
+            dhRecbto,
+            consultadoEm: new Date().toISOString(),
+          },
+        },
+        updatedat: new Date().toISOString(),
+      })
+      .eq("id", doc.id);
+
+    if (updateError) throw updateError;
+  }
+
+  return {
+    ok: true,
+    sefaz: {
+      cStat,
+      xMotivo,
+      protocolo: {
+        cStat: protCStat,
+        xMotivo: protXMotivo,
+        nProt,
+        dhRecbto,
+      },
+    },
+    status: statusFinal,
   };
 }
 
@@ -774,7 +923,9 @@ function mapStatusDfeRecebida(status: string) {
 }
 
 function mapXmlStatusDfeRecebida(row: any) {
-  if (isXmlCompletoNfe(row)) return "XML_COMPLETO";
+  if (isXmlCompletoNfe(row) || row.resumo?.xmlCompletoConsulta?.disponivel === true) {
+    return "XML_COMPLETO";
+  }
 
   const manifestacao = String(row.status_manifestacao ?? "");
   if (manifestacao === "DESCONHECIMENTO") return "NAO_AUTORIZADO";
@@ -796,18 +947,32 @@ function mapXmlStatusLabel(status: string) {
   return labels[status] ?? status;
 }
 
+function extractIdentificacaoNfe(chave: string, resumo: any) {
+  const chaveDigits = onlyDigits(chave);
+  const modelo = String(resumo?.modelo ?? (chaveDigits.length === 44 ? chaveDigits.slice(20, 22) : "55"));
+  const serie = Number(resumo?.serie ?? (chaveDigits.length === 44 ? chaveDigits.slice(22, 25) : 0));
+  const numero = Number(resumo?.nNF ?? (chaveDigits.length === 44 ? chaveDigits.slice(25, 34) : 0));
+
+  return {
+    modelo: modelo === "65" ? "NFC-e" : "NF-e",
+    serie: Number.isFinite(serie) ? serie : 0,
+    numero: Number.isFinite(numero) ? numero : 0,
+  };
+}
+
 function mapDocumento(row: any) {
   const chaveAcesso = onlyDigits(row.chave_acesso).length === 44
     ? String(row.chave_acesso)
     : extractChaveAcessoFromXml(row.xml) ?? String(row.chave_acesso ?? "");
   const statusRaw = String(row.status ?? row.tipo_documento ?? "");
   const xmlStatus = mapXmlStatusDfeRecebida(row);
+  const identificacao = extractIdentificacaoNfe(chaveAcesso, row.resumo);
 
   return {
     id: Number(row.id),
-    modelo: row.tipo_documento?.includes("EVENTO") ? "EVENTO" : "NFE",
-    serie: 0,
-    numero: 0,
+    modelo: row.tipo_documento?.includes("EVENTO") ? "EVENTO" : identificacao.modelo,
+    serie: identificacao.serie,
+    numero: identificacao.numero,
     chave_acesso: chaveAcesso,
     ambiente: "",
     status: mapStatusDfeRecebida(statusRaw),
@@ -849,12 +1014,35 @@ function mapDocumento(row: any) {
 
 function applyDfeRecebidasFilters(query: any, params: ListDfeParams) {
   const search = normalizeText(params.search);
+  const status = normalizeText(params.status).toUpperCase();
+  const modelo = normalizeText(params.modelo).toUpperCase();
 
-  query = query.or("schema.like.resNFe%,schema.like.procNFe%");
+  query = query.in("tipo_documento", ["RESUMO_NFE", "PROC_NFE"]);
   if (params.dateFrom) query = query.gte("data_emissao", params.dateFrom);
   if (params.dateTo) query = query.lte("data_emissao", `${params.dateTo}T23:59:59.999`);
-  if (params.status) query = query.eq("status", params.status);
-  if (params.modelo) query = query.eq("tipo_documento", params.modelo);
+
+  if (status) {
+    if (["AUTORIZADA", "AUTORIZADO", "EMITIDA"].includes(status)) {
+      query = query.in("status", ["1", "100", "150"]);
+    } else if (status === "CANCELADA") {
+      query = query.in("status", ["3", "101", "151"]);
+    } else if (status === "DENEGADA") {
+      query = query.in("status", ["2", "110"]);
+    } else {
+      query = query.eq("status", status);
+    }
+  }
+
+  if (modelo) {
+    if (modelo === "NFE") {
+      query = query.in("tipo_documento", ["RESUMO_NFE", "PROC_NFE"]);
+    } else if (modelo === "NFCE") {
+      query = query.eq("id", -1);
+    } else {
+      query = query.eq("tipo_documento", modelo);
+    }
+  }
+
   if (search) {
     query = query.or(
       `chave_acesso.ilike.%${search}%,emitente_nome.ilike.%${search}%,emitente_cnpj.ilike.%${onlyDigits(search)}%,nsu.ilike.%${search}%`,
@@ -887,44 +1075,66 @@ function buildDfeRecebidasKpis(rows: ReturnType<typeof mapDocumento>[]) {
   };
 }
 
+function preferirXmlCompletoPorChave(rows: any[]) {
+  const byChave = new Map<string, any>();
+
+  const mergeRows = (preferred: any, fallback: any) => ({
+    ...preferred,
+    status_manifestacao: preferred.status_manifestacao ?? fallback.status_manifestacao,
+    resumo: {
+      ...(fallback.resumo && typeof fallback.resumo === "object" ? fallback.resumo : {}),
+      ...(preferred.resumo && typeof preferred.resumo === "object" ? preferred.resumo : {}),
+    },
+  });
+
+  for (const row of rows) {
+    const chave = onlyDigits(row.chave_acesso).length === 44
+      ? onlyDigits(row.chave_acesso)
+      : extractChaveAcessoFromXml(row.xml) ?? `id:${row.id}`;
+    const current = byChave.get(chave);
+
+    if (!current) {
+      byChave.set(chave, row);
+      continue;
+    }
+
+    if (isXmlCompletoNfe(row) && !isXmlCompletoNfe(current)) {
+      byChave.set(chave, mergeRows(row, current));
+    } else if (!isXmlCompletoNfe(row) && isXmlCompletoNfe(current)) {
+      byChave.set(chave, mergeRows(current, row));
+    }
+  }
+
+  return Array.from(byChave.values());
+}
+
 export async function listarDfeRecebidas(params: ListDfeParams = {}) {
   const page = clampInt(params.page, 1, 1, 10_000);
   const limit = clampInt(params.limit, 20, 1, 100);
   const from = (page - 1) * limit;
-  const to = from + limit - 1;
   const query = applyDfeRecebidasFilters(
-    supabaseAdmin
-      .from("fiscal_dfe_documento")
-      .select("*, empresa:empresa_id ( id, razaosocial, nomefantasia, cnpj )", { count: "exact" })
-      .order("createdat", { ascending: false })
-      .range(from, to),
-    params,
-  );
-
-  const { data, error, count } = await query;
-  if (error) throw error;
-
-  const kpiQuery = applyDfeRecebidasFilters(
     supabaseAdmin
       .from("fiscal_dfe_documento")
       .select("*, empresa:empresa_id ( id, razaosocial, nomefantasia, cnpj )")
       .order("createdat", { ascending: false }),
     params,
   );
-  const { data: kpiData, error: kpiError } = await kpiQuery;
-  if (kpiError) throw kpiError;
 
-  const rows = (data ?? []).map(mapDocumento);
-  const kpiRows = (kpiData ?? []).map(mapDocumento);
+  const { data, error } = await query;
+  if (error) throw error;
+  const dedupedRows = preferirXmlCompletoPorChave(data ?? []);
+  const paginatedRows = dedupedRows.slice(from, from + limit);
+  const rows = paginatedRows.map(mapDocumento);
+  const kpiRows = dedupedRows.map(mapDocumento);
 
   return {
     data: rows,
     kpis: buildDfeRecebidasKpis(kpiRows),
     pagination: {
-      total: count ?? 0,
+      total: dedupedRows.length,
       page,
       limit,
-      totalPages: Math.ceil((count ?? 0) / limit),
+      totalPages: Math.ceil(dedupedRows.length / limit),
     },
   };
 }

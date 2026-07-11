@@ -10,6 +10,7 @@ export const runtime = "nodejs";
 
 type PageProps = {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{ origem?: string }>;
 };
 
 /* ========= HELPERS DE FORMATAÇÃO ========= */
@@ -68,6 +69,33 @@ function fmtChaveAcesso(chave?: string | null) {
   return s.replace(/(\d{4})(?=\d)/g, "$1 ").trim();
 }
 
+function onlyDigits(value: unknown) {
+  return String(value ?? "").replace(/\D/g, "");
+}
+
+function isXmlCompletoNfe(xml?: string | null) {
+  const value = String(xml ?? "");
+  return value.includes("<nfeProc") || value.includes("<NFe");
+}
+
+function extractChaveAcessoFromXml(xml?: string | null) {
+  const text = String(xml ?? "");
+  const tagMatch = text.match(/<chNFe[^>]*>(\d{44})<\/chNFe>/i);
+  if (tagMatch?.[1]) return tagMatch[1];
+
+  const idMatch = text.match(/<infNFe\b[^>]*\bId=["']NFe(\d{44})["']/i);
+  return idMatch?.[1] ?? null;
+}
+
+function extractIdentificacaoFromChave(chave: string) {
+  const digits = onlyDigits(chave);
+  return {
+    modelo: digits.slice(20, 22) === "65" ? "NFCE" : "NFE",
+    serie: Number(digits.slice(22, 25)) || 0,
+    numero: Number(digits.slice(25, 34)) || 0,
+  };
+}
+
 /* ========= TIPOS DO BANCO ========= */
 
 type EmpresaRow = {
@@ -121,6 +149,19 @@ type NfeRow = {
   xml_autorizado: string | null;
   empresa?: EmpresaRow;
   cliente?: ClienteRow;
+};
+
+type FiscalDfeRow = {
+  id: number;
+  empresa_id: number;
+  chave_acesso: string | null;
+  schema: string | null;
+  xml: string | null;
+  status: string | null;
+  data_emissao: string | null;
+  valor_total: number | string | null;
+  resumo: any;
+  empresa?: EmpresaRow;
 };
 
 type NfeItemRow = {
@@ -484,37 +525,8 @@ function parseNFeXml(xml: string): ParsedNFe {
   };
 }
 
-/* ========= METADATA ========= */
-
-export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
-  const { id: idStr } = await params;
-  const id = Number(idStr);
-  if (Number.isNaN(id)) {
-    return { title: "DANFE" };
-  }
-
-  const { data: nfe } = await supabaseAdmin
-    .from("nfe")
-    .select("numero")
-    .eq("id", id)
-    .maybeSingle();
-
-  return {
-    title: nfe?.numero ? `DANFE NF-e #${nfe.numero}` : "DANFE",
-  };
-}
-
-/* ========= PÁGINA ========= */
-
-export default async function DanfePage({ params }: PageProps) {
-  const { id: idStr } = await params;
-  const id = Number(idStr);
-  if (Number.isNaN(id)) {
-    notFound();
-  }
-
-  // NF-e + empresa + cliente + XMLs
-  const { data: nfeRaw, error } = await supabaseAdmin
+async function carregarNfeEmitidaDanfe(id: number) {
+  const { data, error } = await supabaseAdmin
     .from("nfe")
     .select(
       `
@@ -564,13 +576,146 @@ export default async function DanfePage({ params }: PageProps) {
         estado,
         cep
       )
-    `
+    `,
     )
     .eq("id", id)
     .maybeSingle<NfeRow>();
 
-  if (error || !nfeRaw) {
+  if (error || !data) {
     console.error("[danfe] erro ao carregar nfe:", error);
+    return null;
+  }
+
+  return data as NfeRow;
+}
+
+async function carregarNfeRecebidaDanfe(id: number) {
+  const selectDfe = `
+    id,
+    empresa_id,
+    chave_acesso,
+    schema,
+    xml,
+    status,
+    data_emissao,
+    valor_total,
+    resumo,
+    empresa:empresa_id (
+      id,
+      razaosocial,
+      nomefantasia,
+      cnpj,
+      endereco,
+      numero,
+      bairro,
+      complemento,
+      cep,
+      uf,
+      codigomunicipio,
+      telefone,
+      inscricaoestadual
+    )
+  `;
+  const { data, error } = await supabaseAdmin
+    .from("fiscal_dfe_documento")
+    .select(selectDfe)
+    .eq("id", id)
+    .maybeSingle<FiscalDfeRow>();
+
+  if (error || !data) {
+    console.error("[danfe] erro ao carregar dfe recebido:", error);
+    return null;
+  }
+
+  const chave = onlyDigits(data.chave_acesso).length === 44
+    ? onlyDigits(data.chave_acesso)
+    : extractChaveAcessoFromXml(data.xml);
+  if (!chave) return null;
+
+  let documento = data;
+  if (!isXmlCompletoNfe(documento.xml)) {
+    const { data: procNfe, error: procError } = await supabaseAdmin
+      .from("fiscal_dfe_documento")
+      .select(selectDfe)
+      .eq("empresa_id", data.empresa_id)
+      .eq("chave_acesso", chave)
+      .like("schema", "procNFe%")
+      .order("createdat", { ascending: false })
+      .limit(1)
+      .maybeSingle<FiscalDfeRow>();
+
+    if (procError) {
+      console.error("[danfe] erro ao buscar procNFe recebido:", procError);
+      return null;
+    }
+
+    if (procNfe) documento = procNfe;
+  }
+
+  if (!isXmlCompletoNfe(documento.xml)) return null;
+
+  const identificacao = extractIdentificacaoFromChave(chave);
+  return {
+    id: Number(documento.id),
+    modelo: identificacao.modelo,
+    serie: Number(documento.resumo?.serie ?? identificacao.serie),
+    numero: Number(documento.resumo?.nNF ?? identificacao.numero),
+    chave_acesso: chave,
+    ambiente: "",
+    status: String(documento.status ?? ""),
+    ordemservicoid: null,
+    vendaid: null,
+    clienteid: 0,
+    empresaid: Number(documento.empresa_id),
+    dataemissao: String(documento.data_emissao ?? ""),
+    dataautorizacao: documento.resumo?.dhRecbto ?? null,
+    protocolo: documento.resumo?.nProt ? String(documento.resumo.nProt) : null,
+    total_produtos: Number(documento.valor_total ?? 0),
+    total_servicos: 0,
+    total_nfe: Number(documento.valor_total ?? 0),
+    xml_assinado: null,
+    xml_autorizado: String(documento.xml ?? ""),
+    empresa: documento.empresa,
+    cliente: undefined,
+  } satisfies NfeRow;
+}
+
+/* ========= METADATA ========= */
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { id: idStr } = await params;
+  const id = Number(idStr);
+  if (Number.isNaN(id)) {
+    return { title: "DANFE" };
+  }
+
+  const { data: nfe } = await supabaseAdmin
+    .from("nfe")
+    .select("numero")
+    .eq("id", id)
+    .maybeSingle();
+
+  return {
+    title: nfe?.numero ? `DANFE NF-e #${nfe.numero}` : "DANFE",
+  };
+}
+
+/* ========= PÁGINA ========= */
+
+export default async function DanfePage({ params, searchParams }: PageProps) {
+  const { id: idStr } = await params;
+  const search = searchParams ? await searchParams : {};
+  const id = Number(idStr);
+  if (Number.isNaN(id)) {
+    notFound();
+  }
+
+  const nfeRaw =
+    search.origem === "terceiros"
+      ? await carregarNfeRecebidaDanfe(id)
+      : await carregarNfeEmitidaDanfe(id);
+
+  if (!nfeRaw) {
     notFound();
   }
 

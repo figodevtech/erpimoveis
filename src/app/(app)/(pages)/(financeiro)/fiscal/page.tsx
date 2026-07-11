@@ -25,7 +25,7 @@ export default function FiscalPage() {
   const [dateTo, setDateTo] = useState("");
   const [status, setStatus] = useState("");
   const [modelo, setModelo] = useState("");
-  const [viewMode, setViewMode] = useState<FiscalViewMode>("TODAS");
+  const [viewMode, setViewMode] = useState<FiscalViewMode>("EMITIDAS_POR_NOS");
   const [isSyncing, setIsSyncing] = useState(false);
 
   const handleGetNotas = useCallback(

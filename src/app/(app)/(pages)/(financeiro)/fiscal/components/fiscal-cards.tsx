@@ -54,7 +54,7 @@ export default function FiscalCards({ kpis, isLoading }: FiscalCardsProps) {
         icon={ReceiptText}
       />
       <KpiCard
-        title="Emitidas por nós"
+        title="Emissões próprias"
         value={String(kpis?.emitidasPorNos ?? 0)}
         description={formatarEmReal(kpis?.valorEmitidasPorNos ?? 0)}
         icon={FileOutput}

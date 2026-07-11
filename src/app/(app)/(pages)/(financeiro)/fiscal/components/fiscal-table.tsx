@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import axios, { isAxiosError } from "axios";
@@ -123,8 +123,20 @@ function xmlStatusClass(status?: string | null) {
   return "border-muted-foreground/30 bg-muted text-muted-foreground";
 }
 
-function direcaoLabel(direcao: NotaFiscal["direcao"]) {
-  return direcao === "EMITIDAS_POR_NOS" ? "Emitida por nós" : "Emitida por terceiro";
+function manifestacaoClass(status?: string | null) {
+  if (status === "CIENCIA") {
+    return "border-sky-500/40 bg-sky-500/10 text-sky-700";
+  }
+  if (status === "CONFIRMACAO") {
+    return "border-emerald-500/40 bg-emerald-500/10 text-emerald-700";
+  }
+  if (status === "DESCONHECIMENTO") {
+    return "border-yellow-500/40 bg-yellow-500/10 text-yellow-700";
+  }
+  if (status === "OPERACAO_NAO_REALIZADA") {
+    return "border-destructive/40 bg-destructive/10 text-destructive";
+  }
+  return "border-muted-foreground/30 bg-muted text-muted-foreground";
 }
 
 export default function FiscalTable({
@@ -158,9 +170,13 @@ export default function FiscalTable({
         : "Notas fiscais";
 
   async function consultarStatus(id: number) {
+    const endpoint =
+      viewMode === "EMITIDAS_TERCEIROS"
+        ? `/api/fiscal/notas-recebidas/${id}/status`
+        : `/api/nfe/consultar/${id}`;
     const toastId = toast.loading("Consultando status na SEFAZ...");
     try {
-      const response = await axios.post(`/api/nfe/consultar/${id}`);
+      const response = await axios.post(endpoint);
       toast.success("Consulta concluída", {
         id: toastId,
         description: response.data?.sefaz?.xMotivo ?? "Status fiscal atualizado.",
@@ -238,7 +254,7 @@ export default function FiscalTable({
     };
     const justificativa =
       tipo === "OPERACAO_NAO_REALIZADA"
-        ? window.prompt("Informe a justificativa da operação não realizada:")
+        ? window.prompt("Informe a justificativa da Operação não realizada:")
         : undefined;
 
     if (tipo === "OPERACAO_NAO_REALIZADA" && !justificativa?.trim()) return;
@@ -281,7 +297,22 @@ export default function FiscalTable({
             </CardDescription>
           </div>
 
-          <div className="grid w-full gap-2 lg:w-auto lg:grid-cols-[180px_150px_150px_150px_150px_auto]">
+          <div className="grid w-full gap-2 lg:w-auto lg:grid-cols-[180px_180px_150px_150px_150px_150px_auto]">
+            {viewMode === "EMITIDAS_TERCEIROS" ? (
+              <Button
+                type="button"
+                className="h-9"
+                onClick={onSyncTerceiros}
+                disabled={isSyncing}
+              >
+                {isSyncing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <UploadCloud className="h-4 w-4" />
+                )}
+                Sincronizar terceiros
+              </Button>
+            ) : null}
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
@@ -332,21 +363,7 @@ export default function FiscalTable({
               <RefreshCw className="h-4 w-4" />
               Filtrar
             </Button>
-            {viewMode === "EMITIDAS_TERCEIROS" ? (
-              <Button
-                type="button"
-                className="h-9 lg:col-span-6"
-                onClick={onSyncTerceiros}
-                disabled={isSyncing}
-              >
-                {isSyncing ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <UploadCloud className="h-4 w-4" />
-                )}
-                Sincronizar terceiros
-              </Button>
-            ) : null}
+            
           </div>
         </div>
 
@@ -354,29 +371,25 @@ export default function FiscalTable({
           <div className="inline-flex h-10 items-center justify-center rounded-md rounded-b-none bg-muted p-1 text-muted-foreground">
             <button
               type="button"
-              onClick={() =>
-                setViewMode(viewMode === "EMITIDAS_POR_NOS" ? "TODAS" : "EMITIDAS_POR_NOS")
-              }
+              onClick={() => setViewMode("EMITIDAS_POR_NOS")}
               className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm rounded-b-none px-3 py-1.5 text-sm font-medium transition-all cursor-pointer ${
                 viewMode === "EMITIDAS_POR_NOS"
                   ? "bg-primary text-primary-foreground shadow-sm"
                   : "hover:bg-background/50 hover:text-foreground"
               }`}
             >
-              Emitidas por nós
+              Próprias
             </button>
             <button
               type="button"
-              onClick={() =>
-                setViewMode(viewMode === "EMITIDAS_TERCEIROS" ? "TODAS" : "EMITIDAS_TERCEIROS")
-              }
+              onClick={() => setViewMode("EMITIDAS_TERCEIROS")}
               className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm rounded-b-none px-3 py-1.5 text-sm font-medium transition-all cursor-pointer ${
                 viewMode === "EMITIDAS_TERCEIROS"
                   ? "bg-primary text-primary-foreground shadow-sm"
                   : "hover:bg-background/50 hover:text-foreground"
               }`}
             >
-              Emitidas por terceiros
+              Terceiros
             </button>
           </div>
         </div>
@@ -422,10 +435,16 @@ export default function FiscalTable({
               const pessoa = nota.destinatarioOuEmitente;
               const triggerId = `nota-${nota.id}-menu-btn`;
               const menuId = `nota-${nota.id}-menu`;
+              const manifestacao = String(nota.statusManifestacao ?? "");
               const canManifestarTerceiros =
                 viewMode === "EMITIDAS_TERCEIROS" &&
                 nota.modelo !== "EVENTO" &&
                 !nota.tipoDocumento?.includes("EVENTO");
+              const podeSolicitarCiencia = canManifestarTerceiros && !manifestacao;
+              const podeManifestarOperacao =
+                canManifestarTerceiros && (!manifestacao || manifestacao === "CIENCIA");
+              const podeVerDanfe =
+                viewMode !== "EMITIDAS_TERCEIROS" || nota.xmlStatus === "XML_COMPLETO";
 
               return (
                 <TableRow key={nota.id} className="hover:cursor-pointer">
@@ -436,15 +455,15 @@ export default function FiscalTable({
                           {nota.modelo} {nota.numero}
                         </span>
                         {nota.serie ? <Badge variant="outline">Série {nota.serie}</Badge> : null}
-                        <Badge variant="outline">{direcaoLabel(nota.direcao)}</Badge>
-                        {nota.nsu ? <Badge variant="outline">NSU {nota.nsu}</Badge> : null}
                         {nota.xmlStatusLabel ? (
                           <Badge variant="outline" className={xmlStatusClass(nota.xmlStatus)}>
                             {nota.xmlStatusLabel}
                           </Badge>
                         ) : null}
                         {nota.statusManifestacao ? (
-                          <Badge variant="outline">Manifestação {nota.statusManifestacao}</Badge>
+                          <Badge variant="outline" className={manifestacaoClass(nota.statusManifestacao)}>
+                            Manifestacao {nota.statusManifestacao}
+                          </Badge>
                         ) : null}
                       </div>
                       <span className="text-xs text-muted-foreground">ID: {nota.id}</span>
@@ -506,10 +525,16 @@ export default function FiscalTable({
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent id={menuId} aria-labelledby={triggerId} align="end">
-                        {viewMode !== "EMITIDAS_TERCEIROS" ? (
+                        {podeVerDanfe ? (
                           <DropdownMenuItem
                             onClick={() =>
-                              window.open(`/nfe/${nota.id}/danfe`, "_blank", "noopener,noreferrer")
+                              window.open(
+                                viewMode === "EMITIDAS_TERCEIROS"
+                                  ? `/nfe/${nota.id}/danfe?origem=terceiros`
+                                  : `/nfe/${nota.id}/danfe`,
+                                "_blank",
+                                "noopener,noreferrer",
+                              )
                             }
                           >
                             <Eye className="mr-2 h-4 w-4" />
@@ -520,18 +545,20 @@ export default function FiscalTable({
                           <Download className="mr-2 h-4 w-4" />
                           Baixar XML
                         </DropdownMenuItem>
-                        {viewMode !== "EMITIDAS_TERCEIROS" ? (
-                          <DropdownMenuItem onClick={() => consultarStatus(nota.id)}>
-                            <FileSearch className="mr-2 h-4 w-4" />
-                            Consultar SEFAZ
-                          </DropdownMenuItem>
-                        ) : null}
+                        <DropdownMenuItem onClick={() => consultarStatus(nota.id)}>
+                          <FileSearch className="mr-2 h-4 w-4" />
+                          Consultar SEFAZ
+                        </DropdownMenuItem>
                         {canManifestarTerceiros ? (
                           <>
+                            {podeSolicitarCiencia ? (
                             <DropdownMenuItem onClick={() => manifestarTerceiros(nota.id, "CIENCIA")}>
                               <Send className="mr-2 h-4 w-4" />
                               Ciência da operação
                             </DropdownMenuItem>
+                            ) : null}
+                            {podeManifestarOperacao ? (
+                            <>
                             <DropdownMenuItem onClick={() => manifestarTerceiros(nota.id, "CONFIRMACAO")}>
                               <Send className="mr-2 h-4 w-4" />
                               Confirmar operação
@@ -544,6 +571,8 @@ export default function FiscalTable({
                               <Send className="mr-2 h-4 w-4" />
                               Operação não realizada
                             </DropdownMenuItem>
+                            </>
+                            ) : null}
                           </>
                         ) : null}
                       </DropdownMenuContent>
@@ -628,3 +657,5 @@ export default function FiscalTable({
     </Card>
   );
 }
+
+
