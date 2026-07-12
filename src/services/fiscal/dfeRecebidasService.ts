@@ -1059,6 +1059,17 @@ function buildDfeRecebidasKpis(rows: ReturnType<typeof mapDocumento>[]) {
   };
 }
 
+export async function buscarKpisDfeRecebidasGeral() {
+  const { data, error } = await supabaseAdmin
+    .from("fiscal_dfe_documento")
+    .select("*");
+
+  if (error) throw error;
+
+  const dedupedRows = preferirXmlCompletoPorChave(data ?? []);
+  return buildDfeRecebidasKpis(dedupedRows.map(mapDocumento));
+}
+
 function preferirXmlCompletoPorChave(rows: any[]) {
   const byChave = new Map<string, any>();
 

@@ -23,6 +23,7 @@ export default function FiscalPage() {
   const [kpis, setKpis] = useState<FiscalKpis | undefined>(undefined);
   const [pagination, setPagination] = useState<Pagination>(initialPagination);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingKpis, setIsLoadingKpis] = useState(false);
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -30,6 +31,20 @@ export default function FiscalPage() {
   const [modelo, setModelo] = useState("");
   const [viewMode, setViewMode] = useState<FiscalViewMode>("EMITIDAS_POR_NOS");
   const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleGetKpis = useCallback(async () => {
+    setIsLoadingKpis(true);
+    try {
+      const response = await axios.get("/api/fiscal/kpis");
+      setKpis(response.data.kpis);
+    } catch (error: any) {
+      toast.error("Erro ao carregar KPIs fiscais", {
+        description: error?.response?.data?.error ?? error?.message,
+      });
+    } finally {
+      setIsLoadingKpis(false);
+    }
+  }, []);
 
   const handleGetNotas = useCallback(
     async (page = 1, limit = pagination.limit) => {
@@ -54,7 +69,6 @@ export default function FiscalPage() {
         });
 
         setNotas(response.data.data ?? []);
-        setKpis(response.data.kpis);
         setPagination(response.data.pagination ?? initialPagination);
       } catch (error: any) {
         toast.error("Erro ao carregar notas fiscais", {
@@ -76,7 +90,10 @@ export default function FiscalPage() {
         id: toastId,
         description: `${response.data?.novosDocumentos ?? 0} novo(s) documento(s). ${response.data?.xMotivo ?? ""}`,
       });
-      await handleGetNotas(1, pagination.limit);
+      await Promise.all([
+        handleGetNotas(1, pagination.limit),
+        handleGetKpis(),
+      ]);
     } catch (error: any) {
       const blockedUntil = error?.response?.data?.consumoIndevidoUntil ?? error?.response?.data?.nextSyncAfter;
       const blockedMessage = blockedUntil
@@ -93,7 +110,7 @@ export default function FiscalPage() {
     } finally {
       setIsSyncing(false);
     }
-  }, [handleGetNotas, pagination.limit]);
+  }, [handleGetKpis, handleGetNotas, pagination.limit]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -103,9 +120,13 @@ export default function FiscalPage() {
     return () => window.clearTimeout(timeout);
   }, [handleGetNotas, pagination.limit]);
 
+  useEffect(() => {
+    void handleGetKpis();
+  }, [handleGetKpis]);
+
   return (
     <div className="space-y-4">
-      <FiscalCards kpis={kpis} isLoading={isLoading} />
+      <FiscalCards kpis={kpis} isLoading={isLoadingKpis} />
       <div className="flex justify-end">
         <Button asChild>
           <Link href="/fiscal/nfe-avulsa">

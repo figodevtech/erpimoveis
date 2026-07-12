@@ -1,6 +1,6 @@
 "use client";
 
-import { FileCheck2, FileInput, FileOutput, ReceiptText } from "lucide-react";
+import { FileInput, FileOutput, ReceiptText, WalletCards } from "lucide-react";
 
 import {
   Card,
@@ -43,33 +43,33 @@ function KpiCard({
 }
 
 export default function FiscalCards({ kpis, isLoading }: FiscalCardsProps) {
-  const suffix = isLoading ? "Atualizando..." : "Notas fiscais no filtro atual";
+  const suffix = isLoading ? "Atualizando..." : "Indicador geral";
 
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
       <KpiCard
-        title="Valor fiscal"
-        value={formatarEmReal(kpis?.valorTotal ?? 0)}
+        title="Notas próprias"
+        value={String(kpis?.emitidasPorNos ?? 0)}
+        description={suffix}
+        icon={FileOutput}
+      />
+      <KpiCard
+        title="Notas de terceiros"
+        value={String(kpis?.emitidasTerceiros ?? 0)}
+        description={suffix}
+        icon={FileInput}
+      />
+      <KpiCard
+        title="Valor próprias"
+        value={formatarEmReal(kpis?.valorEmitidasPorNos ?? 0)}
         description={suffix}
         icon={ReceiptText}
       />
       <KpiCard
-        title="Emissões próprias"
-        value={String(kpis?.emitidasPorNos ?? 0)}
-        description={formatarEmReal(kpis?.valorEmitidasPorNos ?? 0)}
-        icon={FileOutput}
-      />
-      <KpiCard
-        title="Emitidas por terceiros"
-        value={String(kpis?.emitidasTerceiros ?? 0)}
-        description={formatarEmReal(kpis?.valorEmitidasTerceiros ?? 0)}
-        icon={FileInput}
-      />
-      <KpiCard
-        title="Autorizadas"
-        value={String(kpis?.autorizadas ?? 0)}
-        description={`${kpis?.canceladas ?? 0} canceladas | ${kpis?.rejeitadas ?? 0} rejeitadas`}
-        icon={FileCheck2}
+        title="Valor terceiros"
+        value={formatarEmReal(kpis?.valorEmitidasTerceiros ?? 0)}
+        description={suffix}
+        icon={WalletCards}
       />
     </div>
   );

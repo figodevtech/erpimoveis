@@ -240,6 +240,42 @@ function buildKpis(rows: NotaFiscalListItem[]): NotaFiscalKpis {
   };
 }
 
+export async function buscarKpisNotasEmitidasProprias() {
+  const { data, error } = await supabaseAdmin
+    .from("nfe")
+    .select("id, status, total_nfe")
+    .eq("is_deleted", false);
+
+  if (error) throw error;
+
+  const rows = (data ?? []).map((row: any) => ({
+    id: Number(row.id),
+    origem: "PROPRIA" as const,
+    modelo: "NFE",
+    serie: 0,
+    numero: 0,
+    chave_acesso: "",
+    ambiente: "",
+    status: String(row.status ?? ""),
+    dataemissao: "",
+    dataautorizacao: null,
+    protocolo: null,
+    total_nfe: Number(row.total_nfe ?? 0),
+    ordemservicoid: null,
+    vendaid: null,
+    entradaid: null,
+    clienteid: null,
+    fornecedorid: null,
+    empresaid: 0,
+    tpNF: null,
+    direcao: "EMITIDAS_POR_NOS" as const,
+    destinatarioOuEmitente: null,
+    empresa: null,
+  }));
+
+  return buildKpis(rows);
+}
+
 export async function listarNotasEmitidas(params: NotaFiscalListParams) {
   const page = clampInt(params.page, 1, 1, 10_000);
   const limit = clampInt(params.limit, 20, 1, 100);
