@@ -19,6 +19,16 @@ import {
 import { toast } from "sonner";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,6 +51,7 @@ import type { Customer } from "@/app/(app)/(pages)/clientes/types";
 import type { Produto } from "@/app/(app)/(pages)/estoque/types";
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
 import { DanfeView, type DanfeViewData } from "@/components/danfe/danfe-view";
+import ValueInput from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/components/transactionDialog/valueInput";
 
 type ClienteSetup = {
   id: number;
@@ -343,7 +354,14 @@ function onlyDigits(value: string) {
 }
 
 function parseCurrency(value: string) {
-  const parsed = Number(value.replace(/\./g, "").replace(",", "."));
+  const raw = String(value ?? "").trim();
+  if (!raw) return 0;
+
+  const sanitized = raw.replace(/[^\d,.-]/g, "");
+  const normalized = sanitized.includes(",")
+    ? sanitized.replace(/\./g, "").replace(",", ".")
+    : sanitized;
+  const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
@@ -548,6 +566,7 @@ export default function NFeAvulsaPage() {
   const [dirty, setDirty] = React.useState(false);
   const [openCustomerSelect, setOpenCustomerSelect] = React.useState(false);
   const [openProductSelect, setOpenProductSelect] = React.useState(false);
+  const [confirmAuthorizeOpen, setConfirmAuthorizeOpen] = React.useState(false);
 
   const totalProdutos = React.useMemo(
     () =>
@@ -800,8 +819,7 @@ export default function NFeAvulsaPage() {
   }
 
   async function autorizar() {
-    if (!window.confirm("Transmitir esta NF-e para a SEFAZ?")) return;
-
+    setConfirmAuthorizeOpen(false);
     setAuthorizing(true);
     const toastId = toast.loading("Transmitindo NF-e para a SEFAZ...");
     try {
@@ -819,9 +837,21 @@ export default function NFeAvulsaPage() {
         { headers: { "Idempotency-Key": crypto.randomUUID() } },
       );
       const protocolo = response.data?.sefaz?.protocolo;
-      const motivo = protocolo?.xMotivo ?? response.data?.mensagem ?? "Retorno recebido da SEFAZ.";
-      toast.success("Transmissão concluída", { id: toastId, description: motivo });
-      if (response.data?.nfeDb?.status === "AUTORIZADA") {
+      const lote = response.data?.sefaz?.lote;
+      const statusDb = String(response.data?.nfeDb?.status ?? "").toUpperCase();
+      const motivo =
+        protocolo?.xMotivo ??
+        lote?.xMotivo ??
+        response.data?.mensagem ??
+        "Retorno recebido da SEFAZ sem motivo interpretado.";
+      const detalhes = [
+        protocolo?.cStat ? `Protocolo ${protocolo.cStat}` : null,
+        lote?.cStat ? `Lote ${lote.cStat}` : null,
+      ].filter(Boolean).join(" / ");
+      const description = detalhes ? `${motivo} (${detalhes})` : motivo;
+
+      if (statusDb === "AUTORIZADA") {
+        toast.success("NF-e autorizada", { id: toastId, description });
         window.localStorage.removeItem(storageKey);
         setDocumentState((current) => ({
           ...current,
@@ -830,6 +860,12 @@ export default function NFeAvulsaPage() {
           protocolo: response.data?.nfeDb?.protocolo ?? response.data?.sefaz?.protocolo?.nProt ?? current.protocolo,
           dataAutorizacao: new Date().toISOString(),
         }));
+      } else if (statusDb === "REJEITADA" || statusDb === "DENEGADA") {
+        toast.error(statusDb === "DENEGADA" ? "NF-e denegada" : "NF-e rejeitada", { id: toastId, description });
+        setDocumentState((current) => ({ ...current, status: statusDb, chave: response.data?.chave ?? current.chave }));
+      } else {
+        toast.warning("NF-e enviada para processamento", { id: toastId, description });
+        setDocumentState((current) => ({ ...current, status: statusDb || current.status, chave: response.data?.chave ?? current.chave }));
       }
     } catch (error) {
       const description = isAxiosError(error)
@@ -1318,7 +1354,10 @@ export default function NFeAvulsaPage() {
                         </div>
                         <div className="md:col-span-2">
                           <Label className="inline-flex items-center gap-1">Valor unitário <RequiredMark /></Label>
-                          <Input value={item.valorUnitario} onChange={(event) => updateItem(index, { valorUnitario: event.target.value })} />
+                          <ValueInput
+                            price={parseCurrency(item.valorUnitario)}
+                            setPrice={(value) => updateItem(index, { valorUnitario: value.toFixed(2) })}
+                          />
                         </div>
                         <div className="md:col-span-3">
                           <Label className="inline-flex items-center gap-1">
@@ -1591,7 +1630,10 @@ export default function NFeAvulsaPage() {
                       {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                       {isEditingPersistedDraft ? "Salvar edição" : "Salvar como rascunho"}
                     </Button>
-                    <Button onClick={autorizar} disabled={authorizing || saving || (setup?.empresaErros?.length ?? 0) > 0}>
+                    <Button
+                      onClick={() => setConfirmAuthorizeOpen(true)}
+                      disabled={authorizing || saving || (setup?.empresaErros?.length ?? 0) > 0}
+                    >
                       {authorizing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                       Autorizar SEFAZ
                     </Button>
@@ -1623,6 +1665,38 @@ export default function NFeAvulsaPage() {
           </CardContent>
         </Card>
       </div>
+
+      <AlertDialog open={confirmAuthorizeOpen} onOpenChange={setConfirmAuthorizeOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Transmitir NF-e para a SEFAZ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A nota será salva, assinada e enviada para autorização. Se a SEFAZ autorizar,
+              a NF-e não poderá mais ser editada; qualquer correção fiscal deverá seguir os
+              eventos permitidos, como cancelamento ou carta de correção quando aplicável.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="rounded-md border bg-muted/30 p-3 text-sm">
+            <p className="font-medium">{draft.destinatario.nomeRazaoSocial || "Destinatário pendente"}</p>
+            <p className="mt-1 text-muted-foreground">
+              Total da NF-e: {formatarEmReal(totalProdutos)} - Ambiente: {ambienteLabel}
+            </p>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={authorizing}>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={authorizing}
+              onClick={(event) => {
+                event.preventDefault();
+                void autorizar();
+              }}
+            >
+              {authorizing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              Confirmar envio
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

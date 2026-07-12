@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import axios, { isAxiosError } from "axios";
 import {
   Calendar,
@@ -18,9 +19,20 @@ import {
   Send,
   UploadCloud,
   Trash2,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -52,6 +64,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { traduzStatusNfe } from "@/lib/nfe/statusNfe";
 
@@ -162,8 +175,14 @@ export default function FiscalTable({
   onSyncTerceiros,
   isSyncing,
 }: FiscalTableProps) {
+  const router = useRouter();
   const limitUid = React.useId();
   const limitListboxId = `${limitUid}-fiscal-limit-listbox`;
+  const [notaCancelamento, setNotaCancelamento] = React.useState<NotaFiscal | null>(null);
+  const [motivoCancelamento, setMotivoCancelamento] = React.useState("");
+  const [cancelandoNota, setCancelandoNota] = React.useState(false);
+  const [notaForcarXml, setNotaForcarXml] = React.useState<NotaFiscal | null>(null);
+  const [forcandoXml, setForcandoXml] = React.useState(false);
 
   const title =
     viewMode === "EMITIDAS_POR_NOS"
@@ -193,7 +212,8 @@ export default function FiscalTable({
     }
   }
 
-  async function baixarXml(id: number) {
+  async function baixarXml(nota: NotaFiscal) {
+    const id = nota.id;
     const endpoint =
       viewMode === "EMITIDAS_TERCEIROS"
         ? `/api/fiscal/notas-recebidas/${id}/xml`
@@ -204,18 +224,56 @@ export default function FiscalTable({
       const response = await fetch(endpoint);
       if (!response.ok) {
         const body = await response.json().catch(() => null);
-        toast.error("XML indisponível", {
+        const nextCheckText = body?.nextCheckAfter
+          ? ` Próxima tentativa segura após ${new Date(body.nextCheckAfter).toLocaleString("pt-BR")}.`
+          : "";
+        const title = body?.xmlCompleto === false ? "XML ainda não disponível" : "XML indisponível";
+        const description =
+          `${body?.detail ?? body?.error ?? "Não foi possível baixar o XML."}${nextCheckText}`;
+        const toastOptions = {
           id: toastId,
-          description: body?.detail ?? body?.error ?? "Não foi possível baixar o XML.",
+          description,
+          action:
+            body?.xmlCompleto === false && viewMode === "EMITIDAS_TERCEIROS" && nota.chave_acesso
+              ? {
+                  label: "Forçar tentativa",
+                  onClick: () => setNotaForcarXml(nota),
+                }
+              : undefined,
+        };
+
+        if (body?.xmlCompleto === false) {
+          toast.warning(title, toastOptions);
+        } else {
+          toast.error(title, toastOptions);
+        }
+        return;
+      }
+
+      const disposition = response.headers.get("Content-Disposition") ?? "";
+      const xmlCompleto = response.headers.get("X-DFe-Xml-Completo") !== "false";
+      const motivo = decodeURIComponent(response.headers.get("X-DFe-Xml-Motivo") ?? "");
+      const nextCheckAfter = response.headers.get("X-DFe-Xml-Next-Check-After");
+      if (!xmlCompleto) {
+        const nextCheckText = nextCheckAfter
+          ? ` Próxima tentativa segura após ${new Date(nextCheckAfter).toLocaleString("pt-BR")}.`
+          : "";
+        toast.warning("XML ainda não disponível", {
+          id: toastId,
+          description:
+            `${motivo || "A SEFAZ ainda não disponibilizou o XML completo da NF-e."}${nextCheckText}`,
+          action:
+            viewMode === "EMITIDAS_TERCEIROS" && nota.chave_acesso
+              ? {
+                  label: "Forçar tentativa",
+                  onClick: () => setNotaForcarXml(nota),
+                }
+              : undefined,
         });
         return;
       }
 
       const blob = await response.blob();
-      const disposition = response.headers.get("Content-Disposition") ?? "";
-      const xmlCompleto = response.headers.get("X-DFe-Xml-Completo") !== "false";
-      const motivo = decodeURIComponent(response.headers.get("X-DFe-Xml-Motivo") ?? "");
-      const nextCheckAfter = response.headers.get("X-DFe-Xml-Next-Check-After");
       const filenameMatch = disposition.match(/filename="?([^"]+)"?/i);
       const filename = filenameMatch?.[1] ?? `nota-fiscal-${id}.xml`;
       const url = URL.createObjectURL(blob);
@@ -227,18 +285,7 @@ export default function FiscalTable({
       link.remove();
       URL.revokeObjectURL(url);
 
-      if (xmlCompleto) {
-        toast.success("XML baixado", { id: toastId });
-      } else {
-        const nextCheckText = nextCheckAfter
-          ? ` Próxima tentativa segura após ${new Date(nextCheckAfter).toLocaleString("pt-BR")}.`
-          : "";
-        toast.warning("Resumo XML baixado", {
-          id: toastId,
-          description:
-            `${motivo || "O XML completo da NF-e ainda não está disponível na SEFAZ."}${nextCheckText}`,
-        });
-      }
+      toast.success("XML baixado", { id: toastId });
     } catch (error) {
       const description = error instanceof Error ? error.message : "Erro ao baixar XML.";
       toast.error("Falha no download", { id: toastId, description });
@@ -305,7 +352,94 @@ export default function FiscalTable({
     }
   }
 
+  async function forcarTentativaXml() {
+    if (!notaForcarXml) return;
+
+    setForcandoXml(true);
+    const toastId = toast.loading("Forçando nova tentativa na SEFAZ...");
+    try {
+      const response = await axios.post("/api/fiscal/notas-recebidas/consultar-chave", {
+        chave: notaForcarXml.chave_acesso,
+        empresaId: notaForcarXml.empresaid,
+        force: true,
+      });
+
+      const description =
+        response.data?.xMotivo ??
+        (response.data?.novosDocumentos
+          ? "A SEFAZ retornou novos documentos. Tentando baixar o XML completo."
+          : "Consulta concluída. Tentando baixar o XML completo.");
+      toast.success("Tentativa concluída", { id: toastId, description });
+
+      const nota = notaForcarXml;
+      setNotaForcarXml(null);
+      await handleGetNotas(pagination.page, pagination.limit);
+      await baixarXml(nota);
+    } catch (error) {
+      const description = isAxiosError(error)
+        ? error.response?.data?.xMotivo ??
+          error.response?.data?.detail ??
+          error.response?.data?.error ??
+          error.message
+        : "Erro ao forçar nova tentativa.";
+      toast.error("Falha na tentativa", { id: toastId, description });
+    } finally {
+      setForcandoXml(false);
+    }
+  }
+
+  async function cancelarNotaAutorizada() {
+    if (!notaCancelamento) return;
+
+    const justificativa = motivoCancelamento.trim();
+    if (justificativa.length < 15) {
+      toast.error("Informe um motivo com pelo menos 15 caracteres.");
+      return;
+    }
+
+    setCancelandoNota(true);
+    const toastId = toast.loading("Solicitando cancelamento na SEFAZ...");
+    try {
+      const response = await axios.post(`/api/nfe/cancelar/${notaCancelamento.id}`, {
+        justificativa,
+      });
+      const statusDb = String(response.data?.nfeDb?.status ?? "").toUpperCase();
+      const retorno = response.data?.evento?.retorno;
+      const lote = response.data?.evento?.lote;
+      const motivo =
+        retorno?.xMotivo ??
+        lote?.xMotivo ??
+        response.data?.mensagem ??
+        "Retorno recebido da SEFAZ.";
+      const detalhes = [
+        retorno?.cStat ? `Evento ${retorno.cStat}` : null,
+        lote?.cStat ? `Lote ${lote.cStat}` : null,
+      ].filter(Boolean).join(" / ");
+      const description = detalhes ? `${motivo} (${detalhes})` : motivo;
+
+      if (statusDb === "CANCELADA") {
+        toast.success("NF-e cancelada", { id: toastId, description });
+        setNotaCancelamento(null);
+        setMotivoCancelamento("");
+        await handleGetNotas(pagination.page, pagination.limit);
+      } else {
+        toast.warning("Cancelamento não homologado", { id: toastId, description });
+      }
+    } catch (error) {
+      const description = isAxiosError(error)
+        ? error.response?.data?.mensagem ??
+          error.response?.data?.detail ??
+          error.response?.data?.error ??
+          error.message
+        : "Erro ao solicitar cancelamento.";
+      toast.error("Falha no cancelamento", { id: toastId, description });
+    } finally {
+      setCancelandoNota(false);
+    }
+  }
+
   return (
+    <>
     <Card>
       <CardHeader className="border-b-2">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -472,9 +606,15 @@ export default function FiscalTable({
               const podeVerDanfe =
                 viewMode !== "EMITIDAS_TERCEIROS" || nota.xmlStatus === "XML_COMPLETO";
               const isRascunho = String(nota.status).toUpperCase() === "RASCUNHO";
+              const statusTraduzido = traduzStatusNfe(nota.status).toUpperCase();
               const podeConsultarSefaz = !isRascunho;
               const podeExcluirRascunho = viewMode !== "EMITIDAS_TERCEIROS" && isRascunho;
               const podeEditarRascunho = viewMode !== "EMITIDAS_TERCEIROS" && isRascunho;
+              const podeCancelarNota =
+                viewMode !== "EMITIDAS_TERCEIROS" &&
+                !isRascunho &&
+                (String(nota.status).toUpperCase() === "AUTORIZADA" ||
+                  statusTraduzido === "AUTORIZADA");
 
               return (
                 <TableRow key={nota.id} className="hover:cursor-pointer">
@@ -571,7 +711,7 @@ export default function FiscalTable({
                             Ver DANFE
                           </DropdownMenuItem>
                         ) : null}
-                        <DropdownMenuItem onClick={() => baixarXml(nota.id)}>
+                        <DropdownMenuItem onClick={() => baixarXml(nota)}>
                           <Download className="mr-2 h-4 w-4" />
                           Baixar XML
                         </DropdownMenuItem>
@@ -582,7 +722,7 @@ export default function FiscalTable({
                           </DropdownMenuItem>
                         ) : null}
                         {podeEditarRascunho ? (
-                          <DropdownMenuItem onClick={() => window.location.assign(`/fiscal/nfe-avulsa?id=${nota.id}`)}>
+                          <DropdownMenuItem onClick={() => router.push(`/fiscal/nfe-avulsa?id=${nota.id}`)}>
                             <Pencil className="mr-2 h-4 w-4" />
                             Editar rascunho
                           </DropdownMenuItem>
@@ -594,6 +734,18 @@ export default function FiscalTable({
                           >
                             <Trash2 className="mr-2 h-4 w-4" />
                             Excluir rascunho
+                          </DropdownMenuItem>
+                        ) : null}
+                        {podeCancelarNota ? (
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => {
+                              setNotaCancelamento(nota);
+                              setMotivoCancelamento("");
+                            }}
+                          >
+                            <XCircle className="mr-2 h-4 w-4" />
+                            Solicitar cancelamento
                           </DropdownMenuItem>
                         ) : null}
                         {canManifestarTerceiros ? (
@@ -702,6 +854,99 @@ export default function FiscalTable({
         </div>
       </CardContent>
     </Card>
+    <AlertDialog
+      open={Boolean(notaCancelamento)}
+      onOpenChange={(open) => {
+        if (cancelandoNota) return;
+        if (!open) {
+          setNotaCancelamento(null);
+          setMotivoCancelamento("");
+        }
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Solicitar cancelamento da NF-e?</AlertDialogTitle>
+          <AlertDialogDescription>
+            O cancelamento será enviado como evento para a SEFAZ. Informe uma justificativa fiscal
+            com no mínimo 15 caracteres.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="space-y-2">
+          <div className="rounded-md border bg-muted/30 p-3 text-sm">
+            <p className="font-medium">
+              NF-e {notaCancelamento?.numero ?? "-"} - Série {notaCancelamento?.serie ?? "-"}
+            </p>
+            <p className="mt-1 break-all text-xs text-muted-foreground">
+              Chave {notaCancelamento?.chave_acesso || "-"}
+            </p>
+          </div>
+          <Textarea
+            value={motivoCancelamento}
+            onChange={(event) => setMotivoCancelamento(event.target.value.slice(0, 255))}
+            placeholder="Ex.: Erro de emissão nos dados fiscais da nota."
+            disabled={cancelandoNota}
+            rows={4}
+          />
+          <p className="text-xs text-muted-foreground">
+            {motivoCancelamento.trim().length}/255 caracteres. Mínimo: 15.
+          </p>
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={cancelandoNota}>Voltar</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            disabled={cancelandoNota || motivoCancelamento.trim().length < 15}
+            onClick={(event) => {
+              event.preventDefault();
+              void cancelarNotaAutorizada();
+            }}
+          >
+            {cancelandoNota ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Confirmar cancelamento
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    <AlertDialog
+      open={Boolean(notaForcarXml)}
+      onOpenChange={(open) => {
+        if (forcandoXml) return;
+        if (!open) setNotaForcarXml(null);
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Forçar nova tentativa agora?</AlertDialogTitle>
+          <AlertDialogDescription>
+            A consulta será enviada novamente para a SEFAZ mesmo antes do horário sugerido.
+            Use esta opção apenas quando quiser tentar buscar o XML completo imediatamente.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="rounded-md border bg-muted/30 p-3 text-sm">
+          <p className="font-medium">
+            NF-e {notaForcarXml?.numero ?? "-"} - Série {notaForcarXml?.serie ?? "-"}
+          </p>
+          <p className="mt-1 break-all text-xs text-muted-foreground">
+            Chave {notaForcarXml?.chave_acesso || "-"}
+          </p>
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={forcandoXml}>Voltar</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={forcandoXml}
+            onClick={(event) => {
+              event.preventDefault();
+              void forcarTentativaXml();
+            }}
+          >
+            {forcandoXml ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            Forçar tentativa
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }
 

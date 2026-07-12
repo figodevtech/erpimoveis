@@ -31,7 +31,24 @@ export async function GET(_req: NextRequest, { params }: Context) {
     }
 
     const isCompleto = documento.completo !== false;
-    const filenamePrefix = isCompleto ? "dfe" : "resumo-dfe";
+    if (!isCompleto) {
+      const motivo =
+        documento.motivo && !/baixando o resumo/i.test(documento.motivo)
+          ? documento.motivo
+          : "Aguarde a disponibilização do XML completo pela SEFAZ e tente novamente.";
+
+      return NextResponse.json(
+        {
+          error: "A SEFAZ ainda não disponibilizou o XML completo da NF-e.",
+          detail: motivo,
+          nextCheckAfter: documento.nextCheckAfter ?? null,
+          xmlCompleto: false,
+        },
+        { status: 409 },
+      );
+    }
+
+    const filenamePrefix = "dfe";
 
     return new NextResponse(documento.xml, {
       status: 200,

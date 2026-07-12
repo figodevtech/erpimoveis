@@ -1,7 +1,5 @@
-// src/lib/nfe/assinatura-evento.ts
-
-import { SignedXml } from 'xml-crypto';
 import { DOMParser } from '@xmldom/xmldom';
+import { SignedXml } from 'xml-crypto';
 
 /**
  * Assina a tag <infEvento> dentro do XML de evento (envEvento),
@@ -12,7 +10,6 @@ export function assinarEventoNFeXml(
   privateKeyPem: string,
   certificatePem: string
 ): string {
-  // 1) Parse do XML pra pegar o Id da infEvento
   const doc = new DOMParser().parseFromString(xmlEnvEvento, 'text/xml');
 
   const infEventoNode =
@@ -23,7 +20,7 @@ export function assinarEventoNFeXml(
     )[0];
 
   if (!infEventoNode) {
-    throw new Error('Tag <infEvento> não encontrada no XML de evento.');
+    throw new Error('Tag <infEvento> nao encontrada no XML de evento.');
   }
 
   const idInfEvento =
@@ -33,30 +30,18 @@ export function assinarEventoNFeXml(
 
   if (!idInfEvento) {
     throw new Error(
-      'Atributo Id não encontrado na tag <infEvento> para assinatura.'
+      'Atributo Id nao encontrado na tag <infEvento> para assinatura.'
     );
   }
 
-  // 2) Configura o SignedXml
-  const sx: any = new SignedXml();
+  const sx = new SignedXml({
+    privateKey: privateKeyPem,
+    publicCert: certificatePem,
+    canonicalizationAlgorithm:
+      'http://www.w3.org/TR/2001/REC-xml-c14n-20010315',
+    signatureAlgorithm: 'http://www.w3.org/2000/09/xmldsig#rsa-sha1',
+  });
 
-  // Canonicalização c14n (exigido pela NF-e)
-  sx.canonicalizationAlgorithm =
-    'http://www.w3.org/TR/2001/REC-xml-c14n-20010315';
-
-  // Algoritmo de assinatura RSA-SHA1
-  sx.signatureAlgorithm =
-    'http://www.w3.org/2000/09/xmldsig#rsa-sha1';
-
-  // A lib que está rodando no runtime espera this.privateKey
-  sx.privateKey = privateKeyPem;
-
-  console.log(
-    '[assinarEventoNFeXml] privateKey está setado?',
-    !!sx.privateKey
-  );
-
-  // 3) Referência para a tag <infEvento>, com transforms enveloped + c14n e SHA1
   sx.addReference({
     xpath:
       "/*[local-name()='envEvento']/*[local-name()='evento']/*[local-name()='infEvento']",
@@ -68,7 +53,6 @@ export function assinarEventoNFeXml(
     ],
   });
 
-  // 4) Gera a assinatura logo DEPOIS da tag <infEvento>
   sx.computeSignature(xmlEnvEvento, {
     location: {
       reference:
@@ -77,36 +61,17 @@ export function assinarEventoNFeXml(
     },
   });
 
-  let signedXml: string = sx.getSignedXml();
+  const signedXml = sx.getSignedXml();
 
-  // 5) Garante que existe <KeyInfo> com o certificado (SEFAZ costuma exigir)
-  if (!signedXml.includes('<KeyInfo')) {
-    const cleanCert = certificatePem
-      .replace('-----BEGIN CERTIFICATE-----', '')
-      .replace('-----END CERTIFICATE-----', '')
-      .replace(/\r?\n|\r/g, '');
-
-    const keyInfoXml =
-      '<KeyInfo>' +
-        '<X509Data>' +
-          `<X509Certificate>${cleanCert}</X509Certificate>` +
-        '</X509Data>' +
-      '</KeyInfo>';
-
-    signedXml = signedXml.replace(
-      '</Signature>',
-      `${keyInfoXml}</Signature>`
-    );
+  if (!/<(?:\w+:)?Signature[\s>]/.test(signedXml)) {
+    throw new Error('Falha ao gerar assinatura XML do evento da NF-e.');
   }
 
-  console.log(
-    '[assinarEventoNFeXml] XML assinado contém <Signature>?',
-    signedXml.includes('<Signature')
-  );
-  console.log(
-    '[assinarEventoNFeXml] XML assinado contém <KeyInfo>?',
-    signedXml.includes('<KeyInfo')
-  );
+  if (!/<(?:\w+:)?X509Certificate[\s>]/.test(signedXml)) {
+    throw new Error(
+      'Assinatura XML do evento da NF-e foi gerada sem certificado X509.'
+    );
+  }
 
   return signedXml;
 }

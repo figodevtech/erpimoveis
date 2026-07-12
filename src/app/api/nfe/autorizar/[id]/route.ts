@@ -1,4 +1,4 @@
-// src/app/api/nfe/autorizar/[id]/route.ts
+﻿// src/app/api/nfe/autorizar/[id]/route.ts
 
 import { NextResponse } from "next/server";
 import https from "https";
@@ -71,7 +71,7 @@ function buildNfeProcXml(
 ): string | null {
   if (!protNFeXml) return null;
 
-  // Remove declaração XML do início da NFe, se existir
+  // Remove declaraÃ§Ã£o XML do inÃ­cio da NFe, se existir
   const nfeSemDecl = xmlAssinado.replace(/<\?xml[^>]*\?>\s*/i, "");
 
   return (
@@ -85,15 +85,43 @@ function buildNfeProcXml(
 
 /**
  * Extrai o XML bruto do <protNFe> de dentro da resposta SOAP.
- * (Usamos regex aqui só pra montar o nfeProc bonitinho.)
+ * (Usamos regex aqui sÃ³ pra montar o nfeProc bonitinho.)
  */
 function extrairProtNFeXml(respostaSoap: string): string | null {
   const match = respostaSoap.match(/<protNFe[^>]*>[\s\S]*?<\/protNFe>/);
   return match ? match[0] : null;
 }
 
+function findXmlNode(value: any, nodeName: string): any | null {
+  if (!value || typeof value !== "object") return null;
+  if (Object.prototype.hasOwnProperty.call(value, nodeName)) return value[nodeName];
+
+  for (const child of Object.values(value)) {
+    if (Array.isArray(child)) {
+      for (const item of child) {
+        const found = findXmlNode(item, nodeName);
+        if (found) return found;
+      }
+    } else {
+      const found = findXmlNode(child, nodeName);
+      if (found) return found;
+    }
+  }
+
+  return null;
+}
+
+function firstXmlNode(value: any) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function toText(value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  return String(value);
+}
+
 /**
- * Extrai o Id do <infNFe> e a chave de acesso (44 dígitos) do XML.
+ * Extrai o Id do <infNFe> e a chave de acesso (44 dÃ­gitos) do XML.
  */
 function extrairChaveEIdDoXml(
   xml: string
@@ -116,7 +144,7 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
     const nfeId = Number(nfeIdParam);
     if (Number.isNaN(nfeId)) {
       return NextResponse.json(
-        { ok: false, mensagem: "ID de NF-e inválido" },
+        { ok: false, mensagem: "ID de NF-e invÃ¡lido" },
         { status: 400 }
       );
     }
@@ -144,7 +172,7 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
 
     if (!nfe) {
       return NextResponse.json(
-        { ok: false, mensagem: "NF-e não encontrada" },
+        { ok: false, mensagem: "NF-e nÃ£o encontrada" },
         { status: 404 }
       );
     }
@@ -154,7 +182,7 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
       return NextResponse.json(
         {
           ok: false,
-          mensagem: "NF-e não possui empresa associada (empresaid nulo)",
+          mensagem: "NF-e nÃ£o possui empresa associada (empresaid nulo)",
         },
         { status: 500 }
       );
@@ -165,7 +193,7 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
         {
           ok: false,
           mensagem:
-            "NF-e não possui número ou série definidos (campos numero/serie)",
+            "NF-e nÃ£o possui nÃºmero ou sÃ©rie definidos (campos numero/serie)",
         },
         { status: 500 }
       );
@@ -196,7 +224,7 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
 
     if (!empresa) {
       return NextResponse.json(
-        { ok: false, mensagem: "Empresa não encontrada" },
+        { ok: false, mensagem: "Empresa nÃ£o encontrada" },
         { status: 404 }
       );
     }
@@ -212,7 +240,7 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
       return NextResponse.json(
         {
           ok: false,
-          mensagem: "NF-e sem cliente, entrada ou destinatário avulso associado.",
+          mensagem: "NF-e sem cliente, entrada ou destinatÃ¡rio avulso associado.",
         },
         { status: 500 }
       );
@@ -304,7 +332,7 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
       return NextResponse.json(
         {
           ok: false,
-          mensagem: "NF-e não possui itens cadastrados em nfe_item.",
+          mensagem: "NF-e nÃ£o possui itens cadastrados em nfe_item.",
         },
         { status: 500 }
       );
@@ -332,12 +360,12 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
 
     const xmlSemAssinatura = xmlRascunhoSalvo;
 
-    // Se não houver XML salvo, retorna erro ou poderia gerar um novo (descomente se desejar)
+    // Se nÃ£o houver XML salvo, retorna erro ou poderia gerar um novo (descomente se desejar)
     if (!xmlSemAssinatura) {
       return NextResponse.json(
         {
           ok: false,
-          mensagem: "Não existe XML de rascunho salvo para esta NF-e. Gere o rascunho primeiro.",
+          mensagem: "NÃ£o existe XML de rascunho salvo para esta NF-e. Gere o rascunho primeiro.",
         },
         { status: 400 }
       );
@@ -365,7 +393,7 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
     const enviNFeXml = buildEnviNFeXml(xmlAssinado);
 
     // -------------------------------------------------------------------
-    // 10) Montar SOAP Envelope para o serviço NFeAutorizacao4
+    // 10) Montar SOAP Envelope para o serviÃ§o NFeAutorizacao4
     // -------------------------------------------------------------------
     const soapEnvelope =
       '<?xml version="1.0" encoding="utf-8"?>' +
@@ -381,7 +409,7 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
       "</soap12:Envelope>";
 
     // -------------------------------------------------------------------
-    // 11) URL do webservice (SVRS - PB) para PRODUÇÃO / HOMOLOGAÇÃO
+    // 11) URL do webservice (SVRS - PB) para PRODUÃ‡ÃƒO / HOMOLOGAÃ‡ÃƒO
     // -------------------------------------------------------------------
     const url =
       ambiente === "PRODUCAO"
@@ -389,18 +417,18 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
         : "https://nfe-homologacao.svrs.rs.gov.br/ws/NfeAutorizacao/NFeAutorizacao4.asmx";
 
     // -------------------------------------------------------------------
-    // 12) Montar agente HTTPS com a chave e certificado extraídos (PEM)
+    // 12) Montar agente HTTPS com a chave e certificado extraÃ­dos (PEM)
     // Isso evita o erro "unsupported" que ocorre ao passar o PFX direto em Node 17+
     // -------------------------------------------------------------------
     const httpsAgent = new https.Agent({
       key: privateKeyPem,
       cert: certificatePem,
-      // Em produção, o ideal é deixar como true e ter a cadeia de certificados correta:
+      // Em produÃ§Ã£o, o ideal Ã© deixar como true e ter a cadeia de certificados correta:
       rejectUnauthorized: false,
     });
 
     // -------------------------------------------------------------------
-    // 13) Enviar requisição SOAP para o webservice usando https.request
+    // 13) Enviar requisiÃ§Ã£o SOAP para o webservice usando https.request
     // -------------------------------------------------------------------
     const { httpStatus, body: respostaText } = await postSoapComCert(
       url,
@@ -409,7 +437,7 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
     );
 
     // -------------------------------------------------------------------
-    // 14) Se HTTP não for 200, já retorna erro bruto
+    // 14) Se HTTP nÃ£o for 200, jÃ¡ retorna erro bruto
     // -------------------------------------------------------------------
     if (httpStatus !== 200) {
       return NextResponse.json(
@@ -417,7 +445,7 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
           ok: false,
           ambiente,
           chave: chave ?? null,
-          idNFe: idNFeXml ?? null, // Id lógico da NFe (ex: NFe3525...)
+          idNFe: idNFeXml ?? null, // Id lÃ³gico da NFe (ex: NFe3525...)
           httpStatus,
           mensagem: "Erro HTTP ao chamar NFeAutorizacao4",
           soap: {
@@ -434,6 +462,7 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
     // -------------------------------------------------------------------
     const parser = new XMLParser({
       ignoreAttributes: false,
+      removeNSPrefix: true,
     });
 
     let retEnviNFe: any = null;
@@ -446,28 +475,37 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
 
     try {
       const parsed = parser.parse(respostaText);
-      const envelope = parsed["soap:Envelope"] ?? parsed.Envelope;
-      const body = envelope?.["soap:Body"] ?? envelope?.Body;
-      const resultMsg = body?.nfeResultMsg;
-      retEnviNFe = resultMsg?.retEnviNFe;
+      retEnviNFe = firstXmlNode(findXmlNode(parsed, "retEnviNFe"));
 
-      // normaliza para string (fast-xml-parser pode trazer número)
-      const rawLoteCStat = retEnviNFe?.cStat;
-      lote_cStat = rawLoteCStat != null ? String(rawLoteCStat) : null;
-      lote_xMotivo = retEnviNFe?.xMotivo ?? null;
-      nRec = retEnviNFe?.nRec ?? null;
+      lote_cStat = toText(retEnviNFe?.cStat);
+      lote_xMotivo = toText(retEnviNFe?.xMotivo);
+      nRec = toText(retEnviNFe?.nRec);
 
-      const protNFe = retEnviNFe?.protNFe;
-      const infProt = protNFe?.infProt;
+      const protNFe = firstXmlNode(findXmlNode(retEnviNFe, "protNFe") ?? findXmlNode(parsed, "protNFe"));
+      const infProt = firstXmlNode(findXmlNode(protNFe, "infProt") ?? findXmlNode(parsed, "infProt"));
 
-      const rawProtCStat = infProt?.cStat;
-      prot_cStat = rawProtCStat != null ? String(rawProtCStat) : null;
-      prot_xMotivo = infProt?.xMotivo ?? null;
-
-      const rawNProt = infProt?.nProt;
-      nProt = rawNProt != null ? String(rawNProt) : null;
+      prot_cStat = toText(infProt?.cStat);
+      prot_xMotivo = toText(infProt?.xMotivo);
+      nProt = toText(infProt?.nProt);
     } catch (parseErr) {
       console.warn("[nfe] erro ao parsear XML de retorno da SEFAZ:", parseErr);
+    }
+
+    if (!lote_cStat && !prot_cStat) {
+      return NextResponse.json(
+        {
+          ok: false,
+          ambiente,
+          chave: chave ?? null,
+          idNFe: idNFeXml ?? null,
+          httpStatus,
+          mensagem: "Retorno recebido da SEFAZ, mas sem cStat interpretavel.",
+          soap: {
+            xmlRespostaSnippet: respostaText.substring(0, 2000),
+          },
+        },
+        { status: 502 }
+      );
     }
 
     // -------------------------------------------------------------------
@@ -488,10 +526,10 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
       // Denegada
       novoStatus = "DENEGADA";
     } else if (prot_cStat && prot_cStat !== "100") {
-      // Qualquer outra rejeição de protocolo
+      // Qualquer outra rejeiÃ§Ã£o de protocolo
       novoStatus = "REJEITADA";
     } else if (lote_cStat === "103" || (lote_cStat === "104" && !prot_cStat)) {
-      // 103: Lote recebido; 104 sem prot -> fluxo assíncrono
+      // 103: Lote recebido; 104 sem prot -> fluxo assÃ­ncrono
       novoStatus = "ENVIADA";
     }
 
@@ -516,7 +554,7 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
         updatePayload.xml_autorizado = xmlAutorizado;
       }
 
-      // NÃO rebaixar AUTORIZADA para REJEITADA em caso de duplicidade/testes
+      // NÃƒO rebaixar AUTORIZADA para REJEITADA em caso de duplicidade/testes
       if (novoStatus) {
         if (statusAtual === "AUTORIZADA" && novoStatus === "REJEITADA") {
           console.warn(
@@ -534,7 +572,7 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
       }
 
       if (statusFinal === "AUTORIZADA") {
-        // Usamos "agora" como data de autorização (poderia ser dhRecbto do infProt também)
+        // Usamos "agora" como data de autorizaÃ§Ã£o (poderia ser dhRecbto do infProt tambÃ©m)
         updatePayload.dataautorizacao = new Date().toISOString();
       }
 
@@ -553,7 +591,7 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
       ok: true,
       ambiente,
       chave: chave ?? null,
-      idNFe: idNFeXml ?? null, // Id lógico da NFe no XML, não o id da tabela
+      idNFe: idNFeXml ?? null, // Id lÃ³gico da NFe no XML, nÃ£o o id da tabela
       httpStatus,
       sefaz: {
         lote: {
@@ -582,7 +620,7 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
     return NextResponse.json(
       {
         ok: false,
-        mensagem: "Erro interno ao enviar NF-e para autorização",
+        mensagem: "Erro interno ao enviar NF-e para autorizaÃ§Ã£o",
         detalhe: String(e?.message ?? e),
         stack: e?.stack ?? null,
       },
@@ -591,8 +629,8 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
   }
 }
 
-// ATENÇÃO: no Next 15, params é uma Promise.
-// Aqui a gente resolve isso no POST e passa só o id (string) para o handler.
+// ATENÃ‡ÃƒO: no Next 15, params Ã© uma Promise.
+// Aqui a gente resolve isso no POST e passa sÃ³ o id (string) para o handler.
 export async function POST(
   req: Request,
   ctx: { params: Promise<{ id: string }> }

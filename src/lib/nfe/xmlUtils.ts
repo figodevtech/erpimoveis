@@ -1,21 +1,28 @@
-/**
+﻿/**
  * Remove acentos e caracteres especiais, mantendo apenas ASCII seguro.
- * Útil para campos da NF-e que não aceitam UTF-8 pleno ou para evitar erros de validação.
+ * Ãštil para campos da NF-e que nÃ£o aceitam UTF-8 pleno ou para evitar erros de validaÃ§Ã£o.
  */
 export function sanitizeString(value: string | null | undefined): string {
     if (!value) return '';
 
-    // Normaliza para NFD (separa acentos) e remove diacríticos
-    const str = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const normalizedPunctuation = value
+        .replace(/[\u2010-\u2015\u2212]/g, '-')
+        .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+        .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+        .replace(/\u00A0/g, ' ')
+        .replace(/[\r\n\t]+/g, ' ');
 
-    // Remove caracteres não imprimíveis (exceto os básicos) se necessário
-    // Mas geralmente apenas remover acentos já resolve 99% dos problemas de "caracteres especiais"
-    return str.trim();
+    const str = normalizedPunctuation.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+    return str
+        .replace(/[^\x20-\x7E]/g, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
 }
 
 /**
  * Escapa caracteres reservados do XML.
- * Também aplica sanitização (remove acentos) automaticamente para segurança.
+ * TambÃ©m aplica sanitizaÃ§Ã£o (remove acentos) automaticamente para seguranÃ§a.
  */
 export function escapeXml(value: string | number | null | undefined): string {
     if (value === null || value === undefined) return '';

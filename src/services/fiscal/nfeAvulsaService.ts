@@ -113,10 +113,17 @@ function onlyDigits(value: unknown) {
 }
 
 function toDecimalNumber(value: unknown) {
-  const normalized = String(value ?? "")
-    .trim()
-    .replace(/\./g, "")
-    .replace(",", ".");
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  const raw = String(value ?? "").trim();
+  if (!raw) return 0;
+
+  const sanitized = raw.replace(/[^\d,.-]/g, "");
+  const normalized = sanitized.includes(",")
+    ? sanitized.replace(/\./g, "").replace(",", ".")
+    : sanitized;
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : 0;
 }

@@ -34,6 +34,7 @@ type ConsultaChaveParams = {
   empresaId?: number;
   chave: string;
   useLock?: boolean;
+  force?: boolean;
 };
 
 export type TipoManifestacaoDestinatario =

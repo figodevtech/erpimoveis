@@ -13,6 +13,7 @@ export async function POST(req: NextRequest) {
     const result = await consultarDfePorChave({
       chave: String(body?.chave ?? ""),
       empresaId: body?.empresaId ? Number(body.empresaId) : undefined,
+      force: body?.force === true,
     });
 
     return NextResponse.json(result, { status: result.success ? 200 : 409 });
