@@ -155,6 +155,18 @@ function manifestacaoClass(status?: string | null) {
   return "border-muted-foreground/30 bg-muted text-muted-foreground";
 }
 
+function formatManifestacao(status?: string | null) {
+  const value = String(status ?? "");
+  const labels: Record<string, string> = {
+    CIENCIA: "Ciente da Operação",
+    CONFIRMACAO: "Operação Confirmada",
+    DESCONHECIMENTO: "Não Reconhecido",
+    OPERACAO_NAO_REALIZADA: "Não Realizado",
+  };
+
+  return labels[value] ?? (value.replace(/_/g, " ") || "-");
+}
+
 export default function FiscalTable({
   notas,
   pagination,
@@ -297,10 +309,10 @@ export default function FiscalTable({
     tipo: "CIENCIA" | "CONFIRMACAO" | "DESCONHECIMENTO" | "OPERACAO_NAO_REALIZADA",
   ) {
     const labels = {
-      CIENCIA: "Ciência da operação",
-      CONFIRMACAO: "Confirmação da operação",
-      DESCONHECIMENTO: "Desconhecimento da operação",
-      OPERACAO_NAO_REALIZADA: "Operação não realizada",
+      CIENCIA: "Ciente da Operação",
+      CONFIRMACAO: "Operação Confirmada",
+      DESCONHECIMENTO: "Não Reconhecido",
+      OPERACAO_NAO_REALIZADA: "Não Realizado",
     };
     const justificativa =
       tipo === "OPERACAO_NAO_REALIZADA"
@@ -632,7 +644,7 @@ export default function FiscalTable({
                         ) : null}
                         {nota.statusManifestacao ? (
                           <Badge variant="outline" className={manifestacaoClass(nota.statusManifestacao)}>
-                            Manifestacao {nota.statusManifestacao}
+                            {formatManifestacao(nota.statusManifestacao)}
                           </Badge>
                         ) : null}
                       </div>
@@ -753,22 +765,22 @@ export default function FiscalTable({
                             {podeSolicitarCiencia ? (
                             <DropdownMenuItem onClick={() => manifestarTerceiros(nota.id, "CIENCIA")}>
                               <Send className="mr-2 h-4 w-4" />
-                              Ciência da operação
+                              Ciente da Operação
                             </DropdownMenuItem>
                             ) : null}
                             {podeManifestarOperacao ? (
                             <>
                             <DropdownMenuItem onClick={() => manifestarTerceiros(nota.id, "CONFIRMACAO")}>
                               <Send className="mr-2 h-4 w-4" />
-                              Confirmar operação
+                              Operação Confirmada
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => manifestarTerceiros(nota.id, "DESCONHECIMENTO")}>
                               <Send className="mr-2 h-4 w-4" />
-                              Desconhecer operação
+                              Não Reconhecido
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => manifestarTerceiros(nota.id, "OPERACAO_NAO_REALIZADA")}>
                               <Send className="mr-2 h-4 w-4" />
-                              Operação não realizada
+                              Não Realizado
                             </DropdownMenuItem>
                             </>
                             ) : null}

@@ -346,7 +346,7 @@ const initialDraft: DraftPayload = {
     codigoPais: "1058",
     nomePais: "BRASIL",
   },
-  itens: [{ ...emptyItem }],
+  itens: [],
 };
 
 function onlyDigits(value: string) {
@@ -463,7 +463,7 @@ function normalizePersistedDraft(value: unknown): DraftPayload | null {
       ...initialDraft.destinatario,
       ...draft.destinatario,
     },
-    itens: draft.itens.length > 0 ? draft.itens.map((item) => ({ ...emptyItem, ...item })) : [{ ...emptyItem }],
+    itens: draft.itens.map((item) => ({ ...emptyItem, ...item })),
   };
 }
 
@@ -532,7 +532,7 @@ function mapServerDraftToPayload(value: any): { draft: DraftPayload; document: N
             aliquotaCofins: stringifyNumber(item.aliquota_cofins),
             cest: String(item.cest ?? ""),
           }))
-        : [{ ...emptyItem }],
+        : [],
     },
     document: {
       status: nfe.status ?? null,
@@ -718,7 +718,7 @@ export default function NFeAvulsaPage() {
   function removeItem(index: number) {
     updateDraft((current) => ({
       ...current,
-      itens: current.itens.length === 1 ? [{ ...emptyItem }] : current.itens.filter((_, itemIndex) => itemIndex !== index),
+      itens: current.itens.filter((_, itemIndex) => itemIndex !== index),
     }));
   }
 
@@ -1317,6 +1317,16 @@ export default function NFeAvulsaPage() {
                 </div>
 
                 <div className="space-y-3">
+                  {draft.itens.length === 0 ? (
+                    <Card className="border-dashed">
+                      <CardContent className="flex min-h-40 items-center justify-center p-6">
+                        <p className="text-center text-sm font-medium text-muted-foreground">
+                          Insira produtos para continuar
+                        </p>
+                      </CardContent>
+                    </Card>
+                  ) : null}
+
                   {draft.itens.map((item, index) => (
                     <Card key={index} className="border-dashed">
                       <CardContent className="grid gap-3 pt-4 md:grid-cols-12">
