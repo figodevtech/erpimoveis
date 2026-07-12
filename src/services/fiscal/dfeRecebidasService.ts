@@ -4,6 +4,8 @@ import { XMLParser } from "fast-xml-parser";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { carregarCertificadoA1 } from "@/lib/nfe/certificado";
 import { assinarEventoNFeXml } from "@/lib/nfe/assinaturaEvento";
+import { traduzStatusNfe } from "@/lib/nfe/statusNfe";
+import { getNfeConsultaProtocoloUrl } from "@/lib/nfe/webservices";
 import type { EmpresaRow } from "@/lib/nfe/types";
 
 import {
@@ -363,18 +365,6 @@ export async function sincronizarDfeRecebidas(params: SyncDfeParams = {}) {
       maxNSU: controle.max_nsu,
       nextSyncAfter: controle.next_sync_after,
       message: "Sincronização bloqueada temporariamente. Tente novamente após o horário informado.",
-    };
-  }
-
-  if (!params.force && controle.ult_nsu === controle.max_nsu && controle.max_nsu !== "000000000000000") {
-    return {
-      success: true,
-      skipped: true,
-      cStat: controle.last_cstat ?? "137",
-      xMotivo: "Nenhum NSU novo para consultar.",
-      novosDocumentos: 0,
-      ultNSU: controle.ult_nsu,
-      maxNSU: controle.max_nsu,
     };
   }
 
@@ -826,10 +816,10 @@ export async function consultarStatusDfeRecebida(id: number) {
     cert: certificatePem,
     rejectUnauthorized: false,
   });
-  const url =
-    empresa.ambiente === "PRODUCAO"
-      ? "https://nfe.svrs.rs.gov.br/ws/NfeConsulta/NfeConsulta4.asmx"
-      : "https://nfe-homologacao.svrs.rs.gov.br/ws/NfeConsulta/NfeConsulta4.asmx";
+  const url = getNfeConsultaProtocoloUrl({
+    chaveAcesso: chave,
+    ambiente: empresa.ambiente,
+  });
   const response = await postSoapComCert(
     url,
     buildConsultaProtocoloEnvelope({ empresa, chave }),
@@ -907,19 +897,11 @@ export async function consultarStatusDfeRecebida(id: number) {
 function mapStatusDfeRecebida(status: string) {
   const value = status.trim().toUpperCase();
   const labels: Record<string, string> = {
-    "1": "Uso autorizado",
-    "2": "Uso denegado",
-    "3": "NF-e cancelada",
-    "100": "Uso autorizado",
-    "101": "Cancelada",
-    "110": "Uso denegado",
-    "150": "Uso autorizado fora do prazo",
-    "151": "Cancelada fora do prazo",
     RESUMO_NFE: "Resumo da NF-e",
     PROC_NFE: "NF-e completa",
   };
 
-  return labels[value] ?? status;
+  return labels[value] ?? traduzStatusNfe(value);
 }
 
 function mapXmlStatusDfeRecebida(row: any) {
@@ -1056,10 +1038,11 @@ function buildDfeRecebidasKpis(rows: ReturnType<typeof mapDocumento>[]) {
   const autorizadas = rows.filter((row) =>
     ["Uso autorizado", "Uso autorizado fora do prazo"].includes(row.status),
   ).length;
-  const canceladas = rows.filter((row) =>
-    ["Cancelada", "NF-e cancelada", "Cancelada fora do prazo"].includes(row.status),
-  ).length;
-  const rejeitadas = rows.filter((row) => row.status === "Uso denegado").length;
+  const canceladas = rows.filter((row) => row.status.toLowerCase().includes("cancel")).length;
+  const rejeitadas = rows.filter((row) => {
+    const status = row.status.toLowerCase();
+    return status.includes("rejeição") || status.includes("denegad") || status.includes("não consta");
+  }).length;
   const valorTotal = rows.reduce((sum, row) => sum + row.total_nfe, 0);
 
   return {
@@ -1108,6 +1091,22 @@ function preferirXmlCompletoPorChave(rows: any[]) {
   return Array.from(byChave.values());
 }
 
+function getDataOrdenacaoEmissao(row: any) {
+  const dataEmissao = new Date(row.data_emissao ?? "").getTime();
+  if (Number.isFinite(dataEmissao)) return dataEmissao;
+
+  const createdAt = new Date(row.createdat ?? "").getTime();
+  return Number.isFinite(createdAt) ? createdAt : 0;
+}
+
+function ordenarPorDataEmissaoDesc(rows: any[]) {
+  return [...rows].sort((a, b) => {
+    const byDate = getDataOrdenacaoEmissao(b) - getDataOrdenacaoEmissao(a);
+    if (byDate !== 0) return byDate;
+    return Number(b.id ?? 0) - Number(a.id ?? 0);
+  });
+}
+
 export async function listarDfeRecebidas(params: ListDfeParams = {}) {
   const page = clampInt(params.page, 1, 1, 10_000);
   const limit = clampInt(params.limit, 20, 1, 100);
@@ -1116,13 +1115,14 @@ export async function listarDfeRecebidas(params: ListDfeParams = {}) {
     supabaseAdmin
       .from("fiscal_dfe_documento")
       .select("*, empresa:empresa_id ( id, razaosocial, nomefantasia, cnpj )")
-      .order("createdat", { ascending: false }),
+      .order("data_emissao", { ascending: false, nullsFirst: false })
+      .order("id", { ascending: false }),
     params,
   );
 
   const { data, error } = await query;
   if (error) throw error;
-  const dedupedRows = preferirXmlCompletoPorChave(data ?? []);
+  const dedupedRows = ordenarPorDataEmissaoDesc(preferirXmlCompletoPorChave(data ?? []));
   const paginatedRows = dedupedRows.slice(from, from + limit);
   const rows = paginatedRows.map(mapDocumento);
   const kpiRows = dedupedRows.map(mapDocumento);

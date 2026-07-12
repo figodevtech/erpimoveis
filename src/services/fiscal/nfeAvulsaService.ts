@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { buildNFePreviewXml } from "@/lib/nfe/buildNFe";
+import { buildNFePreviewXml, type NFeTransporteOptions } from "@/lib/nfe/buildNFe";
 import { carregarCertificadoA1 } from "@/lib/nfe/certificado";
+import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
 import type { EmpresaRow, NFeDestinatario, NFeItem } from "@/lib/nfe/types";
 
 type NFeConfigRow = {
@@ -43,6 +44,37 @@ export type NFeAvulsaDraftInput = {
     observacaoInterna?: string | null;
     observacoesFiscais?: string | null;
   };
+  pagamento?: {
+    meio?: string | null;
+    tipoIntegracao?: "1" | "2" | string | null;
+    cnpjCredenciadora?: string | null;
+    bandeira?: string | null;
+    autorizacao?: string | null;
+  } | null;
+  transporte?: {
+    modFrete?: "0" | "1" | "2" | "3" | "4" | "9" | string | null;
+    transportadora?: {
+      documento?: string | null;
+      nome?: string | null;
+      inscricaoEstadual?: string | null;
+      endereco?: string | null;
+      municipio?: string | null;
+      uf?: string | null;
+    } | null;
+    veiculo?: {
+      placa?: string | null;
+      uf?: string | null;
+      rntc?: string | null;
+    } | null;
+    volume?: {
+      quantidade?: string | number | null;
+      especie?: string | null;
+      marca?: string | null;
+      numeracao?: string | null;
+      pesoLiquido?: string | number | null;
+      pesoBruto?: string | number | null;
+    } | null;
+  } | null;
   destinatario: {
     clienteId: number | null;
     tipoPessoa?: "FISICA" | "JURIDICA" | "ESTRANGEIRO";
@@ -111,7 +143,10 @@ function getDestinatarioSnapshot(input: NFeAvulsaDraftInput, empresa: EmpresaRow
   return {
     cnpj: isCnpj && documento ? documento : undefined,
     cpf: isCpf && !isCnpj && documento ? documento : undefined,
-    razaoSocial: cleanText(dest.nomeRazaoSocial),
+    razaoSocial:
+      empresa.ambiente === "PRODUCAO"
+        ? cleanText(dest.nomeRazaoSocial)
+        : NFE_HOMOLOGACAO_DESTINATARIO_NOME,
     indIEDest: cleanText(dest.indicadorIe) || (ie ? "1" : "9"),
     inscricaoEstadual: ie || undefined,
     endereco: {
@@ -135,6 +170,71 @@ function finalidadeToFinNFe(finalidade: NFeAvulsaDraftInput["operacao"]["finalid
   if (finalidade === "AJUSTE") return 3 as const;
   if (finalidade === "DEVOLUCAO") return 4 as const;
   return 1 as const;
+}
+
+function getPagamentoFiscal(input: NFeAvulsaDraftInput) {
+  const finNFe = finalidadeToFinNFe(input.operacao.finalidade);
+  const rawMeio = onlyDigits(input.pagamento?.meio);
+  const meioNormalizado = rawMeio ? rawMeio.padStart(2, "0").slice(0, 2) : "01";
+  const meio = finNFe === 3 || finNFe === 4 ? "90" : meioNormalizado;
+
+  return {
+    tPag: meio,
+    tpIntegra: input.pagamento?.tipoIntegracao === "1" ? "1" : "2",
+    cnpjCredenciadora: onlyDigits(input.pagamento?.cnpjCredenciadora),
+    bandeira: onlyDigits(input.pagamento?.bandeira),
+    autorizacao: cleanText(input.pagamento?.autorizacao),
+  };
+}
+
+function getPagamentoDadosAvulsos(input: NFeAvulsaDraftInput) {
+  const pagamento = getPagamentoFiscal(input);
+
+  return {
+    meio: pagamento.tPag,
+    tipoIntegracao: pagamento.tpIntegra,
+    cnpjCredenciadora: pagamento.cnpjCredenciadora,
+    bandeira: pagamento.bandeira,
+    autorizacao: pagamento.autorizacao,
+  };
+}
+
+function getTransporteFiscal(input: NFeAvulsaDraftInput): NFeTransporteOptions {
+  const rawModFrete = cleanText(input.transporte?.modFrete || "9");
+  const modFrete = ["0", "1", "2", "3", "4", "9"].includes(rawModFrete) ? rawModFrete : "9";
+
+  if (modFrete === "9") {
+    return { modFrete: "9" };
+  }
+
+  return {
+    modFrete,
+    transportadora: {
+      documento: onlyDigits(input.transporte?.transportadora?.documento),
+      nome: cleanText(input.transporte?.transportadora?.nome),
+      inscricaoEstadual: onlyDigits(input.transporte?.transportadora?.inscricaoEstadual),
+      endereco: cleanText(input.transporte?.transportadora?.endereco),
+      municipio: cleanText(input.transporte?.transportadora?.municipio),
+      uf: cleanText(input.transporte?.transportadora?.uf).toUpperCase().slice(0, 2),
+    },
+    veiculo: {
+      placa: cleanText(input.transporte?.veiculo?.placa).toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 7),
+      uf: cleanText(input.transporte?.veiculo?.uf).toUpperCase().slice(0, 2),
+      rntc: cleanText(input.transporte?.veiculo?.rntc),
+    },
+    volume: {
+      quantidade: cleanText(input.transporte?.volume?.quantidade),
+      especie: cleanText(input.transporte?.volume?.especie),
+      marca: cleanText(input.transporte?.volume?.marca),
+      numeracao: cleanText(input.transporte?.volume?.numeracao),
+      pesoLiquido: cleanText(input.transporte?.volume?.pesoLiquido),
+      pesoBruto: cleanText(input.transporte?.volume?.pesoBruto),
+    },
+  };
+}
+
+function getTransporteDadosAvulsos(input: NFeAvulsaDraftInput) {
+  return getTransporteFiscal(input);
 }
 
 function validarEmpresa(empresa: EmpresaRow | null, config: NFeConfigRow | null) {
@@ -237,6 +337,69 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
       errors.push({ step: "products", itemIndex: index, field: "valorUnitario", message: "Valor unitário deve ser maior que zero." });
     }
   });
+
+  const pagamentoFiscal = getPagamentoFiscal(input);
+
+  if ((pagamentoFiscal.tPag === "03" || pagamentoFiscal.tPag === "04") && pagamentoFiscal.tpIntegra === "1") {
+    if (pagamentoFiscal.cnpjCredenciadora.length !== 14) {
+      errors.push({
+        step: "payment",
+        field: "cnpjCredenciadora",
+        message: "Informe o CNPJ da credenciadora quando o cartão for integrado ao sistema.",
+      });
+    }
+    if (!pagamentoFiscal.autorizacao) {
+      errors.push({
+        step: "payment",
+        field: "autorizacao",
+        message: "Informe o código de autorização quando o cartão for integrado ao sistema.",
+      });
+    }
+  }
+
+  const rawModFrete = cleanText(input.transporte?.modFrete || "9");
+  const transporteFiscal = getTransporteFiscal(input);
+  if (!["0", "1", "2", "3", "4", "9"].includes(rawModFrete)) {
+    errors.push({
+      step: "transport",
+      field: "modFrete",
+      message: "Modalidade de frete invÃ¡lida para NF-e.",
+    });
+  }
+
+  if (["0", "1", "2"].includes(transporteFiscal.modFrete)) {
+    const docTransportadora = onlyDigits(transporteFiscal.transportadora?.documento);
+    if (!cleanText(transporteFiscal.transportadora?.nome)) {
+      errors.push({
+        step: "transport",
+        field: "transportadora.nome",
+        message: "Nome da transportadora Ã© obrigatÃ³rio quando o frete Ã© contratado.",
+      });
+    }
+    if (docTransportadora.length !== 11 && docTransportadora.length !== 14) {
+      errors.push({
+        step: "transport",
+        field: "transportadora.documento",
+        message: "CPF ou CNPJ da transportadora deve ser vÃ¡lido quando o frete Ã© contratado.",
+      });
+    }
+    if (cleanText(transporteFiscal.transportadora?.uf).length !== 2) {
+      errors.push({
+        step: "transport",
+        field: "transportadora.uf",
+        message: "UF da transportadora Ã© obrigatÃ³ria quando o frete Ã© contratado.",
+      });
+    }
+  }
+
+  const placa = cleanText(transporteFiscal.veiculo?.placa);
+  if (placa && placa.length !== 7) {
+    errors.push({
+      step: "transport",
+      field: "veiculo.placa",
+      message: "Placa do veÃ­culo deve ter 7 caracteres.",
+    });
+  }
 
   return errors;
 }
@@ -409,16 +572,34 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
 
   const { config, empresa } = await getConfigAndEmpresa();
   const destinatario = getDestinatarioSnapshot(input, empresa);
+  const pagamento = getPagamentoFiscal(input);
+  const pagamentoDadosAvulsos = getPagamentoDadosAvulsos(input);
+  const transporte = getTransporteFiscal(input);
+  const transporteDadosAvulsos = getTransporteDadosAvulsos(input);
   const now = new Date().toISOString();
+  const itensInsertBase = input.itens.map((item, index) => mapItemToInsert(item, index, 0));
+  const itensXml = itensInsertBase.map(mapItemToXml);
 
   let nfeId = Number(input.nfeId ?? 0);
   let numero: number;
   let serie: number;
+  let chave: string;
+  let xml: string;
 
   if (!nfeId) {
     const allocated = await alocarNumero(Number(config.id));
     numero = Number(allocated.numero);
     serie = Number(allocated.serie);
+    ({ xml, chave } = buildNFePreviewXml(empresa, numero, serie, itensXml, destinatario, {
+      tpNF: input.operacao.tipoOperacao === "ENTRADA" ? 0 : 1,
+      natOp: cleanText(input.operacao.naturezaOperacao),
+      indFinal: input.operacao.consumidorFinal ? 1 : 0,
+      indPres: Number(input.operacao.indicadorPresenca || 1) as any,
+      finNFe: finalidadeToFinNFe(input.operacao.finalidade),
+      observacoesFiscais: input.operacao.observacoesFiscais,
+      pagamento,
+      transporte,
+    }));
 
     const { data: nfe, error: insertError } = await supabaseAdmin
       .from("nfe")
@@ -426,7 +607,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
         modelo: "NFE",
         serie,
         numero,
-        chave_acesso: "0".repeat(44),
+        chave_acesso: chave,
         ambiente: allocated.ambiente ?? config.ambiente ?? "HOMOLOGACAO",
         status: "RASCUNHO",
         ordemservicoid: null,
@@ -451,6 +632,8 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
         },
         dados_avulsos: {
           operacao: input.operacao,
+          pagamento: pagamentoDadosAvulsos,
+          transporte: transporteDadosAvulsos,
           destinatario: input.destinatario,
           clienteSelecionadoId: input.destinatario.clienteId ?? null,
         },
@@ -461,7 +644,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
         total_nfe: 0,
         tpNF: input.operacao.tipoOperacao === "ENTRADA" ? 0 : 1,
         cfop: onlyDigits(input.itens[0]?.cfop),
-        xml_assinado: null,
+        xml_assinado: xml,
         xml_autorizado: null,
       })
       .select("id, numero, serie")
@@ -487,14 +670,27 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
 
     numero = Number(nfe.numero);
     serie = Number(nfe.serie);
+    ({ xml, chave } = buildNFePreviewXml(empresa, numero, serie, itensXml, destinatario, {
+      tpNF: input.operacao.tipoOperacao === "ENTRADA" ? 0 : 1,
+      natOp: cleanText(input.operacao.naturezaOperacao),
+      indFinal: input.operacao.consumidorFinal ? 1 : 0,
+      indPres: Number(input.operacao.indicadorPresenca || 1) as any,
+      finNFe: finalidadeToFinNFe(input.operacao.finalidade),
+      observacoesFiscais: input.operacao.observacoesFiscais,
+      pagamento,
+      transporte,
+    }));
 
     const { error: updateError } = await supabaseAdmin
       .from("nfe")
       .update({
+        chave_acesso: chave,
         clienteid: null,
         destinatario_snapshot: destinatario,
         dados_avulsos: {
           operacao: input.operacao,
+          pagamento: pagamentoDadosAvulsos,
+          transporte: transporteDadosAvulsos,
           destinatario: input.destinatario,
           clienteSelecionadoId: input.destinatario.clienteId ?? null,
         },
@@ -502,6 +698,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
         cfop: onlyDigits(input.itens[0]?.cfop),
         total_produtos: 0,
         total_nfe: 0,
+        xml_assinado: xml,
         updatedat: now,
       })
       .eq("id", nfeId);
@@ -512,7 +709,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
     if (deleteItemsError) throw deleteItemsError;
   }
 
-  const itensInsert = input.itens.map((item, index) => mapItemToInsert(item, index, nfeId));
+  const itensInsert = itensInsertBase.map((item) => ({ ...item, nfe_id: nfeId }));
   const { error: itensError } = await supabaseAdmin.from("nfe_item").insert(itensInsert);
   if (itensError) throw itensError;
 
@@ -529,16 +726,6 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
       .eq("id", nfeId);
     if (updateTotalError) throw updateTotalError;
   }
-
-  const itensXml = itensInsert.map(mapItemToXml);
-  const { xml, chave } = buildNFePreviewXml(empresa, numero, serie, itensXml, destinatario, {
-    tpNF: input.operacao.tipoOperacao === "ENTRADA" ? 0 : 1,
-    natOp: cleanText(input.operacao.naturezaOperacao),
-    indFinal: input.operacao.consumidorFinal ? 1 : 0,
-    indPres: Number(input.operacao.indicadorPresenca || 1) as any,
-    finNFe: finalidadeToFinNFe(input.operacao.finalidade),
-    observacoesFiscais: input.operacao.observacoesFiscais,
-  });
 
   const { error: xmlError } = await supabaseAdmin
     .from("nfe")

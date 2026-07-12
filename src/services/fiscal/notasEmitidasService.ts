@@ -250,7 +250,8 @@ export async function listarNotasEmitidas(params: NotaFiscalListParams) {
     supabaseAdmin
       .from("nfe")
       .select(SELECT_NOTAS, { count: "exact" })
-      .order("dataemissao", { ascending: false })
+      .order("dataemissao", { ascending: false, nullsFirst: false })
+      .order("id", { ascending: false })
       .range(from, to),
     params,
   );
@@ -265,7 +266,8 @@ export async function listarNotasEmitidas(params: NotaFiscalListParams) {
     supabaseAdmin
       .from("nfe")
       .select(SELECT_NOTAS)
-      .order("dataemissao", { ascending: false }),
+      .order("dataemissao", { ascending: false, nullsFirst: false })
+      .order("id", { ascending: false }),
     params,
   );
 

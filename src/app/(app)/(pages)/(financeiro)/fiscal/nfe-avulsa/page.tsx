@@ -1,18 +1,19 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import axios, { isAxiosError } from "axios";
 import {
   AlertTriangle,
   CheckCircle2,
   FileText,
+  Download,
   Loader2,
   Plus,
+  Printer,
   Save,
   Send,
-  Trash2,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -38,6 +39,8 @@ import CustomerSelect from "@/app/(app)/components/customerSelect";
 import ProductSelect from "@/app/(app)/components/productSelect";
 import type { Customer } from "@/app/(app)/(pages)/clientes/types";
 import type { Produto } from "@/app/(app)/(pages)/estoque/types";
+import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
+import { DanfeView, type DanfeViewData } from "@/components/danfe/danfe-view";
 
 type ClienteSetup = {
   id: number;
@@ -75,6 +78,13 @@ type SetupResponse = {
     uf?: string | null;
     codigomunicipio?: string | null;
     regimetributario?: string | number | null;
+    endereco?: string | null;
+    numero?: string | null;
+    bairro?: string | null;
+    complemento?: string | null;
+    cep?: string | null;
+    telefone?: string | null;
+    inscricaoestadual?: string | null;
   } | null;
   config: {
     id: number;
@@ -108,6 +118,31 @@ type DraftItem = {
   cest: string;
 };
 
+type DraftTransporte = {
+  modFrete: "0" | "1" | "2" | "3" | "4" | "9";
+  transportadora: {
+    documento: string;
+    nome: string;
+    inscricaoEstadual: string;
+    endereco: string;
+    municipio: string;
+    uf: string;
+  };
+  veiculo: {
+    placa: string;
+    uf: string;
+    rntc: string;
+  };
+  volume: {
+    quantidade: string;
+    especie: string;
+    marca: string;
+    numeracao: string;
+    pesoLiquido: string;
+    pesoBruto: string;
+  };
+};
+
 type DraftPayload = {
   nfeId: number | null;
   currentStep: number;
@@ -120,6 +155,14 @@ type DraftPayload = {
     observacaoInterna: string;
     observacoesFiscais: string;
   };
+  pagamento: {
+    meio: string;
+    tipoIntegracao: "1" | "2";
+    cnpjCredenciadora: string;
+    bandeira: string;
+    autorizacao: string;
+  };
+  transporte: DraftTransporte;
   destinatario: {
     clienteId: number | null;
     tipoPessoa: "FISICA" | "JURIDICA" | "ESTRANGEIRO";
@@ -151,6 +194,15 @@ type ValidationError = {
   message: string;
 };
 
+type NFeDocumentState = {
+  status: string | null;
+  chave: string | null;
+  protocolo: string | null;
+  numero: number | null;
+  serie: number | null;
+  dataAutorizacao: string | null;
+};
+
 const storageKey = "fiscal:nfe-avulsa:draft";
 
 const steps = [
@@ -163,6 +215,41 @@ const steps = [
   "Informações",
   "Revisão",
   "Autorização",
+];
+
+const paymentOptions = [
+  { value: "01", label: "Dinheiro" },
+  { value: "02", label: "Cheque" },
+  { value: "03", label: "Cartão de crédito" },
+  { value: "04", label: "Cartão de débito" },
+  { value: "15", label: "Boleto bancário" },
+  { value: "16", label: "Depósito bancário" },
+  { value: "17", label: "PIX" },
+  { value: "18", label: "Transferência bancária" },
+  { value: "90", label: "Sem pagamento" },
+  { value: "99", label: "Outros" },
+];
+
+const freightOptions = [
+  { value: "0", label: "Contratação por conta do remetente (CIF)" },
+  { value: "1", label: "Contratação por conta do destinatário (FOB)" },
+  { value: "2", label: "Contratação por conta de terceiros" },
+  { value: "3", label: "Transporte próprio por conta do remetente" },
+  { value: "4", label: "Transporte próprio por conta do destinatário" },
+  { value: "9", label: "Sem ocorrência de transporte" },
+] as const;
+
+const cardBrandOptions = [
+  { value: "01", label: "Visa" },
+  { value: "02", label: "Mastercard" },
+  { value: "03", label: "American Express" },
+  { value: "04", label: "Sorocred" },
+  { value: "05", label: "Diners Club" },
+  { value: "06", label: "Elo" },
+  { value: "07", label: "Hipercard" },
+  { value: "08", label: "Aura" },
+  { value: "09", label: "Cabal" },
+  { value: "99", label: "Outros" },
 ];
 
 const emptyItem: DraftItem = {
@@ -195,6 +282,37 @@ const initialDraft: DraftPayload = {
     indicadorPresenca: "1",
     observacaoInterna: "",
     observacoesFiscais: "",
+  },
+  pagamento: {
+    meio: "01",
+    tipoIntegracao: "2",
+    cnpjCredenciadora: "",
+    bandeira: "",
+    autorizacao: "",
+  },
+  transporte: {
+    modFrete: "9",
+    transportadora: {
+      documento: "",
+      nome: "",
+      inscricaoEstadual: "",
+      endereco: "",
+      municipio: "",
+      uf: "",
+    },
+    veiculo: {
+      placa: "",
+      uf: "",
+      rntc: "",
+    },
+    volume: {
+      quantidade: "",
+      especie: "",
+      marca: "",
+      numeracao: "",
+      pesoLiquido: "",
+      pesoBruto: "",
+    },
   },
   destinatario: {
     clienteId: null,
@@ -229,6 +347,14 @@ function parseCurrency(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function parseNumberInput(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return 0;
+  const normalized = raw.includes(",") ? raw.replace(/\./g, "").replace(",", ".") : raw;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function formatCpfCnpj(value?: string | null) {
   const digits = onlyDigits(String(value ?? ""));
   if (digits.length === 11) return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
@@ -236,10 +362,68 @@ function formatCpfCnpj(value?: string | null) {
   return value || "-";
 }
 
+function formatChaveAcesso(value?: string | null) {
+  const digits = onlyDigits(String(value ?? ""));
+  if (!digits) return "-";
+  return digits.replace(/(\d{4})(?=\d)/g, "$1 ").trim();
+}
+
 function formatAmbiente(value?: string | null) {
   if (value === "PRODUCAO") return "Produção";
   if (value === "HOMOLOGACAO") return "Homologação";
   return value || "-";
+}
+
+function getPaymentLabel(value?: string | null) {
+  return paymentOptions.find((option) => option.value === value)?.label ?? value ?? "-";
+}
+
+function getFreightLabel(value?: string | null) {
+  return freightOptions.find((option) => option.value === value)?.label ?? value ?? "-";
+}
+
+function normalizePagamento(value: unknown): DraftPayload["pagamento"] {
+  const pagamento = value && typeof value === "object" ? (value as Partial<DraftPayload["pagamento"]>) : {};
+  const meio = onlyDigits(String(pagamento.meio ?? ""));
+  const tipoIntegracao = pagamento.tipoIntegracao === "1" ? "1" : "2";
+
+  return {
+    ...initialDraft.pagamento,
+    ...pagamento,
+    meio: meio ? meio.padStart(2, "0").slice(0, 2) : initialDraft.pagamento.meio,
+    tipoIntegracao,
+    cnpjCredenciadora: onlyDigits(String(pagamento.cnpjCredenciadora ?? "")),
+    bandeira: onlyDigits(String(pagamento.bandeira ?? "")),
+    autorizacao: String(pagamento.autorizacao ?? ""),
+  };
+}
+
+function normalizeTransporte(value: unknown): DraftTransporte {
+  const transporte = value && typeof value === "object" ? (value as Partial<DraftTransporte>) : {};
+  const modFrete = ["0", "1", "2", "3", "4", "9"].includes(String(transporte.modFrete))
+    ? String(transporte.modFrete) as DraftTransporte["modFrete"]
+    : "9";
+
+  return {
+    modFrete,
+    transportadora: {
+      ...initialDraft.transporte.transportadora,
+      ...(transporte.transportadora ?? {}),
+      documento: onlyDigits(String(transporte.transportadora?.documento ?? "")),
+      inscricaoEstadual: onlyDigits(String(transporte.transportadora?.inscricaoEstadual ?? "")),
+      uf: String(transporte.transportadora?.uf ?? "").toUpperCase().slice(0, 2),
+    },
+    veiculo: {
+      ...initialDraft.transporte.veiculo,
+      ...(transporte.veiculo ?? {}),
+      placa: String(transporte.veiculo?.placa ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 7),
+      uf: String(transporte.veiculo?.uf ?? "").toUpperCase().slice(0, 2),
+    },
+    volume: {
+      ...initialDraft.transporte.volume,
+      ...(transporte.volume ?? {}),
+    },
+  };
 }
 
 function normalizePersistedDraft(value: unknown): DraftPayload | null {
@@ -255,6 +439,8 @@ function normalizePersistedDraft(value: unknown): DraftPayload | null {
       ...initialDraft.operacao,
       ...draft.operacao,
     },
+    pagamento: normalizePagamento(draft.pagamento),
+    transporte: normalizeTransporte(draft.transporte),
     destinatario: {
       ...initialDraft.destinatario,
       ...draft.destinatario,
@@ -263,10 +449,98 @@ function normalizePersistedDraft(value: unknown): DraftPayload | null {
   };
 }
 
+function stringifyNumber(value: unknown, fallback = "") {
+  if (value === null || value === undefined || value === "") return fallback;
+  return String(value);
+}
+
+function mapServerDraftToPayload(value: any): { draft: DraftPayload; document: NFeDocumentState } {
+  const nfe = value?.nfe ?? {};
+  const dadosAvulsos = nfe.dados_avulsos ?? {};
+  const snapshot = nfe.destinatario_snapshot ?? {};
+  const destinatarioOriginal = dadosAvulsos.destinatario ?? {};
+  const operacaoOriginal = dadosAvulsos.operacao ?? {};
+  const pagamentoOriginal = dadosAvulsos.pagamento ?? {};
+  const transporteOriginal = dadosAvulsos.transporte ?? {};
+  const itens = Array.isArray(value?.itens) ? value.itens : [];
+
+  return {
+    draft: {
+      ...initialDraft,
+      nfeId: Number(nfe.id) || null,
+      currentStep: 0,
+      operacao: {
+        ...initialDraft.operacao,
+        ...operacaoOriginal,
+      },
+      pagamento: normalizePagamento(pagamentoOriginal),
+      transporte: normalizeTransporte(transporteOriginal),
+      destinatario: {
+        ...initialDraft.destinatario,
+        ...destinatarioOriginal,
+        clienteId: dadosAvulsos.clienteSelecionadoId ?? destinatarioOriginal.clienteId ?? null,
+        cpfCnpj: destinatarioOriginal.cpfCnpj ?? snapshot.cnpj ?? snapshot.cpf ?? "",
+        nomeRazaoSocial: destinatarioOriginal.nomeRazaoSocial ?? snapshot.razaoSocial ?? "",
+        indicadorIe: destinatarioOriginal.indicadorIe ?? snapshot.indIEDest ?? "9",
+        inscricaoEstadual: destinatarioOriginal.inscricaoEstadual ?? snapshot.inscricaoEstadual ?? "",
+        endereco: destinatarioOriginal.endereco ?? snapshot.endereco?.logradouro ?? "",
+        numero: destinatarioOriginal.numero ?? snapshot.endereco?.numero ?? "",
+        complemento: destinatarioOriginal.complemento ?? snapshot.endereco?.complemento ?? "",
+        bairro: destinatarioOriginal.bairro ?? snapshot.endereco?.bairro ?? "",
+        cidade: destinatarioOriginal.cidade ?? snapshot.endereco?.nomeMunicipio ?? "",
+        estado: destinatarioOriginal.estado ?? snapshot.endereco?.uf ?? "",
+        cep: destinatarioOriginal.cep ?? snapshot.endereco?.cep ?? "",
+        codigoMunicipio: destinatarioOriginal.codigoMunicipio ?? snapshot.endereco?.codigoMunicipio ?? "",
+        codigoPais: destinatarioOriginal.codigoPais ?? snapshot.endereco?.codigoPais ?? "1058",
+        nomePais: destinatarioOriginal.nomePais ?? snapshot.endereco?.nomePais ?? "BRASIL",
+      },
+      itens: itens.length
+        ? itens.map((item: any) => ({
+            ...emptyItem,
+            produtoId: item.produtoid == null ? null : Number(item.produtoid),
+            codigo: stringifyNumber(item.produtoid ?? item.n_item),
+            descricao: String(item.descricao ?? ""),
+            ncm: String(item.ncm ?? ""),
+            cfop: String(item.cfop ?? ""),
+            unidade: String(item.unidade ?? "UN"),
+            quantidade: stringifyNumber(item.quantidade, "1"),
+            valorUnitario: stringifyNumber(item.valor_unitario, "0"),
+            csosn: String(item.csosn ?? ""),
+            cst: String(item.cst ?? ""),
+            aliquotaIcms: stringifyNumber(item.aliquotaicms),
+            cstPis: String(item.cst_pis ?? ""),
+            aliquotaPis: stringifyNumber(item.aliquota_pis),
+            cstCofins: String(item.cst_cofins ?? ""),
+            aliquotaCofins: stringifyNumber(item.aliquota_cofins),
+            cest: String(item.cest ?? ""),
+          }))
+        : [{ ...emptyItem }],
+    },
+    document: {
+      status: nfe.status ?? null,
+      chave: nfe.chave_acesso ?? null,
+      protocolo: nfe.protocolo ?? null,
+      numero: nfe.numero == null ? null : Number(nfe.numero),
+      serie: nfe.serie == null ? null : Number(nfe.serie),
+      dataAutorizacao: nfe.dataautorizacao ?? null,
+    },
+  };
+}
+
 export default function NFeAvulsaPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const draftIdParam = searchParams.get("id");
   const [setup, setSetup] = React.useState<SetupResponse | null>(null);
   const [draft, setDraft] = React.useState<DraftPayload>(initialDraft);
+  const [documentState, setDocumentState] = React.useState<NFeDocumentState>({
+    status: null,
+    chave: null,
+    protocolo: null,
+    numero: null,
+    serie: null,
+    dataAutorizacao: null,
+  });
   const [errors, setErrors] = React.useState<ValidationError[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
@@ -288,39 +562,85 @@ export default function NFeAvulsaPage() {
     ? `${draft.destinatario.nomeRazaoSocial || "Cliente selecionado"} - ${formatCpfCnpj(draft.destinatario.cpfCnpj)}`
     : null;
   const ambienteLabel = formatAmbiente(setup?.empresa?.ambiente || setup?.config?.ambiente);
+  const isHomologacao = Boolean(setup) && (setup?.empresa?.ambiente || setup?.config?.ambiente) !== "PRODUCAO";
+  const isEditingPersistedDraft = Boolean(draft.nfeId);
+  const isAutorizada = String(documentState.status ?? "").toUpperCase() === "AUTORIZADA";
+  const isSemPagamentoObrigatorio =
+    draft.operacao.finalidade === "AJUSTE" || draft.operacao.finalidade === "DEVOLUCAO";
+  const meioPagamentoAtual = isSemPagamentoObrigatorio ? "90" : draft.pagamento.meio;
+  const isPagamentoCartao = meioPagamentoAtual === "03" || meioPagamentoAtual === "04";
+  const isSemTransporte = draft.transporte.modFrete === "9";
+  const isFreteContratado = ["0", "1", "2"].includes(draft.transporte.modFrete);
+  const isTransporteProprio = ["3", "4"].includes(draft.transporte.modFrete);
+  const crtEmitente = String(setup?.empresa?.regimetributario ?? "");
+  const isSimplesOuMei = crtEmitente === "1" || crtEmitente === "4";
+  const isRegimeNormal = crtEmitente === "3";
+  const isSublimite = crtEmitente === "2";
+  const isDestinatarioExterior = draft.destinatario.tipoPessoa === "ESTRANGEIRO";
 
   React.useEffect(() => {
-    const stored = window.localStorage.getItem(storageKey);
-    if (stored) {
-      try {
-        const parsed = normalizePersistedDraft(JSON.parse(stored));
-        if (parsed) setDraft(parsed);
-      } catch {
-        window.localStorage.removeItem(storageKey);
-      }
-    }
+    let cancelled = false;
 
-    async function loadSetup() {
+    async function loadData() {
       setLoading(true);
       try {
+        if (!draftIdParam) {
+          const stored = window.localStorage.getItem(storageKey);
+          if (stored) {
+            try {
+              const parsed = normalizePersistedDraft(JSON.parse(stored));
+              if (parsed && !cancelled) setDraft(parsed);
+            } catch {
+              window.localStorage.removeItem(storageKey);
+            }
+          }
+        }
+
         const response = await axios.get<SetupResponse>("/api/fiscal/nfe-avulsa/setup");
-        setSetup(response.data);
+        if (!cancelled) setSetup(response.data);
+
+        if (draftIdParam) {
+          const draftResponse = await axios.get(`/api/fiscal/nfe-avulsa/drafts/${draftIdParam}`);
+          const mapped = mapServerDraftToPayload(draftResponse.data);
+          if (!cancelled) {
+            setDraft(mapped.draft);
+            setDocumentState(mapped.document);
+            setDirty(false);
+          }
+        }
       } catch (error) {
         const description = isAxiosError(error)
           ? error.response?.data?.detail ?? error.response?.data?.error ?? error.message
           : "Erro ao carregar dados fiscais.";
         toast.error("Erro ao abrir emissão avulsa", { description });
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
 
-    void loadSetup();
-  }, []);
+    void loadData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [draftIdParam]);
 
   React.useEffect(() => {
+    if (draftIdParam) return;
     window.localStorage.setItem(storageKey, JSON.stringify(draft));
-  }, [draft]);
+  }, [draft, draftIdParam]);
+
+  React.useEffect(() => {
+    if (!isHomologacao || draft.destinatario.nomeRazaoSocial === NFE_HOMOLOGACAO_DESTINATARIO_NOME) return;
+
+    setDraft((current) => ({
+      ...current,
+      destinatario: {
+        ...current.destinatario,
+        nomeRazaoSocial: NFE_HOMOLOGACAO_DESTINATARIO_NOME,
+      },
+    }));
+  }, [draft.destinatario.nomeRazaoSocial, isHomologacao]);
 
   React.useEffect(() => {
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -357,7 +677,7 @@ export default function NFeAvulsaPage() {
           ...emptyItem,
           produtoId: produto.id ?? null,
           codigo: String(produto.referencia ?? produto.codigobarras ?? produto.id ?? ""),
-          descricao: produto.descricao || produto.titulo || String(produto.id ?? ""),
+            descricao: produto.titulo || produto.descricao || String(produto.id ?? ""),
           ncm: onlyDigits(produto.ncm ?? ""),
           cfop: onlyDigits(produto.cfop ?? "") || "5102",
           unidade: produto.unidade || "UN",
@@ -391,7 +711,7 @@ export default function NFeAvulsaPage() {
         clienteId: cliente.id,
         tipoPessoa: cliente.tipopessoa === "FISICA" ? "FISICA" : "JURIDICA",
         cpfCnpj: cliente.cpfcnpj ?? "",
-        nomeRazaoSocial: cliente.nomerazaosocial ?? "",
+        nomeRazaoSocial: isHomologacao ? NFE_HOMOLOGACAO_DESTINATARIO_NOME : cliente.nomerazaosocial ?? "",
         indicadorIe: cliente.inscricaoestadual ? "1" : "9",
         inscricaoEstadual: cliente.inscricaoestadual ?? "",
         inscricaoMunicipal: cliente.inscricaomunicipal ?? "",
@@ -421,7 +741,9 @@ export default function NFeAvulsaPage() {
     }));
   }
 
-  async function salvarRascunho(goNext = false) {
+  async function salvarRascunho(options?: { goNext?: boolean; silent?: boolean; replaceUrl?: boolean }) {
+    const goNext = options?.goNext ?? false;
+    const wasEditing = Boolean(draft.nfeId);
     setSaving(true);
     setErrors([]);
     try {
@@ -430,15 +752,30 @@ export default function NFeAvulsaPage() {
         : await axios.post("/api/fiscal/nfe-avulsa/drafts", draft);
 
       const nfeId = Number(response.data?.nfeId);
+      const finalNfeId = Number.isFinite(nfeId) ? nfeId : draft.nfeId;
       setDraft((current) => ({
         ...current,
-        nfeId: Number.isFinite(nfeId) ? nfeId : current.nfeId,
+        nfeId: finalNfeId ?? current.nfeId,
         currentStep: goNext ? Math.min(current.currentStep + 1, steps.length - 1) : current.currentStep,
       }));
+      setDocumentState((current) => ({
+        ...current,
+        status: current.status ?? "RASCUNHO",
+        chave: response.data?.chave ?? current.chave,
+        numero: response.data?.numero == null ? current.numero : Number(response.data.numero),
+        serie: response.data?.serie == null ? current.serie : Number(response.data.serie),
+      }));
       setDirty(false);
-      toast.success("Rascunho salvo", {
-        description: response.data?.chave ? `Chave gerada: ${response.data.chave}` : undefined,
-      });
+      if (!options?.silent) {
+        toast.success(wasEditing ? "Edição salva" : "Rascunho salvo", {
+          description: response.data?.chave ? `Chave gerada: ${response.data.chave}` : undefined,
+        });
+      }
+      if (!wasEditing && finalNfeId && options?.replaceUrl !== false) {
+        window.localStorage.removeItem(storageKey);
+        router.replace(`/fiscal/nfe-avulsa?id=${finalNfeId}`);
+      }
+      return finalNfeId ?? null;
     } catch (error) {
       if (isAxiosError(error) && Array.isArray(error.response?.data?.errors)) {
         setErrors(error.response.data.errors);
@@ -449,74 +786,35 @@ export default function NFeAvulsaPage() {
           : "Erro ao salvar rascunho.";
         toast.error("Falha ao salvar rascunho", { description });
       }
+      return null;
     } finally {
       setSaving(false);
     }
   }
 
-  async function salvarEContinuar() {
-    const hasDestinatario =
-      draft.destinatario.nomeRazaoSocial.trim() &&
-      onlyDigits(draft.destinatario.cpfCnpj).length >= 11 &&
-      draft.destinatario.endereco.trim() &&
-      draft.destinatario.cidade.trim() &&
-      draft.destinatario.estado.trim();
-    const hasValidItem = draft.itens.some(
-      (item) =>
-        item.descricao.trim() &&
-        onlyDigits(item.ncm).length === 8 &&
-        onlyDigits(item.cfop).length === 4 &&
-        parseCurrency(item.quantidade) > 0 &&
-        parseCurrency(item.valorUnitario) > 0,
-    );
-
-    if (!draft.nfeId && (!hasDestinatario || !hasValidItem) && currentStep < 8) {
-      updateDraft((current) => ({
-        ...current,
-        currentStep: Math.min(current.currentStep + 1, steps.length - 1),
-      }));
-      toast.success("Rascunho local salvo", {
-        description: "O registro fiscal será gravado no banco quando cliente e item estiverem completos.",
-      });
-      return;
-    }
-
-    await salvarRascunho(true);
-  }
-
-  async function descartarRascunho() {
-    if (!window.confirm("Descartar este rascunho de NF-e?")) return;
-
-    try {
-      if (draft.nfeId) {
-        await axios.delete(`/api/fiscal/nfe-avulsa/drafts/${draft.nfeId}`);
-      }
-      window.localStorage.removeItem(storageKey);
-      setDraft(initialDraft);
-      setDirty(false);
-      toast.success("Rascunho descartado");
-      router.push("/fiscal");
-    } catch (error) {
-      const description = isAxiosError(error)
-        ? error.response?.data?.detail ?? error.response?.data?.error ?? error.message
-        : "Erro ao descartar rascunho.";
-      toast.error("Falha ao descartar", { description });
-    }
+  function irParaProximoPasso() {
+    updateDraft((current) => ({
+      ...current,
+      currentStep: Math.min(current.currentStep + 1, steps.length - 1),
+    }));
   }
 
   async function autorizar() {
-    if (!draft.nfeId) {
-      await salvarRascunho(false);
-      return;
-    }
     if (!window.confirm("Transmitir esta NF-e para a SEFAZ?")) return;
 
     setAuthorizing(true);
     const toastId = toast.loading("Transmitindo NF-e para a SEFAZ...");
     try {
-      await salvarRascunho(false);
+      const nfeId = draft.nfeId ?? (await salvarRascunho({ silent: true, replaceUrl: false }));
+      if (!nfeId) {
+        toast.error("Falha na autorização", {
+          id: toastId,
+          description: "Salve a NF-e como rascunho antes de autorizar.",
+        });
+        return;
+      }
       const response = await axios.post(
-        `/api/fiscal/nfe-avulsa/drafts/${draft.nfeId}/authorize`,
+        `/api/fiscal/nfe-avulsa/drafts/${nfeId}/authorize`,
         {},
         { headers: { "Idempotency-Key": crypto.randomUUID() } },
       );
@@ -525,6 +823,13 @@ export default function NFeAvulsaPage() {
       toast.success("Transmissão concluída", { id: toastId, description: motivo });
       if (response.data?.nfeDb?.status === "AUTORIZADA") {
         window.localStorage.removeItem(storageKey);
+        setDocumentState((current) => ({
+          ...current,
+          status: "AUTORIZADA",
+          chave: response.data?.chave ?? current.chave,
+          protocolo: response.data?.nfeDb?.protocolo ?? response.data?.sefaz?.protocolo?.nProt ?? current.protocolo,
+          dataAutorizacao: new Date().toISOString(),
+        }));
       }
     } catch (error) {
       const description = isAxiosError(error)
@@ -551,6 +856,17 @@ export default function NFeAvulsaPage() {
     );
   }
 
+  if (isAutorizada) {
+    return (
+      <NFeAutorizadaView
+        draft={draft}
+        documentState={documentState}
+        setup={setup}
+        totalProdutos={totalProdutos}
+      />
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -567,14 +883,6 @@ export default function NFeAvulsaPage() {
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" asChild>
             <Link href="/fiscal">Sair</Link>
-          </Button>
-          <Button variant="outline" onClick={descartarRascunho}>
-            <Trash2 className="h-4 w-4" />
-            Descartar rascunho
-          </Button>
-          <Button variant="outline" onClick={() => salvarRascunho(false)} disabled={saving}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            Salvar rascunho
           </Button>
         </div>
       </div>
@@ -620,11 +928,14 @@ export default function NFeAvulsaPage() {
                 </button>
               ))}
             </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Campos com <span className="font-semibold text-destructive">*</span> sao obrigatorios para emissao da NF-e.
+            </p>
           </CardHeader>
           <CardContent className="space-y-5 pt-5">
             {currentStep === 0 && (
               <section className="grid gap-4 md:grid-cols-2">
-                <Field label="Tipo de operação">
+                <Field label="Tipo de operação" required>
                   <Select
                     value={draft.operacao.tipoOperacao}
                     onValueChange={(value: "SAIDA" | "ENTRADA") =>
@@ -641,13 +952,17 @@ export default function NFeAvulsaPage() {
                     </SelectContent>
                   </Select>
                 </Field>
-                <Field label="Finalidade">
+                <Field label="Finalidade" required>
                   <Select
                     value={draft.operacao.finalidade}
                     onValueChange={(value: DraftPayload["operacao"]["finalidade"]) =>
                       updateDraft((current) => ({
                         ...current,
                         operacao: { ...current.operacao, finalidade: value },
+                        pagamento:
+                          value === "AJUSTE" || value === "DEVOLUCAO"
+                            ? { ...current.pagamento, meio: "90" }
+                            : current.pagamento,
                       }))
                     }
                   >
@@ -660,7 +975,7 @@ export default function NFeAvulsaPage() {
                     </SelectContent>
                   </Select>
                 </Field>
-                <Field label="Natureza da operação">
+                <Field label="Natureza da operação" required>
                   <Input
                     value={draft.operacao.naturezaOperacao}
                     onChange={(event) =>
@@ -671,7 +986,7 @@ export default function NFeAvulsaPage() {
                     }
                   />
                 </Field>
-                <Field label="Indicador de presença">
+                <Field label="Indicador de presença" required>
                   <Select
                     value={draft.operacao.indicadorPresenca}
                     onValueChange={(value) =>
@@ -691,7 +1006,7 @@ export default function NFeAvulsaPage() {
                     </SelectContent>
                   </Select>
                 </Field>
-                <Field label="Consumidor final">
+                <Field label="Consumidor final" required>
                   <Select
                     value={draft.operacao.consumidorFinal ? "SIM" : "NAO"}
                     onValueChange={(value) =>
@@ -724,12 +1039,12 @@ export default function NFeAvulsaPage() {
 
             {currentStep === 1 && (
               <section className="grid gap-3 md:grid-cols-2">
-                <Info label="Empresa" value={setup?.empresa?.razaosocial} />
-                <Info label="CNPJ" value={formatCpfCnpj(setup?.empresa?.cnpj)} />
-                <Info label="Série" value={setup?.config?.serie} />
-                <Info label="UF" value={setup?.empresa?.uf} />
-                <Info label="CRT" value={setup?.empresa?.regimetributario} />
-                <Info label="Certificado" value={setup?.certificadoStatus} className="md:col-span-2" />
+                <Info label="Empresa" value={setup?.empresa?.razaosocial} required />
+                <Info label="CNPJ" value={formatCpfCnpj(setup?.empresa?.cnpj)} required />
+                <Info label="Série" value={setup?.config?.serie} required />
+                <Info label="UF" value={setup?.empresa?.uf} required />
+                <Info label="CRT" value={setup?.empresa?.regimetributario} required />
+                <Info label="Certificado" value={setup?.certificadoStatus} className="md:col-span-2" required />
               </section>
             )}
 
@@ -761,7 +1076,7 @@ export default function NFeAvulsaPage() {
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-3">
-                  <Field label="Tipo de pessoa">
+                  <Field label="Tipo de pessoa" required>
                     <Select
                       value={draft.destinatario.tipoPessoa}
                       onValueChange={(value: DraftPayload["destinatario"]["tipoPessoa"]) =>
@@ -779,7 +1094,7 @@ export default function NFeAvulsaPage() {
                       </SelectContent>
                     </Select>
                   </Field>
-                  <Field label="CPF/CNPJ">
+                  <Field label="CPF/CNPJ" required={!isDestinatarioExterior}>
                     <Input
                       value={draft.destinatario.cpfCnpj}
                       onChange={(event) =>
@@ -790,9 +1105,10 @@ export default function NFeAvulsaPage() {
                       }
                     />
                   </Field>
-                  <Field label="Nome/Razão social">
+                  <Field label="Nome/Razão social" required>
                     <Input
-                      value={draft.destinatario.nomeRazaoSocial}
+                      value={isHomologacao ? NFE_HOMOLOGACAO_DESTINATARIO_NOME : draft.destinatario.nomeRazaoSocial}
+                      disabled={isHomologacao}
                       onChange={(event) =>
                         updateDraft((current) => ({
                           ...current,
@@ -801,7 +1117,7 @@ export default function NFeAvulsaPage() {
                       }
                     />
                   </Field>
-                  <Field label="Indicador IE">
+                  <Field label="Indicador IE" required>
                     <Select
                       value={draft.destinatario.indicadorIe}
                       onValueChange={(value) =>
@@ -819,7 +1135,7 @@ export default function NFeAvulsaPage() {
                       </SelectContent>
                     </Select>
                   </Field>
-                  <Field label="Inscrição estadual">
+                  <Field label="Inscrição estadual" required={draft.destinatario.indicadorIe === "1"}>
                     <Input
                       value={draft.destinatario.inscricaoEstadual}
                       onChange={(event) =>
@@ -852,7 +1168,7 @@ export default function NFeAvulsaPage() {
                       }
                     />
                   </Field>
-                  <Field label="Endereço">
+                  <Field label="Endereço" required>
                     <Input
                       value={draft.destinatario.endereco}
                       onChange={(event) =>
@@ -885,7 +1201,7 @@ export default function NFeAvulsaPage() {
                       }
                     />
                   </Field>
-                  <Field label="Bairro">
+                  <Field label="Bairro" required>
                     <Input
                       value={draft.destinatario.bairro}
                       onChange={(event) =>
@@ -896,7 +1212,7 @@ export default function NFeAvulsaPage() {
                       }
                     />
                   </Field>
-                  <Field label="Cidade">
+                  <Field label="Cidade" required>
                     <Input
                       value={draft.destinatario.cidade}
                       onChange={(event) =>
@@ -907,7 +1223,7 @@ export default function NFeAvulsaPage() {
                       }
                     />
                   </Field>
-                  <Field label="UF">
+                  <Field label="UF" required>
                     <Input
                       value={draft.destinatario.estado}
                       maxLength={2}
@@ -919,7 +1235,7 @@ export default function NFeAvulsaPage() {
                       }
                     />
                   </Field>
-                  <Field label="CEP">
+                  <Field label="CEP" required={!isDestinatarioExterior}>
                     <Input
                       value={draft.destinatario.cep}
                       onChange={(event) =>
@@ -930,7 +1246,7 @@ export default function NFeAvulsaPage() {
                       }
                     />
                   </Field>
-                  <Field label="Código IBGE do município">
+                  <Field label="Código IBGE do município" required={!isDestinatarioExterior}>
                     <Input
                       value={draft.destinatario.codigoMunicipio}
                       onChange={(event) =>
@@ -969,19 +1285,19 @@ export default function NFeAvulsaPage() {
                     <Card key={index} className="border-dashed">
                       <CardContent className="grid gap-3 pt-4 md:grid-cols-12">
                         <div className="md:col-span-5">
-                          <Label>Descrição</Label>
+                          <Label className="inline-flex items-center gap-1">Descrição <RequiredMark /></Label>
                           <Input value={item.descricao} onChange={(event) => updateItem(index, { descricao: event.target.value })} />
                         </div>
                         <div className="md:col-span-2">
-                          <Label>NCM</Label>
+                          <Label className="inline-flex items-center gap-1">NCM <RequiredMark /></Label>
                           <Input value={item.ncm} onChange={(event) => updateItem(index, { ncm: onlyDigits(event.target.value) })} />
                         </div>
                         <div className="md:col-span-2">
-                          <Label>CFOP</Label>
+                          <Label className="inline-flex items-center gap-1">CFOP <RequiredMark /></Label>
                           <Input value={item.cfop} onChange={(event) => updateItem(index, { cfop: onlyDigits(event.target.value) })} />
                         </div>
                         <div className="md:col-span-2">
-                          <Label>Unidade</Label>
+                          <Label className="inline-flex items-center gap-1">Unidade <RequiredMark /></Label>
                           <Select value={item.unidade} onValueChange={(value) => updateItem(index, { unidade: value })}>
                             <SelectTrigger><SelectValue /></SelectTrigger>
                             <SelectContent>
@@ -997,15 +1313,18 @@ export default function NFeAvulsaPage() {
                           </Button>
                         </div>
                         <div className="md:col-span-2">
-                          <Label>Quantidade</Label>
+                          <Label className="inline-flex items-center gap-1">Quantidade <RequiredMark /></Label>
                           <Input value={item.quantidade} onChange={(event) => updateItem(index, { quantidade: event.target.value })} />
                         </div>
                         <div className="md:col-span-2">
-                          <Label>Valor unitário</Label>
+                          <Label className="inline-flex items-center gap-1">Valor unitário <RequiredMark /></Label>
                           <Input value={item.valorUnitario} onChange={(event) => updateItem(index, { valorUnitario: event.target.value })} />
                         </div>
                         <div className="md:col-span-3">
-                          <Label>CEST</Label>
+                          <Label className="inline-flex items-center gap-1">
+                            CEST
+                            {["201", "202", "203"].includes(item.csosn) || ["10", "30", "70"].includes(item.cst) ? <RequiredMark /> : null}
+                          </Label>
                           <Input value={item.cest} onChange={(event) => updateItem(index, { cest: onlyDigits(event.target.value) })} />
                         </div>
                         <Info
@@ -1017,22 +1336,22 @@ export default function NFeAvulsaPage() {
                           <Separator />
                         </div>
                         <p className="text-sm font-medium md:col-span-12">Tributação do item</p>
-                        <Field label="CSOSN">
+                        <Field label="CSOSN" required={isSimplesOuMei || isSublimite}>
                           <Input value={item.csosn} onChange={(event) => updateItem(index, { csosn: event.target.value })} />
                         </Field>
-                        <Field label="CST ICMS">
+                        <Field label="CST ICMS" required={isRegimeNormal || isSublimite}>
                           <Input value={item.cst} onChange={(event) => updateItem(index, { cst: event.target.value })} />
                         </Field>
                         <Field label="% ICMS">
                           <Input value={item.aliquotaIcms} onChange={(event) => updateItem(index, { aliquotaIcms: event.target.value })} />
                         </Field>
-                        <Field label="CST PIS">
+                        <Field label="CST PIS" required>
                           <Input value={item.cstPis} onChange={(event) => updateItem(index, { cstPis: event.target.value })} />
                         </Field>
                         <Field label="% PIS">
                           <Input value={item.aliquotaPis} onChange={(event) => updateItem(index, { aliquotaPis: event.target.value })} />
                         </Field>
-                        <Field label="CST COFINS">
+                        <Field label="CST COFINS" required>
                           <Input value={item.cstCofins} onChange={(event) => updateItem(index, { cstCofins: event.target.value })} />
                         </Field>
                         <Field label="% COFINS">
@@ -1046,6 +1365,15 @@ export default function NFeAvulsaPage() {
             )}
 
             {currentStep === 4 && (
+              <TransporteStep
+                draft={draft}
+                updateDraft={updateDraft}
+                isSemTransporte={isSemTransporte}
+                isFreteContratado={isFreteContratado}
+                isTransporteProprio={isTransporteProprio}
+              />
+            )}
+            {false && (
               <ReadOnlyStep
                 title="Transporte"
                 description="Esta primeira versão emite a NF-e avulsa com modalidade sem frete. Dados de transportadora e volumes ficam bloqueados até a parametrização fiscal específica."
@@ -1053,10 +1381,121 @@ export default function NFeAvulsaPage() {
             )}
 
             {currentStep === 5 && (
-              <ReadOnlyStep
-                title="Pagamento"
-                description="O XML atual usa pagamento em dinheiro pelo total da nota, reaproveitando o emissor existente. Formas múltiplas de pagamento serão parametrizadas em etapa posterior."
-              />
+              <section className="grid gap-4 md:grid-cols-2">
+                <Field label="Método de pagamento" required>
+                  <Select
+                    value={meioPagamentoAtual}
+                    disabled={isSemPagamentoObrigatorio}
+                    onValueChange={(value) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        pagamento: {
+                          ...current.pagamento,
+                          meio: value,
+                          bandeira:
+                            (value === "03" || value === "04") && !current.pagamento.bandeira
+                              ? "99"
+                              : current.pagamento.bandeira,
+                        },
+                      }))
+                    }
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {paymentOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.value} - {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Info
+                  label="Valor informado no pagamento"
+                  value={meioPagamentoAtual === "90" ? formatarEmReal(0) : formatarEmReal(totalProdutos)}
+                />
+
+                {isSemPagamentoObrigatorio && (
+                  <Alert className="md:col-span-2">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Pagamento definido pela finalidade</AlertTitle>
+                    <AlertDescription>
+                      NF-e de ajuste ou devolução deve ser emitida com 90 - Sem pagamento.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {isPagamentoCartao && (
+                  <>
+                    <Field label="Integração do cartão" required>
+                      <Select
+                        value={draft.pagamento.tipoIntegracao}
+                        onValueChange={(value: "1" | "2") =>
+                          updateDraft((current) => ({
+                            ...current,
+                            pagamento: { ...current.pagamento, tipoIntegracao: value },
+                          }))
+                        }
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="2">Não integrado</SelectItem>
+                          <SelectItem value="1">Integrado ao sistema</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field label="Bandeira" required>
+                      <Select
+                        value={draft.pagamento.bandeira || "99"}
+                        onValueChange={(value) =>
+                          updateDraft((current) => ({
+                            ...current,
+                            pagamento: { ...current.pagamento, bandeira: value },
+                          }))
+                        }
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {cardBrandOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.value} - {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    {draft.pagamento.tipoIntegracao === "1" && (
+                      <>
+                        <Field label="CNPJ da credenciadora" required>
+                          <Input
+                            value={draft.pagamento.cnpjCredenciadora}
+                            onChange={(event) =>
+                              updateDraft((current) => ({
+                                ...current,
+                                pagamento: {
+                                  ...current.pagamento,
+                                  cnpjCredenciadora: onlyDigits(event.target.value),
+                                },
+                              }))
+                            }
+                          />
+                        </Field>
+                        <Field label="Código de autorização" required>
+                          <Input
+                            value={draft.pagamento.autorizacao}
+                            onChange={(event) =>
+                              updateDraft((current) => ({
+                                ...current,
+                                pagamento: { ...current.pagamento, autorizacao: event.target.value },
+                              }))
+                            }
+                          />
+                        </Field>
+                      </>
+                    )}
+                  </>
+                )}
+              </section>
             )}
 
             {currentStep === 6 && (
@@ -1076,10 +1515,12 @@ export default function NFeAvulsaPage() {
 
             {currentStep === 7 && (
               <section className="space-y-4">
-                <div className="grid gap-3 md:grid-cols-3">
+                <div className="grid gap-3 md:grid-cols-5">
                   <Info label="Operação" value={draft.operacao.naturezaOperacao} />
                   <Info label="Destinatário" value={draft.destinatario.nomeRazaoSocial || "Pendente"} />
                   <Info label="Total" value={formatarEmReal(totalProdutos)} />
+                  <Info label="Pagamento" value={`${meioPagamentoAtual} - ${getPaymentLabel(meioPagamentoAtual)}`} />
+                  <Info label="Frete" value={`${draft.transporte.modFrete} - ${getFreightLabel(draft.transporte.modFrete)}`} />
                 </div>
                 <Table>
                   <TableHeader>
@@ -1128,10 +1569,6 @@ export default function NFeAvulsaPage() {
                       </Button>
                     </>
                   )}
-                  <Button onClick={autorizar} disabled={authorizing || saving || (setup?.empresaErros?.length ?? 0) > 0}>
-                    {authorizing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                    Transmitir para a SEFAZ
-                  </Button>
                 </div>
               </section>
             )}
@@ -1146,13 +1583,20 @@ export default function NFeAvulsaPage() {
                 Voltar
               </Button>
               <div className="flex gap-2">
-                <Button variant="outline" onClick={() => salvarRascunho(false)} disabled={saving}>
-                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  Salvar rascunho
-                </Button>
-                <Button onClick={salvarEContinuar} disabled={saving || currentStep === steps.length - 1}>
-                  Salvar e continuar
-                </Button>
+                {currentStep < steps.length - 1 ? (
+                  <Button onClick={irParaProximoPasso}>Próximo</Button>
+                ) : (
+                  <>
+                    <Button variant="outline" onClick={() => salvarRascunho()} disabled={saving}>
+                      {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      {isEditingPersistedDraft ? "Salvar edição" : "Salvar como rascunho"}
+                    </Button>
+                    <Button onClick={autorizar} disabled={authorizing || saving || (setup?.empresaErros?.length ?? 0) > 0}>
+                      {authorizing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                      Autorizar SEFAZ
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
           </CardContent>
@@ -1174,6 +1618,7 @@ export default function NFeAvulsaPage() {
             <Info label="Destinatário" value={draft.destinatario.nomeRazaoSocial || "Pendente"} />
             <Info label="Itens" value={draft.itens.length} />
             <Info label="Total dos produtos" value={formatarEmReal(totalProdutos)} />
+            <Info label="Pagamento" value={`${meioPagamentoAtual} - ${getPaymentLabel(meioPagamentoAtual)}`} />
             <Info label="Status do documento" value={draft.nfeId ? `Rascunho #${draft.nfeId}` : "Não salvo"} />
           </CardContent>
         </Card>
@@ -1182,11 +1627,195 @@ export default function NFeAvulsaPage() {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function RequiredMark() {
+  return <span className="text-destructive">*</span>;
+}
+
+function Field({
+  label,
+  children,
+  required = false,
+}: {
+  label: React.ReactNode;
+  children: React.ReactNode;
+  required?: boolean;
+}) {
   return (
     <div className="space-y-2">
-      <Label>{label}</Label>
+      <Label className="inline-flex items-center gap-1">
+        {label}
+        {required && <RequiredMark />}
+      </Label>
       {children}
+    </div>
+  );
+}
+
+function NFeAutorizadaView({
+  draft,
+  documentState,
+  setup,
+  totalProdutos,
+}: {
+  draft: DraftPayload;
+  documentState: NFeDocumentState;
+  setup: SetupResponse | null;
+  totalProdutos: number;
+}) {
+  async function baixarXml() {
+    if (!draft.nfeId) return;
+
+    const toastId = toast.loading("Preparando XML...");
+    try {
+      const response = await fetch(`/api/fiscal/notas-emitidas/${draft.nfeId}/xml`);
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        toast.error("XML indisponível", {
+          id: toastId,
+          description: body?.detail ?? body?.error ?? "Não foi possível baixar o XML.",
+        });
+        return;
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") ?? "";
+      const filenameMatch = disposition.match(/filename="?([^"]+)"?/i);
+      const filename = filenameMatch?.[1] ?? `nfe-${draft.nfeId}.xml`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      toast.success("XML baixado", { id: toastId });
+    } catch (error) {
+      const description = error instanceof Error ? error.message : "Erro ao baixar XML.";
+      toast.error("Falha no download", { id: toastId, description });
+    }
+  }
+
+  const itensDisplay = draft.itens.map((item, index) => {
+    const quantidade = parseNumberInput(item.quantidade);
+    const valorUnitario = parseNumberInput(item.valorUnitario);
+    const valorTotal = Number((quantidade * valorUnitario).toFixed(2));
+    const aliquotaIcms = parseNumberInput(item.aliquotaIcms);
+    const aliquotaPis = parseNumberInput(item.aliquotaPis);
+    const aliquotaCofins = parseNumberInput(item.aliquotaCofins);
+
+    return {
+      id: `${item.produtoId ?? item.codigo ?? "item"}-${index}`,
+      n_item: index + 1,
+      produtoid: (item.produtoId ?? item.codigo) || null,
+      descricao: item.descricao,
+      ncm: item.ncm || null,
+      cfop: item.cfop,
+      csosn: item.csosn || item.cst || null,
+      unidade: item.unidade,
+      quantidade,
+      valor_unitario: valorUnitario,
+      valor_total: valorTotal,
+      valor_bc_icms: aliquotaIcms > 0 ? valorTotal : 0,
+      aliquotaicms: aliquotaIcms,
+      valor_icms: Number((valorTotal * (aliquotaIcms / 100)).toFixed(2)),
+      cst_pis: item.cstPis || null,
+      valor_pis: Number((valorTotal * (aliquotaPis / 100)).toFixed(2)),
+      cst_cofins: item.cstCofins || null,
+      valor_cofins: Number((valorTotal * (aliquotaCofins / 100)).toFixed(2)),
+    };
+  });
+  const totalBcIcms = itensDisplay.reduce((sum, item) => sum + item.valor_bc_icms, 0);
+  const totalIcms = itensDisplay.reduce((sum, item) => sum + item.valor_icms, 0);
+  const emitenteEndereco = [
+    setup?.empresa?.endereco,
+    setup?.empresa?.numero && `, ${setup.empresa.numero}`,
+    setup?.empresa?.bairro && ` - ${setup.empresa.bairro}`,
+    setup?.empresa?.cep && ` - CEP ${setup.empresa.cep}`,
+    setup?.empresa?.uf && ` - ${setup.empresa.uf}`,
+  ].filter(Boolean).join("") || "-";
+  const destinatarioEndereco = [
+    draft.destinatario.endereco,
+    draft.destinatario.numero && `, ${draft.destinatario.numero}`,
+    draft.destinatario.bairro && ` - ${draft.destinatario.bairro}`,
+    draft.destinatario.cep && ` - CEP ${draft.destinatario.cep}`,
+    draft.destinatario.cidade && draft.destinatario.estado && ` - ${draft.destinatario.cidade}/${draft.destinatario.estado}`,
+  ].filter(Boolean).join("");
+  const danfeData: DanfeViewData = {
+    nfe: {
+      numero: documentState.numero ?? draft.nfeId ?? 0,
+      serie: documentState.serie ?? setup?.config?.serie ?? 0,
+      ordemservicoid: null,
+      protocolo: documentState.protocolo,
+      dataautorizacao: documentState.dataAutorizacao,
+      total_servicos: 0,
+    },
+    emitenteNome: setup?.empresa?.razaosocial || "-",
+    emitenteEndereco,
+    emitenteCnpj: setup?.empresa?.cnpj || "",
+    emitenteIe: setup?.empresa?.inscricaoestadual ?? null,
+    emitenteTelefone: setup?.empresa?.telefone ?? null,
+    destinatarioNome: draft.destinatario.nomeRazaoSocial || "-",
+    destinatarioDoc: draft.destinatario.cpfCnpj,
+    destinatarioEndereco: destinatarioEndereco || "-",
+    destinatarioCidadeUf:
+      draft.destinatario.cidade && draft.destinatario.estado
+        ? `${draft.destinatario.cidade}/${draft.destinatario.estado}`
+        : "-",
+    destinatarioCep: draft.destinatario.cep || "-",
+    dataEmissaoDanfe: documentState.dataAutorizacao,
+    tipoOperacao: draft.operacao.tipoOperacao === "ENTRADA" ? "ENTRADA" : "SAÍDA",
+    statusUpper: "AUTORIZADA",
+    statusLabel: "Autorizada",
+    chaveFormatada: formatChaveAcesso(documentState.chave),
+    isAutorizada: true,
+    xmlError: null,
+    xmlBaseAvailable: true,
+    itensDisplay,
+    totalBcIcms,
+    totalIcms,
+    totalProdutos,
+    totalNota: totalProdutos,
+    infCpl: draft.operacao.observacoesFiscais || null,
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between print:hidden">
+        <div>
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+            <h1 className="text-2xl font-semibold tracking-tight">Nota fiscal autorizada</h1>
+            <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">AUTORIZADA</Badge>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            A NF-e foi autorizada pela SEFAZ e não pode mais ser editada.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" asChild>
+            <Link href="/fiscal">Sair</Link>
+          </Button>
+          <Button variant="outline" onClick={() => window.print()}>
+            <Printer className="h-4 w-4" />
+            Imprimir
+          </Button>
+          <Button onClick={baixarXml}>
+            <Download className="h-4 w-4" />
+            Baixar XML
+          </Button>
+        </div>
+      </div>
+
+      <Alert className="print:hidden">
+        <CheckCircle2 className="h-4 w-4" />
+        <AlertTitle>Nota fiscal autorizada!</AlertTitle>
+        <AlertDescription>
+          Protocolo {documentState.protocolo || "-"} - Chave {documentState.chave || "-"}
+        </AlertDescription>
+      </Alert>
+
+      <DanfeView data={danfeData} showActions={false} />
     </div>
   );
 }
@@ -1195,14 +1824,19 @@ function Info({
   label,
   value,
   className,
+  required = false,
 }: {
   label: string;
   value: React.ReactNode;
   className?: string;
+  required?: boolean;
 }) {
   return (
     <div className={`rounded-md border bg-muted/20 p-3 ${className ?? ""}`}>
-      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="flex gap-1 text-xs text-muted-foreground">
+        {label}
+        {required && <RequiredMark />}
+      </p>
       <p className="mt-1 break-words text-sm font-medium">{value || "-"}</p>
     </div>
   );
@@ -1215,5 +1849,255 @@ function ReadOnlyStep({ title, description }: { title: string; description: stri
       <AlertTitle>{title}</AlertTitle>
       <AlertDescription>{description}</AlertDescription>
     </Alert>
+  );
+}
+
+function TransporteStep({
+  draft,
+  updateDraft,
+  isSemTransporte,
+  isFreteContratado,
+  isTransporteProprio,
+}: {
+  draft: DraftPayload;
+  updateDraft: (updater: (current: DraftPayload) => DraftPayload) => void;
+  isSemTransporte: boolean;
+  isFreteContratado: boolean;
+  isTransporteProprio: boolean;
+}) {
+  const updateTransporte = (patch: Partial<DraftTransporte>) => {
+    updateDraft((current) => ({
+      ...current,
+      transporte: {
+        ...current.transporte,
+        ...patch,
+      },
+    }));
+  };
+
+  const updateTransportadora = (patch: Partial<DraftTransporte["transportadora"]>) => {
+    updateDraft((current) => ({
+      ...current,
+      transporte: {
+        ...current.transporte,
+        transportadora: {
+          ...current.transporte.transportadora,
+          ...patch,
+        },
+      },
+    }));
+  };
+
+  const updateVeiculo = (patch: Partial<DraftTransporte["veiculo"]>) => {
+    updateDraft((current) => ({
+      ...current,
+      transporte: {
+        ...current.transporte,
+        veiculo: {
+          ...current.transporte.veiculo,
+          ...patch,
+        },
+      },
+    }));
+  };
+
+  const updateVolume = (patch: Partial<DraftTransporte["volume"]>) => {
+    updateDraft((current) => ({
+      ...current,
+      transporte: {
+        ...current.transporte,
+        volume: {
+          ...current.transporte.volume,
+          ...patch,
+        },
+      },
+    }));
+  };
+
+  return (
+    <section className="space-y-4">
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Modalidade do frete" required>
+          <Select
+            value={draft.transporte.modFrete}
+            onValueChange={(value) => {
+              const modFrete = value as DraftTransporte["modFrete"];
+              updateTransporte({
+                modFrete,
+                transportadora: modFrete === "9" ? { ...initialDraft.transporte.transportadora } : draft.transporte.transportadora,
+                veiculo: modFrete === "9" ? { ...initialDraft.transporte.veiculo } : draft.transporte.veiculo,
+                volume: modFrete === "9" ? { ...initialDraft.transporte.volume } : draft.transporte.volume,
+              });
+            }}
+          >
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {freightOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.value} - {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+        <Info label="Tag enviada no XML" value={`modFrete ${draft.transporte.modFrete}`} />
+      </div>
+
+      {isSemTransporte && (
+        <Alert>
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Sem ocorrencia de transporte</AlertTitle>
+          <AlertDescription>
+            Com modFrete 9, a NF-e envia apenas a modalidade do frete e nao preenche transportadora, veiculo ou volumes.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {!isSemTransporte && (
+        <>
+          <Alert>
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>
+              {isFreteContratado ? "Frete contratado" : "Transporte proprio"}
+            </AlertTitle>
+            <AlertDescription>
+              {isFreteContratado
+                ? "Informe a transportadora responsavel pelo frete. CPF/CNPJ, nome e UF sao validados antes de emitir."
+                : "No transporte proprio, o XML usa os dados do responsavel pela modalidade selecionada e aceita veiculo e volumes quando informados."}
+            </AlertDescription>
+          </Alert>
+
+          {isFreteContratado && (
+            <div className="space-y-3">
+              <p className="text-sm font-medium">Transportadora</p>
+              <div className="grid gap-4 md:grid-cols-3">
+                <Field label="CPF/CNPJ" required>
+                  <Input
+                    value={draft.transporte.transportadora.documento}
+                    onChange={(event) => updateTransportadora({ documento: onlyDigits(event.target.value) })}
+                    maxLength={14}
+                  />
+                </Field>
+                <Field label="Nome/Razao social" required>
+                  <Input
+                    value={draft.transporte.transportadora.nome}
+                    onChange={(event) => updateTransportadora({ nome: event.target.value })}
+                  />
+                </Field>
+                <Field label="Inscricao estadual">
+                  <Input
+                    value={draft.transporte.transportadora.inscricaoEstadual}
+                    onChange={(event) => updateTransportadora({ inscricaoEstadual: onlyDigits(event.target.value) })}
+                  />
+                </Field>
+                <Field label="Endereco">
+                  <Input
+                    value={draft.transporte.transportadora.endereco}
+                    onChange={(event) => updateTransportadora({ endereco: event.target.value })}
+                  />
+                </Field>
+                <Field label="Municipio">
+                  <Input
+                    value={draft.transporte.transportadora.municipio}
+                    onChange={(event) => updateTransportadora({ municipio: event.target.value })}
+                  />
+                </Field>
+                <Field label="UF" required>
+                  <Input
+                    value={draft.transporte.transportadora.uf}
+                    onChange={(event) => updateTransportadora({ uf: event.target.value.toUpperCase().slice(0, 2) })}
+                    maxLength={2}
+                  />
+                </Field>
+              </div>
+            </div>
+          )}
+
+          {isTransporteProprio && (
+            <Info
+              label="Transportador no XML"
+              value={draft.transporte.modFrete === "3" ? "Emitente da NF-e" : "Destinatario da NF-e"}
+            />
+          )}
+
+          <Separator />
+
+          <div className="space-y-3">
+            <p className="text-sm font-medium">Veiculo</p>
+            <div className="grid gap-4 md:grid-cols-3">
+              <Field label="Placa">
+                <Input
+                  value={draft.transporte.veiculo.placa}
+                  onChange={(event) =>
+                    updateVeiculo({ placa: event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 7) })
+                  }
+                  maxLength={7}
+                />
+              </Field>
+              <Field label="UF" required={Boolean(draft.transporte.veiculo.placa)}>
+                <Input
+                  value={draft.transporte.veiculo.uf}
+                  onChange={(event) => updateVeiculo({ uf: event.target.value.toUpperCase().slice(0, 2) })}
+                  maxLength={2}
+                />
+              </Field>
+              <Field label="RNTC/ANTT">
+                <Input
+                  value={draft.transporte.veiculo.rntc}
+                  onChange={(event) => updateVeiculo({ rntc: event.target.value })}
+                />
+              </Field>
+            </div>
+          </div>
+
+          <Separator />
+
+          <div className="space-y-3">
+            <p className="text-sm font-medium">Volumes</p>
+            <div className="grid gap-4 md:grid-cols-3">
+              <Field label="Quantidade">
+                <Input
+                  value={draft.transporte.volume.quantidade}
+                  onChange={(event) => updateVolume({ quantidade: event.target.value })}
+                  inputMode="decimal"
+                />
+              </Field>
+              <Field label="Especie">
+                <Input
+                  value={draft.transporte.volume.especie}
+                  onChange={(event) => updateVolume({ especie: event.target.value })}
+                />
+              </Field>
+              <Field label="Marca">
+                <Input
+                  value={draft.transporte.volume.marca}
+                  onChange={(event) => updateVolume({ marca: event.target.value })}
+                />
+              </Field>
+              <Field label="Numeracao">
+                <Input
+                  value={draft.transporte.volume.numeracao}
+                  onChange={(event) => updateVolume({ numeracao: event.target.value })}
+                />
+              </Field>
+              <Field label="Peso liquido">
+                <Input
+                  value={draft.transporte.volume.pesoLiquido}
+                  onChange={(event) => updateVolume({ pesoLiquido: event.target.value })}
+                  inputMode="decimal"
+                />
+              </Field>
+              <Field label="Peso bruto">
+                <Input
+                  value={draft.transporte.volume.pesoBruto}
+                  onChange={(event) => updateVolume({ pesoBruto: event.target.value })}
+                  inputMode="decimal"
+                />
+              </Field>
+            </div>
+          </div>
+        </>
+      )}
+    </section>
   );
 }

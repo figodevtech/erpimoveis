@@ -13,9 +13,11 @@ import {
   FileSearch,
   Loader2,
   MoreHorizontal,
+  Pencil,
   RefreshCw,
   Send,
   UploadCloud,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -51,6 +53,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import formatarEmReal from "@/utils/formatarEmReal";
+import { traduzStatusNfe } from "@/lib/nfe/statusNfe";
 
 import type { FiscalViewMode, NotaFiscal, Pagination } from "../types";
 
@@ -97,14 +100,14 @@ function formatCpfCnpj(value?: string | null) {
 }
 
 function statusClass(status: string) {
-  const value = status.toUpperCase();
+  const value = traduzStatusNfe(status).toUpperCase();
   if (["AUTORIZADA", "AUTORIZADO", "EMITIDA", "USO AUTORIZADO", "USO AUTORIZADO FORA DO PRAZO"].includes(value)) {
     return "border-emerald-500/40 bg-emerald-500/10 text-emerald-700";
   }
-  if (value === "CANCELADA" || value === "NF-E CANCELADA" || value === "CANCELADA FORA DO PRAZO") {
+  if (value.includes("CANCEL")) {
     return "border-destructive/40 bg-destructive/10 text-destructive";
   }
-  if (value === "REJEITADA" || value === "USO DENEGADO") {
+  if (value.includes("REJEI") || value.includes("DENEGAD") || value.includes("NÃO CONSTA")) {
     return "border-yellow-500/40 bg-yellow-500/10 text-yellow-700";
   }
   return "border-muted-foreground/30 bg-muted text-muted-foreground";
@@ -286,6 +289,22 @@ export default function FiscalTable({
     }
   }
 
+  async function excluirRascunho(id: number) {
+    if (!window.confirm("Excluir este rascunho de NF-e?")) return;
+
+    const toastId = toast.loading("Excluindo rascunho...");
+    try {
+      await axios.delete(`/api/fiscal/notas-emitidas/${id}`);
+      toast.success("Rascunho excluído", { id: toastId });
+      await handleGetNotas(pagination.page, pagination.limit);
+    } catch (error) {
+      const description = isAxiosError(error)
+        ? error.response?.data?.detail ?? error.response?.data?.error ?? error.message
+        : "Erro ao excluir rascunho.";
+      toast.error("Falha ao excluir", { id: toastId, description });
+    }
+  }
+
   return (
     <Card>
       <CardHeader className="border-b-2">
@@ -452,6 +471,10 @@ export default function FiscalTable({
                 canManifestarTerceiros && (!manifestacao || manifestacao === "CIENCIA");
               const podeVerDanfe =
                 viewMode !== "EMITIDAS_TERCEIROS" || nota.xmlStatus === "XML_COMPLETO";
+              const isRascunho = String(nota.status).toUpperCase() === "RASCUNHO";
+              const podeConsultarSefaz = !isRascunho;
+              const podeExcluirRascunho = viewMode !== "EMITIDAS_TERCEIROS" && isRascunho;
+              const podeEditarRascunho = viewMode !== "EMITIDAS_TERCEIROS" && isRascunho;
 
               return (
                 <TableRow key={nota.id} className="hover:cursor-pointer">
@@ -507,7 +530,7 @@ export default function FiscalTable({
 
                   <TableCell className="hidden md:table-cell">
                     <Badge variant="outline" className={statusClass(nota.status)}>
-                      {nota.status}
+                      {traduzStatusNfe(nota.status)}
                     </Badge>
                   </TableCell>
 
@@ -552,10 +575,27 @@ export default function FiscalTable({
                           <Download className="mr-2 h-4 w-4" />
                           Baixar XML
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => consultarStatus(nota.id)}>
-                          <FileSearch className="mr-2 h-4 w-4" />
-                          Consultar SEFAZ
-                        </DropdownMenuItem>
+                        {podeConsultarSefaz ? (
+                          <DropdownMenuItem onClick={() => consultarStatus(nota.id)}>
+                            <FileSearch className="mr-2 h-4 w-4" />
+                            Consultar SEFAZ
+                          </DropdownMenuItem>
+                        ) : null}
+                        {podeEditarRascunho ? (
+                          <DropdownMenuItem onClick={() => window.location.assign(`/fiscal/nfe-avulsa?id=${nota.id}`)}>
+                            <Pencil className="mr-2 h-4 w-4" />
+                            Editar rascunho
+                          </DropdownMenuItem>
+                        ) : null}
+                        {podeExcluirRascunho ? (
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => excluirRascunho(nota.id)}
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Excluir rascunho
+                          </DropdownMenuItem>
+                        ) : null}
                         {canManifestarTerceiros ? (
                           <>
                             {podeSolicitarCiencia ? (

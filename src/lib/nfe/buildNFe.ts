@@ -15,6 +15,7 @@ import { mapEmpresaToEmitente } from './mapEmpresaToEmitente';
 import { getCodigoUF } from './ufUtils';
 import { calcularTotaisNFe, normalizarCRT } from './fiscal';
 import { escapeXml } from './xmlUtils';
+import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from './constants';
 
 /**
  * Formata data/hora para o padrão da NF-e 4.00:
@@ -56,6 +57,208 @@ export interface IdeOptions {
   finNFe?: 1 | 2 | 3 | 4;
   tpImp?: 1 | 2 | 3 | 4 | 5;
   observacoesFiscais?: string | null;
+  pagamento?: NFePagamentoOptions | null;
+  transporte?: NFeTransporteOptions | null;
+}
+
+export type NFePagamentoOptions = {
+  tPag: string;
+  tpIntegra?: "1" | "2" | string | null;
+  cnpjCredenciadora?: string | null;
+  bandeira?: string | null;
+  autorizacao?: string | null;
+};
+
+export type NFeTransporteOptions = {
+  modFrete: "0" | "1" | "2" | "3" | "4" | "9" | string;
+  transportadora?: {
+    documento?: string | null;
+    nome?: string | null;
+    inscricaoEstadual?: string | null;
+    endereco?: string | null;
+    municipio?: string | null;
+    uf?: string | null;
+  } | null;
+  veiculo?: {
+    placa?: string | null;
+    uf?: string | null;
+    rntc?: string | null;
+  } | null;
+  volume?: {
+    quantidade?: string | number | null;
+    especie?: string | null;
+    marca?: string | null;
+    numeracao?: string | null;
+    pesoLiquido?: string | number | null;
+    pesoBruto?: string | number | null;
+  } | null;
+};
+
+function onlyDigits(value: unknown) {
+  return String(value ?? "").replace(/\D/g, "");
+}
+
+function cleanText(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function formatDecimal(value: unknown) {
+  const raw = cleanText(value);
+  if (!raw) return null;
+
+  const normalized = raw.includes(",") ? raw.replace(/\./g, "").replace(",", ".") : raw;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed.toFixed(3) : null;
+}
+
+function buildTransportaXml(transportadora?: NFeTransporteOptions["transportadora"] | null) {
+  const documento = onlyDigits(transportadora?.documento);
+  const nome = cleanText(transportadora?.nome);
+  const ie = cleanText(transportadora?.inscricaoEstadual);
+  const endereco = cleanText(transportadora?.endereco);
+  const municipio = cleanText(transportadora?.municipio);
+  const uf = cleanText(transportadora?.uf).toUpperCase();
+
+  if (!documento && !nome && !ie && !endereco && !municipio && !uf) return "";
+
+  return (
+    "<transporta>" +
+    (documento.length === 14 ? `<CNPJ>${documento}</CNPJ>` : "") +
+    (documento.length === 11 ? `<CPF>${documento}</CPF>` : "") +
+    (nome ? `<xNome>${escapeXml(nome)}</xNome>` : "") +
+    (ie ? `<IE>${escapeXml(ie)}</IE>` : "") +
+    (endereco ? `<xEnder>${escapeXml(endereco)}</xEnder>` : "") +
+    (municipio ? `<xMun>${escapeXml(municipio)}</xMun>` : "") +
+    (uf.length === 2 ? `<UF>${escapeXml(uf)}</UF>` : "") +
+    "</transporta>"
+  );
+}
+
+function buildVeicTranspXml(veiculo?: NFeTransporteOptions["veiculo"] | null) {
+  const placa = cleanText(veiculo?.placa).toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const uf = cleanText(veiculo?.uf).toUpperCase();
+  const rntc = cleanText(veiculo?.rntc);
+
+  if (!placa) return "";
+
+  return (
+    "<veicTransp>" +
+    `<placa>${escapeXml(placa.slice(0, 7))}</placa>` +
+    (uf.length === 2 ? `<UF>${escapeXml(uf)}</UF>` : "") +
+    (rntc ? `<RNTC>${escapeXml(rntc)}</RNTC>` : "") +
+    "</veicTransp>"
+  );
+}
+
+function buildVolXml(volume?: NFeTransporteOptions["volume"] | null) {
+  const quantidade = formatDecimal(volume?.quantidade);
+  const especie = cleanText(volume?.especie);
+  const marca = cleanText(volume?.marca);
+  const numeracao = cleanText(volume?.numeracao);
+  const pesoLiquido = formatDecimal(volume?.pesoLiquido);
+  const pesoBruto = formatDecimal(volume?.pesoBruto);
+
+  if (!quantidade && !especie && !marca && !numeracao && !pesoLiquido && !pesoBruto) return "";
+
+  return (
+    "<vol>" +
+    (quantidade ? `<qVol>${escapeXml(quantidade)}</qVol>` : "") +
+    (especie ? `<esp>${escapeXml(especie)}</esp>` : "") +
+    (marca ? `<marca>${escapeXml(marca)}</marca>` : "") +
+    (numeracao ? `<nVol>${escapeXml(numeracao)}</nVol>` : "") +
+    (pesoLiquido ? `<pesoL>${pesoLiquido}</pesoL>` : "") +
+    (pesoBruto ? `<pesoB>${pesoBruto}</pesoB>` : "") +
+    "</vol>"
+  );
+}
+
+function getTransportadoraPropria(
+  modFrete: string,
+  empresa: EmpresaRow,
+  destinatario?: NFeDestinatario,
+): NFeTransporteOptions["transportadora"] | null {
+  if (modFrete === "3") {
+    return {
+      documento: empresa.cnpj,
+      nome: empresa.razaosocial,
+      inscricaoEstadual: empresa.inscricaoestadual,
+      endereco: [empresa.endereco, empresa.numero].filter(Boolean).join(", "),
+      municipio: "",
+      uf: empresa.uf,
+    };
+  }
+
+  if (modFrete === "4" && destinatario) {
+    return {
+      documento: destinatario.cnpj ?? destinatario.cpf ?? "",
+      nome: destinatario.razaoSocial,
+      inscricaoEstadual: destinatario.inscricaoEstadual,
+      endereco: [destinatario.endereco.logradouro, destinatario.endereco.numero].filter(Boolean).join(", "),
+      municipio: destinatario.endereco.nomeMunicipio,
+      uf: destinatario.endereco.uf,
+    };
+  }
+
+  return null;
+}
+
+function buildTranspXml(params: {
+  empresa: EmpresaRow;
+  destinatario?: NFeDestinatario;
+  transporte?: NFeTransporteOptions | null;
+}) {
+  const rawModFrete = cleanText(params.transporte?.modFrete || "9");
+  const modFrete = ["0", "1", "2", "3", "4", "9"].includes(rawModFrete) ? rawModFrete : "9";
+
+  if (modFrete === "9") {
+    return "<transp><modFrete>9</modFrete></transp>";
+  }
+
+  const transportadora =
+    params.transporte?.transportadora &&
+    (cleanText(params.transporte.transportadora.nome) || onlyDigits(params.transporte.transportadora.documento))
+      ? params.transporte.transportadora
+      : getTransportadoraPropria(modFrete, params.empresa, params.destinatario);
+
+  return (
+    "<transp>" +
+    `<modFrete>${modFrete}</modFrete>` +
+    buildTransportaXml(transportadora) +
+    buildVeicTranspXml(params.transporte?.veiculo) +
+    buildVolXml(params.transporte?.volume) +
+    "</transp>"
+  );
+}
+
+function buildPagXml(params: { pagamento?: NFePagamentoOptions | null; vNF: string; finNFe: 1 | 2 | 3 | 4 }) {
+  const tPag = params.finNFe === 3 || params.finNFe === 4
+    ? "90"
+    : onlyDigits(params.pagamento?.tPag || "01").padStart(2, "0").slice(0, 2);
+  const vPag = tPag === "90" ? "0.00" : params.vNF;
+  const isCartao = tPag === "03" || tPag === "04";
+  const tpIntegra = params.pagamento?.tpIntegra === "1" ? "1" : "2";
+  const cnpjCredenciadora = onlyDigits(params.pagamento?.cnpjCredenciadora);
+  const bandeira = onlyDigits(params.pagamento?.bandeira);
+  const autorizacao = String(params.pagamento?.autorizacao ?? "").trim();
+
+  const cardXml = isCartao
+    ? '<card>' +
+      `<tpIntegra>${tpIntegra}</tpIntegra>` +
+      (tpIntegra === "1" && cnpjCredenciadora.length === 14 ? `<CNPJ>${cnpjCredenciadora}</CNPJ>` : "") +
+      (bandeira ? `<tBand>${bandeira}</tBand>` : "") +
+      (tpIntegra === "1" && autorizacao ? `<cAut>${escapeXml(autorizacao)}</cAut>` : "") +
+      '</card>'
+    : "";
+
+  return (
+    '<pag>' +
+    '<detPag>' +
+    `<tPag>${tPag}</tPag>` +
+    `<vPag>${vPag}</vPag>` +
+    cardXml +
+    '</detPag>' +
+    '</pag>'
+  );
 }
 
 export function criarIdeParaEmpresa(
@@ -144,12 +347,11 @@ export function buildNFePreviewXml(
   const emitente = mapEmpresaToEmitente(empresa, 'JOAO PESSOA');
   const crt = normalizarCRT(emitente.crt);
 
-  const dest: NFeDestinatario =
+  const destBase: NFeDestinatario =
     destinatario ??
     {
       cpf: '12345678909', // pode deixar assim mesmo em homologacao
-      razaoSocial:
-        'NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL',
+      razaoSocial: NFE_HOMOLOGACAO_DESTINATARIO_NOME,
       indIEDest: '9',
       endereco: {
         logradouro: 'RUA TESTE',
@@ -166,6 +368,8 @@ export function buildNFePreviewXml(
       },
     };
 
+  let dest: NFeDestinatario = destBase;
+
   // REGRA DE HOMOLOGAÇÃO:
   // Se não for produção, o nome do destinatário deve ser fixo conforme norma.
   if (empresa.ambiente !== 'PRODUCAO') {
@@ -173,7 +377,7 @@ export function buildNFePreviewXml(
     // Nota: endereco e outros sub-objetos ainda são referencias, mas razaoSocial é primitivo.
     // Como dest é const, precisamos garantir que podemos alterar ou redefinir.
     // Aqui estamos alterando a PROPRIEDADE do objeto referenciado por dest.
-    dest.razaoSocial = 'NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL';
+    dest = { ...dest, razaoSocial: NFE_HOMOLOGACAO_DESTINATARIO_NOME };
   }
 
 
@@ -252,18 +456,17 @@ export function buildNFePreviewXml(
     '</ICMSTot>' +
     '</total>';
 
-  const transpXml =
-    '<transp>' +
-    '<modFrete>9</modFrete>' + // 9 = sem frete
-    '</transp>';
+  const transpXml = buildTranspXml({
+    empresa,
+    destinatario: dest,
+    transporte: options?.transporte,
+  });
 
-  const pagXml =
-    '<pag>' +
-    '<detPag>' +
-    '<tPag>01</tPag>' + // 01 = dinheiro
-    `<vPag>${vNF}</vPag>` +
-    '</detPag>' +
-    '</pag>';
+  const pagXml = buildPagXml({
+    pagamento: options?.pagamento,
+    vNF,
+    finNFe: ide.finNFe,
+  });
 
   const natOpText = options?.natOp
     ? `NF-e de ${options.natOp.toLowerCase()}.`

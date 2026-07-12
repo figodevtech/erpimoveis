@@ -5,6 +5,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import type { EmpresaRow } from '@/lib/nfe/types';
 import { carregarCertificadoA1 } from '@/lib/nfe/certificado';
+import { getNfeConsultaProtocoloUrl } from '@/lib/nfe/webservices';
 
 export const runtime = 'nodejs';
 
@@ -193,11 +194,11 @@ async function consultarHandler(_req: Request, nfeIdParam: string) {
       '</soap12:Body>' +
       '</soap12:Envelope>';
 
-    // 6) URL do webservice SVRS NFeConsultaProtocolo4 (NFe, não NFC-e)
-    const url =
-      ambiente === 'PRODUCAO'
-        ? 'https://nfe.svrs.rs.gov.br/ws/NfeConsulta/NfeConsulta4.asmx'
-        : 'https://nfe-homologacao.svrs.rs.gov.br/ws/NfeConsulta/NfeConsulta4.asmx';
+    // 6) URL do webservice NFeConsultaProtocolo4 pela UF/tpEmis da chave.
+    const url = getNfeConsultaProtocoloUrl({
+      chaveAcesso: chNFe,
+      ambiente,
+    });
 
     // 7) Carregar certificado A1 (chave privada + certificado em PEM)
     const { privateKeyPem, certificatePem } = await carregarCertificadoA1(
