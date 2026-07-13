@@ -1,21 +1,21 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
+import { requireConfigEdit } from "@/app/api/_authz/perms";
+import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { buildMercadoLivreAuthorizationUrl } from "@/lib/integrations/mercadolivre";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
-    const empresaIdParam = req.nextUrl.searchParams.get("empresaId");
-    const empresaId = empresaIdParam ? Number(empresaIdParam) : undefined;
-
-    if (empresaIdParam && (!Number.isInteger(empresaId) || Number(empresaId) <= 0)) {
-      return NextResponse.json({ error: "empresaId invalido." }, { status: 400 });
-    }
-
+    await requireConfigEdit();
+    const empresaId = await requireEmpresaId();
     return NextResponse.redirect(buildMercadoLivreAuthorizationUrl({ empresaId }));
-  } catch (e: any) {
-    console.error("GET /api/integracoes/mercadolivre/auth", e);
-    return NextResponse.json({ error: e?.message || "Falha ao iniciar autorizacao Mercado Livre." }, { status: 500 });
+  } catch (error: any) {
+    console.error("GET /api/integracoes/mercadolivre/auth", error);
+    return NextResponse.json(
+      { error: error?.message || "Falha ao iniciar autorização Mercado Livre." },
+      { status: errorStatus(error) },
+    );
   }
 }

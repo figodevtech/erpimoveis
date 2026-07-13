@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { requireVendasCreate } from "@/app/api/_authz/perms";
+import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { getMercadoLivreOrder, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
 import { importMercadoLivreOrder } from "@/lib/integrations/mercadolivre-orders";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -22,6 +23,7 @@ type MercadoLivreAccount = {
 export async function POST(req: NextRequest) {
   try {
     await requireVendasCreate();
+    const empresaId = await requireEmpresaId();
 
     const body = await req.json().catch(() => ({}));
     const orderDbId = Number(body?.orderDbId ?? 0);
@@ -37,7 +39,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Valor de reembolso inválido." }, { status: 400 });
     }
 
-    const order = await getStoredOrder(orderDbId, mlOrderId);
+    const order = await getStoredOrder(orderDbId, mlOrderId, empresaId);
     const account = await getAccount(order.account_id);
     const accessToken = await ensureValidAccessToken(account);
     const payment = getRefundablePayment(order, requestedPaymentId);
@@ -58,14 +60,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, refund });
   } catch (e: any) {
     console.error("POST /api/integracoes/mercadolivre/refunds", e);
-    return NextResponse.json({ error: friendlyError(e, "Falha ao reembolsar pedido Mercado Livre.") }, { status: 500 });
+    return NextResponse.json({ error: friendlyError(e, "Falha ao reembolsar pedido Mercado Livre.") }, { status: errorStatus(e) });
   }
 }
 
-async function getStoredOrder(orderDbId: number, mlOrderId: number) {
+async function getStoredOrder(orderDbId: number, mlOrderId: number, empresaId: number) {
   let query = supabaseAdmin
     .from("mercadolivre_order")
     .select("id, account_id, ml_order_id, raw_payments, raw_order, payment_status, payment_status_detail")
+    .eq("empresa_id", empresaId)
     .limit(1);
 
   if (Number.isFinite(orderDbId) && orderDbId > 0) query = query.eq("id", orderDbId);

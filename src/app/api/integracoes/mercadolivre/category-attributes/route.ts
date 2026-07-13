@@ -1,10 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireVendasAccess } from "@/app/api/_authz/perms";
+import { requireEmpresaId } from "@/lib/empresa-context";
+import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
+import { mercadoLivreApiGet } from "@/lib/integrations/mercadolivre";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const ML_API_BASE_URL = "https://api.mercadolibre.com";
 
 type MercadoLivreAttribute = {
   id?: string;
@@ -35,18 +36,34 @@ type CategoryDetail = {
   };
 };
 
+type ShippingPreferences = {
+  dimensions?: { height?: number; width?: number; length?: number; weight?: number } | null;
+  modes?: string[];
+  option?: string | null;
+  restricted?: boolean;
+  me2_restrictions?: string[] | string | null;
+  logistics?: Array<{
+    mode?: string;
+    types?: Array<string | { type?: string }>;
+  }>;
+};
+
 export async function GET(req: NextRequest) {
   try {
     await requireVendasAccess();
+    const empresaId = await requireEmpresaId();
     const categoryId = req.nextUrl.searchParams.get("categoryId")?.trim().toUpperCase();
 
     if (!categoryId) {
       return NextResponse.json({ error: "Informe a categoria." }, { status: 400 });
     }
 
-    const [attributes, detail] = await Promise.all([
-      mercadoLivrePublicGet<MercadoLivreAttribute[]>(`/categories/${encodeURIComponent(categoryId)}/attributes`),
-      mercadoLivrePublicGet<CategoryDetail>(`/categories/${encodeURIComponent(categoryId)}`),
+    const account = await getValidMercadoLivreAccount(empresaId);
+    const [attributes, detail, categoryShipping, userShipping] = await Promise.all([
+      mercadoLivreApiGet<MercadoLivreAttribute[]>(account.access_token, `/categories/${encodeURIComponent(categoryId)}/attributes`),
+      mercadoLivreApiGet<CategoryDetail>(account.access_token, `/categories/${encodeURIComponent(categoryId)}`),
+      mercadoLivreApiGet<ShippingPreferences>(account.access_token, `/categories/${encodeURIComponent(categoryId)}/shipping_preferences`),
+      mercadoLivreApiGet<ShippingPreferences>(account.access_token, `/users/${account.ml_user_id}/shipping_preferences`),
     ]);
     const data = (attributes ?? [])
       .filter((attribute) => attribute.id && attribute.name && !attribute.tags?.hidden && !attribute.tags?.read_only)
@@ -64,10 +81,28 @@ export async function GET(req: NextRequest) {
       }))
       .sort((a, b) => Number(b.required) - Number(a.required));
 
+    const categoryModes = unique((categoryShipping.logistics ?? []).map((logistic) => logistic.mode));
+    const userModes = unique([...(userShipping.modes ?? []), ...(userShipping.logistics ?? []).map((logistic) => logistic.mode)]);
+    const availableModes = categoryModes.filter((mode) => userModes.includes(mode));
+    const categoryMe2Types = logisticTypes(categoryShipping, "me2");
+    const userMe2Types = logisticTypes(userShipping, "me2");
+    const availableMe2Types = userMe2Types.length
+      ? categoryMe2Types.filter((type) => userMe2Types.includes(type))
+      : categoryMe2Types;
+
     return NextResponse.json({
       data,
       settings: {
-        shippingOptions: detail.settings?.shipping_options ?? [],
+        shippingOptions: availableModes,
+        categoryShippingOptions: categoryModes,
+        userShippingOptions: userModes,
+        logisticOptions: availableMe2Types,
+        categoryLogisticOptions: categoryMe2Types,
+        userLogisticOptions: userMe2Types,
+        me2Restricted: Boolean(categoryShipping.restricted),
+        me2Restrictions: normalizeRestrictions(categoryShipping.me2_restrictions),
+        userShippingOption: userShipping.option ?? null,
+        defaultDimensions: categoryShipping.dimensions ?? null,
         simpleShipping: detail.settings?.simple_shipping ?? null,
         shippingProfile: detail.settings?.shipping_profile ?? null,
         conditionOptions: detail.settings?.item_conditions ?? null,
@@ -79,19 +114,20 @@ export async function GET(req: NextRequest) {
   }
 }
 
-async function mercadoLivrePublicGet<T>(path: string) {
-  const response = await fetch(`${ML_API_BASE_URL}${path}`, {
-    headers: {
-      Accept: "application/json",
-      "User-Agent": "erpoficina-marketplace/1.0",
-    },
-    cache: "no-store",
-  });
+function unique(values: Array<string | undefined>) {
+  return Array.from(new Set(values.map((value) => String(value ?? "").trim().toLowerCase()).filter(Boolean)));
+}
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Mercado Livre ${path} falhou (${response.status}): ${text}`);
-  }
+function logisticTypes(preferences: ShippingPreferences, mode: string) {
+  const logistics = (preferences.logistics ?? []).filter((logistic) => String(logistic.mode ?? "").toLowerCase() === mode);
+  return unique(
+    logistics.flatMap((logistic) =>
+      (logistic.types ?? []).map((type) => (typeof type === "string" ? type : type?.type)),
+    ),
+  );
+}
 
-  return (await response.json()) as T;
+function normalizeRestrictions(value: ShippingPreferences["me2_restrictions"]) {
+  if (Array.isArray(value)) return value.map(String);
+  return value ? [String(value)] : [];
 }

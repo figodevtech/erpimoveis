@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireVendasAccess } from "@/app/api/_authz/perms";
+import { requireEmpresaId } from "@/lib/empresa-context";
+import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
+import { mercadoLivreApiGet } from "@/lib/integrations/mercadolivre";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,26 +21,18 @@ type ListingType = {
 export async function GET() {
   try {
     await requireVendasAccess();
+    const empresaId = await requireEmpresaId();
 
     try {
-      const response = await fetch("https://api.mercadolibre.com/sites/MLB/listing_types", {
-        headers: { Accept: "application/json" },
-        cache: "no-store",
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`Mercado Livre /sites/MLB/listing_types falhou (${response.status}): ${text}`);
-      }
-
-      const listingTypes = (await response.json()) as ListingType[];
+      const account = await getValidMercadoLivreAccount(empresaId);
+      const siteId = account.site_id || "MLB";
+      const listingTypes = await mercadoLivreApiGet<ListingType[]>(account.access_token, `/sites/${encodeURIComponent(siteId)}/listing_types`);
       const data = (listingTypes ?? [])
         .filter((item) => item.id)
         .map((item) => ({ id: item.id, name: item.name ?? item.id }));
 
       return NextResponse.json({ listingTypes: data.length ? data : FALLBACK_LISTING_TYPES, source: data.length ? "mercadolivre" : "fallback" });
-    } catch (e) {
-      console.warn("Falha ao buscar listing_types no Mercado Livre; usando fallback.", e);
+    } catch {
       return NextResponse.json({ listingTypes: FALLBACK_LISTING_TYPES, source: "fallback" });
     }
   } catch (e: any) {

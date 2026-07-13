@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireVendasAccess } from "@/app/api/_authz/perms";
+import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
+import { syncMercadoLivreProductLinks } from "@/lib/integrations/mercadolivre-reconciliation";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -8,6 +10,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   try {
     await requireVendasAccess();
+    const empresaId = await requireEmpresaId();
     const search = req.nextUrl.searchParams.get("search")?.trim() ?? "";
     const page = Math.max(Number(req.nextUrl.searchParams.get("page") ?? 1), 1);
     const limit = Math.min(Math.max(Number(req.nextUrl.searchParams.get("limit") ?? 20), 1), 50);
@@ -35,11 +38,13 @@ export async function GET(req: NextRequest) {
     const { data: links, error: linksError } = productIds.length
       ? await supabaseAdmin
           .from("mercadolivre_product_link")
-          .select("id, empresa_id, produto_id, ml_item_id, ml_variation_id, title, permalink, status, updated_at")
+          .select("id, empresa_id, produto_id, ml_item_id, ml_variation_id, title, permalink, status, visits_total, sold_quantity, available_quantity, listing_type_id, item_condition, health, catalog_listing, stop_time, metrics_updated_at, updated_at")
+          .eq("empresa_id", empresaId)
           .in("produto_id", productIds)
       : { data: [], error: null };
 
     if (linksError) throw linksError;
+    const syncedLinks = await syncMercadoLivreProductLinks(links ?? []);
 
     const { data: images, error: imagesError } = productIds.length
       ? await supabaseAdmin
@@ -52,7 +57,7 @@ export async function GET(req: NextRequest) {
 
     if (imagesError) throw imagesError;
 
-    const linkByProduct = new Map((links ?? []).map((link: any) => [Number(link.produto_id), link]));
+    const linkByProduct = new Map(syncedLinks.map((link: any) => [Number(link.produto_id), link]));
     const imagesByProduct = new Map<number, string[]>();
     for (const image of images ?? []) {
       const produtoId = Number((image as any).produto_id);
@@ -80,6 +85,6 @@ export async function GET(req: NextRequest) {
     });
   } catch (e: any) {
     console.error("GET /api/integracoes/mercadolivre/products", e);
-    return NextResponse.json({ error: e?.message || "Falha ao carregar produtos marketplace." }, { status: 500 });
+    return NextResponse.json({ error: e?.message || "Falha ao carregar produtos marketplace." }, { status: errorStatus(e) });
   }
 }

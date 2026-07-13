@@ -39,6 +39,13 @@ type MercadoLivreOrderRecord = {
   venda_id: number | null;
   ml_order_id: number;
   ml_shipment_id?: number | null;
+  shipment_status?: string | null;
+  shipment_substatus?: string | null;
+  shipping_mode?: string | null;
+  logistic_type?: string | null;
+  tracking_number?: string | null;
+  tracking_method?: string | null;
+  raw_shipment?: Record<string, unknown> | null;
   raw_order?: {
     shipping?: {
       id?: number | string | null;
@@ -46,8 +53,8 @@ type MercadoLivreOrderRecord = {
   } | null;
 };
 
-export async function syncMercadoLivreShipmentForVenda(vendaId: number) {
-  const order = await getOrderByVendaId(vendaId);
+export async function syncMercadoLivreShipmentForVenda(vendaId: number, empresaId?: number) {
+  const order = await getOrderByVendaId(vendaId, empresaId);
   if (!order) throw new Error("Pedido Mercado Livre não encontrado para esta venda.");
 
   const shipmentId = getShipmentId(order);
@@ -63,8 +70,8 @@ export async function syncMercadoLivreShipmentForVenda(vendaId: number) {
   return { order, shipment: normalized, rawShipment: shipment, rawShipmentCosts: extraData.costs, rawShipmentItems: extraData.items };
 }
 
-export async function getMercadoLivreShipmentLabelForVenda(vendaId: number) {
-  const order = await getOrderByVendaId(vendaId);
+export async function getMercadoLivreShipmentLabelForVenda(vendaId: number, empresaId?: number) {
+  const order = await getOrderByVendaId(vendaId, empresaId);
   if (!order) throw new Error("Pedido Mercado Livre não encontrado para esta venda.");
 
   const shipmentId = getShipmentId(order);
@@ -121,12 +128,53 @@ export function normalizeShipment(shipment: MercadoLivreShipment) {
   };
 }
 
-async function getOrderByVendaId(vendaId: number) {
-  const { data, error } = await supabaseAdmin
+export function reconcileShipmentState(
+  normalized: ReturnType<typeof normalizeShipment>,
+  current?: {
+    shipment_status?: string | null;
+    shipment_substatus?: string | null;
+    shipping_mode?: string | null;
+    logistic_type?: string | null;
+    tracking_number?: string | null;
+    tracking_method?: string | null;
+    raw_shipment?: any;
+  } | null,
+) {
+  const currentStatus = String(current?.shipment_status ?? "").toLowerCase();
+  const incomingStatus = String(normalized.status ?? "").toLowerCase();
+  const customData = current?.raw_shipment?.custom;
+  const locallyMarkedAsShipped =
+    currentStatus === "shipped" &&
+    String(current?.shipping_mode ?? "").toLowerCase() === "custom" &&
+    Boolean(customData?.marketplace_status_sent_at);
+  const incomingIsProgress = ["shipped", "delivered", "not_delivered", "cancelled", "canceled"].includes(incomingStatus);
+
+  if (!locallyMarkedAsShipped || incomingIsProgress) return normalized;
+
+  return {
+    ...normalized,
+    status: current?.shipment_status ?? normalized.status,
+    substatus: current?.shipment_substatus ?? normalized.substatus,
+    mode: current?.shipping_mode ?? normalized.mode,
+    logisticType: current?.logistic_type ?? normalized.logisticType,
+    trackingNumber: current?.tracking_number ?? normalized.trackingNumber,
+    trackingMethod: current?.tracking_method ?? normalized.trackingMethod,
+    statusEntrega: "ENVIO",
+    statusRastreio: "EM_TRANSITO",
+    lastEventTitle: "Enviado",
+  };
+}
+
+async function getOrderByVendaId(vendaId: number, empresaId?: number) {
+  let query = supabaseAdmin
     .from("mercadolivre_order")
-    .select("id, empresa_id, account_id, venda_id, ml_order_id, ml_shipment_id, raw_order")
-    .eq("venda_id", vendaId)
-    .maybeSingle();
+    .select(
+      "id, empresa_id, account_id, venda_id, ml_order_id, ml_shipment_id, shipment_status, shipment_substatus, shipping_mode, logistic_type, tracking_number, tracking_method, raw_order, raw_shipment",
+    )
+    .eq("venda_id", vendaId);
+  if (empresaId) query = query.eq("empresa_id", empresaId);
+
+  const { data, error } = await query.maybeSingle();
 
   if (error) throw error;
   return data as MercadoLivreOrderRecord | null;
@@ -230,21 +278,26 @@ async function persistShipment(
   extraData: ShipmentExtraData,
 ) {
   const nowIso = new Date().toISOString();
-  const shipmentId = normalized.id;
+  const effectiveShipment = reconcileShipmentState(normalized, order);
+  const shipmentId = effectiveShipment.id;
   const shipmentCost = extractShipmentCost(extraData.costs);
+  const mergedRawShipment = {
+    ...(rawShipment && typeof rawShipment === "object" ? rawShipment : {}),
+    ...(order.raw_shipment?.custom ? { custom: order.raw_shipment.custom } : {}),
+  };
 
   const { error: orderError } = await supabaseAdmin
     .from("mercadolivre_order")
     .update({
       ml_shipment_id: shipmentId,
-      shipment_status: normalized.status,
-      shipment_substatus: normalized.substatus,
-      shipping_mode: normalized.mode,
-      logistic_type: normalized.logisticType,
-      tracking_number: normalized.trackingNumber,
-      tracking_method: normalized.trackingMethod,
+      shipment_status: effectiveShipment.status,
+      shipment_substatus: effectiveShipment.substatus,
+      shipping_mode: effectiveShipment.mode,
+      logistic_type: effectiveShipment.logisticType,
+      tracking_number: effectiveShipment.trackingNumber,
+      tracking_method: effectiveShipment.trackingMethod,
       shipment_cost: shipmentCost,
-      raw_shipment: rawShipment,
+      raw_shipment: mergedRawShipment,
       raw_shipment_costs: extraData.costs ?? {},
       raw_shipment_items: extraData.items ?? [],
       shipment_updated_at: nowIso,
@@ -257,18 +310,21 @@ async function persistShipment(
   if (!order.venda_id) return;
 
   const vendaPatch: Record<string, unknown> = {
-    transportadora_rastreio: "MERCADO_ENVIOS",
-    codigo_rastreio: normalized.trackingNumber,
-    status_rastreio: normalized.statusRastreio,
-    ultimo_evento_rastreio: normalized.lastEventTitle,
-    ultimo_evento_rastreio_em: normalized.lastUpdated,
-    eventos_rastreio: normalized.events,
+    transportadora_rastreio:
+      String(effectiveShipment.mode ?? "").toLowerCase() === "custom"
+        ? effectiveShipment.trackingMethod || order.tracking_method || "TRANSPORTADORA"
+        : "MERCADO_ENVIOS",
+    codigo_rastreio: effectiveShipment.trackingNumber,
+    status_rastreio: effectiveShipment.statusRastreio,
+    ultimo_evento_rastreio: effectiveShipment.lastEventTitle,
+    ultimo_evento_rastreio_em: effectiveShipment.lastUpdated,
+    eventos_rastreio: effectiveShipment.events,
     rastreio_atualizado_em: nowIso,
     updatedat: nowIso,
   };
 
-  if (normalized.statusEntrega) vendaPatch.status_entrega = normalized.statusEntrega;
-  if (normalized.receiverAddress) vendaPatch.endereco_entrega_snapshot = normalized.receiverAddress;
+  if (effectiveShipment.statusEntrega) vendaPatch.status_entrega = effectiveShipment.statusEntrega;
+  if (effectiveShipment.receiverAddress) vendaPatch.endereco_entrega_snapshot = effectiveShipment.receiverAddress;
 
   const { error: vendaError } = await supabaseAdmin.from("venda").update(vendaPatch).eq("id", order.venda_id);
   if (vendaError) throw vendaError;

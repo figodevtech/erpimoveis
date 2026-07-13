@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireVendasAccess, requireVendasEdit } from "@/app/api/_authz/perms";
+import { requireEmpresaId } from "@/lib/empresa-context";
 import { mercadoLivreApiGet, mercadoLivreApiPost, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -40,7 +41,7 @@ export async function GET(req: NextRequest) {
   try {
     await requireVendasAccess();
 
-    const account = await getActiveAccount();
+    const account = await getActiveAccount(await requireEmpresaId());
     const accessToken = await ensureAccessToken(account);
     const status = req.nextUrl.searchParams.get("status")?.trim();
     const itemId = req.nextUrl.searchParams.get("itemId")?.trim();
@@ -102,7 +103,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Informe a resposta." }, { status: 400 });
     }
 
-    const account = await getActiveAccount();
+    const account = await getActiveAccount(await requireEmpresaId());
     const accessToken = await ensureAccessToken(account);
 
     const result = await mercadoLivreApiPostWithRefresh<MercadoLivreQuestion>(account, accessToken, "/answers", {
@@ -120,10 +121,11 @@ export async function POST(req: NextRequest) {
   }
 }
 
-async function getActiveAccount() {
+async function getActiveAccount(empresaId: number) {
   const { data, error } = await supabaseAdmin
     .from("mercadolivre_account")
     .select("id, empresa_id, ml_user_id, access_token, refresh_token, expires_at")
+    .eq("empresa_id", empresaId)
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();

@@ -7,7 +7,7 @@ import {
   type MercadoLivreOrder,
   type MercadoLivreOrderItem,
 } from "@/lib/integrations/mercadolivre";
-import { normalizeShipment, type MercadoLivreShipment } from "@/lib/integrations/mercadolivre-shipping";
+import { normalizeShipment, reconcileShipmentState, type MercadoLivreShipment } from "@/lib/integrations/mercadolivre-shipping";
 
 type MercadoLivreAccount = {
   id: number;
@@ -26,8 +26,8 @@ type ImportResult = {
   error?: string;
 };
 
-export async function syncMercadoLivreOrders(params?: { accountId?: number; days?: number; limit?: number }) {
-  const accounts = await getAccounts(params?.accountId);
+export async function syncMercadoLivreOrders(params?: { accountId?: number; empresaId?: number; days?: number; limit?: number }) {
+  const accounts = await getAccounts(params?.accountId, params?.empresaId);
   const results: ImportResult[] = [];
 
   for (const account of accounts) {
@@ -81,8 +81,11 @@ export async function importMercadoLivreOrder(account: MercadoLivreAccount, orde
   const shouldDecrementStock = mapOrderToVendaStatus(order) === "FINALIZADA";
   const existing = await findExistingOrder(mlOrderId);
   if (existing?.venda_id) {
-    await upsertOrderRecord(account, order, existing.venda_id, shipment);
+    await upsertOrderRecord(account, order, existing.venda_id, shipment, existing);
     await updateVendaOrderStatus(existing.venda_id, order);
+    if (mapOrderToVendaStatus(order) === "CANCELADA") {
+      await restoreMarketplaceStockDecrement(existing.venda_id);
+    }
     if (shouldDecrementStock) {
       await applyMarketplaceStockDecrement(existing.venda_id, account.empresa_id, order.order_items ?? []);
     }
@@ -91,55 +94,87 @@ export async function importMercadoLivreOrder(account: MercadoLivreAccount, orde
 
   await upsertOrderRecord(account, order, null, shipment);
 
-  const clienteId = await getOrCreateMarketplaceCustomer();
-  const vendaPayload = buildVendaPayload(clienteId, order);
-  const orderItems = Array.isArray(order.order_items) ? order.order_items : [];
-  const vendaItems = [];
-
-  for (const item of orderItems) {
-    const resolvedProduct = await resolveProdutoId(account.empresa_id, item);
-    const quantity = toPositiveInt(item.quantity) ?? 1;
-    const unitPrice = Number(item.unit_price ?? item.full_unit_price ?? 0);
-    const itemTotal = Number((unitPrice * quantity).toFixed(2));
-
-    vendaItems.push({
-      produtoId: resolvedProduct.produtoId,
-      quantidade: quantity,
-      subTotal: itemTotal,
-      valorTotal: itemTotal,
-      baixarEstoque: resolvedProduct.baixarEstoque && shouldDecrementStock,
-    });
+  const { data: reserved, error: reserveError } = await supabaseAdmin.rpc("fn_reservar_importacao_mercadolivre", {
+    p_ml_order_id: mlOrderId,
+    p_empresa_id: account.empresa_id,
+  });
+  if (reserveError) throw reserveError;
+  if (!reserved) {
+    const current = await findExistingOrder(mlOrderId);
+    return {
+      mlOrderId,
+      vendaId: current?.venda_id ?? null,
+      created: false,
+      skipped: current?.venda_id ? "Venda já importada." : "Pedido já está sendo importado por outro processo.",
+    };
   }
 
-  const { data: vendaIdResult, error: vendaError } = await supabaseAdmin.rpc("fn_criar_venda_marketplace_com_itens", {
-    p_venda: {
-      ...vendaPayload,
-      clienteId,
-      statusEntrega: vendaPayload.status_entrega,
-      valorTotal: vendaPayload.valortotal,
-      subTotal: vendaPayload.sub_total,
-      descontoTipo: vendaPayload.desconto_tipo,
-      descontoValor: vendaPayload.desconto_valor,
-      formaPagamento: vendaPayload.forma_pagamento,
-      dataVenda: vendaPayload.datavenda,
-      itens: vendaItems,
-    },
-  });
+  try {
+    const clienteId = await getOrCreateMarketplaceCustomer(order, shipment);
+    const vendaPayload = buildVendaPayload(clienteId, order);
+    const orderItems = Array.isArray(order.order_items) ? order.order_items : [];
+    const vendaItems = [];
 
-  if (vendaError) throw vendaError;
+    for (const item of orderItems) {
+      const resolvedProduct = await resolveProdutoId(account.empresa_id, item);
+      const quantity = toPositiveInt(item.quantity) ?? 1;
+      const unitPrice = Number(item.unit_price ?? item.full_unit_price ?? 0);
+      const itemTotal = Number((unitPrice * quantity).toFixed(2));
 
-  const vendaId = Number(vendaIdResult);
-  await upsertOrderRecord(account, order, vendaId, shipment);
-  return { mlOrderId, vendaId, created: true };
+      vendaItems.push({
+        produtoId: resolvedProduct.produtoId,
+        quantidade: quantity,
+        subTotal: itemTotal,
+        valorTotal: itemTotal,
+        baixarEstoque: resolvedProduct.baixarEstoque && shouldDecrementStock,
+      });
+    }
+
+    const { data: vendaIdResult, error: vendaError } = await supabaseAdmin.rpc("fn_criar_venda_mercadolivre_reservada", {
+      p_ml_order_id: mlOrderId,
+      p_empresa_id: account.empresa_id,
+      p_venda: {
+        ...vendaPayload,
+        clienteId,
+        statusEntrega: vendaPayload.status_entrega,
+        valorTotal: vendaPayload.valortotal,
+        subTotal: vendaPayload.sub_total,
+        descontoTipo: vendaPayload.desconto_tipo,
+        descontoValor: vendaPayload.desconto_valor,
+        formaPagamento: vendaPayload.forma_pagamento,
+        dataVenda: vendaPayload.datavenda,
+        itens: vendaItems,
+      },
+    });
+
+    if (vendaError) throw vendaError;
+
+    const vendaId = Number(vendaIdResult);
+    await upsertOrderRecord(account, order, vendaId, shipment);
+    return { mlOrderId, vendaId, created: true };
+  } catch (error: any) {
+    await setOrderImportState(mlOrderId, account.empresa_id, "ERRO", error?.message || "Falha ao importar pedido.");
+    throw error;
+  }
 }
 
-async function getAccounts(accountId?: number) {
+async function setOrderImportState(mlOrderId: number, empresaId: number, status: string, error: string | null) {
+  const { error: updateError } = await supabaseAdmin
+    .from("mercadolivre_order")
+    .update({ import_status: status, import_locked_at: null, import_error: error, updated_at: new Date().toISOString() })
+    .eq("ml_order_id", mlOrderId)
+    .eq("empresa_id", empresaId);
+  if (updateError) throw updateError;
+}
+
+async function getAccounts(accountId?: number, empresaId?: number) {
   let query = supabaseAdmin
     .from("mercadolivre_account")
     .select("id, empresa_id, ml_user_id, access_token, refresh_token, expires_at")
     .order("updated_at", { ascending: false });
 
   if (accountId) query = query.eq("id", accountId);
+  if (empresaId) query = query.eq("empresa_id", empresaId);
 
   const { data, error } = await query;
   if (error) throw error;
@@ -173,16 +208,36 @@ async function ensureValidAccessToken(account: MercadoLivreAccount) {
 async function findExistingOrder(mlOrderId: number) {
   const { data, error } = await supabaseAdmin
     .from("mercadolivre_order")
-    .select("id, venda_id")
+    .select(
+      "id, venda_id, shipment_status, shipment_substatus, shipping_mode, logistic_type, tracking_number, tracking_method, raw_shipment",
+    )
     .eq("ml_order_id", mlOrderId)
     .maybeSingle();
 
   if (error) throw error;
-  return data as { id: number; venda_id: number | null } | null;
+  return data as
+    | {
+        id: number;
+        venda_id: number | null;
+        shipment_status?: string | null;
+        shipment_substatus?: string | null;
+        shipping_mode?: string | null;
+        logistic_type?: string | null;
+        tracking_number?: string | null;
+        tracking_method?: string | null;
+        raw_shipment?: any;
+      }
+    | null;
 }
 
-async function upsertOrderRecord(account: MercadoLivreAccount, order: MercadoLivreOrder, vendaId: number | null, shipment?: MercadoLivreShipment | null) {
-  const normalizedShipment = shipment ? normalizeShipment(shipment) : null;
+async function upsertOrderRecord(
+  account: MercadoLivreAccount,
+  order: MercadoLivreOrder,
+  vendaId: number | null,
+  shipment?: MercadoLivreShipment | null,
+  currentOrder?: Awaited<ReturnType<typeof findExistingOrder>>,
+) {
+  const normalizedShipment = shipment ? reconcileShipmentState(normalizeShipment(shipment), currentOrder) : null;
   const nowIso = new Date().toISOString();
   const paymentSummary = getOrderPaymentSummary(order);
   const tags = getOrderTags(order);
@@ -211,7 +266,13 @@ async function upsertOrderRecord(account: MercadoLivreAccount, order: MercadoLiv
       tracking_method: normalizedShipment?.trackingMethod ?? null,
       raw_order: order,
       raw_payments: paymentSummary.payments,
-      raw_shipment: shipment ?? {},
+      raw_shipment:
+        shipment && typeof shipment === "object"
+          ? {
+              ...shipment,
+              ...(currentOrder?.raw_shipment?.custom ? { custom: currentOrder.raw_shipment.custom } : {}),
+            }
+          : currentOrder?.raw_shipment ?? {},
       shipment_updated_at: shipment ? nowIso : null,
       last_synced_at: nowIso,
       updated_at: nowIso,
@@ -226,7 +287,66 @@ async function upsertOrderRecord(account: MercadoLivreAccount, order: MercadoLiv
   }
 }
 
-async function getOrCreateMarketplaceCustomer() {
+async function getOrCreateMarketplaceCustomer(order?: MercadoLivreOrder, shipment?: MercadoLivreShipment | null) {
+  const buyerId = Number(order?.buyer?.id ?? 0);
+  const buyerName = formatBuyerName(order);
+  const document = buyerId > 0 ? `ML${buyerId}` : "ML0000000001";
+
+  const { data: existingByDocument, error: existingByDocumentError } = await supabaseAdmin
+    .from("cliente")
+    .select("id")
+    .eq("cpfcnpj", document)
+    .maybeSingle();
+
+  if (existingByDocumentError) throw existingByDocumentError;
+  if (existingByDocument?.id) return Number(existingByDocument.id);
+
+  if (!buyerId) {
+    return getOrCreateGenericMarketplaceCustomer();
+  }
+
+  const receiverAddress = shipment?.receiver_address && typeof shipment.receiver_address === "object" ? (shipment.receiver_address as any) : null;
+  const baseCustomer = {
+    tipopessoa: "FISICA",
+    cpfcnpj: document,
+    nomerazaosocial: buyerName,
+    email: `ml-${buyerId}@marketplace.local`,
+    telefone: `ML${buyerId}`,
+    endereco: receiverAddress?.address_line || receiverAddress?.street_name || null,
+    endereconumero: receiverAddress?.street_number ? String(receiverAddress.street_number) : null,
+    bairro: receiverAddress?.neighborhood?.name || receiverAddress?.neighborhood || null,
+    cidade: receiverAddress?.city?.name || receiverAddress?.city || "Nao informado",
+    estado: receiverAddress?.state?.id || receiverAddress?.state?.name || "NI",
+    cep: receiverAddress?.zip_code || null,
+    status: "ATIVO",
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from("cliente")
+    .insert(baseCustomer)
+    .select("id")
+    .single();
+
+  if (!error) return Number(data.id);
+
+  if (isUniqueViolation(error)) {
+    const { data: retryData, error: retryError } = await supabaseAdmin
+      .from("cliente")
+      .insert({
+        ...baseCustomer,
+        nomerazaosocial: `${buyerName} (Mercado Livre #${buyerId})`,
+      })
+      .select("id")
+      .single();
+
+    if (!retryError) return Number(retryData.id);
+    throw retryError;
+  }
+
+  throw error;
+}
+
+async function getOrCreateGenericMarketplaceCustomer() {
   const customerName = "Consumidor Mercado Livre";
   const { data: existing, error: existingError } = await supabaseAdmin
     .from("cliente")
@@ -254,6 +374,19 @@ async function getOrCreateMarketplaceCustomer() {
 
   if (error) throw error;
   return Number(data.id);
+}
+
+function formatBuyerName(order?: MercadoLivreOrder) {
+  const buyer = order?.buyer;
+  const fullName = [buyer?.first_name, buyer?.last_name].map((value) => String(value ?? "").trim()).filter(Boolean).join(" ");
+  if (fullName) return fullName;
+  if (buyer?.nickname) return String(buyer.nickname).trim();
+  if (buyer?.id) return `Comprador Mercado Livre #${buyer.id}`;
+  return "Consumidor Mercado Livre";
+}
+
+function isUniqueViolation(error: any) {
+  return error?.code === "23505" || String(error?.message ?? "").toLowerCase().includes("duplicate key");
 }
 
 function buildVendaPayload(clienteId: number, order: MercadoLivreOrder) {
@@ -341,52 +474,35 @@ async function applyMarketplaceStockDecrement(vendaId: number, empresaId: number
     if (!resolvedProduct.baixarEstoque) continue;
 
     const quantity = toPositiveInt(item.quantity) ?? 1;
-    const { data: currentBaixa, error: baixaError } = await supabaseAdmin
-      .from("vendaproduto_baixa")
-      .select("quantidade")
-      .eq("venda_id", vendaId)
-      .eq("produtoid", resolvedProduct.produtoId)
-      .maybeSingle();
+    const { error } = await supabaseAdmin.rpc("fn_sincronizar_baixa_estoque_marketplace", {
+      p_venda_id: vendaId,
+      p_produto_id: resolvedProduct.produtoId,
+      p_quantidade_alvo: quantity,
+    });
+    if (error) throw error;
+  }
+}
 
-    if (baixaError) throw baixaError;
+async function restoreMarketplaceStockDecrement(vendaId: number) {
+  const { data: baixas, error: baixasError } = await supabaseAdmin
+    .from("vendaproduto_baixa")
+    .select("produtoid, quantidade")
+    .eq("venda_id", vendaId);
 
-    const alreadyDecremented = Number(currentBaixa?.quantidade ?? 0);
-    const delta = quantity - alreadyDecremented;
-    if (delta === 0) continue;
+  if (baixasError) throw baixasError;
+  if (!baixas?.length) return;
 
-    if (delta > 0) {
-      const { error: decrementError } = await supabaseAdmin.rpc("fn_baixa_estoque_produto", {
-        p_produto_id: resolvedProduct.produtoId,
-        p_quantidade: delta,
-      });
-      if (decrementError) throw decrementError;
-    } else {
-      const restoreQuantity = Math.abs(delta);
-      const { data: product, error: productError } = await supabaseAdmin
-        .from("produto")
-        .select("estoque")
-        .eq("id", resolvedProduct.produtoId)
-        .single();
-      if (productError) throw productError;
+  for (const baixa of baixas) {
+    const produtoId = Number((baixa as any).produtoid);
+    const quantidade = Number((baixa as any).quantidade ?? 0);
+    if (!Number.isFinite(produtoId) || produtoId <= 0 || !Number.isFinite(quantidade) || quantidade <= 0) continue;
 
-      const { error: stockRestoreError } = await supabaseAdmin
-        .from("produto")
-        .update({ estoque: Number(product.estoque ?? 0) + restoreQuantity })
-        .eq("id", resolvedProduct.produtoId);
-      if (stockRestoreError) throw stockRestoreError;
-    }
-
-    const { error: upsertError } = await supabaseAdmin.from("vendaproduto_baixa").upsert(
-      {
-        venda_id: vendaId,
-        produtoid: resolvedProduct.produtoId,
-        quantidade: quantity,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "venda_id,produtoid" },
-    );
-
-    if (upsertError) throw upsertError;
+    const { error: restoreError } = await supabaseAdmin.rpc("fn_sincronizar_baixa_estoque_marketplace", {
+      p_venda_id: vendaId,
+      p_produto_id: produtoId,
+      p_quantidade_alvo: 0,
+    });
+    if (restoreError) throw restoreError;
   }
 }
 

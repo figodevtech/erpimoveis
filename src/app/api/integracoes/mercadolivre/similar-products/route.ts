@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireVendasAccess } from "@/app/api/_authz/perms";
+import { requireEmpresaId } from "@/lib/empresa-context";
 import { mercadoLivreApiGet } from "@/lib/integrations/mercadolivre";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -29,7 +30,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Informe pelo menos 3 caracteres para pesquisar." }, { status: 400 });
     }
 
-    const account = await getDefaultAccount();
+    const account = await getDefaultAccount(await requireEmpresaId());
     const params = new URLSearchParams({
       q,
       limit: String(limit),
@@ -69,10 +70,11 @@ export async function GET(req: NextRequest) {
   }
 }
 
-async function getDefaultAccount() {
+async function getDefaultAccount(empresaId: number) {
   const { data, error } = await supabaseAdmin
     .from("mercadolivre_account")
     .select("id, empresa_id, access_token")
+    .eq("empresa_id", empresaId)
     .order("updated_at", { ascending: false })
     .limit(1)
     .single();

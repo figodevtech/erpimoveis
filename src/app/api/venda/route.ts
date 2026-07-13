@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
 import { requireVendasAccess, requireVendasCreate } from "@/app/api/_authz/perms";
+import { syncPendingMercadoLivreStock } from "@/lib/integrations/mercadolivre-stock-sync";
 
 type Status =
   | "ORCAMENTO"
@@ -109,6 +110,49 @@ const VENDA_SELECT = `
   )
 `;
 
+async function applyMarketplaceBuyerNames(vendas: any[]) {
+  const vendaIds = vendas
+    .filter((venda) => String(venda?.canal ?? "").toUpperCase() === "MERCADO_LIVRE")
+    .map((venda) => Number(venda.id))
+    .filter(Number.isFinite);
+
+  if (vendaIds.length === 0) return vendas;
+
+  const { data, error } = await supabaseAdmin
+    .from("mercadolivre_order")
+    .select("venda_id, buyer_id, raw_order")
+    .in("venda_id", vendaIds);
+
+  if (error) throw error;
+
+  const buyerNameByVenda = new Map<number, string>();
+  for (const order of data ?? []) {
+    const vendaId = Number((order as any).venda_id);
+    const buyerName = formatMercadoLivreBuyerName((order as any).raw_order, (order as any).buyer_id);
+    if (Number.isFinite(vendaId) && buyerName) buyerNameByVenda.set(vendaId, buyerName);
+  }
+
+  for (const venda of vendas) {
+    const buyerName = buyerNameByVenda.get(Number(venda.id));
+    if (!buyerName) continue;
+    venda.cliente = {
+      ...(venda.cliente ?? {}),
+      nomerazaosocial: buyerName,
+    };
+  }
+
+  return vendas;
+}
+
+function formatMercadoLivreBuyerName(rawOrder: any, buyerId?: number | null) {
+  const buyer = rawOrder?.buyer ?? {};
+  const fullName = [buyer.first_name, buyer.last_name].map((value) => String(value ?? "").trim()).filter(Boolean).join(" ");
+  if (fullName) return fullName;
+  if (buyer.nickname) return String(buyer.nickname).trim();
+  const id = buyer.id ?? buyerId;
+  return id ? `Comprador Mercado Livre #${id}` : "";
+}
+
 /* ========================= GET ========================= */
 /**
  * GET /api/venda
@@ -196,7 +240,8 @@ export async function GET(req: Request) {
         );
       }
 
-      return NextResponse.json({ data });
+      const [item] = await applyMarketplaceBuyerNames([data]);
+      return NextResponse.json({ data: item });
     }
 
     // Lista paginada de vendas com filtros opcionais
@@ -330,6 +375,8 @@ export async function GET(req: Request) {
         item.notaNumero = notaPorVenda.get(Number(item.id)) ?? null;
       });
     }
+
+    await applyMarketplaceBuyerNames(items);
 
     const total = count ?? 0;
     const totalPages = Math.max(1, Math.ceil(total / limit));
@@ -570,11 +617,20 @@ export async function POST(req: Request) {
       );
     }
 
+    const productIds = body.itens
+      .map((item: any) => Number(item?.produtoId))
+      .filter((id: number) => Number.isInteger(id) && id > 0);
+    const marketplaceStockSync = await syncPendingMercadoLivreStock({ productIds, limit: productIds.length || 1 }).catch((error: any) => {
+      console.warn("Venda criada; sincronização imediata do estoque Mercado Livre ficou pendente.", error);
+      return [];
+    });
+
     return NextResponse.json(
       {
         message: "Venda criada com sucesso.",
         data: vendaCompleta,
         id: vendaCompleta.id,
+        marketplaceStockSync,
       },
       { status: 201 }
     );

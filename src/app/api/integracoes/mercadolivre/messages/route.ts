@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireVendasAccess, requireVendasEdit } from "@/app/api/_authz/perms";
+import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { mercadoLivreApiGet, mercadoLivreApiPost, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -13,6 +14,7 @@ type MercadoLivreAccount = {
   access_token: string;
   refresh_token: string | null;
   expires_at: string | null;
+  site_id: string | null;
 };
 
 type MessageOrder = {
@@ -29,7 +31,7 @@ export async function GET(req: NextRequest) {
   try {
     await requireVendasAccess();
 
-    const account = await getActiveAccount();
+    const account = await getActiveAccount(await requireEmpresaId());
     const accessToken = await ensureValidAccessToken(account);
     const orderDbId = req.nextUrl.searchParams.get("orderDbId");
     const limit = Math.min(Math.max(Number(req.nextUrl.searchParams.get("limit") ?? 20), 1), 50);
@@ -93,8 +95,11 @@ export async function POST(req: NextRequest) {
     if (!text) {
       return NextResponse.json({ error: "Informe a mensagem." }, { status: 400 });
     }
+    if (text.length > 350) {
+      return NextResponse.json({ error: "A mensagem pode ter no máximo 350 caracteres." }, { status: 400 });
+    }
 
-    const account = await getActiveAccount();
+    const account = await getActiveAccount(await requireEmpresaId());
     const accessToken = await ensureValidAccessToken(account);
     const [order] = await getMessageOrders(account.empresa_id, orderDbId);
     if (!order) return NextResponse.json({ error: "Pedido não encontrado." }, { status: 404 });
@@ -110,7 +115,7 @@ export async function POST(req: NextRequest) {
       `/messages/packs/${encodeURIComponent(String(packId))}/sellers/${encodeURIComponent(String(account.ml_user_id))}?tag=post_sale`,
       {
         from: { user_id: account.ml_user_id },
-        to: { user_id: buyerId },
+        to: { user_id: getMessageAgentId(account.site_id) },
         text,
       },
     );
@@ -118,20 +123,33 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, data });
   } catch (e: any) {
     console.error("POST /api/integracoes/mercadolivre/messages", e);
-    return NextResponse.json({ error: friendlyMercadoLivreError(e, "Falha ao enviar mensagem Mercado Livre.") }, { status: 500 });
+    return NextResponse.json({ error: friendlyMercadoLivreError(e, "Falha ao enviar mensagem Mercado Livre.") }, { status: errorStatus(e) });
   }
 }
 
-async function getActiveAccount() {
+async function getActiveAccount(empresaId: number) {
   const { data, error } = await supabaseAdmin
     .from("mercadolivre_account")
-    .select("id, empresa_id, ml_user_id, access_token, refresh_token, expires_at")
+    .select("id, empresa_id, ml_user_id, access_token, refresh_token, expires_at, site_id")
+    .eq("empresa_id", empresaId)
     .order("updated_at", { ascending: false })
     .limit(1)
     .single();
 
   if (error) throw error;
   return data as MercadoLivreAccount;
+}
+
+function getMessageAgentId(siteId: string | null) {
+  const agents: Record<string, number> = {
+    MLA: 3037674934,
+    MLB: 3037675074,
+    MLC: 3020819166,
+    MCO: 3037204123,
+    MLM: 3037204279,
+    MLU: 3037204685,
+  };
+  return agents[String(siteId || "MLB").toUpperCase()] ?? agents.MLU;
 }
 
 async function ensureValidAccessToken(account: MercadoLivreAccount) {

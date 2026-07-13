@@ -25,6 +25,7 @@ import {
   ChevronsUpDown,
   ClipboardList,
   ExternalLink,
+  FileText,
   Grid2X2,
   ImageIcon,
   Link2,
@@ -81,6 +82,17 @@ type MlOrder = {
   tracking_number?: string | null;
   tracking_method?: string | null;
   shipment_cost?: number | null;
+  nfe_id?: number | null;
+  ml_invoice_id?: string | null;
+  invoice_status?: string | null;
+  invoice_fiscal_key?: string | null;
+  invoice_error?: string | null;
+  invoice_sent_at?: string | null;
+  invoice_updated_at?: string | null;
+  raw_invoice?: any;
+  import_status?: string | null;
+  import_locked_at?: string | null;
+  import_error?: string | null;
   raw_order?: any;
   raw_payments?: any[];
   raw_shipment?: any;
@@ -187,11 +199,53 @@ type ProductRow = {
     title?: string | null;
     permalink?: string | null;
     status?: string | null;
+    visits_total?: number | null;
+    sold_quantity?: number | null;
+    available_quantity?: number | null;
+    listing_type_id?: string | null;
+    item_condition?: string | null;
+    health?: number | null;
+    catalog_listing?: boolean | null;
+    stop_time?: string | null;
+    metrics_updated_at?: string | null;
     updated_at?: string | null;
   } | null;
 };
 
 type ViewMode = "list" | "cards";
+
+type MarketplacePerformance = {
+  periodDays: number;
+  visits: number;
+  orders: number;
+  units: number;
+  revenue: number;
+  conversionRate: number;
+  lifetimeVisits: number;
+  lifetimeSold: number;
+  collectedAt?: string | null;
+  daily: Array<{ date: string; visits: number; orders: number; units: number; revenue: number }>;
+};
+
+type MarketplaceStockSync = {
+  pending: number;
+  failed: number;
+  lastError?: string | null;
+  updatedAt?: string | null;
+};
+
+const EMPTY_PERFORMANCE: MarketplacePerformance = {
+  periodDays: 30,
+  visits: 0,
+  orders: 0,
+  units: 0,
+  revenue: 0,
+  conversionRate: 0,
+  lifetimeVisits: 0,
+  lifetimeSold: 0,
+  collectedAt: null,
+  daily: [],
+};
 
 type CategoryOption = {
   id: string;
@@ -212,6 +266,26 @@ type MarketplaceVertical = "products" | "vehicles" | "real_estate" | "services";
 type ListingTypeOption = {
   id: string;
   name: string;
+};
+
+type ShippingEligibility = {
+  loaded: boolean;
+  categoryModes: string[];
+  userModes: string[];
+  logisticOptions: string[];
+  me2Restricted: boolean;
+  me2Restrictions: string[];
+  userShippingOption: string | null;
+  defaultDimensions: { height?: number; width?: number; length?: number; weight?: number } | null;
+  error: string | null;
+};
+
+type ShippingQuote = {
+  currencyId: string;
+  listCost: number | null;
+  sellerCost: number | null;
+  billableWeight: number | null;
+  raw: any;
 };
 
 type MlCategoryAttribute = {
@@ -279,6 +353,8 @@ type ListingForm = {
 type ListingEditForm = {
   itemId: string;
   produtoId: string;
+  categoryId: string;
+  listingTypeId: string;
   title: string;
   price: string;
   availableQuantity: string;
@@ -527,9 +603,11 @@ function statusBadge(status?: string | null) {
   const value = String(status ?? "sem_status").toUpperCase();
   const label = statusLabel(value);
   const className =
-    value === "ACTIVE" || value === "PAID" || value === "APPROVED"
+    value === "ACTIVE" || value === "PAID" || value === "APPROVED" || value === "SHIPPED" || value === "DELIVERED"
       ? "bg-emerald-600 text-white"
-      : value === "PAUSED" || value === "PENDING" || value === "IN_PROCESS"
+      : value === "READY_TO_SHIP" || value === "HANDLING"
+        ? "bg-blue-600 text-white"
+        : value === "PAUSED" || value === "PENDING" || value === "IN_PROCESS" || value === "PAYMENT_REQUIRED"
         ? "bg-yellow-600 text-white"
         : value === "CLOSED" || value === "CANCELLED" || value === "CANCELED" || value === "REFUNDED" || value === "CHARGED_BACK"
           ? "bg-red-600 text-white"
@@ -539,7 +617,12 @@ function statusBadge(status?: string | null) {
 }
 
 function statusLabel(value: string) {
-  const normalized = String(value ?? "").toUpperCase();
+  const normalized = String(value ?? "")
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toUpperCase();
   const labels: Record<string, string> = {
     ACTIVE: "Ativo",
     PAUSED: "Pausado",
@@ -547,10 +630,43 @@ function statusLabel(value: string) {
     PAID: "Pago",
     APPROVED: "Aprovado",
     REFUNDED: "Reembolsado",
+    PAYMENT_REFUNDED: "Pagamento reembolsado",
+    PARTIALLY_REFUNDED: "Reembolsado parcialmente",
+    PAYMENT_PARTIALLY_REFUNDED: "Pagamento reembolsado parcialmente",
+    REFUNDED_BY_SELLER: "Reembolsado pelo vendedor",
+    REFUNDED_BY_MEDIATION: "Reembolsado por mediação",
+    MONEY_REFUNDED: "Dinheiro reembolsado",
     CHARGED_BACK: "Estornado",
+    CHARGEBACK: "Estornado",
+    REVERSED: "Revertido",
     IN_PROCESS: "Em processamento",
     PAYMENT_REQUIRED: "Aguardando pagamento",
+    PENDING_CONTINGENCY: "Pagamento em processamento",
+    PENDING_REVIEW_MANUAL: "Pagamento em análise manual",
+    PENDING_WAITING_PAYMENT: "Aguardando pagamento",
+    PENDING_ADDITIONAL_INFO: "Aguardando informações adicionais",
+    ACCREDITED: "Aprovado e creditado",
+    CC_REJECTED_BAD_FILLED_CARD_NUMBER: "Número do cartão incorreto",
+    CC_REJECTED_BAD_FILLED_DATE: "Validade do cartão incorreta",
+    CC_REJECTED_BAD_FILLED_OTHER: "Dados do cartão incorretos",
+    CC_REJECTED_BAD_FILLED_SECURITY_CODE: "Código de segurança incorreto",
+    CC_REJECTED_BLACKLIST: "Pagamento recusado",
+    CC_REJECTED_CALL_FOR_AUTHORIZE: "Pagamento precisa de autorização",
+    CC_REJECTED_CARD_DISABLED: "Cartão desativado",
+    CC_REJECTED_DUPLICATED_PAYMENT: "Pagamento duplicado",
+    CC_REJECTED_HIGH_RISK: "Pagamento recusado por segurança",
+    CC_REJECTED_INSUFFICIENT_AMOUNT: "Saldo insuficiente",
+    CC_REJECTED_MAX_ATTEMPTS: "Limite de tentativas excedido",
+    CC_REJECTED_OTHER_REASON: "Pagamento recusado",
     CONFIRMED: "Confirmado",
+    NEW: "Novo",
+    USED: "Usado",
+    GOLD_SPECIAL: "Clássico",
+    GOLD_PRO: "Premium",
+    GOLD: "Ouro",
+    SILVER: "Prata",
+    BRONZE: "Bronze",
+    FREE: "Grátis",
     CANCELLED: "Cancelado",
     CANCELED: "Cancelado",
     READY_TO_SHIP: "Pronto para envio",
@@ -563,18 +679,133 @@ function statusLabel(value: string) {
     UNDER_REVIEW: "Em análise",
     CLOSED_BY_MEDIATION: "Encerrada por mediação",
     NOT_DELIVERED: "Não entregue",
+    OUT_FOR_DELIVERY: "Saiu para entrega",
+    RECEIVER_ABSENT: "Destinatário ausente",
+    DANGEROUS_AREA: "Área de entrega com risco",
+    BAD_ADDRESS: "Endereço incorreto",
+    UNAUTHORIZED_RECEIVER: "Recebedor não autorizado",
+    RETURNING_TO_SENDER: "Em devolução ao vendedor",
+    WAITING_FOR_WITHDRAWAL: "Aguardando retirada",
+    SHIPPED_OUTSIDE_ME: "Enviado fora do Mercado Envios",
+    SHIPPED_OUTSIDE_ME_TRUSTED: "Enviado fora do Mercado Envios",
+    INVOICE_PENDING: "Aguardando nota fiscal",
+    BUYER_CANCELED: "Cancelado pelo comprador",
+    BUYER_CANCELLED: "Cancelado pelo comprador",
+    SELLER_CANCELED: "Cancelado pelo vendedor",
+    SELLER_CANCELLED: "Cancelado pelo vendedor",
+    CLAIM_OPENED: "Reclamação aberta",
+    CLAIM_CLOSED: "Reclamação encerrada",
+    MEDIATION: "Em mediação",
+    RESOLVED: "Resolvido",
+    RESOLVED_BY_MEDIATION: "Resolvido por mediação",
+    REFUND: "Reembolsar",
+    FULL_REFUND: "Reembolso integral",
+    PARTIAL_REFUND: "Reembolso parcial",
+    ALLOW_REFUND: "Autorizar reembolso",
+    RETURN: "Devolução",
+    RETURN_PRODUCT: "Devolver produto",
+    ACCEPT_RETURN: "Aceitar devolução",
+    ALLOW_RETURN: "Autorizar devolução",
+    RETURN_REVIEW_OK: "Confirmar produto devolvido",
+    SEND_MESSAGE: "Enviar mensagem",
+    PROVIDE_EVIDENCE: "Enviar evidências",
+    CLOSE_CLAIM: "Encerrar reclamação",
+    CREDIT_CARD: "Cartão de crédito",
+    DEBIT_CARD: "Cartão de débito",
+    ACCOUNT_MONEY: "Saldo no Mercado Pago",
+    TICKET: "Boleto",
+    BANK_TRANSFER: "Transferência bancária",
+    PIX: "Pix",
+    DROP_OFF: "Postagem em agência",
+    XD_DROP_OFF: "Postagem em ponto de despacho",
+    CROSS_DOCKING: "Coleta do Mercado Envios",
+    SELF_SERVICE: "Mercado Envios Flex",
+    FULFILLMENT: "Mercado Envios Full",
+    RECEBIDA: "Recebida",
+    PENDENTE: "Pendente",
+    PROCESSANDO: "Processando",
+    PROCESSADA: "Processada",
+    IMPORTADA: "Importada",
+    IGNORADA: "Ignorada",
+    ERRO: "Erro",
+    NOT_SPECIFIED: "Não especificado",
+    CUSTOM: "Envio personalizado",
+    ME2: "Mercado Envios",
     SEM_STATUS: "Sem status",
   };
 
-  return labels[normalized] ?? normalized
-    .toLowerCase()
+  if (labels[normalized]) return labels[normalized];
+
+  const words: Record<string, string> = {
+    PAYMENT: "pagamento",
+    REFUNDED: "reembolsado",
+    REFUND: "reembolso",
+    PARTIAL: "parcial",
+    CLOSED: "encerrado",
+    OPEN: "aberto",
+    OPENED: "aberto",
+    CANCELLED: "cancelado",
+    CANCELED: "cancelado",
+    APPROVED: "aprovado",
+    PENDING: "pendente",
+    SELLER: "vendedor",
+    BUYER: "comprador",
+    BY: "pelo",
+    MEDIATION: "mediação",
+    RETURN: "devolução",
+    PRODUCT: "produto",
+    SHIPPING: "envio",
+    SHIPMENT: "envio",
+    DELIVERED: "entregue",
+    SHIPPED: "enviado",
+    NOT: "não",
+    AVAILABLE: "disponível",
+    ACCEPT: "aceitar",
+    SEND: "enviar",
+    MESSAGE: "mensagem",
+  };
+  const translated = normalized
     .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .filter(Boolean)
+    .map((part) => words[part] ?? part.toLowerCase())
     .join(" ");
+
+  return translated ? translated.charAt(0).toUpperCase() + translated.slice(1) : "Sem status";
 }
 
 function rawStatusLabel(value?: string | null) {
   return statusLabel(String(value ?? "sem_status"));
+}
+
+function shippingLogisticLabel(value: string) {
+  const labels: Record<string, string> = {
+    drop_off: "Postagem em agência",
+    xd_drop_off: "Postagem em ponto de despacho",
+    cross_docking: "Coleta do Mercado Envios",
+    self_service: "Mercado Envios Flex",
+    fulfillment: "Mercado Envios Full",
+    default: "Logística padrão",
+  };
+  return labels[value] ?? rawStatusLabel(value);
+}
+
+function optionalStatusLabel(value?: string | null) {
+  return value ? rawStatusLabel(value) : "-";
+}
+
+function marketplaceTextLabel(value?: string | null) {
+  const text = String(value ?? "").trim();
+  if (!text) return "-";
+  const looksLikeMarketplaceEnglish = /\b(payment|refund(?:ed)?|buyer|seller|claim|return|cancel(?:led|ed)?|closed|opened|mediation)\b/i.test(text);
+  const looksLikeCode = /^[a-z0-9]+(?:[_-][a-z0-9]+)+$/i.test(text);
+  return looksLikeMarketplaceEnglish || looksLikeCode ? statusLabel(text) : text;
+}
+
+function getPaymentDescription(payment: any) {
+  return [payment?.payment_method_id, payment?.payment_type, payment?.status_detail]
+    .filter(Boolean)
+    .map((value) => rawStatusLabel(String(value)))
+    .join(" · ");
 }
 
 function formatOrderAddress(address: any) {
@@ -644,6 +875,47 @@ function isActiveClaim(claim?: MlClaim | null) {
   return !closedAt && !["closed", "closed_by_mediation", "cancelled", "canceled", "resolved"].some((value) => status.includes(value) || stage.includes(value));
 }
 
+type SupportedClaimAction = {
+  id: "refund" | "allow_return" | "return_review_ok";
+  label: string;
+  confirmation: string;
+  destructive?: boolean;
+};
+
+function getClaimActionName(action: any) {
+  return String(action?.action ?? action?.type ?? action?.name ?? action ?? "").trim().toLowerCase();
+}
+
+function getSupportedClaimActions(claim: MlClaim): SupportedClaimAction[] {
+  const available = new Set((Array.isArray(claim.availableActions) ? claim.availableActions : []).map(getClaimActionName).filter(Boolean));
+  const actions: SupportedClaimAction[] = [];
+
+  if (available.has("refund") || available.has("allow_refund")) {
+    actions.push({
+      id: "refund",
+      label: "Reembolsar integralmente",
+      confirmation: "Este procedimento devolve integralmente o pagamento ao comprador e não pode ser desfeito.",
+      destructive: true,
+    });
+  }
+  if (available.has("allow_return") || available.has("return_product")) {
+    actions.push({
+      id: "allow_return",
+      label: "Autorizar devolução",
+      confirmation: "O comprador será autorizado a devolver o produto conforme o fluxo do Mercado Livre.",
+    });
+  }
+  if (available.has("return_review_ok")) {
+    actions.push({
+      id: "return_review_ok",
+      label: "Confirmar produto devolvido",
+      confirmation: "Confirme somente se o produto devolvido já foi recebido e conferido.",
+    });
+  }
+
+  return actions;
+}
+
 function getOrderPackId(rawOrder: any) {
   return rawOrder?.pack_id || rawOrder?.pack?.id || null;
 }
@@ -699,6 +971,25 @@ function isMercadoEnviosOrder(order: MlOrder) {
   return Boolean(order.ml_shipment_id && mode === "me2" && logisticType);
 }
 
+function canSendInvoiceToMercadoLivre(order: MlOrder) {
+  const supportedLogistics = new Set(["drop_off", "xd_drop_off", "xd_same_day", "cross_docking"]);
+  return isMercadoEnviosOrder(order) && supportedLogistics.has(String(order.logistic_type ?? "").toLowerCase());
+}
+
+function isInvoiceSent(order: MlOrder) {
+  const status = String(order.invoice_status ?? "").toLowerCase();
+  return Boolean(order.invoice_sent_at || order.ml_invoice_id || ["sent", "accepted", "approved", "ready_to_print", "processed"].includes(status));
+}
+
+function getOrderShipmentStatus(order: MlOrder) {
+  return String(order.shipment_status || order.raw_shipment?.status || "").toLowerCase() || null;
+}
+
+function isPaidOrder(order: MlOrder) {
+  const status = String(getOrderPaymentStatus(order) ?? order.status ?? "").toLowerCase();
+  return ["paid", "approved"].includes(status);
+}
+
 function getOrderBuyerLabel(order: MlOrder) {
   const buyer = order.raw_order?.buyer;
   return [buyer?.first_name, buyer?.last_name].filter(Boolean).join(" ") || buyer?.nickname || (buyer?.id ? `Cliente #${buyer.id}` : "Comprador");
@@ -714,12 +1005,27 @@ function formatMarketplaceOrderDate(value?: string | null) {
 }
 
 function getOrderOperationalState(order: MlOrder, claim?: MlClaim | null) {
+  if (order.import_status === "ERRO" || (order.import_error && !order.venda_id)) {
+    return {
+      title: "Falha ao importar a venda no ERP",
+      description: marketplaceTextLabel(order.import_error || "Sincronize novamente para tentar importar este pedido."),
+      tone: "danger" as const,
+      action: "Tentar novamente",
+      actionType: "sync" as const,
+    };
+  }
+
   if (claim && isActiveClaim(claim)) {
     return {
-      title: claim?.title || "Reclamação aberta. Atenda a solicitação do comprador",
-      description: claim?.reason || claim?.error || "Abra os detalhes para acompanhar a reclamação e as próximas ações.",
+      title: claim?.title ? marketplaceTextLabel(claim.title) : "Reclamação aberta. Atenda a solicitação do comprador",
+      description: claim?.reason
+        ? marketplaceTextLabel(claim.reason)
+        : claim?.error
+          ? marketplaceTextLabel(claim.error)
+          : "Abra os detalhes para acompanhar a reclamação e as próximas ações.",
       tone: "danger" as const,
       action: "Atender reclamação",
+      actionType: "details" as const,
     };
   }
 
@@ -729,6 +1035,7 @@ function getOrderOperationalState(order: MlOrder, claim?: MlClaim | null) {
       description: claim.resolution ? `Resolução: ${rawStatusLabel(claim.resolution)}.` : "A reclamação já foi encerrada no Mercado Livre.",
       tone: "default" as const,
       action: "Ver detalhes",
+      actionType: "details" as const,
     };
   }
 
@@ -738,24 +1045,81 @@ function getOrderOperationalState(order: MlOrder, claim?: MlClaim | null) {
       description: getOrderCancellationHint(order),
       tone: "danger" as const,
       action: "Ver detalhes",
+      actionType: "details" as const,
+    };
+  }
+
+  if (!isPaidOrder(order)) {
+    return {
+      title: "Aguardando confirmação do pagamento",
+      description: "O pedido ainda não está liberado para preparação e envio.",
+      tone: "warning" as const,
+      action: "Ver detalhes",
+      actionType: "details" as const,
+    };
+  }
+
+  const shipmentStatus = getOrderShipmentStatus(order);
+  if (shipmentStatus === "delivered") {
+    return {
+      title: "Pedido entregue",
+      description: order.tracking_number ? `Entrega concluída. Rastreio ${order.tracking_number}.` : "A entrega foi confirmada pelo Mercado Livre.",
+      tone: "success" as const,
+      action: "Ver detalhes",
+      actionType: "details" as const,
+    };
+  }
+
+  if (shipmentStatus === "shipped") {
+    return {
+      title: "Pedido enviado",
+      description: order.tracking_number
+        ? `Enviado por ${rawStatusLabel(order.tracking_method)}. Rastreio ${order.tracking_number}.`
+        : "O envio foi comunicado ao Mercado Livre.",
+      tone: "success" as const,
+      action: "Ver rastreio",
+      actionType: "details" as const,
+    };
+  }
+
+  if (["not_delivered", "cancelled", "canceled"].includes(shipmentStatus ?? "")) {
+    return {
+      title: shipmentStatus === "not_delivered" ? "Entrega não concluída" : "Envio cancelado",
+      description: order.shipment_substatus ? rawStatusLabel(order.shipment_substatus) : "Consulte os detalhes retornados pelo Mercado Livre.",
+      tone: "danger" as const,
+      action: "Ver detalhes",
+      actionType: "details" as const,
+    };
+  }
+
+  if (canSendInvoiceToMercadoLivre(order) && String(order.shipment_substatus ?? "").toLowerCase() === "invoice_pending" && !isInvoiceSent(order)) {
+    return {
+      title: "NF-e necessária para liberar a etiqueta",
+      description: "Emita e autorize a NF-e da venda no ERP e envie o XML ao Mercado Livre.",
+      tone: "warning" as const,
+      action: "Enviar NF-e",
+      actionType: "invoice" as const,
     };
   }
 
   if (isMercadoEnviosOrder(order)) {
+    const handling = shipmentStatus === "handling";
     return {
-      title: "Envio Mercado Envios",
-      description: order.tracking_number ? `Rastreio ${order.tracking_number}` : "Imprima a etiqueta e acompanhe o envio.",
+      title: handling ? "Pedido em preparação" : "Pronto para enviar pelo Mercado Envios",
+      description: order.tracking_number ? `Rastreio ${order.tracking_number}.` : "Imprima a etiqueta para postar ou despachar o pedido.",
       tone: "default" as const,
       action: "Imprimir etiqueta",
+      actionType: "label" as const,
     };
   }
 
   if (order.ml_shipment_id) {
     return {
-      title: "Envio personalizado",
+      title: order.tracking_number ? "Rastreio registrado, envio ainda não confirmado" : "Envio personalizado aguardando postagem",
       description: order.tracking_number ? `Rastreio ${order.tracking_number}` : "Este pedido não gera etiqueta do Mercado Livre. Registre rastreio e transportadora no ERP.",
-      tone: "default" as const,
-      action: "Registrar envio",
+      tone: order.tracking_number ? ("warning" as const) : ("default" as const),
+      action: order.tracking_number ? "Confirmar envio" : "Registrar envio",
+      actionType: "custom" as const,
     };
   }
 
@@ -764,6 +1128,7 @@ function getOrderOperationalState(order: MlOrder, claim?: MlClaim | null) {
     description: "O Mercado Livre ainda não retornou um envio para este pedido. Sincronize novamente; se continuar sem envio, o anúncio/compra foi concluído fora do Mercado Envios.",
     tone: "default" as const,
     action: "Sincronizar pedido",
+    actionType: "sync" as const,
   };
 }
 
@@ -844,6 +1209,8 @@ export default function MarketplacePage() {
   const [claims, setClaims] = useState<MlClaim[]>([]);
   const [questions, setQuestions] = useState<MlQuestion[]>([]);
   const [products, setProducts] = useState<ProductRow[]>([]);
+  const [performance, setPerformance] = useState<MarketplacePerformance>(EMPTY_PERFORMANCE);
+  const [stockSync, setStockSync] = useState<MarketplaceStockSync>({ pending: 0, failed: 0, lastError: null, updatedAt: null });
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState("products");
   const [questionStatusFilter, setQuestionStatusFilter] = useState("UNANSWERED");
@@ -895,6 +1262,19 @@ export default function MarketplacePage() {
   const [conditionOptions, setConditionOptions] = useState<string[]>(["new", "used", "not_specified"]);
   const [categoryAttributes, setCategoryAttributes] = useState<MlCategoryAttribute[]>([]);
   const [loadingAttributes, setLoadingAttributes] = useState(false);
+  const [shippingEligibility, setShippingEligibility] = useState<ShippingEligibility>({
+    loaded: false,
+    categoryModes: [],
+    userModes: [],
+    logisticOptions: [],
+    me2Restricted: false,
+    me2Restrictions: [],
+    userShippingOption: null,
+    defaultDimensions: null,
+    error: null,
+  });
+  const [shippingQuote, setShippingQuote] = useState<ShippingQuote | null>(null);
+  const [loadingShippingQuote, setLoadingShippingQuote] = useState(false);
   const [similarProducts, setSimilarProducts] = useState<SimilarProduct[]>([]);
   const [loadingSimilarProducts, setLoadingSimilarProducts] = useState(false);
   const [similarProductsUnavailable, setSimilarProductsUnavailable] = useState(false);
@@ -938,6 +1318,8 @@ export default function MarketplacePage() {
   const [editForm, setEditForm] = useState<ListingEditForm>({
     itemId: "",
     produtoId: "",
+    categoryId: "",
+    listingTypeId: "",
     title: "",
     price: "",
     availableQuantity: "",
@@ -954,6 +1336,8 @@ export default function MarketplacePage() {
     lengthCm: "",
     weightGrams: "",
   });
+  const [editShippingModes, setEditShippingModes] = useState<string[]>([]);
+  const [editLogisticOptions, setEditLogisticOptions] = useState<string[]>([]);
 
   const activeAccount = accounts[0] ?? null;
   const requiresReconnect = Boolean(activeAccount?.needs_reconnect);
@@ -962,6 +1346,7 @@ export default function MarketplacePage() {
   const unlinkedCount = Math.max(products.length - linkedCount, 0);
   const linkedProducts = products.filter((product) => product.mercadolivre);
   const publishableProducts = products.filter((product) => !product.mercadolivre);
+  const maxDailyVisits = Math.max(...performance.daily.map((day) => Number(day.visits ?? 0)), 1);
   const unansweredQuestions = questions.filter((question) => String(question.status ?? "").toUpperCase() === "UNANSWERED").length;
   const selectedChatConversation =
     chatConversations.find((conversation) => conversation.orderDbId === selectedChatOrderId) ?? chatConversations[0] ?? null;
@@ -1006,12 +1391,18 @@ export default function MarketplacePage() {
     (!listingForm.widthCm || !listingForm.heightCm || !listingForm.lengthCm || !listingForm.weightGrams);
   const categoryShippingOptions = listingForm.categoryShippingOptions.map((option) => option.toLowerCase());
   const categorySupportsMercadoEnvios =
-    categoryShippingOptions.length === 0 || categoryShippingOptions.includes("me2") || categoryShippingOptions.includes("carrier");
-  const categorySupportsCustomShipping = categoryShippingOptions.length === 0 || categoryShippingOptions.includes("custom");
+    !listingForm.categoryId || !shippingEligibility.loaded || categoryShippingOptions.includes("me2");
+  const categorySupportsCustomShipping = !listingForm.categoryId || !shippingEligibility.loaded || categoryShippingOptions.includes("custom");
   const categoryBlocksMercadoEnvios =
     listingForm.categoryId && listingForm.shippingMode === "me2" && !categorySupportsMercadoEnvios;
   const categoryShippingIssue = categoryBlocksMercadoEnvios
-    ? `A categoria selecionada retorna envio ${listingForm.categoryShippingOptions.join(", ")} no Mercado Livre. Use Envio personalizado com custo fixo ou escolha uma categoria compatível com Mercado Envios.`
+    ? shippingEligibility.error
+      ? shippingEligibility.error
+      : !shippingEligibility.userModes.includes("me2")
+        ? "A conta vendedora conectada não possui Mercado Envios ativo. Revise as preferências de envio e o endereço de origem no Mercado Livre."
+        : !shippingEligibility.categoryModes.includes("me2")
+          ? "A categoria selecionada não oferece Mercado Envios. Escolha uma categoria compatível ou uma alternativa de envio disponível."
+          : "O Mercado Envios não está disponível para esta combinação de conta, categoria e logística."
     : "";
   const customShippingIssue =
     listingForm.shippingMode === "custom" && !categorySupportsCustomShipping
@@ -1036,8 +1427,8 @@ export default function MarketplacePage() {
   ].filter(Boolean);
   const canPublishListing = listingIssues.length === 0;
   const notificationErrors = notifications.filter((notification) => notification.error || String(notification.status ?? "").toUpperCase() === "ERRO").length;
+  const integrationAlerts = notificationErrors + stockSync.failed;
 
-  const authUrl = useMemo(() => "/api/integracoes/mercadolivre/auth", []);
   const listingFieldClass =
     "border-border/80 bg-white shadow-sm ring-1 ring-border/50 focus-visible:border-primary/50 focus-visible:ring-primary/20 dark:bg-input/40";
   const listingSelectClass = `h-10 w-full ${listingFieldClass}`;
@@ -1120,6 +1511,10 @@ export default function MarketplacePage() {
       title: "Anúncios Mercado Livre",
       description: "Anúncios já vinculados a produtos do ERP.",
     },
+    performance: {
+      title: "Desempenho Mercado Livre",
+      description: "Visualizações, pedidos e conversão dos últimos 30 dias.",
+    },
     orders: {
       title: "Pedidos Mercado Livre",
       description: "Pedidos importados e vinculados a vendas do ERP.",
@@ -1146,6 +1541,8 @@ export default function MarketplacePage() {
       setAccounts(json.accounts ?? []);
       setOrders(json.orders ?? []);
       setNotifications(json.notifications ?? []);
+      setPerformance({ ...EMPTY_PERFORMANCE, ...(json.performance ?? {}) });
+      setStockSync({ pending: 0, failed: 0, lastError: null, updatedAt: null, ...(json.stockSync ?? {}) });
     } catch (e: any) {
       toast.error("Erro ao carregar marketplace", { description: marketplaceErrorMessage(e) });
     } finally {
@@ -1214,6 +1611,7 @@ export default function MarketplacePage() {
 
   async function loadCategoryAttributes(categoryId: string) {
     setLoadingAttributes(true);
+    setShippingEligibility((current) => ({ ...current, loaded: false, error: null }));
     try {
       const response = await fetch(`/api/integracoes/mercadolivre/category-attributes?categoryId=${encodeURIComponent(categoryId)}`, {
         cache: "no-store",
@@ -1222,14 +1620,27 @@ export default function MarketplacePage() {
       if (!response.ok) throw new Error(json?.error || "Falha ao carregar atributos.");
       const attrs = (json.data ?? []) as MlCategoryAttribute[];
       const shippingOptions = Array.isArray(json.settings?.shippingOptions) ? json.settings.shippingOptions.filter(Boolean) : [];
+      const logisticOptions = Array.isArray(json.settings?.logisticOptions) ? json.settings.logisticOptions.filter(Boolean) : [];
+      setShippingEligibility({
+        loaded: true,
+        categoryModes: Array.isArray(json.settings?.categoryShippingOptions) ? json.settings.categoryShippingOptions : [],
+        userModes: Array.isArray(json.settings?.userShippingOptions) ? json.settings.userShippingOptions : [],
+        logisticOptions,
+        me2Restricted: Boolean(json.settings?.me2Restricted),
+        me2Restrictions: Array.isArray(json.settings?.me2Restrictions) ? json.settings.me2Restrictions : [],
+        userShippingOption: json.settings?.userShippingOption ?? null,
+        defaultDimensions: json.settings?.defaultDimensions ?? null,
+        error: null,
+      });
       setCategoryAttributes(attrs);
       setListingForm((current) => ({
         ...current,
         categoryShippingOptions: shippingOptions,
         shippingMode:
-          shippingOptions.length > 0 && !shippingOptions.includes("carrier") && !shippingOptions.includes("me2") && shippingOptions.includes("custom")
+          !shippingOptions.includes("me2") && shippingOptions.includes("custom")
             ? "custom"
             : current.shippingMode,
+        logisticType: logisticOptions.includes(current.logisticType) ? current.logisticType : logisticOptions[0] ?? "",
         dynamicAttributes: attrs.reduce(
           (acc, attribute) => {
             if (acc[attribute.id]) return acc;
@@ -1243,8 +1654,21 @@ export default function MarketplacePage() {
         ),
       }));
     } catch (e: any) {
-      toast.error("Erro ao carregar atributos da categoria", { description: marketplaceErrorMessage(e) });
+      const message = marketplaceErrorMessage(e);
+      toast.error("Erro ao carregar atributos e envios da categoria", { description: message });
       setCategoryAttributes([]);
+      setShippingEligibility({
+        loaded: true,
+        categoryModes: [],
+        userModes: [],
+        logisticOptions: [],
+        me2Restricted: false,
+        me2Restrictions: [],
+        userShippingOption: null,
+        defaultDimensions: null,
+        error: message,
+      });
+      setListingForm((current) => ({ ...current, categoryShippingOptions: [] }));
     } finally {
       setLoadingAttributes(false);
     }
@@ -1366,6 +1790,35 @@ export default function MarketplacePage() {
     }
   }
 
+  async function simulateShippingQuote() {
+    setLoadingShippingQuote(true);
+    setShippingQuote(null);
+    try {
+      const response = await fetch("/api/integracoes/mercadolivre/shipping-quote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          itemPrice: parseCurrencyInput(listingForm.price),
+          listingTypeId: listingForm.listingTypeId,
+          condition: listingForm.condition,
+          logisticType: listingForm.logisticType,
+          freeShipping: listingForm.freeShipping,
+          lengthCm: Number(listingForm.lengthCm.replace(",", ".")),
+          widthCm: Number(listingForm.widthCm.replace(",", ".")),
+          heightCm: Number(listingForm.heightCm.replace(",", ".")),
+          weightGrams: Number(listingForm.weightGrams),
+        }),
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json?.error || "Falha ao simular frete.");
+      setShippingQuote(json.data ?? null);
+    } catch (error: any) {
+      toast.error("Erro ao simular Mercado Envios", { description: marketplaceErrorMessage(error) });
+    } finally {
+      setLoadingShippingQuote(false);
+    }
+  }
+
   async function saveCustomShipment(order: MlOrder) {
     if (!order.id) return;
     if (!customShipmentForm.carrier.trim()) {
@@ -1395,7 +1848,18 @@ export default function MarketplacePage() {
       setOrders((current) => current.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)));
       setSelectedOrderDetails((current) => (current?.id === updated.id ? { ...current, ...updated } : current));
       if (json.marketplaceStatusUpdated) {
-        toast.success(json.messageSent ? "Pedido marcado como enviado e comprador avisado." : "Pedido marcado como enviado.");
+        if (json.marketplaceStatusConfirmed) {
+          toast.success(json.messageSent ? "Pedido confirmado como enviado e comprador avisado." : "Pedido confirmado como enviado.");
+          if (json.messageError) {
+            toast.warning("O envio foi confirmado, mas a mensagem não foi entregue ao comprador.", {
+              description: marketplaceErrorMessage(json.messageError),
+            });
+          }
+        } else {
+          toast.warning("Rastreio salvo, mas o Mercado Livre ainda não confirmou o status enviado.", {
+            description: `Status retornado: ${rawStatusLabel(json.confirmedStatus)}. Sincronize novamente em alguns instantes.`,
+          });
+        }
       } else {
         toast.success(json.messageSent ? "Envio registrado e comprador avisado." : "Envio registrado.");
       }
@@ -1411,7 +1875,53 @@ export default function MarketplacePage() {
     window.open(`/api/integracoes/mercadolivre/shipments/venda/${vendaId}/label`, "_blank", "noopener,noreferrer");
   }
 
+  async function sendOrderInvoice(order: MlOrder) {
+    if (!canSendInvoiceToMercadoLivre(order)) {
+      toast.error("Este envio não aceita importação de NF-e pelo Mercado Livre.", {
+        description: "A nota continua vinculada à venda no ERP, mas a importação no shipment exige uma logística compatível do Mercado Envios.",
+      });
+      return;
+    }
+
+    if (!window.confirm(`Enviar a NF-e autorizada da venda #${order.venda_id} ao pedido Mercado Livre #${order.ml_order_id}?`)) return;
+
+    setActionKey(`invoice:${order.id}`);
+    try {
+      const response = await fetch(`/api/integracoes/mercadolivre/orders/${order.id}/invoice`, { method: "POST" });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json?.error || "Falha ao enviar a NF-e.");
+
+      const invoice = json.data?.invoice ?? {};
+      const updates: Partial<MlOrder> = {
+        nfe_id: json.data?.nfe?.id ?? order.nfe_id,
+        ml_invoice_id: invoice.id ?? order.ml_invoice_id,
+        invoice_status: invoice.status ?? "sent",
+        invoice_fiscal_key: invoice.fiscalKey ?? order.invoice_fiscal_key,
+        invoice_error: null,
+        invoice_sent_at: invoice.sentAt ?? new Date().toISOString(),
+        invoice_updated_at: invoice.updatedAt ?? new Date().toISOString(),
+      };
+      setOrders((current) => current.map((item) => (item.id === order.id ? { ...item, ...updates } : item)));
+      setSelectedOrderDetails((current) => (current?.id === order.id ? { ...current, ...updates } : current));
+      toast.success("NF-e enviada ao Mercado Livre.", { description: "Sincronize o envio para acompanhar a liberação da etiqueta." });
+      await loadDashboard();
+    } catch (e: any) {
+      toast.error("Erro ao enviar NF-e", { description: marketplaceErrorMessage(e) });
+      await loadDashboard();
+    } finally {
+      setActionKey(null);
+    }
+  }
+
   async function refundOrder(order: MlOrder) {
+    const activeClaim = (claimsByOrderId.get(order.id) ?? []).find(isActiveClaim);
+    if (activeClaim) {
+      toast.error("Este pedido possui uma reclamação ativa.", {
+        description: "Use uma das ações disponibilizadas pelo Mercado Livre nos detalhes da reclamação.",
+      });
+      return;
+    }
+
     const payment = getRefundablePayment(order);
     if (!payment?.id) {
       toast.error("Este pedido não possui pagamento disponível para reembolso.");
@@ -1434,6 +1944,29 @@ export default function MarketplacePage() {
       await Promise.all([loadDashboard(), loadClaims()]);
     } catch (e: any) {
       toast.error("Erro ao reembolsar pedido", { description: marketplaceErrorMessage(e) });
+    } finally {
+      setActionKey(null);
+    }
+  }
+
+  async function executeClaimAction(claim: MlClaim, action: SupportedClaimAction) {
+    if (!window.confirm(`${action.label}?\n\n${action.confirmation}`)) return;
+
+    const key = `claim:${claim.id}:${action.id}`;
+    setActionKey(key);
+    try {
+      const response = await fetch("/api/integracoes/mercadolivre/claims", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ claimId: claim.id, action: action.id }),
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json?.error || "Falha ao executar a ação na reclamação.");
+
+      toast.success("Ação enviada ao Mercado Livre.", { description: `${action.label} solicitada com sucesso.` });
+      await Promise.all([loadClaims(), loadDashboard()]);
+    } catch (e: any) {
+      toast.error("Erro ao atualizar reclamação", { description: marketplaceErrorMessage(e) });
     } finally {
       setActionKey(null);
     }
@@ -1612,7 +2145,34 @@ export default function MarketplacePage() {
       });
       const json = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(json?.error || "Falha ao atualizar anúncio.");
-      toast.success("Anúncio atualizado.");
+      const returnedStatus = String(json?.data?.status || json?.status || "").toLowerCase();
+      if (returnedStatus) {
+        setProducts((current) =>
+          current.map((product) =>
+            product.mercadolivre?.ml_item_id === itemId
+              ? {
+                  ...product,
+                  mercadolivre: {
+                    ...product.mercadolivre,
+                    status: returnedStatus,
+                    title: json?.data?.title ?? product.mercadolivre.title,
+                    permalink: json?.data?.permalink ?? product.mercadolivre.permalink,
+                    updated_at: new Date().toISOString(),
+                  },
+                }
+              : product,
+          ),
+        );
+      }
+      toast.success(
+        action === "pause"
+          ? "Anúncio pausado."
+          : action === "activate"
+            ? "Anúncio ativado."
+            : action === "close"
+              ? "Anúncio finalizado."
+              : "Anúncio atualizado.",
+      );
       await loadProducts();
     } catch (e: any) {
       toast.error("Erro ao atualizar anúncio", { description: marketplaceErrorMessage(e) });
@@ -1674,6 +2234,8 @@ export default function MarketplacePage() {
     setSimilarProducts([]);
     setSimilarProductsUnavailable(false);
     setPreviewImageIndex(0);
+    setShippingEligibility({ loaded: false, categoryModes: [], userModes: [], logisticOptions: [], me2Restricted: false, me2Restrictions: [], userShippingOption: null, defaultDimensions: null, error: null });
+    setShippingQuote(null);
   }
 
   function openCreateListing() {
@@ -1696,6 +2258,8 @@ export default function MarketplacePage() {
     const fallbackForm: ListingEditForm = {
       itemId: link.ml_item_id,
       produtoId: String(product.id),
+      categoryId: "",
+      listingTypeId: "",
       title: link.title || product.tituloMarketplace || product.titulo || "",
       price: formatCurrencyInputFromNumber(product.precovenda),
       availableQuantity: String(Math.max(Number(product.estoque ?? 0), 0)),
@@ -1716,6 +2280,8 @@ export default function MarketplacePage() {
     setEditForm({
       ...fallbackForm,
     });
+    setEditShippingModes([]);
+    setEditLogisticOptions([]);
     setEditDialogOpen(true);
 
     setLoadingEditListing(true);
@@ -1724,8 +2290,12 @@ export default function MarketplacePage() {
       const json = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(json?.error || "Falha ao carregar dados atuais do anúncio.");
       const item = json.data ?? {};
+      const categoryId = String(item.categoryId ?? "");
+      const shippingMode = String(item.shippingMode || fallbackForm.shippingMode);
       setEditForm({
         ...fallbackForm,
+        categoryId,
+        listingTypeId: String(item.listingTypeId ?? ""),
         title: item.title || fallbackForm.title,
         price: formatCurrencyInputFromNumber(item.price ?? product.precovenda),
         availableQuantity: String(Math.max(Number(item.availableQuantity ?? product.estoque ?? 0), 0)),
@@ -1733,7 +2303,7 @@ export default function MarketplacePage() {
         pictureUrl: Array.isArray(item.pictures) && item.pictures.length ? item.pictures.join("\n") : fallbackForm.pictureUrl,
         warranty: item.warranty || "",
         warrantyTime: item.warrantyTime || "",
-        shippingMode: "me2",
+        shippingMode,
         logisticType: item.logisticType || fallbackForm.logisticType,
         freeShipping: Boolean(item.freeShipping),
         localPickup: false,
@@ -1742,6 +2312,7 @@ export default function MarketplacePage() {
         lengthCm: item.lengthCm || "",
         weightGrams: item.weightGrams || "",
       });
+      if (categoryId) await loadEditShippingOptions(categoryId, shippingMode, String(item.logisticType || ""));
     } catch (e: any) {
       toast.error("Não foi possível carregar o anúncio atual", {
         description: marketplaceErrorMessage(e, "O formulário foi aberto com os dados locais do ERP."),
@@ -1780,7 +2351,7 @@ export default function MarketplacePage() {
           pictureUrl: editForm.pictureUrl,
           warranty: editForm.warranty,
           warrantyTime: editForm.warrantyTime,
-          shippingMode: "me2",
+          shippingMode: editForm.shippingMode === "me2" ? "me2" : "",
           logisticType: editForm.logisticType,
           freeShipping: editForm.freeShipping,
           localPickup: false,
@@ -1803,6 +2374,22 @@ export default function MarketplacePage() {
     }
   }
 
+  async function loadEditShippingOptions(categoryId: string, currentMode: string, currentLogisticType: string) {
+    try {
+      const response = await fetch(`/api/integracoes/mercadolivre/category-attributes?categoryId=${encodeURIComponent(categoryId)}`, { cache: "no-store" });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json?.error || "Falha ao consultar opções de envio.");
+      const modes = Array.isArray(json.settings?.shippingOptions) ? json.settings.shippingOptions.filter(Boolean) : [];
+      const logistics = Array.isArray(json.settings?.logisticOptions) ? json.settings.logisticOptions.filter(Boolean) : [];
+      setEditShippingModes(Array.from(new Set([currentMode, ...modes].filter(Boolean))));
+      setEditLogisticOptions(Array.from(new Set([currentLogisticType, ...logistics].filter(Boolean))));
+    } catch (error: any) {
+      setEditShippingModes(currentMode ? [currentMode] : []);
+      setEditLogisticOptions(currentLogisticType ? [currentLogisticType] : []);
+      toast.error("Não foi possível validar o envio do anúncio", { description: marketplaceErrorMessage(error) });
+    }
+  }
+
   function selectListingProduct(produtoId: string) {
     const product = products.find((item) => String(item.id) === produtoId);
     fillListingForm(product ?? null);
@@ -1812,11 +2399,7 @@ export default function MarketplacePage() {
     updateListingForm("categoryId", category.id);
     updateListingForm("categoryName", category.name);
     updateListingForm("categoryPath", category.path ?? "");
-    updateListingForm("categoryShippingOptions", category.shippingOptions ?? []);
-    const nextShippingOptions = (category.shippingOptions ?? []).map((option) => option.toLowerCase());
-    if (nextShippingOptions.length > 0 && !nextShippingOptions.includes("carrier") && !nextShippingOptions.includes("me2") && nextShippingOptions.includes("custom")) {
-      updateListingForm("shippingMode", "custom");
-    }
+    updateListingForm("categoryShippingOptions", []);
     const nextConditions = category.conditionOptions?.length ? category.conditionOptions : ["new", "used", "not_specified"];
     setConditionOptions(nextConditions);
     if (!nextConditions.includes(listingForm.condition)) {
@@ -1833,6 +2416,8 @@ export default function MarketplacePage() {
     updateListingForm("categoryName", "");
     updateListingForm("categoryPath", "");
     updateListingForm("categoryShippingOptions", []);
+    setShippingEligibility({ loaded: false, categoryModes: [], userModes: [], logisticOptions: [], me2Restricted: false, me2Restrictions: [], userShippingOption: null, defaultDimensions: null, error: null });
+    setShippingQuote(null);
     setCategorySearch("");
     setCategoryParent(null);
     setCategoryStack([]);
@@ -1961,6 +2546,7 @@ export default function MarketplacePage() {
       ].includes(String(key))
     ) {
       clearListingErrors("shipping", "dimensions", "general");
+      setShippingQuote(null);
     }
 
     setListingForm((current) => ({
@@ -2079,6 +2665,8 @@ export default function MarketplacePage() {
       );
     }
 
+    const listingStatus = String(link.status ?? "").toLowerCase();
+
     return (
       <div className={`flex ${compact ? "justify-end" : "justify-end"}`}>
         <DropdownMenu>
@@ -2097,26 +2685,32 @@ export default function MarketplacePage() {
               <RefreshCcw className="mr-2 h-4 w-4" />
               Atualizar estoque e preço
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => itemAction(link.ml_item_id, "pause")} disabled={Boolean(busy)}>
-              <Pause className="mr-2 h-4 w-4" />
-              Pausar anúncio
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => itemAction(link.ml_item_id, "activate")} disabled={Boolean(busy)}>
-              <Play className="mr-2 h-4 w-4" />
-              Ativar anúncio
-            </DropdownMenuItem>
+            {listingStatus === "active" && (
+              <DropdownMenuItem onClick={() => itemAction(link.ml_item_id, "pause")} disabled={Boolean(busy)}>
+                <Pause className="mr-2 h-4 w-4" />
+                Pausar anúncio
+              </DropdownMenuItem>
+            )}
+            {listingStatus === "paused" && (
+              <DropdownMenuItem onClick={() => itemAction(link.ml_item_id, "activate")} disabled={Boolean(busy)}>
+                <Play className="mr-2 h-4 w-4" />
+                Ativar anúncio
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={() => unlinkProduct(product.id)} disabled={Boolean(busy)}>
               <Unlink className="mr-2 h-4 w-4" />
               Remover vínculo
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => itemAction(link.ml_item_id, "close")}
-              disabled={Boolean(busy)}
-              className="text-destructive focus:text-destructive"
-            >
-              <Trash2 className="mr-2 h-4 w-4" />
-              Finalizar anúncio
-            </DropdownMenuItem>
+            {listingStatus !== "closed" && (
+              <DropdownMenuItem
+                onClick={() => itemAction(link.ml_item_id, "close")}
+                disabled={Boolean(busy)}
+                className="text-destructive focus:text-destructive"
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Finalizar anúncio
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -2136,101 +2730,89 @@ export default function MarketplacePage() {
   );
 
   return (
-    <div className="mx-auto space-y-3">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-        <Card className="min-h-0">
-          <CardContent className="flex items-center justify-between gap-3 px-4 py-3">
-            <div className="min-w-0">
-              <CardTitle className="text-sm font-medium">Conta Mercado Livre</CardTitle>
-              <div className="truncate text-2xl font-bold leading-tight">
-                {requiresReconnect ? "Sessão inválida" : activeAccount ? activeAccount.nickname || activeAccount.ml_user_id : "Desconectada"}
-              </div>
-              <p className="text-xs text-muted-foreground">{activeAccount ? `User ID ${activeAccount.ml_user_id}` : "Autorize uma conta"}</p>
+    <div className="mx-auto space-y-4">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border bg-card shadow-sm">
+            <Store className="h-5 w-5 text-primary" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-xl font-semibold">Marketplace</h1>
+            <p className="truncate text-sm text-muted-foreground">Produtos, vendas, atendimento e desempenho do Mercado Livre.</p>
+          </div>
+        </div>
+        <div className="flex min-w-0 items-center gap-3 rounded-md border bg-card px-3 py-2 shadow-sm">
+          <div className={`h-2 w-2 shrink-0 rounded-full ${connected ? "bg-emerald-500" : "bg-orange-500"}`} />
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium">
+              {requiresReconnect ? "Sessão inválida" : activeAccount ? activeAccount.nickname || activeAccount.ml_user_id : "Conta desconectada"}
             </div>
-            {connected ? <Check className="h-5 w-5 shrink-0 text-emerald-600" /> : <AlertTriangle className="h-5 w-5 shrink-0 text-orange-500" />}
-          </CardContent>
-        </Card>
-        <Card className="min-h-0">
-          <CardContent className="flex items-center justify-between gap-3 px-4 py-3">
-            <div className="min-w-0">
-              <CardTitle className="text-sm font-medium">Produtos vinculados</CardTitle>
-              <div className="text-2xl font-bold leading-tight">{linkedCount}</div>
-              <p className="text-xs text-muted-foreground">{unlinkedCount} sem vínculo na lista</p>
-            </div>
-            <PackageCheck className="h-5 w-5 shrink-0 text-muted-foreground" />
-          </CardContent>
-        </Card>
-        <Card className="min-h-0">
-          <CardContent className="flex items-center justify-between gap-3 px-4 py-3">
-            <div className="min-w-0">
-              <CardTitle className="text-sm font-medium">Pedidos importados</CardTitle>
-              <div className="text-2xl font-bold leading-tight">{orders.length}</div>
-              <p className="text-xs text-muted-foreground">Últimos registros</p>
-            </div>
-            <Store className="h-5 w-5 shrink-0 text-muted-foreground" />
-          </CardContent>
-        </Card>
-        <Card className="min-h-0">
-          <CardContent className="flex items-center justify-between gap-3 px-4 py-3">
-            <div className="min-w-0">
-              <CardTitle className="text-sm font-medium">Perguntas pendentes</CardTitle>
-              <div className="text-2xl font-bold leading-tight">{unansweredQuestions}</div>
-              <p className="text-xs text-muted-foreground">{questions.length} na visualização</p>
-            </div>
-            <MessageCircle className={`h-5 w-5 shrink-0 ${unansweredQuestions > 0 ? "text-yellow-600" : "text-muted-foreground"}`} />
-          </CardContent>
-        </Card>
-        <Card className="min-h-0">
-          <CardContent className="flex items-center justify-between gap-3 px-4 py-3">
-            <div className="min-w-0">
-              <CardTitle className="text-sm font-medium">Alertas</CardTitle>
-              <div className="text-2xl font-bold leading-tight">{notificationErrors}</div>
-              <p className="text-xs text-muted-foreground">{notifications.length} evento(s) recentes</p>
-            </div>
-            <AlertTriangle className={`h-5 w-5 shrink-0 ${notificationErrors > 0 ? "text-yellow-600" : "text-muted-foreground"}`} />
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card className="shadow-sm">
-        <CardContent className="px-3 py-1.5">
-          <div className="flex flex-col gap-1.5 lg:flex-row lg:items-center">
-            <div className="relative flex-1">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") loadProducts();
-                }}
-                placeholder="Busque por produto, referência ou título de marketplace..."
-                className="h-8 pl-8 text-sm"
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Button variant="outline" size="sm" className="h-8 bg-transparent px-3 text-xs hover:cursor-pointer" onClick={() => loadProducts()} disabled={loadingProducts}>
-                <Search className="h-3.5 w-3.5" />
-                Buscar
-              </Button>
-              <Button variant="outline" size="sm" className="h-8 bg-transparent px-3 text-xs hover:cursor-pointer" onClick={syncOrders} disabled={!connected || syncing}>
-                {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <TrendingUp className="h-3.5 w-3.5" />}
-                Sincronizar pedidos
-              </Button>
-              {(!activeAccount || requiresReconnect) && (
-                <Button asChild size="sm" className="h-8 px-3 text-xs">
-                  <a href={authUrl}>{requiresReconnect ? "Reconectar" : "Conectar"}</a>
-                </Button>
-              )}
+            <div className="truncate text-xs text-muted-foreground">
+              {activeAccount ? `Mercado Livre · User ID ${activeAccount.ml_user_id}` : "Configure a integração em Configurações Gerais"}
             </div>
           </div>
-        </CardContent>
+          {connected && <Check className="h-4 w-4 shrink-0 text-emerald-600" />}
+        </div>
+      </header>
+
+      <Card className="gap-0 overflow-hidden py-0 shadow-sm">
+        <section aria-label="Resumo do marketplace" className="grid grid-cols-2 xl:grid-cols-4">
+          <button type="button" className="group min-w-0 border-b border-r text-left transition-colors hover:bg-muted/30 xl:border-b-0" onClick={() => changeMainTab("products")}>
+            <div className="flex min-h-[82px] items-center justify-between gap-3 px-4 py-3">
+              <div className="min-w-0">
+                <CardTitle className="text-sm font-medium">Produtos vinculados</CardTitle>
+                <div className="mt-1 text-xl font-bold leading-tight">{linkedCount}</div>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">{unlinkedCount} sem vínculo nesta lista</p>
+              </div>
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-blue-500/10">
+                <PackageCheck className="h-4 w-4 text-blue-600" />
+              </div>
+            </div>
+          </button>
+          <button type="button" className="group min-w-0 border-b text-left transition-colors hover:bg-muted/30 xl:border-b-0 xl:border-r" onClick={() => changeMainTab("orders")}>
+            <div className="flex min-h-[82px] items-center justify-between gap-3 px-4 py-3">
+              <div className="min-w-0">
+                <CardTitle className="text-sm font-medium">Pedidos recentes</CardTitle>
+                <div className="mt-1 text-xl font-bold leading-tight">{orders.length}</div>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">Importados do Mercado Livre</p>
+              </div>
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-violet-500/10">
+                <ClipboardList className="h-4 w-4 text-violet-600" />
+              </div>
+            </div>
+          </button>
+          <button type="button" className="group min-w-0 border-r text-left transition-colors hover:bg-muted/30" onClick={() => changeMainTab("atendimento")}>
+            <div className="flex min-h-[82px] items-center justify-between gap-3 px-4 py-3">
+              <div className="min-w-0">
+                <CardTitle className="text-sm font-medium">Perguntas pendentes</CardTitle>
+                <div className="mt-1 text-xl font-bold leading-tight">{unansweredQuestions}</div>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">{questions.length} carregadas no atendimento</p>
+              </div>
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-amber-500/10">
+                <MessageCircle className={`h-4 w-4 ${unansweredQuestions > 0 ? "text-amber-600" : "text-muted-foreground"}`} />
+              </div>
+            </div>
+          </button>
+          <button type="button" className="group min-w-0 text-left transition-colors hover:bg-muted/30" onClick={() => changeMainTab("logs")}>
+            <div className="flex min-h-[82px] items-center justify-between gap-3 px-4 py-3">
+              <div className="min-w-0">
+                <CardTitle className="text-sm font-medium">Alertas de integração</CardTitle>
+                <div className="mt-1 text-xl font-bold leading-tight">{integrationAlerts}</div>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">{stockSync.pending > 0 ? `${stockSync.pending} estoque(s) aguardando sincronização` : `${notifications.length} evento(s) recentes`}</p>
+              </div>
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-rose-500/10">
+                <AlertTriangle className={`h-4 w-4 ${integrationAlerts > 0 ? "text-rose-600" : "text-muted-foreground"}`} />
+              </div>
+            </div>
+          </button>
+        </section>
       </Card>
 
       <Tabs value={activeTab} onValueChange={changeMainTab}>
-        <Card className="bg-card">
-          <CardHeader className="border-b-2 pb-4">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <div>
+        <Card className="gap-0 bg-card">
+          <CardHeader className="gap-0 border-b-2 pb-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="min-w-0">
                 <CardTitle>{tabHeader.title}</CardTitle>
                 <CardDescription className="flex items-center gap-2">
                   <button
@@ -2240,63 +2822,82 @@ export default function MarketplacePage() {
                     disabled={loadingDashboard || loadingProducts}
                   >
                     <span>Recarregar</span>
-                    <Loader2 width={12} className={loadingDashboard || loadingProducts ? "animate-spin" : ""} />
+                    <Loader2 className={`h-3 w-3 ${loadingDashboard || loadingProducts ? "animate-spin" : ""}`} />
                   </button>
                 </CardDescription>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <TabsList className="h-auto justify-start gap-1.5 rounded-2xl border bg-muted/40 p-1 backdrop-blur-sm">
-                  <TabsTrigger
-                    value="products"
-                    className="h-8 rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
-                  >
-                    Produtos
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="listings"
-                    className="h-8 rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
-                  >
-                    Mercado Livre
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="orders"
-                    className="h-8 rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
-                  >
-                    Pedidos
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="atendimento"
-                    className="h-8 rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
-                  >
-                    Atendimento
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="logs"
-                    className="h-8 rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
-                  >
-                    Logs
-                  </TabsTrigger>
-                </TabsList>
-                <div className={activeTab === "products" ? "flex rounded-2xl border bg-muted/40 p-1 backdrop-blur-sm" : "invisible flex rounded-2xl border bg-muted/40 p-1 backdrop-blur-sm"} aria-hidden={activeTab === "products" ? undefined : "true"}>
-                  <Button size="sm" variant={viewMode === "list" ? "secondary" : "ghost"} className="h-8 rounded-xl" onClick={() => setViewMode("list")}>
-                    <List className="h-4 w-4" />
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                {(activeTab === "products" || activeTab === "listings") && (
+                  <div className="relative hidden w-[360px] xl:block">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") loadProducts();
+                      }}
+                      placeholder="Buscar produto ou anúncio..."
+                      className="h-9 bg-background pl-8 pr-20"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-0.5 top-1/2 h-8 -translate-y-1/2 px-2.5 text-xs"
+                      onClick={() => loadProducts()}
+                      disabled={loadingProducts}
+                    >
+                      Buscar
+                    </Button>
+                  </div>
+                )}
+                {activeTab === "orders" && (
+                  <Button variant="outline" size="sm" onClick={syncOrders} disabled={!connected || syncing}>
+                    {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+                    Sincronizar pedidos
                   </Button>
-                  <Button size="sm" variant={viewMode === "cards" ? "secondary" : "ghost"} className="h-8 rounded-xl" onClick={() => setViewMode("cards")}>
-                    <Grid2X2 className="h-4 w-4" />
+                )}
+                {(activeTab === "products" || activeTab === "listings") && (
+                  <Button size="sm" onClick={openCreateListing} disabled={!connected}>
+                    <Plus className="h-4 w-4" />
+                    Criar anúncio
                   </Button>
-                </div>
-                <Button className="h-9 rounded-xl" onClick={openCreateListing} disabled={!connected}>
-                  <Plus className="h-4 w-4" />
-                  Criar anúncio
-                </Button>
+                )}
               </div>
             </div>
+
+            {(activeTab === "products" || activeTab === "listings") && (
+              <div className="relative mt-3 xl:hidden">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") loadProducts();
+                  }}
+                  placeholder="Buscar produto ou anúncio..."
+                  className="h-9 bg-background pl-8 pr-20"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-0.5 top-1/2 h-8 -translate-y-1/2 px-2.5 text-xs"
+                  onClick={() => loadProducts()}
+                  disabled={loadingProducts}
+                >
+                  Buscar
+                </Button>
+              </div>
+            )}
+
           </CardHeader>
-          <CardContent className="relative min-h-[300px] -mt-[24px] px-4 pb-4 pt-0">
+
+          <div className="relative z-10 -mt-0.5 h-0.5 w-full overflow-hidden">
             <div
-              className={`${
+              className={`absolute inset-0 bg-slate-400 transition-opacity ${
                 loadingDashboard || loadingProducts || loadingQuestions ? "opacity-100" : "opacity-0"
-              } absolute left-0 right-0 top-0 h-0.5 w-full overflow-hidden bg-slate-400 transition-all`}
+              }`}
             >
               <div
                 className={`absolute left-0 h-full w-1/2 -translate-x-[100%] rounded-lg bg-primary ${
@@ -2304,7 +2905,74 @@ export default function MarketplacePage() {
                 }`}
               />
             </div>
-            <TabsContent value="products" className="mt-6">
+          </div>
+
+          <div className="relative flex min-h-10 min-w-0 items-center justify-center px-6 pt-3">
+              <div className={`min-w-0 overflow-x-auto ${activeTab === "products" ? "max-w-[calc(100%_-_6rem)]" : "max-w-full"}`}>
+                <TabsList className="mx-auto h-auto min-w-max justify-start gap-1 rounded-xl border bg-muted/40 p-1">
+                  <TabsTrigger
+                    value="products"
+                    className="h-8 gap-1.5 rounded-lg border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+                  >
+                    <PackageCheck className="h-3.5 w-3.5" />
+                    Produtos
+                    <span className="rounded bg-background/20 px-1 text-[10px] tabular-nums">{products.length}</span>
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="listings"
+                    className="h-8 gap-1.5 rounded-lg border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+                  >
+                    <Store className="h-3.5 w-3.5" />
+                    Mercado Livre
+                    <span className="rounded bg-background/20 px-1 text-[10px] tabular-nums">{linkedCount}</span>
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="orders"
+                    className="h-8 gap-1.5 rounded-lg border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+                  >
+                    <ClipboardList className="h-3.5 w-3.5" />
+                    Pedidos
+                    <span className="rounded bg-background/20 px-1 text-[10px] tabular-nums">{orders.length}</span>
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="performance"
+                    className="h-8 gap-1.5 rounded-lg border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+                  >
+                    <TrendingUp className="h-3.5 w-3.5" />
+                    Desempenho
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="atendimento"
+                    className="h-8 gap-1.5 rounded-lg border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+                  >
+                    <MessageCircle className="h-3.5 w-3.5" />
+                    Atendimento
+                    {unansweredQuestions > 0 && <span className="rounded bg-amber-500/20 px-1 text-[10px] tabular-nums">{unansweredQuestions}</span>}
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="logs"
+                    className="h-8 gap-1.5 rounded-lg border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+                  >
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    Logs
+                    {integrationAlerts > 0 && <span className="rounded bg-rose-500/20 px-1 text-[10px] tabular-nums">{integrationAlerts}</span>}
+                  </TabsTrigger>
+                </TabsList>
+              </div>
+              {activeTab === "products" && (
+                <div className="absolute right-6 top-1/2 flex -translate-y-1/2 rounded-xl border bg-muted/40 p-1">
+                  <Button title="Visualização em lista" size="sm" variant={viewMode === "list" ? "secondary" : "ghost"} className="h-8 rounded-lg" onClick={() => setViewMode("list")}>
+                    <List className="h-4 w-4" />
+                  </Button>
+                  <Button title="Visualização em cards" size="sm" variant={viewMode === "cards" ? "secondary" : "ghost"} className="h-8 rounded-lg" onClick={() => setViewMode("cards")}>
+                    <Grid2X2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+          </div>
+
+          <CardContent className="relative min-h-[300px] pt-4">
+            <TabsContent value="products" className="mt-0">
               {viewMode === "list" ? (
                 <div className="overflow-hidden rounded-md border">
                 <Table>
@@ -2447,13 +3115,16 @@ export default function MarketplacePage() {
               )}
             </TabsContent>
 
-            <TabsContent value="listings" className="mt-6">
-              <div className="overflow-hidden rounded-md border">
-                <Table>
+            <TabsContent value="listings" className="mt-0">
+              <div className="overflow-x-auto rounded-md border">
+                <Table className="min-w-[1200px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Anúncio</TableHead>
                       <TableHead>Produto ERP</TableHead>
+                      <TableHead>Visualizações</TableHead>
+                      <TableHead>Vendidos</TableHead>
+                      <TableHead>Disponível ML</TableHead>
                       <TableHead>Qtd. estoque</TableHead>
                       <TableHead>Status estoque</TableHead>
                       <TableHead>Preço</TableHead>
@@ -2474,6 +3145,13 @@ export default function MarketplacePage() {
                                 {statusBadge(link.status)}
                               </div>
                               <div className="max-w-[320px] truncate text-xs text-muted-foreground">{link.title || "Sem título"}</div>
+                              <div className="flex flex-wrap gap-x-2 text-xs text-muted-foreground">
+                                {link.listing_type_id && <span>{rawStatusLabel(link.listing_type_id)}</span>}
+                                {link.item_condition && <span>{rawStatusLabel(link.item_condition)}</span>}
+                                {link.catalog_listing && <span>Catálogo</span>}
+                                {link.health != null && Number.isFinite(Number(link.health)) && <span>Saúde {Math.round(Number(link.health) * 100)}%</span>}
+                                {link.stop_time && <span>Válido até {formatDate(link.stop_time)}</span>}
+                              </div>
                               {link.permalink && (
                                 <a className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground" href={link.permalink} target="_blank" rel="noreferrer">
                                   <ExternalLink className="h-3 w-3" />
@@ -2493,6 +3171,9 @@ export default function MarketplacePage() {
                               </div>
                             </div>
                           </TableCell>
+                          <TableCell className="font-medium">{link.visits_total == null ? "-" : Number(link.visits_total).toLocaleString("pt-BR")}</TableCell>
+                          <TableCell className="font-medium">{link.sold_quantity == null ? "-" : Number(link.sold_quantity).toLocaleString("pt-BR")}</TableCell>
+                          <TableCell className="font-medium">{link.available_quantity == null ? "-" : Number(link.available_quantity).toLocaleString("pt-BR")}</TableCell>
                           <TableCell className="font-medium">{product.estoque ?? 0}</TableCell>
                           <TableCell>{stockStatusBadge(product.status_estoque, product.estoque)}</TableCell>
                           <TableCell>{formatCurrency(product.precovenda)}</TableCell>
@@ -2502,7 +3183,7 @@ export default function MarketplacePage() {
                     })}
                     {linkedProducts.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                        <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
                           Nenhum anúncio vinculado.
                         </TableCell>
                       </TableRow>
@@ -2512,7 +3193,72 @@ export default function MarketplacePage() {
               </div>
             </TabsContent>
 
-            <TabsContent value="orders" className="mt-6">
+            <TabsContent value="performance" className="mt-0">
+              <div className="space-y-5">
+                <div className="grid divide-y rounded-md border sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
+                  <div className="px-4 py-3">
+                    <div className="text-xs font-medium text-muted-foreground">Visualizações em 30 dias</div>
+                    <div className="mt-1 text-2xl font-bold">{performance.visits.toLocaleString("pt-BR")}</div>
+                    <div className="text-xs text-muted-foreground">{performance.lifetimeVisits.toLocaleString("pt-BR")} acumuladas</div>
+                  </div>
+                  <div className="px-4 py-3">
+                    <div className="text-xs font-medium text-muted-foreground">Pedidos em 30 dias</div>
+                    <div className="mt-1 text-2xl font-bold">{performance.orders.toLocaleString("pt-BR")}</div>
+                    <div className="text-xs text-muted-foreground">{formatCurrency(performance.revenue)} em vendas válidas</div>
+                  </div>
+                  <div className="px-4 py-3">
+                    <div className="text-xs font-medium text-muted-foreground">Itens vendidos</div>
+                    <div className="mt-1 text-2xl font-bold">{performance.units.toLocaleString("pt-BR")}</div>
+                    <div className="text-xs text-muted-foreground">{performance.lifetimeSold.toLocaleString("pt-BR")} acumulados nos anúncios</div>
+                  </div>
+                  <div className="px-4 py-3">
+                    <div className="text-xs font-medium text-muted-foreground">Taxa de conversão</div>
+                    <div className="mt-1 text-2xl font-bold">{performance.conversionRate.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</div>
+                    <div className="text-xs text-muted-foreground">Pedidos ÷ visualizações</div>
+                  </div>
+                </div>
+
+                <div className="rounded-md border p-4">
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3 className="text-sm font-semibold">Visualizações diárias</h3>
+                      <div className="text-xs text-muted-foreground">Últimos {performance.periodDays} dias</div>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {performance.collectedAt ? `Atualizado em ${formatDate(performance.collectedAt)}` : "Aguardando primeira coleta do agendador"}
+                    </div>
+                  </div>
+
+                  <div className="mt-5 overflow-x-auto pb-2">
+                    <div className="flex h-56 min-w-[900px] items-end gap-1.5 border-b px-1">
+                      {performance.daily.map((day, index) => {
+                        const height = day.visits > 0 ? Math.max((day.visits / maxDailyVisits) * 100, 4) : 1;
+                        const date = new Date(`${day.date}T12:00:00`);
+                        const dayLabel = Number.isNaN(date.getTime()) ? day.date : new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" }).format(date);
+                        const showLabel = index % 5 === 0 || index === performance.daily.length - 1;
+                        return (
+                          <div
+                            key={day.date}
+                            className="group flex h-full min-w-6 flex-1 flex-col items-center justify-end"
+                            title={`${dayLabel}: ${day.visits} visualização(ões), ${day.orders} pedido(s), ${day.units} item(ns)`}
+                          >
+                            {day.orders > 0 && <span className="mb-1 text-[10px] font-semibold text-emerald-600">{day.orders}</span>}
+                            <div className="w-full max-w-7 rounded-t-sm bg-primary/75 transition-colors group-hover:bg-primary" style={{ height: `${height}%` }} />
+                            <span className="mt-1 h-4 whitespace-nowrap text-[10px] text-muted-foreground">{showLabel ? dayLabel : ""}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="mt-2 flex items-center gap-4 text-xs text-muted-foreground">
+                    <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-primary/75" />Visualizações</span>
+                    <span className="font-semibold text-emerald-600">Número acima da barra: pedidos</span>
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="orders" className="mt-0">
               <ScrollArea className="h-[calc(100vh-430px)] min-h-[360px] pr-3">
                 <div className="space-y-4">
                   {loadingOrdersView ? (
@@ -2537,6 +3283,7 @@ export default function MarketplacePage() {
                     const sku = getOrderItemSku(order);
                     const quantity = getOrderItemQuantity(order);
                     const paymentStatus = getOrderPaymentStatus(order);
+                    const shipmentStatus = getOrderShipmentStatus(order);
                     const refundablePayment = getRefundablePayment(order);
                     const refundingOrder = actionKey === `refund:${order.id}`;
                     const canPrintShipmentLabel = hasVenda && isMercadoEnviosOrder(order);
@@ -2544,7 +3291,7 @@ export default function MarketplacePage() {
                     return (
                       <AccordionItem key={order.id} value={String(order.id)} className="overflow-hidden rounded-lg border bg-background shadow-sm">
                         <AccordionTrigger className="px-4 py-3 hover:no-underline">
-                          <div className="grid min-w-0 flex-1 items-center gap-3 text-left md:grid-cols-[minmax(220px,1fr)_150px_130px_130px]">
+                          <div className="grid min-w-0 flex-1 items-center gap-3 text-left md:grid-cols-[minmax(230px,1fr)_minmax(130px,0.7fr)_110px_125px_135px_100px]">
                             <div className="min-w-0">
                               <div className="flex min-w-0 items-center gap-2">
                                 <Badge variant={orderHasActiveClaim ? "destructive" : "outline"}>{orderHasActiveClaim ? "Reclamação" : "Mercado Livre"}</Badge>
@@ -2552,12 +3299,25 @@ export default function MarketplacePage() {
                               </div>
                               <div className="mt-1 truncate text-sm font-medium">{itemTitle}</div>
                             </div>
-                            <div className="truncate text-sm text-muted-foreground">{getOrderBuyerLabel(order)}</div>
-                            <div className="text-sm text-muted-foreground">{formatMarketplaceOrderDate(order.date_created || order.created_at)}</div>
-                            <div className="text-sm font-medium">
-                              {formatCurrency(order.total_amount)}
-                              {paymentStatus && <div className="text-xs font-normal text-muted-foreground">Pagamento {rawStatusLabel(paymentStatus)}</div>}
-                              {order.shipment_cost != null && <div className="text-xs font-normal text-muted-foreground">Frete {formatCurrency(order.shipment_cost)}</div>}
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-medium">{getOrderBuyerLabel(order)}</div>
+                              <div className="text-xs text-muted-foreground">{formatMarketplaceOrderDate(order.date_created || order.created_at)}</div>
+                            </div>
+                            <div className="space-y-1">
+                              <div className="text-[11px] text-muted-foreground">Pedido</div>
+                              {statusBadge(order.status)}
+                            </div>
+                            <div className="space-y-1">
+                              <div className="text-[11px] text-muted-foreground">Pagamento</div>
+                              {statusBadge(paymentStatus)}
+                            </div>
+                            <div className="space-y-1">
+                              <div className="text-[11px] text-muted-foreground">Entrega</div>
+                              {statusBadge(shipmentStatus || (order.ml_shipment_id ? "pending" : "not_specified"))}
+                            </div>
+                            <div>
+                              <div className="text-[11px] text-muted-foreground">Total</div>
+                              <div className="text-sm font-medium">{formatCurrency(order.total_amount)}</div>
                             </div>
                           </div>
                         </AccordionTrigger>
@@ -2566,7 +3326,17 @@ export default function MarketplacePage() {
                           <div className="animate-in fade-in-0 slide-in-from-top-1 duration-300 ease-out">
                             <div className="flex flex-col gap-4 border-t pt-4 lg:flex-row lg:items-start lg:justify-between">
                             <div>
-                              <div className={operationalState.tone === "danger" ? "font-semibold text-red-600" : "font-semibold"}>
+                              <div
+                                className={
+                                  operationalState.tone === "danger"
+                                    ? "font-semibold text-red-600"
+                                    : operationalState.tone === "success"
+                                      ? "font-semibold text-emerald-700 dark:text-emerald-400"
+                                      : operationalState.tone === "warning"
+                                        ? "font-semibold text-amber-700 dark:text-amber-400"
+                                        : "font-semibold"
+                                }
+                              >
                                 {operationalState.title}
                                 {operationalState.tone === "danger" && <AlertTriangle className="ml-1 inline h-4 w-4" />}
                               </div>
@@ -2579,10 +3349,10 @@ export default function MarketplacePage() {
                                 className="h-8 min-w-32 px-3 text-xs"
                                 variant={operationalState.tone === "danger" ? "destructive" : "default"}
                                 onClick={() => {
-                                  if (orderHasActiveClaim || isRefundedOrder(order)) setSelectedOrderDetails(order);
-                                  else if (canPrintShipmentLabel) openShipmentLabel(vendaId);
-                                  else if (order.ml_shipment_id) setSelectedOrderDetails(order);
-                                  else syncOrders();
+                                  if (operationalState.actionType === "label" && canPrintShipmentLabel) openShipmentLabel(vendaId);
+                                  else if (operationalState.actionType === "invoice") sendOrderInvoice(order);
+                                  else if (operationalState.actionType === "sync") syncOrders();
+                                  else setSelectedOrderDetails(order);
                                 }}
                               >
                                 {operationalState.action}
@@ -2615,12 +3385,16 @@ export default function MarketplacePage() {
                                     <AlertTriangle className="mr-2 h-4 w-4" />
                                     Atualizar reclamações
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => refundOrder(order)} disabled={!refundablePayment || refundingOrder}>
+                                  <DropdownMenuItem onClick={() => refundOrder(order)} disabled={!refundablePayment || refundingOrder || Boolean(orderClaim)}>
                                     {refundingOrder ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-2 h-4 w-4" />}
                                     Reembolsar pagamento
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem disabled>
-                                    NF-e
+                                  <DropdownMenuItem
+                                    onClick={() => sendOrderInvoice(order)}
+                                    disabled={!hasVenda || !canSendInvoiceToMercadoLivre(order) || isInvoiceSent(order) || actionKey === `invoice:${order.id}`}
+                                  >
+                                    {actionKey === `invoice:${order.id}` ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
+                                    {isInvoiceSent(order) ? "NF-e enviada" : "Enviar NF-e"}
                                   </DropdownMenuItem>
                                   <DropdownMenuItem onClick={() => setSelectedOrderDetails(order)}>
                                     <ClipboardList className="mr-2 h-4 w-4" />
@@ -2648,7 +3422,10 @@ export default function MarketplacePage() {
                                 <div className="text-xs text-muted-foreground">Venda ERP {order.venda_id ? `#${order.venda_id}` : "não vinculada"}</div>
                               </div>
                             </div>
-                            <div className="text-sm font-medium">{formatCurrency(order.total_amount)}</div>
+                            <div>
+                              <div className="text-sm font-medium">{formatCurrency(order.total_amount)}</div>
+                              {order.shipment_cost != null && <div className="text-xs text-muted-foreground">Frete {formatCurrency(order.shipment_cost)}</div>}
+                            </div>
                             <div className="text-sm text-muted-foreground">{quantity} unidade{quantity === 1 ? "" : "s"}</div>
                             <div className="text-sm text-muted-foreground">{order.shipment_cost != null ? formatCurrency(order.shipment_cost) : "Frete -"}</div>
                               <div className="truncate text-xs text-muted-foreground">SKU: {sku}</div>
@@ -2670,7 +3447,7 @@ export default function MarketplacePage() {
               </ScrollArea>
             </TabsContent>
 
-            <TabsContent value="atendimento" className="mt-6">
+            <TabsContent value="atendimento" className="mt-0">
               <div className="mb-4 grid gap-2 sm:grid-cols-[220px_1fr]">
                   <Select value={questionStatusFilter} onValueChange={setQuestionStatusFilter}>
                     <SelectTrigger className="h-10 w-full">
@@ -2782,7 +3559,7 @@ export default function MarketplacePage() {
               </div>
             </TabsContent>
 
-            <TabsContent value="logs" className="mt-6">
+            <TabsContent value="logs" className="mt-0">
               <div className="grid gap-3 md:grid-cols-3">
                 <div className="rounded-md border bg-background p-3">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -2796,7 +3573,7 @@ export default function MarketplacePage() {
                     <AlertTriangle className="h-4 w-4" />
                     Com erro
                   </div>
-                  <div className="mt-1 text-2xl font-semibold">{notificationErrors}</div>
+                  <div className="mt-1 text-2xl font-semibold">{integrationAlerts}</div>
                 </div>
                 <div className="rounded-md border bg-background p-3">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -2806,6 +3583,13 @@ export default function MarketplacePage() {
                   <div className="mt-1 text-sm font-medium">{formatDate(notifications[0]?.created_at)}</div>
                 </div>
               </div>
+
+              {stockSync.lastError && (
+                <div className="mt-4 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm">
+                  <div className="font-medium text-destructive">Falha na sincronização automática de estoque</div>
+                  <div className="mt-1 text-muted-foreground">{marketplaceTextLabel(stockSync.lastError)}</div>
+                </div>
+              )}
 
               <div className="mt-4 overflow-hidden rounded-md border">
                 <Table>
@@ -3420,7 +4204,7 @@ export default function MarketplacePage() {
                     <Select
                       value={listingForm.shippingMode}
                       onValueChange={(value) => updateListingForm("shippingMode", value)}
-                      disabled={creatingListing}
+                      disabled={creatingListing || loadingAttributes || !listingForm.categoryId}
                     >
                       <SelectTrigger className={`${fieldClass("shipping", listingSelectClass)} ${categoryBlocksMercadoEnvios ? listingErrorClass : ""}`}>
                         <SelectValue placeholder="Selecione" />
@@ -3440,15 +4224,15 @@ export default function MarketplacePage() {
                       <Select
                         value={listingForm.logisticType}
                         onValueChange={(value) => updateListingForm("logisticType", value)}
-                        disabled={creatingListing}
+                        disabled={creatingListing || loadingAttributes || shippingEligibility.logisticOptions.length === 0}
                       >
                         <SelectTrigger className={fieldClass("shipping", listingSelectClass)}>
                           <SelectValue placeholder="Selecione" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="drop_off">Agência Mercado Livre</SelectItem>
-                          <SelectItem value="xd_drop_off">Coleta/Envio flexível</SelectItem>
-                          <SelectItem value="fulfillment">Full</SelectItem>
+                          {shippingEligibility.logisticOptions.map((option) => (
+                            <SelectItem key={option} value={option}>{shippingLogisticLabel(option)}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     ) : (
@@ -3463,23 +4247,57 @@ export default function MarketplacePage() {
                 </div>
 
                 {listingForm.shippingMode === "me2" && (
-                  <div className="grid gap-4 sm:grid-cols-4">
-                    <div className="space-y-2">
-                      <Label>Comprimento (cm)</Label>
-                      <Input value={listingForm.lengthCm} onChange={(event) => updateListingForm("lengthCm", event.target.value)} disabled={creatingListing} className={fieldClass("dimensions")} inputMode="decimal" />
+                  <div className="space-y-3">
+                    <div className="grid gap-4 sm:grid-cols-4">
+                      <div className="space-y-2">
+                        <Label>Comprimento (cm)</Label>
+                        <Input value={listingForm.lengthCm} onChange={(event) => updateListingForm("lengthCm", event.target.value)} disabled={creatingListing} className={fieldClass("dimensions")} inputMode="decimal" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Largura (cm)</Label>
+                        <Input value={listingForm.widthCm} onChange={(event) => updateListingForm("widthCm", event.target.value)} disabled={creatingListing} className={fieldClass("dimensions")} inputMode="decimal" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Altura (cm)</Label>
+                        <Input value={listingForm.heightCm} onChange={(event) => updateListingForm("heightCm", event.target.value)} disabled={creatingListing} className={fieldClass("dimensions")} inputMode="decimal" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Peso (g)</Label>
+                        <Input value={listingForm.weightGrams} onChange={(event) => updateListingForm("weightGrams", event.target.value.replace(/\D/g, ""))} disabled={creatingListing} className={fieldClass("dimensions")} inputMode="numeric" />
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label>Largura (cm)</Label>
-                      <Input value={listingForm.widthCm} onChange={(event) => updateListingForm("widthCm", event.target.value)} disabled={creatingListing} className={fieldClass("dimensions")} inputMode="decimal" />
+                    {shippingEligibility.defaultDimensions ? (
+                      <p className="text-xs text-muted-foreground">
+                        Referência da categoria: {shippingEligibility.defaultDimensions.length ?? "-"} × {shippingEligibility.defaultDimensions.width ?? "-"} × {shippingEligibility.defaultDimensions.height ?? "-"} cm, {shippingEligibility.defaultDimensions.weight ?? "-"} g. Informe as medidas reais da embalagem.
+                      </p>
+                    ) : null}
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="bg-transparent"
+                        onClick={simulateShippingQuote}
+                        disabled={creatingListing || loadingShippingQuote || Boolean(missingShippingDimensions) || !listingForm.logisticType || !categorySupportsMercadoEnvios}
+                      >
+                        {loadingShippingQuote ? <Loader2 className="h-4 w-4 animate-spin" /> : <TrendingUp className="h-4 w-4" />}
+                        Simular custo do vendedor
+                      </Button>
+                      {shippingQuote ? (
+                        <div className="text-sm">
+                          Custo estimado: <strong>{formatCurrency(shippingQuote.sellerCost ?? shippingQuote.listCost ?? 0)}</strong>
+                          {shippingQuote.listCost != null && shippingQuote.sellerCost != null && shippingQuote.listCost !== shippingQuote.sellerCost
+                            ? ` (tabela ${formatCurrency(shippingQuote.listCost)})`
+                            : ""}
+                          {shippingQuote.billableWeight != null ? ` · peso tarifado ${shippingQuote.billableWeight} g` : ""}
+                        </div>
+                      ) : null}
                     </div>
-                    <div className="space-y-2">
-                      <Label>Altura (cm)</Label>
-                      <Input value={listingForm.heightCm} onChange={(event) => updateListingForm("heightCm", event.target.value)} disabled={creatingListing} className={fieldClass("dimensions")} inputMode="decimal" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Peso (g)</Label>
-                      <Input value={listingForm.weightGrams} onChange={(event) => updateListingForm("weightGrams", event.target.value.replace(/\D/g, ""))} disabled={creatingListing} className={fieldClass("dimensions")} inputMode="numeric" />
-                    </div>
+                  </div>
+                )}
+                {listingForm.categoryId && shippingEligibility.loaded && !categoryShippingIssue && listingForm.shippingMode === "me2" && (
+                  <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                    Mercado Envios validado para esta conta e categoria. Logística disponível: {shippingEligibility.logisticOptions.map(shippingLogisticLabel).join(", ") || "definida automaticamente pelo Mercado Livre"}.
                   </div>
                 )}
                 {listingForm.shippingMode === "custom" && (
@@ -3812,7 +4630,11 @@ export default function MarketplacePage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="me2">Mercado Envios</SelectItem>
+                    {editShippingModes.map((mode) => (
+                      <SelectItem key={mode} value={mode} disabled={mode !== "me2" && mode !== editForm.shippingMode}>
+                        {mode === "me2" ? "Mercado Envios" : mode === "custom" ? "Envio personalizado atual" : rawStatusLabel(mode)}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -3821,15 +4643,15 @@ export default function MarketplacePage() {
                 <Select
                   value={editForm.logisticType}
                   onValueChange={(value) => updateEditForm("logisticType", value)}
-                  disabled={editingListing || loadingEditListing || editForm.shippingMode !== "me2"}
+                  disabled={editingListing || loadingEditListing || editForm.shippingMode !== "me2" || editLogisticOptions.length === 0}
                 >
                   <SelectTrigger className={listingSelectClass}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="drop_off">Agência Mercado Livre</SelectItem>
-                    <SelectItem value="xd_drop_off">Coleta/Envio flexível</SelectItem>
-                    <SelectItem value="fulfillment">Full</SelectItem>
+                    {editLogisticOptions.map((option) => (
+                      <SelectItem key={option} value={option}>{shippingLogisticLabel(option)}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -3942,15 +4764,30 @@ export default function MarketplacePage() {
                     <div className="mt-3 space-y-1 text-sm">
                       <div>Shipment ID: <span className="font-mono">{selectedOrderDetails.ml_shipment_id ?? "-"}</span></div>
                       <div>Status: {selectedOrderDetails.shipment_status ? statusBadge(selectedOrderDetails.shipment_status) : "-"}</div>
-                      <div>Modo: {selectedOrderDetails.shipping_mode || selectedOrderDetails.raw_shipment?.mode || "-"}</div>
-                      <div>Logística: {selectedOrderDetails.logistic_type || "-"}</div>
+                      <div>Modo: {optionalStatusLabel(selectedOrderDetails.shipping_mode || selectedOrderDetails.raw_shipment?.mode)}</div>
+                      <div>Logística: {optionalStatusLabel(selectedOrderDetails.logistic_type)}</div>
                       <div>Rastreio: <span className="font-mono">{selectedOrderDetails.tracking_number || "-"}</span></div>
                       <div>Custo do frete: {selectedOrderDetails.shipment_cost != null ? formatCurrency(selectedOrderDetails.shipment_cost) : "-"}</div>
                       <div>Itens no envio: {Array.isArray(selectedOrderDetails.raw_shipment_items) ? selectedOrderDetails.raw_shipment_items.length : "-"}</div>
                       <div>Método: {selectedOrderDetails.tracking_method || selectedOrderDetails.raw_shipment?.tracking_method || "-"}</div>
                       <div>Atualizado em: {formatDate(selectedOrderDetails.shipment_updated_at)}</div>
                     </div>
-                    {!isMercadoEnviosOrder(selectedOrderDetails) && (
+                    {!isMercadoEnviosOrder(selectedOrderDetails) && ["shipped", "delivered"].includes(getOrderShipmentStatus(selectedOrderDetails) ?? "") && (
+                      <div className="mt-4 flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
+                        <PackageCheck className="mt-0.5 h-4 w-4 shrink-0" />
+                        <div>
+                          <div className="font-medium">
+                            {getOrderShipmentStatus(selectedOrderDetails) === "delivered" ? "Entrega confirmada" : "Envio confirmado no Mercado Livre"}
+                          </div>
+                          <div className="mt-0.5 text-xs opacity-80">
+                            {selectedOrderDetails.tracking_number
+                              ? `Código de rastreio: ${selectedOrderDetails.tracking_number}`
+                              : "O status foi atualizado pela plataforma."}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {!isMercadoEnviosOrder(selectedOrderDetails) && !["shipped", "delivered"].includes(getOrderShipmentStatus(selectedOrderDetails) ?? "") && (
                       <div className="mt-4 space-y-3 border-t pt-4">
                         <div className="grid gap-3 sm:grid-cols-2">
                           <div className="space-y-2">
@@ -4036,7 +4873,7 @@ export default function MarketplacePage() {
                             {statusBadge(payment.status)}
                           </div>
                           <div className="mt-1 text-xs text-muted-foreground">
-                            {[payment.payment_method_id, payment.payment_type, payment.status_detail].filter(Boolean).join(" · ") || "Forma de pagamento não informada"}
+                            {getPaymentDescription(payment) || "Forma de pagamento não informada"}
                           </div>
                         </div>
                       ))}
@@ -4095,6 +4932,8 @@ export default function MarketplacePage() {
                     <h3 className="text-sm font-semibold">Cancelamento/Reembolso</h3>
                     <div className="mt-3 text-sm text-muted-foreground">
                       <div>Status atual do pedido: {rawStatusLabel(selectedOrderDetails.status)}.</div>
+                      <div>Status da importação: {rawStatusLabel(selectedOrderDetails.import_status || (selectedOrderDetails.venda_id ? "IMPORTADA" : "PENDENTE"))}.</div>
+                      {selectedOrderDetails.import_error && <div className="text-destructive">Erro de importação: {marketplaceTextLabel(selectedOrderDetails.import_error)}</div>}
                       {getOrderPaymentStatus(selectedOrderDetails) && <div>Status do pagamento: {rawStatusLabel(getOrderPaymentStatus(selectedOrderDetails))}.</div>}
                       {selectedOrderDetails.date_closed && <div>Encerrado em: {formatDate(selectedOrderDetails.date_closed)}.</div>}
                       <div>{getOrderCancellationHint(selectedOrderDetails)}</div>
@@ -4103,12 +4942,20 @@ export default function MarketplacePage() {
                         variant="outline"
                         className="mt-2 bg-transparent"
                         onClick={() => refundOrder(selectedOrderDetails)}
-                        disabled={!getRefundablePayment(selectedOrderDetails) || actionKey === `refund:${selectedOrderDetails.id}`}
+                        disabled={
+                          !getRefundablePayment(selectedOrderDetails) ||
+                          actionKey === `refund:${selectedOrderDetails.id}` ||
+                          selectedOrderClaims.some(isActiveClaim)
+                        }
                       >
                         {actionKey === `refund:${selectedOrderDetails.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
                         Reembolsar pagamento
                       </Button>
-                      <div className="text-xs">Disponível apenas quando houver pagamento aprovado e ainda não reembolsado.</div>
+                      <div className="text-xs">
+                        {selectedOrderClaims.some(isActiveClaim)
+                          ? "Há uma reclamação ativa. Use as ações disponibilizadas no quadro de reclamações."
+                          : "Disponível apenas quando houver pagamento aprovado e ainda não reembolsado."}
+                      </div>
                     </div>
                   </div>
                   <div className="rounded-md border p-4">
@@ -4117,16 +4964,42 @@ export default function MarketplacePage() {
                       {selectedOrderClaims.map((claim) => (
                         <div key={claim.id} className="rounded-md border bg-muted/20 p-3">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="font-medium text-foreground">{claim.title || "Reclamação Mercado Livre"}</span>
+                            <span className="font-medium text-foreground">{claim.title ? marketplaceTextLabel(claim.title) : "Reclamação Mercado Livre"}</span>
                             {claim.status ? statusBadge(claim.status) : null}
                           </div>
-                          <div className="mt-1">{claim.reason || claim.error || "Detalhe da reclamação importado pelo webhook."}</div>
+                          <div className="mt-1">
+                            {claim.reason
+                              ? marketplaceTextLabel(claim.reason)
+                              : claim.error
+                                ? marketplaceTextLabel(claim.error)
+                                : "Detalhe da reclamação importado pelo webhook."}
+                          </div>
                           {claim.dueDate && <div className="mt-1 text-xs">Prazo: {formatDate(claim.dueDate)}</div>}
                           {claim.closedAt && <div className="mt-1 text-xs">Encerrada em: {formatDate(claim.closedAt)}</div>}
                           {claim.resolution && <div className="mt-1 text-xs">Resolução: {rawStatusLabel(claim.resolution)}</div>}
                           {Array.isArray(claim.availableActions) && claim.availableActions.length > 0 && (
                             <div className="mt-1 text-xs">
                               Ações disponíveis: {claim.availableActions.map((action: any) => rawStatusLabel(action?.action || action?.type || action?.name || action)).join(", ")}
+                            </div>
+                          )}
+                          {getSupportedClaimActions(claim).length > 0 && (
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {getSupportedClaimActions(claim).map((action) => {
+                                const loading = actionKey === `claim:${claim.id}:${action.id}`;
+                                return (
+                                  <Button
+                                    key={action.id}
+                                    size="sm"
+                                    variant={action.destructive ? "destructive" : "outline"}
+                                    className={action.destructive ? "" : "bg-transparent"}
+                                    onClick={() => executeClaimAction(claim, action)}
+                                    disabled={Boolean(actionKey)}
+                                  >
+                                    {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                                    {action.label}
+                                  </Button>
+                                );
+                              })}
                             </div>
                           )}
                         </div>
@@ -4139,6 +5012,42 @@ export default function MarketplacePage() {
                         Atualizar reclamações
                       </Button>
                     </div>
+                  </div>
+                </div>
+
+                <div className="rounded-md border p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <h3 className="text-sm font-semibold">Nota fiscal do pedido</h3>
+                      <div className="mt-2 space-y-1 text-sm text-muted-foreground">
+                        <div>
+                          Status no Mercado Livre: {selectedOrderDetails.invoice_status ? rawStatusLabel(selectedOrderDetails.invoice_status) : "Não enviada"}
+                        </div>
+                        <div>
+                          Chave de acesso: <span className="font-mono text-xs text-foreground">{selectedOrderDetails.invoice_fiscal_key || "-"}</span>
+                        </div>
+                        {selectedOrderDetails.invoice_sent_at && <div>Enviada em: {formatDate(selectedOrderDetails.invoice_sent_at)}</div>}
+                        {selectedOrderDetails.invoice_error && <div className="text-destructive">{marketplaceTextLabel(selectedOrderDetails.invoice_error)}</div>}
+                        {!canSendInvoiceToMercadoLivre(selectedOrderDetails) && (
+                          <div>A importação automática do XML no shipment está disponível apenas para logísticas compatíveis do Mercado Envios.</div>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant={isInvoiceSent(selectedOrderDetails) ? "outline" : "default"}
+                      className={isInvoiceSent(selectedOrderDetails) ? "bg-transparent" : undefined}
+                      onClick={() => sendOrderInvoice(selectedOrderDetails)}
+                      disabled={
+                        !selectedOrderDetails.venda_id ||
+                        !canSendInvoiceToMercadoLivre(selectedOrderDetails) ||
+                        isInvoiceSent(selectedOrderDetails) ||
+                        actionKey === `invoice:${selectedOrderDetails.id}`
+                      }
+                    >
+                      {actionKey === `invoice:${selectedOrderDetails.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                      {isInvoiceSent(selectedOrderDetails) ? "NF-e enviada" : "Enviar NF-e"}
+                    </Button>
                   </div>
                 </div>
 
@@ -4169,13 +5078,23 @@ export default function MarketplacePage() {
                       <MessageCircle className="h-4 w-4" />
                       Abrir chat
                     </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="bg-transparent"
+                      onClick={() => sendOrderInvoice(selectedOrderDetails)}
+                      disabled={!selectedOrderDetails.venda_id || !canSendInvoiceToMercadoLivre(selectedOrderDetails) || isInvoiceSent(selectedOrderDetails) || actionKey === `invoice:${selectedOrderDetails.id}`}
+                    >
+                      {actionKey === `invoice:${selectedOrderDetails.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                      Enviar NF-e
+                    </Button>
                   </div>
                 </div>
 
                 <details className="rounded-md border p-4">
                   <summary className="cursor-pointer text-sm font-semibold">Dados técnicos</summary>
                   <pre className="mt-3 max-h-72 overflow-auto rounded-md bg-muted p-3 text-xs">
-                    {JSON.stringify({ order: selectedOrderDetails.raw_order, payments: selectedOrderDetails.raw_payments, shipment: selectedOrderDetails.raw_shipment, shipmentCosts: selectedOrderDetails.raw_shipment_costs, shipmentItems: selectedOrderDetails.raw_shipment_items }, null, 2)}
+                    {JSON.stringify({ order: selectedOrderDetails.raw_order, payments: selectedOrderDetails.raw_payments, shipment: selectedOrderDetails.raw_shipment, shipmentCosts: selectedOrderDetails.raw_shipment_costs, shipmentItems: selectedOrderDetails.raw_shipment_items, invoice: selectedOrderDetails.raw_invoice }, null, 2)}
                   </pre>
                 </details>
               </div>
@@ -4294,5 +5213,3 @@ export default function MarketplacePage() {
     </div>
   );
 }
-
-

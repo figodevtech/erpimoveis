@@ -7,6 +7,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
 import { requireVendasAccess, requireVendasDelete, requireVendasEdit } from "@/app/api/_authz/perms";
+import { syncPendingMercadoLivreStock } from "@/lib/integrations/mercadolivre-stock-sync";
 
 type Status =
   | "ORCAMENTO"
@@ -196,10 +197,9 @@ async function resolveUsuarioInternoId(session: any): Promise<string | null> {
 
 /* ========================= GET /api/venda/[id] ========================= */
 
-export async function GET(req: NextRequest, ctx: ParamsCtx) {
+export async function GET(_req: NextRequest, ctx: ParamsCtx) {
   try {
     await requireVendasAccess();
-    req;
 
     const { id: idStr } = await ctx.params;
     const parsed = parseId(idStr);
@@ -473,10 +473,9 @@ function isMarketplaceCanal(canal: unknown) {
  * - Delete de vendaproduto
  * - Delete da venda
  */
-export async function DELETE(req: NextRequest, ctx: ParamsCtx) {
+export async function DELETE(_req: NextRequest, ctx: ParamsCtx) {
   try {
     await requireVendasDelete();
-    req;
 
     const { id: idStr } = await ctx.params;
     const parsed = parseId(idStr);
@@ -657,6 +656,14 @@ export async function DELETE(req: NextRequest, ctx: ParamsCtx) {
       return NextResponse.json({ error: "Venda não encontrada." }, { status: 404 });
     }
 
+    const marketplaceStockSync = await syncPendingMercadoLivreStock({
+      productIds: produtoIds,
+      limit: produtoIds.length || 1,
+    }).catch((error: any) => {
+      console.warn("Venda excluída; sincronização imediata do estoque Mercado Livre ficou pendente.", error);
+      return [];
+    });
+
     return NextResponse.json({
       message: "Venda excluída com sucesso (transações removidas e estoque estornado).",
       id: vendaDel.id,
@@ -664,6 +671,7 @@ export async function DELETE(req: NextRequest, ctx: ParamsCtx) {
         produtosAfetados: produtoIds.length,
         quantidadePorProduto: Object.fromEntries(qtyPorProduto.entries()),
       },
+      marketplaceStockSync,
     });
   } catch (e: any) {
     console.error("Erro inesperado no DELETE /venda/[id]:", e);

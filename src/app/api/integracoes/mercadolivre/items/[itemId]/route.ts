@@ -1,7 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireVendasAccess, requireVendasEdit } from "@/app/api/_authz/perms";
+import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { mercadoLivreApiGet, mercadoLivreApiPost, mercadoLivreApiPut } from "@/lib/integrations/mercadolivre";
+import {
+  mercadoLivreApiGet,
+  mercadoLivreApiPost,
+  mercadoLivreApiPut,
+} from "@/lib/integrations/mercadolivre";
+import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
+import { validateMercadoLivreShippingSelection } from "@/lib/integrations/mercadolivre-shipping-preferences";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,13 +18,15 @@ type ParamsCtx = { params: Promise<{ itemId: string }> };
 export async function GET(_req: NextRequest, ctx: ParamsCtx) {
   try {
     await requireVendasAccess();
+    const empresaId = await requireEmpresaId();
     const { itemId } = await ctx.params;
-    const link = await getLink(itemId);
-    const account = await getAccount(link.empresa_id);
+    const link = await getLink(itemId, empresaId);
+    const account = await getValidMercadoLivreAccount(link.empresa_id);
+    const accessToken = account.access_token;
 
     const [item, description] = await Promise.all([
-      mercadoLivreApiGet<any>(account.access_token, `/items/${encodeURIComponent(itemId)}`),
-      mercadoLivreApiGet<any>(account.access_token, `/items/${encodeURIComponent(itemId)}/description`).catch(() => null),
+      mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}`),
+      mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}/description`).catch(() => null),
     ]);
 
     const normalized = normalizeItemForEdit(item, description);
@@ -36,25 +45,34 @@ export async function GET(_req: NextRequest, ctx: ParamsCtx) {
     return NextResponse.json({ data: normalized });
   } catch (e: any) {
     console.error("GET /api/integracoes/mercadolivre/items/[itemId]", e);
-    return NextResponse.json({ error: e?.message || "Falha ao carregar anuncio Mercado Livre." }, { status: 500 });
+    return NextResponse.json({ error: e?.message || "Falha ao carregar anúncio Mercado Livre." }, { status: errorStatus(e) });
   }
 }
 
 export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
   try {
     await requireVendasEdit();
+    const empresaId = await requireEmpresaId();
     const { itemId } = await ctx.params;
     const body = await req.json().catch(() => ({}));
     const action = String(body?.action ?? "").toLowerCase();
 
-    const link = await getLink(itemId);
-    const account = await getAccount(link.empresa_id);
+    const link = await getLink(itemId, empresaId);
+    const account = await getValidMercadoLivreAccount(link.empresa_id);
+    const accessToken = account.access_token;
 
     let payload: Record<string, unknown>;
     if (action === "pause") payload = { status: "paused" };
     else if (action === "activate") payload = { status: "active" };
     else if (action === "close") payload = { status: "closed" };
     else if (action === "update_listing") {
+      const shippingMode = String(body?.shippingMode ?? "").trim();
+      if (shippingMode === "me2") {
+        const currentItem = await mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}`);
+        const categoryId = String(currentItem?.category_id ?? "").trim();
+        if (!categoryId) throw new Error("O anúncio não possui categoria para validar o Mercado Envios.");
+        await validateMercadoLivreShippingSelection(account, categoryId, shippingMode, String(body?.logisticType ?? ""));
+      }
       payload = buildListingUpdatePayload(body);
     }
     else if (action === "sync_stock_price") {
@@ -73,18 +91,20 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       return NextResponse.json({ error: "Acao invalida." }, { status: 400 });
     }
 
-    const item = await mercadoLivreApiPut<any>(account.access_token, `/items/${encodeURIComponent(itemId)}`, payload);
+    const updatedItem = await mercadoLivreApiPut<any>(accessToken, `/items/${encodeURIComponent(itemId)}`, payload);
 
     const description = String(body?.description ?? "").trim();
     if (action === "update_listing" && description) {
-      await mercadoLivreApiPut(account.access_token, `/items/${encodeURIComponent(itemId)}/description`, {
+      await mercadoLivreApiPut(accessToken, `/items/${encodeURIComponent(itemId)}/description`, {
         plain_text: description,
       }).catch(async () => {
-        await mercadoLivreApiPost(account.access_token, `/items/${encodeURIComponent(itemId)}/description`, {
+        await mercadoLivreApiPost(accessToken, `/items/${encodeURIComponent(itemId)}/description`, {
           plain_text: description,
         });
       });
     }
+
+    const item = await mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}`).catch(() => updatedItem);
 
     const { error: updateError } = await supabaseAdmin
       .from("mercadolivre_product_link")
@@ -98,10 +118,10 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       .eq("id", link.id);
 
     if (updateError) throw updateError;
-    return NextResponse.json({ data: item });
+    return NextResponse.json({ data: item, status: item?.status ?? null });
   } catch (e: any) {
     console.error("PATCH /api/integracoes/mercadolivre/items/[itemId]", e);
-    return NextResponse.json({ error: e?.message || "Falha ao atualizar anuncio Mercado Livre." }, { status: 500 });
+    return NextResponse.json({ error: e?.message || "Falha ao atualizar anúncio Mercado Livre." }, { status: errorStatus(e) });
   }
 }
 
@@ -258,24 +278,14 @@ function parsePictureUrls(value: string) {
     .map((source) => ({ source }));
 }
 
-async function getLink(itemId: string) {
+async function getLink(itemId: string, empresaId: number) {
   const { data, error } = await supabaseAdmin
     .from("mercadolivre_product_link")
     .select("id, empresa_id, produto_id, ml_item_id, title, permalink")
+    .eq("empresa_id", empresaId)
     .eq("ml_item_id", itemId.toUpperCase())
     .single();
 
   if (error) throw error;
   return data as { id: number; empresa_id: number; produto_id: number; ml_item_id: string; title?: string | null; permalink?: string | null };
-}
-
-async function getAccount(empresaId: number) {
-  const { data, error } = await supabaseAdmin
-    .from("mercadolivre_account")
-    .select("id, access_token")
-    .eq("empresa_id", empresaId)
-    .single();
-
-  if (error) throw error;
-  return data as { id: number; access_token: string };
 }

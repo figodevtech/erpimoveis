@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireVendasEdit } from "@/app/api/_authz/perms";
+import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { mercadoLivreApiGet } from "@/lib/integrations/mercadolivre";
 
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   try {
     await requireVendasEdit();
+    const empresaId = await requireEmpresaId();
     const body = await req.json().catch(() => ({}));
     const produtoId = Number(body?.produtoId);
     const mlItemId = String(body?.mlItemId ?? "").trim().toUpperCase();
@@ -21,7 +23,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Informe o codigo do anuncio Mercado Livre." }, { status: 400 });
     }
 
-    const account = await getDefaultAccount();
+    const account = await getDefaultAccount(empresaId);
     const item = await mercadoLivreApiGet<any>(account.access_token, `/items/${encodeURIComponent(mlItemId)}`);
 
     const { data, error } = await supabaseAdmin
@@ -47,13 +49,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ data });
   } catch (e: any) {
     console.error("POST /api/integracoes/mercadolivre/product-links", e);
-    return NextResponse.json({ error: e?.message || "Falha ao vincular anuncio." }, { status: 500 });
+    return NextResponse.json({ error: e?.message || "Falha ao vincular anúncio." }, { status: errorStatus(e) });
   }
 }
 
 export async function DELETE(req: Request) {
   try {
     await requireVendasEdit();
+    const empresaId = await requireEmpresaId();
     const { searchParams } = new URL(req.url);
     const produtoId = Number(searchParams.get("produtoId"));
 
@@ -61,20 +64,25 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "produtoId invalido." }, { status: 400 });
     }
 
-    const { error } = await supabaseAdmin.from("mercadolivre_product_link").delete().eq("produto_id", produtoId);
+    const { error } = await supabaseAdmin
+      .from("mercadolivre_product_link")
+      .delete()
+      .eq("empresa_id", empresaId)
+      .eq("produto_id", produtoId);
     if (error) throw error;
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     console.error("DELETE /api/integracoes/mercadolivre/product-links", e);
-    return NextResponse.json({ error: e?.message || "Falha ao remover vinculo." }, { status: 500 });
+    return NextResponse.json({ error: e?.message || "Falha ao remover vínculo." }, { status: errorStatus(e) });
   }
 }
 
-async function getDefaultAccount() {
+async function getDefaultAccount(empresaId: number) {
   const { data, error } = await supabaseAdmin
     .from("mercadolivre_account")
     .select("id, empresa_id, access_token")
+    .eq("empresa_id", empresaId)
     .order("updated_at", { ascending: false })
     .limit(1)
     .single();

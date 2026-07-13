@@ -1,5 +1,6 @@
 ﻿import { NextResponse, type NextRequest } from "next/server";
-import { requireVendasAccess } from "@/app/api/_authz/perms";
+import { requireVendasAccess, requireVendasEdit } from "@/app/api/_authz/perms";
+import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { getMercadoLivreOrder, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
 import { importMercadoLivreOrder } from "@/lib/integrations/mercadolivre-orders";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -7,7 +8,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MERCADO_PAGO_API_BASE_URL = "https://api.mercadopago.com";
+const POST_PURCHASE_API_BASE_URL = "https://api.mercadolibre.com";
 
 type MercadoLivreAccount = {
   id: number;
@@ -59,7 +60,7 @@ export async function GET(req: NextRequest) {
 
     const orderDbId = Number(req.nextUrl.searchParams.get("orderDbId") ?? 0);
     const mlOrderId = Number(req.nextUrl.searchParams.get("mlOrderId") ?? 0);
-    const account = await getActiveAccount();
+    const account = await getActiveAccount(await requireEmpresaId());
     const accessToken = await ensureValidAccessToken(account);
     const orders = await getOrders(account.empresa_id, orderDbId, mlOrderId);
     const notifications = await getClaimNotifications(account);
@@ -76,7 +77,7 @@ export async function GET(req: NextRequest) {
 
         try {
           const searchOrder = candidate.claim ? findRelatedOrder(candidate.claim, orders) : null;
-          const detail = await mercadoPagoApiGet<any>(accessToken, `/post-purchase/v1/claims/${encodeURIComponent(claimId)}`);
+          const detail = await postPurchaseApiGet<any>(accessToken, `/post-purchase/v1/claims/${encodeURIComponent(claimId)}`);
           const order = searchOrder ?? findRelatedOrder(detail, orders);
           if (!order) return null;
 
@@ -102,14 +103,51 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ data: storedClaims.map(normalizeStoredClaim) });
   } catch (e: any) {
     console.error("GET /api/integracoes/mercadolivre/claims", e);
-    return NextResponse.json({ error: friendlyError(e, "Falha ao carregar reclamações Mercado Livre.") }, { status: 500 });
+    return NextResponse.json({ error: friendlyError(e, "Falha ao carregar reclamações Mercado Livre.") }, { status: errorStatus(e) });
   }
 }
 
-async function getActiveAccount() {
+export async function POST(req: NextRequest) {
+  try {
+    await requireVendasEdit();
+    const empresaId = await requireEmpresaId();
+    const body = await req.json().catch(() => ({}));
+    const claimId = String(body?.claimId ?? "").trim();
+    const action = String(body?.action ?? "").trim().toLowerCase();
+    if (!claimId) return NextResponse.json({ error: "Informe a reclamação." }, { status: 400 });
+
+    const actionConfig: Record<string, { availableNames: string[]; path: string }> = {
+      refund: { availableNames: ["refund", "allow_refund"], path: "expected-resolutions/refund" },
+      allow_return: { availableNames: ["allow_return", "return_product"], path: "expected-resolutions/allow-return" },
+      return_review_ok: { availableNames: ["return_review_ok"], path: "actions/return-review-ok" },
+    };
+    const config = actionConfig[action];
+    if (!config) return NextResponse.json({ error: "Ação de reclamação não suportada pelo ERP." }, { status: 400 });
+
+    const account = await getActiveAccount(empresaId);
+    const accessToken = await ensureValidAccessToken(account);
+    const claim = await postPurchaseApiGet<any>(accessToken, `/post-purchase/v1/claims/${encodeURIComponent(claimId)}`);
+    const sellerActions = getSellerAvailableActionNames(claim, account.ml_user_id);
+    if (!config.availableNames.some((name) => sellerActions.includes(name))) {
+      return NextResponse.json({ error: "O Mercado Livre não disponibiliza esta ação para o vendedor nesta reclamação." }, { status: 409 });
+    }
+
+    const result = await postPurchaseApiPost<any>(
+      accessToken,
+      `/post-purchase/v1/claims/${encodeURIComponent(claimId)}/${config.path}`,
+    );
+    return NextResponse.json({ ok: true, data: result });
+  } catch (e: any) {
+    console.error("POST /api/integracoes/mercadolivre/claims", e);
+    return NextResponse.json({ error: friendlyError(e, "Falha ao executar ação na reclamação.") }, { status: errorStatus(e) });
+  }
+}
+
+async function getActiveAccount(empresaId: number) {
   const { data, error } = await supabaseAdmin
     .from("mercadolivre_account")
     .select("id, empresa_id, ml_user_id, access_token, refresh_token, expires_at")
+    .eq("empresa_id", empresaId)
     .order("updated_at", { ascending: false })
     .limit(1)
     .single();
@@ -303,7 +341,7 @@ async function searchClaims(accessToken: string) {
 
   const results = await Promise.all(
     queries.map((params) =>
-      mercadoPagoApiGet<{ data?: any[] }>(accessToken, `/post-purchase/v1/claims/search?${params.toString()}`).catch((error) => {
+      postPurchaseApiGet<{ data?: any[] }>(accessToken, `/post-purchase/v1/claims/search?${params.toString()}`).catch((error) => {
         console.warn("Falha ao buscar reclamações Mercado Livre", {
           params: params.toString(),
           error: friendlyError(error, "Falha ao buscar reclamações."),
@@ -342,7 +380,17 @@ function getClaimAvailableActions(detail: any) {
   if (Array.isArray(detail?.available_actions)) return detail.available_actions;
   if (Array.isArray(detail?.actions)) return detail.actions;
   if (Array.isArray(detail?.available_resolutions)) return detail.available_resolutions;
-  return [];
+  return (detail?.players ?? [])
+    .filter((player: any) => player?.type === "seller" || player?.role === "respondent")
+    .flatMap((player: any) => (Array.isArray(player?.available_actions) ? player.available_actions : []));
+}
+
+function getSellerAvailableActionNames(claim: any, sellerId: number) {
+  return (claim?.players ?? [])
+    .filter((player: any) => Number(player?.user_id) === sellerId || player?.type === "seller" || player?.role === "respondent")
+    .flatMap((player: any) => (Array.isArray(player?.available_actions) ? player.available_actions : []))
+    .map((item: any) => String(item?.action ?? item?.type ?? item?.name ?? item).toLowerCase())
+    .filter(Boolean);
 }
 
 function dedupeClaimCandidates(candidates: Array<{ source: string; claim?: any; notification?: MercadoLivreNotificationRow; claimId: string }>) {
@@ -355,18 +403,34 @@ function dedupeClaimCandidates(candidates: Array<{ source: string; claim?: any; 
   return Array.from(byId.values());
 }
 
-async function mercadoPagoApiGet<T>(accessToken: string, path: string) {
-  const response = await fetch(`${MERCADO_PAGO_API_BASE_URL}${path}`, {
+async function postPurchaseApiGet<T>(accessToken: string, path: string) {
+  const response = await fetch(`${POST_PURCHASE_API_BASE_URL}${path}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
     cache: "no-store",
   });
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Mercado Pago ${path} falhou (${response.status}): ${text}`);
+    throw new Error(`Mercado Livre ${path} falhou (${response.status}): ${text}`);
   }
 
   return (await response.json()) as T;
+}
+
+async function postPurchaseApiPost<T>(accessToken: string, path: string) {
+  const response = await fetch(`${POST_PURCHASE_API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", Accept: "application/json" },
+    cache: "no-store",
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`Mercado Livre ${path} falhou (${response.status}): ${text}`);
+  if (!text) return {} as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return { message: text } as T;
+  }
 }
 
 function friendlyError(error: any, fallback: string) {

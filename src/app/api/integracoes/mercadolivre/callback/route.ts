@@ -23,13 +23,14 @@ export async function GET(req: NextRequest) {
     if (!code) return htmlResponse("Mercado Livre", "Codigo de autorizacao ausente.", 400);
 
     const state = decodeMercadoLivreState(req.nextUrl.searchParams.get("state"));
-    const empresaId = state?.empresaId ?? (await getDefaultEmpresaId());
-    if (!empresaId) return htmlResponse("Mercado Livre", "Nenhuma empresa cadastrada para vincular a conta.", 400);
+    if (!state?.empresaId) return htmlResponse("Mercado Livre", "Estado OAuth inválido ou expirado. Inicie a conexão novamente pelo ERP.", 400);
+    const empresaId = state.empresaId;
 
     const token = await exchangeMercadoLivreCode(code);
     const user = await getMercadoLivreMe(token.access_token);
     const config = getMercadoLivreConfig();
     const existingAccount = await getExistingAccount(empresaId);
+    const accountChanged = Boolean(existingAccount && Number(existingAccount.ml_user_id) !== Number(user.id));
 
     const { error: upsertError } = await supabaseAdmin
       .from("mercadolivre_account")
@@ -40,7 +41,7 @@ export async function GET(req: NextRequest) {
           nickname: user.nickname ?? null,
           site_id: user.site_id ?? config.siteId,
           access_token: token.access_token,
-          refresh_token: token.refresh_token ?? existingAccount?.refresh_token ?? null,
+          refresh_token: token.refresh_token ?? (accountChanged ? null : existingAccount?.refresh_token) ?? null,
           token_type: token.token_type ?? null,
           scope: token.scope ?? null,
           expires_at: tokenExpiresAt(token.expires_in),
@@ -52,6 +53,9 @@ export async function GET(req: NextRequest) {
       );
 
     if (upsertError) throw upsertError;
+    if (accountChanged && existingAccount) {
+      await prepareAccountReplacement(empresaId, Number(existingAccount.id));
+    }
 
     return htmlResponse(
       "Mercado Livre conectado",
@@ -63,27 +67,28 @@ export async function GET(req: NextRequest) {
   }
 }
 
-async function getDefaultEmpresaId() {
-  const { data, error } = await supabaseAdmin
-    .from("empresa")
-    .select("id")
-    .order("id", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) throw error;
-  return data?.id ?? null;
-}
-
 async function getExistingAccount(empresaId: number) {
   const { data, error } = await supabaseAdmin
     .from("mercadolivre_account")
-    .select("refresh_token")
+    .select("id, ml_user_id, refresh_token")
     .eq("empresa_id", empresaId)
     .maybeSingle();
 
   if (error) throw error;
   return data ?? null;
+}
+
+async function prepareAccountReplacement(empresaId: number, accountId: number) {
+  for (const table of ["mercadolivre_order", "mercadolivre_notification", "mercadolivre_claim"]) {
+    const { error } = await supabaseAdmin.from(table).update({ account_id: null }).eq("account_id", accountId);
+    if (error) throw error;
+  }
+
+  const { error: linksError } = await supabaseAdmin
+    .from("mercadolivre_product_link")
+    .delete()
+    .eq("empresa_id", empresaId);
+  if (linksError) throw linksError;
 }
 
 function htmlResponse(title: string, message: string, status = 200) {

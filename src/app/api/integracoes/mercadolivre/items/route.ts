@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireVendasEdit } from "@/app/api/_authz/perms";
+import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { mercadoLivreApiGet, mercadoLivreApiPost, mercadoLivreApiPut } from "@/lib/integrations/mercadolivre";
+import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
+import { validateMercadoLivreShippingSelection } from "@/lib/integrations/mercadolivre-shipping-preferences";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -37,6 +40,7 @@ type MlAttributePayload = {
 export async function POST(req: Request) {
   try {
     await requireVendasEdit();
+    const empresaId = await requireEmpresaId();
     const body = await req.json().catch(() => ({}));
 
     const produtoId = Number(body?.produtoId);
@@ -121,7 +125,8 @@ export async function POST(req: Request) {
       );
     }
 
-    const account = await getDefaultAccount();
+    const account = await getValidMercadoLivreAccount(empresaId);
+    await validateMercadoLivreShippingSelection(account, categoryId, shippingMode, logisticType);
 
     const { data: existingLink, error: linkError } = await supabaseAdmin
       .from("mercadolivre_product_link")
@@ -228,7 +233,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ data, item: verifiedItem });
   } catch (e: any) {
     console.error("POST /api/integracoes/mercadolivre/items", e);
-    return NextResponse.json({ error: formatMercadoLivreError(e) || "Falha ao criar anúncio Mercado Livre." }, { status: 500 });
+    return NextResponse.json({ error: formatMercadoLivreError(e) || "Falha ao criar anúncio Mercado Livre." }, { status: errorStatus(e) });
   }
 }
 
@@ -532,16 +537,4 @@ function translateMercadoLivreError(message: string) {
     .replaceAll("Item pictures are mandatory", "Informe ao menos uma imagem do anúncio")
     .replaceAll("invalid price", "Preço inválido")
     .replaceAll("invalid category", "Categoria inválida");
-}
-
-async function getDefaultAccount() {
-  const { data, error } = await supabaseAdmin
-    .from("mercadolivre_account")
-    .select("id, empresa_id, access_token")
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .single();
-
-  if (error) throw error;
-  return data as { id: number; empresa_id: number; access_token: string };
 }

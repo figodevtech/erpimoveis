@@ -1,5 +1,8 @@
+import { createHmac, timingSafeEqual } from "crypto";
+
 const ML_AUTH_BASE_URL = "https://auth.mercadolivre.com.br/authorization";
 const ML_API_BASE_URL = "https://api.mercadolibre.com";
+const OAUTH_STATE_MAX_AGE_MS = 15 * 60 * 1000;
 
 type MercadoLivreTokenResponse = {
   access_token: string;
@@ -63,21 +66,39 @@ export function getMercadoLivreConfig() {
 }
 
 export function encodeMercadoLivreState(payload: Record<string, unknown>) {
-  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  const encodedPayload = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  return `${encodedPayload}.${signMercadoLivreState(encodedPayload)}`;
 }
 
 export function decodeMercadoLivreState(state: string | null) {
   if (!state) return null;
 
   try {
-    return JSON.parse(Buffer.from(state, "base64url").toString("utf8")) as {
+    const [encodedPayload, receivedSignature] = state.split(".");
+    if (!encodedPayload || !receivedSignature) return null;
+
+    const expectedSignature = signMercadoLivreState(encodedPayload);
+    const receivedBuffer = Buffer.from(receivedSignature, "utf8");
+    const expectedBuffer = Buffer.from(expectedSignature, "utf8");
+    if (receivedBuffer.length !== expectedBuffer.length || !timingSafeEqual(receivedBuffer, expectedBuffer)) return null;
+
+    const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as {
       empresaId?: number;
       ts?: number;
       nonce?: string;
     };
+    if (!payload.ts || Date.now() - payload.ts > OAUTH_STATE_MAX_AGE_MS || payload.ts > Date.now() + 60_000) return null;
+    if (!payload.nonce || !Number.isInteger(payload.empresaId) || Number(payload.empresaId) <= 0) return null;
+    return payload;
   } catch {
     return null;
   }
+}
+
+function signMercadoLivreState(payload: string) {
+  const config = getMercadoLivreConfig();
+  const secret = process.env.MERCADOLIVRE_STATE_SECRET?.trim() || process.env.AUTH_SECRET?.trim() || config.clientSecret;
+  return createHmac("sha256", secret).update(payload).digest("base64url");
 }
 
 export function buildMercadoLivreAuthorizationUrl(params: { empresaId?: number }) {

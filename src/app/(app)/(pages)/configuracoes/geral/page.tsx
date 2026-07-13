@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -17,6 +18,10 @@ import {
   CalendarDays,
   Palette,
   Boxes,
+  Building2,
+  CheckCircle2,
+  Store,
+  Unplug,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -26,12 +31,44 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import type { Config } from "../../type";
 
 type UsoConsultasPlaca = {
   limite: number;
   usadas: number;
   mes: string;
+};
+
+type EmpresaResumo = {
+  id: number;
+  nome: string;
+  cnpj: string;
+};
+
+type MercadoLivreAccount = {
+  id: number;
+  userId: number;
+  nickname: string | null;
+  siteId: string;
+  needsReconnect: boolean;
+  updatedAt: string | null;
+  shipping?: {
+    modes: string[];
+    option: string | null;
+    mercadoEnviosEnabled: boolean;
+    error: string | null;
+  } | null;
 };
 
 const DIAS_SEMANA = [
@@ -51,7 +88,10 @@ function colorPickerValue(value: string | undefined, fallback: string) {
 export default function ConfigGeralPage() {
   const [salvando, setSalvando] = useState(false);
   const [carregando, setCarregando] = useState(true);
+  const [desconectandoMercadoLivre, setDesconectandoMercadoLivre] = useState(false);
   const [usoConsultasPlaca, setUsoConsultasPlaca] = useState<UsoConsultasPlaca | null>(null);
+  const [empresaResumo, setEmpresaResumo] = useState<EmpresaResumo | null>(null);
+  const [mercadoLivreAccount, setMercadoLivreAccount] = useState<MercadoLivreAccount | null>(null);
 
   const { handleSubmit, setValue, watch, reset } = useForm<Partial<Config>>({
     defaultValues: {
@@ -75,12 +115,14 @@ export default function ConfigGeralPage() {
   const carregarConfig = useCallback(async () => {
     setCarregando(true);
     try {
-      const [response, empresaResponse] = await Promise.all([
+      const [response, empresaResponse, mercadoLivreResponse] = await Promise.all([
         fetch("/api/config", { cache: "no-store" }),
         fetch("/api/config/empresa", { cache: "no-store" }),
+        fetch("/api/config/integracoes/mercadolivre", { cache: "no-store" }),
       ]);
       const data = await response.json();
       const empresaData = await empresaResponse.json().catch(() => ({}));
+      const mercadoLivreData = await mercadoLivreResponse.json().catch(() => ({}));
       if (response.ok && data.config) {
         reset(data.config);
       } else {
@@ -88,6 +130,11 @@ export default function ConfigGeralPage() {
       }
       if (empresaResponse.ok && empresaData?.empresa) {
         const empresa = empresaData.empresa;
+        setEmpresaResumo({
+          id: Number(empresa.empresaId),
+          nome: empresa.nomefantasia || empresa.razaosocial || "Empresa",
+          cnpj: empresa.cnpj || "",
+        });
         setUsoConsultasPlaca({
           limite: Number(empresa.placa_consulta_limite_mensal ?? 0),
           usadas: Number(empresa.placa_consulta_qtd_mes ?? 0),
@@ -95,7 +142,9 @@ export default function ConfigGeralPage() {
         });
       } else {
         setUsoConsultasPlaca(null);
+        setEmpresaResumo(null);
       }
+      setMercadoLivreAccount(mercadoLivreResponse.ok ? mercadoLivreData?.account ?? null : null);
     } catch (error) {
       console.error(error);
       toast.error("Falha na comunicação com o servidor");
@@ -128,6 +177,21 @@ export default function ConfigGeralPage() {
       toast.error(error.message || "Erro ao salvar configurações");
     } finally {
       setSalvando(false);
+    }
+  };
+
+  const desconectarMercadoLivre = async () => {
+    setDesconectandoMercadoLivre(true);
+    try {
+      const response = await fetch("/api/config/integracoes/mercadolivre", { method: "DELETE" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || "Falha ao desconectar a conta.");
+      setMercadoLivreAccount(null);
+      toast.success("Conta Mercado Livre desconectada.");
+    } catch (error: any) {
+      toast.error(error?.message || "Falha ao desconectar a conta Mercado Livre.");
+    } finally {
+      setDesconectandoMercadoLivre(false);
     }
   };
 
@@ -175,6 +239,96 @@ export default function ConfigGeralPage() {
           Salvar Alterações
         </Button>
       </div>
+
+      <Card className="overflow-hidden border-primary/10 p-0 shadow-sm">
+        <CardHeader className="bg-primary/5 py-4">
+          <div className="flex items-center gap-2">
+            <Building2 className="h-5 w-5 text-primary" />
+            <CardTitle>Empresa e marketplace</CardTitle>
+          </div>
+          <CardDescription>Dados da empresa desta instalação e conta vendedora vinculada.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid p-0 md:grid-cols-2">
+          <section className="flex min-h-32 flex-col justify-between gap-4 p-5 md:border-r">
+            <div className="flex items-start gap-3">
+              <Building2 className="mt-0.5 h-5 w-5 text-muted-foreground" />
+              <div className="min-w-0">
+                <p className="text-sm font-medium">Empresa do ERP</p>
+                <p className="truncate text-base font-semibold">{empresaResumo?.nome || "Não configurada"}</p>
+                <p className="text-xs text-muted-foreground">{empresaResumo?.cnpj || "CNPJ não informado"}</p>
+              </div>
+            </div>
+            <Button asChild variant="outline" size="sm" className="w-fit bg-transparent">
+              <Link href="/configuracoes/fiscal-pagamentos">Alterar dados da empresa</Link>
+            </Button>
+          </section>
+
+          <section className="flex min-h-32 flex-col justify-between gap-4 p-5">
+            <div className="flex items-start gap-3">
+              <Store className="mt-0.5 h-5 w-5 text-muted-foreground" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium">Conta Mercado Livre</p>
+                  {mercadoLivreAccount && !mercadoLivreAccount.needsReconnect ? (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                  ) : null}
+                </div>
+                <p className="truncate text-base font-semibold">
+                  {mercadoLivreAccount?.nickname || (mercadoLivreAccount ? `Usuário ${mercadoLivreAccount.userId}` : "Não conectada")}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {mercadoLivreAccount
+                    ? mercadoLivreAccount.needsReconnect
+                      ? "Reconexão necessária"
+                      : `User ID ${mercadoLivreAccount.userId}`
+                    : "Nenhuma conta vendedora vinculada"}
+                </p>
+                {mercadoLivreAccount?.shipping && !mercadoLivreAccount.needsReconnect ? (
+                  <p className={`mt-1 text-xs ${mercadoLivreAccount.shipping.mercadoEnviosEnabled ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
+                    {mercadoLivreAccount.shipping.mercadoEnviosEnabled
+                      ? "Mercado Envios habilitado para esta conta"
+                      : "Mercado Envios não habilitado para esta conta"}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button asChild size="sm" variant={mercadoLivreAccount && !mercadoLivreAccount.needsReconnect ? "outline" : "default"}>
+                <a href="/api/integracoes/mercadolivre/auth">
+                  {mercadoLivreAccount ? (mercadoLivreAccount.needsReconnect ? "Reconectar" : "Trocar conta") : "Conectar conta"}
+                </a>
+              </Button>
+
+              {mercadoLivreAccount ? (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="outline" size="sm" className="bg-transparent text-destructive hover:text-destructive">
+                      <Unplug className="h-4 w-4" />
+                      Desconectar
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Desconectar conta Mercado Livre?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Os pedidos históricos serão preservados. Os vínculos dos anúncios serão removidos e precisarão ser refeitos ao conectar outra conta.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                      <AlertDialogAction onClick={desconectarMercadoLivre} disabled={desconectandoMercadoLivre}>
+                        {desconectandoMercadoLivre ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                        Desconectar
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              ) : null}
+            </div>
+          </section>
+        </CardContent>
+      </Card>
 
       <div className="grid items-start gap-6 lg:grid-cols-12">
         <Card className="overflow-hidden border-primary/10 p-0 shadow-sm lg:col-span-5">
