@@ -1092,8 +1092,8 @@ export default function NFeAvulsaPage() {
                   OnSelect={preencherDestinatarioComCliente}
                 />
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <Button type="button" variant="outline" onClick={() => setOpenCustomerSelect(true)}>
-                    Selecionar cliente
+                  <Button className="w-min" type="button" variant="outline" onClick={() => setOpenCustomerSelect(true)}>
+                    + Selecionar cliente
                   </Button>
                   {selectedClienteLabel ? (
                     <Badge variant="secondary" className="w-fit">
@@ -1633,7 +1633,7 @@ export default function NFeAvulsaPage() {
               </Button>
               <div className="flex gap-2">
                 {currentStep < steps.length - 1 ? (
-                  <Button onClick={irParaProximoPasso}>Próximo</Button>
+                  <Button className="w-full" onClick={irParaProximoPasso}>Próximo</Button>
                 ) : (
                   <>
                     <Button variant="outline" onClick={() => salvarRascunho()} disabled={saving}>
@@ -1654,7 +1654,7 @@ export default function NFeAvulsaPage() {
           </CardContent>
         </Card>
 
-        <Card className="h-fit">
+        <Card className="h-fit hidden lg:block">
           <CardHeader>
             <CardTitle className="text-base">Resumo da NF-e</CardTitle>
           </CardHeader>

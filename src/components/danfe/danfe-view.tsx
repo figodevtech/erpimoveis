@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Printer } from "lucide-react";
+import { useState } from "react";
+import { Download, Loader2, Printer } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 
@@ -98,12 +100,168 @@ function fmtDoc(cpfCnpj: unknown) {
   return s;
 }
 
-function DefaultActions({ exitHref }: { exitHref: string }) {
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function dataUrlToBytes(dataUrl: string) {
+  const base64 = dataUrl.split(",")[1];
+  if (!base64) throw new Error("Imagem do DANFE inválida.");
+
+  const binary = window.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return bytes;
+}
+
+function buildImagePdf(imageBytes: Uint8Array, imageWidth: number, imageHeight: number) {
+  const encoder = new TextEncoder();
+  const chunks: Uint8Array[] = [];
+  const offsets: number[] = [0];
+  let offset = 0;
+
+  function pushString(value: string) {
+    const bytes = encoder.encode(value);
+    chunks.push(bytes);
+    offset += bytes.length;
+  }
+
+  function pushBytes(bytes: Uint8Array) {
+    chunks.push(bytes);
+    offset += bytes.length;
+  }
+
+  function addObject(number: number, parts: Array<string | Uint8Array>) {
+    offsets[number] = offset;
+    pushString(`${number} 0 obj\n`);
+    for (const part of parts) {
+      if (typeof part === "string") pushString(part);
+      else pushBytes(part);
+    }
+    pushString("\nendobj\n");
+  }
+
+  const pageWidth = 595.28;
+  const pageHeight = 841.89;
+  const content = `q\n${pageWidth} 0 0 ${pageHeight} 0 0 cm\n/Im0 Do\nQ`;
+  const contentLength = encoder.encode(content).length;
+
+  pushString("%PDF-1.4\n");
+  addObject(1, ["<< /Type /Catalog /Pages 2 0 R >>"]);
+  addObject(2, ["<< /Type /Pages /Kids [3 0 R] /Count 1 >>"]);
+  addObject(3, [
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>`,
+  ]);
+  addObject(4, [`<< /Length ${contentLength} >>\nstream\n${content}\nendstream`]);
+  addObject(5, [
+    `<< /Type /XObject /Subtype /Image /Width ${imageWidth} /Height ${imageHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imageBytes.length} >>\nstream\n`,
+    imageBytes,
+    "\nendstream",
+  ]);
+
+  const xrefOffset = offset;
+  pushString("xref\n0 6\n0000000000 65535 f \n");
+  for (let number = 1; number <= 5; number += 1) {
+    pushString(`${String(offsets[number]).padStart(10, "0")} 00000 n \n`);
+  }
+  pushString(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`);
+
+  const pdfBytes = new Uint8Array(offset);
+  let cursor = 0;
+  for (const chunk of chunks) {
+    pdfBytes.set(chunk, cursor);
+    cursor += chunk.length;
+  }
+
+  return new Blob([pdfBytes.buffer], { type: "application/pdf" });
+}
+
+function readImageSize(dataUrl: string) {
+  return new Promise<{ width: number; height: number }>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
+    image.onerror = () => reject(new Error("Não foi possível ler a imagem do DANFE."));
+    image.src = dataUrl;
+  });
+}
+
+function DefaultActions({ exitHref, filename }: { exitHref: string; filename: string }) {
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
+  async function handleDownloadPdf() {
+    if (isGeneratingPdf) return;
+
+    const target = document.querySelector<HTMLElement>(".danfe-wrapper");
+    if (!target) {
+      toast.error("Não foi possível localizar o DANFE para baixar.");
+      return;
+    }
+
+    setIsGeneratingPdf(true);
+
+    try {
+      await document.fonts?.ready;
+
+      const { toJpeg } = await import("html-to-image");
+      const rect = target.getBoundingClientRect();
+      const width = Math.ceil(target.scrollWidth || rect.width);
+      const height = Math.ceil(target.scrollHeight || rect.height);
+      const dataUrl = await toJpeg(target, {
+        backgroundColor: "#ffffff",
+        cacheBust: true,
+        pixelRatio: 2,
+        quality: 0.98,
+        width,
+        height,
+        style: {
+          margin: "0",
+          transform: "none",
+        },
+      });
+      const imageBytes = dataUrlToBytes(dataUrl);
+      const imageSize = await readImageSize(dataUrl);
+      const pdf = buildImagePdf(imageBytes, imageSize.width, imageSize.height);
+
+      downloadBlob(pdf, filename);
+    } catch (error) {
+      console.error("Erro ao gerar PDF do DANFE:", error);
+      toast.error("Não foi possível baixar o DANFE em PDF.");
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  }
+
   return (
     <>
       <Link href={exitHref} className="exit-link">
         Sair
       </Link>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => void handleDownloadPdf()}
+        disabled={isGeneratingPdf}
+      >
+        {isGeneratingPdf ? (
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        ) : (
+          <Download className="mr-2 h-4 w-4" />
+        )}
+        {isGeneratingPdf ? "Gerando PDF..." : "Baixar PDF"}
+      </Button>
       <Button type="button" variant="outline" size="sm" onClick={() => window.print()}>
         <Printer className="mr-2 h-4 w-4" />
         Imprimir
@@ -150,6 +308,7 @@ export function DanfeView({
     totalNota,
     infCpl,
   } = data;
+  const pdfFilename = `danfe-nfe-${nfe.numero.toString().padStart(9, "0")}.pdf`;
 
   return (
     <>
@@ -367,7 +526,9 @@ export function DanfeView({
       <div className="danfe-page">
         <div className="danfe-scroll">
           {showActions && (
-            <div className="actions">{actions ?? <DefaultActions exitHref={exitHref} />}</div>
+            <div className="actions">
+              {actions ?? <DefaultActions exitHref={exitHref} filename={pdfFilename} />}
+            </div>
           )}
 
           <div className="danfe-wrapper">

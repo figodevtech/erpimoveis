@@ -81,11 +81,16 @@ export default function FiscalPage() {
     [dateFrom, dateTo, modelo, pagination.limit, search, status, viewMode],
   );
 
-  const handleSyncTerceiros = useCallback(async () => {
+  const handleSyncTerceiros = useCallback(async (options?: { force?: boolean }) => {
+    const force = options?.force === true;
     setIsSyncing(true);
-    const toastId = toast.loading("Sincronizando documentos fiscais recebidos...");
+    const toastId = toast.loading(
+      force
+        ? "Forçando sincronização de documentos fiscais recebidos..."
+        : "Sincronizando documentos fiscais recebidos...",
+    );
     try {
-      const response = await axios.post("/api/fiscal/notas-recebidas/sync", {});
+      const response = await axios.post("/api/fiscal/notas-recebidas/sync", { force });
       toast.success("Sincronização concluída", {
         id: toastId,
         description: `${response.data?.novosDocumentos ?? 0} novo(s) documento(s). ${response.data?.xMotivo ?? ""}`,
@@ -95,17 +100,28 @@ export default function FiscalPage() {
         handleGetKpis(),
       ]);
     } catch (error: any) {
+      const data = error?.response?.data;
+      const motivo = data?.xMotivo ?? data?.message ?? data?.detail ?? data?.error;
+      const cStat = data?.cStat ? `cStat ${data.cStat}.` : null;
+      const canForce = Boolean(data?.nextSyncAfter && !data?.consumoIndevidoUntil && !force);
       const blockedUntil = error?.response?.data?.consumoIndevidoUntil ?? error?.response?.data?.nextSyncAfter;
       const blockedMessage = blockedUntil
         ? `Tente novamente após ${new Date(blockedUntil).toLocaleString("pt-BR")}.`
         : undefined;
+      const syncErrorDescription = [motivo, cStat, blockedMessage].filter(Boolean).join(" ");
       toast.error("Falha na sincronização", {
         id: toastId,
         description:
-          blockedMessage ??
-          error?.response?.data?.detail ??
-          error?.response?.data?.xMotivo ??
+          syncErrorDescription ||
           error?.message,
+        action: canForce
+          ? {
+              label: "Forçar tentativa",
+              onClick: () => {
+                void handleSyncTerceiros({ force: true });
+              },
+            }
+          : undefined,
       });
     } finally {
       setIsSyncing(false);

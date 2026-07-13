@@ -1209,16 +1209,13 @@ export async function buscarXmlDfeRecebida(id: number) {
 
   if (chave && !isXmlCompletoNfe(data) && String(data.schema ?? "").startsWith("resNFe")) {
     let consulta: { cStat?: string; xMotivo?: string } | null = null;
-    const hasManifestacao = ["CIENCIA", "CONFIRMACAO", "OPERACAO_NAO_REALIZADA"].includes(
-      String(data.status_manifestacao ?? ""),
-    );
     const lastCheck = getLastXmlCompletoCheck(data);
     const nextCheckAfter = lastCheck
       ? new Date(lastCheck + XML_COMPLETO_RETRY_INTERVAL_MS).toISOString()
       : null;
     const canCheckAgain = Date.now() - lastCheck > XML_COMPLETO_RETRY_INTERVAL_MS;
 
-    if (hasManifestacao && canCheckAgain) {
+    if (canCheckAgain) {
       consulta = await consultarDfePorChave({
         empresaId,
         chave,
@@ -1260,7 +1257,7 @@ export async function buscarXmlDfeRecebida(id: number) {
       nextCheckAfter: consulta ? new Date(Date.now() + XML_COMPLETO_RETRY_INTERVAL_MS).toISOString() : nextCheckAfter,
       motivo:
         consulta?.xMotivo ||
-        "XML completo ainda não disponível. Baixando o resumo da NF-e salvo.",
+        "A SEFAZ ainda não disponibilizou o XML completo da NF-e.",
     };
   }
 

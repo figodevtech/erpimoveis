@@ -35,7 +35,7 @@ function KpiCard({
         <Icon className="h-4 w-4 text-muted-foreground" />
       </CardHeader>
       <CardContent>
-        <div className="text-2xl font-semibold">{value}</div>
+        <div className="text-base md:text-xl xl:text-2xl font-semibold">{value}</div>
         <p className="text-xs text-muted-foreground">{description}</p>
       </CardContent>
     </Card>
@@ -46,7 +46,7 @@ export default function FiscalCards({ kpis, isLoading }: FiscalCardsProps) {
   const suffix = isLoading ? "Atualizando..." : "Indicador geral";
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <div className="grid  grid-cols-2 gap-4 md:grid-cols-2 xl:grid-cols-4">
       <KpiCard
         title="Notas próprias"
         value={String(kpis?.emitidasPorNos ?? 0)}

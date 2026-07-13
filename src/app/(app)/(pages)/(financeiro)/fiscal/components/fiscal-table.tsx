@@ -224,13 +224,17 @@ export default function FiscalTable({
     }
   }
 
-  async function baixarXml(nota: NotaFiscal) {
+  async function baixarXml(
+    nota: NotaFiscal,
+    options: { toastId?: string | number; showForceAction?: boolean } = {},
+  ): Promise<boolean> {
     const id = nota.id;
     const endpoint =
       viewMode === "EMITIDAS_TERCEIROS"
         ? `/api/fiscal/notas-recebidas/${id}/xml`
         : `/api/fiscal/notas-emitidas/${id}/xml`;
-    const toastId = toast.loading("Preparando XML...");
+    const toastId = options.toastId ?? toast.loading("Preparando XML...");
+    const showForceAction = options.showForceAction ?? true;
 
     try {
       const response = await fetch(endpoint);
@@ -246,7 +250,10 @@ export default function FiscalTable({
           id: toastId,
           description,
           action:
-            body?.xmlCompleto === false && viewMode === "EMITIDAS_TERCEIROS" && nota.chave_acesso
+            showForceAction &&
+            body?.xmlCompleto === false &&
+            viewMode === "EMITIDAS_TERCEIROS" &&
+            nota.chave_acesso
               ? {
                   label: "Forçar tentativa",
                   onClick: () => setNotaForcarXml(nota),
@@ -259,7 +266,7 @@ export default function FiscalTable({
         } else {
           toast.error(title, toastOptions);
         }
-        return;
+        return false;
       }
 
       const disposition = response.headers.get("Content-Disposition") ?? "";
@@ -275,14 +282,14 @@ export default function FiscalTable({
           description:
             `${motivo || "A SEFAZ ainda não disponibilizou o XML completo da NF-e."}${nextCheckText}`,
           action:
-            viewMode === "EMITIDAS_TERCEIROS" && nota.chave_acesso
+            showForceAction && viewMode === "EMITIDAS_TERCEIROS" && nota.chave_acesso
               ? {
                   label: "Forçar tentativa",
                   onClick: () => setNotaForcarXml(nota),
                 }
               : undefined,
         });
-        return;
+        return false;
       }
 
       const blob = await response.blob();
@@ -298,9 +305,11 @@ export default function FiscalTable({
       URL.revokeObjectURL(url);
 
       toast.success("XML baixado", { id: toastId });
+      return true;
     } catch (error) {
       const description = error instanceof Error ? error.message : "Erro ao baixar XML.";
       toast.error("Falha no download", { id: toastId, description });
+      return false;
     }
   }
 
@@ -370,23 +379,17 @@ export default function FiscalTable({
     setForcandoXml(true);
     const toastId = toast.loading("Forçando nova tentativa na SEFAZ...");
     try {
-      const response = await axios.post("/api/fiscal/notas-recebidas/consultar-chave", {
-        chave: notaForcarXml.chave_acesso,
-        empresaId: notaForcarXml.empresaid,
+      const nota = notaForcarXml;
+      setNotaForcarXml(null);
+
+      await axios.post("/api/fiscal/notas-recebidas/consultar-chave", {
+        chave: nota.chave_acesso,
+        empresaId: nota.empresaid,
         force: true,
       });
 
-      const description =
-        response.data?.xMotivo ??
-        (response.data?.novosDocumentos
-          ? "A SEFAZ retornou novos documentos. Tentando baixar o XML completo."
-          : "Consulta concluída. Tentando baixar o XML completo.");
-      toast.success("Tentativa concluída", { id: toastId, description });
-
-      const nota = notaForcarXml;
-      setNotaForcarXml(null);
       await handleGetNotas(pagination.page, pagination.limit);
-      await baixarXml(nota);
+      await baixarXml(nota, { toastId, showForceAction: false });
     } catch (error) {
       const description = isAxiosError(error)
         ? error.response?.data?.xMotivo ??
@@ -450,12 +453,20 @@ export default function FiscalTable({
     }
   }
 
+  function limparFiltros() {
+    setSearch("");
+    setDateFrom("");
+    setDateTo("");
+    setStatus("");
+    setModelo("");
+  }
+
   return (
     <>
     <Card>
       <CardHeader className="border-b-2">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div>
+        <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+          <div className="min-w-0">
             <CardTitle className="text-lg font-medium">{title}</CardTitle>
             <CardDescription>
               <button
@@ -469,11 +480,11 @@ export default function FiscalTable({
             </CardDescription>
           </div>
 
-          <div className="grid w-full gap-2 lg:w-auto lg:grid-cols-[180px_180px_150px_150px_150px_150px_auto]">
+          <div className="grid w-full min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-7">
             {viewMode === "EMITIDAS_TERCEIROS" ? (
               <Button
                 type="button"
-                className="h-9"
+                className="h-9 w-full min-w-0"
                 onClick={onSyncTerceiros}
                 disabled={isSyncing}
               >
@@ -489,22 +500,26 @@ export default function FiscalTable({
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Buscar nota/chave"
-              className="h-9"
+              className="h-9 w-full"
             />
-            <Input
-              type="date"
-              value={dateFrom}
-              onChange={(event) => setDateFrom(event.target.value)}
-              className="h-9"
-            />
-            <Input
-              type="date"
-              value={dateTo}
-              onChange={(event) => setDateTo(event.target.value)}
-              className="h-9"
-            />
+            <div className="flex flex-row gap-2 md:col-span-2">
+
+
+              <Input
+                type="date"
+                value={dateFrom}
+                onChange={(event) => setDateFrom(event.target.value)}
+                className="h-9 w-full min-w-0"
+              />
+              <Input
+                type="date"
+                value={dateTo}
+                onChange={(event) => setDateTo(event.target.value)}
+                className="h-9 w-full min-w-0"
+              />
+            </div>
             <Select value={status || "TODOS"} onValueChange={(value) => setStatus(value === "TODOS" ? "" : value)}>
-              <SelectTrigger className="h-9">
+              <SelectTrigger className="h-9 w-full">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
@@ -517,7 +532,7 @@ export default function FiscalTable({
               </SelectContent>
             </Select>
             <Select value={modelo || "TODOS"} onValueChange={(value) => setModelo(value === "TODOS" ? "" : value)}>
-              <SelectTrigger className="h-9">
+              <SelectTrigger className="h-9 w-full">
                 <SelectValue placeholder="Modelo" />
               </SelectTrigger>
               <SelectContent>
@@ -529,11 +544,12 @@ export default function FiscalTable({
             <Button
               type="button"
               variant="outline"
-              className="h-9"
-              onClick={() => handleGetNotas(1, pagination.limit)}
+              className="h-9 w-full min-w-0 sm:col-span-2 xl:col-span-1"
+              onClick={limparFiltros}
+              disabled={!search && !dateFrom && !dateTo && !status && !modelo}
             >
-              <RefreshCw className="h-4 w-4" />
-              Filtrar
+              <XCircle className="h-4 w-4" />
+              Limpar filtros
             </Button>
             
           </div>
@@ -588,7 +604,6 @@ export default function FiscalTable({
               <TableHead className="hidden lg:table-cell">Pessoa</TableHead>
               <TableHead className="hidden xl:table-cell">Chave</TableHead>
               <TableHead className="hidden md:table-cell">Status</TableHead>
-              <TableHead className="hidden lg:table-cell">Protocolo</TableHead>
               <TableHead className="text-right">Valor</TableHead>
               <TableHead className="text-right">Ações</TableHead>
             </TableRow>
@@ -597,7 +612,7 @@ export default function FiscalTable({
           <TableBody>
             {notas.length === 0 && !isLoading ? (
               <TableRow>
-                <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                   Nenhuma nota fiscal encontrada.
                 </TableCell>
               </TableRow>
@@ -632,7 +647,7 @@ export default function FiscalTable({
                 <TableRow key={nota.id} className="hover:cursor-pointer">
                   <TableCell>
                     <div className="flex flex-col gap-1">
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2 max-w-[200px] lg:max-w-[400px]">
                         <span className="font-medium">
                           {nota.modelo} {nota.numero}
                         </span>
@@ -652,9 +667,13 @@ export default function FiscalTable({
                       <span className="text-xs text-muted-foreground md:hidden">
                         {formatDate(nota.dataemissao)}
                       </span>
-                      <span className="text-xs text-muted-foreground lg:hidden">
+                      <span className="text-xs text-wrap text-muted-foreground lg:hidden">
                         {pessoa?.nomerazaosocial ?? "Pessoa não informada"}
                       </span>
+
+                      <Badge variant="outline" className={statusClass(nota.status)}>
+                      {traduzStatusNfe(nota.status)}
+                    </Badge>
                     </div>
                   </TableCell>
 
@@ -684,10 +703,6 @@ export default function FiscalTable({
                     <Badge variant="outline" className={statusClass(nota.status)}>
                       {traduzStatusNfe(nota.status)}
                     </Badge>
-                  </TableCell>
-
-                  <TableCell className="hidden max-w-[180px] truncate lg:table-cell">
-                    {nota.protocolo ?? "-"}
                   </TableCell>
 
                   <TableCell className="text-right font-medium">
