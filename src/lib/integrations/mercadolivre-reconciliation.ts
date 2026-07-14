@@ -231,6 +231,7 @@ export async function syncRecentMercadoLivreShipments(limit = 100) {
   const { data, error } = await supabaseAdmin
     .from("mercadolivre_order")
     .select("id, venda_id, ml_order_id")
+    .not("account_id", "is", null)
     .not("venda_id", "is", null)
     .not("ml_shipment_id", "is", null)
     .order("shipment_updated_at", { ascending: true, nullsFirst: true })

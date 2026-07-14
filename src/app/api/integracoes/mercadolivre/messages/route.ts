@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
     const orderDbId = req.nextUrl.searchParams.get("orderDbId");
     const limit = Math.min(Math.max(Number(req.nextUrl.searchParams.get("limit") ?? 20), 1), 50);
 
-    const orders = await getMessageOrders(account.empresa_id, orderDbId ? Number(orderDbId) : undefined);
+    const orders = await getMessageOrders(account.empresa_id, account.id, orderDbId ? Number(orderDbId) : undefined);
     const conversations = await Promise.all(
       orders.map(async (order) => {
         const packId = getPackId(order);
@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
 
     const account = await getActiveAccount(await requireEmpresaId());
     const accessToken = await ensureValidAccessToken(account);
-    const [order] = await getMessageOrders(account.empresa_id, orderDbId);
+    const [order] = await getMessageOrders(account.empresa_id, account.id, orderDbId);
     if (!order) return NextResponse.json({ error: "Pedido não encontrado." }, { status: 404 });
 
     const packId = getPackId(order);
@@ -175,11 +175,12 @@ async function ensureValidAccessToken(account: MercadoLivreAccount) {
   return token.access_token;
 }
 
-async function getMessageOrders(empresaId: number, orderDbId?: number) {
+async function getMessageOrders(empresaId: number, accountId: number, orderDbId?: number) {
   let query = supabaseAdmin
     .from("mercadolivre_order")
     .select("id, venda_id, ml_order_id, buyer_id, status, date_created, raw_order")
     .eq("empresa_id", empresaId)
+    .eq("account_id", accountId)
     .order("date_created", { ascending: false })
     .limit(orderDbId ? 1 : 10);
 

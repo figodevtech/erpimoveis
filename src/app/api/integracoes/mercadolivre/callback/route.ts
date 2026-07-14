@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
     const existingAccount = await getExistingAccount(empresaId);
     const accountChanged = Boolean(existingAccount && Number(existingAccount.ml_user_id) !== Number(user.id));
 
-    const { error: upsertError } = await supabaseAdmin
+    const { data: connectedAccount, error: upsertError } = await supabaseAdmin
       .from("mercadolivre_account")
       .upsert(
         {
@@ -50,12 +50,15 @@ export async function GET(req: NextRequest) {
           updated_at: new Date().toISOString(),
         },
         { onConflict: "empresa_id" }
-      );
+      )
+      .select("id")
+      .single();
 
     if (upsertError) throw upsertError;
     if (accountChanged && existingAccount) {
-      await prepareAccountReplacement(empresaId, Number(existingAccount.id));
+      await prepareAccountReplacement(empresaId, Number(existingAccount.id), Number(existingAccount.ml_user_id));
     }
+    await reattachSellerHistory(empresaId, Number(connectedAccount.id), Number(user.id));
 
     return htmlResponse(
       "Mercado Livre conectado",
@@ -78,17 +81,74 @@ async function getExistingAccount(empresaId: number) {
   return data ?? null;
 }
 
-async function prepareAccountReplacement(empresaId: number, accountId: number) {
-  for (const table of ["mercadolivre_order", "mercadolivre_notification", "mercadolivre_claim"]) {
+async function prepareAccountReplacement(empresaId: number, accountId: number, previousMlUserId: number) {
+  for (const table of ["mercadolivre_order", "mercadolivre_claim"]) {
     const { error } = await supabaseAdmin.from(table).update({ account_id: null }).eq("account_id", accountId);
     if (error) throw error;
   }
+
+  const { error: notificationDetachError } = await supabaseAdmin
+    .from("mercadolivre_notification")
+    .update({ account_id: null })
+    .eq("account_id", accountId);
+  if (notificationDetachError) throw notificationDetachError;
+
+  const { error: notificationCloseError } = await supabaseAdmin
+    .from("mercadolivre_notification")
+    .update({
+      status: "IGNORADA",
+      error: "Evento encerrado porque a conta Mercado Livre foi substituída.",
+      next_retry_at: null,
+      locked_at: null,
+      processed_at: new Date().toISOString(),
+    })
+    .eq("ml_user_id", previousMlUserId)
+    .in("status", ["RECEBIDA", "PROCESSANDO", "ERRO"]);
+  if (notificationCloseError) throw notificationCloseError;
 
   const { error: linksError } = await supabaseAdmin
     .from("mercadolivre_product_link")
     .delete()
     .eq("empresa_id", empresaId);
   if (linksError) throw linksError;
+}
+
+async function reattachSellerHistory(empresaId: number, accountId: number, mlUserId: number) {
+  const matchingOrderIds: number[] = [];
+  const pageSize = 500;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data: detachedOrders, error: ordersError } = await supabaseAdmin
+      .from("mercadolivre_order")
+      .select("id, raw_order")
+      .eq("empresa_id", empresaId)
+      .is("account_id", null)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + pageSize - 1);
+    if (ordersError) throw ordersError;
+
+    matchingOrderIds.push(
+      ...(detachedOrders ?? [])
+        .filter((order: any) => Number(order?.raw_order?.seller?.id ?? order?.raw_order?.seller_id ?? 0) === mlUserId)
+        .map((order: any) => Number(order.id))
+        .filter(Number.isFinite),
+    );
+    if ((detachedOrders ?? []).length < pageSize) break;
+  }
+
+  for (let index = 0; index < matchingOrderIds.length; index += 200) {
+    const orderIds = matchingOrderIds.slice(index, index + 200);
+    const { error: ordersUpdateError } = await supabaseAdmin
+      .from("mercadolivre_order")
+      .update({ account_id: accountId, updated_at: new Date().toISOString() })
+      .in("id", orderIds);
+    if (ordersUpdateError) throw ordersUpdateError;
+
+    const { error: claimsUpdateError } = await supabaseAdmin
+      .from("mercadolivre_claim")
+      .update({ account_id: accountId, updated_at: new Date().toISOString() })
+      .in("order_id", orderIds);
+    if (claimsUpdateError) throw claimsUpdateError;
+  }
 }
 
 function htmlResponse(title: string, message: string, status = 200) {

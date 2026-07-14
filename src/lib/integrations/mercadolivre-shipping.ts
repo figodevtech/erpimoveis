@@ -249,12 +249,13 @@ function getShipmentId(order: MercadoLivreOrderRecord) {
 }
 
 async function getAccount(order: MercadoLivreOrderRecord) {
+  if (!order.account_id) throw new Error("Este envio pertence a uma conta Mercado Livre anterior e não pode mais ser sincronizado.");
   let query = supabaseAdmin
     .from("mercadolivre_account")
     .select("id, empresa_id, access_token, refresh_token, expires_at")
     .eq("empresa_id", order.empresa_id);
 
-  if (order.account_id) query = query.eq("id", order.account_id);
+  query = query.eq("id", order.account_id);
 
   const { data, error } = await query.order("updated_at", { ascending: false }).limit(1).single();
   if (error) throw error;

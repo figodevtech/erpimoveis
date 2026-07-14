@@ -80,6 +80,7 @@ async function getStoredOrder(orderDbId: number, mlOrderId: number, empresaId: n
 }
 
 async function getAccount(accountId: number | null, empresaId: number) {
+  if (!accountId) throw new Error("Este pedido pertence a uma conta Mercado Livre anterior e não pode mais ser reembolsado pelo ERP.");
   let query = supabaseAdmin
     .from("mercadolivre_account")
     .select("id, empresa_id, ml_user_id, access_token, refresh_token, expires_at")
@@ -87,7 +88,7 @@ async function getAccount(accountId: number | null, empresaId: number) {
     .order("updated_at", { ascending: false })
     .limit(1);
 
-  if (accountId) query = query.eq("id", accountId);
+  query = query.eq("id", accountId);
 
   const { data, error } = await query.single();
   if (error) throw error;

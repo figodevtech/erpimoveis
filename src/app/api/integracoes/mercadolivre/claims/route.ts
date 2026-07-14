@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
     const mlOrderId = Number(req.nextUrl.searchParams.get("mlOrderId") ?? 0);
     const account = await getActiveAccount(await requireEmpresaId());
     const accessToken = await ensureValidAccessToken(account);
-    const orders = await getOrders(account.empresa_id, orderDbId, mlOrderId);
+    const orders = await getOrders(account.empresa_id, account.id, orderDbId, mlOrderId);
     const notifications = await getClaimNotifications(account);
     const searchedClaims = await searchClaims(accessToken);
     const candidates = dedupeClaimCandidates([
@@ -112,7 +112,7 @@ export async function GET(req: NextRequest) {
       await persistClaims(account, filteredClaims);
       await syncOrdersFromClaims(account, accessToken, filteredClaims);
     }
-    const storedClaims = await getStoredClaims(account.empresa_id, orderDbId, mlOrderId);
+    const storedClaims = await getStoredClaims(account.empresa_id, account.id, orderDbId, mlOrderId);
 
     return NextResponse.json({ data: storedClaims.map(normalizeStoredClaim) });
   } catch (e: any) {
@@ -210,11 +210,12 @@ async function ensureValidAccessToken(account: MercadoLivreAccount) {
   return token.access_token;
 }
 
-async function getOrders(empresaId: number, orderDbId: number, mlOrderId: number) {
+async function getOrders(empresaId: number, accountId: number, orderDbId: number, mlOrderId: number) {
   let query = supabaseAdmin
     .from("mercadolivre_order")
     .select("id, empresa_id, ml_order_id, ml_shipment_id")
     .eq("empresa_id", empresaId)
+    .eq("account_id", accountId)
     .limit(50);
 
   if (Number.isFinite(orderDbId) && orderDbId > 0) query = query.eq("id", orderDbId);
@@ -340,11 +341,12 @@ async function syncOrdersFromClaims(account: MercadoLivreAccount, accessToken: s
   }
 }
 
-async function getStoredClaims(empresaId: number, orderDbId: number, mlOrderId: number) {
+async function getStoredClaims(empresaId: number, accountId: number, orderDbId: number, mlOrderId: number) {
   let query = supabaseAdmin
     .from("mercadolivre_claim")
     .select("id, order_id, ml_order_id, ml_shipment_id, ml_claim_id, status, stage, claim_type, reason, title, due_date, closed_at, resolution, available_actions, players, resource, raw_claim, return_id, return_status, return_tracking_number, return_shipment_id, raw_return, partial_refund_offers, return_updated_at, last_error, synced_at")
     .eq("empresa_id", empresaId)
+    .eq("account_id", accountId)
     .order("synced_at", { ascending: false })
     .limit(100);
 

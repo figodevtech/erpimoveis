@@ -65,13 +65,13 @@ export async function DELETE() {
     const empresaId = await requireEmpresaId();
     const { data: account, error: accountError } = await supabaseAdmin
       .from("mercadolivre_account")
-      .select("id")
+      .select("id, ml_user_id")
       .eq("empresa_id", empresaId)
       .maybeSingle();
     if (accountError) throw accountError;
     if (!account) return NextResponse.json({ ok: true });
 
-    await detachHistoricalRecords(Number(account.id));
+    await detachHistoricalRecords(Number(account.id), Number(account.ml_user_id));
 
     const { error: linksError } = await supabaseAdmin
       .from("mercadolivre_product_link")
@@ -95,9 +95,28 @@ export async function DELETE() {
   }
 }
 
-async function detachHistoricalRecords(accountId: number) {
-  for (const table of ["mercadolivre_order", "mercadolivre_notification", "mercadolivre_claim"]) {
+async function detachHistoricalRecords(accountId: number, mlUserId: number) {
+  for (const table of ["mercadolivre_order", "mercadolivre_claim"]) {
     const { error } = await supabaseAdmin.from(table).update({ account_id: null }).eq("account_id", accountId);
     if (error) throw error;
   }
+
+  const { error: notificationDetachError } = await supabaseAdmin
+    .from("mercadolivre_notification")
+    .update({ account_id: null })
+    .eq("account_id", accountId);
+  if (notificationDetachError) throw notificationDetachError;
+
+  const { error: notificationCloseError } = await supabaseAdmin
+    .from("mercadolivre_notification")
+    .update({
+      status: "IGNORADA",
+      error: "Evento encerrado porque a conta Mercado Livre foi desconectada.",
+      next_retry_at: null,
+      locked_at: null,
+      processed_at: new Date().toISOString(),
+    })
+    .eq("ml_user_id", mlUserId)
+    .in("status", ["RECEBIDA", "PROCESSANDO", "ERRO"]);
+  if (notificationCloseError) throw notificationCloseError;
 }

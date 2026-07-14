@@ -37,7 +37,7 @@ export async function syncMercadoLivreOrders(params?: { accountId?: number; empr
     const dateTo = new Date().toISOString();
     const pageSize = Math.min(Math.max(params?.limit ?? 50, 1), 50);
     const searchedOrderIds = await searchAllUpdatedOrderIds(accessToken, account.ml_user_id, dateFrom, dateTo, pageSize);
-    const storedOrderIds = await getStoredOrderIdsForReconciliation(account.empresa_id, 50);
+    const storedOrderIds = await getStoredOrderIdsForReconciliation(account.empresa_id, account.id, 50);
     const orderIds = Array.from(new Set([...searchedOrderIds, ...storedOrderIds]));
 
     for (let index = 0; index < orderIds.length; index += 5) {
@@ -98,11 +98,12 @@ async function searchAllUpdatedOrderIds(accessToken: string, sellerId: number, d
   return Array.from(orderIds);
 }
 
-async function getStoredOrderIdsForReconciliation(empresaId: number, limit: number) {
+async function getStoredOrderIdsForReconciliation(empresaId: number, accountId: number, limit: number) {
   const { data, error } = await supabaseAdmin
     .from("mercadolivre_order")
     .select("ml_order_id")
     .eq("empresa_id", empresaId)
+    .eq("account_id", accountId)
     .order("last_synced_at", { ascending: true, nullsFirst: true })
     .limit(Math.min(Math.max(limit, 1), 200));
   if (error) throw error;

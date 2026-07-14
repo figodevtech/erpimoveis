@@ -19,6 +19,7 @@ export async function GET() {
     if (accountsError) throw accountsError;
 
     const accountUserIds = (accounts ?? []).map((account: any) => Number(account.ml_user_id));
+    const accountIds = (accounts ?? []).map((account: any) => Number(account.id));
     const performanceStart = startOfUtcDay(-29);
 
     const [
@@ -32,12 +33,15 @@ export async function GET() {
       { data: operationalOrders, error: operationalOrdersError },
     ] =
       await Promise.all([
-        supabaseAdmin
-          .from("mercadolivre_order")
-          .select("id, empresa_id, venda_id, ml_order_id, status, status_detail, payment_status, payment_status_detail, order_tags, date_closed, cancel_group, cancel_code, cancel_description, cancel_requested_by, cancel_date, feedback_sale, total_amount, currency_id, date_created, ml_shipment_id, shipment_status, shipment_substatus, shipping_mode, logistic_type, tracking_number, tracking_method, shipment_cost, shipment_label_ready, shipment_label_error, shipment_label_checked_at, shipment_handling_deadline, shipment_estimated_delivery_from, shipment_estimated_delivery_to, shipment_last_event_at, nfe_id, ml_invoice_id, invoice_status, invoice_fiscal_key, invoice_error, invoice_sent_at, invoice_updated_at, raw_invoice, import_status, import_locked_at, import_error, raw_order, raw_payments, raw_shipment, raw_shipment_costs, raw_shipment_items, shipment_updated_at, last_synced_at, created_at")
-          .eq("empresa_id", empresaId)
-          .order("created_at", { ascending: false })
-          .limit(20),
+        accountIds.length
+          ? supabaseAdmin
+              .from("mercadolivre_order")
+              .select("id, empresa_id, venda_id, ml_order_id, status, status_detail, payment_status, payment_status_detail, order_tags, date_closed, cancel_group, cancel_code, cancel_description, cancel_requested_by, cancel_date, feedback_sale, total_amount, currency_id, date_created, ml_shipment_id, shipment_status, shipment_substatus, shipping_mode, logistic_type, tracking_number, tracking_method, shipment_cost, shipment_label_ready, shipment_label_error, shipment_label_checked_at, shipment_handling_deadline, shipment_estimated_delivery_from, shipment_estimated_delivery_to, shipment_last_event_at, nfe_id, ml_invoice_id, invoice_status, invoice_fiscal_key, invoice_error, invoice_sent_at, invoice_updated_at, raw_invoice, import_status, import_locked_at, import_error, raw_order, raw_payments, raw_shipment, raw_shipment_costs, raw_shipment_items, shipment_updated_at, last_synced_at, created_at")
+              .eq("empresa_id", empresaId)
+              .in("account_id", accountIds)
+              .order("created_at", { ascending: false })
+              .limit(20)
+          : Promise.resolve({ data: [], error: null }),
         accountUserIds.length
           ? supabaseAdmin
               .from("mercadolivre_notification")
@@ -52,13 +56,16 @@ export async function GET() {
           .eq("empresa_id", empresaId)
           .gte("metric_date", performanceStart.slice(0, 10))
           .order("metric_date", { ascending: true }),
-        supabaseAdmin
-          .from("mercadolivre_order")
-          .select("ml_order_id, status, payment_status, payment_status_detail, order_tags, date_created, total_amount, raw_order")
-          .eq("empresa_id", empresaId)
-          .gte("date_created", performanceStart)
-          .order("date_created", { ascending: true })
-          .limit(1000),
+        accountIds.length
+          ? supabaseAdmin
+              .from("mercadolivre_order")
+              .select("ml_order_id, status, payment_status, payment_status_detail, order_tags, date_created, total_amount, raw_order")
+              .eq("empresa_id", empresaId)
+              .in("account_id", accountIds)
+              .gte("date_created", performanceStart)
+              .order("date_created", { ascending: true })
+              .limit(1000)
+          : Promise.resolve({ data: [], error: null }),
         supabaseAdmin
           .from("mercadolivre_product_link")
           .select("visits_total, sold_quantity, metrics_updated_at, metrics_history_updated_at")
@@ -74,12 +81,15 @@ export async function GET() {
           .select("id, job_name, trigger_source, status, summary, error, started_at, completed_at, duration_ms")
           .order("started_at", { ascending: false })
           .limit(20),
-        supabaseAdmin
-          .from("mercadolivre_order")
-          .select("id, import_status, import_error, invoice_status, invoice_error, shipment_label_error, last_synced_at")
-          .eq("empresa_id", empresaId)
-          .order("created_at", { ascending: false })
-          .limit(200),
+        accountIds.length
+          ? supabaseAdmin
+              .from("mercadolivre_order")
+              .select("id, import_status, import_error, invoice_status, invoice_error, shipment_label_error, last_synced_at")
+              .eq("empresa_id", empresaId)
+              .in("account_id", accountIds)
+              .order("created_at", { ascending: false })
+              .limit(200)
+          : Promise.resolve({ data: [], error: null }),
       ]);
 
     if (ordersError) throw ordersError;

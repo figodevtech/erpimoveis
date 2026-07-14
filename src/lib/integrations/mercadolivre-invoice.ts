@@ -98,6 +98,7 @@ export async function syncRecentMercadoLivreInvoices(limit = 20) {
   const { data, error } = await supabaseAdmin
     .from("mercadolivre_order")
     .select("id, empresa_id")
+    .not("account_id", "is", null)
     .not("invoice_sent_at", "is", null)
     .not("ml_shipment_id", "is", null)
     .order("invoice_updated_at", { ascending: true, nullsFirst: true })
@@ -145,13 +146,14 @@ async function getLatestNfe(order: StoredOrder) {
 }
 
 async function getAccount(order: StoredOrder) {
+  if (!order.account_id) throw new Error("Este pedido pertence a uma conta Mercado Livre anterior e não pode mais enviar NF-e.");
   let query = supabaseAdmin
     .from("mercadolivre_account")
     .select("id, access_token, refresh_token, expires_at, site_id")
     .eq("empresa_id", order.empresa_id)
     .order("updated_at", { ascending: false })
     .limit(1);
-  if (order.account_id) query = query.eq("id", order.account_id);
+  query = query.eq("id", order.account_id);
 
   const { data, error } = await query.single();
   if (error) throw error;

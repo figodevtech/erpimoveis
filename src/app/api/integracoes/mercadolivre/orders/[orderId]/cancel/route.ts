@@ -121,13 +121,14 @@ async function assertOrderCanBeCancelled(order: any) {
 }
 
 async function getAccount(accountId: number | null, empresaId: number) {
+  if (!accountId) throw new Error("Este pedido pertence a uma conta Mercado Livre anterior e não pode mais ser alterado.");
   let query = supabaseAdmin
     .from("mercadolivre_account")
     .select("id, empresa_id, ml_user_id, access_token, refresh_token, expires_at")
     .eq("empresa_id", empresaId)
     .order("updated_at", { ascending: false })
     .limit(1);
-  if (accountId) query = query.eq("id", accountId);
+  query = query.eq("id", accountId);
   const { data, error } = await query.single();
   if (error) throw error;
   return data as Account;

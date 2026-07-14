@@ -236,12 +236,13 @@ async function validateCustomShipmentOperation(order: MercadoLivreOrder) {
 }
 
 async function getAccount(order: MercadoLivreOrder) {
+  if (!order.account_id) throw new Error("Este pedido pertence a uma conta Mercado Livre anterior e não pode mais receber atualizações de envio.");
   let query = supabaseAdmin
     .from("mercadolivre_account")
     .select("id, empresa_id, ml_user_id, access_token, refresh_token, expires_at, site_id")
     .eq("empresa_id", order.empresa_id);
 
-  if (order.account_id) query = query.eq("id", order.account_id);
+  query = query.eq("id", order.account_id);
 
   const { data, error } = await query.order("updated_at", { ascending: false }).limit(1).single();
   if (error) throw error;

@@ -28,8 +28,18 @@ type Account = {
 
 export async function receiveMercadoLivreNotification(payload: NotificationPayload) {
   validateNotificationApplication(payload);
+  const mlUserId = toNullableNumber(payload.user_id);
+  if (!mlUserId) return { ignored: true, queued: false, reason: "Notificação sem usuário vendedor." };
+  const { data: activeAccount, error: accountError } = await supabaseAdmin
+    .from("mercadolivre_account")
+    .select("id")
+    .eq("ml_user_id", mlUserId)
+    .maybeSingle();
+  if (accountError) throw accountError;
+  if (!activeAccount) return { ignored: true, queued: false, reason: "Conta vendedora não vinculada a este ERP." };
+
   const dedupeKey = buildDedupeKey(payload);
-  const notification = await insertOrGetNotification(payload, dedupeKey);
+  const notification = await insertOrGetNotification(payload, dedupeKey, Number(activeAccount.id));
   return { duplicate: notification.duplicate, queued: true, notificationId: notification.id };
 }
 
@@ -89,6 +99,7 @@ export async function syncMercadoLivreMissedFeeds(params?: { pageSize?: number; 
 }
 
 export async function retryMercadoLivreNotifications(limit = 50) {
+  await ignoreOrphanedNotifications();
   const { data, error } = await supabaseAdmin.rpc("fn_reservar_notificacoes_mercadolivre", {
     p_limit: Math.min(Math.max(limit, 1), 100),
   });
@@ -106,6 +117,40 @@ export async function retryMercadoLivreNotifications(limit = 50) {
     }
   }
   return results;
+}
+
+async function ignoreOrphanedNotifications() {
+  const [{ data: accounts, error: accountsError }, { data: pending, error: pendingError }] = await Promise.all([
+    supabaseAdmin.from("mercadolivre_account").select("ml_user_id"),
+    supabaseAdmin
+      .from("mercadolivre_notification")
+      .select("id, ml_user_id")
+      .in("status", ["RECEBIDA", "PROCESSANDO", "ERRO"])
+      .order("created_at", { ascending: true })
+      .limit(1000),
+  ]);
+  if (accountsError) throw accountsError;
+  if (pendingError) throw pendingError;
+
+  const activeUserIds = new Set((accounts ?? []).map((account) => Number(account.ml_user_id)).filter(Number.isFinite));
+  const orphanedIds = (pending ?? [])
+    .filter((notification) => !activeUserIds.has(Number(notification.ml_user_id)))
+    .map((notification) => Number(notification.id))
+    .filter(Number.isFinite);
+  if (!orphanedIds.length) return;
+
+  const { error } = await supabaseAdmin
+    .from("mercadolivre_notification")
+    .update({
+      account_id: null,
+      status: "IGNORADA",
+      error: "Evento encerrado porque a conta vendedora não está mais vinculada.",
+      next_retry_at: null,
+      locked_at: null,
+      processed_at: new Date().toISOString(),
+    })
+    .in("id", orphanedIds);
+  if (error) throw error;
 }
 
 async function processNotification(notificationId: number, attempts: number) {
@@ -231,6 +276,7 @@ async function processShipment(account: Account, accessToken: string, resource: 
     .from("mercadolivre_order")
     .select("venda_id")
     .eq("empresa_id", account.empresa_id)
+    .eq("account_id", account.id)
     .eq("ml_shipment_id", Number(shipmentId))
     .maybeSingle();
   if (error) throw error;
@@ -270,7 +316,7 @@ async function processClaim(account: Account, accessToken: string, resource: str
   const claimId = extractResourceId(resource);
   if (!claimId) throw new Error("Notificação de reclamação sem claim_id.");
   const claim = await mercadoPagoApiGet(accessToken, `/post-purchase/v1/claims/${encodeURIComponent(claimId)}`);
-  const order = await findRelatedOrder(account.empresa_id, claim);
+  const order = await findRelatedOrder(account.empresa_id, account.id, claim);
   if (!order) throw new Error(`Reclamação ${claimId} sem pedido vinculado no ERP.`);
 
   const nowIso = new Date().toISOString();
@@ -302,9 +348,9 @@ async function processClaim(account: Account, accessToken: string, resource: str
   if (error) throw error;
 }
 
-async function insertOrGetNotification(payload: NotificationPayload, dedupeKey: string) {
+async function insertOrGetNotification(payload: NotificationPayload, dedupeKey: string, accountId: number) {
   const row = {
-    account_id: null,
+    account_id: accountId,
     topic: payload.topic ?? null,
     resource: payload.resource ?? null,
     ml_user_id: toNullableNumber(payload.user_id),
@@ -394,7 +440,10 @@ async function getNotificationAccount(accountId: number | null, mlUserId: number
     .from("mercadolivre_account")
     .select("id, empresa_id, ml_user_id, access_token, refresh_token, expires_at")
     .limit(1);
-  if (accountId) query = query.eq("id", accountId);
+  if (accountId) {
+    query = query.eq("id", accountId);
+    if (mlUserId) query = query.eq("ml_user_id", mlUserId);
+  }
   else if (mlUserId) query = query.eq("ml_user_id", mlUserId);
   else return null;
 
@@ -424,13 +473,14 @@ async function ensureValidAccessToken(account: Account) {
   return token.access_token;
 }
 
-async function findRelatedOrder(empresaId: number, claim: any) {
+async function findRelatedOrder(empresaId: number, accountId: number, claim: any) {
   const raw = JSON.stringify(claim ?? {});
   const resourceId = Number(claim?.resource_id ?? claim?.resource?.id ?? 0);
   const { data, error } = await supabaseAdmin
     .from("mercadolivre_order")
     .select("id, ml_order_id, ml_shipment_id")
     .eq("empresa_id", empresaId)
+    .eq("account_id", accountId)
     .order("created_at", { ascending: false })
     .limit(100);
   if (error) throw error;
