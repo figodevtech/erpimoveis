@@ -7,7 +7,7 @@ export async function syncMercadoLivreProductLinks(providedLinks?: any[]) {
   if (!links) {
     const result = await supabaseAdmin
       .from("mercadolivre_product_link")
-      .select("id, empresa_id, produto_id, ml_item_id, ml_variation_id, title, permalink, status, visits_total, sold_quantity, available_quantity, listing_type_id, item_condition, health, catalog_listing, stop_time, metrics_updated_at, updated_at")
+      .select("id, empresa_id, produto_id, ml_item_id, ml_variation_id, title, permalink, status, user_product_id, family_id, family_name, domain_id, catalog_product_id, user_product_enabled, item_tags, visits_total, sold_quantity, available_quantity, listing_type_id, item_condition, health, catalog_listing, stop_time, metrics_updated_at, updated_at")
       .order("updated_at", { ascending: true })
       .limit(100);
     if (result.error) throw result.error;
@@ -38,11 +38,21 @@ export async function syncMercadoLivreProductLinks(providedLinks?: any[]) {
 
       try {
         const item = await mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(String(link.ml_item_id))}`);
+        const userProduct = item?.user_product_id && (!link.family_id || link.user_product_id !== item.user_product_id)
+          ? await mercadoLivreApiGet<any>(accessToken, `/user-products/${encodeURIComponent(String(item.user_product_id))}`).catch(() => null)
+          : null;
         const synchronized = {
           ...link,
           status: item?.status ?? link.status,
           title: item?.title ?? link.title,
           permalink: item?.permalink ?? link.permalink,
+          user_product_id: item?.user_product_id ?? link.user_product_id ?? null,
+          family_id: userProduct?.family_id ?? item?.family_id ?? link.family_id ?? null,
+          family_name: item?.family_name ?? userProduct?.family_name ?? link.family_name ?? null,
+          domain_id: item?.domain_id ?? userProduct?.domain_id ?? link.domain_id ?? null,
+          catalog_product_id: item?.catalog_product_id ?? userProduct?.catalog_product_id ?? link.catalog_product_id ?? null,
+          user_product_enabled: Boolean(item?.family_name || item?.user_product_id),
+          item_tags: Array.isArray(item?.tags) ? item.tags : link.item_tags ?? [],
           visits_total: visitsByItem.get(String(link.ml_item_id).toUpperCase()) ?? link.visits_total ?? null,
           sold_quantity: numberOrNull(item?.sold_quantity) ?? link.sold_quantity ?? null,
           available_quantity: numberOrNull(item?.available_quantity) ?? link.available_quantity ?? null,
@@ -60,6 +70,13 @@ export async function syncMercadoLivreProductLinks(providedLinks?: any[]) {
             status: synchronized.status,
             title: synchronized.title,
             permalink: synchronized.permalink,
+            user_product_id: synchronized.user_product_id,
+            family_id: synchronized.family_id,
+            family_name: synchronized.family_name,
+            domain_id: synchronized.domain_id,
+            catalog_product_id: synchronized.catalog_product_id,
+            user_product_enabled: synchronized.user_product_enabled,
+            item_tags: synchronized.item_tags,
             visits_total: synchronized.visits_total,
             sold_quantity: synchronized.sold_quantity,
             available_quantity: synchronized.available_quantity,
@@ -69,7 +86,7 @@ export async function syncMercadoLivreProductLinks(providedLinks?: any[]) {
             catalog_listing: synchronized.catalog_listing,
             stop_time: synchronized.stop_time,
             metrics_updated_at: synchronized.metrics_updated_at,
-            raw_item: item ?? {},
+            raw_item: userProduct ? { ...item, _erp_user_product: userProduct } : item ?? {},
             updated_at: synchronized.updated_at,
           })
           .eq("id", link.id);

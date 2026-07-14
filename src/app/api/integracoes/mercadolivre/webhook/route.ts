@@ -8,12 +8,17 @@ export async function POST(req: NextRequest) {
   try {
     const payload = await req.json();
     const result = await receiveMercadoLivreNotification(payload);
-    return NextResponse.json({ ok: true, ...result });
+    return NextResponse.json(
+      { ok: true, ...result },
+      { status: 200, headers: { "Cache-Control": "no-store" } },
+    );
   } catch (error: any) {
-    // O Mercado Livre deve receber 200 para não criar uma tempestade de retries.
-    // A falha fica persistida e será retomada pela rotina de reconciliação.
     console.error("POST /api/integracoes/mercadolivre/webhook", error);
-    return NextResponse.json({ ok: true, queued: true }, { status: 200 });
+    // Sem persistência, não confirmamos o recebimento para que o Mercado Livre reenvie o evento.
+    return NextResponse.json(
+      { ok: false, queued: false, error: "Não foi possível registrar a notificação." },
+      { status: 503, headers: { "Cache-Control": "no-store" } },
+    );
   }
 }
 

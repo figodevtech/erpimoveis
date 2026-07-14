@@ -18,6 +18,8 @@ type ListingType = {
   name?: string;
 };
 
+type SellerProfile = { tags?: string[] };
+
 export async function GET() {
   try {
     await requireVendasAccess();
@@ -26,12 +28,21 @@ export async function GET() {
     try {
       const account = await getValidMercadoLivreAccount(empresaId);
       const siteId = account.site_id || "MLB";
-      const listingTypes = await mercadoLivreApiGet<ListingType[]>(account.access_token, `/sites/${encodeURIComponent(siteId)}/listing_types`);
+      const [listingTypes, seller] = await Promise.all([
+        mercadoLivreApiGet<ListingType[]>(account.access_token, `/sites/${encodeURIComponent(siteId)}/listing_types`).catch(() => []),
+        mercadoLivreApiGet<SellerProfile>(account.access_token, `/users/${account.ml_user_id}`),
+      ]);
       const data = (listingTypes ?? [])
         .filter((item) => item.id)
         .map((item) => ({ id: item.id, name: item.name ?? item.id }));
 
-      return NextResponse.json({ listingTypes: data.length ? data : FALLBACK_LISTING_TYPES, source: data.length ? "mercadolivre" : "fallback" });
+      const sellerTags = Array.isArray(seller?.tags) ? seller.tags.map(String) : [];
+      return NextResponse.json({
+        listingTypes: data.length ? data : FALLBACK_LISTING_TYPES,
+        source: data.length ? "mercadolivre" : "fallback",
+        sellerTags,
+        userProductSeller: sellerTags.includes("user_product_seller"),
+      });
     } catch {
       return NextResponse.json({ listingTypes: FALLBACK_LISTING_TYPES, source: "fallback" });
     }

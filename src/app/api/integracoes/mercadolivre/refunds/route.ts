@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     }
 
     const order = await getStoredOrder(orderDbId, mlOrderId, empresaId);
-    const account = await getAccount(order.account_id);
+    const account = await getAccount(order.account_id, empresaId);
     const accessToken = await ensureValidAccessToken(account);
     const payment = getRefundablePayment(order, requestedPaymentId);
 
@@ -79,10 +79,11 @@ async function getStoredOrder(orderDbId: number, mlOrderId: number, empresaId: n
   return data as any;
 }
 
-async function getAccount(accountId: number | null) {
+async function getAccount(accountId: number | null, empresaId: number) {
   let query = supabaseAdmin
     .from("mercadolivre_account")
     .select("id, empresa_id, ml_user_id, access_token, refresh_token, expires_at")
+    .eq("empresa_id", empresaId)
     .order("updated_at", { ascending: false })
     .limit(1);
 

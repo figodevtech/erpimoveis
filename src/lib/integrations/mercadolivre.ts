@@ -49,6 +49,22 @@ export type MercadoLivreOrder = {
   shipping?: {
     id?: number;
   };
+  payments?: Array<Record<string, unknown>>;
+  tags?: string[];
+  status_detail?: string;
+  date_closed?: string;
+  cancel_detail?: {
+    group?: string;
+    code?: string;
+    description?: string;
+    requested_by?: string;
+    date?: string;
+  } | null;
+  feedback?: {
+    sale?: number | string | Record<string, unknown> | null;
+    purchase?: number | string | Record<string, unknown> | null;
+  } | null;
+  feedback_detail?: Record<string, unknown> | null;
   [key: string]: unknown;
 };
 
@@ -169,6 +185,8 @@ export async function searchMercadoLivreOrders(
     offset?: number;
     limit?: number;
     orderDateFrom?: string;
+    orderDateLastUpdatedFrom?: string;
+    orderDateLastUpdatedTo?: string;
   },
 ) {
   const searchParams = new URLSearchParams({
@@ -180,6 +198,12 @@ export async function searchMercadoLivreOrders(
 
   if (params.orderDateFrom) {
     searchParams.set("order.date_created.from", params.orderDateFrom);
+  }
+  if (params.orderDateLastUpdatedFrom) {
+    searchParams.set("order.date_last_updated.from", params.orderDateLastUpdatedFrom);
+  }
+  if (params.orderDateLastUpdatedTo) {
+    searchParams.set("order.date_last_updated.to", params.orderDateLastUpdatedTo);
   }
 
   return mercadoLivreApiGet<{

@@ -18,6 +18,10 @@ type MercadoLivreAttribute = {
     fixed?: boolean;
     hidden?: boolean;
     read_only?: boolean;
+    variation_attribute?: boolean;
+    allow_variations?: boolean;
+    parent_pk?: boolean;
+    child_pk?: boolean;
   };
   values?: Array<{ id?: string; name?: string }>;
   allowed_units?: Array<{ id?: string; name?: string }>;
@@ -25,6 +29,7 @@ type MercadoLivreAttribute = {
   hint?: string;
   tooltip?: string;
   attribute_group_name?: string;
+  hierarchy?: string;
 };
 
 type CategoryDetail = {
@@ -78,6 +83,13 @@ export async function GET(req: NextRequest) {
         defaultUnit: attribute.default_unit ?? null,
         hint: attribute.hint || attribute.tooltip || null,
         groupName: attribute.attribute_group_name ?? null,
+        role: String(attribute.hierarchy ?? "").toUpperCase() === "PARENT_PK" || attribute.tags?.parent_pk
+          ? "parent"
+          : String(attribute.hierarchy ?? "").toUpperCase() === "CHILD_PK" || attribute.tags?.child_pk
+            ? "child"
+            : attribute.tags?.variation_attribute || attribute.tags?.allow_variations
+              ? "variation"
+              : "standard",
       }))
       .sort((a, b) => Number(b.required) - Number(a.required));
 

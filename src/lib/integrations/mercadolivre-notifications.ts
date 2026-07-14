@@ -28,62 +28,101 @@ type Account = {
 
 export async function receiveMercadoLivreNotification(payload: NotificationPayload) {
   validateNotificationApplication(payload);
-  const mlUserId = toNullableNumber(payload.user_id);
-  const account = mlUserId ? await findAccountByUserId(mlUserId) : null;
   const dedupeKey = buildDedupeKey(payload);
-  const notification = await insertOrGetNotification(account, payload, dedupeKey);
+  const notification = await insertOrGetNotification(payload, dedupeKey);
+  return { duplicate: notification.duplicate, queued: true, notificationId: notification.id };
+}
 
-  if (String(notification.status).toUpperCase() === "PROCESSADA") {
-    return { duplicate: true, notificationId: notification.id };
+export async function syncMercadoLivreMissedFeeds(params?: { pageSize?: number; maxPages?: number }) {
+  const applicationId = String(process.env.MERCADOLIVRE_CLIENT_ID ?? "").trim();
+  if (!applicationId) throw new Error("MERCADOLIVRE_CLIENT_ID ausente para consultar notificações perdidas.");
+
+  const { data: accounts, error } = await supabaseAdmin
+    .from("mercadolivre_account")
+    .select("id, empresa_id, ml_user_id, access_token, refresh_token, expires_at")
+    .order("updated_at", { ascending: false });
+  if (error) throw error;
+
+  const knownUserIds = new Set((accounts ?? []).map((account) => Number(account.ml_user_id)).filter(Number.isFinite));
+  const pageSize = Math.min(Math.max(params?.pageSize ?? 50, 1), 100);
+  const maxPages = Math.min(Math.max(params?.maxPages ?? 20, 1), 100);
+  const results: Array<{ accountId: number; notificationId?: number; duplicate?: boolean; skipped?: string; error?: string }> = [];
+
+  for (const storedAccount of (accounts ?? []) as Account[]) {
+    try {
+      const accessToken = await ensureValidAccessToken(storedAccount);
+      let offset = 0;
+
+      for (let pageNumber = 0; pageNumber < maxPages; pageNumber += 1) {
+        const params = new URLSearchParams({ app_id: applicationId, offset: String(offset), limit: String(pageSize) });
+        const response = await mercadoLivreApiGet<{ messages?: unknown[] }>(accessToken, `/missed_feeds?${params.toString()}`);
+        const messages = Array.isArray(response.messages) ? response.messages : [];
+
+        for (const rawMessage of messages) {
+          const payload = normalizeMissedFeedPayload(rawMessage);
+          const mlUserId = toNullableNumber(payload?.user_id);
+          if (!payload || !mlUserId || !knownUserIds.has(mlUserId)) {
+            results.push({ accountId: storedAccount.id, skipped: "Notificação perdida sem conta vinculada neste ERP." });
+            continue;
+          }
+
+          const queued = await receiveMercadoLivreNotification(payload);
+          results.push({
+            accountId: storedAccount.id,
+            notificationId: Number(queued.notificationId),
+            duplicate: queued.duplicate,
+          });
+        }
+
+        if (messages.length < pageSize) break;
+        offset += messages.length;
+      }
+
+      // O feed é da aplicação; após uma consulta bem-sucedida, outra conta retornaria os mesmos eventos.
+      break;
+    } catch (feedError: any) {
+      results.push({ accountId: storedAccount.id, error: feedError?.message || "Falha ao consultar notificações perdidas." });
+    }
   }
 
-  await processNotification(notification.id);
-  return { duplicate: false, notificationId: notification.id };
+  return results;
 }
 
 export async function retryMercadoLivreNotifications(limit = 50) {
-  const nowIso = new Date().toISOString();
-  const { data, error } = await supabaseAdmin
-    .from("mercadolivre_notification")
-    .select("id")
-    .in("status", ["RECEBIDA", "ERRO"])
-    .or(`next_retry_at.is.null,next_retry_at.lte.${nowIso}`)
-    .order("created_at", { ascending: true })
-    .limit(Math.min(Math.max(limit, 1), 100));
+  const { data, error } = await supabaseAdmin.rpc("fn_reservar_notificacoes_mercadolivre", {
+    p_limit: Math.min(Math.max(limit, 1), 100),
+  });
 
   if (error) throw error;
 
   const results = [];
   for (const notification of data ?? []) {
+    const notificationId = Number(notification.notification_id);
     try {
-      await processNotification(Number(notification.id));
-      results.push({ id: Number(notification.id), ok: true });
+      await processNotification(notificationId, Number(notification.processing_attempts ?? 1));
+      results.push({ id: notificationId, ok: true });
     } catch (error: any) {
-      results.push({ id: Number(notification.id), ok: false, error: error?.message || "Falha ao reprocessar notificação." });
+      results.push({ id: notificationId, ok: false, error: error?.message || "Falha ao reprocessar notificação." });
     }
   }
   return results;
 }
 
-async function processNotification(notificationId: number) {
+async function processNotification(notificationId: number, attempts: number) {
   const { data: notification, error } = await supabaseAdmin
     .from("mercadolivre_notification")
-    .select("id, account_id, ml_user_id, topic, resource, raw_payload, status, processing_attempts")
+    .select("id, account_id, ml_user_id, topic, resource, raw_payload, status")
     .eq("id", notificationId)
     .single();
 
   if (error) throw error;
-  if (String(notification.status).toUpperCase() === "PROCESSADA") return;
+  if (String(notification.status).toUpperCase() !== "PROCESSANDO") return;
 
-  const attempts = Number(notification.processing_attempts ?? 0) + 1;
-  await supabaseAdmin
-    .from("mercadolivre_notification")
-    .update({ status: "PROCESSANDO", processing_attempts: attempts, error: null })
-    .eq("id", notificationId);
-
+  let resolvedAccountId: number | null = notification.account_id ? Number(notification.account_id) : null;
   try {
     const account = await getNotificationAccount(notification.account_id, notification.ml_user_id);
     if (!account) throw new Error("Conta Mercado Livre não encontrada para a notificação.");
+    resolvedAccountId = account.id;
     const accessToken = await ensureValidAccessToken(account);
     const topic = String(notification.topic ?? "").toLowerCase();
     const resource = String(notification.resource ?? "");
@@ -115,10 +154,12 @@ async function processNotification(notificationId: number) {
     const { error: updateError } = await supabaseAdmin
       .from("mercadolivre_notification")
       .update({
+        account_id: resolvedAccountId,
         status: finalStatus,
         error: finalError,
         processed_at: new Date().toISOString(),
         next_retry_at: null,
+        locked_at: null,
       })
       .eq("id", notificationId);
     if (updateError) throw updateError;
@@ -127,9 +168,11 @@ async function processNotification(notificationId: number) {
     await supabaseAdmin
       .from("mercadolivre_notification")
       .update({
+        account_id: resolvedAccountId,
         status: "ERRO",
         error: String(error?.message || "Falha ao processar notificação.").slice(0, 2000),
         next_retry_at: new Date(Date.now() + retryMinutes * 60_000).toISOString(),
+        locked_at: null,
       })
       .eq("id", notificationId);
     throw error;
@@ -199,13 +242,23 @@ async function processItem(account: Account, accessToken: string, resource: stri
   const itemId = extractResourceId(resource)?.toUpperCase();
   if (!itemId) throw new Error("Notificação de anúncio sem item_id.");
   const item = await mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}`);
+  const userProduct = item?.user_product_id
+    ? await mercadoLivreApiGet<any>(accessToken, `/user-products/${encodeURIComponent(String(item.user_product_id))}`).catch(() => null)
+    : null;
   const { error } = await supabaseAdmin
     .from("mercadolivre_product_link")
     .update({
       status: item?.status ?? null,
       title: item?.title ?? null,
       permalink: item?.permalink ?? null,
-      raw_item: item ?? {},
+      user_product_id: item?.user_product_id ?? null,
+      family_id: userProduct?.family_id ?? item?.family_id ?? null,
+      family_name: item?.family_name ?? userProduct?.family_name ?? null,
+      domain_id: item?.domain_id ?? userProduct?.domain_id ?? null,
+      catalog_product_id: item?.catalog_product_id ?? userProduct?.catalog_product_id ?? null,
+      user_product_enabled: Boolean(item?.family_name || item?.user_product_id),
+      item_tags: Array.isArray(item?.tags) ? item.tags : [],
+      raw_item: userProduct ? { ...item, _erp_user_product: userProduct } : item ?? {},
       updated_at: new Date().toISOString(),
     })
     .eq("empresa_id", account.empresa_id)
@@ -249,9 +302,9 @@ async function processClaim(account: Account, accessToken: string, resource: str
   if (error) throw error;
 }
 
-async function insertOrGetNotification(account: Account | null, payload: NotificationPayload, dedupeKey: string) {
+async function insertOrGetNotification(payload: NotificationPayload, dedupeKey: string) {
   const row = {
-    account_id: account?.id ?? null,
+    account_id: null,
     topic: payload.topic ?? null,
     resource: payload.resource ?? null,
     ml_user_id: toNullableNumber(payload.user_id),
@@ -264,18 +317,37 @@ async function insertOrGetNotification(account: Account | null, payload: Notific
     status: "RECEBIDA",
   };
   const { data, error } = await supabaseAdmin.from("mercadolivre_notification").insert(row).select("id, status").single();
-  if (!error) return data;
+  if (!error) return { ...data, duplicate: false };
   if (error.code !== "23505") throw error;
 
   const existing = await supabaseAdmin.from("mercadolivre_notification").select("id, status").eq("dedupe_key", dedupeKey).single();
   if (existing.error) throw existing.error;
-  return existing.data;
+  return { ...existing.data, duplicate: true };
 }
 
 function buildDedupeKey(payload: NotificationPayload) {
   const eventMarker = payload.sent || payload.received || JSON.stringify(payload);
   const source = [payload.topic, payload.resource, payload.user_id, payload.application_id, eventMarker].map((value) => String(value ?? "")).join("|");
   return createHash("sha256").update(source).digest("hex");
+}
+
+function normalizeMissedFeedPayload(value: unknown): NotificationPayload | null {
+  if (!value || typeof value !== "object") return null;
+  const message = value as Record<string, unknown>;
+  let embedded: Record<string, unknown> = {};
+
+  if (typeof message.data === "string") {
+    try {
+      const parsed = JSON.parse(message.data);
+      if (parsed && typeof parsed === "object") embedded = parsed as Record<string, unknown>;
+    } catch {
+      embedded = {};
+    }
+  } else if (message.data && typeof message.data === "object") {
+    embedded = message.data as Record<string, unknown>;
+  }
+
+  return { ...message, ...embedded } as NotificationPayload;
 }
 
 function extractResourceId(resource: string) {
@@ -315,16 +387,6 @@ function validateNotificationApplication(payload: NotificationPayload) {
   if (configuredApplicationId && receivedApplicationId && configuredApplicationId !== receivedApplicationId) {
     throw new Error("Notificação recebida de uma aplicação Mercado Livre diferente.");
   }
-}
-
-async function findAccountByUserId(mlUserId: number) {
-  const { data, error } = await supabaseAdmin
-    .from("mercadolivre_account")
-    .select("id, empresa_id, ml_user_id, access_token, refresh_token, expires_at")
-    .eq("ml_user_id", mlUserId)
-    .maybeSingle();
-  if (error) throw error;
-  return data as Account | null;
 }
 
 async function getNotificationAccount(accountId: number | null, mlUserId: number | null) {

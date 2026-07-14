@@ -9,6 +9,7 @@ type MercadoLivreAccount = {
   access_token: string;
   refresh_token: string | null;
   expires_at: string | null;
+  site_id: string | null;
 };
 
 type StoredOrder = {
@@ -22,6 +23,10 @@ type StoredOrder = {
   logistic_type: string | null;
   shipment_status: string | null;
   shipment_substatus: string | null;
+  status: string | null;
+  payment_status: string | null;
+  payment_status_detail: string | null;
+  order_tags: string[] | null;
   nfe_id: number | null;
   ml_invoice_id: string | null;
   invoice_status: string | null;
@@ -41,7 +46,7 @@ export async function getMercadoLivreInvoiceState(orderId: number, empresaId: nu
     try {
       const account = await getAccount(order);
       const accessToken = await ensureValidAccessToken(account);
-      remoteInvoice = await fetchInvoiceData(accessToken, order.ml_shipment_id);
+      remoteInvoice = await fetchInvoiceData(accessToken, order.ml_shipment_id, account.site_id);
       await persistInvoiceState(order.id, nfe, remoteInvoice, null, false);
     } catch (error: any) {
       if (!isInvoiceNotFound(error)) throw error;
@@ -60,8 +65,8 @@ export async function sendMercadoLivreInvoice(orderId: number, empresaId: number
     const account = await getAccount(order);
     const accessToken = await ensureValidAccessToken(account);
     const shipmentId = Number(order.ml_shipment_id);
-    const uploadResult = await uploadInvoiceXml(accessToken, shipmentId, nfe.xml_autorizado);
-    const remoteInvoice = await fetchInvoiceData(accessToken, shipmentId).catch(() => uploadResult);
+    const uploadResult = await uploadInvoiceXml(accessToken, shipmentId, nfe.xml_autorizado, account.site_id);
+    const remoteInvoice = await fetchInvoiceData(accessToken, shipmentId, account.site_id).catch(() => uploadResult);
 
     await persistInvoiceState(order.id, nfe, remoteInvoice, null, true);
     return buildInvoiceState(
@@ -89,10 +94,32 @@ export async function sendMercadoLivreInvoice(orderId: number, empresaId: number
   }
 }
 
+export async function syncRecentMercadoLivreInvoices(limit = 20) {
+  const { data, error } = await supabaseAdmin
+    .from("mercadolivre_order")
+    .select("id, empresa_id")
+    .not("invoice_sent_at", "is", null)
+    .not("ml_shipment_id", "is", null)
+    .order("invoice_updated_at", { ascending: true, nullsFirst: true })
+    .limit(Math.min(Math.max(limit, 1), 100));
+  if (error) throw error;
+
+  const results: Array<{ orderId: number; ok: boolean; error?: string }> = [];
+  for (const row of data ?? []) {
+    try {
+      await getMercadoLivreInvoiceState(Number(row.id), Number(row.empresa_id), true);
+      results.push({ orderId: Number(row.id), ok: true });
+    } catch (syncError: any) {
+      results.push({ orderId: Number(row.id), ok: false, error: formatInvoiceError(syncError) });
+    }
+  }
+  return results;
+}
+
 async function getOrder(orderId: number, empresaId: number) {
   const { data, error } = await supabaseAdmin
     .from("mercadolivre_order")
-    .select("id, empresa_id, account_id, venda_id, ml_order_id, ml_shipment_id, shipping_mode, logistic_type, shipment_status, shipment_substatus, nfe_id, ml_invoice_id, invoice_status, invoice_fiscal_key, invoice_error, invoice_sent_at, invoice_updated_at, raw_invoice")
+    .select("id, empresa_id, account_id, venda_id, ml_order_id, status, payment_status, payment_status_detail, order_tags, ml_shipment_id, shipping_mode, logistic_type, shipment_status, shipment_substatus, nfe_id, ml_invoice_id, invoice_status, invoice_fiscal_key, invoice_error, invoice_sent_at, invoice_updated_at, raw_invoice")
     .eq("id", orderId)
     .eq("empresa_id", empresaId)
     .single();
@@ -120,7 +147,7 @@ async function getLatestNfe(order: StoredOrder) {
 async function getAccount(order: StoredOrder) {
   let query = supabaseAdmin
     .from("mercadolivre_account")
-    .select("id, access_token, refresh_token, expires_at")
+    .select("id, access_token, refresh_token, expires_at, site_id")
     .eq("empresa_id", order.empresa_id)
     .order("updated_at", { ascending: false })
     .limit(1);
@@ -159,6 +186,18 @@ function validateInvoiceUpload(order: StoredOrder, nfe: any) {
   if (!isMercadoEnviosInvoiceEligible(order)) {
     throw new Error("A NF-e só pode ser importada no shipment quando o pedido usa uma logística compatível do Mercado Envios.");
   }
+  const payment = String(order.payment_status ?? "").toLowerCase();
+  if (payment && !["paid", "approved", "accredited"].includes(payment)) {
+    throw new Error("A NF-e só pode ser enviada depois que o pagamento for aprovado.");
+  }
+  const orderState = [order.status, order.payment_status, order.payment_status_detail, ...(order.order_tags ?? [])]
+    .map((value) => String(value ?? "").toLowerCase());
+  if (orderState.some((value) => value.includes("cancel") || value.includes("refund") || value.includes("charged_back"))) {
+    throw new Error("Este pedido foi cancelado ou reembolsado e não permite enviar NF-e ao shipment.");
+  }
+  if (String(order.shipment_substatus ?? "").toLowerCase() !== "invoice_pending" && !order.invoice_sent_at) {
+    throw new Error("O envio não está aguardando NF-e. Sincronize o envio antes de tentar novamente.");
+  }
   if (!nfe) throw new Error("Nenhuma NF-e foi encontrada para esta venda. Emita e autorize a nota antes de enviá-la ao Mercado Livre.");
   if (String(nfe.status).toUpperCase() !== "AUTORIZADA") throw new Error("A NF-e vinculada ainda não está autorizada pela SEFAZ.");
   if (String(nfe.ambiente).toUpperCase() !== "PRODUCAO") {
@@ -173,8 +212,8 @@ function isMercadoEnviosInvoiceEligible(order: StoredOrder) {
   return String(order.shipping_mode ?? "").toLowerCase() === "me2" && SUPPORTED_LOGISTIC_TYPES.has(String(order.logistic_type ?? "").toLowerCase());
 }
 
-async function uploadInvoiceXml(accessToken: string, shipmentId: number, xml: string) {
-  const response = await fetch(`${ML_API_BASE_URL}/shipments/${shipmentId}/invoice_data/?siteId=MLB`, {
+async function uploadInvoiceXml(accessToken: string, shipmentId: number, xml: string, siteId?: string | null) {
+  const response = await fetch(`${ML_API_BASE_URL}/shipments/${shipmentId}/invoice_data/?siteId=${normalizeSiteId(siteId)}`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/xml", Accept: "application/json" },
     body: xml,
@@ -183,12 +222,17 @@ async function uploadInvoiceXml(accessToken: string, shipmentId: number, xml: st
   return parseResponse(response, "enviar a NF-e");
 }
 
-async function fetchInvoiceData(accessToken: string, shipmentId: number) {
-  const response = await fetch(`${ML_API_BASE_URL}/shipments/${shipmentId}/invoice_data?siteId=MLB`, {
+async function fetchInvoiceData(accessToken: string, shipmentId: number, siteId?: string | null) {
+  const response = await fetch(`${ML_API_BASE_URL}/shipments/${shipmentId}/invoice_data?siteId=${normalizeSiteId(siteId)}`, {
     headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
     cache: "no-store",
   });
   return parseResponse(response, "consultar a NF-e");
+}
+
+function normalizeSiteId(siteId?: string | null) {
+  const value = String(siteId ?? "MLB").toUpperCase();
+  return /^[A-Z]{3}$/.test(value) ? value : "MLB";
 }
 
 async function parseResponse(response: Response, operation: string) {
@@ -218,7 +262,7 @@ async function persistInvoiceState(orderId: number, nfe: any, remoteInvoice: any
       invoice_status: extractInvoiceStatus(remoteInvoice) || (sent ? "sent" : null),
       invoice_fiscal_key: nfe?.chave_acesso ?? extractFiscalKey(remoteInvoice),
       invoice_error: error,
-      invoice_sent_at: sent ? now : undefined,
+      ...(sent ? { invoice_sent_at: now } : {}),
       invoice_updated_at: now,
       raw_invoice: remoteInvoice ?? {},
     })

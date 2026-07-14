@@ -28,6 +28,8 @@ export async function GET(_req: NextRequest, ctx: ParamsCtx) {
     });
   } catch (e: any) {
     console.error("GET /api/integracoes/mercadolivre/shipments/venda/[vendaId]/label", e);
-    return NextResponse.json({ error: e?.message || "Falha ao baixar etiqueta Mercado Envios." }, { status: errorStatus(e) });
+    const message = e?.message || "Falha ao baixar etiqueta Mercado Envios.";
+    const operationalConflict = /etiqueta|pagamento|logística|envio personalizado|Full/i.test(message);
+    return NextResponse.json({ error: message }, { status: operationalConflict ? 409 : errorStatus(e) });
   }
 }

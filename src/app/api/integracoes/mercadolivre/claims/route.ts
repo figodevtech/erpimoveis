@@ -43,6 +43,8 @@ type NormalizedClaim = {
   players: any[];
   resource: string | null;
   raw: any;
+  returnData: any;
+  partialRefundOffers: any[];
   error: string | null;
 };
 
@@ -81,7 +83,19 @@ export async function GET(req: NextRequest) {
           const order = searchOrder ?? findRelatedOrder(detail, orders);
           if (!order) return null;
 
-          return normalizeClaim(claimId, { ...candidate.claim, ...detail }, candidate.notification?.resource ?? candidate.claim?.resource ?? null, order);
+          const mergedDetail = { ...candidate.claim, ...detail };
+          const [returnData, partialRefundOffers] = await Promise.all([
+            getClaimReturn(accessToken, claimId),
+            hasClaimAction(mergedDetail, "allow_partial_refund") ? getPartialRefundOffers(accessToken, claimId) : Promise.resolve([]),
+          ]);
+          return normalizeClaim(
+            claimId,
+            mergedDetail,
+            candidate.notification?.resource ?? candidate.claim?.resource ?? null,
+            order,
+            returnData,
+            partialRefundOffers,
+          );
         } catch (e: any) {
           console.warn("Falha ao carregar detalhe da reclamação Mercado Livre", {
             claimId,
@@ -119,7 +133,8 @@ export async function POST(req: NextRequest) {
     const actionConfig: Record<string, { availableNames: string[]; path: string }> = {
       refund: { availableNames: ["refund", "allow_refund"], path: "expected-resolutions/refund" },
       allow_return: { availableNames: ["allow_return", "return_product"], path: "expected-resolutions/allow-return" },
-      return_review_ok: { availableNames: ["return_review_ok"], path: "actions/return-review-ok" },
+      partial_refund: { availableNames: ["allow_partial_refund", "partial_refund"], path: "expected-resolutions/partial-refund" },
+      return_review_ok: { availableNames: ["return_review_ok"], path: "return-review" },
     };
     const config = actionConfig[action];
     if (!config) return NextResponse.json({ error: "Ação de reclamação não suportada pelo ERP." }, { status: 400 });
@@ -132,10 +147,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "O Mercado Livre não disponibiliza esta ação para o vendedor nesta reclamação." }, { status: 409 });
     }
 
-    const result = await postPurchaseApiPost<any>(
-      accessToken,
-      `/post-purchase/v1/claims/${encodeURIComponent(claimId)}/${config.path}`,
-    );
+    let result: any;
+    if (action === "return_review_ok") {
+      const returnData = await getClaimReturn(accessToken, claimId);
+      const returnId = String(returnData?.id ?? "").trim();
+      if (!returnId) return NextResponse.json({ error: "A devolução ainda não possui um identificador para conferência." }, { status: 409 });
+      result = await postPurchaseApiPost<any>(accessToken, `/post-purchase/v1/returns/${encodeURIComponent(returnId)}/return-review`, {});
+    } else if (action === "partial_refund") {
+      const percentage = Number(body?.percentage);
+      const offers = await getPartialRefundOffers(accessToken, claimId);
+      if (!Number.isFinite(percentage) || percentage >= 100 || !offers.some((offer: any) => Number(offer?.percentage) === percentage)) {
+        return NextResponse.json({ error: "Selecione um percentual de reembolso parcial oferecido pelo Mercado Livre." }, { status: 400 });
+      }
+      result = await postPurchaseApiPost<any>(
+        accessToken,
+        `/post-purchase/v1/claims/${encodeURIComponent(claimId)}/${config.path}`,
+        { percentage },
+      );
+    } else {
+      result = await postPurchaseApiPost<any>(accessToken, `/post-purchase/v1/claims/${encodeURIComponent(claimId)}/${config.path}`, {});
+    }
     return NextResponse.json({ ok: true, data: result });
   } catch (e: any) {
     console.error("POST /api/integracoes/mercadolivre/claims", e);
@@ -225,7 +256,14 @@ function findRelatedOrder(detail: any, orders: MercadoLivreOrderRow[]) {
   );
 }
 
-function normalizeClaim(claimId: string, detail: any, resource: string | null, order: MercadoLivreOrderRow): NormalizedClaim {
+function normalizeClaim(
+  claimId: string,
+  detail: any,
+  resource: string | null,
+  order: MercadoLivreOrderRow,
+  returnData: any,
+  partialRefundOffers: any[],
+): NormalizedClaim {
   return {
     id: String(detail?.id ?? claimId),
     orderDbId: order.id,
@@ -243,6 +281,8 @@ function normalizeClaim(claimId: string, detail: any, resource: string | null, o
     players: Array.isArray(detail?.players) ? detail.players : [],
     resource,
     raw: detail,
+    returnData: returnData ?? {},
+    partialRefundOffers,
     error: null,
   };
 }
@@ -268,6 +308,13 @@ async function persistClaims(account: MercadoLivreAccount, claims: NormalizedCla
     players: claim.players,
     resource: claim.resource,
     raw_claim: claim.raw ?? {},
+    return_id: claim.returnData?.id ? String(claim.returnData.id) : null,
+    return_status: claim.returnData?.status ?? null,
+    return_tracking_number: claim.returnData?.tracking_number ?? claim.returnData?.shipment?.tracking_number ?? null,
+    return_shipment_id: toNullableNumber(claim.returnData?.shipment?.id ?? claim.returnData?.shipment_id),
+    raw_return: claim.returnData ?? {},
+    partial_refund_offers: claim.partialRefundOffers,
+    return_updated_at: Object.keys(claim.returnData ?? {}).length > 0 ? nowIso : null,
     last_error: claim.error,
     synced_at: nowIso,
     updated_at: nowIso,
@@ -296,7 +343,7 @@ async function syncOrdersFromClaims(account: MercadoLivreAccount, accessToken: s
 async function getStoredClaims(empresaId: number, orderDbId: number, mlOrderId: number) {
   let query = supabaseAdmin
     .from("mercadolivre_claim")
-    .select("id, order_id, ml_order_id, ml_shipment_id, ml_claim_id, status, stage, claim_type, reason, title, due_date, closed_at, resolution, available_actions, players, resource, raw_claim, last_error, synced_at")
+    .select("id, order_id, ml_order_id, ml_shipment_id, ml_claim_id, status, stage, claim_type, reason, title, due_date, closed_at, resolution, available_actions, players, resource, raw_claim, return_id, return_status, return_tracking_number, return_shipment_id, raw_return, partial_refund_offers, return_updated_at, last_error, synced_at")
     .eq("empresa_id", empresaId)
     .order("synced_at", { ascending: false })
     .limit(100);
@@ -327,6 +374,13 @@ function normalizeStoredClaim(claim: any) {
     players: Array.isArray(claim.players) ? claim.players : [],
     resource: claim.resource ?? null,
     raw: claim.raw_claim ?? {},
+    returnData: claim.raw_return ?? {},
+    returnId: claim.return_id ?? null,
+    returnStatus: claim.return_status ?? null,
+    returnTrackingNumber: claim.return_tracking_number ?? null,
+    returnShipmentId: claim.return_shipment_id ?? null,
+    partialRefundOffers: Array.isArray(claim.partial_refund_offers) ? claim.partial_refund_offers : [],
+    returnUpdatedAt: claim.return_updated_at ?? null,
     error: claim.last_error ?? null,
     syncedAt: claim.synced_at ?? null,
   };
@@ -386,11 +440,47 @@ function getClaimAvailableActions(detail: any) {
 }
 
 function getSellerAvailableActionNames(claim: any, sellerId: number) {
-  return (claim?.players ?? [])
+  const playerActions = (claim?.players ?? [])
     .filter((player: any) => Number(player?.user_id) === sellerId || player?.type === "seller" || player?.role === "respondent")
     .flatMap((player: any) => (Array.isArray(player?.available_actions) ? player.available_actions : []))
     .map((item: any) => String(item?.action ?? item?.type ?? item?.name ?? item).toLowerCase())
     .filter(Boolean);
+  if (playerActions.length > 0) return playerActions;
+  return getClaimAvailableActions(claim)
+    .map((item: any) => String(item?.action ?? item?.type ?? item?.name ?? item).toLowerCase())
+    .filter(Boolean);
+}
+
+function hasClaimAction(claim: any, actionName: string) {
+  return getClaimAvailableActions(claim).some((action: any) =>
+    [action?.action, action?.type, action?.name, action].map((value) => String(value ?? "").toLowerCase()).includes(actionName),
+  );
+}
+
+async function getClaimReturn(accessToken: string, claimId: string) {
+  try {
+    const result = await postPurchaseApiGet<any>(accessToken, `/post-purchase/v2/claims/${encodeURIComponent(claimId)}/returns`);
+    if (Array.isArray(result)) return result[0] ?? {};
+    if (Array.isArray(result?.data)) return result.data[0] ?? {};
+    return result ?? {};
+  } catch (error: any) {
+    if (String(error?.message ?? "").includes("(404)")) return {};
+    console.warn("Falha ao carregar devolução Mercado Livre", { claimId, error: friendlyError(error, "Falha ao carregar devolução.") });
+    return {};
+  }
+}
+
+async function getPartialRefundOffers(accessToken: string, claimId: string) {
+  try {
+    const result = await postPurchaseApiGet<any>(
+      accessToken,
+      `/post-purchase/v1/claims/${encodeURIComponent(claimId)}/partial-refund/available-offers`,
+    );
+    return Array.isArray(result?.available_offers) ? result.available_offers : [];
+  } catch (error) {
+    console.warn("Falha ao carregar ofertas de reembolso parcial Mercado Livre", { claimId, error });
+    return [];
+  }
 }
 
 function dedupeClaimCandidates(candidates: Array<{ source: string; claim?: any; notification?: MercadoLivreNotificationRow; claimId: string }>) {
@@ -417,10 +507,11 @@ async function postPurchaseApiGet<T>(accessToken: string, path: string) {
   return (await response.json()) as T;
 }
 
-async function postPurchaseApiPost<T>(accessToken: string, path: string) {
+async function postPurchaseApiPost<T>(accessToken: string, path: string, body?: unknown) {
   const response = await fetch(`${POST_PURCHASE_API_BASE_URL}${path}`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(body ?? {}),
     cache: "no-store",
   });
   const text = await response.text();
@@ -431,6 +522,11 @@ async function postPurchaseApiPost<T>(accessToken: string, path: string) {
   } catch {
     return { message: text } as T;
   }
+}
+
+function toNullableNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
 }
 
 function friendlyError(error: any, fallback: string) {

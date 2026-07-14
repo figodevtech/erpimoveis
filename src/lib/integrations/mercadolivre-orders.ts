@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   getMercadoLivreOrder,
+  mercadoLivreApiGet,
   refreshMercadoLivreToken,
   searchMercadoLivreOrders,
   tokenExpiresAt,
@@ -33,36 +34,34 @@ export async function syncMercadoLivreOrders(params?: { accountId?: number; empr
   for (const account of accounts) {
     const accessToken = await ensureValidAccessToken(account);
     const dateFrom = new Date(Date.now() - (params?.days ?? 15) * 24 * 60 * 60 * 1000).toISOString();
-    const limit = Math.min(Math.max(params?.limit ?? 50, 1), 50);
+    const dateTo = new Date().toISOString();
+    const pageSize = Math.min(Math.max(params?.limit ?? 50, 1), 50);
+    const searchedOrderIds = await searchAllUpdatedOrderIds(accessToken, account.ml_user_id, dateFrom, dateTo, pageSize);
+    const storedOrderIds = await getStoredOrderIdsForReconciliation(account.empresa_id, 50);
+    const orderIds = Array.from(new Set([...searchedOrderIds, ...storedOrderIds]));
 
-    let search = await searchMercadoLivreOrders(accessToken, {
-      sellerId: account.ml_user_id,
-      limit,
-      orderDateFrom: dateFrom,
-    });
+    for (let index = 0; index < orderIds.length; index += 5) {
+      const batch = orderIds.slice(index, index + 5);
+      const batchResults = await Promise.all(
+        batch.map(async (rawOrderId): Promise<ImportResult | null> => {
+          const orderId = Number(rawOrderId);
+          if (!Number.isFinite(orderId)) return null;
 
-    if (!search.results?.length) {
-      search = await searchMercadoLivreOrders(accessToken, {
-        sellerId: account.ml_user_id,
-        limit,
-      });
-    }
-
-    for (const summary of search.results ?? []) {
-      const orderId = Number(summary.id);
-      if (!Number.isFinite(orderId)) continue;
-
-      try {
-        const order = await getMercadoLivreOrder(accessToken, orderId);
-        const result = await importMercadoLivreOrder(account, order);
-        results.push(result);
-      } catch (e: any) {
-        results.push({
-          mlOrderId: orderId,
-          vendaId: null,
-          created: false,
-          error: e?.message || "Falha ao importar pedido.",
-        });
+          try {
+            const order = await getMercadoLivreOrder(accessToken, orderId);
+            return await importMercadoLivreOrder(account, order);
+          } catch (e: any) {
+            return {
+              mlOrderId: orderId,
+              vendaId: null,
+              created: false,
+              error: e?.message || "Falha ao importar pedido.",
+            } satisfies ImportResult;
+          }
+        }),
+      );
+      for (const result of batchResults) {
+        if (result) results.push(result);
       }
     }
   }
@@ -70,16 +69,63 @@ export async function syncMercadoLivreOrders(params?: { accountId?: number; empr
   return results;
 }
 
+async function searchAllUpdatedOrderIds(accessToken: string, sellerId: number, dateFrom: string, dateTo: string, pageSize: number) {
+  const orderIds = new Set<number>();
+  let offset = 0;
+  let total = Number.POSITIVE_INFINITY;
+
+  while (offset < total) {
+    const search = await searchMercadoLivreOrders(accessToken, {
+      sellerId,
+      offset,
+      limit: pageSize,
+      orderDateLastUpdatedFrom: dateFrom,
+      orderDateLastUpdatedTo: dateTo,
+    });
+    const page = Array.isArray(search.results) ? search.results : [];
+    total = Math.max(Number(search.paging?.total ?? page.length), 0);
+
+    for (const summary of page) {
+      const orderId = Number(summary.id);
+      if (Number.isFinite(orderId)) orderIds.add(orderId);
+    }
+
+    if (page.length === 0) break;
+    offset += page.length;
+    if (page.length < pageSize) break;
+  }
+
+  return Array.from(orderIds);
+}
+
+async function getStoredOrderIdsForReconciliation(empresaId: number, limit: number) {
+  const { data, error } = await supabaseAdmin
+    .from("mercadolivre_order")
+    .select("ml_order_id")
+    .eq("empresa_id", empresaId)
+    .order("last_synced_at", { ascending: true, nullsFirst: true })
+    .limit(Math.min(Math.max(limit, 1), 200));
+  if (error) throw error;
+
+  return (data ?? [])
+    .map((order) => Number(order.ml_order_id))
+    .filter((orderId) => Number.isFinite(orderId) && orderId > 0);
+}
+
 export async function importMercadoLivreOrder(account: MercadoLivreAccount, order: MercadoLivreOrder) {
+  const accessToken = await ensureValidAccessToken(account);
+  await hydrateSaleFeedback(accessToken, order);
   const mlOrderId = Number(order.id);
   if (!Number.isFinite(mlOrderId)) {
     return { mlOrderId: 0, vendaId: null, created: false, skipped: "Pedido sem id valido." };
   }
 
-  const accessToken = await ensureValidAccessToken(account);
   const shipment = await fetchOrderShipment(accessToken, order);
+  const existing = await findExistingOrder(mlOrderId, account.empresa_id);
+  if (Object.keys(getSaleFeedback(order)).length === 0 && existing?.feedback_sale && Object.keys(existing.feedback_sale).length > 0) {
+    order.feedback_detail = existing.feedback_sale;
+  }
   const shouldDecrementStock = mapOrderToVendaStatus(order) === "FINALIZADA";
-  const existing = await findExistingOrder(mlOrderId);
   if (existing?.venda_id) {
     await upsertOrderRecord(account, order, existing.venda_id, shipment, existing);
     await updateVendaOrderStatus(existing.venda_id, order);
@@ -100,7 +146,7 @@ export async function importMercadoLivreOrder(account: MercadoLivreAccount, orde
   });
   if (reserveError) throw reserveError;
   if (!reserved) {
-    const current = await findExistingOrder(mlOrderId);
+    const current = await findExistingOrder(mlOrderId, account.empresa_id);
     return {
       mlOrderId,
       vendaId: current?.venda_id ?? null,
@@ -205,13 +251,14 @@ async function ensureValidAccessToken(account: MercadoLivreAccount) {
   return token.access_token;
 }
 
-async function findExistingOrder(mlOrderId: number) {
+async function findExistingOrder(mlOrderId: number, empresaId: number) {
   const { data, error } = await supabaseAdmin
     .from("mercadolivre_order")
     .select(
-      "id, venda_id, shipment_status, shipment_substatus, shipping_mode, logistic_type, tracking_number, tracking_method, raw_shipment",
+      "id, venda_id, shipment_status, shipment_substatus, shipping_mode, logistic_type, tracking_number, tracking_method, raw_shipment, feedback_sale",
     )
     .eq("ml_order_id", mlOrderId)
+    .eq("empresa_id", empresaId)
     .maybeSingle();
 
   if (error) throw error;
@@ -226,6 +273,7 @@ async function findExistingOrder(mlOrderId: number) {
         tracking_number?: string | null;
         tracking_method?: string | null;
         raw_shipment?: any;
+        feedback_sale?: any;
       }
     | null;
 }
@@ -241,6 +289,8 @@ async function upsertOrderRecord(
   const nowIso = new Date().toISOString();
   const paymentSummary = getOrderPaymentSummary(order);
   const tags = getOrderTags(order);
+  const cancelDetail = order.cancel_detail && typeof order.cancel_detail === "object" ? order.cancel_detail : null;
+  const feedbackSale = getSaleFeedback(order);
   const { error } = await supabaseAdmin.from("mercadolivre_order").upsert(
     {
       empresa_id: account.empresa_id,
@@ -253,6 +303,12 @@ async function upsertOrderRecord(
       payment_status_detail: paymentSummary.statusDetail,
       order_tags: tags,
       date_closed: typeof order.date_closed === "string" ? order.date_closed : null,
+      cancel_group: cancelDetail?.group ?? null,
+      cancel_code: cancelDetail?.code ?? null,
+      cancel_description: cancelDetail?.description ?? null,
+      cancel_requested_by: cancelDetail?.requested_by ?? null,
+      cancel_date: cancelDetail?.date ?? null,
+      feedback_sale: feedbackSale,
       date_created: order.date_created ?? null,
       total_amount: Number(order.total_amount ?? order.paid_amount ?? 0),
       currency_id: order.currency_id ?? null,
@@ -330,6 +386,14 @@ async function getOrCreateMarketplaceCustomer(order?: MercadoLivreOrder, shipmen
   if (!error) return Number(data.id);
 
   if (isUniqueViolation(error)) {
+    const { data: concurrentCustomer, error: concurrentCustomerError } = await supabaseAdmin
+      .from("cliente")
+      .select("id")
+      .eq("cpfcnpj", document)
+      .maybeSingle();
+    if (concurrentCustomerError) throw concurrentCustomerError;
+    if (concurrentCustomer?.id) return Number(concurrentCustomer.id);
+
     const { data: retryData, error: retryError } = await supabaseAdmin
       .from("cliente")
       .insert({
@@ -372,6 +436,15 @@ async function getOrCreateGenericMarketplaceCustomer() {
     .select("id")
     .single();
 
+  if (error && isUniqueViolation(error)) {
+    const { data: concurrentCustomer, error: concurrentCustomerError } = await supabaseAdmin
+      .from("cliente")
+      .select("id")
+      .eq("cpfcnpj", "ML0000000001")
+      .maybeSingle();
+    if (concurrentCustomerError) throw concurrentCustomerError;
+    if (concurrentCustomer?.id) return Number(concurrentCustomer.id);
+  }
   if (error) throw error;
   return Number(data.id);
 }
@@ -572,38 +645,66 @@ function mapOrderToVendaStatus(order: MercadoLivreOrder): string {
   const paymentStatus = String(paymentSummary.status ?? "").toLowerCase();
   const paymentStatusDetail = String(paymentSummary.statusDetail ?? "").toLowerCase();
   const tags = getOrderTags(order).map((tag) => tag.toLowerCase());
+  const feedback = getSaleFeedback(order);
+  const isPartialRefund = normalized === "partially_refunded" || paymentStatus === "partially_refunded" || tags.includes("partially_refunded");
+  const isNotFulfilled = feedback?.fulfilled === false;
 
   if (
     normalized === "cancelled" ||
     normalized === "canceled" ||
-    paymentStatus === "refunded" ||
+    normalized === "invalid" ||
+    Boolean(order.cancel_detail) ||
+    isNotFulfilled ||
+    (!isPartialRefund && paymentStatus === "refunded") ||
     paymentStatus === "charged_back" ||
-    paymentStatusDetail.includes("refund") ||
+    (!isPartialRefund && paymentStatusDetail.includes("refunded")) ||
     paymentStatusDetail.includes("chargeback") ||
-    tags.some((tag) => tag.includes("cancel") || tag.includes("refund"))
+    tags.some((tag) => ["cancelled", "canceled", "unfulfilled", "not_fulfilled"].includes(tag))
   ) {
     return "CANCELADA";
   }
 
-  if (normalized === "paid") return "FINALIZADA";
-  if (normalized === "confirmed" || normalized === "payment_required") return "PAGAMENTO";
+  if (normalized === "paid" || normalized === "partially_refunded") return "FINALIZADA";
+  if (["confirmed", "payment_required", "payment_in_process", "partially_paid", "pending_cancel"].includes(normalized)) {
+    return paymentStatus === "approved" || paymentStatus === "paid" ? "FINALIZADA" : "PAGAMENTO";
+  }
   return "ABERTA";
 }
 
 function getOrderPaymentSummary(order: MercadoLivreOrder) {
   const payments = Array.isArray(order.payments) ? order.payments : [];
   const normalizedPayments = payments.filter((payment): payment is Record<string, unknown> => Boolean(payment && typeof payment === "object"));
-  const priority = ["refunded", "charged_back", "rejected", "cancelled", "canceled", "approved", "paid", "pending", "in_process"];
-  const selected =
-    normalizedPayments.find((payment) => priority.includes(String(payment.status ?? "").toLowerCase())) ??
-    normalizedPayments[0] ??
-    null;
+  const priority = ["charged_back", "refunded", "partially_refunded", "approved", "paid", "in_process", "pending", "rejected", "cancelled", "canceled"];
+  const selectedStatus = priority.find((status) =>
+    normalizedPayments.some((payment) => String(payment.status ?? "").toLowerCase() === status),
+  );
+  const selected = selectedStatus
+    ? normalizedPayments.find((payment) => String(payment.status ?? "").toLowerCase() === selectedStatus) ?? null
+    : normalizedPayments[0] ?? null;
 
   return {
     status: selected?.status ? String(selected.status) : null,
     statusDetail: selected?.status_detail ? String(selected.status_detail) : null,
     payments: normalizedPayments,
   };
+}
+
+function getSaleFeedback(order: MercadoLivreOrder) {
+  if (order.feedback_detail && typeof order.feedback_detail === "object") return order.feedback_detail;
+  const sale = order.feedback?.sale;
+  return sale && typeof sale === "object" ? sale : {};
+}
+
+async function hydrateSaleFeedback(accessToken: string, order: MercadoLivreOrder) {
+  if (order.feedback_detail && typeof order.feedback_detail === "object") return;
+  const sale = order.feedback?.sale;
+  if (!sale || typeof sale === "object") return;
+
+  try {
+    order.feedback_detail = await mercadoLivreApiGet<Record<string, unknown>>(accessToken, `/feedback/${encodeURIComponent(String(sale))}`);
+  } catch (error) {
+    console.warn("Falha ao consultar feedback da venda Mercado Livre", { orderId: order.id, feedbackId: sale, error });
+  }
 }
 
 function getOrderTags(order: MercadoLivreOrder) {

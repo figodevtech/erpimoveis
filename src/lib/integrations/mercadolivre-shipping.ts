@@ -30,6 +30,8 @@ export type MercadoLivreShipment = {
 type ShipmentExtraData = {
   costs: unknown;
   items: unknown[];
+  history: unknown[];
+  carrier: Record<string, unknown> | null;
 };
 
 type MercadoLivreOrderRecord = {
@@ -38,6 +40,8 @@ type MercadoLivreOrderRecord = {
   account_id: number | null;
   venda_id: number | null;
   ml_order_id: number;
+  status?: string | null;
+  payment_status?: string | null;
   ml_shipment_id?: number | null;
   shipment_status?: string | null;
   shipment_substatus?: string | null;
@@ -64,7 +68,7 @@ export async function syncMercadoLivreShipmentForVenda(vendaId: number, empresaI
   const accessToken = await ensureValidAccessToken(account);
   const shipment = await getMercadoLivreShipment(accessToken, shipmentId);
   const extraData = await getShipmentExtraData(accessToken, shipmentId);
-  const normalized = normalizeShipment(shipment);
+  const normalized = normalizeShipment({ ...shipment, _erp_history: extraData.history, _erp_carrier: extraData.carrier });
 
   await persistShipment(order, normalized, shipment, extraData);
   return { order, shipment: normalized, rawShipment: shipment, rawShipmentCosts: extraData.costs, rawShipmentItems: extraData.items };
@@ -79,6 +83,15 @@ export async function getMercadoLivreShipmentLabelForVenda(vendaId: number, empr
 
   const account = await getAccount(order);
   const accessToken = await ensureValidAccessToken(account);
+  const shipment = await getMercadoLivreShipment(accessToken, shipmentId);
+  const extraData = await getShipmentExtraData(accessToken, shipmentId);
+  const normalized = normalizeShipment({ ...shipment, _erp_history: extraData.history, _erp_carrier: extraData.carrier });
+  await persistShipment(order, normalized, shipment, extraData);
+  const readiness = getShipmentLabelReadiness({ ...order, ...normalized });
+  if (!readiness.ready) {
+    await persistLabelCheck(order.id, false, readiness.reason);
+    throw new Error(readiness.reason);
+  }
   const response = await fetch(`${ML_API_BASE_URL}/shipment_labels?shipment_ids=${encodeURIComponent(String(shipmentId))}&response_type=pdf`, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -90,10 +103,16 @@ export async function getMercadoLivreShipmentLabelForVenda(vendaId: number, empr
   if (!response.ok) {
     const text = await response.text();
     if (text.includes("INVALID_SHIPMENT_NO_LOGISTIC") || text.includes("has not logistic type")) {
-      throw new Error("Este pedido usa envio personalizado e não possui etiqueta do Mercado Livre. Registre transportadora e rastreio no ERP.");
+      const message = "Este pedido usa envio personalizado e não possui etiqueta do Mercado Livre. Registre transportadora e rastreio no ERP.";
+      await persistLabelCheck(order.id, false, message);
+      throw new Error(message);
     }
-    throw new Error(`Mercado Livre etiqueta falhou (${response.status}): ${text}`);
+    const message = formatLabelError(response.status, text);
+    await persistLabelCheck(order.id, false, message);
+    throw new Error(message);
   }
+
+  await persistLabelCheck(order.id, true, null);
 
   return {
     shipmentId,
@@ -105,10 +124,18 @@ export async function getMercadoLivreShipmentLabelForVenda(vendaId: number, empr
 export function normalizeShipment(shipment: MercadoLivreShipment) {
   const status = shipment.status ?? null;
   const substatus = shipment.substatus ?? null;
-  const trackingNumber = shipment.tracking_number ?? null;
-  const trackingMethod = shipment.tracking_method ?? null;
+  const carrier = (shipment._erp_carrier ?? {}) as any;
+  const trackingNumber = shipment.tracking_number ?? carrier.tracking_number ?? null;
+  const trackingMethod = shipment.tracking_method ?? carrier.name ?? null;
   const lastUpdated = shipment.last_updated ?? new Date().toISOString();
   const events = buildShipmentEvents(shipment);
+  const deadlines = extractShipmentDeadlines(shipment);
+  const label = getShipmentLabelReadiness({
+    status,
+    substatus,
+    mode: shipment.mode,
+    logisticType: shipment.logistic_type,
+  });
 
   return {
     id: Number(shipment.id),
@@ -125,7 +152,38 @@ export function normalizeShipment(shipment: MercadoLivreShipment) {
     statusRastreio: mapShipmentStatusToRastreio(status, substatus),
     lastEventTitle: formatShipmentStatus(status, substatus),
     events,
+    labelReady: label.ready,
+    labelReason: label.reason,
+    handlingDeadline: deadlines.handling,
+    estimatedDeliveryFrom: deadlines.from,
+    estimatedDeliveryTo: deadlines.to,
+    lastEventAt: events[0]?.at ?? lastUpdated,
   };
+}
+
+export function getShipmentLabelReadiness(order: any): { ready: boolean; reason: string } {
+  const mode = String(order.mode ?? order.shipping_mode ?? "").toLowerCase();
+  const logisticType = String(order.logisticType ?? order.logistic_type ?? "").toLowerCase();
+  const status = String(order.status ?? order.shipment_status ?? "").toLowerCase();
+  const substatus = String(order.substatus ?? order.shipment_substatus ?? "").toLowerCase();
+  const payment = String(order.payment_status ?? "").toLowerCase();
+
+  if (payment && !["paid", "approved", "accredited"].includes(payment)) {
+    return { ready: false, reason: "A etiqueta só é liberada depois que o pagamento for aprovado." };
+  }
+  if (mode !== "me2" || !logisticType) {
+    return { ready: false, reason: "Este pedido não possui uma logística do Mercado Envios com etiqueta." };
+  }
+  if (["cancelled", "canceled", "not_delivered"].includes(status)) {
+    return { ready: false, reason: "O envio está cancelado ou com falha de entrega e não permite imprimir etiqueta." };
+  }
+  if (substatus === "invoice_pending") {
+    return { ready: false, reason: "Envie a NF-e ao Mercado Livre para liberar a etiqueta." };
+  }
+  if (status !== "ready_to_ship" || !["ready_to_print", "printed"].includes(substatus)) {
+    return { ready: false, reason: `A etiqueta ainda não está disponível. Estado atual: ${formatShipmentStatus(status, substatus)}.` };
+  }
+  return { ready: true, reason: "Etiqueta disponível para impressão." };
 }
 
 export function reconcileShipmentState(
@@ -146,7 +204,7 @@ export function reconcileShipmentState(
   const locallyMarkedAsShipped =
     currentStatus === "shipped" &&
     String(current?.shipping_mode ?? "").toLowerCase() === "custom" &&
-    Boolean(customData?.marketplace_status_sent_at);
+    customData?.marketplace_status_confirmed === true;
   const incomingIsProgress = ["shipped", "delivered", "not_delivered", "cancelled", "canceled"].includes(incomingStatus);
 
   if (!locallyMarkedAsShipped || incomingIsProgress) return normalized;
@@ -169,7 +227,7 @@ async function getOrderByVendaId(vendaId: number, empresaId?: number) {
   let query = supabaseAdmin
     .from("mercadolivre_order")
     .select(
-      "id, empresa_id, account_id, venda_id, ml_order_id, ml_shipment_id, shipment_status, shipment_substatus, shipping_mode, logistic_type, tracking_number, tracking_method, raw_order, raw_shipment",
+      "id, empresa_id, account_id, venda_id, ml_order_id, status, payment_status, ml_shipment_id, shipment_status, shipment_substatus, shipping_mode, logistic_type, tracking_number, tracking_method, raw_order, raw_shipment",
     )
     .eq("venda_id", vendaId);
   if (empresaId) query = query.eq("empresa_id", empresaId);
@@ -246,14 +304,18 @@ async function getMercadoLivreShipment(accessToken: string, shipmentId: number) 
 }
 
 async function getShipmentExtraData(accessToken: string, shipmentId: number): Promise<ShipmentExtraData> {
-  const [costs, items] = await Promise.all([
+  const [costs, items, history, carrier] = await Promise.all([
     mercadoLivreApiGetOrNull(accessToken, `/shipments/${encodeURIComponent(String(shipmentId))}/costs`),
     mercadoLivreApiGetOrNull(accessToken, `/shipments/${encodeURIComponent(String(shipmentId))}/items`),
+    mercadoLivreApiGetOrNull(accessToken, `/shipments/${encodeURIComponent(String(shipmentId))}/history`),
+    mercadoLivreApiGetOrNull(accessToken, `/shipments/${encodeURIComponent(String(shipmentId))}/carrier`),
   ]);
 
   return {
     costs: costs ?? {},
     items: Array.isArray(items) ? items : Array.isArray((items as any)?.items) ? (items as any).items : [],
+    history: Array.isArray(history) ? history : [],
+    carrier: carrier && typeof carrier === "object" ? (carrier as Record<string, unknown>) : null,
   };
 }
 
@@ -283,6 +345,8 @@ async function persistShipment(
   const shipmentCost = extractShipmentCost(extraData.costs);
   const mergedRawShipment = {
     ...(rawShipment && typeof rawShipment === "object" ? rawShipment : {}),
+    _erp_history: extraData.history,
+    _erp_carrier: extraData.carrier,
     ...(order.raw_shipment?.custom ? { custom: order.raw_shipment.custom } : {}),
   };
 
@@ -301,6 +365,13 @@ async function persistShipment(
       raw_shipment_costs: extraData.costs ?? {},
       raw_shipment_items: extraData.items ?? [],
       shipment_updated_at: nowIso,
+      shipment_label_ready: effectiveShipment.labelReady,
+      shipment_label_error: effectiveShipment.labelReady ? null : effectiveShipment.labelReason,
+      shipment_label_checked_at: nowIso,
+      shipment_handling_deadline: effectiveShipment.handlingDeadline,
+      shipment_estimated_delivery_from: effectiveShipment.estimatedDeliveryFrom,
+      shipment_estimated_delivery_to: effectiveShipment.estimatedDeliveryTo,
+      shipment_last_event_at: effectiveShipment.lastEventAt,
       updated_at: nowIso,
     })
     .eq("id", order.id);
@@ -345,6 +416,17 @@ function extractShipmentCost(costs: unknown) {
 }
 
 function buildShipmentEvents(shipment: MercadoLivreShipment) {
+  const remoteHistory = Array.isArray(shipment._erp_history) ? shipment._erp_history : [];
+  if (remoteHistory.length) {
+    return remoteHistory
+      .map((event: any) => ({
+        at: event?.date ?? event?.timestamp ?? null,
+        title: formatShipmentStatus(event?.status, event?.substatus),
+        location: event?.location?.name ?? event?.location ?? null,
+        details: event?.description ?? null,
+      }))
+      .sort((a, b) => new Date(b.at ?? 0).getTime() - new Date(a.at ?? 0).getTime());
+  }
   const history = shipment.status_history ?? {};
   const events: Array<{ at: string | null; title: string; location: string | null; details: string | null }> = Object.entries(history)
     .filter(([, value]) => value)
@@ -368,24 +450,76 @@ function buildShipmentEvents(shipment: MercadoLivreShipment) {
   return events;
 }
 
+function extractShipmentDeadlines(shipment: MercadoLivreShipment) {
+  const option = (shipment.shipping_option ?? {}) as any;
+  const estimated = option.estimated_delivery_time ?? option.estimated_delivery ?? {};
+  return {
+    handling: firstDate(shipment.estimated_handling_limit, option.estimated_handling_limit, estimated.shipping),
+    from: firstDate(estimated.date, estimated.from, estimated.estimated_delivery_from, shipment.estimated_delivery_from),
+    to: firstDate(
+      estimated.to,
+      estimated.estimated_delivery_to,
+      shipment.estimated_delivery_limit,
+      shipment.estimated_delivery_final,
+      shipment.estimated_delivery_to,
+    ),
+  };
+}
+
+function firstDate(...values: unknown[]) {
+  for (const value of values) {
+    if (!value || typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}/.test(value)) continue;
+    const date = new Date(String(value));
+    if (!Number.isNaN(date.getTime())) return date.toISOString();
+  }
+  return null;
+}
+
+async function persistLabelCheck(orderId: number, ready: boolean, error: string | null) {
+  const { error: updateError } = await supabaseAdmin
+    .from("mercadolivre_order")
+    .update({
+      shipment_label_ready: ready,
+      shipment_label_error: error,
+      shipment_label_checked_at: new Date().toISOString(),
+    })
+    .eq("id", orderId);
+  if (updateError) throw updateError;
+}
+
+function formatLabelError(status: number, text: string) {
+  if (text.includes("not_printable_status")) {
+    return "A etiqueta ainda não pode ser impressa. Sincronize o envio e aguarde o estado pronto para imprimir.";
+  }
+  if (text.includes("invalid_shipment_ff_public")) {
+    return "A etiqueta de um envio Full é gerada pelo centro de distribuição e não pode ser impressa pelo ERP.";
+  }
+  return `O Mercado Livre não conseguiu gerar a etiqueta (${status}). ${text}`;
+}
+
 function mapShipmentStatusToEntrega(status?: string | null, substatus?: string | null) {
   const normalized = String(status ?? "").toLowerCase();
   const normalizedSubstatus = String(substatus ?? "").toLowerCase();
 
   if (normalized === "delivered") return "ENTREGUE";
-  if (["shipped", "handling"].includes(normalized)) return "ENVIO";
-  if (["ready_to_ship", "pending"].includes(normalized)) return "SEPARACAO";
+  if (normalized === "shipped" || ["picked_up", "in_hub", "out_for_delivery"].includes(normalizedSubstatus)) return "ENVIO";
+  if (["handling", "ready_to_ship", "pending"].includes(normalized)) return "SEPARACAO";
   if (normalizedSubstatus.includes("delivered")) return "ENTREGUE";
   return null;
 }
 
 function mapShipmentStatusToRastreio(status?: string | null, substatus?: string | null) {
   const normalized = String(status ?? "").toLowerCase();
+  const normalizedSubstatus = String(substatus ?? "").toLowerCase();
+  if (["returning_to_sender", "returned_to_sender"].includes(normalizedSubstatus)) return "EM_DEVOLUCAO";
+  if (normalizedSubstatus === "out_for_delivery") return "SAIU_PARA_ENTREGA";
+  if (["picked_up", "authorized_by_carrier", "in_hub"].includes(normalizedSubstatus)) return "EM_TRANSITO";
   if (normalized === "delivered") return "ENTREGUE";
   if (normalized === "shipped") return "EM_TRANSITO";
   if (normalized === "ready_to_ship") return "PRONTO_PARA_ENVIO";
   if (normalized === "handling") return "EM_PREPARACAO";
   if (normalized === "cancelled") return "CANCELADO";
+  if (normalized === "not_delivered") return "NAO_ENTREGUE";
   return substatus ? String(substatus).toUpperCase() : normalized ? normalized.toUpperCase() : null;
 }
 

@@ -28,8 +28,17 @@ export async function GET(_req: NextRequest, ctx: ParamsCtx) {
       mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}`),
       mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}/description`).catch(() => null),
     ]);
+    const userProduct = item?.user_product_id
+      ? await mercadoLivreApiGet<any>(accessToken, `/user-products/${encodeURIComponent(String(item.user_product_id))}`).catch(() => null)
+      : null;
 
-    const normalized = normalizeItemForEdit(item, description);
+    const family = userProduct?.family_id
+      ? await mercadoLivreApiGet<any>(
+          accessToken,
+          `/sites/${encodeURIComponent(account.site_id || "MLB")}/user-products-families/${encodeURIComponent(String(userProduct.family_id))}`,
+        ).catch(() => null)
+      : null;
+    const normalized = normalizeItemForEdit(item, description, userProduct, family);
 
     await supabaseAdmin
       .from("mercadolivre_product_link")
@@ -37,7 +46,14 @@ export async function GET(_req: NextRequest, ctx: ParamsCtx) {
         status: item?.status ?? null,
         title: item?.title ?? link.title,
         permalink: item?.permalink ?? link.permalink,
-        raw_item: item ?? {},
+        user_product_id: item?.user_product_id ?? null,
+        family_id: userProduct?.family_id ?? item?.family_id ?? null,
+        family_name: item?.family_name ?? userProduct?.family_name ?? null,
+        domain_id: item?.domain_id ?? userProduct?.domain_id ?? null,
+        catalog_product_id: item?.catalog_product_id ?? userProduct?.catalog_product_id ?? null,
+        user_product_enabled: Boolean(item?.family_name || item?.user_product_id),
+        item_tags: Array.isArray(item?.tags) ? item.tags : [],
+        raw_item: userProduct ? { ...item, _erp_user_product: userProduct } : item ?? {},
         updated_at: new Date().toISOString(),
       })
       .eq("id", link.id);
@@ -66,14 +82,19 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
     else if (action === "activate") payload = { status: "active" };
     else if (action === "close") payload = { status: "closed" };
     else if (action === "update_listing") {
+      const currentItem = await mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}`);
       const shippingMode = String(body?.shippingMode ?? "").trim();
       if (shippingMode === "me2") {
-        const currentItem = await mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}`);
         const categoryId = String(currentItem?.category_id ?? "").trim();
         if (!categoryId) throw new Error("O anúncio não possui categoria para validar o Mercado Envios.");
         await validateMercadoLivreShippingSelection(account, categoryId, shippingMode, String(body?.logisticType ?? ""));
       }
-      payload = buildListingUpdatePayload(body);
+      const userProductEnabled = Boolean(currentItem?.family_name || currentItem?.user_product_id);
+      payload = buildListingUpdatePayload(body, userProductEnabled);
+      const familyName = String(body?.familyName ?? "").replace(/\s+/g, " ").trim();
+      if (userProductEnabled && familyName && familyName !== String(currentItem?.family_name ?? "").trim()) {
+        await mercadoLivreApiPut(accessToken, `/items/${encodeURIComponent(itemId)}/family_name`, { family_name: familyName });
+      }
     }
     else if (action === "sync_stock_price") {
       const { data: product, error: productError } = await supabaseAdmin
@@ -105,6 +126,9 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
     }
 
     const item = await mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}`).catch(() => updatedItem);
+    const userProduct = item?.user_product_id
+      ? await mercadoLivreApiGet<any>(accessToken, `/user-products/${encodeURIComponent(String(item.user_product_id))}`).catch(() => null)
+      : null;
 
     const { error: updateError } = await supabaseAdmin
       .from("mercadolivre_product_link")
@@ -112,7 +136,14 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
         status: item?.status ?? null,
         title: item?.title ?? link.title,
         permalink: item?.permalink ?? link.permalink,
-        raw_item: item ?? {},
+        user_product_id: item?.user_product_id ?? null,
+        family_id: userProduct?.family_id ?? item?.family_id ?? link.family_id ?? null,
+        family_name: item?.family_name ?? userProduct?.family_name ?? link.family_name ?? null,
+        domain_id: item?.domain_id ?? userProduct?.domain_id ?? null,
+        catalog_product_id: item?.catalog_product_id ?? userProduct?.catalog_product_id ?? null,
+        user_product_enabled: Boolean(item?.family_name || item?.user_product_id),
+        item_tags: Array.isArray(item?.tags) ? item.tags : [],
+        raw_item: userProduct ? { ...item, _erp_user_product: userProduct } : item ?? {},
         updated_at: new Date().toISOString(),
       })
       .eq("id", link.id);
@@ -125,16 +156,44 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
   }
 }
 
-function normalizeItemForEdit(item: any, description: any) {
+function normalizeItemForEdit(item: any, description: any, userProduct?: any, family?: any) {
   const saleTerms = Array.isArray(item?.sale_terms) ? item.sale_terms : [];
   const warrantyType = saleTerms.find((term: any) => term?.id === "WARRANTY_TYPE");
   const warrantyTime = saleTerms.find((term: any) => term?.id === "WARRANTY_TIME");
   const shipping = item?.shipping ?? {};
   const dimensions = parseDimensions(shipping?.dimensions);
+  const dynamicAttributes: Record<string, string> = {};
+  for (const attribute of Array.isArray(item?.attributes) ? item.attributes : []) {
+    const id = String(attribute?.id ?? "").toUpperCase();
+    if (!id) continue;
+    if (attribute?.value_struct?.number != null) {
+      dynamicAttributes[id] = String(attribute.value_struct.number);
+      if (attribute.value_struct.unit) dynamicAttributes[`${id}__unit`] = String(attribute.value_struct.unit);
+    } else {
+      dynamicAttributes[id] = String(attribute?.value_name ?? attribute?.value_id ?? "");
+    }
+  }
+  const familyMembers = Array.isArray(family?.user_products)
+    ? family.user_products
+    : Array.isArray(family?.results)
+      ? family.results
+      : [];
 
   return {
     id: item?.id ?? "",
     title: item?.title ?? "",
+    familyName: item?.family_name ?? userProduct?.family_name ?? "",
+    familyId: userProduct?.family_id ?? item?.family_id ?? null,
+    userProductId: item?.user_product_id ?? null,
+    userProductEnabled: Boolean(item?.family_name || item?.user_product_id),
+    domainId: item?.domain_id ?? userProduct?.domain_id ?? null,
+    dynamicAttributes,
+    familyMembers: familyMembers.map((member: any) => ({
+      id: typeof member === "string" ? member : member?.id ?? member?.user_product_id ?? null,
+      name: typeof member === "string" ? null : member?.name ?? member?.title ?? member?.family_name ?? null,
+      attributes: typeof member === "string" ? [] : member?.attributes ?? [],
+      pictures: typeof member === "string" ? [] : member?.pictures ?? [],
+    })),
     price: Number(item?.price ?? 0),
     availableQuantity: Number(item?.available_quantity ?? 0),
     status: item?.status ?? null,
@@ -173,7 +232,7 @@ function parseDimensions(value: unknown) {
   };
 }
 
-function buildListingUpdatePayload(body: any) {
+function buildListingUpdatePayload(body: any, userProductEnabled: boolean) {
   const payload: Record<string, unknown> = {};
   const title = String(body?.title ?? "").trim();
   const price = Number(body?.price);
@@ -202,7 +261,7 @@ function buildListingUpdatePayload(body: any) {
     throw new Error("Informe dimensões e peso para calcular o Mercado Envios.");
   }
 
-  if (title) payload.title = title;
+  if (title && !userProductEnabled) payload.title = title;
   if (Number.isFinite(price) && price > 0) payload.price = price;
   if (Number.isInteger(availableQuantity) && availableQuantity >= 0) payload.available_quantity = availableQuantity;
 
@@ -228,6 +287,26 @@ function buildListingUpdatePayload(body: any) {
     payload.shipping = shipping;
   }
 
+  const attributesById = new Map<string, any>();
+  const dynamicAttributes = body?.attributes && typeof body.attributes === "object" ? body.attributes : {};
+  const definitions = new Map(
+    (Array.isArray(body?.attributeDefinitions) ? body.attributeDefinitions : []).map((definition: any) => [String(definition?.id ?? "").toUpperCase(), definition]),
+  );
+  for (const [rawId, rawValue] of Object.entries(dynamicAttributes)) {
+    const id = rawId.toUpperCase();
+    if (!id || id.endsWith("__UNIT") || String(rawValue ?? "").trim() === "") continue;
+    const definition: any = definitions.get(id);
+    const valueName = String(rawValue).trim();
+    if (definition?.valueType === "number_unit") {
+      const number = Number(valueName.replace(",", "."));
+      const unit = String(dynamicAttributes[`${id}__unit`] ?? definition?.defaultUnit ?? definition?.allowedUnits?.[0]?.id ?? "").trim();
+      if (Number.isFinite(number) && unit) attributesById.set(id, { id, value_struct: { number, unit } });
+      continue;
+    }
+    const option = definition?.values?.find((candidate: any) => candidate?.id === valueName || candidate?.name === valueName);
+    attributesById.set(id, option?.id ? { id, value_id: option.id, value_name: option.name ?? valueName } : { id, value_name: valueName });
+  }
+
   const packageAttributes = buildPackageAttributes({
     shippingMode,
     widthCm,
@@ -235,7 +314,8 @@ function buildListingUpdatePayload(body: any) {
     lengthCm,
     weightGrams,
   });
-  if (packageAttributes.length) payload.attributes = packageAttributes;
+  for (const attribute of packageAttributes) attributesById.set(attribute.id, attribute);
+  if (attributesById.size) payload.attributes = Array.from(attributesById.values());
 
   if (Object.keys(payload).length === 0) {
     throw new Error("Informe ao menos um campo para atualizar.");
@@ -281,11 +361,21 @@ function parsePictureUrls(value: string) {
 async function getLink(itemId: string, empresaId: number) {
   const { data, error } = await supabaseAdmin
     .from("mercadolivre_product_link")
-    .select("id, empresa_id, produto_id, ml_item_id, title, permalink")
+    .select("id, empresa_id, produto_id, ml_item_id, title, permalink, user_product_id, family_id, family_name")
     .eq("empresa_id", empresaId)
     .eq("ml_item_id", itemId.toUpperCase())
     .single();
 
   if (error) throw error;
-  return data as { id: number; empresa_id: number; produto_id: number; ml_item_id: string; title?: string | null; permalink?: string | null };
+  return data as {
+    id: number;
+    empresa_id: number;
+    produto_id: number;
+    ml_item_id: string;
+    title?: string | null;
+    permalink?: string | null;
+    user_product_id?: string | null;
+    family_id?: string | null;
+    family_name?: string | null;
+  };
 }

@@ -25,6 +25,9 @@ export async function POST(req: Request) {
 
     const account = await getDefaultAccount(empresaId);
     const item = await mercadoLivreApiGet<any>(account.access_token, `/items/${encodeURIComponent(mlItemId)}`);
+    const userProduct = item?.user_product_id
+      ? await mercadoLivreApiGet<any>(account.access_token, `/user-products/${encodeURIComponent(String(item.user_product_id))}`).catch(() => null)
+      : null;
 
     const { data, error } = await supabaseAdmin
       .from("mercadolivre_product_link")
@@ -37,6 +40,13 @@ export async function POST(req: Request) {
           title: item?.title ?? null,
           permalink: item?.permalink ?? null,
           status: item?.status ?? null,
+          user_product_id: item?.user_product_id ?? null,
+          family_id: userProduct?.family_id ?? item?.family_id ?? null,
+          family_name: item?.family_name ?? userProduct?.family_name ?? null,
+          domain_id: item?.domain_id ?? userProduct?.domain_id ?? null,
+          catalog_product_id: item?.catalog_product_id ?? userProduct?.catalog_product_id ?? null,
+          user_product_enabled: Boolean(item?.family_name || item?.user_product_id),
+          item_tags: Array.isArray(item?.tags) ? item.tags : [],
           raw_item: item ?? {},
           updated_at: new Date().toISOString(),
         },

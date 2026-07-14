@@ -27,6 +27,11 @@ type MercadoLivreOrder = {
   ml_order_id: number;
   ml_shipment_id: number | null;
   buyer_id: number | null;
+  status: string | null;
+  payment_status: string | null;
+  payment_status_detail: string | null;
+  order_tags: string[] | null;
+  shipment_status: string | null;
   raw_order: any;
   raw_shipment: any;
 };
@@ -48,6 +53,13 @@ export async function POST(req: NextRequest, ctx: ParamsCtx) {
     const deadline = String(body?.deadline ?? "").trim();
     const notifyBuyer = body?.notifyBuyer !== false;
     const markAsShipped = body?.markAsShipped !== false;
+    const requestedStatus = String(body?.deliveryStatus ?? "").trim().toLowerCase();
+    const requestedSubstatus = String(body?.deliverySubstatus ?? "").trim().toLowerCase() || null;
+    const targetStatus = requestedStatus || (markAsShipped ? "shipped" : null);
+
+    if (targetStatus && !["shipped", "delivered", "not_delivered"].includes(targetStatus)) {
+      return NextResponse.json({ error: "Status de entrega inválido." }, { status: 400 });
+    }
 
     if (!carrier) {
       return NextResponse.json({ error: "Informe a transportadora." }, { status: 400 });
@@ -56,12 +68,13 @@ export async function POST(req: NextRequest, ctx: ParamsCtx) {
       return NextResponse.json({ error: "Informe o código de rastreio ou o link de acompanhamento." }, { status: 400 });
     }
 
-    if (markAsShipped && !trackingCode) {
+    if (targetStatus === "shipped" && !trackingCode) {
       return NextResponse.json({ error: "Informe o código de rastreio para marcar o pedido como enviado no Mercado Livre." }, { status: 400 });
     }
 
     const order = await getOrder(id, empresaId);
     if (!order) return NextResponse.json({ error: "Pedido Mercado Livre não encontrado." }, { status: 404 });
+    await validateCustomShipmentOperation(order);
 
     const account = await getAccount(order);
     const accessToken = await ensureValidAccessToken(account);
@@ -79,8 +92,8 @@ export async function POST(req: NextRequest, ctx: ParamsCtx) {
     const currentShipment = await mercadoLivreApiGet<any>(accessToken, `/shipments/${encodeURIComponent(String(shipmentId))}`);
     const shipmentMode = String(currentShipment?.mode || order.raw_shipment?.mode || "custom").toLowerCase();
     let sellerNotification: any = null;
-    if (markAsShipped) {
-      sellerNotification = await markMercadoLivreShipmentAsShipped(accessToken, {
+    if (targetStatus) {
+      sellerNotification = await updateMercadoLivreShipmentStatus(accessToken, {
         shipmentId,
         shipmentMode,
         receiverId: Number(currentShipment?.receiver_id ?? currentShipment?.receiver_address?.receiver_id ?? order.buyer_id),
@@ -89,14 +102,16 @@ export async function POST(req: NextRequest, ctx: ParamsCtx) {
         trackingUrl: finalTrackingUrl,
         deadline,
         date: now,
+        status: targetStatus,
+        substatus: requestedSubstatus,
       });
     }
 
-    const confirmedShipment = markAsShipped
+    const confirmedShipment = targetStatus
       ? await mercadoLivreApiGet<any>(accessToken, `/shipments/${encodeURIComponent(String(shipmentId))}`)
       : currentShipment;
-    const confirmedStatus = String(confirmedShipment?.status || (markAsShipped ? "shipped" : "ready_to_ship")).toLowerCase();
-    const marketplaceStatusConfirmed = !markAsShipped || ["shipped", "delivered"].includes(confirmedStatus);
+    const confirmedStatus = String(confirmedShipment?.status || currentShipment?.status || order.shipment_status || "pending").toLowerCase();
+    const marketplaceStatusConfirmed = !targetStatus || confirmedStatus === targetStatus || (targetStatus === "shipped" && confirmedStatus === "delivered");
 
     const rawShipment = {
       ...(confirmedShipment && typeof confirmedShipment === "object" ? confirmedShipment : {}),
@@ -110,7 +125,9 @@ export async function POST(req: NextRequest, ctx: ParamsCtx) {
         tracking_url: finalTrackingUrl || null,
         deadline: deadline || null,
         notified_buyer_at: notifyBuyer ? now : null,
-        marketplace_status_sent_at: markAsShipped ? now : null,
+        marketplace_status_sent_at: targetStatus ? now : order.raw_shipment?.custom?.marketplace_status_sent_at ?? null,
+        requested_status: targetStatus,
+        requested_substatus: requestedSubstatus,
         seller_notification: sellerNotification,
         marketplace_status_confirmed: marketplaceStatusConfirmed,
       },
@@ -166,7 +183,7 @@ export async function POST(req: NextRequest, ctx: ParamsCtx) {
       ok: true,
       data: updatedOrder,
       messageSent,
-      marketplaceStatusUpdated: markAsShipped,
+      marketplaceStatusUpdated: Boolean(targetStatus),
       marketplaceStatusConfirmed,
       confirmedStatus,
       message,
@@ -181,13 +198,41 @@ export async function POST(req: NextRequest, ctx: ParamsCtx) {
 async function getOrder(orderId: number, empresaId: number) {
   const { data, error } = await supabaseAdmin
     .from("mercadolivre_order")
-    .select("id, empresa_id, account_id, venda_id, ml_order_id, ml_shipment_id, buyer_id, raw_order, raw_shipment")
+    .select("id, empresa_id, account_id, venda_id, ml_order_id, status, payment_status, payment_status_detail, order_tags, ml_shipment_id, shipment_status, buyer_id, raw_order, raw_shipment")
     .eq("empresa_id", empresaId)
     .eq("id", orderId)
     .maybeSingle();
 
   if (error) throw error;
   return data as MercadoLivreOrder | null;
+}
+
+async function validateCustomShipmentOperation(order: MercadoLivreOrder) {
+  const states = [order.status, order.payment_status, order.payment_status_detail, ...(order.order_tags ?? [])]
+    .map((value) => String(value ?? "").toLowerCase());
+  const payment = String(order.payment_status ?? "").toLowerCase();
+  if (payment && !["paid", "approved", "accredited"].includes(payment)) {
+    throw new Error("O envio só pode ser registrado depois que o pagamento for aprovado.");
+  }
+  if (states.some((value) => value.includes("cancel") || value.includes("refund") || value.includes("charged_back"))) {
+    throw new Error("Este pedido foi cancelado ou reembolsado e não pode ser marcado como enviado.");
+  }
+  if (String(order.shipment_status ?? "").toLowerCase() === "delivered") {
+    throw new Error("Este pedido já consta como entregue no Mercado Livre.");
+  }
+
+  const { data: claims, error } = await supabaseAdmin
+    .from("mercadolivre_claim")
+    .select("status")
+    .eq("empresa_id", order.empresa_id)
+    .eq("ml_order_id", order.ml_order_id);
+  if (error) throw error;
+  const hasActiveClaim = (claims ?? []).some(
+    (claim) => !["closed", "resolved", "cancelled", "canceled"].includes(String(claim.status ?? "").toLowerCase()),
+  );
+  if (hasActiveClaim) {
+    throw new Error("Este pedido possui uma reclamação ativa. Resolva o pós-venda antes de registrar o envio.");
+  }
 }
 
 async function getAccount(order: MercadoLivreOrder) {
@@ -215,7 +260,7 @@ async function resolveShipmentId(accessToken: string, order: MercadoLivreOrder) 
   return shipmentId;
 }
 
-async function markMercadoLivreShipmentAsShipped(
+async function updateMercadoLivreShipmentStatus(
   accessToken: string,
   params: {
     shipmentId: number;
@@ -226,6 +271,8 @@ async function markMercadoLivreShipmentAsShipped(
     trackingUrl: string;
     deadline: string;
     date: string;
+    status: string;
+    substatus: string | null;
   },
 ) {
   if (params.shipmentMode === "custom") {
@@ -235,7 +282,7 @@ async function markMercadoLivreShipmentAsShipped(
 
     const speed = parseDeliverySpeedHours(params.deadline);
     return mercadoLivreApiPut<any>(accessToken, `/shipments/${encodeURIComponent(String(params.shipmentId))}`, {
-      status: "shipped",
+      status: params.status,
       tracking_number: params.trackingCode,
       receiver_id: params.receiverId,
       comments: `Enviado por ${formatCarrierLabel(params.carrier)}`,
@@ -257,8 +304,8 @@ async function markMercadoLivreShipmentAsShipped(
     },
     tracking_number: params.trackingCode || undefined,
     tracking_url: params.trackingUrl || undefined,
-    status: "shipped",
-    substatus: null,
+    status: params.status,
+    substatus: params.substatus,
   });
 }
 

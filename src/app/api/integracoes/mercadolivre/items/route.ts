@@ -17,6 +17,8 @@ type MercadoLivreCreatedItem = {
   [key: string]: unknown;
 };
 
+type MercadoLivreSeller = { tags?: string[] };
+
 type AttributeDefinition = {
   id?: string;
   name?: string;
@@ -92,6 +94,15 @@ export async function POST(req: Request) {
     if (!["new", "used", "not_specified"].includes(condition)) {
       return NextResponse.json({ error: "Condição inválida." }, { status: 400 });
     }
+    if (gtin && !isValidGtin(gtin)) {
+      return NextResponse.json(
+        {
+          error: "O GTIN/EAN informado possui tamanho ou dígito verificador inválido.",
+          fieldErrors: { gtin: "Informe um GTIN/EAN válido ou deixe o campo vazio.", "attr:GTIN": "Código GTIN/EAN inválido." },
+        },
+        { status: 400 },
+      );
+    }
 
     const pictures = parsePictureUrls(pictureUrl);
     if (!pictures.length) {
@@ -126,6 +137,9 @@ export async function POST(req: Request) {
     }
 
     const account = await getValidMercadoLivreAccount(empresaId);
+    const seller = await mercadoLivreApiGet<MercadoLivreSeller>(account.access_token, `/users/${account.ml_user_id}`);
+    const sellerTags = Array.isArray(seller?.tags) ? seller.tags.map(String) : [];
+    const userProductSeller = sellerTags.includes("user_product_seller");
     await validateMercadoLivreShippingSelection(account, categoryId, shippingMode, logisticType);
 
     const { data: existingLink, error: linkError } = await supabaseAdmin
@@ -141,7 +155,6 @@ export async function POST(req: Request) {
     }
 
     const itemPayload: Record<string, unknown> = {
-      title,
       category_id: categoryId,
       price,
       currency_id: "BRL",
@@ -150,8 +163,9 @@ export async function POST(req: Request) {
       condition,
       listing_type_id: listingTypeId,
       pictures,
-      family_name: buildFamilyName({ title, brand, model, partNumber, familyName }),
     };
+    if (userProductSeller) itemPayload.family_name = buildFamilyName({ title, brand, model, partNumber, familyName });
+    else itemPayload.title = title;
 
     const attributesById = new Map<string, MlAttributePayload>();
     const definitionsById = new Map(attributeDefinitions.map((attribute) => [String(attribute.id ?? "").toUpperCase(), attribute]));
@@ -192,12 +206,17 @@ export async function POST(req: Request) {
     });
     if (shipping) itemPayload.shipping = shipping;
 
-    const item = await createMercadoLivreItem(account.access_token, itemPayload);
+    await validateMercadoLivreItem(account.access_token, itemPayload);
+    const item = await mercadoLivreApiPost<MercadoLivreCreatedItem>(account.access_token, "/items", itemPayload);
     if (!item?.id) {
       return NextResponse.json({ error: "Mercado Livre não retornou o código do anúncio criado." }, { status: 502 });
     }
 
     const verifiedItem = shippingMode === "me2" ? await verifyMercadoEnviosOrClose(account.access_token, item.id) : item;
+    const userProduct = verifiedItem?.user_product_id
+      ? await mercadoLivreApiGet<any>(account.access_token, `/user-products/${encodeURIComponent(String(verifiedItem.user_product_id))}`).catch(() => null)
+      : null;
+    const enrichedItem = userProduct ? { ...verifiedItem, _erp_user_product: userProduct } : verifiedItem;
 
     if (description) {
       try {
@@ -217,10 +236,17 @@ export async function POST(req: Request) {
           empresa_id: account.empresa_id,
           produto_id: produtoId,
           ml_item_id: item.id,
-          title: verifiedItem.title ?? item.title ?? title,
-          permalink: verifiedItem.permalink ?? item.permalink ?? null,
-          status: verifiedItem.status ?? item.status ?? null,
-          raw_item: verifiedItem ?? item ?? {},
+          title: enrichedItem.title ?? item.title ?? title,
+          permalink: enrichedItem.permalink ?? item.permalink ?? null,
+          status: enrichedItem.status ?? item.status ?? null,
+          user_product_id: enrichedItem.user_product_id ?? null,
+          family_id: userProduct?.family_id ?? enrichedItem.family_id ?? null,
+          family_name: enrichedItem.family_name ?? userProduct?.family_name ?? null,
+          domain_id: enrichedItem.domain_id ?? userProduct?.domain_id ?? null,
+          catalog_product_id: enrichedItem.catalog_product_id ?? userProduct?.catalog_product_id ?? null,
+          user_product_enabled: Boolean(enrichedItem.family_name || enrichedItem.user_product_id),
+          item_tags: Array.isArray(enrichedItem.tags) ? enrichedItem.tags : [],
+          raw_item: enrichedItem ?? item ?? {},
           updated_at: new Date().toISOString(),
         },
         { onConflict: "empresa_id,produto_id" },
@@ -230,11 +256,75 @@ export async function POST(req: Request) {
 
     if (error) throw error;
 
-    return NextResponse.json({ data, item: verifiedItem });
+    return NextResponse.json({ data, item: enrichedItem, model: userProductSeller ? "user_product" : "legacy" });
   } catch (e: any) {
     console.error("POST /api/integracoes/mercadolivre/items", e);
-    return NextResponse.json({ error: formatMercadoLivreError(e) || "Falha ao criar anúncio Mercado Livre." }, { status: errorStatus(e) });
+    return NextResponse.json(
+      {
+        error: formatMercadoLivreError(e) || "Falha ao criar anúncio Mercado Livre.",
+        fieldErrors: e?.fieldErrors ?? undefined,
+        validation: e?.validation ?? undefined,
+      },
+      { status: Number(e?.status) || errorStatus(e) },
+    );
   }
+}
+
+async function validateMercadoLivreItem(accessToken: string, payload: Record<string, unknown>) {
+  const response = await fetch("https://api.mercadolibre.com/items/validate", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+  });
+  if (response.ok) return;
+
+  const text = await response.text();
+  let validation: any = { message: text };
+  try {
+    validation = text ? JSON.parse(text) : {};
+  } catch {
+    // Keep the raw response so the user can identify an undocumented validation.
+  }
+  const error = new Error(`Validação do anúncio recusada: ${JSON.stringify(validation)}`);
+  (error as any).status = 422;
+  (error as any).validation = validation;
+  (error as any).fieldErrors = buildValidationFieldErrors(validation);
+  throw error;
+}
+
+function buildValidationFieldErrors(validation: any) {
+  const causes = Array.isArray(validation?.cause)
+    ? validation.cause
+    : Array.isArray(validation?.cause_list)
+      ? validation.cause_list
+      : [validation];
+  const result: Record<string, string> = {};
+  for (const cause of causes) {
+    const rawMessage = String(cause?.message || cause?.msg || cause?.error || validation?.message || "Campo recusado pelo Mercado Livre.");
+    const message = translateMercadoLivreError(rawMessage);
+    const reference = [cause?.code, ...(Array.isArray(cause?.references) ? cause.references : [])].join(" ").toLowerCase();
+    const attributeId = rawMessage.match(/Attribute\s*\[([^\]]+)\]/i)?.[1]?.toUpperCase();
+    const key = attributeId
+      ? `attr:${attributeId}`
+      : reference.includes("family") ? "family"
+        : reference.includes("title") ? "title"
+          : reference.includes("category") ? "category"
+            : reference.includes("price") ? "price"
+              : reference.includes("available_quantity") ? "stock"
+                : reference.includes("picture") ? "images"
+                  : reference.includes("listing_type") ? "listingType"
+                    : reference.includes("condition") ? "condition"
+                      : reference.includes("seller_package") || reference.includes("dimension") ? "dimensions"
+                        : reference.includes("shipping") ? "shipping"
+                          : "general";
+    result[key] = message;
+  }
+  return result;
 }
 
 function parsePictureUrls(value: string) {
@@ -261,7 +351,12 @@ function normalizeBooleanValue(value: unknown) {
 
 function isValidGtin(value: unknown) {
   const digits = String(value ?? "").replace(/\D/g, "");
-  return [8, 12, 13, 14].includes(digits.length);
+  if (![8, 12, 13, 14].includes(digits.length)) return false;
+  const body = digits.slice(0, -1);
+  const sum = [...body]
+    .reverse()
+    .reduce((total, digit, index) => total + Number(digit) * (index % 2 === 0 ? 3 : 1), 0);
+  return (10 - (sum % 10)) % 10 === Number(digits.at(-1));
 }
 
 function buildAttributePayload(
@@ -408,70 +503,6 @@ function buildFamilyName(params: { title: string; brand: string; model: string; 
   return (value || params.title).replace(/\s+/g, " ").trim().slice(0, 60);
 }
 
-async function createMercadoLivreItem(accessToken: string, payload: Record<string, unknown>) {
-  try {
-    return await mercadoLivreApiPost<MercadoLivreCreatedItem>(accessToken, "/items", payload);
-  } catch (firstError) {
-    if (isInvalidGtinError(firstError) && Array.isArray(payload.attributes)) {
-      const withoutGtinPayload = {
-        ...payload,
-        attributes: payload.attributes.filter((attribute: any) => String(attribute?.id ?? "").toUpperCase() !== "GTIN"),
-      };
-
-      try {
-        return await mercadoLivreApiPost<MercadoLivreCreatedItem>(accessToken, "/items", withoutGtinPayload);
-      } catch (withoutGtinError) {
-        payload = withoutGtinPayload;
-        firstError = withoutGtinError;
-      }
-    }
-
-    if (payload.family_name && isInvalidTitleError(firstError)) {
-      const familyPayload = { ...payload };
-      delete familyPayload.title;
-      if (Array.isArray(familyPayload.attributes)) {
-        familyPayload.attributes = familyPayload.attributes.filter((attribute: any) => String(attribute?.id ?? "").toUpperCase() !== "GTIN");
-      }
-
-      try {
-        return await mercadoLivreApiPost<MercadoLivreCreatedItem>(accessToken, "/items", familyPayload);
-      } catch (familyError: any) {
-        throw new Error(
-          `Mercado Livre recusou o título no modelo de família do produto. Com título: ${formatMercadoLivreError(firstError)}. Sem título: ${formatMercadoLivreError(familyError)}.`,
-        );
-      }
-    }
-
-    if (!payload.family_name || !isMissingFamilyNameError(firstError)) throw firstError;
-
-    const fallbackPayload = { ...payload };
-    fallbackPayload.family_name = String(payload.title ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
-
-    try {
-      return await mercadoLivreApiPost<MercadoLivreCreatedItem>(accessToken, "/items", fallbackPayload);
-    } catch (secondError: any) {
-      throw new Error(
-        `Mercado Livre recusou a publicação com e sem família do produto. Com família: ${formatMercadoLivreError(firstError)}. Sem família: ${formatMercadoLivreError(secondError)}.`,
-      );
-    }
-  }
-}
-
-function isMissingFamilyNameError(error: unknown) {
-  const message = String((error as any)?.message ?? "");
-  return message.includes("[family_name]") || message.includes("family_name");
-}
-
-function isInvalidTitleError(error: unknown) {
-  const message = String((error as any)?.message ?? "");
-  return message.includes("[title]") || message.includes("fields [title]") || message.includes("title");
-}
-
-function isInvalidGtinError(error: unknown) {
-  const message = String((error as any)?.message ?? "");
-  return message.includes("[GTIN]") || message.includes("GTIN");
-}
-
 function formatMercadoLivreError(error: any) {
   const raw = String(error?.message ?? "");
   const jsonStart = raw.indexOf("{");
@@ -501,7 +532,7 @@ function translateMercadoLivreError(message: string) {
     return "Campo Família do produto: o Mercado Livre exigiu a família do produto. O ERP já envia esse campo automaticamente; tente publicar novamente.";
   }
   if (message.includes("fields [title]") || message.includes("[title]")) {
-    return "Campo Título do anúncio: o Mercado Livre rejeitou o título neste modelo de família do produto. O ERP tenta publicar sem enviar o título livre, deixando o Mercado Livre gerar o título pelo cadastro da família.";
+    return "Campo Título do anúncio: o Mercado Livre rejeitou o título. Em anúncios User Products o ERP não envia título livre; ele é gerado pela família e pelos atributos.";
   }
   if (message.includes("[GTIN]") || message.includes("GTIN")) {
     return "Campo GTIN / EAN: o Mercado Livre recusou o código informado. Para teste ou produto sem código confirmado, deixe o GTIN vazio.";
