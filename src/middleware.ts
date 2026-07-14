@@ -27,6 +27,9 @@ const PUBLIC_API_PREFIXES = [
   "/api/site/agendamentos",
   "/api/nfse/test-jp",
   "/api/webhooks/focus",
+  // Chamadas servidor-servidor. Cada rota aplica sua propria validacao.
+  "/api/integracoes/mercadolivre/cron",
+  "/api/integracoes/mercadolivre/webhook",
 ];
 
 function isStaticAsset(pathname: string) {
