@@ -43,6 +43,77 @@ export async function GET(_req: NextRequest, context: { params: Promise<Params> 
 
 /* ========================= POST (upload múltiplo) ========================= */
 
+export async function PATCH(req: NextRequest, context: { params: Promise<Params> }) {
+  try {
+    await requireEstoqueEdit();
+    const produtoId = await parseId(context);
+    const body = await req.json().catch(() => ({}));
+    const imageIds: number[] = Array.isArray(body?.imageIds) ? body.imageIds.map(Number) : [];
+
+    if (imageIds.length === 0 || imageIds.some((id) => !Number.isInteger(id) || id <= 0)) {
+      return NextResponse.json({ error: "Envie imageIds validos." }, { status: 400 });
+    }
+
+    if (new Set(imageIds).size !== imageIds.length) {
+      return NextResponse.json({ error: "imageIds possui itens duplicados." }, { status: 400 });
+    }
+
+    const { data: atuais, error: atuaisErr } = await supabaseAdmin
+      .from("produto_imagem")
+      .select("id, ordem")
+      .eq("produto_id", produtoId)
+      .order("ordem", { ascending: true });
+
+    if (atuaisErr) {
+      console.error("[PATCH images order] select error:", atuaisErr);
+      return NextResponse.json({ error: atuaisErr.message }, { status: 500 });
+    }
+
+    const imagensAtuais = atuais ?? [];
+    const atuaisIds = new Set(imagensAtuais.map((img) => Number(img.id)));
+    const contemApenasImagensDoProduto = imageIds.every((id) => atuaisIds.has(id));
+
+    if (!contemApenasImagensDoProduto) {
+      return NextResponse.json({ error: "A ordem possui imagens que nao pertencem ao produto." }, { status: 400 });
+    }
+
+    const enviadosIds = new Set(imageIds);
+    const imageIdsOrdenados = [
+      ...imageIds,
+      ...imagensAtuais.map((img) => Number(img.id)).filter((id) => !enviadosIds.has(id)),
+    ];
+
+    for (const [index, imageId] of imageIdsOrdenados.entries()) {
+      const { error: updErr } = await supabaseAdmin
+        .from("produto_imagem")
+        .update({ ordem: index + 1 })
+        .eq("id", imageId)
+        .eq("produto_id", produtoId);
+
+      if (updErr) {
+        console.error("[PATCH images order] update error:", updErr);
+        return NextResponse.json({ error: updErr.message }, { status: 500 });
+      }
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from("produto_imagem")
+      .select("id, produto_id, url, ordem, createdat")
+      .eq("produto_id", produtoId)
+      .order("ordem", { ascending: true });
+
+    if (error) {
+      console.error("[PATCH images order] reload error:", error);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ imagens: data ?? [] }, { status: 200 });
+  } catch (e: any) {
+    console.error("[PATCH images order] exception:", e);
+    return NextResponse.json({ error: String(e?.message ?? "Erro ao reordenar imagens") }, { status: 500 });
+  }
+}
+
 export async function POST(req: NextRequest, context: { params: Promise<Params> }) {
   try {
     await requireEstoqueEdit();
@@ -78,7 +149,7 @@ export async function POST(req: NextRequest, context: { params: Promise<Params> 
       );
     }
 
-    let ordemBase = ult?.[0]?.ordem ?? -1;
+    let ordemBase = Math.max(Number(ult?.[0]?.ordem ?? 0), 0);
 
     const inserts: { produto_id: number; url: string; path: string; ordem: number }[] = [];
 

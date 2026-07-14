@@ -35,8 +35,11 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
   const [currentTab, setCurrentTab] = useState<string>("Geral")
 
   const reqIdRef = useRef(0);
+  const latestProductIdRef = useRef(productId);
   const { unidades, loadingUnidades, errorUnidades } = useUnidadesMedida();
   const { grupos } = useGruposProduto();
+
+  latestProductIdRef.current = productId;
 
   const handleGetProduct = async (id: number) => {
     const myId = ++reqIdRef.current;
@@ -66,6 +69,19 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
     setSelectedProduct((p) => (p ? ({ ...p, [field]: value } as any) : p));
   };
 
+  const handleRefreshProductSilently = async (id: number) => {
+    try {
+      const response = await axios.get(`/api/products/${id}`);
+      if (latestProductIdRef.current !== id) return;
+
+      if (response.status === 200) {
+        setSelectedProduct(response.data.data);
+      }
+    } catch (error) {
+      console.error("Erro ao atualizar produto silenciosamente:", error);
+    }
+  };
+
   const handleUpdateProduct = async () => {
     if (!selectedProduct) return;
 
@@ -75,6 +91,9 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
       if (response.status === 200) {
         const { data } = response;
         setSelectedProduct(data.data);
+        if (imagensHook.ordemAlterada && imagensHook.imagensPendentes.length === 0) {
+          await imagensHook.salvarOrdem();
+        }
         await handleGetProduct(data.data.id);
         onAfterSaveProduct?.();
         toast.success("Sucesso!", { description: "Produto atualizado.", duration: 1500 });
@@ -90,13 +109,12 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
   const imagensHook = useProdutoImagens({
     productId,
     onAfterChangeCapa: async () => {
-      await handleGetProduct(productId);
+      await handleRefreshProductSilently(productId);
     },
   });
 
   useEffect(() => {
     if (productId) handleGetProduct(productId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productId]);
 
   const tabTheme =
@@ -202,10 +220,18 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
             <TabImagensEdit
               carregando={imagensHook.carregandoImagens}
               subindo={imagensHook.subindoImagens}
+              salvandoOrdem={imagensHook.salvandoOrdem}
               removendoImagemId={imagensHook.removendoImagemId}
+              definindoCapaImagemId={imagensHook.definindoCapaImagemId}
               imagens={imagensHook.imagens}
+              pendentes={imagensHook.imagensPendentes}
+              ordemItens={imagensHook.ordemItens}
+              progressoUpload={imagensHook.uploadProgressByPendingId}
               imgUrlPrincipal={(selectedProduct as any).imgUrl ?? null}
               onPick={imagensHook.onPick}
+              onUpload={imagensHook.uploadPendentes}
+              onReordenar={imagensHook.reordenarItens}
+              onRemoverPendente={imagensHook.removerImagemPendente}
               onDefinirPrincipal={imagensHook.definirImagemPrincipal}
               onRemover={imagensHook.removerImagem}
             />

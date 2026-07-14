@@ -2,18 +2,21 @@
 
 import { useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { TabsContent } from "@/components/ui/tabs";
-import { ExternalLink, Image as ImageIcon, Trash2, Upload } from "lucide-react";
+import { Image as ImageIcon, Upload } from "lucide-react";
+import { ProdutoImagensGallery, type ProdutoImagemPendente } from "./produto-imagens-gallery";
 
 type Props = {
-  previews: string[];
+  pendentes: ProdutoImagemPendente[];
+  ordemItens: string[];
+  progressoUpload?: Record<string, number>;
   saving?: boolean;
   onPick: (files: File[]) => void;
-  onRemove: (index: number) => void;
+  onReordenar: (keys: string[]) => void;
+  onRemove: (id: string) => void;
 };
 
-export function TabImagensCreate({ previews, saving, onPick, onRemove }: Props) {
+export function TabImagensCreate({ pendentes, ordemItens, progressoUpload, saving, onPick, onReordenar, onRemove }: Props) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   return (
@@ -28,10 +31,10 @@ export function TabImagensCreate({ previews, saving, onPick, onRemove }: Props) 
               </h3>
             </div>
             <p className="text-xs text-muted-foreground">
-              Adicione imagens relacionadas a este produto. Elas serão enviadas automaticamente ao salvar o cadastro.
+              Adicione imagens relacionadas a este produto. Elas serao enviadas ao salvar o cadastro.
             </p>
             <p className="text-xs text-muted-foreground">
-              {previews.length} {previews.length === 1 ? "imagem selecionada" : "imagens selecionadas"}.
+              {pendentes.length} {pendentes.length === 1 ? "imagem selecionada" : "imagens selecionadas"}.
             </p>
           </div>
 
@@ -54,68 +57,22 @@ export function TabImagensCreate({ previews, saving, onPick, onRemove }: Props) 
               disabled={saving}
               onClick={() => fileInputRef.current?.click()}
             >
-              {saving ? (
-                <div className="h-4 w-4 animate-spin rounded-full border-b-2 border-primary" />
-              ) : (
-                <Upload className="h-4 w-4" />
-              )}
-              {saving ? "Salvando..." : "Adicionar imagem"}
+              <Upload className="h-4 w-4" />
+              Enviar imagens
             </Button>
           </div>
         </div>
 
-        {previews.length === 0 ? (
-          <div className="flex min-h-[160px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed text-center text-muted-foreground">
-            <ImageIcon className="h-10 w-10 opacity-25" />
-            <p className="text-sm">Nenhuma imagem selecionada.</p>
-          </div>
-        ) : (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {previews.map((src, idx) => (
-              <div key={`${src}-${idx}`} className="overflow-hidden rounded-lg border bg-card">
-                <a href={src} target="_blank" rel="noreferrer" className="block">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={src} alt={`Imagem selecionada ${idx + 1}`} className="h-32 w-full object-cover" />
-                </a>
-
-                <div className="space-y-2 p-3">
-                  <div className="min-w-0 space-y-1">
-                    <Badge variant="secondary" className="mb-1">
-                      Selecionada
-                    </Badge>
-                    <p className="truncate text-sm font-semibold" title={`Imagem ${idx + 1}`}>
-                      Imagem {idx + 1}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Será enviada ao salvar
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    <Button type="button" variant="outline" size="sm" asChild>
-                      <a href={src} target="_blank" rel="noreferrer" className="gap-2">
-                        <ExternalLink className="h-4 w-4" />
-                        Abrir
-                      </a>
-                    </Button>
-
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="gap-2 text-destructive hover:text-destructive"
-                      disabled={saving}
-                      onClick={() => onRemove(idx)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      Remover
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <ProdutoImagensGallery
+          pendentes={pendentes}
+          orderKeys={ordemItens}
+          uploadProgressByPendingId={progressoUpload}
+          emptyText="Nenhuma imagem selecionada."
+          saving={saving}
+          onReorder={onReordenar}
+          uploadDisabledReason={pendentes.length > 0 ? "As imagens serao enviadas ao salvar o produto." : undefined}
+          onRemovePendente={onRemove}
+        />
       </div>
     </TabsContent>
   );
