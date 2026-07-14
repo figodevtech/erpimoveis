@@ -206,6 +206,9 @@ export async function POST(req: Request) {
     if (model) attributesById.set("MODEL", { id: "MODEL", value_name: model });
     if (partNumber) attributesById.set("PART_NUMBER", { id: "PART_NUMBER", value_name: partNumber });
     if (isValidGtin(gtin)) attributesById.set("GTIN", { id: "GTIN", value_name: gtin });
+    for (const attribute of buildPackageAttributes({ shippingMode, lengthCm, widthCm, heightCm, weightGrams })) {
+      attributesById.set(attribute.id, attribute);
+    }
 
     const attributes = Array.from(attributesById.values());
     if (attributes.length) itemPayload.attributes = attributes;
@@ -285,6 +288,10 @@ export async function POST(req: Request) {
           catalog_product_id: enrichedItem.catalog_product_id ?? userProduct?.catalog_product_id ?? null,
           user_product_enabled: Boolean(enrichedItem.family_name || enrichedItem.user_product_id),
           item_tags: Array.isArray(enrichedItem.tags) ? enrichedItem.tags : [],
+          package_length_cm: lengthCm,
+          package_width_cm: widthCm,
+          package_height_cm: heightCm,
+          package_weight_grams: weightGrams,
           raw_item: enrichedItem ?? item ?? {},
           updated_at: new Date().toISOString(),
         },
@@ -332,10 +339,6 @@ async function validateMercadoLivreItem(accessToken: string, payload: Record<str
 
   const shipping = payload.shipping as Record<string, unknown> | undefined;
   if (String(shipping?.mode ?? "").toLowerCase() === "me2" && isLegacyMe1ValidationError(validation)) {
-    console.warn(
-      "Mercado Livre /items/validate tentou validar ME1 em um anuncio ME2; a criacao real confirmara a modalidade.",
-      validation,
-    );
     return;
   }
 
@@ -588,6 +591,24 @@ function buildShippingDimensions(params: { lengthCm: number; widthCm: number; he
     return null;
   }
   return `${params.lengthCm}x${params.widthCm}x${params.heightCm},${params.weightGrams}`;
+}
+
+function buildPackageAttributes(params: {
+  shippingMode: string;
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
+  weightGrams: number;
+}): MlAttributePayload[] {
+  if (params.shippingMode !== "me2") return [];
+  if (![params.lengthCm, params.widthCm, params.heightCm].every((value) => Number.isFinite(value) && value > 0)) return [];
+  if (!Number.isInteger(params.weightGrams) || params.weightGrams <= 0) return [];
+  return [
+    { id: "SELLER_PACKAGE_LENGTH", value_struct: { number: params.lengthCm, unit: "cm" } },
+    { id: "SELLER_PACKAGE_WIDTH", value_struct: { number: params.widthCm, unit: "cm" } },
+    { id: "SELLER_PACKAGE_HEIGHT", value_struct: { number: params.heightCm, unit: "cm" } },
+    { id: "SELLER_PACKAGE_WEIGHT", value_struct: { number: params.weightGrams, unit: "g" } },
+  ];
 }
 
 async function verifyCreatedItemOrClose(accessToken: string, itemId: string, requireMercadoEnvios: boolean) {

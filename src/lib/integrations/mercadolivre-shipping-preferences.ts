@@ -125,10 +125,6 @@ export async function validateMercadoLivreShippingForListing(
   if (!response.ok) {
     const rawMessage = result.message || result.error || text;
     if (normalize(shippingMode) === "me2" && /user has not mode me1/i.test(String(rawMessage))) {
-      console.warn(
-        "Mercado Livre /shipping_modes tentou avaliar ME1 para um anuncio solicitado como ME2; mantendo a validacao estatica da conta e categoria.",
-        result,
-      );
       return result;
     }
 

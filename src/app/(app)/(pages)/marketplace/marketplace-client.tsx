@@ -143,6 +143,43 @@ type MarketplaceSyncRun = {
   duration_ms?: number | null;
 };
 
+type ListingPerformanceDetails = {
+  produto_id: number;
+  ml_item_id: string;
+  title?: string | null;
+  permalink?: string | null;
+  status?: string | null;
+  visits_total?: number | null;
+  sold_quantity?: number | null;
+  available_quantity?: number | null;
+  picturesCount: number;
+  quality: {
+    available: boolean;
+    score?: number | null;
+    level?: string | null;
+    calculatedAt?: string | null;
+    actions: Array<{ id: string; title: string; status: string; message?: string }>;
+  };
+  permissions: {
+    title: boolean;
+    price: boolean;
+    stock: boolean;
+    description: boolean;
+    pictures: boolean;
+    attributes: boolean;
+    familyControlled: boolean;
+    catalogControlled: boolean;
+  };
+  period: {
+    days: number;
+    visits: number;
+    orders: number;
+    units: number;
+    conversionRate: number;
+    daily: Array<{ date: string; visits: number; orders: number; units: number }>;
+  };
+};
+
 type MarketplaceDiagnostics = {
   status: "ok" | "warning" | "error";
   checkedAt?: string | null;
@@ -1451,6 +1488,9 @@ export default function MarketplacePage() {
   const [creatingListing, setCreatingListing] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingListing, setEditingListing] = useState(false);
+  const [performanceDialogOpen, setPerformanceDialogOpen] = useState(false);
+  const [loadingListingPerformance, setLoadingListingPerformance] = useState(false);
+  const [listingPerformance, setListingPerformance] = useState<ListingPerformanceDetails | null>(null);
   const [loadingEditListing, setLoadingEditListing] = useState(false);
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<MlOrder | null>(null);
   const [orderToCancel, setOrderToCancel] = useState<MlOrder | null>(null);
@@ -1552,6 +1592,7 @@ export default function MarketplacePage() {
     weightGrams: "",
     dynamicAttributes: {},
   });
+  const [editingProductImageUrls, setEditingProductImageUrls] = useState<string[]>([]);
   const [editShippingModes, setEditShippingModes] = useState<string[]>([]);
   const [editLogisticOptions, setEditLogisticOptions] = useState<string[]>([]);
   const [editCategoryAttributes, setEditCategoryAttributes] = useState<MlCategoryAttribute[]>([]);
@@ -2644,6 +2685,7 @@ export default function MarketplacePage() {
     setEditForm({
       ...fallbackForm,
     });
+    setEditingProductImageUrls(Array.from(new Set((product.imageUrls?.length ? product.imageUrls : product.imgUrl ? [product.imgUrl] : []).filter(Boolean))));
     setEditShippingModes([]);
     setEditLogisticOptions([]);
     setEditCategoryAttributes([]);
@@ -2707,6 +2749,24 @@ export default function MarketplacePage() {
       });
     } finally {
       setLoadingEditListing(false);
+    }
+  }
+
+  async function openListingPerformance(product: ProductRow) {
+    setListingPerformance(null);
+    setPerformanceDialogOpen(true);
+    setLoadingListingPerformance(true);
+    try {
+      const response = await fetch(`/api/integracoes/mercadolivre/products/${product.id}/performance`, { cache: "no-store" });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json?.error || "Falha ao carregar desempenho do anúncio.");
+      if (!json?.linked || !json?.data) throw new Error("Este produto não possui anúncio Mercado Livre vinculado.");
+      setListingPerformance(json.data);
+    } catch (error) {
+      toast.error(marketplaceErrorMessage(error, "Falha ao carregar desempenho do anúncio."));
+      setPerformanceDialogOpen(false);
+    } finally {
+      setLoadingListingPerformance(false);
     }
   }
 
@@ -3087,10 +3147,10 @@ export default function MarketplacePage() {
 
   if (initialLoading) {
     return (
-      <div className="flex h-[80vh] w-full items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="h-10 w-10 animate-spin text-primary" />
-          <p className="animate-pulse text-muted-foreground">Carregando marketplace...</p>
+      <div className="flex h-[80vh] w-full items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <div className="size-8 animate-spin rounded-t-full border-t-2 border-primary" />
+          <p className="text-primary">Carregando marketplace...</p>
         </div>
       </div>
     );
@@ -3124,6 +3184,10 @@ export default function MarketplacePage() {
             <DropdownMenuItem onClick={() => openEditListing(product)} disabled={Boolean(busy)}>
               <Pencil className="mr-2 h-4 w-4" />
               Editar anúncio
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => openListingPerformance(product)} disabled={Boolean(busy)}>
+              <TrendingUp className="mr-2 h-4 w-4" />
+              Desempenho e qualidade
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => itemAction(link.ml_item_id, "sync_stock_price")} disabled={Boolean(busy)}>
               <RefreshCcw className="mr-2 h-4 w-4" />
@@ -3202,11 +3266,11 @@ export default function MarketplacePage() {
       <Card className="gap-0 overflow-hidden py-0 shadow-sm">
         <section aria-label="Resumo do marketplace" className="grid grid-cols-2 xl:grid-cols-4">
           <button type="button" className="group min-w-0 border-b border-r text-left transition-colors hover:bg-muted/30 xl:border-b-0" onClick={() => changeMainTab("products")}>
-            <div className="flex min-h-[82px] items-center justify-between gap-3 px-4 py-3">
+            <div className="flex items-center justify-between gap-2 px-4 py-1.5">
               <div className="min-w-0">
                 <CardTitle className="text-sm font-medium">Produtos vinculados</CardTitle>
-                <div className="mt-1 text-xl font-bold leading-tight">{linkedCount}</div>
-                <p className="mt-0.5 truncate text-xs text-muted-foreground">{unlinkedCount} sem vínculo nesta lista</p>
+                <div className="text-xl font-bold leading-tight">{linkedCount}</div>
+                <p className="truncate text-xs leading-tight text-muted-foreground">{unlinkedCount} sem vínculo nesta lista</p>
               </div>
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-blue-500/10">
                 <PackageCheck className="h-4 w-4 text-blue-600" />
@@ -3214,11 +3278,11 @@ export default function MarketplacePage() {
             </div>
           </button>
           <button type="button" className="group min-w-0 border-b text-left transition-colors hover:bg-muted/30 xl:border-b-0 xl:border-r" onClick={() => changeMainTab("orders")}>
-            <div className="flex min-h-[82px] items-center justify-between gap-3 px-4 py-3">
+            <div className="flex items-center justify-between gap-2 px-4 py-1.5">
               <div className="min-w-0">
                 <CardTitle className="text-sm font-medium">Pedidos recentes</CardTitle>
-                <div className="mt-1 text-xl font-bold leading-tight">{orders.length}</div>
-                <p className="mt-0.5 truncate text-xs text-muted-foreground">Importados do Mercado Livre</p>
+                <div className="text-xl font-bold leading-tight">{orders.length}</div>
+                <p className="truncate text-xs leading-tight text-muted-foreground">Importados do Mercado Livre</p>
               </div>
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-violet-500/10">
                 <ClipboardList className="h-4 w-4 text-violet-600" />
@@ -3226,11 +3290,11 @@ export default function MarketplacePage() {
             </div>
           </button>
           <button type="button" className="group min-w-0 border-r text-left transition-colors hover:bg-muted/30" onClick={() => changeMainTab("atendimento")}>
-            <div className="flex min-h-[82px] items-center justify-between gap-3 px-4 py-3">
+            <div className="flex items-center justify-between gap-2 px-4 py-1.5">
               <div className="min-w-0">
                 <CardTitle className="text-sm font-medium">Perguntas pendentes</CardTitle>
-                <div className="mt-1 text-xl font-bold leading-tight">{unansweredQuestions}</div>
-                <p className="mt-0.5 truncate text-xs text-muted-foreground">{questions.length} carregadas no atendimento</p>
+                <div className="text-xl font-bold leading-tight">{unansweredQuestions}</div>
+                <p className="truncate text-xs leading-tight text-muted-foreground">{questions.length} carregadas no atendimento</p>
               </div>
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-amber-500/10">
                 <MessageCircle className={`h-4 w-4 ${unansweredQuestions > 0 ? "text-amber-600" : "text-muted-foreground"}`} />
@@ -3238,11 +3302,11 @@ export default function MarketplacePage() {
             </div>
           </button>
           <button type="button" className="group min-w-0 text-left transition-colors hover:bg-muted/30" onClick={() => changeMainTab("logs")}>
-            <div className="flex min-h-[82px] items-center justify-between gap-3 px-4 py-3">
+            <div className="flex items-center justify-between gap-2 px-4 py-1.5">
               <div className="min-w-0">
                 <CardTitle className="text-sm font-medium">Alertas de integração</CardTitle>
-                <div className="mt-1 text-xl font-bold leading-tight">{integrationAlerts}</div>
-                <p className="mt-0.5 truncate text-xs text-muted-foreground">{stockSync.pending > 0 ? `${stockSync.pending} estoque(s) aguardando sincronização` : `${notifications.length} evento(s) recentes`}</p>
+                <div className="text-xl font-bold leading-tight">{integrationAlerts}</div>
+                <p className="truncate text-xs leading-tight text-muted-foreground">{stockSync.pending > 0 ? `${stockSync.pending} estoque(s) aguardando sincronização` : `${notifications.length} evento(s) recentes`}</p>
               </div>
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-rose-500/10">
                 <AlertTriangle className={`h-4 w-4 ${integrationAlerts > 0 ? "text-rose-600" : "text-muted-foreground"}`} />
@@ -5192,19 +5256,18 @@ export default function MarketplacePage() {
 
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden sm:max-w-4xl">
+          {loadingEditListing && (
+            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 rounded-lg bg-background">
+              <div className="size-8 animate-spin rounded-t-full border-t-2 border-primary" />
+              <span className="text-primary">Carregando...</span>
+            </div>
+          )}
           <DialogHeader className="shrink-0">
             <DialogTitle>Editar anúncio Mercado Livre</DialogTitle>
             <DialogDescription>
               Atualize os dados principais do anúncio publicado e sincronize com o Mercado Livre.
             </DialogDescription>
           </DialogHeader>
-          {loadingEditListing && (
-            <div className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Carregando dados atuais do Mercado Livre...
-            </div>
-          )}
-
           <div className="min-h-0 flex-1 overflow-y-auto pr-2">
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2 md:col-span-2">
@@ -5494,7 +5557,23 @@ export default function MarketplacePage() {
             </div>
 
             <div className="mt-4 space-y-2">
-              <Label>Imagens do anúncio</Label>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Label>Imagens do anúncio</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={editingListing || loadingEditListing || editingProductImageUrls.length === 0}
+                  onClick={() => {
+                    const merged = Array.from(new Set([...parsePictureUrls(editForm.pictureUrl), ...editingProductImageUrls]));
+                    setEditForm((current) => ({ ...current, pictureUrl: merged.join("\n") }));
+                    toast.success(`${editingProductImageUrls.length} imagem(ns) do produto adicionada(s).`);
+                  }}
+                >
+                  <ImageIcon className="mr-2 h-4 w-4" />
+                  Adicionar imagens do produto
+                </Button>
+              </div>
               <Textarea
                 value={editForm.pictureUrl}
                 onChange={(event) => updateEditForm("pictureUrl", event.target.value)}
@@ -5514,6 +5593,136 @@ export default function MarketplacePage() {
               Salvar alterações
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={performanceDialogOpen} onOpenChange={setPerformanceDialogOpen}>
+        <DialogContent className="flex min-h-[520px] max-h-[85vh] flex-col overflow-hidden sm:max-w-6xl">
+          {loadingListingPerformance && (
+            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 rounded-lg bg-background">
+              <Loader2 className="h-9 w-9 animate-spin text-primary" />
+              <span className="text-sm text-muted-foreground">Carregando desempenho...</span>
+            </div>
+          )}
+          <DialogHeader className="shrink-0">
+            <DialogTitle>Desempenho do anúncio</DialogTitle>
+            <DialogDescription>
+              Métricas dos últimos 30 dias e recomendações de qualidade retornadas pelo Mercado Livre.
+            </DialogDescription>
+          </DialogHeader>
+          {listingPerformance && (
+            <ScrollArea className="min-h-0 flex-1 pr-4">
+              <div className="space-y-5 pb-2">
+                <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-4">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-xs">{listingPerformance.ml_item_id}</span>
+                      {statusBadge(listingPerformance.status)}
+                    </div>
+                    <h3 className="mt-1 truncate font-medium">{listingPerformance.title || "Anúncio Mercado Livre"}</h3>
+                  </div>
+                  {listingPerformance.permalink && (
+                    <Button asChild variant="outline" size="sm" className="bg-transparent">
+                      <a href={listingPerformance.permalink} target="_blank" rel="noreferrer">
+                        <ExternalLink className="h-4 w-4" /> Abrir anúncio
+                      </a>
+                    </Button>
+                  )}
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                  {[
+                    ["Visualizações", listingPerformance.period.visits.toLocaleString("pt-BR")],
+                    ["Pedidos", listingPerformance.period.orders.toLocaleString("pt-BR")],
+                    ["Unidades", listingPerformance.period.units.toLocaleString("pt-BR")],
+                    ["Conversão", `${listingPerformance.period.conversionRate.toLocaleString("pt-BR")} %`],
+                    ["Imagens", listingPerformance.picturesCount.toLocaleString("pt-BR")],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-md border bg-muted/15 px-3 py-3">
+                      <p className="text-xs text-muted-foreground">{label}</p>
+                      <p className="mt-1 text-lg font-semibold">{value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <section className="space-y-3">
+                  <div>
+                    <h3 className="text-sm font-medium">Visualizações diárias</h3>
+                    <p className="text-xs text-muted-foreground">Últimos 30 dias coletados pela rotina automática.</p>
+                  </div>
+                  <div className="flex h-32 items-end gap-1 rounded-md border px-3 pb-3 pt-5">
+                    {listingPerformance.period.daily.map((day) => {
+                      const maxVisits = Math.max(...listingPerformance.period.daily.map((entry) => entry.visits), 1);
+                      const height = Math.max((day.visits / maxVisits) * 100, day.visits > 0 ? 6 : 2);
+                      return (
+                        <div key={day.date} className="group relative flex h-full min-w-0 flex-1 items-end" title={`${day.date}: ${day.visits} visualização(ões)`}>
+                          <div className="w-full rounded-t-sm bg-primary/75 transition-colors group-hover:bg-primary" style={{ height: `${height}%` }} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+
+                <section className="space-y-3 border-t pt-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-sm font-medium">Qualidade do anúncio</h3>
+                      <p className="text-xs text-muted-foreground">Avaliação oficial da API de performance.</p>
+                    </div>
+                    {listingPerformance.quality.score != null && (
+                      <Badge variant="outline" className="text-sm">
+                        {Math.round(listingPerformance.quality.score)}% · {listingPerformance.quality.level || "Sem nível"}
+                      </Badge>
+                    )}
+                  </div>
+                  {!listingPerformance.quality.available ? (
+                    <p className="rounded-md border p-3 text-sm text-muted-foreground">O Mercado Livre ainda não disponibilizou a avaliação deste anúncio.</p>
+                  ) : listingPerformance.quality.actions.length === 0 ? (
+                    <div className="flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm text-emerald-700 dark:text-emerald-300">
+                      <Check className="h-4 w-4" /> Nenhuma melhoria pendente foi retornada.
+                    </div>
+                  ) : (
+                    <div className="divide-y rounded-md border">
+                      {listingPerformance.quality.actions.map((action) => (
+                        <div key={`${action.id}:${action.title}`} className="flex gap-3 px-3 py-3">
+                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                          <div>
+                            <p className="text-sm font-medium">{marketplaceTextLabel(action.title)}</p>
+                            {action.message && <p className="mt-0.5 text-xs text-muted-foreground">{marketplaceTextLabel(action.message)}</p>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                <section className="space-y-3 border-t pt-4">
+                  <h3 className="text-sm font-medium">Alterações permitidas</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      ["Título", listingPerformance.permissions.title],
+                      ["Preço", listingPerformance.permissions.price],
+                      ["Estoque", listingPerformance.permissions.stock],
+                      ["Descrição", listingPerformance.permissions.description],
+                      ["Imagens", listingPerformance.permissions.pictures],
+                      ["Atributos", listingPerformance.permissions.attributes],
+                    ].map(([label, allowed]) => (
+                      <Badge key={String(label)} variant={allowed ? "secondary" : "outline"} className={!allowed ? "text-muted-foreground line-through" : ""}>
+                        {label}
+                      </Badge>
+                    ))}
+                  </div>
+                  {(listingPerformance.permissions.familyControlled || listingPerformance.permissions.catalogControlled) && (
+                    <p className="text-xs text-muted-foreground">
+                      {listingPerformance.permissions.catalogControlled
+                        ? "Este anúncio pertence ao catálogo; imagens, título e ficha técnica podem ser controlados pelo Mercado Livre."
+                        : "Este anúncio usa User Products; título e atributos da família podem ser controlados pelo Mercado Livre."}
+                    </p>
+                  )}
+                </section>
+              </div>
+            </ScrollArea>
+          )}
         </DialogContent>
       </Dialog>
 

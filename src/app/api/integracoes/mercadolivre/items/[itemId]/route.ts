@@ -39,7 +39,7 @@ export async function GET(_req: NextRequest, ctx: ParamsCtx) {
           `/sites/${encodeURIComponent(account.site_id || "MLB")}/user-products-families/${encodeURIComponent(String(userProduct.family_id))}`,
         ).catch(() => null)
       : null;
-    const normalized = normalizeItemForEdit(item, description, userProduct, family);
+    const normalized = normalizeItemForEdit(item, description, userProduct, family, link);
 
     await supabaseAdmin
       .from("mercadolivre_product_link")
@@ -149,6 +149,7 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
         catalog_product_id: item?.catalog_product_id ?? userProduct?.catalog_product_id ?? null,
         user_product_enabled: Boolean(item?.family_name || item?.user_product_id),
         item_tags: Array.isArray(item?.tags) ? item.tags : [],
+        ...(action === "update_listing" ? packageDimensionSnapshot(body) : {}),
         raw_item: userProduct ? { ...item, _erp_user_product: userProduct } : item ?? {},
         updated_at: new Date().toISOString(),
       })
@@ -169,7 +170,7 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
   }
 }
 
-function normalizeItemForEdit(item: any, description: any, userProduct?: any, family?: any) {
+function normalizeItemForEdit(item: any, description: any, userProduct?: any, family?: any, link?: any) {
   const saleTerms = Array.isArray(item?.sale_terms) ? item.sale_terms : [];
   const warrantyType = saleTerms.find((term: any) => term?.id === "WARRANTY_TYPE");
   const warrantyTime = saleTerms.find((term: any) => term?.id === "WARRANTY_TIME");
@@ -224,10 +225,28 @@ function normalizeItemForEdit(item: any, description: any, userProduct?: any, fa
     logisticType: shipping?.logistic_type ?? "",
     freeShipping: Boolean(shipping?.free_shipping),
     localPickup: Boolean(shipping?.local_pick_up),
-    widthCm: dimensions.widthCm,
-    heightCm: dimensions.heightCm,
-    lengthCm: dimensions.lengthCm,
-    weightGrams: dimensions.weightGrams,
+    widthCm: dimensions.widthCm || dynamicAttributes.SELLER_PACKAGE_WIDTH || numberText(link?.package_width_cm),
+    heightCm: dimensions.heightCm || dynamicAttributes.SELLER_PACKAGE_HEIGHT || numberText(link?.package_height_cm),
+    lengthCm: dimensions.lengthCm || dynamicAttributes.SELLER_PACKAGE_LENGTH || numberText(link?.package_length_cm),
+    weightGrams: dimensions.weightGrams || dynamicAttributes.SELLER_PACKAGE_WEIGHT || numberText(link?.package_weight_grams),
+  };
+}
+
+function numberText(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? String(number) : "";
+}
+
+function packageDimensionSnapshot(body: any) {
+  const length = Number(body?.lengthCm);
+  const width = Number(body?.widthCm);
+  const height = Number(body?.heightCm);
+  const weight = Math.trunc(Number(body?.weightGrams));
+  return {
+    package_length_cm: Number.isFinite(length) && length > 0 ? length : null,
+    package_width_cm: Number.isFinite(width) && width > 0 ? width : null,
+    package_height_cm: Number.isFinite(height) && height > 0 ? height : null,
+    package_weight_grams: Number.isInteger(weight) && weight > 0 ? weight : null,
   };
 }
 
@@ -372,7 +391,7 @@ function imageFieldError(message: string) {
 async function getLink(itemId: string, empresaId: number) {
   const { data, error } = await supabaseAdmin
     .from("mercadolivre_product_link")
-    .select("id, empresa_id, produto_id, ml_item_id, title, permalink, user_product_id, family_id, family_name")
+    .select("id, empresa_id, produto_id, ml_item_id, title, permalink, user_product_id, family_id, family_name, package_length_cm, package_width_cm, package_height_cm, package_weight_grams")
     .eq("empresa_id", empresaId)
     .eq("ml_item_id", itemId.toUpperCase())
     .single();
@@ -388,5 +407,9 @@ async function getLink(itemId: string, empresaId: number) {
     user_product_id?: string | null;
     family_id?: string | null;
     family_name?: string | null;
+    package_length_cm?: number | null;
+    package_width_cm?: number | null;
+    package_height_cm?: number | null;
+    package_weight_grams?: number | null;
   };
 }
