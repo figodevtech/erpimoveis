@@ -6,6 +6,7 @@ import {
   BanknoteArrowDown,
   BanknoteArrowUp,
   CalendarDays,
+  CalendarIcon,
   ClipboardList,
   Eye,
   FileText,
@@ -19,9 +20,10 @@ import { Bar, BarChart, CartesianGrid, Cell, LabelList, XAxis, YAxis } from "rec
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
-import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
@@ -60,6 +62,12 @@ function formatarDataYYYYMMDD(d: Date) {
   const mes = String(d.getMonth() + 1).padStart(2, "0");
   const dia = String(d.getDate()).padStart(2, "0");
   return `${ano}-${mes}-${dia}`;
+}
+
+function parseDataYYYYMMDD(date: string) {
+  const [ano, mes, dia] = date.split("-").map(Number);
+  const parsed = new Date(ano, (mes ?? 1) - 1, dia ?? 1);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 }
 
 function formatarDataCompleta(date: string) {
@@ -235,6 +243,7 @@ function Section({
 
 export default function ResumoDiarioDashboard() {
   const [date, setDate] = React.useState(() => formatarDataYYYYMMDD(new Date()));
+  const [datePickerOpen, setDatePickerOpen] = React.useState(false);
   const { data, loading, error, refetch } = useResumoDiario(date);
   const [osDialogOpen, setOsDialogOpen] = React.useState(false);
   const [selectedOsId, setSelectedOsId] = React.useState<number | null>(null);
@@ -305,12 +314,30 @@ export default function ResumoDiarioDashboard() {
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <Input
-            type="date"
-            value={date}
-            onChange={(event) => setDate(event.target.value)}
-            className="h-8 w-[150px] text-xs sm:h-9"
-          />
+          <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-8 w-[150px] justify-start text-left text-xs font-normal sm:h-9"
+              >
+                <CalendarIcon className="mr-1.5 h-4 w-4" />
+                {formatarDataCompleta(date)}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="end">
+              <Calendar
+                mode="single"
+                selected={parseDataYYYYMMDD(date)}
+                onSelect={(selectedDate) => {
+                  if (!selectedDate) return;
+                  setDate(formatarDataYYYYMMDD(selectedDate));
+                  setDatePickerOpen(false);
+                }}
+                initialFocus
+              />
+            </PopoverContent>
+          </Popover>
           <Button
             variant="outline"
             size="icon"
