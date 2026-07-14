@@ -99,6 +99,7 @@ export async function syncMercadoLivreMissedFeeds(params?: { pageSize?: number; 
 }
 
 export async function retryMercadoLivreNotifications(limit = 50) {
+  await requeueSupportedIgnoredNotifications();
   await ignoreOrphanedNotifications();
   const { data, error } = await supabaseAdmin.rpc("fn_reservar_notificacoes_mercadolivre", {
     p_limit: Math.min(Math.max(limit, 1), 100),
@@ -117,6 +118,21 @@ export async function retryMercadoLivreNotifications(limit = 50) {
     }
   }
   return results;
+}
+
+async function requeueSupportedIgnoredNotifications() {
+  const { error } = await supabaseAdmin
+    .from("mercadolivre_notification")
+    .update({
+      status: "RECEBIDA",
+      error: null,
+      next_retry_at: null,
+      locked_at: null,
+      processed_at: null,
+    })
+    .eq("status", "IGNORADA")
+    .in("topic", ["user-products-families", "stock-locations"]);
+  if (error) throw error;
 }
 
 async function ignoreOrphanedNotifications() {
@@ -181,6 +197,10 @@ async function processNotification(notificationId: number, attempts: number) {
       await processShipment(account, accessToken, resource);
     } else if (topic === "items" || topic === "items_prices") {
       await processItem(account, accessToken, resource);
+    } else if (topic === "user-products-families") {
+      await processUserProductFamily(account, accessToken, resource);
+    } else if (topic === "stock-locations") {
+      await processUserProductStock(account, accessToken, resource);
     } else if (topic.includes("claim") || topic.includes("reclama")) {
       await processClaim(account, accessToken, resource);
     } else if (topic === "questions") {
@@ -285,7 +305,7 @@ async function processShipment(account: Account, accessToken: string, resource: 
 }
 
 async function processItem(account: Account, accessToken: string, resource: string) {
-  const itemId = extractResourceId(resource)?.toUpperCase();
+  const itemId = extractItemId(resource);
   if (!itemId) throw new Error("Notificação de anúncio sem item_id.");
   const item = await mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}`);
   const userProduct = item?.user_product_id
@@ -310,6 +330,56 @@ async function processItem(account: Account, accessToken: string, resource: stri
     .eq("empresa_id", account.empresa_id)
     .eq("ml_item_id", itemId);
   if (error) throw error;
+}
+
+async function processUserProductFamily(account: Account, accessToken: string, resource: string) {
+  if (!resource) throw new Error("Notificação de família de produto sem recurso.");
+  const family = await mercadoLivreApiGet<any>(accessToken, normalizeResource(resource));
+  const familyId = String(family?.id ?? extractResourceId(resource) ?? "").trim();
+  if (!familyId) throw new Error("Notificação de família de produto sem family_id.");
+
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  const familyName = family?.name ?? family?.family_name;
+  if (familyName) updates.family_name = String(familyName);
+  if (family?.domain_id) updates.domain_id = String(family.domain_id);
+  if (family?.catalog_product_id) updates.catalog_product_id = String(family.catalog_product_id);
+
+  const { error } = await supabaseAdmin
+    .from("mercadolivre_product_link")
+    .update(updates)
+    .eq("empresa_id", account.empresa_id)
+    .eq("family_id", familyId);
+  if (error) throw error;
+}
+
+async function processUserProductStock(account: Account, accessToken: string, resource: string) {
+  if (!resource) throw new Error("Notificação de estoque do anúncio sem recurso.");
+  const stock = await mercadoLivreApiGet<any>(accessToken, normalizeResource(resource));
+  const userProductId = resource.match(/\/user-products\/([^/?]+)\/stock/i)?.[1];
+  if (!userProductId) throw new Error("Notificação de estoque sem user_product_id.");
+
+  const availableQuantity = getUserProductAvailableQuantity(stock);
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (availableQuantity != null) updates.available_quantity = availableQuantity;
+
+  const { error } = await supabaseAdmin
+    .from("mercadolivre_product_link")
+    .update(updates)
+    .eq("empresa_id", account.empresa_id)
+    .eq("user_product_id", decodeURIComponent(userProductId));
+  if (error) throw error;
+}
+
+function getUserProductAvailableQuantity(stock: any) {
+  const direct = Number(stock?.available_quantity ?? stock?.quantity);
+  if (Number.isFinite(direct) && direct >= 0) return Math.trunc(direct);
+
+  const locations = Array.isArray(stock?.locations) ? stock.locations : [];
+  if (!locations.length) return null;
+  return locations.reduce((total: number, location: any) => {
+    const quantity = Number(location?.available_quantity ?? location?.quantity ?? 0);
+    return total + (Number.isFinite(quantity) && quantity > 0 ? Math.trunc(quantity) : 0);
+  }, 0);
 }
 
 async function processClaim(account: Account, accessToken: string, resource: string) {
@@ -398,6 +468,11 @@ function normalizeMissedFeedPayload(value: unknown): NotificationPayload | null 
 
 function extractResourceId(resource: string) {
   return resource.split("?")[0].split("/").filter(Boolean).pop() || null;
+}
+
+function extractItemId(resource: string) {
+  const match = resource.match(/\/items\/(MLB\d+)/i);
+  return match?.[1]?.toUpperCase() ?? null;
 }
 
 function extractOrderId(resource: string) {

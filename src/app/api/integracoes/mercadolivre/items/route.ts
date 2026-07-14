@@ -3,7 +3,11 @@ import { requireVendasEdit } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { mercadoLivreApiGet, mercadoLivreApiPost, mercadoLivreApiPut } from "@/lib/integrations/mercadolivre";
 import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
-import { validateMercadoLivreShippingSelection } from "@/lib/integrations/mercadolivre-shipping-preferences";
+import { uploadMercadoLivrePictures } from "@/lib/integrations/mercadolivre-pictures";
+import {
+  validateMercadoLivreShippingForListing,
+  validateMercadoLivreShippingSelection,
+} from "@/lib/integrations/mercadolivre-shipping-preferences";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -17,7 +21,10 @@ type MercadoLivreCreatedItem = {
   [key: string]: unknown;
 };
 
-type MercadoLivreSeller = { tags?: string[] };
+type MercadoLivreSeller = {
+  tags?: string[];
+  status?: { list?: { allow?: boolean; codes?: string[] } };
+};
 
 type AttributeDefinition = {
   id?: string;
@@ -91,6 +98,15 @@ export async function POST(req: Request) {
     if (!Number.isInteger(availableQuantity) || availableQuantity <= 0) {
       return NextResponse.json({ error: "Não é possível publicar anúncio sem estoque disponível." }, { status: 400 });
     }
+    if (listingTypeId === "free" && availableQuantity > 1) {
+      return NextResponse.json(
+        {
+          error: "Anúncios grátis permitem estoque máximo de 1 unidade.",
+          fieldErrors: { stock: "Reduza o estoque do anúncio grátis para 1 unidade ou escolha Clássico/Premium." },
+        },
+        { status: 400 },
+      );
+    }
     if (!["new", "used", "not_specified"].includes(condition)) {
       return NextResponse.json({ error: "Condição inválida." }, { status: 400 });
     }
@@ -104,8 +120,8 @@ export async function POST(req: Request) {
       );
     }
 
-    const pictures = parsePictureUrls(pictureUrl);
-    if (!pictures.length) {
+    const pictureSources = parsePictureUrls(pictureUrl);
+    if (!pictureSources.length) {
       return NextResponse.json({ error: "Informe ao menos uma imagem pública válida para o anúncio." }, { status: 400 });
     }
 
@@ -140,6 +156,13 @@ export async function POST(req: Request) {
     const seller = await mercadoLivreApiGet<MercadoLivreSeller>(account.access_token, `/users/${account.ml_user_id}`);
     const sellerTags = Array.isArray(seller?.tags) ? seller.tags.map(String) : [];
     const userProductSeller = sellerTags.includes("user_product_seller");
+    if (seller.status?.list?.allow === false) {
+      throw listingValidationError(
+        `A conta Mercado Livre não está autorizada a publicar. ${translateSellerRestrictionCodes(seller.status.list.codes).join(" ")}`.trim(),
+        "general",
+      );
+    }
+    await validateListingTypeAvailability(account.access_token, account.ml_user_id, categoryId, listingTypeId);
     await validateMercadoLivreShippingSelection(account, categoryId, shippingMode, logisticType);
 
     const { data: existingLink, error: linkError } = await supabaseAdmin
@@ -153,6 +176,7 @@ export async function POST(req: Request) {
     if (existingLink?.ml_item_id) {
       return NextResponse.json({ error: "Este produto já possui anúncio Mercado Livre vinculado." }, { status: 409 });
     }
+    const pictures = await uploadMercadoLivrePictures(account.access_token, pictureSources);
 
     const itemPayload: Record<string, unknown> = {
       category_id: categoryId,
@@ -206,13 +230,28 @@ export async function POST(req: Request) {
     });
     if (shipping) itemPayload.shipping = shipping;
 
+    if (shippingMode === "me2") {
+      await validateMercadoLivreShippingForListing(account, shippingMode, logisticType, {
+        title,
+        categoryId,
+        price,
+        currencyId: "BRL",
+        listingTypeId,
+        condition,
+        localPickup,
+        dimensions: buildShippingDimensions({ lengthCm, widthCm, heightCm, weightGrams }),
+        saleTerms,
+        attributes,
+      });
+    }
+
     await validateMercadoLivreItem(account.access_token, itemPayload);
     const item = await mercadoLivreApiPost<MercadoLivreCreatedItem>(account.access_token, "/items", itemPayload);
     if (!item?.id) {
       return NextResponse.json({ error: "Mercado Livre não retornou o código do anúncio criado." }, { status: 502 });
     }
 
-    const verifiedItem = shippingMode === "me2" ? await verifyMercadoEnviosOrClose(account.access_token, item.id) : item;
+    const verifiedItem = await verifyCreatedItemOrClose(account.access_token, item.id, shippingMode === "me2");
     const userProduct = verifiedItem?.user_product_id
       ? await mercadoLivreApiGet<any>(account.access_token, `/user-products/${encodeURIComponent(String(verifiedItem.user_product_id))}`).catch(() => null)
       : null;
@@ -290,11 +329,41 @@ async function validateMercadoLivreItem(accessToken: string, payload: Record<str
   } catch {
     // Keep the raw response so the user can identify an undocumented validation.
   }
+
+  const shipping = payload.shipping as Record<string, unknown> | undefined;
+  if (String(shipping?.mode ?? "").toLowerCase() === "me2" && isLegacyMe1ValidationError(validation)) {
+    console.warn(
+      "Mercado Livre /items/validate tentou validar ME1 em um anuncio ME2; a criacao real confirmara a modalidade.",
+      validation,
+    );
+    return;
+  }
+
   const error = new Error(`Validação do anúncio recusada: ${JSON.stringify(validation)}`);
   (error as any).status = 422;
   (error as any).validation = validation;
   (error as any).fieldErrors = buildValidationFieldErrors(validation);
   throw error;
+}
+
+function isLegacyMe1ValidationError(validation: unknown) {
+  if (!validation || typeof validation !== "object") return /user has not mode me1/i.test(String(validation ?? ""));
+
+  const value = validation as Record<string, unknown>;
+  const causes = [
+    ...(Array.isArray(value.cause) ? value.cause : []),
+    ...(Array.isArray(value.cause_list) ? value.cause_list : []),
+  ];
+  const causeMessages = causes
+    .map((cause) => {
+      if (!cause || typeof cause !== "object") return String(cause ?? "");
+      const detail = cause as Record<string, unknown>;
+      return String(detail.message ?? detail.msg ?? "");
+    })
+    .filter(Boolean);
+
+  if (causeMessages.length) return causeMessages.every((message) => /user has not mode me1/i.test(message));
+  return /user has not mode me1/i.test(String(value.message ?? ""));
 }
 
 function buildValidationFieldErrors(validation: any) {
@@ -320,7 +389,7 @@ function buildValidationFieldErrors(validation: any) {
                   : reference.includes("listing_type") ? "listingType"
                     : reference.includes("condition") ? "condition"
                       : reference.includes("seller_package") || reference.includes("dimension") ? "dimensions"
-                        : reference.includes("shipping") ? "shipping"
+                      : reference.includes("shipping") || /user has not mode me[12]/i.test(rawMessage) ? "shipping"
                           : "general";
     result[key] = message;
   }
@@ -338,8 +407,58 @@ function parsePictureUrls(value: string) {
       } catch {
         return false;
       }
-    })
-    .map((source) => ({ source }));
+    });
+}
+
+async function validateListingTypeAvailability(
+  accessToken: string,
+  sellerId: number,
+  categoryId: string,
+  listingTypeId: string,
+) {
+  const availability = await mercadoLivreApiGet<{ available?: Array<{ id?: string; remaining_listings?: number | null }> }>(
+    accessToken,
+    `/users/${sellerId}/available_listing_types?category_id=${encodeURIComponent(categoryId)}`,
+  ).catch(() => null);
+  if (!availability || !Array.isArray(availability.available)) return;
+
+  const selected = availability.available.find((item) => String(item.id ?? "") === listingTypeId);
+  if (selected) {
+    if (listingTypeId === "free" && selected.remaining_listings != null && selected.remaining_listings <= 0) {
+      throw listingValidationError("A cota de anúncios grátis desta conta foi atingida.", "listingType");
+    }
+    return;
+  }
+
+  const detail = await mercadoLivreApiGet<{ cause?: string; code?: string }>(
+    accessToken,
+    `/users/${sellerId}/available_listing_type/${encodeURIComponent(listingTypeId)}?category_id=${encodeURIComponent(categoryId)}`,
+  ).catch(() => null);
+  throw listingValidationError(translateListingAvailabilityError(detail?.cause, detail?.code), "listingType");
+}
+
+function listingValidationError(message: string, field: string) {
+  const error = new Error(message);
+  (error as any).status = 422;
+  (error as any).fieldErrors = { [field]: message };
+  return error;
+}
+
+function translateListingAvailabilityError(cause?: string, code?: string) {
+  const normalizedCode = String(code ?? "").toLowerCase();
+  if (normalizedCode.includes("transactions.exceeded")) return "O limite de vendas permitido para anúncios grátis foi ultrapassado.";
+  if (normalizedCode.includes("feedback.not_allowed")) return "A reputação atual da conta não permite este tipo de anúncio.";
+  if (normalizedCode.includes("listings.exceeded")) return "A cota de anúncios deste tipo foi atingida.";
+  return cause || "O tipo de anúncio selecionado não está disponível para esta conta e categoria.";
+}
+
+function translateSellerRestrictionCodes(codes?: string[]) {
+  const labels: Record<string, string> = {
+    identification_pending: "A validação de identidade está pendente.",
+    identification_required: "É necessário validar a identidade da conta.",
+    contact_data_pending: "Complete os dados de contato da conta.",
+  };
+  return (codes ?? []).map((code) => labels[String(code).toLowerCase()] || `Restrição: ${code}.`);
 }
 
 function normalizeBooleanValue(value: unknown) {
@@ -453,22 +572,41 @@ function buildShippingPayload(params: {
     };
   }
 
-  const shipping: Record<string, unknown> = {
+  return {
     mode: params.shippingMode,
     free_shipping: params.freeShipping,
     local_pick_up: false,
   };
-
-  if (params.logisticType) shipping.logistic_type = params.logisticType;
-  if ([params.widthCm, params.heightCm, params.lengthCm].every((value) => Number.isFinite(value) && value > 0) && Number.isInteger(params.weightGrams) && params.weightGrams > 0) {
-    shipping.dimensions = `${params.lengthCm}x${params.widthCm}x${params.heightCm},${params.weightGrams}`;
-  }
-
-  return shipping;
 }
 
-async function verifyMercadoEnviosOrClose(accessToken: string, itemId: string) {
-  const item = await mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}`);
+function buildShippingDimensions(params: { lengthCm: number; widthCm: number; heightCm: number; weightGrams: number }) {
+  if (
+    ![params.lengthCm, params.widthCm, params.heightCm].every((value) => Number.isFinite(value) && value > 0) ||
+    !Number.isInteger(params.weightGrams) ||
+    params.weightGrams <= 0
+  ) {
+    return null;
+  }
+  return `${params.lengthCm}x${params.widthCm}x${params.heightCm},${params.weightGrams}`;
+}
+
+async function verifyCreatedItemOrClose(accessToken: string, itemId: string, requireMercadoEnvios: boolean) {
+  let item: any = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    item = await mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}`);
+    if (Array.isArray(item?.pictures) && item.pictures.length > 0) break;
+    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 750));
+  }
+
+  if (!Array.isArray(item?.pictures) || item.pictures.length === 0) {
+    await mercadoLivreApiPut(accessToken, `/items/${encodeURIComponent(itemId)}`, { status: "closed" }).catch(() => null);
+    throw listingValidationError(
+      "O Mercado Livre não associou nenhuma imagem ao anúncio. Ele foi encerrado automaticamente; revise as imagens e publique novamente.",
+      "images",
+    );
+  }
+
+  if (!requireMercadoEnvios) return item;
   const shipping = item?.shipping ?? {};
   const mode = String(shipping?.mode ?? "").toLowerCase();
   const logisticType = String(shipping?.logistic_type ?? "").toLowerCase();
@@ -525,6 +663,19 @@ function formatMercadoLivreError(error: any) {
 }
 
 function translateMercadoLivreError(message: string) {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("seller.unable_to_list") || normalized.includes("seller is not allowed to publish")) {
+    return "Conta vendedora: o Mercado Livre bloqueou novas publicações. Verifique identidade, dados cadastrais, reputação e avisos pendentes na conta.";
+  }
+  if (normalized.includes("listing_type") || normalized.includes("listing type")) {
+    return "Tipo de anúncio: a opção selecionada não está disponível para esta conta, categoria ou preço. Selecione uma das opções habilitadas no formulário.";
+  }
+  if (normalized.includes("transactions.exceeded")) {
+    return "Tipo de anúncio Grátis: o limite de vendas permitido para anúncios gratuitos foi ultrapassado.";
+  }
+  if (/user has not mode me1/i.test(message)) {
+    return "Campos de Envio: o Mercado Livre tentou aplicar o modo legado ME1, mas a conta conectada não possui esse modo. Selecione Mercado Envios (ME2) e uma logística disponível para o anúncio.";
+  }
   if (message.toLowerCase().includes("conflict")) {
     return "Campo Família do produto: o Mercado Livre encontrou conflito com a família/cadastro do produto. Altere a família para um nome mais específico, usando marca, modelo e referência exata.";
   }

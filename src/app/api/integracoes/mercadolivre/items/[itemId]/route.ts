@@ -8,6 +8,7 @@ import {
   mercadoLivreApiPut,
 } from "@/lib/integrations/mercadolivre";
 import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
+import { uploadMercadoLivrePictures } from "@/lib/integrations/mercadolivre-pictures";
 import { validateMercadoLivreShippingSelection } from "@/lib/integrations/mercadolivre-shipping-preferences";
 
 export const runtime = "nodejs";
@@ -91,6 +92,11 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       }
       const userProductEnabled = Boolean(currentItem?.family_name || currentItem?.user_product_id);
       payload = buildListingUpdatePayload(body, userProductEnabled);
+      if (body?.pictureUrl !== undefined) {
+        const pictureSources = parsePictureUrls(String(body.pictureUrl ?? ""));
+        if (!pictureSources.length) throw imageFieldError("Informe ao menos uma imagem pública válida para o anúncio.");
+        payload.pictures = await uploadMercadoLivrePictures(accessToken, pictureSources);
+      }
       const familyName = String(body?.familyName ?? "").replace(/\s+/g, " ").trim();
       if (userProductEnabled && familyName && familyName !== String(currentItem?.family_name ?? "").trim()) {
         await mercadoLivreApiPut(accessToken, `/items/${encodeURIComponent(itemId)}/family_name`, { family_name: familyName });
@@ -152,7 +158,14 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
     return NextResponse.json({ data: item, status: item?.status ?? null });
   } catch (e: any) {
     console.error("PATCH /api/integracoes/mercadolivre/items/[itemId]", e);
-    return NextResponse.json({ error: e?.message || "Falha ao atualizar anúncio Mercado Livre." }, { status: errorStatus(e) });
+    return NextResponse.json(
+      {
+        error: e?.message || "Falha ao atualizar anúncio Mercado Livre.",
+        fieldErrors: e?.fieldErrors ?? undefined,
+        validation: e?.validation ?? undefined,
+      },
+      { status: Number(e?.status) || errorStatus(e) },
+    );
   }
 }
 
@@ -239,7 +252,6 @@ function buildListingUpdatePayload(body: any, userProductEnabled: boolean) {
   const availableQuantity = Math.trunc(Number(body?.availableQuantity));
   const warranty = String(body?.warranty ?? "").trim();
   const warrantyTime = String(body?.warrantyTime ?? "").trim();
-  const pictureUrl = String(body?.pictureUrl ?? "").trim();
   const shippingMode = String(body?.shippingMode ?? "").trim();
   const logisticType = String(body?.logisticType ?? "").trim();
   const freeShipping = Boolean(body?.freeShipping);
@@ -265,9 +277,6 @@ function buildListingUpdatePayload(body: any, userProductEnabled: boolean) {
   if (Number.isFinite(price) && price > 0) payload.price = price;
   if (Number.isInteger(availableQuantity) && availableQuantity >= 0) payload.available_quantity = availableQuantity;
 
-  const pictures = parsePictureUrls(pictureUrl);
-  if (pictures.length) payload.pictures = pictures;
-
   const saleTerms = [
     warranty ? { id: "WARRANTY_TYPE", value_name: warranty } : null,
     warranty && warranty !== "Sem garantia" && warrantyTime ? { id: "WARRANTY_TIME", value_name: warrantyTime } : null,
@@ -280,10 +289,6 @@ function buildListingUpdatePayload(body: any, userProductEnabled: boolean) {
       free_shipping: freeShipping,
       local_pick_up: false,
     };
-    if (logisticType) shipping.logistic_type = logisticType;
-    if ([widthCm, heightCm, lengthCm].every((value) => Number.isFinite(value) && value > 0) && Number.isInteger(weightGrams) && weightGrams > 0) {
-      shipping.dimensions = `${lengthCm}x${widthCm}x${heightCm},${weightGrams}`;
-    }
     payload.shipping = shipping;
   }
 
@@ -354,8 +359,14 @@ function parsePictureUrls(value: string) {
       } catch {
         return false;
       }
-    })
-    .map((source) => ({ source }));
+    });
+}
+
+function imageFieldError(message: string) {
+  const error = new Error(message);
+  (error as any).status = 422;
+  (error as any).fieldErrors = { images: message };
+  return error;
 }
 
 async function getLink(itemId: string, empresaId: number) {

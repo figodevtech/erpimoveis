@@ -128,6 +128,7 @@ type MlNotification = {
   locked_at?: string | null;
   processed_at?: string | null;
   created_at?: string | null;
+  raw_payload?: Record<string, unknown> | null;
 };
 
 type MarketplaceSyncRun = {
@@ -321,6 +322,36 @@ type MarketplaceVertical = "products" | "vehicles" | "real_estate" | "services";
 type ListingTypeOption = {
   id: string;
   name: string;
+  available?: boolean;
+  remainingListings?: number | null;
+  restrictionCode?: string | null;
+  restrictionReason?: string | null;
+  saleFee?: number | null;
+  saleFeePercentage?: number | null;
+  financingFee?: number | null;
+  fixedFee?: number | null;
+  netAmount?: number | null;
+  exposure?: string | null;
+  interestFreeInstallments?: boolean;
+  paymentDescription?: string | null;
+};
+
+type ListingCommercialInfo = {
+  seller: {
+    canList: boolean;
+    restrictions: string[];
+    accountType?: string | null;
+    reputationLevel?: string | null;
+    powerSellerStatus?: string | null;
+    immediatePaymentRequired?: boolean | null;
+  } | null;
+  payment: {
+    managedByMercadoPago: boolean;
+    methods: Array<{ id: string; name: string }>;
+    note?: string | null;
+  } | null;
+  source?: string | null;
+  error?: string | null;
 };
 
 type ShippingEligibility = {
@@ -445,6 +476,15 @@ type UserProductFamilyMember = {
 
 function formatCurrency(value: unknown) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value ?? 0));
+}
+
+function sellerLevelLabel(value: string) {
+  const labels: Record<string, string> = {
+    silver: "MercadoLíder",
+    gold: "MercadoLíder Gold",
+    platinum: "MercadoLíder Platinum",
+  };
+  return labels[value.toLowerCase()] || value;
 }
 
 function formatDate(value?: string | null) {
@@ -1370,6 +1410,7 @@ export default function MarketplacePage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [orders, setOrders] = useState<MlOrder[]>([]);
   const [notifications, setNotifications] = useState<MlNotification[]>([]);
+  const [selectedNotification, setSelectedNotification] = useState<MlNotification | null>(null);
   const [syncRuns, setSyncRuns] = useState<MarketplaceSyncRun[]>([]);
   const [diagnostics, setDiagnostics] = useState<MarketplaceDiagnostics>({ status: "warning", checkedAt: null, checks: [] });
   const [claims, setClaims] = useState<MlClaim[]>([]);
@@ -1427,6 +1468,8 @@ export default function MarketplacePage() {
     { id: "gold_pro", name: "Premium" },
     { id: "free", name: "Grátis" },
   ]);
+  const [listingCommercialInfo, setListingCommercialInfo] = useState<ListingCommercialInfo>({ seller: null, payment: null });
+  const [loadingListingCommercialInfo, setLoadingListingCommercialInfo] = useState(false);
   const [userProductSeller, setUserProductSeller] = useState(false);
   const [conditionOptions, setConditionOptions] = useState<string[]>(["new", "used", "not_specified"]);
   const [categoryAttributes, setCategoryAttributes] = useState<MlCategoryAttribute[]>([]);
@@ -1590,21 +1633,35 @@ export default function MarketplacePage() {
         ? "Informe descrição, prazo e valor válido para o envio personalizado."
       : "";
   const listingGtin = getListingAttributeValue(listingForm, "GTIN").replace(/\D/g, "");
+  const selectedListingType = listingTypeOptions.find((option) => option.id === listingForm.listingTypeId) ?? null;
+  const sellerListingIssue = listingCommercialInfo.seller?.canList === false
+    ? listingCommercialInfo.seller.restrictions.join(" ") || "A conta conectada não está autorizada a publicar anúncios."
+    : "";
+  const listingTypeIssue = selectedListingType?.available === false
+    ? selectedListingType.restrictionReason || "O tipo de anúncio selecionado não está disponível para esta conta e categoria."
+    : "";
+  const freeListingStockIssue = listingForm.listingTypeId === "free" && Number(listingForm.availableQuantity) > 1
+    ? "Anúncios grátis permitem estoque máximo de 1 unidade."
+    : "";
   const listingIssues = [
     !listingForm.produtoId ? "Selecione um produto do ERP." : "",
     !listingForm.title.trim() ? "Informe o título do anúncio." : "",
     !listingForm.categoryId ? "Selecione a categoria Mercado Livre." : "",
+    !listingForm.listingTypeId ? "Selecione um tipo de anúncio disponível para a conta." : "",
     parseCurrencyInput(listingForm.price) <= 0 ? "Informe um preço válido." : "",
     Number(listingForm.availableQuantity) <= 0 ? "Informe estoque disponível." : "",
+    freeListingStockIssue,
     validPreviewImages.length === 0 ? "Informe ao menos uma imagem pública válida." : "",
     listingGtin && !isValidGtin(listingGtin) ? "Informe um GTIN/EAN válido ou deixe o campo vazio." : "",
     ...requiredMissingAttributes.map((attribute) => `Preencha o atributo obrigatório: ${attribute.name}.`),
     categoryShippingIssue,
     customShippingIssue,
     missingShippingDimensions ? "Informe dimensões e peso para o envio Mercado Envios." : "",
+    sellerListingIssue,
+    listingTypeIssue,
   ].filter(Boolean);
   const canPublishListing = listingIssues.length === 0;
-  const notificationErrors = notifications.filter((notification) => notification.error || String(notification.status ?? "").toUpperCase() === "ERRO").length;
+  const notificationErrors = notifications.filter((notification) => String(notification.status ?? "").toUpperCase() === "ERRO").length;
   const diagnosticAlerts = diagnostics.checks.filter((check) => check.status !== "ok").length;
   const integrationAlerts = Math.max(notificationErrors + stockSync.failed, diagnosticAlerts);
 
@@ -1673,6 +1730,9 @@ export default function MarketplacePage() {
     }
     if (normalized.includes("preço") || normalized.includes("price")) {
       errors.price = message;
+    }
+    if (normalized.includes("tipo de anúncio") || normalized.includes("listing_type") || normalized.includes("listing type")) {
+      errors.listingType = message;
     }
     if (normalized.includes("imagem") || normalized.includes("pictures")) {
       errors.images = message;
@@ -1779,17 +1839,48 @@ export default function MarketplacePage() {
     }
   }
 
-  async function loadListingOptions() {
+  async function loadListingOptions(
+    filters?: { categoryId?: string; price?: number; shippingMode?: string; logisticType?: string; billableWeight?: number },
+    signal?: AbortSignal,
+  ) {
+    const hasCommercialFilters = Boolean(filters?.categoryId && Number(filters?.price) > 0);
+    if (hasCommercialFilters) setLoadingListingCommercialInfo(true);
     try {
-      const response = await fetch("/api/integracoes/mercadolivre/listing-options", { cache: "no-store" });
+      const params = new URLSearchParams();
+      if (filters?.categoryId) params.set("categoryId", filters.categoryId);
+      if (Number(filters?.price) > 0) params.set("price", String(filters?.price));
+      if (filters?.shippingMode) params.set("shippingMode", filters.shippingMode);
+      if (filters?.logisticType) params.set("logisticType", filters.logisticType);
+      if (Number(filters?.billableWeight) > 0) params.set("billableWeight", String(filters?.billableWeight));
+      const response = await fetch(`/api/integracoes/mercadolivre/listing-options${params.size ? `?${params.toString()}` : ""}`, {
+        cache: "no-store",
+        signal,
+      });
       const json = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(json?.error || "Falha ao carregar opções de anúncio.");
       if (Array.isArray(json.listingTypes) && json.listingTypes.length > 0) {
         setListingTypeOptions(json.listingTypes);
+        setListingForm((current) => {
+          const selected = json.listingTypes.find((option: ListingTypeOption) => option.id === current.listingTypeId);
+          if (!selected || selected.available !== false) return current;
+          const fallbackId = json.defaultListingTypeId || json.listingTypes.find((option: ListingTypeOption) => option.available !== false)?.id;
+          return fallbackId ? { ...current, listingTypeId: fallbackId } : current;
+        });
       }
+      setListingCommercialInfo({
+        seller: json.seller ?? null,
+        payment: json.payment ?? null,
+        source: json.source ?? null,
+        error: null,
+      });
       setUserProductSeller(Boolean(json.userProductSeller));
     } catch (e: any) {
-      toast.error("Erro ao carregar opções do Mercado Livre", { description: marketplaceErrorMessage(e) });
+      if (e?.name === "AbortError") return;
+      const message = marketplaceErrorMessage(e);
+      setListingCommercialInfo((current) => ({ ...current, error: message }));
+      if (!hasCommercialFilters) toast.error("Erro ao carregar opções do Mercado Livre", { description: message });
+    } finally {
+      if (hasCommercialFilters && !signal?.aborted) setLoadingListingCommercialInfo(false);
     }
   }
 
@@ -2517,6 +2608,7 @@ export default function MarketplacePage() {
     setListingFieldErrors({});
     setCreateDialogOpen(true);
     loadCategories({ vertical: "products" });
+    loadListingOptions();
   }
 
   async function openEditListing(product: ProductRow) {
@@ -2840,7 +2932,8 @@ export default function MarketplacePage() {
     if (key === "familyName") clearListingErrors("family", "general");
     if (key === "gtin") clearListingErrors("gtin", "attr:GTIN", "general");
     if (key === "price") clearListingErrors("price", "general");
-    if (key === "categoryId" || key === "categoryName" || key === "categoryPath") clearListingErrors("category", "general");
+    if (key === "categoryId" || key === "categoryName" || key === "categoryPath") clearListingErrors("category", "listingType", "general");
+    if (key === "listingTypeId") clearListingErrors("listingType", "general");
     if (key === "pictureUrl") clearListingErrors("images", "general");
     if (
       [
@@ -2912,6 +3005,35 @@ export default function MarketplacePage() {
 
     return () => window.clearTimeout(timer);
   }, [categoryParent, categorySearch, createDialogOpen, listingForm.categoryVertical, loadCategories]);
+
+  useEffect(() => {
+    if (!createDialogOpen || !listingForm.categoryId || parseCurrencyInput(listingForm.price) <= 0) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      loadListingOptions(
+        {
+          categoryId: listingForm.categoryId,
+          price: parseCurrencyInput(listingForm.price),
+          shippingMode: listingForm.shippingMode,
+          logisticType: listingForm.logisticType,
+          billableWeight: Number(listingForm.weightGrams),
+        },
+        controller.signal,
+      );
+    }, 450);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [
+    createDialogOpen,
+    listingForm.categoryId,
+    listingForm.price,
+    listingForm.shippingMode,
+    listingForm.logisticType,
+    listingForm.weightGrams,
+  ]);
 
   useEffect(() => {
     if (previewImageIndex > 0 && previewImageIndex >= previewImages.length) {
@@ -4011,8 +4133,9 @@ export default function MarketplacePage() {
                       <TableHead>Recurso</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Tentativas</TableHead>
-                      <TableHead>Erro</TableHead>
+                      <TableHead>Detalhe</TableHead>
                       <TableHead>Recebido em</TableHead>
+                      <TableHead className="text-right">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -4024,11 +4147,16 @@ export default function MarketplacePage() {
                         <TableCell>{notification.processing_attempts ?? 0}</TableCell>
                         <TableCell className="max-w-[320px] truncate text-xs text-muted-foreground">{notification.error || "-"}</TableCell>
                         <TableCell>{formatDate(notification.created_at)}</TableCell>
+                        <TableCell className="text-right">
+                          <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedNotification(notification)}>
+                            Detalhes
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     ))}
                     {!loadingDashboard && notifications.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                          <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                           Nenhum log recebido.
                         </TableCell>
                       </TableRow>
@@ -4036,6 +4164,38 @@ export default function MarketplacePage() {
                   </TableBody>
                 </Table>
               </div>
+
+              <Dialog open={Boolean(selectedNotification)} onOpenChange={(open) => !open && setSelectedNotification(null)}>
+                <DialogContent className="max-h-[85vh] overflow-hidden sm:max-w-3xl">
+                  <DialogHeader>
+                    <DialogTitle>Detalhes do evento</DialogTitle>
+                    <DialogDescription>Registro completo recebido e resultado do processamento.</DialogDescription>
+                  </DialogHeader>
+                  {selectedNotification && (
+                    <ScrollArea className="max-h-[62vh] pr-4">
+                      <div className="grid gap-4 text-sm sm:grid-cols-2">
+                        <div><Label>Tópico</Label><p className="mt-1 break-all">{selectedNotification.topic || "-"}</p></div>
+                        <div><Label>Status</Label><div className="mt-1">{statusBadge(selectedNotification.status)}</div></div>
+                        <div className="sm:col-span-2"><Label>Recurso</Label><p className="mt-1 break-all font-mono text-xs">{selectedNotification.resource || "-"}</p></div>
+                        <div><Label>Tentativas</Label><p className="mt-1">{selectedNotification.processing_attempts ?? 0}</p></div>
+                        <div><Label>Recebido em</Label><p className="mt-1">{formatDate(selectedNotification.created_at)}</p></div>
+                        <div className="sm:col-span-2">
+                          <Label>Resultado do processamento</Label>
+                          <p className={`mt-1 whitespace-pre-wrap break-words rounded-md border p-3 text-xs ${selectedNotification.error ? "text-destructive" : "text-muted-foreground"}`}>
+                            {selectedNotification.error || "Evento processado sem erros."}
+                          </p>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <Label>Payload recebido</Label>
+                          <pre className="mt-1 max-w-full overflow-auto whitespace-pre-wrap break-all rounded-md border bg-muted/40 p-3 text-xs">
+                            {JSON.stringify(selectedNotification.raw_payload ?? {}, null, 2)}
+                          </pre>
+                        </div>
+                      </div>
+                    </ScrollArea>
+                  )}
+                </DialogContent>
+              </Dialog>
             </TabsContent>
 
           </CardContent>
@@ -4154,8 +4314,11 @@ export default function MarketplacePage() {
                       value={listingForm.availableQuantity}
                       onChange={(event) => updateListingForm("availableQuantity", event.target.value)}
                       disabled={creatingListing}
-                      className={listingFieldClass}
+                      className={`${fieldClass("stock")} ${freeListingStockIssue ? listingErrorClass : ""}`}
                     />
+                    {(listingFieldErrors.stock || freeListingStockIssue) && (
+                      <p className="text-xs text-destructive">{listingFieldErrors.stock || freeListingStockIssue}</p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label>SKU interno</Label>
@@ -4181,6 +4344,33 @@ export default function MarketplacePage() {
               </TabsContent>
 
               <TabsContent value="categoria" className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto pr-2">
+                <div className={`flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border px-3 py-2 text-xs ${
+                  listingCommercialInfo.seller?.canList === false
+                    ? "border-destructive/40 bg-destructive/5 text-destructive"
+                    : "bg-muted/20 text-muted-foreground"
+                }`}>
+                  <span className="flex items-center gap-1.5 font-medium text-foreground">
+                    {loadingListingCommercialInfo ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : listingCommercialInfo.seller?.canList === false ? (
+                      <XCircle className="h-3.5 w-3.5 text-destructive" />
+                    ) : (
+                      <Check className="h-3.5 w-3.5 text-emerald-600" />
+                    )}
+                    Conta vendedora
+                  </span>
+                  <span>
+                    {listingCommercialInfo.seller?.canList === false
+                      ? listingCommercialInfo.seller.restrictions.join(" ") || "Publicação bloqueada pelo Mercado Livre."
+                      : "Autorizada a publicar"}
+                  </span>
+                  {listingCommercialInfo.seller?.powerSellerStatus && (
+                    <Badge variant="outline" className="h-5 rounded px-1.5 text-[10px]">
+                      {sellerLevelLabel(listingCommercialInfo.seller.powerSellerStatus)}
+                    </Badge>
+                  )}
+                  {listingCommercialInfo.error && <span className="text-destructive">{listingCommercialInfo.error}</span>}
+                </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Tipo no Mercado Livre</Label>
@@ -4189,7 +4379,7 @@ export default function MarketplacePage() {
                       onValueChange={(value) => changeCategoryVertical(value as MarketplaceVertical)}
                       disabled={creatingListing}
                     >
-                      <SelectTrigger className={listingSelectClass}>
+                      <SelectTrigger className={fieldClass("listingType", listingSelectClass)}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -4322,19 +4512,71 @@ export default function MarketplacePage() {
                       onValueChange={(value) => updateListingForm("listingTypeId", value)}
                       disabled={creatingListing}
                     >
-                      <SelectTrigger className={listingSelectClass}>
+                      <SelectTrigger className={fieldClass("listingType", listingSelectClass)}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         {listingTypeOptions.map((option) => (
-                          <SelectItem key={option.id} value={option.id}>
+                          <SelectItem key={option.id} value={option.id} disabled={option.available === false}>
                             {option.name}
+                            {option.remainingListings != null ? ` · ${option.remainingListings} restante(s)` : ""}
+                            {option.saleFee != null ? ` · taxa ${formatCurrency(option.saleFee)}` : ""}
+                            {option.available === false ? " · indisponível" : ""}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                    {listingFieldErrors.listingType && <p className="text-xs text-destructive">{listingFieldErrors.listingType}</p>}
+                    {selectedListingType?.restrictionReason && selectedListingType.available === false && (
+                      <p className="text-xs text-destructive">{selectedListingType.restrictionReason}</p>
+                    )}
                   </div>
                 </div>
+
+                {selectedListingType && (
+                  <div className="grid gap-px overflow-hidden rounded-md border bg-border sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="bg-background px-3 py-2.5">
+                      <div className="text-[11px] text-muted-foreground">Tarifa estimada</div>
+                      <div className="mt-0.5 text-sm font-semibold">
+                        {selectedListingType.saleFee != null ? formatCurrency(selectedListingType.saleFee) : "A calcular"}
+                      </div>
+                      {selectedListingType.saleFeePercentage != null && (
+                        <div className="text-[11px] text-muted-foreground">{selectedListingType.saleFeePercentage.toLocaleString("pt-BR")}% do valor</div>
+                      )}
+                      {selectedListingType.fixedFee != null && selectedListingType.fixedFee > 0 && (
+                        <div className="text-[11px] text-muted-foreground">Inclui custo fixo de {formatCurrency(selectedListingType.fixedFee)}</div>
+                      )}
+                    </div>
+                    <div className="bg-background px-3 py-2.5">
+                      <div className="text-[11px] text-muted-foreground">Recebimento estimado</div>
+                      <div className="mt-0.5 text-sm font-semibold">
+                        {selectedListingType.netAmount != null ? formatCurrency(selectedListingType.netAmount) : "A calcular"}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">Antes do custo de envio</div>
+                    </div>
+                    <div className="bg-background px-3 py-2.5">
+                      <div className="text-[11px] text-muted-foreground">Parcelamento</div>
+                      <div className="mt-0.5 text-sm font-semibold">
+                        {selectedListingType.interestFreeInstallments ? "Sem juros" : "Com juros do comprador"}
+                      </div>
+                      {selectedListingType.financingFee != null && selectedListingType.financingFee > 0 && (
+                        <div className="text-[11px] text-muted-foreground">Custo incluído: {formatCurrency(selectedListingType.financingFee)}</div>
+                      )}
+                    </div>
+                    <div className="bg-background px-3 py-2.5">
+                      <div className="text-[11px] text-muted-foreground">Pagamentos</div>
+                      <div className="mt-0.5 line-clamp-2 text-xs font-medium">
+                        {listingCommercialInfo.payment?.methods.length
+                          ? listingCommercialInfo.payment.methods.map((method) => method.name).join(", ")
+                          : "Definidos pelo Mercado Pago"}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {selectedListingType?.paymentDescription && (
+                  <p className="text-xs text-muted-foreground">{selectedListingType.paymentDescription}</p>
+                )}
 
                 <div className="grid gap-4 sm:grid-cols-3">
                   <div className="space-y-2">
@@ -4916,7 +5158,7 @@ export default function MarketplacePage() {
                     <div className="rounded-md border bg-muted/30 px-2 py-1.5">
                       <div className="text-muted-foreground">Tipo</div>
                       <div className="font-semibold">
-                        {listingForm.listingTypeId === "gold_pro" ? "Premium" : listingForm.listingTypeId === "free" ? "Grátis" : "Clássico"}
+                        {selectedListingType?.name || listingForm.listingTypeId || "Não definido"}
                       </div>
                     </div>
                   </div>

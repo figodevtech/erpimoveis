@@ -45,7 +45,7 @@ export async function GET() {
         accountUserIds.length
           ? supabaseAdmin
               .from("mercadolivre_notification")
-              .select("id, topic, resource, ml_user_id, status, error, processing_attempts, next_retry_at, locked_at, processed_at, created_at")
+              .select("id, topic, resource, ml_user_id, status, error, processing_attempts, next_retry_at, locked_at, processed_at, created_at, raw_payload")
               .in("ml_user_id", accountUserIds)
               .order("created_at", { ascending: false })
               .limit(100)
