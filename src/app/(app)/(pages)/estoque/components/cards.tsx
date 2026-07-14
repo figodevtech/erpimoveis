@@ -14,7 +14,7 @@ interface CardsPropos {
 export default function Cards({ loadingStatusCounter, totalProducts, statusCounts }: CardsPropos) {
   return (
     <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
-      <Card>
+      <Card className="gap-0 py-4">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium">Total de Items</CardTitle>
           <Box className="h-4 w-4 text-muted-foreground" />
@@ -28,7 +28,7 @@ export default function Cards({ loadingStatusCounter, totalProducts, statusCount
           <p className="text-xs text-muted-foreground">Produtos cadastrados</p>
         </CardContent>
       </Card>
-      <Card>
+      <Card className="gap-0 py-4">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium">Sem estoque</CardTitle>
           <CircleOff className="h-4 w-4 text-purple-600" />
@@ -43,7 +43,7 @@ export default function Cards({ loadingStatusCounter, totalProducts, statusCount
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="gap-0 py-4">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium">Itens Críticos</CardTitle>
           <AlertTriangle className="h-4 w-4 text-destructive" />
@@ -58,7 +58,7 @@ export default function Cards({ loadingStatusCounter, totalProducts, statusCount
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="gap-0 py-4">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium">Estoque Baixo</CardTitle>
           <TrendingDown className="h-4 w-4 text-orange-500" />
@@ -73,7 +73,7 @@ export default function Cards({ loadingStatusCounter, totalProducts, statusCount
         </CardContent>
       </Card>
 
-      <Card className=" col-span-2 md:col-span-1">
+      <Card className="gap-0 py-4 col-span-2 md:col-span-1">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium">Estoque Bom</CardTitle>
           <TrendingUp className="h-4 w-4 text-muted-foreground" />
