@@ -18,10 +18,15 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import {
   AlertTriangle,
   Check,
   CheckCheck,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   ChevronsUpDown,
   ClipboardList,
   ExternalLink,
@@ -60,6 +65,8 @@ type Account = {
   updated_at?: string | null;
   needs_reconnect?: boolean;
 };
+
+const PRODUCT_PAGE_SIZE_OPTIONS = [12, 24, 48];
 
 type MlOrder = {
   id: number;
@@ -1422,17 +1429,63 @@ function stockStatusBadge(status?: string | null, stock?: number | null) {
   return <Badge className={`text-xs ${className}`}>{label}</Badge>;
 }
 
-function ProductImage({ product }: { product: ProductRow }) {
-  const imageUrl = product.imageUrls?.[0] || product.imgUrl;
+function ProductImage({ product, showControls = false }: { product: ProductRow; showControls?: boolean }) {
+  const imageUrls = useMemo(
+    () => Array.from(new Set([...(product.imageUrls ?? []), product.imgUrl].filter(Boolean) as string[])),
+    [product.imageUrls, product.imgUrl],
+  );
+  const [imageIndex, setImageIndex] = useState(0);
+  const displayedImageIndex = Math.min(imageIndex, Math.max(imageUrls.length - 1, 0));
+  const imageUrl = imageUrls[displayedImageIndex];
+  const hasMultipleImages = showControls && imageUrls.length > 1;
+
+  function showPreviousImage() {
+    setImageIndex((current) => (current === 0 ? imageUrls.length - 1 : current - 1));
+  }
+
+  function showNextImage() {
+    setImageIndex((current) => (current + 1) % imageUrls.length);
+  }
 
   if (imageUrl) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={imageUrl}
-        alt={product.tituloMarketplace || product.titulo}
-        className="h-full w-full object-cover"
-      />
+      <div className="group relative h-full w-full bg-muted/60">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={imageUrl}
+          alt={product.tituloMarketplace || product.titulo}
+          className="h-full w-full object-contain"
+        />
+        {hasMultipleImages && (
+          <>
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon"
+              className="absolute left-1 top-1/2 h-7 w-7 -translate-y-1/2 opacity-90 shadow-sm"
+              onClick={showPreviousImage}
+              aria-label="Imagem anterior"
+              title="Imagem anterior"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon"
+              className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 opacity-90 shadow-sm"
+              onClick={showNextImage}
+              aria-label="Próxima imagem"
+              title="Próxima imagem"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+            <span className="absolute bottom-1 left-1/2 -translate-x-1/2 rounded bg-background/90 px-1.5 py-0.5 text-[10px] font-medium shadow-sm">
+              {displayedImageIndex + 1}/{imageUrls.length}
+            </span>
+          </>
+        )}
+      </div>
     );
   }
 
@@ -1459,6 +1512,8 @@ export default function MarketplacePage() {
   const [activeTab, setActiveTab] = useState("products");
   const [questionStatusFilter, setQuestionStatusFilter] = useState("UNANSWERED");
   const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [productsPage, setProductsPage] = useState(1);
+  const [productsPageSize, setProductsPageSize] = useState(12);
   const [initialLoading, setInitialLoading] = useState(true);
   const [loadingDashboard, setLoadingDashboard] = useState(false);
   const [loadingProducts, setLoadingProducts] = useState(false);
@@ -1606,6 +1661,11 @@ export default function MarketplacePage() {
   const unlinkedCount = Math.max(products.length - linkedCount, 0);
   const linkedProducts = products.filter((product) => product.mercadolivre);
   const publishableProducts = products.filter((product) => !product.mercadolivre);
+  const productsTotalPages = Math.max(1, Math.ceil(products.length / productsPageSize));
+  const safeProductsPage = Math.min(productsPage, productsTotalPages);
+  const productsPageStart = products.length === 0 ? 0 : (safeProductsPage - 1) * productsPageSize + 1;
+  const productsPageEnd = Math.min(safeProductsPage * productsPageSize, products.length);
+  const paginatedProducts = products.slice((safeProductsPage - 1) * productsPageSize, safeProductsPage * productsPageSize);
   const maxDailyVisits = Math.max(...performance.daily.map((day) => Number(day.visits ?? 0)), 1);
   const unansweredQuestions = questions.filter((question) => String(question.status ?? "").toUpperCase() === "UNANSWERED").length;
   const selectedChatConversation =
@@ -1629,6 +1689,10 @@ export default function MarketplacePage() {
       conversation.messages.filter((message) => !message.fromSeller && String(message.status ?? "").toLowerCase() === "unread").length,
     0,
   );
+
+  useEffect(() => {
+    if (productsPage > productsTotalPages) setProductsPage(productsTotalPages);
+  }, [productsPage, productsTotalPages]);
   const previewImages = listingForm.pictureUrl
     .split(/\r?\n/)
     .map((url) => url.trim())
@@ -2035,12 +2099,13 @@ export default function MarketplacePage() {
   async function loadProducts(searchText = search) {
     setLoadingProducts(true);
     try {
-      const params = new URLSearchParams({ limit: "24" });
+      const params = new URLSearchParams({ limit: "120" });
       if (searchText.trim()) params.set("search", searchText.trim());
       const response = await fetch(`/api/integracoes/mercadolivre/products?${params.toString()}`, { cache: "no-store" });
       const json = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(json?.error || "Falha ao carregar produtos.");
       setProducts(json.data ?? []);
+      setProductsPage(1);
     } catch (e: any) {
       toast.error("Erro ao carregar produtos", { description: marketplaceErrorMessage(e) });
     } finally {
@@ -3263,10 +3328,10 @@ export default function MarketplacePage() {
         </div>
       </header>
 
-      <Card className="gap-0 overflow-hidden py-0 shadow-sm">
+      <Card className="gap-0 overflow-hidden py-2 shadow-sm">
         <section aria-label="Resumo do marketplace" className="grid grid-cols-2 xl:grid-cols-4">
           <button type="button" className="group min-w-0 border-b border-r text-left transition-colors hover:bg-muted/30 xl:border-b-0" onClick={() => changeMainTab("products")}>
-            <div className="flex items-center justify-between gap-2 px-4 py-1.5">
+            <div className="flex items-center justify-between gap-2 px-4 py-3">
               <div className="min-w-0">
                 <CardTitle className="text-sm font-medium">Produtos vinculados</CardTitle>
                 <div className="text-xl font-bold leading-tight">{linkedCount}</div>
@@ -3278,7 +3343,7 @@ export default function MarketplacePage() {
             </div>
           </button>
           <button type="button" className="group min-w-0 border-b text-left transition-colors hover:bg-muted/30 xl:border-b-0 xl:border-r" onClick={() => changeMainTab("orders")}>
-            <div className="flex items-center justify-between gap-2 px-4 py-1.5">
+            <div className="flex items-center justify-between gap-2 px-4 py-3">
               <div className="min-w-0">
                 <CardTitle className="text-sm font-medium">Pedidos recentes</CardTitle>
                 <div className="text-xl font-bold leading-tight">{orders.length}</div>
@@ -3290,7 +3355,7 @@ export default function MarketplacePage() {
             </div>
           </button>
           <button type="button" className="group min-w-0 border-r text-left transition-colors hover:bg-muted/30" onClick={() => changeMainTab("atendimento")}>
-            <div className="flex items-center justify-between gap-2 px-4 py-1.5">
+            <div className="flex items-center justify-between gap-2 px-4 py-3">
               <div className="min-w-0">
                 <CardTitle className="text-sm font-medium">Perguntas pendentes</CardTitle>
                 <div className="text-xl font-bold leading-tight">{unansweredQuestions}</div>
@@ -3302,7 +3367,7 @@ export default function MarketplacePage() {
             </div>
           </button>
           <button type="button" className="group min-w-0 text-left transition-colors hover:bg-muted/30" onClick={() => changeMainTab("logs")}>
-            <div className="flex items-center justify-between gap-2 px-4 py-1.5">
+            <div className="flex items-center justify-between gap-2 px-4 py-3">
               <div className="min-w-0">
                 <CardTitle className="text-sm font-medium">Alertas de integração</CardTitle>
                 <div className="text-xl font-bold leading-tight">{integrationAlerts}</div>
@@ -3415,8 +3480,8 @@ export default function MarketplacePage() {
             </div>
           </div>
 
-          <div className="relative flex min-h-10 min-w-0 items-center justify-center px-6 pt-3">
-              <div className={`min-w-0 overflow-x-auto ${activeTab === "products" ? "max-w-[calc(100%_-_6rem)]" : "max-w-full"}`}>
+          <div className="grid min-h-10 min-w-0 gap-2 px-3 pt-3 sm:px-6 md:grid-cols-[1fr_auto_1fr] md:items-center">
+              <div className="min-w-0 max-w-full overflow-x-auto md:col-start-2">
                 <TabsList className="mx-auto h-auto min-w-max justify-start gap-1 rounded-xl border bg-muted/40 p-1">
                   <TabsTrigger
                     value="products"
@@ -3468,11 +3533,11 @@ export default function MarketplacePage() {
                 </TabsList>
               </div>
               {activeTab === "products" && (
-                <div className="absolute right-6 top-1/2 flex -translate-y-1/2 rounded-xl border bg-muted/40 p-1">
-                  <Button title="Visualização em lista" size="sm" variant={viewMode === "list" ? "secondary" : "ghost"} className="h-8 rounded-lg" onClick={() => setViewMode("list")}>
+                <div className="flex shrink-0 self-end justify-self-end rounded-xl border bg-muted/40 p-1 md:col-start-3 md:self-auto">
+                  <Button title="Visualização em lista" size="sm" variant={viewMode === "list" ? "secondary" : "ghost"} className="h-8 w-8 rounded-lg p-0" onClick={() => setViewMode("list")}>
                     <List className="h-4 w-4" />
                   </Button>
-                  <Button title="Visualização em cards" size="sm" variant={viewMode === "cards" ? "secondary" : "ghost"} className="h-8 rounded-lg" onClick={() => setViewMode("cards")}>
+                  <Button title="Visualização em cards" size="sm" variant={viewMode === "cards" ? "secondary" : "ghost"} className="h-8 w-8 rounded-lg p-0" onClick={() => setViewMode("cards")}>
                     <Grid2X2 className="h-4 w-4" />
                   </Button>
                 </div>
@@ -3495,7 +3560,7 @@ export default function MarketplacePage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {products.map((product) => {
+                    {paginatedProducts.map((product) => {
                       const link = product.mercadolivre;
                       return (
                         <TableRow key={product.id}>
@@ -3551,42 +3616,41 @@ export default function MarketplacePage() {
                 </Table>
                 </div>
               ) : (
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-                  {products.map((product) => {
+                <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5">
+                  {paginatedProducts.map((product) => {
                     const link = product.mercadolivre;
                     return (
                       <div key={product.id} className="overflow-hidden rounded-md border bg-background">
-                        <div className="aspect-[5/3] border-b bg-muted">
-                          <ProductImage product={product} />
+                        <div className="aspect-[16/9] border-b bg-muted">
+                          <ProductImage product={product} showControls />
                         </div>
-                        <div className="space-y-2 p-2.5">
-                          <div className="min-h-[38px]">
+                        <div className="space-y-1.5 p-2">
+                          <div className="min-h-[34px]">
                             <div className="line-clamp-2 text-xs font-medium leading-snug">{product.tituloMarketplace || product.titulo}</div>
                             <div className="text-xs text-muted-foreground">
                               #{product.id} {product.referencia ? `- ${product.referencia}` : ""}
                             </div>
                           </div>
-                          <div className="grid grid-cols-2 gap-2 text-xs">
-                            <div className="rounded-md border bg-muted/30 px-2 py-1.5">
-                              <div className="text-xs text-muted-foreground">Estoque</div>
-                              <div className="text-sm font-semibold">{product.estoque ?? 0}</div>
-                              <div className="mt-1">{stockStatusBadge(product.status_estoque, product.estoque)}</div>
+                          <div className="grid grid-cols-2 gap-1.5 text-xs">
+                            <div className="rounded-md border bg-muted/30 px-2 py-1">
+                              <div className="text-[11px] text-muted-foreground">Estoque</div>
+                              <div className="text-sm font-semibold leading-5">{product.estoque ?? 0}</div>
                             </div>
-                            <div className="rounded-md border bg-muted/30 px-2 py-1.5">
-                              <div className="text-xs text-muted-foreground">Preço</div>
-                              <div className="text-sm font-semibold">{formatCurrency(product.precovenda)}</div>
+                            <div className="rounded-md border bg-muted/30 px-2 py-1">
+                              <div className="text-[11px] text-muted-foreground">Preço</div>
+                              <div className="truncate text-sm font-semibold leading-5">{formatCurrency(product.precovenda)}</div>
                             </div>
                           </div>
-                          <div className="min-h-[62px] rounded-md border p-2">
+                          <div className="min-h-[52px] rounded-md border p-1.5">
                             {link ? (
-                              <div className="space-y-1">
+                              <div className="space-y-0.5">
                                 <div className="flex items-center justify-between gap-2">
                                   <span className="font-mono text-[11px]">{link.ml_item_id}</span>
                                   {statusBadge(link.status)}
                                 </div>
                                 <div className="line-clamp-1 text-[11px] text-muted-foreground">{link.title || "Sem título"}</div>
                                 {link.permalink && (
-                                  <a className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground" href={link.permalink} target="_blank" rel="noreferrer">
+                                  <a className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground" href={link.permalink} target="_blank" rel="noreferrer">
                                     <ExternalLink className="h-3 w-3" />
                                     Abrir anúncio
                                   </a>
@@ -3604,7 +3668,7 @@ export default function MarketplacePage() {
                             )}
                           </div>
                           <div className="flex items-center justify-between gap-2">
-                            <div className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                            <div className="inline-flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
                               <PackageCheck className="h-3.5 w-3.5" />
                               {stockStatusBadge(product.status_estoque, product.estoque)}
                             </div>
@@ -3619,6 +3683,78 @@ export default function MarketplacePage() {
                       Nenhum produto encontrado.
                     </div>
                   )}
+                </div>
+              )}
+              {products.length > 0 && (
+                <div className="mt-4 flex items-center justify-between">
+                  <div className="flex flex-nowrap text-xs text-muted-foreground">
+                    <span>{productsPageStart}</span> - <span>{productsPageEnd}</span>
+                    <span className="ml-1 hidden sm:block">de {products.length}</span>
+                    <Loader2 className={cn("h-full w-4 animate-spin opacity-0 transition-all", loadingProducts && "opacity-100")} />
+                  </div>
+
+                  <div className="flex items-center justify-center space-x-1 sm:space-x-3">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="hover:cursor-pointer"
+                      onClick={() => setProductsPage(1)}
+                      disabled={safeProductsPage === 1}
+                    >
+                      <ChevronsLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="hover:cursor-pointer"
+                      onClick={() => setProductsPage((current) => Math.max(1, current - 1))}
+                      disabled={safeProductsPage === 1}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <span className="text-nowrap text-[10px] font-medium sm:text-xs">
+                      Pg. {safeProductsPage} de {productsTotalPages || 1}
+                    </span>
+                    <Button
+                      className="hover:cursor-pointer"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setProductsPage((current) => Math.min(productsTotalPages || 1, current + 1))}
+                      disabled={safeProductsPage === productsTotalPages || productsTotalPages === 0}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      className="hover:cursor-pointer"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setProductsPage(productsTotalPages || 1)}
+                      disabled={safeProductsPage === productsTotalPages || productsTotalPages === 0}
+                    >
+                      <ChevronsRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+
+                  <div>
+                    <Select
+                      value={String(productsPageSize)}
+                      onValueChange={(value) => {
+                        setProductsPageSize(Number(value));
+                        setProductsPage(1);
+                      }}
+                    >
+                      <SelectTrigger size="sm" className="ml-2 hover:cursor-pointer">
+                        <SelectValue placeholder={productsPageSize} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PRODUCT_PAGE_SIZE_OPTIONS.map((option) => (
+                          <SelectItem key={option} className="hover:cursor-pointer" value={String(option)}>
+                            {option}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               )}
             </TabsContent>
@@ -4273,7 +4409,7 @@ export default function MarketplacePage() {
           if (!open) setListingFieldErrors({});
         }}
       >
-        <DialogContent className="flex max-h-[92vh] flex-col overflow-hidden sm:max-w-7xl">
+        <DialogContent className="flex h-[92dvh] w-[100dvw] max-w-[100dvw] flex-col overflow-hidden p-4 sm:h-auto sm:max-h-[850px] sm:min-h-[680px] sm:w-[95vw] sm:max-w-[1100px] sm:p-6">
           <DialogHeader className="shrink-0">
             <DialogTitle>Criar anúncio Mercado Livre</DialogTitle>
             <DialogDescription>
@@ -5255,7 +5391,7 @@ export default function MarketplacePage() {
       </Dialog>
 
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden sm:max-w-4xl">
+        <DialogContent className="flex h-[92dvh] w-[100dvw] max-w-[100dvw] flex-col overflow-hidden p-4 sm:h-auto sm:max-h-[850px] sm:min-h-[680px] sm:w-[95vw] sm:max-w-[1100px] sm:p-6">
           {loadingEditListing && (
             <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 rounded-lg bg-background">
               <div className="size-8 animate-spin rounded-t-full border-t-2 border-primary" />
@@ -5597,11 +5733,11 @@ export default function MarketplacePage() {
       </Dialog>
 
       <Dialog open={performanceDialogOpen} onOpenChange={setPerformanceDialogOpen}>
-        <DialogContent className="flex min-h-[520px] max-h-[85vh] flex-col overflow-hidden sm:max-w-6xl">
+        <DialogContent className="flex h-[92dvh] w-[100dvw] max-w-[100dvw] flex-col overflow-hidden p-4 sm:h-auto sm:max-h-[850px] sm:min-h-[680px] sm:w-[95vw] sm:max-w-[1100px] sm:p-6">
           {loadingListingPerformance && (
             <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 rounded-lg bg-background">
-              <Loader2 className="h-9 w-9 animate-spin text-primary" />
-              <span className="text-sm text-muted-foreground">Carregando desempenho...</span>
+              <div className="size-8 animate-spin rounded-t-full border-t-2 border-primary" />
+              <span className="text-primary">Carregando...</span>
             </div>
           )}
           <DialogHeader className="shrink-0">
