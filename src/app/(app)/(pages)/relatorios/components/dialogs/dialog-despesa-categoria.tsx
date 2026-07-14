@@ -12,8 +12,8 @@ import {
 import { PieChart } from "lucide-react";
 import { ExportTransactionsButton } from "../../../(financeiro)/fluxodecaixa/components/ExportTransactionsButton";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 import { useState } from "react";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   Select,
   SelectContent,
@@ -96,23 +96,11 @@ export default function DialogDespesaCategoria() {
           <div className="flex flex-col md:flex-row gap-6">
             <div className="flex flex-row gap-2">
               <Label>De:</Label>
-              <Input
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                type="date"
-                name="dateFrom"
-                id=""
-              />
+              <DatePicker value={dateFrom} onChange={setDateFrom} placeholder="Data inicial" />
             </div>
             <div className="flex flex-row gap-2">
               <Label>Até:</Label>
-              <Input
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                type="date"
-                name="dateTo"
-                id=""
-              />
+              <DatePicker value={dateTo} onChange={setDateTo} placeholder="Data final" />
             </div>
           </div>
         </div>

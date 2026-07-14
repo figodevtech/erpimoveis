@@ -4275,7 +4275,7 @@ export default function MarketplacePage() {
                   </div>
                   <Badge variant="outline">{syncRuns.length} registro(s)</Badge>
                 </div>
-                <div className="overflow-hidden rounded-md border">
+                <div className="max-h-[440px] overflow-auto rounded-md border">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -4409,7 +4409,7 @@ export default function MarketplacePage() {
           if (!open) setListingFieldErrors({});
         }}
       >
-        <DialogContent className="flex h-[92dvh] w-[100dvw] max-w-[100dvw] flex-col overflow-hidden p-4 sm:h-auto sm:max-h-[850px] sm:min-h-[680px] sm:w-[95vw] sm:max-w-[1100px] sm:p-6">
+        <DialogContent className="flex h-[92dvh] w-[100dvw] max-w-[100dvw] flex-col overflow-hidden p-4 sm:h-[850px] sm:max-h-[92dvh] sm:w-[95vw] sm:max-w-[1100px] sm:p-6">
           <DialogHeader className="shrink-0">
             <DialogTitle>Criar anúncio Mercado Livre</DialogTitle>
             <DialogDescription>
@@ -5733,7 +5733,7 @@ export default function MarketplacePage() {
       </Dialog>
 
       <Dialog open={performanceDialogOpen} onOpenChange={setPerformanceDialogOpen}>
-        <DialogContent className="flex h-[92dvh] w-[100dvw] max-w-[100dvw] flex-col overflow-hidden p-4 sm:h-auto sm:max-h-[850px] sm:min-h-[680px] sm:w-[95vw] sm:max-w-[1100px] sm:p-6">
+        <DialogContent className="flex h-[92dvh] w-[100dvw] max-w-[100dvw] flex-col overflow-hidden p-4 sm:h-[850px] sm:max-h-[92dvh] sm:w-[95vw] sm:max-w-[1100px] sm:p-6">
           {loadingListingPerformance && (
             <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 rounded-lg bg-background">
               <div className="size-8 animate-spin rounded-t-full border-t-2 border-primary" />

@@ -29,7 +29,7 @@ import { toast } from "sonner";
 import FornecedorDialog from "../../../configuracoes/tipos/components/fornecedorDialog";
 import { DialogProduto } from "../dialog-produto/dialog-produto";
 import { Switch } from "@/components/ui/switch";
-import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import ValueInput from "../dialog-produto/entrada-valor";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Banco, Metodo_pagamento } from "../../../(financeiro)/fluxodecaixa/types";
@@ -707,16 +707,14 @@ export default function DialogEntradaFiscal({ children, isOpen, setIsOpen }: Ent
                           {/* Data vencimento */}
                           <div className="flex flex-col gap-1">
                             <span className="text-xs text-muted-foreground">Data Vencimento:</span>
-                            <Input
-                              type="date"
+                            <DatePicker
                               className="not-dark:bg-white"
                               value={
                                 parcela.dataVencimento
                                   ? new Date(parcela.dataVencimento).toISOString().slice(0, 10)
                                   : ""
                               }
-                              onChange={(e) => {
-                                const value = e.target.value;
+                              onChange={(value) => {
                                 setParcelas((prev) =>
                                   prev.map((p, i) =>
                                     i === index

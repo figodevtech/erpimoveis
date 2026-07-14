@@ -6,6 +6,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import ValueInput from "./valueInput";
@@ -403,25 +404,15 @@ export default function EditContent({
 
               <div className="space-y-2 w-full sm:col-span-3">
                 <Label htmlFor="data">Data do vencimento</Label>
-                <Input
+                <DatePicker
                   disabled
-                  id="data"
-                  className="w-full sm:max-w-xs"
-                  type="date"
                   value={toDateInputString(selectedTransaction.data)}
-                  min={
-                    selectedTransaction.pendente
-                      ? toDateInputString(new Date())
-                      : undefined
-                  }
-                  max={
-                    !selectedTransaction.pendente
-                      ? toDateInputString(new Date())
-                      : undefined
-                  }
-                  onChange={(e) => {
-                    const selecionada = e.target.value
-                      ? parseLocalDateTime(`${e.target.value}T00:00`)
+                  className="w-full sm:max-w-xs"
+                  min={selectedTransaction.pendente ? toDateInputString(new Date()) : undefined}
+                  max={!selectedTransaction.pendente ? toDateInputString(new Date()) : undefined}
+                  onChange={(value) => {
+                    const selecionada = value
+                      ? parseLocalDateTime(`${value}T00:00`)
                       : undefined;
 
                     if (!selecionada) {

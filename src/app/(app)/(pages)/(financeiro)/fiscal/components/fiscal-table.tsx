@@ -42,6 +42,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -505,18 +506,8 @@ export default function FiscalTable({
             <div className="flex flex-row gap-2 md:col-span-2">
 
 
-              <Input
-                type="date"
-                value={dateFrom}
-                onChange={(event) => setDateFrom(event.target.value)}
-                className="h-9 w-full min-w-0"
-              />
-              <Input
-                type="date"
-                value={dateTo}
-                onChange={(event) => setDateTo(event.target.value)}
-                className="h-9 w-full min-w-0"
-              />
+              <DatePicker value={dateFrom} onChange={setDateFrom} placeholder="Data inicial" className="min-w-0" />
+              <DatePicker value={dateTo} onChange={setDateTo} placeholder="Data final" className="min-w-0" />
             </div>
             <Select value={status || "TODOS"} onValueChange={(value) => setStatus(value === "TODOS" ? "" : value)}>
               <SelectTrigger className="h-9 w-full">
