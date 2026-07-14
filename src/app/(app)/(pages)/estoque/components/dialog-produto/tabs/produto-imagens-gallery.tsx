@@ -81,6 +81,8 @@ type ImageCardProps = {
   definingMainImageId?: number | null;
   busy?: boolean;
   isOverlay?: boolean;
+  actionsVisible?: boolean;
+  onToggleActions?: (key: string) => void;
   onRemovePendente?: (id: string) => void;
   onDefinirPrincipal?: (id: number) => void;
   onConfirmRemove?: (id: number) => void;
@@ -109,6 +111,8 @@ function ImageCard({
   definingMainImageId,
   busy,
   isOverlay,
+  actionsVisible,
+  onToggleActions,
   onRemovePendente,
   onDefinirPrincipal,
   onConfirmRemove,
@@ -119,12 +123,18 @@ function ImageCard({
   const removendo = !!image && removingImageId === image.id;
   const definindoCapa = !!image && definingMainImageId === image.id;
   const bloqueadoPorCapa = definingMainImageId != null;
+  const actionVisibilityClass = actionsVisible ? "opacity-100" : "opacity-0 group-hover:opacity-100";
 
   return (
     <div
       className={`relative group aspect-square overflow-hidden rounded-md border bg-muted/20 transition-all duration-200 ${
         ehPrincipal ? "ring-2 ring-primary border-transparent" : ""
-      } ${isOverlay ? "scale-105 cursor-grabbing shadow-2xl ring-2 ring-primary/40" : ""}`}
+      } ${image && !isOverlay ? "cursor-pointer" : ""} ${
+        isOverlay ? "scale-105 cursor-grabbing shadow-2xl ring-2 ring-primary/40" : ""
+      }`}
+      onClick={() => {
+        if (image && !isOverlay) onToggleActions?.(item.key);
+      }}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={src} alt={alt} draggable={false} className="h-full w-full object-cover group-hover:scale-105 transition-all duration-500" />
@@ -161,7 +171,7 @@ function ImageCard({
       {image && onDefinirPrincipal && !ehPrincipal && !isOverlay && (
         <button
           type="button"
-          className="opacity-0 group-hover:opacity-100 h-7  rounded-md bg-gray-500/50  font-semibold px-2 py-1 text-[10px] text-white backdrop-blur duration-500 transition-all hover:cursor-pointer hover:bg-primary hover:text-primary-foreground duration-200"
+          className={`${actionVisibilityClass} h-7 rounded-md bg-gray-500/50 px-2 py-1 text-[10px] font-semibold text-white backdrop-blur transition-all duration-500 hover:cursor-pointer hover:bg-primary hover:text-primary-foreground`}
           onPointerDown={(event) => event.stopPropagation()}
           onClick={(event) => {
             event.stopPropagation();
@@ -178,7 +188,7 @@ function ImageCard({
       {image && onConfirmRemove && !isOverlay && (
         <button
           type="button"
-          className="opacity-0 group-hover:opacity-100 transition-all duration-500 flex flex-row itens-center h-7 w-7 items-center justify-center rounded-md bg-gray-500/50 text-white shadow-sm hover:cursor-pointer hover:bg-red-500"
+          className={`${actionVisibilityClass} flex h-7 w-7 flex-row items-center justify-center rounded-md bg-gray-500/50 text-white shadow-sm transition-all duration-500 hover:cursor-pointer hover:bg-red-500`}
           onPointerDown={(event) => event.stopPropagation()}
           disabled={removendo || busy || bloqueadoPorCapa}
           onClick={(event) => {
@@ -254,6 +264,7 @@ export function ProdutoImagensGallery({
 }: Props) {
   const [confirmRemoveId, setConfirmRemoveId] = useState<number | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeActionsKey, setActiveActionsKey] = useState<string | null>(null);
   const confirmImage = imagens.find((img) => img.id === confirmRemoveId);
   const hasImages = imagens.length > 0 || pendentes.length > 0;
   const uploadDisabled = !onUpload || pendentes.length === 0 || uploading || saving || savingOrder;
@@ -298,6 +309,7 @@ export function ProdutoImagensGallery({
   };
 
   const handleDragStart = (event: DragStartEvent) => {
+    setActiveActionsKey(null);
     setActiveId(String(event.active.id));
   };
 
@@ -327,6 +339,7 @@ export function ProdutoImagensGallery({
   const confirmRemove = () => {
     if (!confirmRemoveId) return;
     onRemoverImagem?.(confirmRemoveId);
+    setActiveActionsKey(null);
     setConfirmRemoveId(null);
   };
 
@@ -365,6 +378,10 @@ export function ProdutoImagensGallery({
                       removingImageId={removingImageId}
                       definingMainImageId={definingMainImageId}
                       busy={busy}
+                      actionsVisible={activeActionsKey === item.key}
+                      onToggleActions={(key) => {
+                        setActiveActionsKey((current) => (current === key ? null : key));
+                      }}
                       onRemovePendente={onRemovePendente}
                       onDefinirPrincipal={onDefinirPrincipal}
                       onConfirmRemove={setConfirmRemoveId}
