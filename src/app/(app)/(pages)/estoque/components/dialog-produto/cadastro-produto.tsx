@@ -10,6 +10,7 @@ import { TabGeral } from "./tabs/tab-geral";
 import { TabFiscal } from "./tabs/tab-fiscal";
 import { TabEstoque } from "./tabs/tab-estoque";
 import { TabImagensCreate } from "./tabs/tab-imagens-create";
+import type { ProdutoImagemPendente } from "./tabs/produto-imagens-gallery";
 import { TabEtiquetas } from "./tabs/tab-etiquetas";
 import { useUnidadesMedida } from "./hooks/use-unidades-medida";
 import { useEffect, useRef, useState } from "react";
@@ -43,9 +44,10 @@ export default function CadastroProduto({
   isDesktop = true,
 }: ConteudoCadastroProdutoProps) {
   const [salvando, setSalvando] = useState(false);
-  const [imagensArquivos, setImagensArquivos] = useState<File[]>([]);
-  const [imagensPreview, setImagensPreview] = useState<string[]>([]);
-  const imagensPreviewRef = useRef<string[]>([]);
+  const [imagensPendentes, setImagensPendentes] = useState<ProdutoImagemPendente[]>([]);
+  const imagensPendentesRef = useRef<ProdutoImagemPendente[]>([]);
+  const [ordemImagensPendentes, setOrdemImagensPendentes] = useState<string[]>([]);
+  const [progressoUploadImagens, setProgressoUploadImagens] = useState<Record<string, number>>({});
   const [currentTab, setCurrentTab] = useState<string>("Geral");
   const { unidades, loadingUnidades, errorUnidades } = useUnidadesMedida();
   const { grupos } = useGruposProduto();
@@ -73,33 +75,46 @@ export default function CadastroProduto({
   const handlePickImages = (files: File[]) => {
     if (files.length === 0) return;
 
-    const previews = files.map((f) => URL.createObjectURL(f));
-    imagensPreviewRef.current = [...imagensPreviewRef.current, ...previews];
+    const novas = files.map((file) => ({
+      id:
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random()}`,
+      file,
+      previewUrl: URL.createObjectURL(file),
+    }));
 
-    setImagensArquivos((current) => [...current, ...files]);
-    setImagensPreview((current) => [...current, ...previews]);
+    imagensPendentesRef.current = [...imagensPendentesRef.current, ...novas];
+    setImagensPendentes(imagensPendentesRef.current);
+    setOrdemImagensPendentes((current) => [...current, ...novas.map((img) => `pending-${img.id}`)]);
   };
 
   const limparImagensSelecionadas = () => {
-    imagensPreviewRef.current.forEach((url) => URL.revokeObjectURL(url));
-    imagensPreviewRef.current = [];
-    setImagensArquivos([]);
-    setImagensPreview([]);
+    imagensPendentesRef.current.forEach((img) => URL.revokeObjectURL(img.previewUrl));
+    imagensPendentesRef.current = [];
+    setImagensPendentes([]);
+    setOrdemImagensPendentes([]);
+    setProgressoUploadImagens({});
   };
 
-  const removerImagemSelecionada = (index: number) => {
-    const preview = imagensPreviewRef.current[index];
-    if (preview) URL.revokeObjectURL(preview);
+  const removerImagemSelecionada = (id: string) => {
+    const alvo = imagensPendentesRef.current.find((img) => img.id === id);
+    if (alvo) URL.revokeObjectURL(alvo.previewUrl);
 
-    imagensPreviewRef.current = imagensPreviewRef.current.filter((_, idx) => idx !== index);
-    setImagensArquivos((current) => current.filter((_, idx) => idx !== index));
-    setImagensPreview((current) => current.filter((_, idx) => idx !== index));
+    imagensPendentesRef.current = imagensPendentesRef.current.filter((img) => img.id !== id);
+    setImagensPendentes(imagensPendentesRef.current);
+    setOrdemImagensPendentes((current) => current.filter((key) => key !== `pending-${id}`));
+    setProgressoUploadImagens((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
   };
 
   useEffect(() => {
     return () => {
-      imagensPreviewRef.current.forEach((url) => URL.revokeObjectURL(url));
-      imagensPreviewRef.current = [];
+      imagensPendentesRef.current.forEach((img) => URL.revokeObjectURL(img.previewUrl));
+      imagensPendentesRef.current = [];
     };
   }, []);
 
@@ -123,14 +138,28 @@ export default function CadastroProduto({
         const produtoId = response.data.data.id as number;
 
         // envia imagens se selecionadas
-        if (imagensArquivos.length > 0) {
+        if (imagensPendentes.length > 0) {
           try {
-            const fd = new FormData();
-            imagensArquivos.forEach((f) => fd.append("files", f));
+            const pendentesPorId = new Map(imagensPendentes.map((img) => [`pending-${img.id}`, img]));
+            const ordenadas = ordemImagensPendentes
+              .map((key) => pendentesPorId.get(key))
+              .filter(Boolean) as ProdutoImagemPendente[];
 
-            await axios.post(`/api/products/${produtoId}/images`, fd, {
-              headers: { "Content-Type": "multipart/form-data" },
-            });
+            for (const img of ordenadas) {
+              const fd = new FormData();
+              fd.append("files", img.file);
+
+              await axios.post(`/api/products/${produtoId}/images`, fd, {
+                headers: { "Content-Type": "multipart/form-data" },
+                onUploadProgress: (event) => {
+                  const total = event.total ?? img.file.size;
+                  const pct = total > 0 ? Math.min(100, Math.round((event.loaded / total) * 100)) : 0;
+                  setProgressoUploadImagens((current) => ({ ...current, [img.id]: pct }));
+                },
+              });
+
+              setProgressoUploadImagens((current) => ({ ...current, [img.id]: 100 }));
+            }
           } catch (err) {
             console.error("Erro ao enviar imagens:", err);
             toast.error("Erro", {
@@ -239,9 +268,12 @@ export default function CadastroProduto({
       <TabFiscal produto={newProduct} onChange={handleChange} />
       <TabEstoque mode="create" produto={newProduct} onChange={handleChange} />
       <TabImagensCreate
-        previews={imagensPreview}
+        pendentes={imagensPendentes}
+        ordemItens={ordemImagensPendentes}
+        progressoUpload={progressoUploadImagens}
         saving={salvando}
         onPick={handlePickImages}
+        onReordenar={setOrdemImagensPendentes}
         onRemove={removerImagemSelecionada}
       />
       <TabEtiquetas produto={newProduct} onChange={handleChange} />
