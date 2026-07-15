@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { PERMS, type Permission } from "@/app/api/_authz/permission-constants";
 import { requirePerm } from "@/app/api/_authz/perms";
+import { auth } from "@/lib/auth";
 
 async function exigirAcesso(permissao: Permission = PERMS.PERMISSOES) {
   try {
@@ -76,6 +77,8 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const gate = await exigirAcesso(PERMS.PERMISSOES_CRIAR);
   if (!gate.ok) return NextResponse.json({ error: gate.msg }, { status: gate.status });
+  const session = await auth();
+  const actorId = ((session?.user as any)?.id as string | undefined) ?? null;
 
   const body = (await req.json().catch(() => null)) as CriarPerfilPayload | null;
   const nome = body?.nome?.trim();
@@ -86,15 +89,18 @@ export async function POST(req: NextRequest) {
 
   const { data: perfilCriado, error: ePerfil } = await supabaseAdmin
     .from("perfil")
-    .insert({ nome, descricao })
+    .insert({ nome, descricao, created_by: actorId, updated_by: actorId })
     .select("id, nome, descricao")
     .single();
 
   if (ePerfil) return NextResponse.json({ error: ePerfil.message }, { status: 500 });
 
   if (permissoesIds.length > 0) {
-    const rows = permissoesIds.map((permissaoid) => ({ perfilid: perfilCriado.id, permissaoid }));
-    const { error: eIns } = await supabaseAdmin.from("perfilpermissao").insert(rows);
+    const { error: eIns } = await supabaseAdmin.rpc("atualizar_permissoes_perfil_auditado", {
+      p_perfilid: perfilCriado.id,
+      p_permissoes_ids: permissoesIds,
+      p_usuario_id: actorId,
+    });
     if (eIns) return NextResponse.json({ error: eIns.message }, { status: 500 });
   }
 

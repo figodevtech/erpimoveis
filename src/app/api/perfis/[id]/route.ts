@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { PERMS, type Permission } from "@/app/api/_authz/permission-constants";
 import { requirePerm } from "@/app/api/_authz/perms";
+import { auth } from "@/lib/auth";
 
 async function exigirAcesso(permissao: Permission = PERMS.PERMISSOES) {
   try {
@@ -85,6 +86,8 @@ export async function GET(req: NextRequest, ctx: any) {
 export async function PUT(req: NextRequest, ctx: any) {
   const gate = await exigirAcesso(PERMS.PERMISSOES_EDITAR);
   if (!gate.ok) return NextResponse.json({ error: gate.msg }, { status: gate.status });
+  const session = await auth();
+  const actorId = ((session?.user as any)?.id as string | undefined) ?? null;
 
   const id = await getParamId(ctx);
   const perfilId = Number(id);
@@ -99,21 +102,19 @@ export async function PUT(req: NextRequest, ctx: any) {
 
   const { data: perfilAtualizado, error: ePerfil } = await supabaseAdmin
     .from("perfil")
-    .update({ nome, descricao })
+    .update({ nome, descricao, updated_by: actorId, updatedat: new Date().toISOString() })
     .eq("id", perfilId)
     .select("id, nome, descricao")
     .single();
 
   if (ePerfil) return NextResponse.json({ error: ePerfil.message }, { status: 500 });
 
-  const { error: eDel } = await supabaseAdmin.from("perfilpermissao").delete().eq("perfilid", perfilId);
-  if (eDel) return NextResponse.json({ error: eDel.message }, { status: 500 });
-
-  if (permissoesIds.length > 0) {
-    const rows = permissoesIds.map((permissaoid) => ({ perfilid: perfilId, permissaoid }));
-    const { error: eIns } = await supabaseAdmin.from("perfilpermissao").insert(rows);
-    if (eIns) return NextResponse.json({ error: eIns.message }, { status: 500 });
-  }
+  const { error: ePermissoes } = await supabaseAdmin.rpc("atualizar_permissoes_perfil_auditado", {
+    p_perfilid: perfilId,
+    p_permissoes_ids: permissoesIds,
+    p_usuario_id: actorId,
+  });
+  if (ePermissoes) return NextResponse.json({ error: ePermissoes.message }, { status: 500 });
 
   return NextResponse.json({ perfil: perfilAtualizado }, { status: 200 });
 }

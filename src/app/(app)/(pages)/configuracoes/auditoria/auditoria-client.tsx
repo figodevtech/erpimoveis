@@ -2,13 +2,17 @@
 
 import * as React from "react";
 import {
+  ArrowRight,
+  CalendarClock,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  Database,
   Eye,
   Loader2,
   SlidersHorizontal,
+  UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -44,11 +48,13 @@ type Evento = {
   dados_novos: Record<string, unknown> | null;
   campos_alterados: string[];
   origem: "usuario" | "sistema";
+  fonte: "evento" | "legado";
   usuario: Usuario | Usuario[] | null;
 };
 
 type Resposta = {
   eventos: Evento[];
+  referencias: Record<string, Record<string, string>>;
   paginacao: { pagina: number; porPagina: number; total: number; totalPaginas: number };
 };
 
@@ -104,6 +110,33 @@ const MODULOS = [
 ] as const;
 
 function tituloTabela(nome: string) {
+  const titulos: Record<string, string> = {
+    agendamento: "Agendamento",
+    categoriavenda: "Categoria de venda",
+    cliente: "Cliente",
+    cliente_endereco: "Endereço do cliente",
+    config_geral: "Configurações gerais",
+    entrada: "Entrada de estoque",
+    entradaitens: "Itens da entrada",
+    lote_pecas: "Peças do lote",
+    lotes: "Lote de desmanche",
+    ordemservico: "Ordem de serviço",
+    osanexo: "Anexo da ordem de serviço",
+    osaprovacao: "Aprovação da ordem de serviço",
+    osproduto: "Produto da ordem de serviço",
+    osservico: "Serviço da ordem de serviço",
+    perfil: "Perfil de acesso",
+    perfilpermissao: "Permissão do perfil",
+    produto: "Produto",
+    setor: "Setor",
+    usuario: "Usuário",
+    veiculo: "Veículo",
+    venda: "Venda",
+    vendaanexo: "Anexo da venda",
+    vendaproduto: "Produto da venda",
+  };
+
+  if (titulos[nome]) return titulos[nome];
   return nome
     .replaceAll("_", " ")
     .replace(/([a-z])([A-Z])/g, "$1 $2")
@@ -131,82 +164,259 @@ function tituloModulo(nome: string) {
 
 function nomeUsuario(evento: Evento) {
   const usuario = Array.isArray(evento.usuario) ? evento.usuario[0] : evento.usuario;
-  return usuario?.nome || usuario?.email || (evento.usuario_id ? "Usuário removido" : "Sistema");
+  return usuario?.nome
+    || usuario?.email
+    || (evento.usuario_id ? "Usuário removido" : evento.fonte === "legado" ? "Não identificado" : "Sistema");
 }
 
-function formatarValor(valor: unknown) {
-  if (valor === null || valor === undefined || valor === "") return "-";
+const ROTULOS_CAMPOS: Record<string, string> = {
+  ativo: "Ativo",
+  bairro: "Bairro",
+  canal: "Canal",
+  cep: "CEP",
+  cidade: "Cidade",
+  clienteid: "Cliente",
+  codigobarras: "Código de barras",
+  comissao_percent: "Comissão",
+  comissao_venda_percent: "Comissão sobre vendas",
+  cpfcnpj: "CPF / CNPJ",
+  created_by: "Cadastrado por",
+  createdat: "Cadastrado em",
+  data_admissao: "Data de admissão",
+  data_demissao: "Data de demissão",
+  dataentrada: "Data de entrada",
+  datasaida: "Data de saída",
+  datavenda: "Data da venda",
+  deleted_at: "Excluído em",
+  deleted_by: "Excluído por",
+  desconto_tipo: "Tipo de desconto",
+  desconto_valor: "Valor do desconto",
+  descricao: "Descrição",
+  email: "E-mail",
+  endereco: "Endereço",
+  enderecocomplemento: "Complemento",
+  endereconumero: "Número",
+  estado: "Estado",
+  estoque: "Estoque",
+  estoqueminimo: "Estoque mínimo",
+  fabricante: "Fabricante",
+  forma_pagamento: "Forma de pagamento",
+  grupo: "Grupo",
+  id: "ID",
+  inscricaoestadual: "Inscrição estadual",
+  inscricaomunicipal: "Inscrição municipal",
+  is_deleted: "Excluído",
+  is_root: "Administrador principal",
+  nome: "Nome",
+  nomerazaosocial: "Nome / razão social",
+  observacoes: "Observações",
+  orcamentototal: "Total do orçamento",
+  perfilid: "Perfil de acesso",
+  permissaoid: "Permissão",
+  precocompra: "Preço de compra",
+  precovenda: "Preço de venda",
+  referencia: "Referência",
+  setorid: "Setor",
+  status: "Status",
+  sub_total: "Subtotal",
+  telefone: "Telefone",
+  tipopessoa: "Tipo de pessoa",
+  titulo: "Título",
+  updated_by: "Alterado por",
+  updatedat: "Alterado em",
+  usuarioid: "Usuário",
+  usuariocriadorid: "Criado por",
+  valortotal: "Valor total",
+  veiculoid: "Veículo",
+};
+
+function tituloCampo(campo: string) {
+  if (ROTULOS_CAMPOS[campo]) return ROTULOS_CAMPOS[campo];
+
+  const separado = campo
+    .replaceAll("_", " ")
+    .replace(/([a-zà-ú])([A-Z])/g, "$1 $2")
+    .replace(/id$/i, " ID")
+    .trim();
+
+  return separado.charAt(0).toUpperCase() + separado.slice(1);
+}
+
+function valorEhData(campo: string, valor: unknown) {
+  if (typeof valor !== "string" || !valor) return false;
+  if (!/(data|_at$|at$|_em$)/i.test(campo)) return false;
+  return !Number.isNaN(new Date(valor).getTime());
+}
+
+function formatarValor(campo: string, valor: unknown) {
+  if (valor === null || valor === undefined || valor === "") return "Não informado";
+  if (valor === "[PROTEGIDO]") return "Dado protegido";
   if (typeof valor === "boolean") return valor ? "Sim" : "Não";
+  if (typeof valor === "number" && /(valor|preco|salario|orcamento|subtotal|sub_total|desconto)/i.test(campo)) {
+    return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(valor);
+  }
+  if (valorEhData(campo, valor)) {
+    const data = new Date(valor as string);
+    const possuiHorario = (valor as string).includes("T");
+    return new Intl.DateTimeFormat("pt-BR", possuiHorario
+      ? { dateStyle: "short", timeStyle: "medium" }
+      : { dateStyle: "short", timeZone: "UTC" }).format(data);
+  }
   if (typeof valor === "object") return JSON.stringify(valor, null, 2);
+  if (typeof valor === "string" && /^(status|tipo|canal|origem|prioridade)/i.test(campo)) {
+    const texto = valor.replaceAll("_", " ").toLocaleLowerCase("pt-BR");
+    return texto.charAt(0).toLocaleUpperCase("pt-BR") + texto.slice(1);
+  }
   return String(valor);
+}
+
+function ValorAuditoria({ campo, valor, referencia }: { campo: string; valor: unknown; referencia?: string }) {
+  const vazio = valor === null || valor === undefined || valor === "";
+  const complexo = typeof valor === "object" && valor !== null;
+
+  if (referencia) {
+    return (
+      <div className="min-w-0">
+        <p className="break-words text-sm font-medium text-foreground">{referencia}</p>
+        <p className="mt-0.5 break-all font-mono text-[10px] text-muted-foreground">ID: {String(valor)}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`break-words text-sm ${vazio ? "italic text-muted-foreground" : "text-foreground"} ${complexo ? "max-h-52 overflow-auto whitespace-pre-wrap rounded-md bg-muted/50 p-3 font-mono text-xs" : ""}`}
+    >
+      {formatarValor(campo, valor)}
+    </div>
+  );
 }
 
 function DetalhesEvento({
   evento,
+  referencias,
   aberto,
   onOpenChange,
 }: {
   evento: Evento | null;
+  referencias: Record<string, Record<string, string>>;
   aberto: boolean;
   onOpenChange: (aberto: boolean) => void;
 }) {
   if (!evento) return null;
-  const campos = evento.campos_alterados ?? [];
+  const dadosReferencia = evento.operacao === "DELETE" ? evento.dados_anteriores : evento.dados_novos;
+  const campos = (evento.campos_alterados?.length
+    ? evento.campos_alterados
+    : Object.keys(dadosReferencia ?? {}))
+    .filter((campo, indice, lista) => lista.indexOf(campo) === indice);
+  const ehAlteracao = evento.operacao === "UPDATE";
+  const descricaoAcao = evento.operacao === "INSERT"
+    ? "Dados cadastrados"
+    : evento.operacao === "DELETE"
+      ? "Dados excluídos"
+      : "Alterações realizadas";
 
   return (
     <Dialog open={aberto} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-4xl">
-        <DialogHeader>
-          <DialogTitle>Detalhes do evento #{evento.id}</DialogTitle>
-          <DialogDescription>
-            {ACAO[evento.operacao].texto} em {tituloTabela(evento.tabela)} · registro {evento.registro_id || "sem identificador"}
+      <DialogContent className="flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl">
+        <DialogHeader className="border-b px-6 py-5 text-left">
+          <div className="flex flex-wrap items-center gap-2 pr-7">
+            <DialogTitle>{ACAO[evento.operacao].texto} em {tituloTabela(evento.tabela)}</DialogTitle>
+            <Badge variant="outline" className={ACAO[evento.operacao].className}>{ACAO[evento.operacao].texto}</Badge>
+            {evento.fonte === "legado" ? <Badge variant="secondary">Registro anterior à auditoria</Badge> : null}
+          </div>
+          <DialogDescription className="mt-1">
+            Evento #{evento.id} · {tituloModulo(evento.modulo)}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-3 rounded-lg border bg-muted/20 p-4 text-sm sm:grid-cols-3">
-          <div>
-            <span className="text-muted-foreground">Data e hora</span>
-            <p className="font-medium">
-              {new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "medium" }).format(new Date(evento.ocorrido_em))}
-            </p>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="grid gap-3 border-b bg-muted/20 p-4 sm:grid-cols-3 sm:px-6">
+            <div className="flex min-w-0 items-start gap-3 rounded-lg border bg-background p-3">
+              <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground">Data e hora</p>
+                <p className="truncate text-sm font-medium">
+                  {new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "medium" }).format(new Date(evento.ocorrido_em))}
+                </p>
+              </div>
+            </div>
+            <div className="flex min-w-0 items-start gap-3 rounded-lg border bg-background p-3">
+              <UserRound className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground">Responsável</p>
+                <p className="truncate text-sm font-medium">{nomeUsuario(evento)}</p>
+              </div>
+            </div>
+            <div className="flex min-w-0 items-start gap-3 rounded-lg border bg-background p-3">
+              <Database className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground">Registro</p>
+                <p className="truncate font-mono text-sm font-medium">{evento.registro_id || "Sem identificador"}</p>
+              </div>
+            </div>
           </div>
-          <div>
-            <span className="text-muted-foreground">Responsável</span>
-            <p className="font-medium">{nomeUsuario(evento)}</p>
-          </div>
-          <div>
-            <span className="text-muted-foreground">Campos afetados</span>
-            <p className="font-medium">{campos.length}</p>
-          </div>
-        </div>
 
-        <div className="overflow-hidden rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/40">
-                <TableHead className="w-[24%]">Campo</TableHead>
-                <TableHead>Antes</TableHead>
-                <TableHead>Depois</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {campos.map((campo) => (
-                <TableRow key={campo}>
-                  <TableCell className="font-mono text-xs font-medium">{campo}</TableCell>
-                  <TableCell>
-                    <pre className="max-w-[300px] whitespace-pre-wrap break-words font-sans text-xs">
-                      {formatarValor(evento.dados_anteriores?.[campo])}
-                    </pre>
-                  </TableCell>
-                  <TableCell>
-                    <pre className="max-w-[300px] whitespace-pre-wrap break-words font-sans text-xs">
-                      {formatarValor(evento.dados_novos?.[campo])}
-                    </pre>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <div className="space-y-4 p-4 sm:p-6">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold">{descricaoAcao}</h3>
+              <span className="text-xs text-muted-foreground">{campos.length} {campos.length === 1 ? "campo" : "campos"}</span>
+            </div>
+
+            {campos.length === 0 ? (
+              <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+                Nenhum detalhe foi armazenado para este evento.
+              </div>
+            ) : ehAlteracao ? (
+              <div className="space-y-3">
+                {campos.map((campo) => (
+                  <div key={campo} className="rounded-lg border p-4">
+                    <div className="mb-3 flex flex-wrap items-baseline gap-2">
+                      <p className="text-sm font-medium">{tituloCampo(campo)}</p>
+                      <span className="font-mono text-[10px] text-muted-foreground">{campo}</span>
+                    </div>
+                    <div className="grid items-stretch gap-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+                      <div className="min-w-0 rounded-md border border-red-200/70 bg-red-50/40 p-3 dark:border-red-950 dark:bg-red-950/20">
+                        <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Antes</p>
+                        <ValorAuditoria
+                          campo={campo}
+                          valor={evento.dados_anteriores?.[campo]}
+                          referencia={referencias[campo]?.[String(evento.dados_anteriores?.[campo])]}
+                        />
+                      </div>
+                      <div className="flex items-center justify-center text-muted-foreground">
+                        <ArrowRight className="h-4 w-4 rotate-90 sm:rotate-0" />
+                      </div>
+                      <div className="min-w-0 rounded-md border border-emerald-200/70 bg-emerald-50/40 p-3 dark:border-emerald-950 dark:bg-emerald-950/20">
+                        <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Depois</p>
+                        <ValorAuditoria
+                          campo={campo}
+                          valor={evento.dados_novos?.[campo]}
+                          referencia={referencias[campo]?.[String(evento.dados_novos?.[campo])]}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {campos.map((campo) => (
+                  <div key={campo} className="min-w-0 rounded-lg border bg-muted/10 p-3">
+                    <div className="mb-1 flex flex-wrap items-baseline gap-2">
+                      <p className="text-xs font-medium text-muted-foreground">{tituloCampo(campo)}</p>
+                      <span className="font-mono text-[9px] text-muted-foreground/70">{campo}</span>
+                    </div>
+                    <ValorAuditoria
+                      campo={campo}
+                      valor={dadosReferencia?.[campo]}
+                      referencia={referencias[campo]?.[String(dadosReferencia?.[campo])]}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </DialogContent>
     </Dialog>
@@ -512,7 +722,10 @@ export function AuditoriaClient() {
                       {new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(evento.ocorrido_em))}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={ACAO[evento.operacao].className}>{ACAO[evento.operacao].texto}</Badge>
+                      <div className="flex flex-wrap gap-1">
+                        <Badge variant="outline" className={ACAO[evento.operacao].className}>{ACAO[evento.operacao].texto}</Badge>
+                        {evento.fonte === "legado" ? <Badge variant="secondary">Legado</Badge> : null}
+                      </div>
                     </TableCell>
                     <TableCell className="font-medium">{tituloTabela(evento.tabela)}</TableCell>
                     <TableCell className="font-mono">{evento.registro_id || "-"}</TableCell>
@@ -580,6 +793,7 @@ export function AuditoriaClient() {
 
       <DetalhesEvento
         evento={eventoSelecionado}
+        referencias={resposta?.referencias ?? {}}
         aberto={Boolean(eventoSelecionado)}
         onOpenChange={(aberto) => {
           if (!aberto) setEventoSelecionado(null);
