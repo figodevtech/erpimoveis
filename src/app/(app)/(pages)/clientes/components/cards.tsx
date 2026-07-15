@@ -8,7 +8,7 @@ export default function Cards ( {loadingStatusCounter, totalCustomers, statusCou
     
     return (
         <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-3 mb-6">
-        <Card>
+        <Card className="gap-0 py-4">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               Total de Clientes
@@ -27,7 +27,7 @@ export default function Cards ( {loadingStatusCounter, totalCustomers, statusCou
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="gap-0 py-4">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               Clientes Ativos
@@ -48,7 +48,7 @@ export default function Cards ( {loadingStatusCounter, totalCustomers, statusCou
           </CardContent>
         </Card>
 
-        <Card className="col-span-2 sm:col-span-1">
+        <Card className="gap-2 py-4 col-span-2 sm:col-span-1">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               Clientes Inativos

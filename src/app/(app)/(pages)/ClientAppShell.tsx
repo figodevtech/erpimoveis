@@ -176,7 +176,7 @@ export default function ClientAppShell({
       {config?.aviso_pagamento && (
         <div
           role="alert"
-          className="fixed inset-x-0 top-0 z-[60] flex h-10 w-full items-center justify-center gap-2 border-b border-amber-300 bg-amber-50 px-3 py-1 text-center text-xs font-medium leading-tight text-amber-900 shadow-sm dark:border-amber-400/60 dark:bg-amber-100 dark:text-amber-950 sm:text-sm"
+          className="fixed inset-x-0 top-0 z-[60] flex h-10 w-full items-center justify-center gap-2 border-b border-amber-300 bg-amber-50 px-3 py-1 text-center text-xs font-medium leading-tight text-amber-900 shadow-sm sm:text-sm"
         >
           <TriangleAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
           <span>Debitos pendentes, contate o time da FIGO para regularização.</span>
@@ -192,11 +192,11 @@ export default function ClientAppShell({
 
         <SidebarInset className="flex min-h-0 min-w-0">
         {!hideHeader ? (
-          <header className="flex h-16 w-full shrink-0 items-center gap-2 border-b bg-card/95 px-4 shadow-sm backdrop-blur">
+          <header className="flex h-16 w-full shrink-0 items-center gap-2 border-b bg-card/95 px-4 shadow-sm backdrop-blur dark:border-white/10 dark:bg-[#17131d] dark:text-white">
             <SidebarTrigger className="-ml-1" />
-            <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4" />
+            <Separator orientation="vertical" className="mr-2 dark:bg-white/20 data-[orientation=vertical]:h-4" />
 
-            <h2 className="text-base md:text-lg font-medium text-foreground/80">{title}</h2>
+            <h2 className="text-base md:text-lg font-medium text-foreground/80 dark:text-white/85">{title}</h2>
             <div className="flex-1" />
 
             <DateTimeBadge />
@@ -209,7 +209,7 @@ export default function ClientAppShell({
           </div>
         )}
 
-        <main className="flex-1 min-w-0 bg-background dark:bg-muted-foreground/5">
+        <main className="flex-1 min-w-0 bg-background dark:bg-[#17131d] dark:text-white">
           {/* se estiver sem header, adiciona padding-top pra não ficar por baixo do trigger flutuante */}
           <div className={`mx-auto w-full px-4 md:px-6 py-4 md:py-6 ${hideHeader ? "pt-14" : ""}`}>{children}</div>
         </main>

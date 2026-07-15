@@ -84,7 +84,7 @@ const statusTabs: {
     icon: <ClipboardList className="h-4 w-4" />,
     dot: "bg-violet-500",
     active:
-      "data-[state=active]:bg-violet-600/15 data-[state=active]:text-violet-700 dark:data-[state=active]:text-violet-200 data-[state=active]:ring-violet-500/30",
+      "data-[state=active]:bg-violet-600/15 data-[state=active]:text-violet-700 data-[state=active]:ring-violet-500/30",
     statuses: OPEN_STATUSES,
   },
   {
@@ -93,7 +93,7 @@ const statusTabs: {
     icon: <ClipboardList className="h-4 w-4" />,
     dot: "bg-fuchsia-500",
     active:
-      "data-[state=active]:bg-fuchsia-500/15 data-[state=active]:text-fuchsia-800 dark:data-[state=active]:text-fuchsia-200 data-[state=active]:ring-fuchsia-500/30",
+      "data-[state=active]:bg-fuchsia-500/15 data-[state=active]:text-fuchsia-800 data-[state=active]:ring-fuchsia-500/30",
     statuses: ["ORCAMENTO", "ORCAMENTO_RECUSADO", "AGUARDANDO_CHECKLIST"],
   },
   {
@@ -102,7 +102,7 @@ const statusTabs: {
     icon: <ClipboardCheck className="h-4 w-4" />,
     dot: "bg-sky-500",
     active:
-      "data-[state=active]:bg-sky-500/15 data-[state=active]:text-sky-800 dark:data-[state=active]:text-sky-200 data-[state=active]:ring-sky-500/30",
+      "data-[state=active]:bg-sky-500/15 data-[state=active]:text-sky-800 data-[state=active]:ring-sky-500/30",
     statuses: ["APROVACAO_ORCAMENTO", "ORCAMENTO_APROVADO"],
   },
   {
@@ -111,7 +111,7 @@ const statusTabs: {
     icon: <Loader2 className="h-4 w-4" />,
     dot: "bg-amber-500",
     active:
-      "data-[state=active]:bg-amber-500/15 data-[state=active]:text-amber-800 dark:data-[state=active]:text-amber-200 data-[state=active]:ring-amber-500/30",
+      "data-[state=active]:bg-amber-500/15 data-[state=active]:text-amber-800 data-[state=active]:ring-amber-500/30",
     statuses: ["EM_ANDAMENTO"],
   },
   {
@@ -120,7 +120,7 @@ const statusTabs: {
     icon: <CreditCard className="h-4 w-4" />,
     dot: "bg-indigo-500",
     active:
-      "data-[state=active]:bg-indigo-500/15 data-[state=active]:text-indigo-800 dark:data-[state=active]:text-indigo-200 data-[state=active]:ring-indigo-500/30",
+      "data-[state=active]:bg-indigo-500/15 data-[state=active]:text-indigo-800 data-[state=active]:ring-indigo-500/30",
     statuses: ["PAGAMENTO"],
   },
   {
@@ -129,7 +129,7 @@ const statusTabs: {
     icon: <CheckCircle2 className="h-4 w-4" />,
     dot: "bg-emerald-600",
     active:
-      "data-[state=active]:bg-emerald-600/15 data-[state=active]:text-emerald-800 dark:data-[state=active]:text-emerald-200 data-[state=active]:ring-emerald-600/30",
+      "data-[state=active]:bg-emerald-600/15 data-[state=active]:text-emerald-800 data-[state=active]:ring-emerald-600/30",
     statuses: ["CONCLUIDO", "SEM_COBRANCA", "CANCELADO"],
   },
 ];
@@ -227,8 +227,8 @@ export function OrdensTabs({
           className={[
             "w-full overflow-x-auto justify-start gap-2",
             "rounded-lg px-1 py-1",
-            "bg-violet-50/80 dark:bg-card supports-[backdrop-filter]:backdrop-blur",
-            "ring-1 ring-violet-200/80 dark:ring-border",
+            "bg-violet-50/80 supports-[backdrop-filter]:backdrop-blur",
+            "ring-1 ring-violet-200/80",
           ].join(" ")}
         >
           {statusTabs.map((t) => (
@@ -238,8 +238,7 @@ export function OrdensTabs({
               className={[
                 "whitespace-nowrap px-3 py-1.5 rounded-md text-xs md:text-sm",
                 "ring-1 ring-transparent transition-colors",
-                "hover:bg-violet-100/70 dark:hover:bg-muted/60",
-                "dark:data-[state=active]:bg-violet-500/15",
+                "hover:bg-violet-100/70",
                 t.active,
               ].join(" ")}
             >
@@ -353,7 +352,7 @@ function MiniCard({
   accent?: string;
 }) {
   return (
-    <Card className="bg-card">
+    <Card className="bg-card py-4">
       <CardContent className="p-2 sm:p-3">
         <div className="flex items-center justify-between text-[10px] sm:text-xs text-muted-foreground">
           <span className="truncate leading-tight">{title}</span>
