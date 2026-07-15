@@ -5,7 +5,7 @@ import * as React from "react";
 import axios from "axios";
 import { signOut } from "next-auth/react";
 import { usePathname, useRouter } from "next/navigation";
-import { toast } from "sonner";
+import { TriangleAlert } from "lucide-react";
 
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
@@ -109,22 +109,6 @@ export default function ClientAppShell({
     };
   }, [pathname]);
 
-  React.useEffect(() => {
-    if (!config?.aviso_pagamento) return;
-    toast.warning(
-      <div>
-        <span className="text-xs text-center">Pagamento pendente, contate o time da FIGO</span>
-      </div>,
-      {
-        richColors: true,
-        closeButton: false,
-        duration: 999999999,
-        position: "bottom-center",
-        dismissible: false,
-      }
-    );
-  }, [config?.aviso_pagamento]);
-
   // Opção 1: "sob demanda".
   // Quando o usuário tentar fazer algo (API call) e receber INACTIVE_USER,
   // encerramos a sessão do Auth.js e mandamos para o login.
@@ -188,10 +172,25 @@ export default function ClientAppShell({
   }, [router]);
 
   return (
-    <SidebarProvider open={sideBarOpen} onOpenChange={setSidebarOpen}>
-      <AppSidebar hoverHabilitado={hoverHabilitado} setOpen={setSidebarOpen} />
+    <div className={`flex min-h-svh w-full flex-col ${config?.aviso_pagamento ? "pt-10" : ""}`}>
+      {config?.aviso_pagamento && (
+        <div
+          role="alert"
+          className="fixed inset-x-0 top-0 z-[60] flex h-10 w-full items-center justify-center gap-2 border-b border-amber-300 bg-amber-50 px-3 py-1 text-center text-xs font-medium leading-tight text-amber-900 shadow-sm dark:border-amber-400/60 dark:bg-amber-100 dark:text-amber-950 sm:text-sm"
+        >
+          <TriangleAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <span>Debitos pendentes, contate o time da FIGO para regularização.</span>
+        </div>
+      )}
 
-      <SidebarInset className="flex min-h-screen min-w-0">
+      <SidebarProvider className="min-h-0 flex-1" open={sideBarOpen} onOpenChange={setSidebarOpen}>
+        <AppSidebar
+          className={config?.aviso_pagamento ? "!top-10 !h-[calc(100svh-2.5rem)]" : undefined}
+          hoverHabilitado={hoverHabilitado}
+          setOpen={setSidebarOpen}
+        />
+
+        <SidebarInset className="flex min-h-0 min-w-0">
         {!hideHeader ? (
           <header className="flex h-16 w-full shrink-0 items-center gap-2 border-b bg-card/95 px-4 shadow-sm backdrop-blur">
             <SidebarTrigger className="-ml-1" />
@@ -205,7 +204,7 @@ export default function ClientAppShell({
           </header>
         ) : (
           // quando não tem header, mostra um trigger flutuante no mobile
-          <div className="md:hidden fixed left-3 top-3 z-50">
+          <div className={`fixed left-3 z-50 md:hidden ${config?.aviso_pagamento ? "top-[3.25rem]" : "top-3"}`}>
             <SidebarTrigger className="h-10 w-10 rounded-md border bg-background/90 shadow-sm backdrop-blur" />
           </div>
         )}
@@ -214,7 +213,8 @@ export default function ClientAppShell({
           {/* se estiver sem header, adiciona padding-top pra não ficar por baixo do trigger flutuante */}
           <div className={`mx-auto w-full px-4 md:px-6 py-4 md:py-6 ${hideHeader ? "pt-14" : ""}`}>{children}</div>
         </main>
-      </SidebarInset>
-    </SidebarProvider>
+        </SidebarInset>
+      </SidebarProvider>
+    </div>
   );
 }
