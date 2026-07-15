@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ChevronDown, ExternalLink, FileText, Loader, Loader2, Package, Paperclip, Percent, ReceiptText, Trash2Icon } from "lucide-react";
 import DeleteAlert from "./deleteAlert";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { formatDate } from "@/utils/formatDate";
 import { VendaComItens } from "@/app/(app)/(pages)/(vendas)/historicovendas/types";
 import {

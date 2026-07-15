@@ -613,10 +613,14 @@ function buildPackageAttributes(params: {
 
 async function verifyCreatedItemOrClose(accessToken: string, itemId: string, requireMercadoEnvios: boolean) {
   let item: any = null;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  const maxAttempts = requireMercadoEnvios ? 5 : 3;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     item = await mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}`);
-    if (Array.isArray(item?.pictures) && item.pictures.length > 0) break;
-    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 750));
+    const hasPictures = Array.isArray(item?.pictures) && item.pictures.length > 0;
+    if (hasPictures && (!requireMercadoEnvios || hasConfirmedMercadoEnvios(item))) break;
+    if (attempt < maxAttempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 750 + attempt * 250));
+    }
   }
 
   if (!Array.isArray(item?.pictures) || item.pictures.length === 0) {
@@ -633,20 +637,30 @@ async function verifyCreatedItemOrClose(accessToken: string, itemId: string, req
   const logisticType = String(shipping?.logistic_type ?? "").toLowerCase();
   const localPickup = Boolean(shipping?.local_pick_up);
 
-  if (mode === "me2" && !localPickup) return item;
+  if (mode === "me2" && logisticType && !localPickup) return item;
 
   await mercadoLivreApiPut(accessToken, `/items/${encodeURIComponent(itemId)}`, { status: "closed" }).catch(() => null);
 
-  throw new Error(
+  throw listingValidationError(
     [
       "O Mercado Livre criou o anúncio sem Mercado Envios e ele foi encerrado automaticamente pelo ERP.",
       `Modo retornado: ${mode || "não informado"}.`,
-      logisticType ? `Logística retornada: ${logisticType}.` : "",
+      logisticType ? `Logística retornada: ${logisticType}.` : "Nenhuma logística operacional foi retornada.",
       localPickup ? "Retirada local veio habilitada." : "",
       "Revise o cadastro do vendedor no Mercado Livre, endereço de origem, categoria e se a conta de teste está habilitada para Mercado Envios.",
     ]
       .filter(Boolean)
       .join(" "),
+    "shipping",
+  );
+}
+
+function hasConfirmedMercadoEnvios(item: any) {
+  const shipping = item?.shipping ?? {};
+  return (
+    String(shipping?.mode ?? "").toLowerCase() === "me2" &&
+    Boolean(String(shipping?.logistic_type ?? "").trim()) &&
+    !Boolean(shipping?.local_pick_up)
   );
 }
 

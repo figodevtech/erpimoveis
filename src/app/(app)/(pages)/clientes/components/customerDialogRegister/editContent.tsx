@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import type React from "react";
 import { Fragment, useEffect, useState } from "react";
@@ -48,7 +48,7 @@ import { useGetCidades } from "@/app/(app)/hooks/useGetCidades";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { VeiculoDialog } from "../../../veiculos/dialgo-veiculo/dialog-veiculo";
 import {

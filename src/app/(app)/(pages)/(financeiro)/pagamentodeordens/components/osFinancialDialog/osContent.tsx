@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ChevronDown, ExternalLink, FileText, Loader, Loader2, Package, Paperclip, Percent, ReceiptText, Trash2Icon } from "lucide-react";
 import DeleteAlert from "./deleteAlert";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { formatDate } from "@/utils/formatDate";
 
 interface OsContentProps {

@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import FornecedorSelect from "@/app/(app)/components/fornecedorSelect";
 import { Fornecedor, Produto, Unidade_medida } from "../../types";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import ProductSelect from "@/app/(app)/components/productSelect";
 import { Label } from "@/components/ui/label";
 import {

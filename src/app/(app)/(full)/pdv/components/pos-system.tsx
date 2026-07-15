@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
@@ -63,7 +63,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import axios, { isAxiosError } from "axios";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import CustomerSelect from "@/app/(app)/components/customerSelect";
 import { Customer } from "@/app/(app)/(pages)/clientes/types";
 import { useGruposProduto } from "@/app/(app)/(pages)/estoque/components/dialog-produto/hooks/use-grupo-produtos";

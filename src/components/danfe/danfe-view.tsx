@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Download, Loader2, Printer } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import { Button } from "@/components/ui/button";
 

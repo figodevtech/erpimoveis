@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { CheckCircle2, XCircle } from "lucide-react";
 
 const money = (v: number) =>

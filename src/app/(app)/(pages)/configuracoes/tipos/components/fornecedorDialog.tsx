@@ -12,7 +12,7 @@ import { useEffect, useState } from "react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { formatCpfCnpj } from "../../../(financeiro)/fluxodecaixa/utils";
 import { formatCep } from "../../../clientes/components/customerDialogRegister/utils";
 

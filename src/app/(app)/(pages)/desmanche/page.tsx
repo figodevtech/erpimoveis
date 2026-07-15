@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import axios from "axios";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import { TabelaLotes } from "./components/tabela-lotes";
 import { Lote, Pagination } from "./types";

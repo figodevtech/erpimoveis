@@ -30,7 +30,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import axios, { isAxiosError } from "axios";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { Veiculo, Veiculo_tipos } from "../types";
 import { cn } from "@/lib/utils";
 import {

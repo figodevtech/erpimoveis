@@ -49,7 +49,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import DeleteAlert from "./deleteAlert";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import axios, { isAxiosError } from "axios";
 import { Pagination, Tipo_transacao, Transaction } from "../types";
 import { getCategoryIcon, getTypeColor } from "../utils";

@@ -3,7 +3,7 @@
 import { TabsTrigger } from "@/components/ui/tabs";
 import { Package, FileText, Boxes, Image as ImageIcon, Tag } from "lucide-react";
 import axios, { isAxiosError } from "axios";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { Estoque_status, Produto } from "../../types";
 import { ProductDialogLayout } from "./tabs/dialog-layout";
 import { TabGeral } from "./tabs/tab-geral";

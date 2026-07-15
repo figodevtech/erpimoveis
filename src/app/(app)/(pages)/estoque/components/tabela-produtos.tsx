@@ -59,7 +59,7 @@ import { Estoque_status, Pagination, Produto } from "../types";
 import { DialogProduto } from "./dialog-produto/dialog-produto";
 import AlertaExcluir from "./alerta-excluir";
 import axios, { isAxiosError } from "axios";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { BotaoExportarProdutos } from "./botao-exportar-produtos";

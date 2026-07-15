@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { Building2, Landmark, Loader2, Receipt, Save, Settings } from "lucide-react";
 
 import { Button } from "@/components/ui/button";

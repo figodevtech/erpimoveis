@@ -32,7 +32,7 @@ import { formatCpfCnpj } from "../../utils";
 import { Switch } from "@/components/ui/switch";
 import { Info } from "lucide-react";
 import { useCategoriasTransacao } from "../../hooks/use-categoria-transacao";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import {
   DrawerClose,
   DrawerContent,

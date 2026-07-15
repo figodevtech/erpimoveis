@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import type React from "react";
 import { useEffect, useState } from "react";
@@ -59,7 +59,7 @@ import {
 } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
 import axios, { isAxiosError } from "axios";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { Customer } from "../../types";
 import {
   Tooltip,

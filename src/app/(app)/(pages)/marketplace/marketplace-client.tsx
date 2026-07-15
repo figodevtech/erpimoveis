@@ -1,6 +1,6 @@
-﻿"use client";
+"use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -53,7 +53,7 @@ import {
   Unlink,
   XCircle,
 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 type Account = {
   id: number;
@@ -122,6 +122,29 @@ type MlOrder = {
   last_synced_at?: string | null;
   created_at?: string | null;
 };
+
+function marketplaceOrdersRevision(orders: MlOrder[]) {
+  if (orders.length === 0) return "empty";
+
+  return orders
+    .map((order) =>
+      [
+        order.id,
+        order.status,
+        order.payment_status,
+        order.shipment_status,
+        order.shipment_substatus,
+        order.invoice_status,
+        order.import_status,
+        order.last_synced_at,
+        order.shipment_updated_at,
+        order.created_at,
+      ]
+        .map((value) => String(value ?? ""))
+        .join(":"),
+    )
+    .join("|");
+}
 
 type MlNotification = {
   id: number;
@@ -983,6 +1006,14 @@ function marketplaceTextLabel(value?: string | null) {
   return looksLikeMarketplaceEnglish || looksLikeCode ? statusLabel(text) : text;
 }
 
+function syncRunErrorLabel(value?: string | null) {
+  const text = String(value ?? "").trim();
+  if (/\b429\b|rate[ _-]?limit(?:ed)?/i.test(text)) {
+    return "Limite temporário de consultas do Mercado Livre atingido. A rotina tentará novamente.";
+  }
+  return marketplaceTextLabel(text);
+}
+
 function getPaymentDescription(payment: any) {
   return [payment?.payment_method_id, payment?.payment_type, payment?.status_detail]
     .filter(Boolean)
@@ -1497,6 +1528,9 @@ function ProductImage({ product, showControls = false }: { product: ProductRow; 
 }
 
 export default function MarketplacePage() {
+  const ordersRevisionRef = useRef<string | null>(null);
+  const checkingOrdersRevisionRef = useRef(false);
+  const claimsLoadedForAccountRef = useRef<number | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [orders, setOrders] = useState<MlOrder[]>([]);
   const [notifications, setNotifications] = useState<MlNotification[]>([]);
@@ -1876,13 +1910,14 @@ export default function MarketplacePage() {
     description: "Gerencie produtos, anúncios e pedidos.",
   };
 
-  async function loadDashboard() {
-    setLoadingDashboard(true);
+  async function loadDashboard(options: { silent?: boolean } = {}) {
+    if (!options.silent) setLoadingDashboard(true);
     try {
       const response = await fetch("/api/integracoes/mercadolivre/dashboard", { cache: "no-store" });
       const json = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(json?.error || "Falha ao carregar painel.");
       const nextOrders = (json.orders ?? []) as MlOrder[];
+      ordersRevisionRef.current = marketplaceOrdersRevision(nextOrders);
       setAccounts(json.accounts ?? []);
       setOrders(nextOrders);
       setSelectedOrderDetails((current) => (current ? nextOrders.find((order) => order.id === current.id) ?? current : null));
@@ -1892,29 +1927,64 @@ export default function MarketplacePage() {
       setPerformance({ ...EMPTY_PERFORMANCE, ...(json.performance ?? {}) });
       setStockSync({ pending: 0, failed: 0, lastError: null, updatedAt: null, ...(json.stockSync ?? {}) });
     } catch (e: any) {
-      toast.error("Erro ao carregar marketplace", { description: marketplaceErrorMessage(e) });
+      if (!options.silent) {
+        toast.error("Erro ao carregar marketplace", { description: marketplaceErrorMessage(e) });
+      }
     } finally {
-      setLoadingDashboard(false);
+      if (!options.silent) setLoadingDashboard(false);
     }
   }
 
-  async function loadClaims() {
+  async function checkOrdersRevision() {
+    if (checkingOrdersRevisionRef.current || document.visibilityState !== "visible") return;
+
+    checkingOrdersRevisionRef.current = true;
+    try {
+      const response = await fetch("/api/integracoes/mercadolivre/orders/revision", { cache: "no-store" });
+      if (!response.ok) return;
+
+      const json = await response.json().catch(() => ({}));
+      const revision = String(json?.revision ?? "");
+      if (!revision) return;
+
+      const previousRevision = ordersRevisionRef.current;
+      if (previousRevision === null) {
+        ordersRevisionRef.current = revision;
+        return;
+      }
+
+      if (revision !== previousRevision) {
+        ordersRevisionRef.current = revision;
+        await Promise.all([loadDashboard({ silent: true }), loadClaims({ silent: true })]);
+      }
+    } catch {
+      // A sincronizacao manual continua disponivel caso a verificacao em segundo plano falhe.
+    } finally {
+      checkingOrdersRevisionRef.current = false;
+    }
+  }
+
+  async function loadClaims(options: { silent?: boolean } = {}) {
     if (!connected) {
       setClaims([]);
+      claimsLoadedForAccountRef.current = null;
       return;
     }
 
-    setLoadingClaims(true);
+    if (!options.silent) setLoadingClaims(true);
     try {
       const response = await fetch("/api/integracoes/mercadolivre/claims", { cache: "no-store" });
       const json = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(json?.error || "Falha ao carregar reclamações.");
       setClaims(json.data ?? []);
+      claimsLoadedForAccountRef.current = activeAccount?.id ?? null;
     } catch (e: any) {
       setClaims([]);
-      toast.error("Erro ao carregar reclamações", { description: marketplaceErrorMessage(e) });
+      if (!options.silent) {
+        toast.error("Erro ao carregar reclamações", { description: marketplaceErrorMessage(e) });
+      }
     } finally {
-      setLoadingClaims(false);
+      if (!options.silent) setLoadingClaims(false);
     }
   }
 
@@ -2132,19 +2202,12 @@ export default function MarketplacePage() {
       });
       const json = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(json?.error || "Falha ao sincronizar pedidos.");
-      const processed = Array.isArray(json.results) ? json.results.length : 0;
       const failed = Array.isArray(json.results) ? json.results.filter((item: any) => item?.error).length : 0;
       if (failed > 0) {
         const firstError = json.results.find((item: any) => item?.error)?.error;
         toast.error(`${failed} pedido(s) encontrado(s), mas com falha na importação.`, { description: marketplaceErrorMessage(firstError) });
-      } else {
-      toast.success(
-        Number(json.created ?? 0) > 0
-          ? `${json.created} venda(s) importada(s).`
-          : processed > 0
-            ? `${processed} pedido(s) verificado(s), sem venda nova.`
-            : "Nenhum pedido encontrado no período.",
-      );
+      } else if (Number(json.created ?? 0) > 0) {
+        toast.success(`${json.created} nova(s) venda(s) importada(s).`);
       }
       await loadDashboard();
     } catch (e: any) {
@@ -3034,7 +3097,14 @@ export default function MarketplacePage() {
         throw apiError;
       }
 
-      toast.success("Anúncio criado no Mercado Livre.");
+      const confirmedShipping = json?.item?.shipping;
+      const confirmedLogisticType = String(confirmedShipping?.logistic_type ?? "").trim().toLowerCase();
+      toast.success("Anúncio criado no Mercado Livre.", {
+        description:
+          String(confirmedShipping?.mode ?? "").toLowerCase() === "me2" && confirmedLogisticType
+            ? `Mercado Envios confirmado: ${shippingLogisticLabel(confirmedLogisticType)}.`
+            : undefined,
+      });
       setCreateDialogOpen(false);
       setListingFieldErrors({});
       await loadProducts();
@@ -3115,9 +3185,6 @@ export default function MarketplacePage() {
 
   function changeMainTab(value: string) {
     setActiveTab(value);
-    if (value === "orders" && connected && !syncing) {
-      syncOrders().then(() => loadClaims());
-    }
   }
 
   useEffect(() => {
@@ -3202,13 +3269,32 @@ export default function MarketplacePage() {
 
   useEffect(() => {
     if (!connected || activeTab !== "orders") {
-      if (!connected) setClaims([]);
+      if (!connected) {
+        setClaims([]);
+        claimsLoadedForAccountRef.current = null;
+      }
       return;
     }
 
-    loadClaims();
+    void checkOrdersRevision();
+    if (claimsLoadedForAccountRef.current !== activeAccount?.id) {
+      void loadClaims({ silent: true });
+    }
+
+    const intervalId = window.setInterval(() => {
+      void checkOrdersRevision();
+    }, 15_000);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") void checkOrdersRevision();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, connected]);
+  }, [activeAccount?.id, activeTab, connected]);
 
   if (initialLoading) {
     return (
@@ -4032,7 +4118,7 @@ export default function MarketplacePage() {
                                     <RefreshCcw className="mr-2 h-4 w-4" />
                                     Atualizar pedido
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={loadClaims} disabled={loadingClaims || !connected}>
+                                  <DropdownMenuItem onClick={() => void loadClaims()} disabled={loadingClaims || !connected}>
                                     <AlertTriangle className="mr-2 h-4 w-4" />
                                     Atualizar reclamações
                                   </DropdownMenuItem>
@@ -4276,18 +4362,20 @@ export default function MarketplacePage() {
                   <Badge variant="outline">{syncRuns.length} registro(s)</Badge>
                 </div>
                 <div className="max-h-[440px] overflow-auto rounded-md border">
-                  <Table>
+                  <Table className="min-w-[760px] table-fixed">
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Início</TableHead>
-                        <TableHead>Origem</TableHead>
-                        <TableHead>Status</TableHead>
+                        <TableHead className="w-[160px]">Início</TableHead>
+                        <TableHead className="w-[110px]">Origem</TableHead>
+                        <TableHead className="w-[150px]">Status</TableHead>
                         <TableHead>Resultado</TableHead>
-                        <TableHead className="text-right">Duração</TableHead>
+                        <TableHead className="w-[90px] text-right">Duração</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {syncRuns.map((run) => {
+                        const technicalError = String(run.error ?? "").trim();
+                        const errorLabel = technicalError ? syncRunErrorLabel(technicalError) : null;
                         const taskResults = Object.entries(run.summary ?? {})
                           .filter(([, value]) => value && typeof value === "object" && ("success" in value || "failed" in value))
                           .reduce(
@@ -4299,10 +4387,16 @@ export default function MarketplacePage() {
                             <TableCell>{formatDate(run.started_at)}</TableCell>
                             <TableCell className="text-xs">{run.trigger_source === "SUPABASE_CRON" ? "Supabase" : run.trigger_source === "VERCEL_CRON" ? "Vercel" : "Requisição HTTP"}</TableCell>
                             <TableCell>{statusBadge(run.status)}</TableCell>
-                            <TableCell className="max-w-[360px] text-xs">
-                              {run.error ? <span className="text-destructive">{marketplaceTextLabel(run.error)}</span> : <span className="text-muted-foreground">{taskResults.success} sucesso(s) · {taskResults.failed} falha(s)</span>}
+                            <TableCell className="min-w-0 text-xs">
+                              {errorLabel ? (
+                                <span className="block truncate text-destructive" title={technicalError}>
+                                  {errorLabel}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">{taskResults.success} sucesso(s) · {taskResults.failed} falha(s)</span>
+                              )}
                             </TableCell>
-                            <TableCell className="text-right text-xs">{run.duration_ms != null ? `${(run.duration_ms / 1000).toFixed(1)} s` : "Em execução"}</TableCell>
+                            <TableCell className="whitespace-nowrap text-right text-xs">{run.duration_ms != null ? `${(run.duration_ms / 1000).toFixed(1)} s` : "Em execução"}</TableCell>
                           </TableRow>
                         );
                       })}
@@ -6262,7 +6356,7 @@ export default function MarketplacePage() {
                       {selectedOrderClaims.length === 0 && (
                         <div>Nenhuma reclamação importada para este pedido até o momento.</div>
                       )}
-                      <Button size="sm" variant="outline" className="mt-2 bg-transparent" onClick={loadClaims} disabled={loadingClaims}>
+                      <Button size="sm" variant="outline" className="mt-2 bg-transparent" onClick={() => void loadClaims()} disabled={loadingClaims}>
                         {loadingClaims ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
                         Atualizar reclamações
                       </Button>

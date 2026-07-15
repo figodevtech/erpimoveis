@@ -1,5 +1,5 @@
-import { NextResponse, type NextRequest } from "next/server";
-import { receiveMercadoLivreNotification } from "@/lib/integrations/mercadolivre-notifications";
+import { after, NextResponse, type NextRequest } from "next/server";
+import { receiveMercadoLivreNotification, retryMercadoLivreNotifications } from "@/lib/integrations/mercadolivre-notifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,6 +8,15 @@ export async function POST(req: NextRequest) {
   try {
     const payload = await req.json();
     const result = await receiveMercadoLivreNotification(payload);
+    if (result.queued) {
+      after(async () => {
+        try {
+          await retryMercadoLivreNotifications(10);
+        } catch (error) {
+          console.error("Falha ao processar imediatamente a fila do webhook Mercado Livre", error);
+        }
+      });
+    }
     return NextResponse.json(
       { ok: true, ...result },
       { status: 200, headers: { "Cache-Control": "no-store" } },

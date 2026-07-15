@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react"
 import { Badge } from "@/components/ui/badge"
@@ -20,7 +20,7 @@ import {
   ExternalLink,
   Trash2,
 } from "lucide-react"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 import type { VendaCanal, VendaStatusEntrega, vendaStatus } from "../types"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { Textarea } from "@/components/ui/textarea"

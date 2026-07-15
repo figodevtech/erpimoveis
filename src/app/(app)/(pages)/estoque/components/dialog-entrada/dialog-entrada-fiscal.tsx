@@ -25,7 +25,7 @@ import { formatDate } from "@/utils/formatDate";
 
 import ProductSelect from "@/app/(app)/components/productSelect";
 import axios, { isAxiosError } from "axios";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import FornecedorDialog from "../../../configuracoes/tipos/components/fornecedorDialog";
 import { DialogProduto } from "../dialog-produto/dialog-produto";
 import { Switch } from "@/components/ui/switch";

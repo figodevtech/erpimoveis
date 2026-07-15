@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useSession } from "next-auth/react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import type { Perfil, Permissao } from "./types";
 import { listarPerfisEPermissoes, buscarPerfil, criarPerfil, atualizarPerfil } from "./lib/api";

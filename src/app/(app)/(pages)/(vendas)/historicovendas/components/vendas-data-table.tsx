@@ -47,7 +47,7 @@ import { EmissaoNotaDialog } from "../../../ordens/components/dialogs/emissao-no
 import { VendaDetailsDialog } from "./venda-detail-dialog";
 import { PedidoOnlineDialog } from "./pedido-online-dialog";
 import axios, { isAxiosError } from "axios";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { useConfig } from "../../../config-context";
 import { PaymentListFilters, PaymentsFilterSheet } from "../../../(financeiro)/components/payments-filter-sheet";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";

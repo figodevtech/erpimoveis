@@ -3,7 +3,7 @@
 import * as React from "react";
 import axios, { isAxiosError } from "axios";
 import { Check, ChevronsUpDown, Loader2, Search } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import { Button } from "@/components/ui/button";
 import {

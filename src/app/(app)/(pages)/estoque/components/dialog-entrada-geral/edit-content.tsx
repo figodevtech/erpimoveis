@@ -9,7 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useEffect, useMemo, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import FornecedorSelect from "@/app/(app)/components/fornecedorSelect";
 import ProductSelect from "@/app/(app)/components/productSelect";

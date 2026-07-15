@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { CheckCircle2, ChevronLeft, ChevronRight, LinkIcon, Loader2 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { QrCodeInput } from "../components/dialog-produto/qr-code-input";
 import { ProdutoIdentificadoCard } from "../components/produto-identificado-card";

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
 
 type AutorizarNfeResponse = {

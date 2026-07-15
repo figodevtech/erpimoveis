@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import type { ChecklistTemplate } from "./components/types";
 import { categorias, novoTemplateVazio } from "./components/utils";

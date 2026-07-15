@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { FileDown, Link as LinkIcon, Loader2, Paperclip, RefreshCcw, Truck } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 type TrackingEvent = {
   at: string | null;

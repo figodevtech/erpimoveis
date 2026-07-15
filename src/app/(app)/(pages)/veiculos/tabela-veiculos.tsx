@@ -57,7 +57,7 @@ import { VeiculoDialog } from "./dialgo-veiculo/dialog-veiculo";
 import { useState } from "react";
 import { useSession } from "next-auth/react";
 import CustomerSelect from "../../components/customerSelect";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import axios, { isAxiosError } from "axios";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 

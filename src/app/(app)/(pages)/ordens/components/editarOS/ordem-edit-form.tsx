@@ -46,7 +46,7 @@ import {
   TriangleAlert,
   FileText,
 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { useSession } from "next-auth/react";
 import CustomerSelect from "@/app/(app)/components/customerSelect";
 import { Customer } from "../../../clientes/types";

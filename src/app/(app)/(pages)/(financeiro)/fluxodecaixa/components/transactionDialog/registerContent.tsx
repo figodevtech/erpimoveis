@@ -30,7 +30,7 @@ import { Dispatch, SetStateAction, useEffect, useState } from "react";
 import CustomerSelect from "@/app/(app)/components/customerSelect";
 import { formatCpfCnpj } from "../../utils";
 import axios, { isAxiosError } from "axios";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { CalendarIcon, Info, Minus, Plus, Save } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import formatarEmReal from "@/utils/formatarEmReal";

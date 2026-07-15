@@ -10,7 +10,7 @@ import {
   ShieldX,
   Trash2,
 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import ProductSelect from "@/app/(app)/components/productSelect";
 import { Badge } from "@/components/ui/badge";

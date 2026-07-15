@@ -33,7 +33,7 @@ import DeleteAlert from "./deleteAlert";
 import { useState } from "react";
 import { useSession } from "next-auth/react";
 import axios, { isAxiosError } from "axios";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { ExportCustomersButton } from "./ExportCustomersButton";
 import { formatCpfCnpj } from "./customerDialogRegister/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";

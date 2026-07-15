@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import ForgotPasswordDialog from "./forgot-password-dialog";
 
 export function LoginFormClient() {

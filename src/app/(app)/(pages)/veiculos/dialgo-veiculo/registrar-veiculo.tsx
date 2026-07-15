@@ -34,7 +34,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { Check, ChevronsUpDown, Loader2, Search } from "lucide-react";
 import axios, { isAxiosError } from "axios";
 import { Veiculo, Veiculo_tipos } from "../types";

@@ -26,7 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import ValueInput from "../dialog-produto/entrada-valor";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import axios, { isAxiosError } from "axios";
 import { Entrada_tipo, Estoque_status, Fornecedor, Pagination } from "../../types";
 
