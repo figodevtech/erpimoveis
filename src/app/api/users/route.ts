@@ -124,6 +124,7 @@ export async function POST(req: Request) {
     const session = isOpen() ? null : await auth();
     if (isOpen()) await ensureAccess(session);
     else await requireUsuariosCreate();
+    const actorId = ((session?.user as any)?.id as string | undefined) ?? null;
 
     const body = (await req.json().catch(() => ({}))) as any;
 
@@ -193,6 +194,7 @@ export async function POST(req: Request) {
         comissao_venda_percent,
         data_admissao,
         data_demissao,
+        created_by: actorId,
       },
     });
 
@@ -213,6 +215,8 @@ export async function POST(req: Request) {
         comissao_venda_percent,
         data_admissao,
         data_demissao,
+        created_by: actorId,
+        updated_by: actorId,
 
         updatedat: new Date().toISOString(),
       },

@@ -32,7 +32,6 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     const session = isOpen() ? null : await auth();
     if (isOpen()) await ensureAccess(session);
     else await requireUsuariosEdit();
-
     const { id: userId } = await context.params;
 
     const body = (await req.json().catch(() => ({}))) as { acao?: string; senha?: string };
@@ -98,6 +97,7 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
     const session = isOpen() ? null : await auth();
     if (isOpen()) await ensureAccess(session);
     else await requireUsuariosEdit();
+    const actorId = ((session?.user as any)?.id as string | undefined) ?? null;
 
     const { id: userId } = await context.params;
 
@@ -208,6 +208,7 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
       updatePayload.data_demissao = data_demissao;
 
     if (Object.keys(updatePayload).length > 0) {
+      if (actorId) updatePayload.updated_by = actorId;
       const { error: u2Err } = await supabaseAdmin
         .from("usuario")
         .update({ ...updatePayload, updatedat: new Date().toISOString() })
@@ -225,13 +226,6 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
 
       const byName = new Map<string, number>((allPerms ?? []).map((p) => [String(p.nome), Number(p.id)]));
 
-      const { data: atuaisRows, error: atErr } = await supabaseAdmin
-        .from("perfilpermissao")
-        .select("permissaoid")
-        .eq("perfilid", targetPerfilId);
-      if (atErr) throw atErr;
-
-      const atuais = new Set<number>((atuaisRows ?? []).map((r) => Number(r.permissaoid)));
       const desejadas = new Set<number>();
 
       for (const nomePerm of permissoes) {
@@ -239,24 +233,12 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
         if (pid) desejadas.add(pid);
       }
 
-      const toInsert = [...desejadas]
-        .filter((id) => !atuais.has(id))
-        .map((id) => ({ perfilid: targetPerfilId, permissaoid: id }));
-
-      if (toInsert.length) {
-        const { error: insErr } = await supabaseAdmin.from("perfilpermissao").insert(toInsert);
-        if (insErr) throw insErr;
-      }
-
-      const toDelete = [...atuais].filter((id) => !desejadas.has(id));
-      if (toDelete.length) {
-        const { error: delErr } = await supabaseAdmin
-          .from("perfilpermissao")
-          .delete()
-          .eq("perfilid", targetPerfilId)
-          .in("permissaoid", toDelete);
-        if (delErr) throw delErr;
-      }
+      const { error: permissoesErr } = await supabaseAdmin.rpc("atualizar_permissoes_perfil_auditado", {
+        p_perfilid: targetPerfilId,
+        p_permissoes_ids: [...desejadas],
+        p_usuario_id: actorId,
+      });
+      if (permissoesErr) throw permissoesErr;
     }
 
     // Retorna a lista atualizada

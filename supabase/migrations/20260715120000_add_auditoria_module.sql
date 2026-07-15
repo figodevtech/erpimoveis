@@ -13,11 +13,21 @@ create table if not exists public.auditoria_evento (
   dados_novos jsonb,
   campos_alterados text[] not null default '{}'::text[],
   origem text not null default 'sistema' check (origem in ('usuario', 'sistema')),
+  fonte text not null default 'evento' check (fonte in ('evento', 'legado')),
   transacao_id bigint not null default txid_current()
 );
 
 alter table public.auditoria_evento
   add column if not exists modulo text;
+alter table public.auditoria_evento
+  add column if not exists fonte text not null default 'evento';
+
+alter table public.usuario add column if not exists created_by uuid references public.usuario(id) on delete set null;
+alter table public.usuario add column if not exists updated_by uuid references public.usuario(id) on delete set null;
+alter table public.perfil add column if not exists created_by uuid references public.usuario(id) on delete set null;
+alter table public.perfil add column if not exists updated_by uuid references public.usuario(id) on delete set null;
+alter table public.perfilpermissao add column if not exists created_by uuid references public.usuario(id) on delete set null;
+alter table public.perfilpermissao add column if not exists updated_by uuid references public.usuario(id) on delete set null;
 
 create index if not exists auditoria_evento_ocorrido_em_idx
   on public.auditoria_evento (ocorrido_em desc);
@@ -46,6 +56,41 @@ begin
   return valor::uuid;
 exception when invalid_text_representation then
   return null;
+end;
+$$;
+
+-- Propaga o administrador que criou o usuario pelo metadata enviado ao Auth.
+create or replace function public.handle_new_auth_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  ator uuid := public.auditoria_try_uuid(new.raw_user_meta_data ->> 'created_by');
+begin
+  insert into public.usuario (
+    id, email, nome, perfilid, setorid, createdat, updatedat, created_by, updated_by
+  ) values (
+    new.id,
+    new.email,
+    coalesce(new.raw_user_meta_data ->> 'nome', new.email),
+    nullif(new.raw_user_meta_data ->> 'perfilid', '')::int,
+    nullif(new.raw_user_meta_data ->> 'setorid', '')::int,
+    now(),
+    now(),
+    ator,
+    ator
+  )
+  on conflict (id) do update
+    set email = excluded.email,
+        nome = coalesce(excluded.nome, public.usuario.nome),
+        perfilid = coalesce(excluded.perfilid, public.usuario.perfilid),
+        setorid = coalesce(excluded.setorid, public.usuario.setorid),
+        created_by = coalesce(public.usuario.created_by, excluded.created_by),
+        updated_by = coalesce(excluded.updated_by, public.usuario.updated_by),
+        updatedat = now();
+  return new;
 end;
 $$;
 
@@ -184,6 +229,13 @@ begin
       public.auditoria_try_uuid(novo ->> 'updatedby'),
       public.auditoria_try_uuid(novo ->> 'usuarioalteracaoid')
     );
+  elsif ator is null and tg_op = 'DELETE' then
+    ator := coalesce(
+      public.auditoria_try_uuid(anterior ->> 'deleted_by'),
+      public.auditoria_try_uuid(anterior ->> 'updated_by'),
+      public.auditoria_try_uuid(anterior ->> 'updatedby'),
+      public.auditoria_try_uuid(anterior ->> 'usuarioalteracaoid')
+    );
   end if;
 
   -- Uma FK invalida nao deve impedir a operacao principal.
@@ -197,7 +249,8 @@ begin
     linha_referencia ->> 'ordemservicoid',
     linha_referencia ->> 'vendaid',
     linha_referencia ->> 'produtoid',
-    linha_referencia ->> 'clienteid'
+    linha_referencia ->> 'clienteid',
+    nullif(concat_ws(':', linha_referencia ->> 'perfilid', linha_referencia ->> 'permissaoid'), '')
   );
 
   insert into public.auditoria_evento (
@@ -235,6 +288,134 @@ exception when others then
   return new;
 end;
 $$;
+
+create or replace function public.atualizar_permissoes_perfil_auditado(
+  p_perfilid integer,
+  p_permissoes_ids integer[],
+  p_usuario_id uuid
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if p_usuario_id is not null and not exists (select 1 from public.usuario where id = p_usuario_id) then
+    raise exception 'Usuario responsavel invalido';
+  end if;
+
+  if p_usuario_id is not null then
+    perform set_config('app.audit_user_id', p_usuario_id::text, true);
+  end if;
+
+  delete from public.perfilpermissao pp
+  where pp.perfilid = p_perfilid
+    and not (pp.permissaoid = any(coalesce(p_permissoes_ids, '{}'::integer[])));
+
+  insert into public.perfilpermissao (perfilid, permissaoid, created_by, updated_by)
+  select p_perfilid, permissaoid, p_usuario_id, p_usuario_id
+  from unnest(coalesce(p_permissoes_ids, '{}'::integer[])) as permissaoid
+  on conflict (perfilid, permissaoid) do nothing;
+end;
+$$;
+
+revoke all on function public.atualizar_permissoes_perfil_auditado(integer, integer[], uuid)
+  from public, anon, authenticated;
+grant execute on function public.atualizar_permissoes_perfil_auditado(integer, integer[], uuid)
+  to service_role;
+
+-- Carga inicial: representa o estado de cadastros anteriores a auditoria.
+-- Esses eventos sao explicitamente marcados como legado e nao fingem ser um
+-- historico completo de alteracoes.
+insert into public.auditoria_evento (
+  ocorrido_em, operacao, modulo, tabela, registro_id, usuario_id,
+  dados_novos, campos_alterados, origem, fonte
+)
+select
+  coalesce(o.createdat, o.dataentrada, now()),
+  'INSERT', 'ordens', 'ordemservico', o.id::text,
+  coalesce(o.created_by, o.usuariocriadorid),
+  public.auditoria_json_seguro(to_jsonb(o)),
+  array(select jsonb_object_keys(to_jsonb(o))),
+  case when coalesce(o.created_by, o.usuariocriadorid) is null then 'sistema' else 'usuario' end,
+  'legado'
+from public.ordemservico o
+where not exists (
+  select 1 from public.auditoria_evento a
+  where a.fonte = 'legado' and a.tabela = 'ordemservico' and a.registro_id = o.id::text
+);
+
+insert into public.auditoria_evento (
+  ocorrido_em, operacao, modulo, tabela, registro_id, usuario_id,
+  dados_novos, campos_alterados, origem, fonte
+)
+select
+  coalesce(p.createdat, now()), 'INSERT', 'estoque', 'produto', p.id::text, p.created_by,
+  public.auditoria_json_seguro(to_jsonb(p)), array(select jsonb_object_keys(to_jsonb(p))),
+  case when p.created_by is null then 'sistema' else 'usuario' end, 'legado'
+from public.produto p
+where not exists (
+  select 1 from public.auditoria_evento a
+  where a.fonte = 'legado' and a.tabela = 'produto' and a.registro_id = p.id::text
+);
+
+insert into public.auditoria_evento (
+  ocorrido_em, operacao, modulo, tabela, registro_id, usuario_id,
+  dados_novos, campos_alterados, origem, fonte
+)
+select
+  coalesce(c.createdat, now()), 'INSERT', 'clientes', 'cliente', c.id::text, c.created_by,
+  public.auditoria_json_seguro(to_jsonb(c)), array(select jsonb_object_keys(to_jsonb(c))),
+  case when c.created_by is null then 'sistema' else 'usuario' end, 'legado'
+from public.cliente c
+where not exists (
+  select 1 from public.auditoria_evento a
+  where a.fonte = 'legado' and a.tabela = 'cliente' and a.registro_id = c.id::text
+);
+
+insert into public.auditoria_evento (
+  ocorrido_em, operacao, modulo, tabela, registro_id, usuario_id,
+  dados_novos, campos_alterados, origem, fonte
+)
+select
+  coalesce(v.createdat, now()), 'INSERT', 'vendas', 'venda', v.id::text, v.created_by,
+  public.auditoria_json_seguro(to_jsonb(v)), array(select jsonb_object_keys(to_jsonb(v))),
+  case when v.created_by is null then 'sistema' else 'usuario' end, 'legado'
+from public.venda v
+where not exists (
+  select 1 from public.auditoria_evento a
+  where a.fonte = 'legado' and a.tabela = 'venda' and a.registro_id = v.id::text
+);
+
+insert into public.auditoria_evento (
+  ocorrido_em, operacao, modulo, tabela, registro_id, usuario_id,
+  dados_novos, campos_alterados, origem, fonte
+)
+select
+  coalesce(u.createdat, now()), 'INSERT', 'usuarios', 'usuario', u.id::text, u.created_by,
+  public.auditoria_json_seguro(to_jsonb(u)), array(select jsonb_object_keys(to_jsonb(u))),
+  case when u.created_by is null then 'sistema' else 'usuario' end, 'legado'
+from public.usuario u
+where not exists (
+  select 1 from public.auditoria_evento a
+  where a.fonte = 'legado' and a.tabela = 'usuario' and a.registro_id = u.id::text
+);
+
+insert into public.auditoria_evento (
+  ocorrido_em, operacao, modulo, tabela, registro_id, usuario_id,
+  dados_novos, campos_alterados, origem, fonte
+)
+select
+  coalesce(pp.createdat, now()), 'INSERT', 'usuarios', 'perfilpermissao',
+  concat_ws(':', pp.perfilid, pp.permissaoid), pp.created_by,
+  public.auditoria_json_seguro(to_jsonb(pp)), array(select jsonb_object_keys(to_jsonb(pp))),
+  case when pp.created_by is null then 'sistema' else 'usuario' end, 'legado'
+from public.perfilpermissao pp
+where not exists (
+  select 1 from public.auditoria_evento a
+  where a.fonte = 'legado' and a.tabela = 'perfilpermissao'
+    and a.registro_id = concat_ws(':', pp.perfilid, pp.permissaoid)
+);
 
 create or replace function public.habilitar_auditoria_tabela(nome_tabela regclass)
 returns void
