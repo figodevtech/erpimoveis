@@ -633,13 +633,13 @@ export default function FiscalTable({
                 !isRascunho &&
                 (String(nota.status).toUpperCase() === "AUTORIZADA" ||
                   statusTraduzido === "AUTORIZADA");
-
+// a
               return (
                 <TableRow key={nota.id} className="hover:cursor-pointer">
                   <TableCell>
                     <div className="flex flex-col gap-1">
                       <div className="flex flex-wrap items-center gap-2 max-w-[200px] lg:max-w-[400px]">
-                        <span className="font-medium">
+                        <span className="font-medium ">
                           {nota.modelo} {nota.numero}
                         </span>
                         {nota.serie ? <Badge variant="outline">Série {nota.serie}</Badge> : null}
