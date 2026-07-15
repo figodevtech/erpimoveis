@@ -33,6 +33,7 @@ import {
   MapPinned,
   ScanLine,
   Repeat2,
+  FileClock,
 } from "lucide-react";
 
 import { NavMain } from "./components/nav-main";
@@ -255,6 +256,12 @@ const data = {
           title: "Checklist",
           url: "/configuracoes/checklist",
           icon: SquareCheckBig,
+          perm: PERMS.CONFIG,
+        },
+        {
+          title: "Auditoria",
+          url: "/configuracoes/auditoria",
+          icon: FileClock,
           perm: PERMS.CONFIG,
         },
         {

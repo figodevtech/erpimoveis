@@ -80,6 +80,7 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
   { prefix: "/api/users", perm: PERMS.USUARIOS },
   { prefix: "/api/perfis", perm: PERMS.PERMISSOES },
   { prefix: "/api/config", perm: PERMS.CONFIG },
+  { prefix: "/api/auditoria", perm: PERMS.CONFIG },
 
   { prefix: "/execucao", perm: PERMS.EXECUCAO_OS },
   { prefix: "/dashboard", perm: PERMS.DASHBOARD },
