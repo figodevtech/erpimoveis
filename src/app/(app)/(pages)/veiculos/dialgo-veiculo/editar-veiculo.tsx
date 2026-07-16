@@ -18,6 +18,7 @@ import {
   ChevronDown,
   ChevronsUpDown,
   ClipboardList,
+  Image as ImageIcon,
   Loader2,
   Search,
 } from "lucide-react";
@@ -58,6 +59,8 @@ import {
 import CustomerSelect from "@/app/(app)/components/customerSelect";
 import { useFipe } from "./useFipe";
 import ValueInput from "../../(financeiro)/fluxodecaixa/components/transactionDialog/valueInput";
+import { useVeiculoImagens } from "./use-veiculo-imagens";
+import { TabVeiculoImagens } from "./tab-veiculo-imagens";
 
 function somenteAlphaNumMaiusculo(valor: string) {
   return valor.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -378,10 +381,10 @@ export default function EditContent({
     }
   };
 
-  const handleGetVeiculo = async () => {
+  const handleGetVeiculo = async (options?: { silent?: boolean }) => {
     if (!veiculoId) return;
 
-    setIsLoadingVeiculo(true);
+    if (!options?.silent) setIsLoadingVeiculo(true);
     try {
       const response = await axios.get<GetVeiculoResponse>(
         `/api/veiculos/${veiculoId}`,
@@ -404,9 +407,14 @@ export default function EditContent({
         });
       }
     } finally {
-      setIsLoadingVeiculo(false);
+      if (!options?.silent) setIsLoadingVeiculo(false);
     }
   };
+
+  const imagensHook = useVeiculoImagens({
+    veiculoId,
+    onAfterChangeCapa: () => handleGetVeiculo({ silent: true }),
+  });
 
   const handleUpdateVeiculo = async () => {
     if (!selectedVeiculo?.id) return;
@@ -425,12 +433,19 @@ export default function EditContent({
       });
 
       if (response.status === 200) {
+        if (
+          imagensHook.ordemAlterada &&
+          imagensHook.imagensPendentes.length === 0
+        ) {
+          await imagensHook.salvarOrdem();
+        }
+
         toast.success("Sucesso!", {
           description: "Veículo atualizado.",
           duration: 2000,
         });
 
-        handleGetVeiculo();
+        await handleGetVeiculo({ silent: true });
         onUpdated?.(selectedVeiculo);
       }
     } catch (error) {
@@ -726,6 +741,16 @@ export default function EditContent({
                     <span className="flex items-center gap-2">
                       <Car className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
                       Geral
+                    </span>
+                  </TabsTrigger>
+                  <TabsTrigger
+                    onClick={() => setCurrentTab("Imagens")}
+                    value="Imagens"
+                    className={"hover:cursor-pointer " + tabTheme}
+                  >
+                    <span className="flex items-center gap-2">
+                      <ImageIcon className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                      Imagens
                     </span>
                   </TabsTrigger>
                   <TabsTrigger
@@ -1446,6 +1471,26 @@ export default function EditContent({
                 </div>
               </div>
             </TabsContent>
+            <TabVeiculoImagens
+              mode="edit"
+              carregando={imagensHook.carregandoImagens}
+              subindo={imagensHook.subindoImagens}
+              salvandoOrdem={imagensHook.salvandoOrdem}
+              removendoImagemId={imagensHook.removendoImagemId}
+              definindoCapaImagemId={imagensHook.definindoCapaImagemId}
+              imagens={imagensHook.imagens}
+              pendentes={imagensHook.imagensPendentes}
+              ordemItens={imagensHook.ordemItens}
+              progressoUpload={imagensHook.uploadProgressByPendingId}
+              imgUrlPrincipal={selectedVeiculo.imgUrl ?? null}
+              saving={isSubmitting}
+              onPick={imagensHook.onPick}
+              onUpload={imagensHook.uploadPendentes}
+              onReordenar={imagensHook.reordenarItens}
+              onRemoverPendente={imagensHook.removerImagemPendente}
+              onDefinirPrincipal={imagensHook.definirImagemPrincipal}
+              onRemover={imagensHook.removerImagem}
+            />
             <TabsContent
               value="Ordens"
               className="h-full min-h-0 min-w-0 overflow-y-auto overflow-x-hidden bg-muted-foreground/5 px-2 py-3 md:px-6 md:py-6"

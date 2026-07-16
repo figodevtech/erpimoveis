@@ -30,6 +30,7 @@ export interface Lote {
   combustivel?: string | null;
   transmissao?: string | null;
   observacoes?: string | null;
+  imgUrl?: string | null;
   createdat?: string | null;
   updatedat?: string | null;
   pecas?: LotePeca[];

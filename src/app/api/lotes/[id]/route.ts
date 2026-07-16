@@ -10,7 +10,7 @@ import {
 } from "@/app/api/_authz/perms";
 
 const LOTE_FIELDS = `
-  id, placa, modelo, marca, ano, cor, kmatual, tipo, chassi, ano_modelo, versao, fipe, combustivel, transmissao, observacoes, createdat, updatedat,
+  id, placa, modelo, marca, ano, cor, kmatual, tipo, chassi, ano_modelo, versao, fipe, combustivel, transmissao, observacoes, "imgUrl", createdat, updatedat,
   pecas:lote_pecas (
     id,
     produto_id,
@@ -121,7 +121,7 @@ export async function PUT(request: Request, ctx: Ctx) {
       .from("lotes")
       .update(patch)
       .eq("id", id)
-      .select("id, placa, modelo, marca, ano, cor, kmatual, tipo, chassi, ano_modelo, versao, fipe, combustivel, transmissao, observacoes, createdat, updatedat")
+      .select('id, placa, modelo, marca, ano, cor, kmatual, tipo, chassi, ano_modelo, versao, fipe, combustivel, transmissao, observacoes, "imgUrl", createdat, updatedat')
       .single();
 
     if (error) {

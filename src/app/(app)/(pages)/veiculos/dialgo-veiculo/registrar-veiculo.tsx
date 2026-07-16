@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { useEffect, useState, useMemo } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -33,14 +33,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
-import { Check, ChevronsUpDown, Loader2, Search } from "lucide-react";
+import { Car, Check, ChevronsUpDown, Image as ImageIcon, Loader2, Search } from "lucide-react";
 import axios, { isAxiosError } from "axios";
 import { Veiculo, Veiculo_tipos } from "../types";
 import CustomerSelect from "@/app/(app)/components/customerSelect";
 import { useFipe } from "./useFipe";
 import ValueInput from "../../(financeiro)/fluxodecaixa/components/transactionDialog/valueInput";
+import { TabVeiculoImagens } from "./tab-veiculo-imagens";
+import type { ProdutoImagemPendente } from "../../estoque/components/dialog-produto/tabs/produto-imagens-gallery";
 
 function somenteAlphaNumMaiusculo(valor: string) {
   return valor.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -126,6 +129,18 @@ export default function RegisterContent({
   const [openVersao, setOpenVersao] = useState(false);
   const [openCustomer, setOpenCustomer] = useState(false);
   const [loadingPlaca, setLoadingPlaca] = useState(false);
+  const [currentTab, setCurrentTab] = useState("Geral");
+  const [imagensPendentes, setImagensPendentes] = useState<
+    ProdutoImagemPendente[]
+  >([]);
+  const [ordemImagensPendentes, setOrdemImagensPendentes] = useState<string[]>(
+    [],
+  );
+  const [progressoUploadImagens, setProgressoUploadImagens] = useState<
+    Record<string, number>
+  >({});
+  const imagensPendentesRef = useRef<ProdutoImagemPendente[]>([]);
+  const ordemImagensPendentesRef = useRef<string[]>([]);
 
   const {
     marcasFipe,
@@ -151,6 +166,95 @@ export default function RegisterContent({
   ) => {
     setNovoVeiculo({ ...novoVeiculo, [field]: value });
   };
+
+  const pendingKey = (id: string) => `pending-${id}`;
+
+  const setOrdemPendentes = useCallback((keys: string[]) => {
+    ordemImagensPendentesRef.current = keys;
+    setOrdemImagensPendentes(keys);
+  }, []);
+
+  const limparImagensSelecionadas = useCallback(() => {
+    imagensPendentesRef.current.forEach((img) =>
+      URL.revokeObjectURL(img.previewUrl),
+    );
+    imagensPendentesRef.current = [];
+    ordemImagensPendentesRef.current = [];
+    setImagensPendentes([]);
+    setOrdemImagensPendentes([]);
+    setProgressoUploadImagens({});
+  }, []);
+
+  const handlePickImages = useCallback(
+    (files: File[]) => {
+      if (files.length === 0) return;
+
+      const novas = files.map((file) => ({
+        id:
+          typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random()}`,
+        file,
+        previewUrl: URL.createObjectURL(file),
+      }));
+
+      imagensPendentesRef.current = [...imagensPendentesRef.current, ...novas];
+      setImagensPendentes(imagensPendentesRef.current);
+      setOrdemPendentes([
+        ...ordemImagensPendentesRef.current,
+        ...novas.map((img) => pendingKey(img.id)),
+      ]);
+    },
+    [setOrdemPendentes],
+  );
+
+  const handleRemoverImagemPendente = useCallback(
+    (id: string) => {
+      const alvo = imagensPendentesRef.current.find((img) => img.id === id);
+      if (alvo) URL.revokeObjectURL(alvo.previewUrl);
+
+      imagensPendentesRef.current = imagensPendentesRef.current.filter(
+        (img) => img.id !== id,
+      );
+      setImagensPendentes(imagensPendentesRef.current);
+      setOrdemPendentes(
+        ordemImagensPendentesRef.current.filter((key) => key !== pendingKey(id)),
+      );
+      setProgressoUploadImagens((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+    },
+    [setOrdemPendentes],
+  );
+
+  const uploadImagensDoVeiculo = useCallback(async (veiculoId: number) => {
+    const pendentesPorKey = new Map(
+      imagensPendentesRef.current.map((img) => [pendingKey(img.id), img]),
+    );
+    const ordenadas = ordemImagensPendentesRef.current
+      .map((key) => pendentesPorKey.get(key))
+      .filter(Boolean) as ProdutoImagemPendente[];
+
+    for (const pending of ordenadas) {
+      const formData = new FormData();
+      formData.append("files", pending.file);
+
+      await axios.post(`/api/veiculos/${veiculoId}/images`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+        onUploadProgress: (event) => {
+          const total = event.total ?? pending.file.size;
+          const pct =
+            total > 0 ? Math.min(100, Math.round((event.loaded / total) * 100)) : 0;
+          setProgressoUploadImagens((current) => ({
+            ...current,
+            [pending.id]: pct,
+          }));
+        },
+      });
+    }
+  }, []);
 
   const handleBuscarPlaca = async () => {
     if (!novoVeiculo.placa || novoVeiculo.placa.length < 7) return;
@@ -275,12 +379,18 @@ export default function RegisterContent({
     try {
       const response = await axios.post("/api/veiculos", { novoVeiculo });
       if (response.status === 201) {
+        const veiculoCriado = response.data.data as Veiculo;
+        if (imagensPendentesRef.current.length > 0 && veiculoCriado.id) {
+          await uploadImagensDoVeiculo(veiculoCriado.id);
+          limparImagensSelecionadas();
+        }
+
         toast.success("Sucesso!", {
           description: "Veículo cadastrado.",
           duration: 2000,
         });
-        if (setSelectedVeiculoId) setSelectedVeiculoId(response.data.data.id);
-        onRegister?.(response.data.data);
+        if (setSelectedVeiculoId) setSelectedVeiculoId(veiculoCriado.id);
+        onRegister?.(veiculoCriado);
       }
     } catch (error) {
       if (isAxiosError(error)) {
@@ -299,6 +409,12 @@ export default function RegisterContent({
       setNovoVeiculo({ ...novoVeiculo, clienteid: clienteId });
     }
   }, [clienteId, novoVeiculo.clienteid, setNovoVeiculo]);
+
+  useEffect(() => {
+    return () => {
+      limparImagensSelecionadas();
+    };
+  }, [limparImagensSelecionadas]);
 
   // FIPE Cascade
   useEffect(() => {
@@ -537,7 +653,42 @@ export default function RegisterContent({
           }
         />
 
-        <div className="h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-6 sm:px-6">
+        <Tabs
+          value={currentTab}
+          defaultValue="Geral"
+          className="mt-4 flex-1 min-h-0 min-w-0 overflow-hidden"
+        >
+          <div className="sticky top-0 z-10 shrink-0">
+            <div className="overflow-x-auto overflow-y-hidden px-6 pb-2 [-ms-overflow-style:none] [scrollbar-width:none]">
+              <TabsList className="h-auto min-w-full justify-start gap-1.5 rounded-2xl border bg-muted/40 p-1 backdrop-blur-sm">
+                <TabsTrigger
+                  onClick={() => setCurrentTab("Geral")}
+                  value="Geral"
+                  className="group h-9 rounded-xl px-4 text-xs font-medium transition-all hover:cursor-pointer data-[state=active]:bg-background data-[state=active]:shadow-sm sm:text-sm"
+                >
+                  <span className="flex items-center gap-2">
+                    <Car className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                    Geral
+                  </span>
+                </TabsTrigger>
+                <TabsTrigger
+                  onClick={() => setCurrentTab("Imagens")}
+                  value="Imagens"
+                  className="group h-9 rounded-xl px-4 text-xs font-medium transition-all hover:cursor-pointer data-[state=active]:bg-background data-[state=active]:shadow-sm sm:text-sm"
+                >
+                  <span className="flex items-center gap-2">
+                    <ImageIcon className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                    Imagens
+                  </span>
+                </TabsTrigger>
+              </TabsList>
+            </div>
+          </div>
+          <TabsContent
+            value="Geral"
+            className="h-full min-h-0 overflow-hidden p-0"
+          >
+            <div className="h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-6 sm:px-6">
           {/* Tipo */}
                 <div className="rounded-lg border bg-card p-4 gap-3 flex flex-col">
                               <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
@@ -1096,7 +1247,19 @@ export default function RegisterContent({
             </div>
           </div>
         </div>
-        </div>
+            </div>
+          </TabsContent>
+          <TabVeiculoImagens
+            mode="create"
+            pendentes={imagensPendentes}
+            ordemItens={ordemImagensPendentes}
+            progressoUpload={progressoUploadImagens}
+            saving={isSubmitting}
+            onPick={handlePickImages}
+            onReordenar={setOrdemPendentes}
+            onRemoverPendente={handleRemoverImagemPendente}
+          />
+        </Tabs>
 
         <DialogFooter className="shrink-0 border-t px-4 py-3 sm:px-6">
           <div className="flex w-full flex-row justify-end gap-2">

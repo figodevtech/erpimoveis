@@ -6,7 +6,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireDesmancheAccess, requireDesmancheCreate } from "@/app/api/_authz/perms";
 
 const LOTE_FIELDS =
-  "id, placa, modelo, marca, ano, cor, kmatual, tipo, chassi, ano_modelo, versao, fipe, combustivel, transmissao, observacoes, createdat, updatedat";
+  'id, placa, modelo, marca, ano, cor, kmatual, tipo, chassi, ano_modelo, versao, fipe, combustivel, transmissao, observacoes, "imgUrl", createdat, updatedat';
 const LOTE_LIST_FIELDS = `${LOTE_FIELDS}, pecas:lote_pecas(id)`;
 
 function respostaJSON(body: any, status = 200) {

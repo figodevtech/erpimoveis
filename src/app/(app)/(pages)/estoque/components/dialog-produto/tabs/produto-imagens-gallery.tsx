@@ -37,7 +37,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Image as ImageIcon, Loader2, Trash2, UploadCloud, X } from "lucide-react";
-import type { ProdutoImagem } from "../hooks/use-produto-imagens";
+
+export type GaleriaImagem = {
+  id: number;
+  url: string;
+  ordem: number;
+  createdat?: string;
+};
 
 export type ProdutoImagemPendente = {
   id: string;
@@ -47,10 +53,10 @@ export type ProdutoImagemPendente = {
 
 type GalleryItem =
   | { key: string; type: "pending"; pending: ProdutoImagemPendente }
-  | { key: string; type: "saved"; image: ProdutoImagem };
+  | { key: string; type: "saved"; image: GaleriaImagem };
 
 type Props = {
-  imagens?: ProdutoImagem[];
+  imagens?: GaleriaImagem[];
   pendentes: ProdutoImagemPendente[];
   orderKeys?: string[];
   uploadProgressByPendingId?: Record<string, number>;

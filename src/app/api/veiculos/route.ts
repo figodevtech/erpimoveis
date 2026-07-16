@@ -60,7 +60,7 @@ export async function GET(request: Request) {
     let query = supabase
       .from("veiculo")
       .select(
-        "id, clienteid, placa, placa_formatada, modelo, marca, ano, cor, kmatual, tipo, chassi, ano_modelo, versao, fipe, combustivel, transmissao, cliente: cliente( nomerazaosocial, cpfcnpj, email, telefone )",
+        "id, clienteid, placa, placa_formatada, modelo, marca, ano, cor, kmatual, tipo, chassi, ano_modelo, versao, fipe, combustivel, transmissao, imgUrl, cliente: cliente( nomerazaosocial, cpfcnpj, email, telefone )",
         { count: "exact" }
       )
       .order("id", { ascending: false })
@@ -189,7 +189,7 @@ export async function POST(request: Request) {
     const { data, error } = await supabase
       .from("veiculo")
       .insert(payload)
-      .select("id, clienteid, placa, placa_formatada, modelo, marca, ano, cor, kmatual, tipo, chassi, ano_modelo, versao, fipe, combustivel, transmissao")
+      .select("id, clienteid, placa, placa_formatada, modelo, marca, ano, cor, kmatual, tipo, chassi, ano_modelo, versao, fipe, combustivel, transmissao, imgUrl")
       .single();
 
     if (error) throw error;

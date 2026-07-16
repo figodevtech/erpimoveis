@@ -48,7 +48,7 @@ export async function GET(_request: Request, ctx: Ctx) {
     const { data, error } = await supabase
       .from("veiculo")
       .select(`
-        id, clienteid, placa, placa_formatada, modelo, marca, ano, cor, kmatual, tipo, chassi, ano_modelo, versao, fipe, combustivel, transmissao,
+        id, clienteid, placa, placa_formatada, modelo, marca, ano, cor, kmatual, tipo, chassi, ano_modelo, versao, fipe, combustivel, transmissao, imgUrl,
         cliente:cliente (
           nomerazaosocial,
           cpfcnpj,
@@ -264,7 +264,7 @@ export async function PUT(request: Request, ctx: Ctx) {
       .update(patch)
       .eq("id", id)
       .select(
-        "id, clienteid, placa, placa_formatada, modelo, marca, ano, cor, kmatual, tipo, chassi, ano_modelo, versao, fipe, combustivel, transmissao"
+        "id, clienteid, placa, placa_formatada, modelo, marca, ano, cor, kmatual, tipo, chassi, ano_modelo, versao, fipe, combustivel, transmissao, imgUrl"
       )
       .single();
 

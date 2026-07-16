@@ -4,6 +4,7 @@ import * as React from "react";
 import axios, { isAxiosError } from "axios";
 import {
   BadgeCheck,
+  Image as ImageIcon,
   Loader2,
   PackagePlus,
   ShieldCheck,
@@ -29,6 +30,8 @@ import formatarEmReal from "@/utils/formatarEmReal";
 import type { Produto } from "../../estoque/types";
 import { Lote, LotePeca } from "../types";
 import LoteFormFields from "./form-lote-fields";
+import { TabLoteImagens } from "./tab-lote-imagens";
+import { useLoteImagens } from "./use-lote-imagens";
 
 type EditarLoteProps = {
   loteId?: number;
@@ -80,10 +83,10 @@ export default function EditarLote({ loteId, isOpen, onUpdated }: EditarLoteProp
 
   const pecas = selectedLote?.pecas ?? [];
 
-  const handleGetLote = React.useCallback(async () => {
+  const handleGetLote = React.useCallback(async (options?: { silent?: boolean }) => {
     if (!loteId) return;
 
-    setIsLoadingLote(true);
+    if (!options?.silent) setIsLoadingLote(true);
     try {
       const response = await axios.get<{ lote: Lote }>(`/api/lotes/${loteId}`);
       if (response.status === 200) {
@@ -96,9 +99,14 @@ export default function EditarLote({ loteId, isOpen, onUpdated }: EditarLoteProp
         });
       }
     } finally {
-      setIsLoadingLote(false);
+      if (!options?.silent) setIsLoadingLote(false);
     }
   }, [loteId]);
+
+  const imagensHook = useLoteImagens({
+    loteId,
+    onAfterChangeCapa: () => handleGetLote({ silent: true }),
+  });
 
   React.useEffect(() => {
     if (isOpen && loteId) void handleGetLote();
@@ -117,11 +125,18 @@ export default function EditarLote({ loteId, isOpen, onUpdated }: EditarLoteProp
         selectedLote,
       });
       if (response.status === 200) {
+        if (
+          imagensHook.ordemAlterada &&
+          imagensHook.imagensPendentes.length === 0
+        ) {
+          await imagensHook.salvarOrdem();
+        }
+
         toast.success("Sucesso!", {
           description: "Lote atualizado.",
           duration: 2000,
         });
-        await handleGetLote();
+        await handleGetLote({ silent: true });
         onUpdated?.();
       }
     } catch (error) {
@@ -213,6 +228,15 @@ export default function EditarLote({ loteId, isOpen, onUpdated }: EditarLoteProp
                 >
                   Peças
                 </TabsTrigger>
+                <TabsTrigger
+                  value="Imagens"
+                  className="h-9 rounded-xl px-4 text-xs data-[state=active]:shadow-sm sm:text-sm"
+                >
+                  <span className="flex items-center gap-2">
+                    <ImageIcon className="h-3.5 w-3.5" />
+                    Imagens
+                  </span>
+                </TabsTrigger>
               </TabsList>
             </div>
 
@@ -226,6 +250,27 @@ export default function EditarLote({ loteId, isOpen, onUpdated }: EditarLoteProp
                 isOpen={isOpen}
               />
             </TabsContent>
+
+            <TabLoteImagens
+              mode="edit"
+              carregando={imagensHook.carregandoImagens}
+              subindo={imagensHook.subindoImagens}
+              salvandoOrdem={imagensHook.salvandoOrdem}
+              removendoImagemId={imagensHook.removendoImagemId}
+              definindoCapaImagemId={imagensHook.definindoCapaImagemId}
+              imagens={imagensHook.imagens}
+              pendentes={imagensHook.imagensPendentes}
+              ordemItens={imagensHook.ordemItens}
+              progressoUpload={imagensHook.uploadProgressByPendingId}
+              imgUrlPrincipal={selectedLote.imgUrl ?? null}
+              saving={isSubmitting}
+              onPick={imagensHook.onPick}
+              onUpload={imagensHook.uploadPendentes}
+              onReordenar={imagensHook.reordenarItens}
+              onRemoverPendente={imagensHook.removerImagemPendente}
+              onDefinirPrincipal={imagensHook.definirImagemPrincipal}
+              onRemover={imagensHook.removerImagem}
+            />
 
             <TabsContent
               value="Pecas"

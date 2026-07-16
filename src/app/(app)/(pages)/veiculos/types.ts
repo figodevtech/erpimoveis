@@ -24,6 +24,7 @@ export interface Veiculo {
   fipe?: number,
   combustivel?: string,
   transmissao?: string,
+  imgUrl?: string | null,
   ordens?: Ordem[]
 }
 
