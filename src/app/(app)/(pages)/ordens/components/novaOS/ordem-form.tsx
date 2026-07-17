@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -180,7 +180,7 @@ export function FormularioNovaOS({
   const adicionarPeca = () => {
     const rascunho = montarPecaRascunho();
     if (!rascunho) {
-      toast.error("Informe o nome da peÃ§a.");
+      toast.error("Informe o nome da peça.");
       return;
     }
     setPecas((prev) => [...prev, rascunho]);
@@ -199,7 +199,7 @@ export function FormularioNovaOS({
         const items = await listarSetores();
         setSetores(items);
       } catch (e: any) {
-        setSetoresError(e?.message ?? "NÃ£o foi possÃ­vel carregar os setores.");
+        setSetoresError(e?.message ?? "Não foi possível carregar os setores.");
         setSetores([]);
       } finally {
         setLoadingSetores(false);
@@ -211,7 +211,7 @@ export function FormularioNovaOS({
     () =>
       veiculosDoCliente.map((v) => ({
         value: String(v.id),
-        label: `${v.modelo} â€¢ ${v.placa}${v.ano ? ` (${v.ano})` : ""}`,
+        label: `${v.modelo} • ${v.placa}${v.ano ? ` (${v.ano})` : ""}`,
       })),
     [veiculosDoCliente],
   );
@@ -266,7 +266,7 @@ export function FormularioNovaOS({
   ]);
 
   const validateAll = (): string | null => {
-    if (!setor) return "Selecione o setor responsÃ¡vel.";
+    if (!setor) return "Selecione o setor responsável.";
     if (alvoTipo === "VEICULO") {
       const placaNorm = vPlaca.trim().toUpperCase();
       if (!veiculoVinculado && placaNorm && veiculosDoCliente.length > 0) {
@@ -277,11 +277,11 @@ export function FormularioNovaOS({
           return normalize(placaCliente) === normalize(placaNorm);
         });
         if (jaExiste) {
-          return "JÃ¡ existe um veÃ­culo com essa placa para este cliente. Selecione-o na lista em vez de cadastrar outro.";
+          return "Já existe um veículo com essa placa para este cliente. Selecione-o na lista em vez de cadastrar outro.";
         }
       }
     } else {
-      if (pecasParaSalvar().length === 0) return "Informe ao menos uma peÃ§a.";
+      if (pecasParaSalvar().length === 0) return "Informe ao menos uma peça.";
     }
 
     return null;
@@ -381,9 +381,9 @@ export function FormularioNovaOS({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Criar OS sem veÃ­culo</AlertDialogTitle>
+            <AlertDialogTitle>Criar OS sem veículo</AlertDialogTitle>
             <AlertDialogDescription>
-              Deseja criar a ordem de serviÃ§o sem selecionar um veÃ­culo
+              Deseja criar a ordem de serviço sem selecionar um veículo
               vinculado?
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -488,7 +488,7 @@ export function FormularioNovaOS({
             <div className="flex items-center gap-2">
               <Building2 className="h-5 w-5 text-primary" />
               <CardTitle className="text-base sm:text-lg">
-                DefiniÃ§Ã£o da OS
+                Definição da OS
               </CardTitle>
             </div>
           </CardHeader>
@@ -496,7 +496,7 @@ export function FormularioNovaOS({
           <CardContent className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="space-y-3">
-                <Label>Setor responsÃ¡vel</Label>
+                <Label>Setor responsável</Label>
                 <Select
                   value={setor}
                   onValueChange={setSetor}
@@ -511,7 +511,7 @@ export function FormularioNovaOS({
                           ? "Carregando setores..."
                           : setores.length
                             ? "Selecione o setor"
-                            : "Nenhum setor disponÃ­vel"
+                            : "Nenhum setor disponível"
                       }
                     />
                   </SelectTrigger>
@@ -561,11 +561,11 @@ export function FormularioNovaOS({
               >
                 <label className="flex items-center gap-2 cursor-pointer">
                   <RadioGroupItem id="alvo-veic" value="VEICULO" />
-                  <span>VeÃ­culo</span>
+                  <span>Veículo</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <RadioGroupItem id="alvo-peca" value="PECA" />
-                  <span>PeÃ§a</span>
+                  <span>Peça</span>
                 </label>
               </RadioGroup>
 
@@ -633,18 +633,19 @@ export function FormularioNovaOS({
                       Nenhum veículo selecionado.
                     </div>
                   )}
-                </div>              ) : (
+                </div>
+              ) : (
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-start">
                     <div className="space-y-1.5">
-                      <Label>Nome da peÃ§a</Label>
+                      <Label>Nome da peça</Label>
                       <Input
                         value={pNome}
                         maxLength={MAX_PECA_NOME}
                         onChange={(e) =>
                           setPNome(e.target.value.slice(0, MAX_PECA_NOME))
                         }
-                        placeholder="Ex.: Bomba d'Ã¡gua"
+                        placeholder="Ex.: Bomba d'água"
                       />
                       <div className="text-right text-xs text-muted-foreground">
                         {pNome.length}/{MAX_PECA_NOME}
@@ -652,12 +653,12 @@ export function FormularioNovaOS({
                     </div>
 
                     <div className="space-y-1.5">
-                      <Label>Lacre da peÃ§a</Label>
+                      <Label>Lacre da peça</Label>
                       <Input
                         value={pLacre}
                         maxLength={30}
                         onChange={(e) => setPLacre(e.target.value.slice(0, 30))}
-                        placeholder="Lacre para identificaÃ§Ã£o"
+                        placeholder="Lacre para identificação"
                       />
                       <div className="text-right text-xs text-muted-foreground">
                         {pLacre.length}/30
@@ -665,14 +666,14 @@ export function FormularioNovaOS({
                     </div>
 
                     <div className="space-y-1.5">
-                      <Label>DescriÃ§Ã£o (opcional)</Label>
+                      <Label>Descrição (opcional)</Label>
                       <Input
                         value={pDesc}
                         maxLength={MAX_PECA_DESC}
                         onChange={(e) =>
                           setPDesc(e.target.value.slice(0, MAX_PECA_DESC))
                         }
-                        placeholder="Detalhes da peÃ§a"
+                        placeholder="Detalhes da peça"
                       />
                       <div className="text-right text-xs text-muted-foreground">
                         {pDesc.length}/{MAX_PECA_DESC}
@@ -690,14 +691,14 @@ export function FormularioNovaOS({
                         className="w-full lg:w-auto"
                       >
                         <Plus className="h-4 w-4" />
-                        Adicionar peÃ§a
+                        Adicionar peça
                       </Button>
                     </div>
                   </div>
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <Label>PeÃ§as desta criaÃ§Ã£o</Label>
+                      <Label>Peças desta criação</Label>
                       <Badge variant="outline" className="font-normal">
                         {pecas.length} adicionada(s)
                       </Badge>
@@ -717,7 +718,7 @@ export function FormularioNovaOS({
                                     variant="secondary"
                                     className="font-medium"
                                   >
-                                    PeÃ§a {index + 1}
+                                    Peça {index + 1}
                                   </Badge>
                                   <p className="text-sm font-semibold leading-none">
                                     {item.nome}
@@ -760,15 +761,15 @@ export function FormularioNovaOS({
                     ) : (
                       <div className="rounded-xl border border-dashed bg-muted/20 px-4 py-5">
                         <p className="text-sm text-muted-foreground">
-                          Nenhuma peÃ§a adicionada ainda. VocÃª pode adicionar
-                          vÃ¡rias; serÃ¡ criada uma OS para cada peÃ§a.
+                          Nenhuma peça adicionada ainda. Você pode adicionar
+                          várias; será criada uma OS para cada peça.
                         </p>
                       </div>
                     )}
 
                     {pNome.trim() && (
                       <p className="text-xs text-muted-foreground">
-                        A peÃ§a atualmente preenchida tambÃ©m serÃ¡ incluÃ­da no
+                        A peça atualmente preenchida também será incluída no
                         salvamento, mesmo sem clicar em adicionar.
                       </p>
                     )}
@@ -784,7 +785,7 @@ export function FormularioNovaOS({
             <div className="flex items-center gap-2">
               <ClipboardList className="h-5 w-5 text-primary" />
               <CardTitle className="text-base sm:text-lg">
-                DescriÃ§Ã£o do Problema
+                Descrição do Problema
               </CardTitle>
             </div>
             <CardDescription className="text-sm text-muted-foreground">
@@ -808,17 +809,17 @@ export function FormularioNovaOS({
               <TriangleAlert className="h-5 w-5 text-primary" />
 
               <CardTitle className="text-base sm:text-lg">
-                ObservaÃ§Ãµes (Interno)
+                Observações (Interno)
               </CardTitle>
             </div>{" "}
             <CardDescription className="text-sm text-muted-foreground">
-              EspaÃ§o para anotaÃ§Ãµes internas da equipe, como detalhes adicionais
-              do atendimento ou histÃ³rico relevante.
+              Espaço para anotações internas da equipe, como detalhes adicionais
+              do atendimento ou histórico relevante.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Textarea
-              placeholder="InformaÃ§Ãµes adicionais..."
+              placeholder="Informações adicionais..."
               className="min-h-[80px] resize-y"
               value={observacoes}
               onChange={(e) => setObservacoes(e.target.value)}
@@ -831,17 +832,17 @@ export function FormularioNovaOS({
             <div className="flex gap-2 items-center">
               <FileText className="h-5 w-5 text-primary" />
               <CardTitle className="text-base sm:text-lg">
-                ObservaÃ§Ãµes Fiscais
+                Observações Fiscais
               </CardTitle>
             </div>
             <CardDescription className="text-sm text-muted-foreground">
-              InformaÃ§Ãµes fiscais adicionais relevantes para emissÃ£o de notas ou
+              Informações fiscais adicionais relevantes para emissão de notas ou
               processos relacionados.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Textarea
-              placeholder="InformaÃ§Ãµes fiscais adicionais..."
+              placeholder="Informações fiscais adicionais..."
               className="min-h-[80px] resize-y"
               value={observacoesFiscais}
               onChange={(e) => setObservacoesFiscais(e.target.value)}

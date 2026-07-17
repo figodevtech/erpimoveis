@@ -1,4 +1,4 @@
-﻿// src/app/(app)/(pages)/ordens/components/editarOS/ordem-edit-form.tsx
+// src/app/(app)/(pages)/ordens/components/editarOS/ordem-edit-form.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -183,10 +183,10 @@ export function OrdemEditForm({
         setLoadingSetores(true);
         setSetoresError(null);
 
-        const items = await listarSetores(); // sÃ³ ativos
+        const items = await listarSetores(); // só ativos
         setSetores(items);
       } catch (e: any) {
-        setSetoresError(e?.message ?? "NÃ£o foi possÃ­vel carregar os setores.");
+        setSetoresError(e?.message ?? "Não foi possível carregar os setores.");
         setSetores([]);
       } finally {
         setLoadingSetores(false);
@@ -194,7 +194,7 @@ export function OrdemEditForm({
     })();
   }, []);
 
-  // ===== Carrega dados da OS para ediÃ§Ã£o =====
+  // ===== Carrega dados da OS para edição =====
   useEffect(() => {
     if (!osId) return;
 
@@ -204,7 +204,7 @@ export function OrdemEditForm({
         const r = await fetch(`/api/ordens/${osId}`, { cache: "no-store" });
         const j = await r.json();
         if (!r.ok)
-          throw new Error(j?.error || "NÃ£o foi possÃ­vel carregar a OS.");
+          throw new Error(j?.error || "Não foi possível carregar a OS.");
 
         const os = j?.os ?? {};
         const cli = j?.cliente ?? j?.os?.cliente ?? null;
@@ -271,10 +271,10 @@ export function OrdemEditForm({
               setVeiculosDoCliente(arr);
             }
           } catch {
-            // se der erro aqui, sÃ³ ignora a lista de veÃ­culos
+            // se der erro aqui, só ignora a lista de veículos
           }
         } else {
-          // fallback: caso um dia vocÃª trate cliente avulso separado
+          // fallback: caso um dia você trate cliente avulso separado
           setModoAtendimento("avulso");
           setCliente(null);
           setAvulsoNome(cli?.nomerazaosocial ?? cli?.nome ?? "");
@@ -315,7 +315,7 @@ export function OrdemEditForm({
           setVeiculoSelecionadoItem(null);
         }
       } catch (e: any) {
-        toast.error(e?.message ?? "Falha ao carregar a OS para ediÃ§Ã£o.");
+        toast.error(e?.message ?? "Falha ao carregar a OS para edição.");
       } finally {
         setInitialLoading(false);
       }
@@ -336,7 +336,7 @@ export function OrdemEditForm({
     () =>
       veiculosDoCliente.map((v) => ({
         value: String(v.id),
-        label: `${v.modelo} â€¢ ${v.placa}${v.ano ? ` (${v.ano})` : ""}`,
+        label: `${v.modelo} • ${v.placa}${v.ano ? ` (${v.ano})` : ""}`,
       })),
     [veiculosDoCliente],
   );
@@ -362,20 +362,20 @@ export function OrdemEditForm({
   };
 
   function validar(): string | null {
-    if (!osId) return "OS invÃ¡lida.";
-    if (!setor) return "Selecione o setor responsÃ¡vel.";
+    if (!osId) return "OS inválida.";
+    if (!setor) return "Selecione o setor responsável.";
     if (modoAtendimento === "avulso") {
       if (!avulsoNome || !avulsoDoc)
-        return "Preencha Nome/RazÃ£o Social e CPF/CNPJ no atendimento avulso.";
+        return "Preencha Nome/Razão Social e CPF/CNPJ no atendimento avulso.";
       if (!avulsoTelefone?.trim() || !avulsoEmail?.trim())
-        return "Para atendimento avulso, telefone e e-mail sÃ£o obrigatÃ³rios.";
+        return "Para atendimento avulso, telefone e e-mail são obrigatórios.";
     }
 
     if (false && alvoTipo === "VEICULO") {
       if (!veiculoSelecionadoId && !vModelo.trim() && !vPlaca.trim())
-        return "Informe Modelo ou Placa do veÃ­culo, ou vincule um veÃ­culo existente.";
+        return "Informe Modelo ou Placa do veículo, ou vincule um veículo existente.";
     } else if (alvoTipo === "PECA" && !pNome.trim()) {
-      return "Informe o nome da peÃ§a.";
+      return "Informe o nome da peça.";
     }
     return null;
   }
@@ -452,7 +452,7 @@ export function OrdemEditForm({
       window.dispatchEvent(new CustomEvent("os:refresh"));
       onClose?.();
     } catch (e: any) {
-      toast.error(e?.message || "Erro ao salvar alteraÃ§Ãµes");
+      toast.error(e?.message || "Erro ao salvar alterações");
     } finally {
       setSaving(false);
     }
@@ -502,7 +502,7 @@ export function OrdemEditForm({
   ]);
 
   if (!osId)
-    return <div className="text-sm text-red-600">OS invÃ¡lida para ediÃ§Ã£o.</div>;
+    return <div className="text-sm text-red-600">OS inválida para edição.</div>;
 
   return (
     <>
@@ -512,9 +512,9 @@ export function OrdemEditForm({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Salvar OS sem veÃ­culo</AlertDialogTitle>
+            <AlertDialogTitle>Salvar OS sem veículo</AlertDialogTitle>
             <AlertDialogDescription>
-              Deseja salvar a ordem de serviÃ§o sem veÃ­culo vinculado?
+              Deseja salvar a ordem de serviço sem veículo vinculado?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -552,7 +552,7 @@ export function OrdemEditForm({
               </div>
               <CardDescription>
                 Selecione um cliente cadastrado para manter a OS alinhada ao
-                fluxo de criaÃ§Ã£o.
+                fluxo de criação.
               </CardDescription>
             </CardHeader>
 
@@ -637,7 +637,7 @@ export function OrdemEditForm({
               )
               //   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               //     <div className="space-y-1.5">
-              //       <Label>Nome/RazÃ£o Social</Label>
+              //       <Label>Nome/Razão Social</Label>
               //       <Input
               //         value={avulsoNome}
               //         onChange={(e) => setAvulsoNome(e.target.value)}
@@ -678,13 +678,13 @@ export function OrdemEditForm({
             </CardContent>
           </Card>
 
-          {/* DefiniÃ§Ã£o da OS */}
+          {/* Definição da OS */}
           <Card className="border-border">
             <CardHeader className="pb-3">
               <div className="flex items-center gap-2">
                 <Building2 className="h-5 w-5 text-primary" />
                 <CardTitle className="text-base sm:text-lg">
-                  DefiniÃ§Ã£o da OS
+                  Definição da OS
                 </CardTitle>
               </div>
             </CardHeader>
@@ -708,7 +708,7 @@ export function OrdemEditForm({
                             ? "Carregando setores..."
                             : setores.length
                               ? "Selecione o setor"
-                              : "Nenhum setor disponÃ­vel"
+                              : "Nenhum setor disponível"
                         }
                       />
                     </SelectTrigger>
@@ -757,11 +757,11 @@ export function OrdemEditForm({
                 >
                   <label className="flex items-center gap-2 cursor-pointer">
                     <RadioGroupItem id="alvo-veic" value="VEICULO" />
-                    <span>VeÃ­culo</span>
+                    <span>Veículo</span>
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
                     <RadioGroupItem id="alvo-peca" value="PECA" />
-                    <span>PeÃ§a</span>
+                    <span>Peça</span>
                   </label>
                 </RadioGroup>
 
@@ -829,15 +829,16 @@ export function OrdemEditForm({
                         Nenhum veículo selecionado.
                       </div>
                     )}
-                  </div>                ) : (
+                  </div>
+                ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="space-y-1.5">
-                      <Label>Nome da peÃ§a</Label>
+                      <Label>Nome da peça</Label>
                       <Input
                         value={pNome}
                         maxLength={60}
                         onChange={(e) => setPNome(e.target.value)}
-                        placeholder="Ex.: Radiador, Bomba d'Ã¡gua..."
+                        placeholder="Ex.: Radiador, Bomba d'água..."
                         disabled={saving}
                       />
                       <div className="text-right text-xs text-muted-foreground">
@@ -858,12 +859,12 @@ export function OrdemEditForm({
                       </div>
                     </div>
                     <div className="space-y-1.5">
-                      <Label>DescriÃ§Ã£o (opcional)</Label>
+                      <Label>Descrição (opcional)</Label>
                       <Input
                         value={pDesc}
                         maxLength={120}
                         onChange={(e) => setPDesc(e.target.value)}
-                        placeholder="Detalhes da peÃ§a"
+                        placeholder="Detalhes da peça"
                         disabled={saving}
                       />
                       <div className="text-right text-xs text-muted-foreground">
@@ -876,13 +877,13 @@ export function OrdemEditForm({
             </CardContent>
           </Card>
 
-          {/* DescriÃ§Ã£o do problema */}
+          {/* Descrição do problema */}
           <Card className="border-border">
             <CardHeader className="pb-2">
               <div className="flex items-center gap-2">
                 <ClipboardList className="h-5 w-5 text-primary" />
                 <CardTitle className="text-base sm:text-lg">
-                  DescriÃ§Ã£o do Problema
+                  Descrição do Problema
                 </CardTitle>
               </div>
               <CardDescription className="text-sm text-muted-foreground">
@@ -901,24 +902,24 @@ export function OrdemEditForm({
             </CardContent>
           </Card>
 
-          {/* ObservaÃ§Ãµes */}
+          {/* Observações */}
           <Card className="border-border">
             <CardHeader className="pb-2">
               <div className="flex gap-2 items-center">
                 <TriangleAlert className="h-5 w-5 text-primary" />
 
                 <CardTitle className="text-base sm:text-lg">
-                  ObservaÃ§Ãµes (Interno)
+                  Observações (Interno)
                 </CardTitle>
               </div>
               <CardDescription className="text-sm text-muted-foreground">
-                EspaÃ§o para anotaÃ§Ãµes internas da equipe, como detalhes
-                adicionais do atendimento ou histÃ³rico relevante.
+                Espaço para anotações internas da equipe, como detalhes
+                adicionais do atendimento ou histórico relevante.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <Textarea
-                placeholder="InformaÃ§Ãµes adicionais..."
+                placeholder="Informações adicionais..."
                 className="min-h-[80px] resize-y"
                 value={observacoes}
                 onChange={(e) => setObservacoes(e.target.value)}
@@ -932,17 +933,17 @@ export function OrdemEditForm({
               <div className="flex gap-2 items-center">
               <FileText className="h-5 w-5 text-primary" />
               <CardTitle className="text-base sm:text-lg">
-                ObservaÃ§Ãµes Fiscais
+                Observações Fiscais
               </CardTitle>
             </div>
               <CardDescription className="text-sm text-muted-foreground">
-                InformaÃ§Ãµes fiscais adicionais relevantes para emissÃ£o de notas
+                Informações fiscais adicionais relevantes para emissão de notas
                 ou processos relacionados.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <Textarea
-                placeholder="InformaÃ§Ãµes fiscais adicionais..."
+                placeholder="Informações fiscais adicionais..."
                 className="min-h-[80px] resize-y"
                 value={observacoesFiscais}
                 onChange={(e) => setObservacoesFiscais(e.target.value)}
@@ -954,7 +955,7 @@ export function OrdemEditForm({
           {saving && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Salvando alteraÃ§Ãµes...
+              Salvando alterações...
             </div>
           )}
         </>

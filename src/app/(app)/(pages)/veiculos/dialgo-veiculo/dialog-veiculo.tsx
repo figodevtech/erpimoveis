@@ -94,7 +94,8 @@ export function VeiculoDialog({
           setSelectedVeiculoId={setSelectedVeiculoId}
           novoVeiculo={novoVeiculo}
           setNovoVeiculo={setNovoVeiculo}
-          onRegister={onRegister} 
+          onRegister={onRegister}
+          onCloseAfterRegister={() => setOpen(false)}
           clienteId={clienteId}
           isOpen={isOpen}
         />

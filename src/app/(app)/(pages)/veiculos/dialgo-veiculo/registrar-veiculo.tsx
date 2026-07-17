@@ -100,6 +100,7 @@ interface RegisterContentProps {
   setNovoVeiculo: (value: Veiculo) => void;
   setSelectedVeiculoId?: (value: number | undefined) => void;
   onRegister?: (c: Veiculo) => void;
+  onCloseAfterRegister?: () => void;
   clienteId?: number;
   isOpen: boolean;
 }
@@ -120,6 +121,7 @@ export default function RegisterContent({
   setNovoVeiculo,
   setSelectedVeiculoId,
   onRegister,
+  onCloseAfterRegister,
   clienteId,
   isOpen,
 }: RegisterContentProps) {
@@ -391,6 +393,7 @@ export default function RegisterContent({
         });
         if (setSelectedVeiculoId) setSelectedVeiculoId(veiculoCriado.id);
         onRegister?.(veiculoCriado);
+        onCloseAfterRegister?.();
       }
     } catch (error) {
       if (isAxiosError(error)) {

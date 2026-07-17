@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   buscarModoBaixaEstoqueOS,
@@ -34,7 +34,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
     const osId = Number(id);
 
     if (!osId) {
-      return NextResponse.json({ error: "ID invÃ¡lido" }, { status: 400 });
+      return NextResponse.json({ error: "ID inválido" }, { status: 400 });
     }
 
     const body = (await req.json()) as Body;
@@ -43,10 +43,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
     const motivoSemCobranca = (body.motivoSemCobranca ?? "").trim() || null;
 
     if (!status) {
-      return NextResponse.json({ error: "Status Ã© obrigatÃ³rio." }, { status: 400 });
+      return NextResponse.json({ error: "Status é obrigatório." }, { status: 400 });
     }
 
-    // define statusaprovacao em funÃ§Ã£o do novo status
+    // define statusaprovacao em função do novo status
     if (status === "APROVACAO_ORCAMENTO") {
       const osRes = await supabaseAdmin
         .from("ordemservico")
@@ -56,11 +56,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
 
       if (osRes.error) throw osRes.error;
       if (!osRes.data?.id) {
-        return NextResponse.json({ error: "OS nÃ£o encontrada." }, { status: 404 });
+        return NextResponse.json({ error: "OS não encontrada." }, { status: 404 });
       }
       if (osRes.data.clienteid == null) {
         return NextResponse.json(
-          { error: "Selecione um cliente antes de enviar a OS para aprovaÃ§Ã£o." },
+          { error: "Selecione um cliente antes de enviar a OS para aprovação." },
           { status: 400 }
         );
       }
@@ -104,7 +104,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
       }
     }
 
-    // ðŸ‘‰ datasaida: quando a OS Ã© concluÃ­da (com ou sem cobranÃ§a)
+    // 👉 datasaida: quando a OS é concluída (com ou sem cobrança)
     if (status === "CONCLUIDO" || status === "SEM_COBRANCA") {
       updateData.datasaida = new Date().toISOString();
 
@@ -117,7 +117,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
     const upd = await supabaseAdmin.from("ordemservico").update(updateData).eq("id", osId);
 
     if (upd.error) {
-      // fallback caso coluna motivo_sem_cobranca ainda nÃ£o exista no banco
+      // fallback caso coluna motivo_sem_cobranca ainda não exista no banco
       if (semCobranca && upd.error.message?.includes("motivo_sem_cobranca")) {
         const fallbackData = { ...updateData };
         delete fallbackData.motivo_sem_cobranca;
@@ -143,7 +143,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
         .is("usado_em", null);
 
       if (mark.error) {
-        console.error("Falha ao marcar tokens de aprovaÃ§Ã£o como usados", mark.error);
+        console.error("Falha ao marcar tokens de aprovação como usados", mark.error);
       }
     }
 
