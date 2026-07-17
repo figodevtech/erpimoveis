@@ -144,13 +144,6 @@ export async function POST(req: NextRequest) {
         const cor = (alvo.veiculo?.cor || "").trim() || null;
         const kmatual = alvo.veiculo?.kmatual ?? null;
 
-        if (placa && clienteid === null) {
-          return NextResponse.json(
-            { error: "Para cadastrar veículo novo, selecione um cliente." },
-            { status: 400 }
-          );
-        }
-
         if (placa) {
           const { data: vNew, error: eVNew } = await supabaseAdmin
             .from("veiculo")

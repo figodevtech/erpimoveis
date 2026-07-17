@@ -47,6 +47,7 @@ import {
 import { toast } from "@/lib/toast";
 import { useSession } from "next-auth/react";
 import CustomerSelect from "@/app/(app)/components/customerSelect";
+import VehicleSelect from "@/app/(app)/components/vehicleSelect";
 import { Customer } from "../../../clientes/types";
 import { listarSetores } from "../../lib/api";
 import { ClienteInfoCard } from "./cliente-info-card";
@@ -61,7 +62,6 @@ export type FormularioNovaOSProps = {
   onSavingChange?: (saving: boolean) => void;
 };
 
-const NONE = "__none__";
 type AlvoTipo = "VEICULO" | "PECA";
 const MAX_PECA_NOME = 60;
 const MAX_PECA_DESC = 120;
@@ -99,7 +99,12 @@ export function FormularioNovaOS({
   const [veiculoSelecionadoId, setVeiculoSelecionadoId] = useState<
     number | null
   >(null);
+  const [veiculoSelecionado, setVeiculoSelecionado] = useState<any | null>(
+    null,
+  );
   const [openCustomer, setOpenCustomer] = useState(false);
+  const [openVehicleAll, setOpenVehicleAll] = useState(false);
+  const [openVehicleCustomer, setOpenVehicleCustomer] = useState(false);
   const [customerRegisterOpen, setCustomerRegisterOpen] = useState(false);
   const [selectedCustomerId, setSelectedCustomerId] = useState<
     number | undefined
@@ -132,7 +137,6 @@ export function FormularioNovaOS({
 
   const applySelectedCustomer = (c?: Customer | null) => {
     setCliente(c ?? null);
-    setVeiculoSelecionadoId(null);
     setVeiculosDoCliente(c?.veiculos ?? []);
   };
 
@@ -147,12 +151,6 @@ export function FormularioNovaOS({
       ordens: updatedCustomer.ordens ?? cliente.ordens ?? [],
     });
     setVeiculosDoCliente(veiculos);
-    setVeiculoSelecionadoId((currentVehicleId) =>
-      currentVehicleId !== null &&
-      !veiculos.some((v) => Number(v.id) === currentVehicleId)
-        ? null
-        : currentVehicleId,
-    );
   };
 
   const limparRascunhoPeca = () => {
@@ -217,6 +215,30 @@ export function FormularioNovaOS({
       })),
     [veiculosDoCliente],
   );
+
+  const veiculoSelecionadoResumo = useMemo(() => {
+    if (veiculoSelecionado) return veiculoSelecionado;
+    return (
+      veiculosDoCliente.find((v) => Number(v.id) === veiculoSelecionadoId) ??
+      null
+    );
+  }, [veiculoSelecionado, veiculoSelecionadoId, veiculosDoCliente]);
+
+  const selecionarVeiculo = (veiculo: any) => {
+    setVeiculoSelecionadoId(Number(veiculo.id));
+    setVeiculoSelecionado(veiculo);
+    setVPlaca("");
+    setVModelo("");
+    setVMarca("");
+    setVAno("");
+    setVCor("");
+    setVKm("");
+  };
+
+  const limparVeiculo = () => {
+    setVeiculoSelecionadoId(null);
+    setVeiculoSelecionado(null);
+  };
 
   useEffect(() => {
     exposeSubmit?.(salvar);
@@ -548,57 +570,69 @@ export function FormularioNovaOS({
               </RadioGroup>
 
               {alvoTipo === "VEICULO" ? (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <Label>
-                      Vincular a um veículo já cadastrado (opcional)
-                    </Label>
+                    <Label>Vincular a um veículo já cadastrado (opcional)</Label>
                     <Badge variant="outline" className="font-normal">
-                      {cliente ? `${veiculoOptions.length} veículo(s)` : "—"}
+                      {cliente ? `${veiculoOptions.length} veículo(s) do cliente` : "Sem cliente"}
                     </Badge>
                   </div>
 
-                  <Select
-                    value={
-                      veiculoSelecionadoId === null
-                        ? NONE
-                        : String(veiculoSelecionadoId)
-                    }
-                    onValueChange={(v) => {
-                      const id = v === NONE ? null : Number(v);
-                      setVeiculoSelecionadoId(id);
+                  <div className="flex flex-wrap gap-2">
+                    {cliente ? (
+                      <VehicleSelect
+                        open={openVehicleCustomer}
+                        setOpen={setOpenVehicleCustomer}
+                        clienteId={cliente.id}
+                        title="Selecione um veículo do cliente"
+                        OnSelect={selecionarVeiculo}
+                      >
+                        <Button type="button" variant="outline" className="text-xs">
+                          <Search className="h-3 w-3" />
+                          Veículos do cliente
+                        </Button>
+                      </VehicleSelect>
+                    ) : null}
 
-                      if (id !== null) {
-                        setVPlaca("");
-                        setVModelo("");
-                        setVMarca("");
-                        setVAno("");
-                        setVCor("");
-                        setVKm("");
-                      }
-                    }}
-                    disabled={!cliente || veiculoOptions.length === 0}
-                  >
-                    <SelectTrigger className="h-10 w-full md:w-[380px] min-w-[260px] truncate">
-                      <SelectValue
-                        placeholder={
-                          !cliente
-                            ? "Selecione um cliente"
-                            : veiculoOptions.length
-                              ? "Selecione um veículo"
-                              : "Cliente sem veículos"
-                        }
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={NONE}>Não vincular</SelectItem>
-                      {veiculoOptions.map((v) => (
-                        <SelectItem key={v.value} value={v.value}>
-                          {v.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    <VehicleSelect
+                      open={openVehicleAll}
+                      setOpen={setOpenVehicleAll}
+                      title="Selecione um veículo"
+                      OnSelect={selecionarVeiculo}
+                    >
+                      <Button type="button" variant="outline" className="text-xs">
+                        <Search className="h-3 w-3" />
+                        Todos os veículos
+                      </Button>
+                    </VehicleSelect>
+
+                    {veiculoSelecionadoId ? (
+                      <Button type="button" variant="outline" className="text-xs" onClick={limparVeiculo}>
+                        <X className="h-3 w-3 text-red-500" />
+                        Remover veículo
+                      </Button>
+                    ) : null}
+                  </div>
+
+                  {veiculoSelecionadoResumo ? (
+                    <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
+                      <p className="font-medium text-foreground">
+                        Veículo vinculado: {veiculoSelecionadoResumo.modelo || "-"}
+                      </p>
+                      <p className="text-muted-foreground">
+                        Placa: {veiculoSelecionadoResumo.placa || "-"}
+                        {veiculoSelecionadoResumo.marca ? ` • Marca: ${veiculoSelecionadoResumo.marca}` : ""}
+                        {veiculoSelecionadoResumo.ano ? ` • Ano: ${veiculoSelecionadoResumo.ano}` : ""}
+                      </p>
+                      <p className="text-muted-foreground">
+                        Proprietário: {veiculoSelecionadoResumo.cliente?.nomerazaosocial || "Sem proprietário"}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+                      Nenhum veículo selecionado.
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-4">

@@ -50,7 +50,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
     if (status === "APROVACAO_ORCAMENTO") {
       const osRes = await supabaseAdmin
         .from("ordemservico")
-        .select("id, clienteid")
+        .select("id, clienteid, veiculoid")
         .eq("id", osId)
         .maybeSingle();
 
@@ -61,6 +61,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
       if (osRes.data.clienteid == null) {
         return NextResponse.json(
           { error: "Selecione um cliente antes de enviar a OS para aprovação." },
+          { status: 400 }
+        );
+      }
+      if (osRes.data.veiculoid == null) {
+        return NextResponse.json(
+          { error: "Selecione um veículo antes de enviar a OS para aprovação." },
           { status: 400 }
         );
       }

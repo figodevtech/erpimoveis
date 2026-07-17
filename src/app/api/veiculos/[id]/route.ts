@@ -49,7 +49,8 @@ export async function GET(_request: Request, ctx: Ctx) {
       .from("veiculo")
       .select(`
         id, clienteid, placa, placa_formatada, modelo, marca, ano, cor, kmatual, tipo, chassi, ano_modelo, versao, fipe, combustivel, transmissao, imgUrl,
-        cliente:cliente (
+        cliente:clienteid (
+          id,
           nomerazaosocial,
           cpfcnpj,
           email,
@@ -243,14 +244,15 @@ export async function PUT(request: Request, ctx: Ctx) {
     // clienteId (aceita clienteId ou clienteid dentro do selectedVeiculo)
     const rawClienteId = v.clienteId ?? v.clienteid;
     if (rawClienteId !== undefined) {
-      if (rawClienteId === null)
-        return respostaJSON({ error: "Campo 'clienteId' não pode ser null." }, 400);
-
-      const clienteId = Number(rawClienteId);
-      if (!Number.isInteger(clienteId) || clienteId <= 0) {
-        return respostaJSON({ error: "Campo 'clienteId' inválido." }, 400);
+      if (rawClienteId === null || rawClienteId === "") {
+        patch.clienteid = null;
+      } else {
+        const clienteId = Number(rawClienteId);
+        if (!Number.isInteger(clienteId) || clienteId <= 0) {
+          return respostaJSON({ error: "Campo 'clienteId' inválido." }, 400);
+        }
+        patch.clienteid = clienteId;
       }
-      patch.clienteid = clienteId;
     }
 
     if (Object.keys(patch).length === 0) {

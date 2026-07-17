@@ -457,6 +457,14 @@ export function OrdensTabela({
       const j = await r.json().catch(() => ({} as any));
       if (!r.ok) return fail(j?.error || "Não foi possível verificar o orçamento da OS.");
 
+      const os = j?.os ?? {};
+      if (!os?.cliente?.id && !j?.cliente?.id) {
+        return fail("Selecione um cliente antes de enviar a OS para aprovação.");
+      }
+      if (!os?.veiculo?.id && !j?.veiculo?.id) {
+        return fail("Selecione um veículo antes de enviar a OS para aprovação.");
+      }
+
       const itensServico = Array.isArray(j?.itensServico) ? j.itensServico : [];
       if (itensServico.length === 0) {
         return fail("Não é possível enviar para aprovação sem ao menos 1 serviço no orçamento.");

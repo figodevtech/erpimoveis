@@ -60,7 +60,7 @@ export async function GET(request: Request) {
     let query = supabase
       .from("veiculo")
       .select(
-        "id, clienteid, placa, placa_formatada, modelo, marca, ano, cor, kmatual, tipo, chassi, ano_modelo, versao, fipe, combustivel, transmissao, imgUrl, cliente: cliente( nomerazaosocial, cpfcnpj, email, telefone )",
+        "id, clienteid, placa, placa_formatada, modelo, marca, ano, cor, kmatual, tipo, chassi, ano_modelo, versao, fipe, combustivel, transmissao, imgUrl, cliente:clienteid( id, nomerazaosocial, cpfcnpj, email, telefone )",
         { count: "exact" }
       )
       .order("id", { ascending: false })
@@ -72,7 +72,7 @@ export async function GET(request: Request) {
     if (tipo) query = query.eq("tipo", tipo);
 
     if (q) {
-      query = query.or(`modelo.ilike.%${q}%,marca.ilike.%${q}%`);
+      query = query.or(`modelo.ilike.%${q}%,marca.ilike.%${q}%,placa.ilike.%${q}%,placa_formatada.ilike.%${q}%,chassi.ilike.%${q}%`);
     }
 
     const { data, error, count } = await query;
@@ -123,7 +123,10 @@ export async function POST(request: Request) {
 
     // Aceita clienteId OU clienteid
     const clienteIdRaw = v?.clienteId ?? v?.clienteid;
-    const clienteId = Number(clienteIdRaw);
+    const clienteId =
+      clienteIdRaw === null || clienteIdRaw === undefined || clienteIdRaw === ""
+        ? null
+        : Number(clienteIdRaw);
 
     const placa = typeof v?.placa === "string" ? normalizarPlaca(v.placa) : "";
     const chassi = v?.chassi === null || v?.chassi === undefined ? null : String(v.chassi).trim().toUpperCase();
@@ -149,9 +152,9 @@ export async function POST(request: Request) {
     const combustivel = v?.combustivel === null || v?.combustivel === undefined ? null : String(v.combustivel).trim();
     const transmissao = v?.transmissao === null || v?.transmissao === undefined ? null : String(v.transmissao).trim();
 
-    if (!Number.isInteger(clienteId) || clienteId <= 0) {
+    if (clienteId !== null && (!Number.isInteger(clienteId) || clienteId <= 0)) {
       return respostaJSON(
-        { error: "Campo 'clienteId' (ou 'clienteid') é obrigatório e deve ser inteiro > 0." },
+        { error: "Campo 'clienteId' (ou 'clienteid') deve ser inteiro > 0 quando informado." },
         400
       );
     }

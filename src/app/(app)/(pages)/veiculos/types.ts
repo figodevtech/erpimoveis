@@ -8,7 +8,7 @@ export enum Veiculo_tipos {
 }
 export interface Veiculo {
   id?: number,
-  clienteid?: number,
+  clienteid?: number | null,
   cliente?: Customer,
   placa?: string,
   chassi?: string,

@@ -49,6 +49,7 @@ import {
 import { toast } from "@/lib/toast";
 import { useSession } from "next-auth/react";
 import CustomerSelect from "@/app/(app)/components/customerSelect";
+import VehicleSelect from "@/app/(app)/components/vehicleSelect";
 import { Customer } from "../../../clientes/types";
 import { listarSetores } from "../../lib/api";
 import { ClienteInfoCard } from "../novaOS/cliente-info-card";
@@ -72,8 +73,6 @@ export type OrdemEditFormProps = {
   onInitialLoadingChange?: (loading: boolean) => void;
   onClose?: () => void;
 };
-
-const NONE = "__none__";
 
 type AlvoTipo = "VEICULO" | "PECA";
 
@@ -121,7 +120,12 @@ export function OrdemEditForm({
   const [veiculoSelecionadoId, setVeiculoSelecionadoId] = useState<
     number | null
   >(null);
+  const [veiculoSelecionadoItem, setVeiculoSelecionadoItem] = useState<
+    any | null
+  >(null);
   const [openCustomer, setOpenCustomer] = useState(false);
+  const [openVehicleAll, setOpenVehicleAll] = useState(false);
+  const [openVehicleCustomer, setOpenVehicleCustomer] = useState(false);
   const [customerRegisterOpen, setCustomerRegisterOpen] = useState(false);
   const [selectedCustomerId, setSelectedCustomerId] = useState<
     number | undefined
@@ -156,7 +160,6 @@ export function OrdemEditForm({
   const applySelectedCustomer = (c?: Customer | null) => {
     setCliente(c ?? null);
     setModoAtendimento("cadastrado");
-    setVeiculoSelecionadoId(null);
     setVeiculosDoCliente(c?.veiculos ?? []);
   };
 
@@ -171,12 +174,6 @@ export function OrdemEditForm({
       ordens: updatedCustomer.ordens ?? cliente.ordens ?? [],
     });
     setVeiculosDoCliente(veiculos);
-    setVeiculoSelecionadoId((currentVehicleId) =>
-      currentVehicleId !== null &&
-      !veiculos.some((v) => Number(v.id) === currentVehicleId)
-        ? null
-        : currentVehicleId,
-    );
   };
 
   // ===== Carrega lista de setores =====
@@ -291,6 +288,7 @@ export function OrdemEditForm({
 
         if (alvo === "VEICULO") {
           setVeiculoSelecionadoId(os?.veiculoid ?? vei?.id ?? null);
+          setVeiculoSelecionadoItem(vei ?? os?.veiculo ?? null);
           setVPlaca(vei?.placa ?? os?.veiculo?.placa ?? "");
           setVModelo(vei?.modelo ?? os?.veiculo?.modelo ?? "");
           setVMarca(vei?.marca ?? os?.veiculo?.marca ?? "");
@@ -314,6 +312,7 @@ export function OrdemEditForm({
           setPDesc(resolvePecaDescricao(j?.peca ?? os?.peca));
           setPLacre(resolvePecaLacre(j?.peca ?? os?.peca));
           setVeiculoSelecionadoId(null);
+          setVeiculoSelecionadoItem(null);
         }
       } catch (e: any) {
         toast.error(e?.message ?? "Falha ao carregar a OS para edição.");
@@ -342,8 +341,25 @@ export function OrdemEditForm({
     [veiculosDoCliente],
   );
   const veiculoSelecionado =
+    veiculoSelecionadoItem ??
     veiculosDoCliente.find((v) => Number(v.id) === veiculoSelecionadoId) ??
     null;
+
+  const selecionarVeiculo = (veiculo: any) => {
+    setVeiculoSelecionadoId(Number(veiculo.id));
+    setVeiculoSelecionadoItem(veiculo);
+    setVPlaca("");
+    setVModelo("");
+    setVMarca("");
+    setVAno("");
+    setVCor("");
+    setVKm("");
+  };
+
+  const limparVeiculo = () => {
+    setVeiculoSelecionadoId(null);
+    setVeiculoSelecionadoItem(null);
+  };
 
   function validar(): string | null {
     if (!osId) return "OS inválida.";
@@ -564,7 +580,6 @@ export function OrdemEditForm({
                       onClick={() => {
                         if (saving) return;
                         setCliente(null);
-                        setVeiculoSelecionadoId(null);
                         setVeiculosDoCliente([]);
                       }}
                       className="p-1.5 rounded-full hover:cursor-pointer bg-muted"
@@ -751,125 +766,69 @@ export function OrdemEditForm({
                 </RadioGroup>
 
                 {alvoTipo === "VEICULO" ? (
-                  <div className="space-y-4">
-                    {modoAtendimento === "cadastrado" && (
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <Label>
-                            Vincular a um veículo do cliente (opcional)
-                          </Label>
-                          <Badge variant="outline" className="font-normal">
-                            {cliente
-                              ? `${veiculoOptions.length} veículo(s)`
-                              : "—"}
-                          </Badge>
-                        </div>
-                        <Select
-                          value={
-                            veiculoSelecionadoId === null
-                              ? NONE
-                              : String(veiculoSelecionadoId)
-                          }
-                          onValueChange={(v) =>
-                            setVeiculoSelecionadoId(
-                              v === NONE ? null : Number(v),
-                            )
-                          }
-                          disabled={
-                            !cliente || veiculoOptions.length === 0 || saving
-                          }
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label>Vincular a um veículo já cadastrado (opcional)</Label>
+                      <Badge variant="outline" className="font-normal">
+                        {cliente ? `${veiculoOptions.length} veículo(s) do cliente` : "Sem cliente"}
+                      </Badge>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      {cliente ? (
+                        <VehicleSelect
+                          open={openVehicleCustomer}
+                          setOpen={setOpenVehicleCustomer}
+                          clienteId={cliente.id}
+                          title="Selecione um veículo do cliente"
+                          OnSelect={selecionarVeiculo}
                         >
-                          <SelectTrigger className="h-10 w-full md:w-[380px] min-w-[260px] truncate">
-                            <SelectValue
-                              placeholder={
-                                !cliente
-                                  ? "Carregando cliente..."
-                                  : veiculoOptions.length
-                                    ? "Selecione um veículo"
-                                    : "Cliente sem veículos"
-                              }
-                            />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value={NONE}>Não vincular</SelectItem>
-                            {veiculoOptions.map((v) => (
-                              <SelectItem key={v.value} value={v.value}>
-                                {v.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        {veiculoSelecionado && (
-                          <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
-                            <p className="font-medium text-foreground">
-                              Veículo vinculado:{" "}
-                              {veiculoSelecionado.modelo || "-"}
-                            </p>
-                            <p className="text-muted-foreground">
-                              Placa: {veiculoSelecionado.placa || "-"}
-                              {veiculoSelecionado.marca
-                                ? ` • Marca: ${veiculoSelecionado.marca}`
-                                : ""}
-                              {veiculoSelecionado.ano
-                                ? ` • Ano: ${veiculoSelecionado.ano}`
-                                : ""}
-                            </p>
-                          </div>
-                        )}
+                          <Button type="button" variant="outline" className="text-xs" disabled={saving}>
+                            <Search className="h-3 w-3" />
+                            Veículos do cliente
+                          </Button>
+                        </VehicleSelect>
+                      ) : null}
+
+                      <VehicleSelect
+                        open={openVehicleAll}
+                        setOpen={setOpenVehicleAll}
+                        title="Selecione um veículo"
+                        OnSelect={selecionarVeiculo}
+                      >
+                        <Button type="button" variant="outline" className="text-xs" disabled={saving}>
+                          <Search className="h-3 w-3" />
+                          Todos os veículos
+                        </Button>
+                      </VehicleSelect>
+
+                      {veiculoSelecionadoId ? (
+                        <Button type="button" variant="outline" className="text-xs" onClick={limparVeiculo} disabled={saving}>
+                          <X className="h-3 w-3 text-red-500" />
+                          Remover veículo
+                        </Button>
+                      ) : null}
+                    </div>
+
+                    {veiculoSelecionado ? (
+                      <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
+                        <p className="font-medium text-foreground">
+                          Veículo vinculado: {veiculoSelecionado.modelo || "-"}
+                        </p>
+                        <p className="text-muted-foreground">
+                          Placa: {veiculoSelecionado.placa || "-"}
+                          {veiculoSelecionado.marca ? ` • Marca: ${veiculoSelecionado.marca}` : ""}
+                          {veiculoSelecionado.ano ? ` • Ano: ${veiculoSelecionado.ano}` : ""}
+                        </p>
+                        <p className="text-muted-foreground">
+                          Proprietário: {veiculoSelecionado.cliente?.nomerazaosocial || "Sem proprietário"}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+                        Nenhum veículo selecionado.
                       </div>
                     )}
-
-                    {/* <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div className="space-y-1.5">
-                      <Label>Placa</Label>
-                      <Input
-                        value={vPlaca}
-                        onChange={(e) => setVPlaca(e.target.value)}
-                        placeholder="ABC1D23"
-                        disabled={saving}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Modelo</Label>
-                      <Input
-                        value={vModelo}
-                        onChange={(e) => setVModelo(e.target.value)}
-                        placeholder="Ex.: i30 2.0"
-                        disabled={saving}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Marca</Label>
-                      <Input
-                        value={vMarca}
-                        onChange={(e) => setVMarca(e.target.value)}
-                        placeholder="Ex.: Hyundai"
-                        disabled={saving}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Ano</Label>
-                      <Input
-                        value={vAno}
-                        onChange={(e) => setVAno(e.target.value)}
-                        inputMode="numeric"
-                        disabled={saving}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Cor</Label>
-                      <Input value={vCor} onChange={(e) => setVCor(e.target.value)} disabled={saving} />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>KM atual</Label>
-                      <Input
-                        value={vKm}
-                        onChange={(e) => setVKm(e.target.value)}
-                        inputMode="numeric"
-                        disabled={saving}
-                      />
-                    </div>
-                  </div> */}
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
