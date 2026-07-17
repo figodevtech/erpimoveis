@@ -481,7 +481,7 @@ export default function FiscalTable({
             </CardDescription>
           </div>
 
-          <div className="grid w-full min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-7">
+          <div className="grid w-full min-w-0 grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5 2xl:grid-cols-7">
             {viewMode === "EMITIDAS_TERCEIROS" ? (
               <Button
                 type="button"
@@ -503,12 +503,9 @@ export default function FiscalTable({
               placeholder="Buscar nota/chave"
               className="h-9 w-full"
             />
-            <div className="flex flex-row gap-2 md:col-span-2">
-
-
               <DatePicker value={dateFrom} onChange={setDateFrom} placeholder="Data inicial" className="min-w-0" />
               <DatePicker value={dateTo} onChange={setDateTo} placeholder="Data final" className="min-w-0" />
-            </div>
+
             <Select value={status || "TODOS"} onValueChange={(value) => setStatus(value === "TODOS" ? "" : value)}>
               <SelectTrigger className="h-9 w-full">
                 <SelectValue placeholder="Status" />
