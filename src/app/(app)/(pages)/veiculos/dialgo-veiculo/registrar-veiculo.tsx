@@ -36,7 +36,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
-import { Car, Check, ChevronsUpDown, Image as ImageIcon, Loader2, Search } from "lucide-react";
+import { Car, Check, ChevronsUpDown, Image as ImageIcon, Loader2, Search, X } from "lucide-react";
 import axios, { isAxiosError } from "axios";
 import { Veiculo, Veiculo_tipos } from "../types";
 import CustomerSelect from "@/app/(app)/components/customerSelect";
@@ -788,7 +788,7 @@ export default function RegisterContent({
                 <div className="flex items-center gap-2">
                   <Input
                     className="w-full"
-                    value={novoVeiculo?.cliente?.nomerazaosocial || "Selecione"}
+                    value={novoVeiculo?.cliente?.nomerazaosocial || "Sem proprietário"}
                     disabled={true}
                   />
                   <div
@@ -797,6 +797,23 @@ export default function RegisterContent({
                   >
                     <Search className="w-4 h-4 text-primary" />
                   </div>
+                  {novoVeiculo.clienteid ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() =>
+                        setNovoVeiculo({
+                          ...novoVeiculo,
+                          clienteid: null,
+                          cliente: undefined,
+                        })
+                      }
+                      title="Remover proprietário"
+                    >
+                      <X className="h-4 w-4 text-red-500" />
+                    </Button>
+                  ) : null}
                 </div>
               </div>
             )}

@@ -1,4 +1,4 @@
-// src/app/(app)/(pages)/ordens/components/editarOS/ordem-edit-form.tsx
+﻿// src/app/(app)/(pages)/ordens/components/editarOS/ordem-edit-form.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -49,6 +49,7 @@ import {
 import { toast } from "@/lib/toast";
 import { useSession } from "next-auth/react";
 import CustomerSelect from "@/app/(app)/components/customerSelect";
+import VehicleSelect from "@/app/(app)/components/vehicleSelect";
 import { Customer } from "../../../clientes/types";
 import { listarSetores } from "../../lib/api";
 import { ClienteInfoCard } from "../novaOS/cliente-info-card";
@@ -72,8 +73,6 @@ export type OrdemEditFormProps = {
   onInitialLoadingChange?: (loading: boolean) => void;
   onClose?: () => void;
 };
-
-const NONE = "__none__";
 
 type AlvoTipo = "VEICULO" | "PECA";
 
@@ -121,7 +120,12 @@ export function OrdemEditForm({
   const [veiculoSelecionadoId, setVeiculoSelecionadoId] = useState<
     number | null
   >(null);
+  const [veiculoSelecionadoItem, setVeiculoSelecionadoItem] = useState<
+    any | null
+  >(null);
   const [openCustomer, setOpenCustomer] = useState(false);
+  const [openVehicleAll, setOpenVehicleAll] = useState(false);
+  const [openVehicleCustomer, setOpenVehicleCustomer] = useState(false);
   const [customerRegisterOpen, setCustomerRegisterOpen] = useState(false);
   const [selectedCustomerId, setSelectedCustomerId] = useState<
     number | undefined
@@ -156,7 +160,6 @@ export function OrdemEditForm({
   const applySelectedCustomer = (c?: Customer | null) => {
     setCliente(c ?? null);
     setModoAtendimento("cadastrado");
-    setVeiculoSelecionadoId(null);
     setVeiculosDoCliente(c?.veiculos ?? []);
   };
 
@@ -171,12 +174,6 @@ export function OrdemEditForm({
       ordens: updatedCustomer.ordens ?? cliente.ordens ?? [],
     });
     setVeiculosDoCliente(veiculos);
-    setVeiculoSelecionadoId((currentVehicleId) =>
-      currentVehicleId !== null &&
-      !veiculos.some((v) => Number(v.id) === currentVehicleId)
-        ? null
-        : currentVehicleId,
-    );
   };
 
   // ===== Carrega lista de setores =====
@@ -186,10 +183,10 @@ export function OrdemEditForm({
         setLoadingSetores(true);
         setSetoresError(null);
 
-        const items = await listarSetores(); // só ativos
+        const items = await listarSetores(); // sÃ³ ativos
         setSetores(items);
       } catch (e: any) {
-        setSetoresError(e?.message ?? "Não foi possível carregar os setores.");
+        setSetoresError(e?.message ?? "NÃ£o foi possÃ­vel carregar os setores.");
         setSetores([]);
       } finally {
         setLoadingSetores(false);
@@ -197,7 +194,7 @@ export function OrdemEditForm({
     })();
   }, []);
 
-  // ===== Carrega dados da OS para edição =====
+  // ===== Carrega dados da OS para ediÃ§Ã£o =====
   useEffect(() => {
     if (!osId) return;
 
@@ -207,7 +204,7 @@ export function OrdemEditForm({
         const r = await fetch(`/api/ordens/${osId}`, { cache: "no-store" });
         const j = await r.json();
         if (!r.ok)
-          throw new Error(j?.error || "Não foi possível carregar a OS.");
+          throw new Error(j?.error || "NÃ£o foi possÃ­vel carregar a OS.");
 
         const os = j?.os ?? {};
         const cli = j?.cliente ?? j?.os?.cliente ?? null;
@@ -274,10 +271,10 @@ export function OrdemEditForm({
               setVeiculosDoCliente(arr);
             }
           } catch {
-            // se der erro aqui, só ignora a lista de veículos
+            // se der erro aqui, sÃ³ ignora a lista de veÃ­culos
           }
         } else {
-          // fallback: caso um dia você trate cliente avulso separado
+          // fallback: caso um dia vocÃª trate cliente avulso separado
           setModoAtendimento("avulso");
           setCliente(null);
           setAvulsoNome(cli?.nomerazaosocial ?? cli?.nome ?? "");
@@ -291,6 +288,7 @@ export function OrdemEditForm({
 
         if (alvo === "VEICULO") {
           setVeiculoSelecionadoId(os?.veiculoid ?? vei?.id ?? null);
+          setVeiculoSelecionadoItem(vei ?? os?.veiculo ?? null);
           setVPlaca(vei?.placa ?? os?.veiculo?.placa ?? "");
           setVModelo(vei?.modelo ?? os?.veiculo?.modelo ?? "");
           setVMarca(vei?.marca ?? os?.veiculo?.marca ?? "");
@@ -314,9 +312,10 @@ export function OrdemEditForm({
           setPDesc(resolvePecaDescricao(j?.peca ?? os?.peca));
           setPLacre(resolvePecaLacre(j?.peca ?? os?.peca));
           setVeiculoSelecionadoId(null);
+          setVeiculoSelecionadoItem(null);
         }
       } catch (e: any) {
-        toast.error(e?.message ?? "Falha ao carregar a OS para edição.");
+        toast.error(e?.message ?? "Falha ao carregar a OS para ediÃ§Ã£o.");
       } finally {
         setInitialLoading(false);
       }
@@ -337,29 +336,46 @@ export function OrdemEditForm({
     () =>
       veiculosDoCliente.map((v) => ({
         value: String(v.id),
-        label: `${v.modelo} • ${v.placa}${v.ano ? ` (${v.ano})` : ""}`,
+        label: `${v.modelo} â€¢ ${v.placa}${v.ano ? ` (${v.ano})` : ""}`,
       })),
     [veiculosDoCliente],
   );
   const veiculoSelecionado =
+    veiculoSelecionadoItem ??
     veiculosDoCliente.find((v) => Number(v.id) === veiculoSelecionadoId) ??
     null;
 
+  const selecionarVeiculo = (veiculo: any) => {
+    setVeiculoSelecionadoId(Number(veiculo.id));
+    setVeiculoSelecionadoItem(veiculo);
+    setVPlaca("");
+    setVModelo("");
+    setVMarca("");
+    setVAno("");
+    setVCor("");
+    setVKm("");
+  };
+
+  const limparVeiculo = () => {
+    setVeiculoSelecionadoId(null);
+    setVeiculoSelecionadoItem(null);
+  };
+
   function validar(): string | null {
-    if (!osId) return "OS inválida.";
-    if (!setor) return "Selecione o setor responsável.";
+    if (!osId) return "OS invÃ¡lida.";
+    if (!setor) return "Selecione o setor responsÃ¡vel.";
     if (modoAtendimento === "avulso") {
       if (!avulsoNome || !avulsoDoc)
-        return "Preencha Nome/Razão Social e CPF/CNPJ no atendimento avulso.";
+        return "Preencha Nome/RazÃ£o Social e CPF/CNPJ no atendimento avulso.";
       if (!avulsoTelefone?.trim() || !avulsoEmail?.trim())
-        return "Para atendimento avulso, telefone e e-mail são obrigatórios.";
+        return "Para atendimento avulso, telefone e e-mail sÃ£o obrigatÃ³rios.";
     }
 
     if (false && alvoTipo === "VEICULO") {
       if (!veiculoSelecionadoId && !vModelo.trim() && !vPlaca.trim())
-        return "Informe Modelo ou Placa do veículo, ou vincule um veículo existente.";
+        return "Informe Modelo ou Placa do veÃ­culo, ou vincule um veÃ­culo existente.";
     } else if (alvoTipo === "PECA" && !pNome.trim()) {
-      return "Informe o nome da peça.";
+      return "Informe o nome da peÃ§a.";
     }
     return null;
   }
@@ -436,7 +452,7 @@ export function OrdemEditForm({
       window.dispatchEvent(new CustomEvent("os:refresh"));
       onClose?.();
     } catch (e: any) {
-      toast.error(e?.message || "Erro ao salvar alterações");
+      toast.error(e?.message || "Erro ao salvar alteraÃ§Ãµes");
     } finally {
       setSaving(false);
     }
@@ -486,7 +502,7 @@ export function OrdemEditForm({
   ]);
 
   if (!osId)
-    return <div className="text-sm text-red-600">OS inválida para edição.</div>;
+    return <div className="text-sm text-red-600">OS invÃ¡lida para ediÃ§Ã£o.</div>;
 
   return (
     <>
@@ -496,9 +512,9 @@ export function OrdemEditForm({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Salvar OS sem veículo</AlertDialogTitle>
+            <AlertDialogTitle>Salvar OS sem veÃ­culo</AlertDialogTitle>
             <AlertDialogDescription>
-              Deseja salvar a ordem de serviço sem veículo vinculado?
+              Deseja salvar a ordem de serviÃ§o sem veÃ­culo vinculado?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -536,7 +552,7 @@ export function OrdemEditForm({
               </div>
               <CardDescription>
                 Selecione um cliente cadastrado para manter a OS alinhada ao
-                fluxo de criação.
+                fluxo de criaÃ§Ã£o.
               </CardDescription>
             </CardHeader>
 
@@ -564,7 +580,6 @@ export function OrdemEditForm({
                       onClick={() => {
                         if (saving) return;
                         setCliente(null);
-                        setVeiculoSelecionadoId(null);
                         setVeiculosDoCliente([]);
                       }}
                       className="p-1.5 rounded-full hover:cursor-pointer bg-muted"
@@ -622,7 +637,7 @@ export function OrdemEditForm({
               )
               //   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               //     <div className="space-y-1.5">
-              //       <Label>Nome/Razão Social</Label>
+              //       <Label>Nome/RazÃ£o Social</Label>
               //       <Input
               //         value={avulsoNome}
               //         onChange={(e) => setAvulsoNome(e.target.value)}
@@ -663,13 +678,13 @@ export function OrdemEditForm({
             </CardContent>
           </Card>
 
-          {/* Definição da OS */}
+          {/* DefiniÃ§Ã£o da OS */}
           <Card className="border-border">
             <CardHeader className="pb-3">
               <div className="flex items-center gap-2">
                 <Building2 className="h-5 w-5 text-primary" />
                 <CardTitle className="text-base sm:text-lg">
-                  Definição da OS
+                  DefiniÃ§Ã£o da OS
                 </CardTitle>
               </div>
             </CardHeader>
@@ -693,7 +708,7 @@ export function OrdemEditForm({
                             ? "Carregando setores..."
                             : setores.length
                               ? "Selecione o setor"
-                              : "Nenhum setor disponível"
+                              : "Nenhum setor disponÃ­vel"
                         }
                       />
                     </SelectTrigger>
@@ -742,144 +757,87 @@ export function OrdemEditForm({
                 >
                   <label className="flex items-center gap-2 cursor-pointer">
                     <RadioGroupItem id="alvo-veic" value="VEICULO" />
-                    <span>Veículo</span>
+                    <span>VeÃ­culo</span>
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
                     <RadioGroupItem id="alvo-peca" value="PECA" />
-                    <span>Peça</span>
+                    <span>PeÃ§a</span>
                   </label>
                 </RadioGroup>
 
                 {alvoTipo === "VEICULO" ? (
-                  <div className="space-y-4">
-                    {modoAtendimento === "cadastrado" && (
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <Label>
-                            Vincular a um veículo do cliente (opcional)
-                          </Label>
-                          <Badge variant="outline" className="font-normal">
-                            {cliente
-                              ? `${veiculoOptions.length} veículo(s)`
-                              : "—"}
-                          </Badge>
-                        </div>
-                        <Select
-                          value={
-                            veiculoSelecionadoId === null
-                              ? NONE
-                              : String(veiculoSelecionadoId)
-                          }
-                          onValueChange={(v) =>
-                            setVeiculoSelecionadoId(
-                              v === NONE ? null : Number(v),
-                            )
-                          }
-                          disabled={
-                            !cliente || veiculoOptions.length === 0 || saving
-                          }
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label>Vincular a um veículo já cadastrado (opcional)</Label>
+                      <Badge variant="outline" className="font-normal">
+                        {cliente ? `${veiculoOptions.length} veículo(s) do cliente` : "Sem cliente"}
+                      </Badge>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      {cliente ? (
+                        <VehicleSelect
+                          open={openVehicleCustomer}
+                          setOpen={setOpenVehicleCustomer}
+                          clienteId={cliente.id}
+                          title="Selecione um veículo do cliente"
+                          OnSelect={selecionarVeiculo}
                         >
-                          <SelectTrigger className="h-10 w-full md:w-[380px] min-w-[260px] truncate">
-                            <SelectValue
-                              placeholder={
-                                !cliente
-                                  ? "Carregando cliente..."
-                                  : veiculoOptions.length
-                                    ? "Selecione um veículo"
-                                    : "Cliente sem veículos"
-                              }
-                            />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value={NONE}>Não vincular</SelectItem>
-                            {veiculoOptions.map((v) => (
-                              <SelectItem key={v.value} value={v.value}>
-                                {v.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        {veiculoSelecionado && (
-                          <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
-                            <p className="font-medium text-foreground">
-                              Veículo vinculado:{" "}
-                              {veiculoSelecionado.modelo || "-"}
-                            </p>
-                            <p className="text-muted-foreground">
-                              Placa: {veiculoSelecionado.placa || "-"}
-                              {veiculoSelecionado.marca
-                                ? ` • Marca: ${veiculoSelecionado.marca}`
-                                : ""}
-                              {veiculoSelecionado.ano
-                                ? ` • Ano: ${veiculoSelecionado.ano}`
-                                : ""}
-                            </p>
-                          </div>
-                        )}
+                          <Button type="button" variant="outline" className="text-xs" disabled={saving}>
+                            <Search className="h-3 w-3" />
+                            Veículos do cliente
+                          </Button>
+                        </VehicleSelect>
+                      ) : null}
+
+                      <VehicleSelect
+                        open={openVehicleAll}
+                        setOpen={setOpenVehicleAll}
+                        title="Selecione um veículo"
+                        OnSelect={selecionarVeiculo}
+                      >
+                        <Button type="button" variant="outline" className="text-xs" disabled={saving}>
+                          <Search className="h-3 w-3" />
+                          Todos os veículos
+                        </Button>
+                      </VehicleSelect>
+
+                      {veiculoSelecionadoId ? (
+                        <Button type="button" variant="outline" className="text-xs" onClick={limparVeiculo} disabled={saving}>
+                          <X className="h-3 w-3 text-red-500" />
+                          Remover veículo
+                        </Button>
+                      ) : null}
+                    </div>
+
+                    {veiculoSelecionado ? (
+                      <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
+                        <p className="font-medium text-foreground">
+                          Veículo vinculado: {veiculoSelecionado.modelo || "-"}
+                        </p>
+                        <p className="text-muted-foreground">
+                          Placa: {veiculoSelecionado.placa || "-"}
+                          {veiculoSelecionado.marca ? ` • Marca: ${veiculoSelecionado.marca}` : ""}
+                          {veiculoSelecionado.ano ? ` • Ano: ${veiculoSelecionado.ano}` : ""}
+                        </p>
+                        <p className="text-muted-foreground">
+                          Proprietário: {veiculoSelecionado.cliente?.nomerazaosocial || "Sem proprietário"}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+                        Nenhum veículo selecionado.
                       </div>
                     )}
-
-                    {/* <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div className="space-y-1.5">
-                      <Label>Placa</Label>
-                      <Input
-                        value={vPlaca}
-                        onChange={(e) => setVPlaca(e.target.value)}
-                        placeholder="ABC1D23"
-                        disabled={saving}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Modelo</Label>
-                      <Input
-                        value={vModelo}
-                        onChange={(e) => setVModelo(e.target.value)}
-                        placeholder="Ex.: i30 2.0"
-                        disabled={saving}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Marca</Label>
-                      <Input
-                        value={vMarca}
-                        onChange={(e) => setVMarca(e.target.value)}
-                        placeholder="Ex.: Hyundai"
-                        disabled={saving}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Ano</Label>
-                      <Input
-                        value={vAno}
-                        onChange={(e) => setVAno(e.target.value)}
-                        inputMode="numeric"
-                        disabled={saving}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Cor</Label>
-                      <Input value={vCor} onChange={(e) => setVCor(e.target.value)} disabled={saving} />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>KM atual</Label>
-                      <Input
-                        value={vKm}
-                        onChange={(e) => setVKm(e.target.value)}
-                        inputMode="numeric"
-                        disabled={saving}
-                      />
-                    </div>
-                  </div> */}
-                  </div>
-                ) : (
+                  </div>                ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="space-y-1.5">
-                      <Label>Nome da peça</Label>
+                      <Label>Nome da peÃ§a</Label>
                       <Input
                         value={pNome}
                         maxLength={60}
                         onChange={(e) => setPNome(e.target.value)}
-                        placeholder="Ex.: Radiador, Bomba d'água..."
+                        placeholder="Ex.: Radiador, Bomba d'Ã¡gua..."
                         disabled={saving}
                       />
                       <div className="text-right text-xs text-muted-foreground">
@@ -900,12 +858,12 @@ export function OrdemEditForm({
                       </div>
                     </div>
                     <div className="space-y-1.5">
-                      <Label>Descrição (opcional)</Label>
+                      <Label>DescriÃ§Ã£o (opcional)</Label>
                       <Input
                         value={pDesc}
                         maxLength={120}
                         onChange={(e) => setPDesc(e.target.value)}
-                        placeholder="Detalhes da peça"
+                        placeholder="Detalhes da peÃ§a"
                         disabled={saving}
                       />
                       <div className="text-right text-xs text-muted-foreground">
@@ -918,13 +876,13 @@ export function OrdemEditForm({
             </CardContent>
           </Card>
 
-          {/* Descrição do problema */}
+          {/* DescriÃ§Ã£o do problema */}
           <Card className="border-border">
             <CardHeader className="pb-2">
               <div className="flex items-center gap-2">
                 <ClipboardList className="h-5 w-5 text-primary" />
                 <CardTitle className="text-base sm:text-lg">
-                  Descrição do Problema
+                  DescriÃ§Ã£o do Problema
                 </CardTitle>
               </div>
               <CardDescription className="text-sm text-muted-foreground">
@@ -943,24 +901,24 @@ export function OrdemEditForm({
             </CardContent>
           </Card>
 
-          {/* Observações */}
+          {/* ObservaÃ§Ãµes */}
           <Card className="border-border">
             <CardHeader className="pb-2">
               <div className="flex gap-2 items-center">
                 <TriangleAlert className="h-5 w-5 text-primary" />
 
                 <CardTitle className="text-base sm:text-lg">
-                  Observações (Interno)
+                  ObservaÃ§Ãµes (Interno)
                 </CardTitle>
               </div>
               <CardDescription className="text-sm text-muted-foreground">
-                Espaço para anotações internas da equipe, como detalhes
-                adicionais do atendimento ou histórico relevante.
+                EspaÃ§o para anotaÃ§Ãµes internas da equipe, como detalhes
+                adicionais do atendimento ou histÃ³rico relevante.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <Textarea
-                placeholder="Informações adicionais..."
+                placeholder="InformaÃ§Ãµes adicionais..."
                 className="min-h-[80px] resize-y"
                 value={observacoes}
                 onChange={(e) => setObservacoes(e.target.value)}
@@ -974,17 +932,17 @@ export function OrdemEditForm({
               <div className="flex gap-2 items-center">
               <FileText className="h-5 w-5 text-primary" />
               <CardTitle className="text-base sm:text-lg">
-                Observações Fiscais
+                ObservaÃ§Ãµes Fiscais
               </CardTitle>
             </div>
               <CardDescription className="text-sm text-muted-foreground">
-                Informações fiscais adicionais relevantes para emissão de notas
+                InformaÃ§Ãµes fiscais adicionais relevantes para emissÃ£o de notas
                 ou processos relacionados.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <Textarea
-                placeholder="Informações fiscais adicionais..."
+                placeholder="InformaÃ§Ãµes fiscais adicionais..."
                 className="min-h-[80px] resize-y"
                 value={observacoesFiscais}
                 onChange={(e) => setObservacoesFiscais(e.target.value)}
@@ -996,7 +954,7 @@ export function OrdemEditForm({
           {saving && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Salvando alterações...
+              Salvando alteraÃ§Ãµes...
             </div>
           )}
         </>

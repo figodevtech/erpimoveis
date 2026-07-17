@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -47,6 +47,7 @@ import {
 import { toast } from "@/lib/toast";
 import { useSession } from "next-auth/react";
 import CustomerSelect from "@/app/(app)/components/customerSelect";
+import VehicleSelect from "@/app/(app)/components/vehicleSelect";
 import { Customer } from "../../../clientes/types";
 import { listarSetores } from "../../lib/api";
 import { ClienteInfoCard } from "./cliente-info-card";
@@ -61,7 +62,6 @@ export type FormularioNovaOSProps = {
   onSavingChange?: (saving: boolean) => void;
 };
 
-const NONE = "__none__";
 type AlvoTipo = "VEICULO" | "PECA";
 const MAX_PECA_NOME = 60;
 const MAX_PECA_DESC = 120;
@@ -99,7 +99,12 @@ export function FormularioNovaOS({
   const [veiculoSelecionadoId, setVeiculoSelecionadoId] = useState<
     number | null
   >(null);
+  const [veiculoSelecionado, setVeiculoSelecionado] = useState<any | null>(
+    null,
+  );
   const [openCustomer, setOpenCustomer] = useState(false);
+  const [openVehicleAll, setOpenVehicleAll] = useState(false);
+  const [openVehicleCustomer, setOpenVehicleCustomer] = useState(false);
   const [customerRegisterOpen, setCustomerRegisterOpen] = useState(false);
   const [selectedCustomerId, setSelectedCustomerId] = useState<
     number | undefined
@@ -132,7 +137,6 @@ export function FormularioNovaOS({
 
   const applySelectedCustomer = (c?: Customer | null) => {
     setCliente(c ?? null);
-    setVeiculoSelecionadoId(null);
     setVeiculosDoCliente(c?.veiculos ?? []);
   };
 
@@ -147,12 +151,6 @@ export function FormularioNovaOS({
       ordens: updatedCustomer.ordens ?? cliente.ordens ?? [],
     });
     setVeiculosDoCliente(veiculos);
-    setVeiculoSelecionadoId((currentVehicleId) =>
-      currentVehicleId !== null &&
-      !veiculos.some((v) => Number(v.id) === currentVehicleId)
-        ? null
-        : currentVehicleId,
-    );
   };
 
   const limparRascunhoPeca = () => {
@@ -182,7 +180,7 @@ export function FormularioNovaOS({
   const adicionarPeca = () => {
     const rascunho = montarPecaRascunho();
     if (!rascunho) {
-      toast.error("Informe o nome da peça.");
+      toast.error("Informe o nome da peÃ§a.");
       return;
     }
     setPecas((prev) => [...prev, rascunho]);
@@ -201,7 +199,7 @@ export function FormularioNovaOS({
         const items = await listarSetores();
         setSetores(items);
       } catch (e: any) {
-        setSetoresError(e?.message ?? "Não foi possível carregar os setores.");
+        setSetoresError(e?.message ?? "NÃ£o foi possÃ­vel carregar os setores.");
         setSetores([]);
       } finally {
         setLoadingSetores(false);
@@ -213,10 +211,34 @@ export function FormularioNovaOS({
     () =>
       veiculosDoCliente.map((v) => ({
         value: String(v.id),
-        label: `${v.modelo} • ${v.placa}${v.ano ? ` (${v.ano})` : ""}`,
+        label: `${v.modelo} â€¢ ${v.placa}${v.ano ? ` (${v.ano})` : ""}`,
       })),
     [veiculosDoCliente],
   );
+
+  const veiculoSelecionadoResumo = useMemo(() => {
+    if (veiculoSelecionado) return veiculoSelecionado;
+    return (
+      veiculosDoCliente.find((v) => Number(v.id) === veiculoSelecionadoId) ??
+      null
+    );
+  }, [veiculoSelecionado, veiculoSelecionadoId, veiculosDoCliente]);
+
+  const selecionarVeiculo = (veiculo: any) => {
+    setVeiculoSelecionadoId(Number(veiculo.id));
+    setVeiculoSelecionado(veiculo);
+    setVPlaca("");
+    setVModelo("");
+    setVMarca("");
+    setVAno("");
+    setVCor("");
+    setVKm("");
+  };
+
+  const limparVeiculo = () => {
+    setVeiculoSelecionadoId(null);
+    setVeiculoSelecionado(null);
+  };
 
   useEffect(() => {
     exposeSubmit?.(salvar);
@@ -244,7 +266,7 @@ export function FormularioNovaOS({
   ]);
 
   const validateAll = (): string | null => {
-    if (!setor) return "Selecione o setor responsável.";
+    if (!setor) return "Selecione o setor responsÃ¡vel.";
     if (alvoTipo === "VEICULO") {
       const placaNorm = vPlaca.trim().toUpperCase();
       if (!veiculoVinculado && placaNorm && veiculosDoCliente.length > 0) {
@@ -255,11 +277,11 @@ export function FormularioNovaOS({
           return normalize(placaCliente) === normalize(placaNorm);
         });
         if (jaExiste) {
-          return "Já existe um veículo com essa placa para este cliente. Selecione-o na lista em vez de cadastrar outro.";
+          return "JÃ¡ existe um veÃ­culo com essa placa para este cliente. Selecione-o na lista em vez de cadastrar outro.";
         }
       }
     } else {
-      if (pecasParaSalvar().length === 0) return "Informe ao menos uma peça.";
+      if (pecasParaSalvar().length === 0) return "Informe ao menos uma peÃ§a.";
     }
 
     return null;
@@ -359,9 +381,9 @@ export function FormularioNovaOS({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Criar OS sem veículo</AlertDialogTitle>
+            <AlertDialogTitle>Criar OS sem veÃ­culo</AlertDialogTitle>
             <AlertDialogDescription>
-              Deseja criar a ordem de serviço sem selecionar um veículo
+              Deseja criar a ordem de serviÃ§o sem selecionar um veÃ­culo
               vinculado?
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -466,7 +488,7 @@ export function FormularioNovaOS({
             <div className="flex items-center gap-2">
               <Building2 className="h-5 w-5 text-primary" />
               <CardTitle className="text-base sm:text-lg">
-                Definição da OS
+                DefiniÃ§Ã£o da OS
               </CardTitle>
             </div>
           </CardHeader>
@@ -474,7 +496,7 @@ export function FormularioNovaOS({
           <CardContent className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="space-y-3">
-                <Label>Setor responsável</Label>
+                <Label>Setor responsÃ¡vel</Label>
                 <Select
                   value={setor}
                   onValueChange={setSetor}
@@ -489,7 +511,7 @@ export function FormularioNovaOS({
                           ? "Carregando setores..."
                           : setores.length
                             ? "Selecione o setor"
-                            : "Nenhum setor disponível"
+                            : "Nenhum setor disponÃ­vel"
                       }
                     />
                   </SelectTrigger>
@@ -539,79 +561,90 @@ export function FormularioNovaOS({
               >
                 <label className="flex items-center gap-2 cursor-pointer">
                   <RadioGroupItem id="alvo-veic" value="VEICULO" />
-                  <span>Veículo</span>
+                  <span>VeÃ­culo</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <RadioGroupItem id="alvo-peca" value="PECA" />
-                  <span>Peça</span>
+                  <span>PeÃ§a</span>
                 </label>
               </RadioGroup>
 
               {alvoTipo === "VEICULO" ? (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <Label>
-                      Vincular a um veículo já cadastrado (opcional)
-                    </Label>
+                    <Label>Vincular a um veículo já cadastrado (opcional)</Label>
                     <Badge variant="outline" className="font-normal">
-                      {cliente ? `${veiculoOptions.length} veículo(s)` : "—"}
+                      {cliente ? `${veiculoOptions.length} veículo(s) do cliente` : "Sem cliente"}
                     </Badge>
                   </div>
 
-                  <Select
-                    value={
-                      veiculoSelecionadoId === null
-                        ? NONE
-                        : String(veiculoSelecionadoId)
-                    }
-                    onValueChange={(v) => {
-                      const id = v === NONE ? null : Number(v);
-                      setVeiculoSelecionadoId(id);
+                  <div className="flex flex-wrap gap-2">
+                    {cliente ? (
+                      <VehicleSelect
+                        open={openVehicleCustomer}
+                        setOpen={setOpenVehicleCustomer}
+                        clienteId={cliente.id}
+                        title="Selecione um veículo do cliente"
+                        OnSelect={selecionarVeiculo}
+                      >
+                        <Button type="button" variant="outline" className="text-xs">
+                          <Search className="h-3 w-3" />
+                          Veículos do cliente
+                        </Button>
+                      </VehicleSelect>
+                    ) : null}
 
-                      if (id !== null) {
-                        setVPlaca("");
-                        setVModelo("");
-                        setVMarca("");
-                        setVAno("");
-                        setVCor("");
-                        setVKm("");
-                      }
-                    }}
-                    disabled={!cliente || veiculoOptions.length === 0}
-                  >
-                    <SelectTrigger className="h-10 w-full md:w-[380px] min-w-[260px] truncate">
-                      <SelectValue
-                        placeholder={
-                          !cliente
-                            ? "Selecione um cliente"
-                            : veiculoOptions.length
-                              ? "Selecione um veículo"
-                              : "Cliente sem veículos"
-                        }
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={NONE}>Não vincular</SelectItem>
-                      {veiculoOptions.map((v) => (
-                        <SelectItem key={v.value} value={v.value}>
-                          {v.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ) : (
+                    <VehicleSelect
+                      open={openVehicleAll}
+                      setOpen={setOpenVehicleAll}
+                      title="Selecione um veículo"
+                      OnSelect={selecionarVeiculo}
+                    >
+                      <Button type="button" variant="outline" className="text-xs">
+                        <Search className="h-3 w-3" />
+                        Todos os veículos
+                      </Button>
+                    </VehicleSelect>
+
+                    {veiculoSelecionadoId ? (
+                      <Button type="button" variant="outline" className="text-xs" onClick={limparVeiculo}>
+                        <X className="h-3 w-3 text-red-500" />
+                        Remover veículo
+                      </Button>
+                    ) : null}
+                  </div>
+
+                  {veiculoSelecionadoResumo ? (
+                    <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
+                      <p className="font-medium text-foreground">
+                        Veículo vinculado: {veiculoSelecionadoResumo.modelo || "-"}
+                      </p>
+                      <p className="text-muted-foreground">
+                        Placa: {veiculoSelecionadoResumo.placa || "-"}
+                        {veiculoSelecionadoResumo.marca ? ` • Marca: ${veiculoSelecionadoResumo.marca}` : ""}
+                        {veiculoSelecionadoResumo.ano ? ` • Ano: ${veiculoSelecionadoResumo.ano}` : ""}
+                      </p>
+                      <p className="text-muted-foreground">
+                        Proprietário: {veiculoSelecionadoResumo.cliente?.nomerazaosocial || "Sem proprietário"}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+                      Nenhum veículo selecionado.
+                    </div>
+                  )}
+                </div>              ) : (
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-start">
                     <div className="space-y-1.5">
-                      <Label>Nome da peça</Label>
+                      <Label>Nome da peÃ§a</Label>
                       <Input
                         value={pNome}
                         maxLength={MAX_PECA_NOME}
                         onChange={(e) =>
                           setPNome(e.target.value.slice(0, MAX_PECA_NOME))
                         }
-                        placeholder="Ex.: Bomba d'água"
+                        placeholder="Ex.: Bomba d'Ã¡gua"
                       />
                       <div className="text-right text-xs text-muted-foreground">
                         {pNome.length}/{MAX_PECA_NOME}
@@ -619,12 +652,12 @@ export function FormularioNovaOS({
                     </div>
 
                     <div className="space-y-1.5">
-                      <Label>Lacre da peça</Label>
+                      <Label>Lacre da peÃ§a</Label>
                       <Input
                         value={pLacre}
                         maxLength={30}
                         onChange={(e) => setPLacre(e.target.value.slice(0, 30))}
-                        placeholder="Lacre para identificação"
+                        placeholder="Lacre para identificaÃ§Ã£o"
                       />
                       <div className="text-right text-xs text-muted-foreground">
                         {pLacre.length}/30
@@ -632,14 +665,14 @@ export function FormularioNovaOS({
                     </div>
 
                     <div className="space-y-1.5">
-                      <Label>Descrição (opcional)</Label>
+                      <Label>DescriÃ§Ã£o (opcional)</Label>
                       <Input
                         value={pDesc}
                         maxLength={MAX_PECA_DESC}
                         onChange={(e) =>
                           setPDesc(e.target.value.slice(0, MAX_PECA_DESC))
                         }
-                        placeholder="Detalhes da peça"
+                        placeholder="Detalhes da peÃ§a"
                       />
                       <div className="text-right text-xs text-muted-foreground">
                         {pDesc.length}/{MAX_PECA_DESC}
@@ -657,14 +690,14 @@ export function FormularioNovaOS({
                         className="w-full lg:w-auto"
                       >
                         <Plus className="h-4 w-4" />
-                        Adicionar peça
+                        Adicionar peÃ§a
                       </Button>
                     </div>
                   </div>
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <Label>Peças desta criação</Label>
+                      <Label>PeÃ§as desta criaÃ§Ã£o</Label>
                       <Badge variant="outline" className="font-normal">
                         {pecas.length} adicionada(s)
                       </Badge>
@@ -684,7 +717,7 @@ export function FormularioNovaOS({
                                     variant="secondary"
                                     className="font-medium"
                                   >
-                                    Peça {index + 1}
+                                    PeÃ§a {index + 1}
                                   </Badge>
                                   <p className="text-sm font-semibold leading-none">
                                     {item.nome}
@@ -727,15 +760,15 @@ export function FormularioNovaOS({
                     ) : (
                       <div className="rounded-xl border border-dashed bg-muted/20 px-4 py-5">
                         <p className="text-sm text-muted-foreground">
-                          Nenhuma peça adicionada ainda. Você pode adicionar
-                          várias; será criada uma OS para cada peça.
+                          Nenhuma peÃ§a adicionada ainda. VocÃª pode adicionar
+                          vÃ¡rias; serÃ¡ criada uma OS para cada peÃ§a.
                         </p>
                       </div>
                     )}
 
                     {pNome.trim() && (
                       <p className="text-xs text-muted-foreground">
-                        A peça atualmente preenchida também será incluída no
+                        A peÃ§a atualmente preenchida tambÃ©m serÃ¡ incluÃ­da no
                         salvamento, mesmo sem clicar em adicionar.
                       </p>
                     )}
@@ -751,7 +784,7 @@ export function FormularioNovaOS({
             <div className="flex items-center gap-2">
               <ClipboardList className="h-5 w-5 text-primary" />
               <CardTitle className="text-base sm:text-lg">
-                Descrição do Problema
+                DescriÃ§Ã£o do Problema
               </CardTitle>
             </div>
             <CardDescription className="text-sm text-muted-foreground">
@@ -775,17 +808,17 @@ export function FormularioNovaOS({
               <TriangleAlert className="h-5 w-5 text-primary" />
 
               <CardTitle className="text-base sm:text-lg">
-                Observações (Interno)
+                ObservaÃ§Ãµes (Interno)
               </CardTitle>
             </div>{" "}
             <CardDescription className="text-sm text-muted-foreground">
-              Espaço para anotações internas da equipe, como detalhes adicionais
-              do atendimento ou histórico relevante.
+              EspaÃ§o para anotaÃ§Ãµes internas da equipe, como detalhes adicionais
+              do atendimento ou histÃ³rico relevante.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Textarea
-              placeholder="Informações adicionais..."
+              placeholder="InformaÃ§Ãµes adicionais..."
               className="min-h-[80px] resize-y"
               value={observacoes}
               onChange={(e) => setObservacoes(e.target.value)}
@@ -798,17 +831,17 @@ export function FormularioNovaOS({
             <div className="flex gap-2 items-center">
               <FileText className="h-5 w-5 text-primary" />
               <CardTitle className="text-base sm:text-lg">
-                Observações Fiscais
+                ObservaÃ§Ãµes Fiscais
               </CardTitle>
             </div>
             <CardDescription className="text-sm text-muted-foreground">
-              Informações fiscais adicionais relevantes para emissão de notas ou
+              InformaÃ§Ãµes fiscais adicionais relevantes para emissÃ£o de notas ou
               processos relacionados.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Textarea
-              placeholder="Informações fiscais adicionais..."
+              placeholder="InformaÃ§Ãµes fiscais adicionais..."
               className="min-h-[80px] resize-y"
               value={observacoesFiscais}
               onChange={(e) => setObservacoesFiscais(e.target.value)}

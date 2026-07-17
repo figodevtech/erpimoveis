@@ -1,4 +1,4 @@
-export const runtime = "nodejs";
+﻿export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
@@ -77,13 +77,13 @@ export async function POST(req: NextRequest) {
     const session = await auth();
     const usuariocriadorid = (session?.user as any)?.id as string | undefined;
     if (!usuariocriadorid) {
-      return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+      return NextResponse.json({ error: "NÃ£o autenticado" }, { status: 401 });
     }
 
     const body = (await req.json()) as any;
 
     if (!body?.setorid) {
-      return NextResponse.json({ error: "setorid é obrigatório" }, { status: 400 });
+      return NextResponse.json({ error: "setorid Ã© obrigatÃ³rio" }, { status: 400 });
     }
 
     if (
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
       (typeof body.cliente !== "object" || typeof body.cliente?.id !== "number")
     ) {
       return NextResponse.json(
-        { error: "Cliente inválido. Envie cliente.id numérico ou cliente null." },
+        { error: "Cliente invÃ¡lido. Envie cliente.id numÃ©rico ou cliente null." },
         { status: 400 }
       );
     }
@@ -113,7 +113,7 @@ export async function POST(req: NextRequest) {
 
       if (cErr) throw cErr;
       if (!cRow?.id) {
-        return NextResponse.json({ error: "Cliente não encontrado." }, { status: 400 });
+        return NextResponse.json({ error: "Cliente nÃ£o encontrado." }, { status: 400 });
       }
     }
 
@@ -127,7 +127,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           {
             error:
-              "Informe o 'alvo' (VEICULO/PECA). Quando VEICULO, selecione um veículo ou informe placa, modelo e marca.",
+              "Informe o 'alvo' (VEICULO/PECA). Quando VEICULO, selecione um veÃ­culo ou informe placa, modelo e marca.",
           },
           { status: 400 }
         );
@@ -143,13 +143,6 @@ export async function POST(req: NextRequest) {
         const ano = alvo.veiculo?.ano ?? null;
         const cor = (alvo.veiculo?.cor || "").trim() || null;
         const kmatual = alvo.veiculo?.kmatual ?? null;
-
-        if (placa && clienteid === null) {
-          return NextResponse.json(
-            { error: "Para cadastrar veículo novo, selecione um cliente." },
-            { status: 400 }
-          );
-        }
 
         if (placa) {
           const { data: vNew, error: eVNew } = await supabaseAdmin
@@ -182,7 +175,7 @@ export async function POST(req: NextRequest) {
       const pecas = normalizarPecas(alvo);
       if (pecas.length === 0) {
         return NextResponse.json(
-          { error: "Para alvo PEÇA, informe ao menos uma peça." },
+          { error: "Para alvo PEÃ‡A, informe ao menos uma peÃ§a." },
           { status: 400 }
         );
       }
@@ -237,7 +230,7 @@ export async function POST(req: NextRequest) {
         { status: 201 }
       );
     } else {
-      return NextResponse.json({ error: "alvo.tipo inválido" }, { status: 400 });
+      return NextResponse.json({ error: "alvo.tipo invÃ¡lido" }, { status: 400 });
     }
 
     const { data: os, error: eOS } = await supabaseAdmin

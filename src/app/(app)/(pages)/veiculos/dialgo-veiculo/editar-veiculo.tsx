@@ -21,6 +21,7 @@ import {
   Image as ImageIcon,
   Loader2,
   Search,
+  X,
 } from "lucide-react";
 import {
   DialogClose,
@@ -883,7 +884,7 @@ export default function EditContent({
                           className="w-full"
                           value={
                             selectedVeiculo?.cliente?.nomerazaosocial ||
-                            "Selecione"
+                            "Sem proprietário"
                           }
                           disabled={true}
                         />
@@ -893,6 +894,28 @@ export default function EditContent({
                         >
                           <Search className="w-4 h-4 text-primary" />
                         </div>
+                        {selectedVeiculo?.clienteid ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            onClick={() =>
+                              setSelectedVeiculo((prev) =>
+                                prev
+                                  ? {
+                                      ...prev,
+                                      clienteid: null,
+                                      cliente: undefined,
+                                    }
+                                  : prev,
+                              )
+                            }
+                            disabled={disabledForm}
+                            title="Remover proprietário"
+                          >
+                            <X className="h-4 w-4 text-red-500" />
+                          </Button>
+                        ) : null}
                       </div>
                     </div>
                   </div>
