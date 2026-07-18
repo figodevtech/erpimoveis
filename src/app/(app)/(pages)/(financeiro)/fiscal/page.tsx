@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import axios from "axios";
 import { FilePlus2 } from "lucide-react";
@@ -31,6 +31,7 @@ export default function FiscalPage() {
   const [modelo, setModelo] = useState("");
   const [viewMode, setViewMode] = useState<FiscalViewMode>("EMITIDAS_POR_NOS");
   const [isSyncing, setIsSyncing] = useState(false);
+  const automaticSyncViewRef = useRef<FiscalViewMode | null>(null);
 
   const handleGetKpis = useCallback(async () => {
     setIsLoadingKpis(true);
@@ -81,18 +82,23 @@ export default function FiscalPage() {
     [dateFrom, dateTo, modelo, pagination.limit, search, status, viewMode],
   );
 
-  const handleSyncTerceiros = useCallback(async (options?: { force?: boolean }) => {
+  const handleSyncTerceiros = useCallback(async (options?: { force?: boolean; automatic?: boolean }) => {
     const force = options?.force === true;
+    const automatic = options?.automatic === true;
     setIsSyncing(true);
-    const toastId = toast.loading(
-      force
-        ? "Forçando sincronização de documentos fiscais recebidos..."
-        : "Sincronizando documentos fiscais recebidos...",
-    );
+    const toastId = automatic
+      ? null
+      : toast.loading(
+          force
+            ? "Forçando sincronização de documentos fiscais recebidos..."
+            : "Sincronizando documentos fiscais recebidos...",
+        );
     try {
-      const response = await axios.post("/api/fiscal/notas-recebidas/sync", { force });
+      const response = await axios.post("/api/fiscal/notas-recebidas/sync", { force, automatic });
+      if (response.data?.skipped) return;
+
       toast.success("Sincronização concluída", {
-        id: toastId,
+        ...(toastId != null ? { id: toastId } : {}),
         description: `${response.data?.novosDocumentos ?? 0} novo(s) documento(s). ${response.data?.xMotivo ?? ""}`,
       });
       await Promise.all([
@@ -110,7 +116,7 @@ export default function FiscalPage() {
         : undefined;
       const syncErrorDescription = [motivo, cStat, blockedMessage].filter(Boolean).join(" ");
       toast.error("Falha na sincronização", {
-        id: toastId,
+        ...(toastId != null ? { id: toastId } : {}),
         description:
           syncErrorDescription ||
           error?.message,
@@ -127,6 +133,15 @@ export default function FiscalPage() {
       setIsSyncing(false);
     }
   }, [handleGetKpis, handleGetNotas, pagination.limit]);
+
+  useEffect(() => {
+    if (automaticSyncViewRef.current === viewMode) return;
+    automaticSyncViewRef.current = viewMode;
+
+    if (viewMode === "EMITIDAS_TERCEIROS") {
+      void handleSyncTerceiros({ automatic: true });
+    }
+  }, [handleSyncTerceiros, viewMode]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {

@@ -665,20 +665,20 @@ export function POSSystem() {
                   }`}
                 >
                   <CardContent className="p-4 space-y-3">
-                    <div className="h-48 bg-muted rounded-lg flex items-center justify-center group-hover:bg-primary/10 transition-all relative">
+                    <div className="aspect-[1/1] bg-white rounded-lg flex items-center justify-center group-hover:bg-white duration-75 transition-all relative">
                       {product.imgUrl ? (
                         <div className="w-full h-full relative">
                           <div className="w-full h-full overflow-hidden flex items-center justify-center absolute">
-                            <img
+                            {/* <img
                               alt={product.titulo || "imagem do produto"}
                               className="w-full blur-xs opacity-50"
                               src={product.imgUrl}
-                            />
+                            /> */}
                           </div>
                           <div className="w-full h-full overflow-hidden flex items-center justify-center absolute z-10">
                             <img
                               alt={product.titulo || "imagem do produto"}
-                              className="h-full group-hover:scale-110 transition-all duration-500"
+                              className="h-full group-hover:scale-105 transition-all duration-500"
                               src={product.imgUrl}
                             />
                           </div>
@@ -724,7 +724,7 @@ export function POSSystem() {
                             </div>
                             <div className="grid gap-3 text-sm">
                               <div className="grid grid-cols-2 gap-3">
-                                <div className="rounded-lg border border-border bg-muted/40 p-3">
+                                <div className="rounded-lg border border-border bg-card p-3">
                                   <p className="text-xs text-muted-foreground">
                                     Preço
                                   </p>
@@ -734,16 +734,16 @@ export function POSSystem() {
                                     )}
                                   </p>
                                 </div>
-                                <div className="rounded-lg border border-border bg-muted/40 p-3">
+                                <div className="rounded-lg border border-border bg-card p-3">
                                   <p className="text-xs text-muted-foreground">
                                     Estoque
                                   </p>
-                                  <p className="font-semibold text-foreground">
+                                  <p className="font-semibold text-foreground ">
                                     {selectedProductInfo?.estoque ?? 0}
                                   </p>
                                 </div>
                               </div>
-                              <div className="grid gap-2 rounded-lg border border-border bg-muted/40 p-3">
+                              <div className="grid gap-2 rounded-lg border border-border bg-card p-3">
                                 <p>
                                   <span className="text-muted-foreground">
                                     Grupo:

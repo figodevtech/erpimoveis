@@ -18,7 +18,10 @@ import {
 type SyncDfeParams = {
   empresaId?: number;
   force?: boolean;
+  automatic?: boolean;
 };
+
+const AUTOMATIC_SYNC_INTERVAL_MS = 60 * 60 * 1000;
 
 type ListDfeParams = {
   page?: number;
@@ -355,6 +358,28 @@ export async function sincronizarDfeRecebidas(params: SyncDfeParams = {}) {
     };
   }
 
+  if (params.automatic) {
+    const lastSyncAt = new Date(controle.last_sync_at ?? 0).getTime();
+    const lastStartedAt = new Date(controle.sync_started_at ?? 0).getTime();
+    const lastAttemptAt = Math.max(
+      Number.isFinite(lastSyncAt) ? lastSyncAt : 0,
+      Number.isFinite(lastStartedAt) ? lastStartedAt : 0,
+    );
+    const nextAutomaticSyncAt = lastAttemptAt + AUTOMATIC_SYNC_INTERVAL_MS;
+
+    if (lastAttemptAt > 0 && nextAutomaticSyncAt > Date.now()) {
+      return {
+        success: true,
+        skipped: true,
+        novosDocumentos: 0,
+        ultNSU: controle.ult_nsu,
+        maxNSU: controle.max_nsu,
+        nextSyncAfter: new Date(nextAutomaticSyncAt).toISOString(),
+        message: "Sincronização automática dispensada: última tentativa há menos de uma hora.",
+      };
+    }
+  }
+
   if (!params.force && controle.next_sync_after && new Date(controle.next_sync_after).getTime() > Date.now()) {
     return {
       success: false,
@@ -403,15 +428,15 @@ export async function sincronizarDfeRecebidas(params: SyncDfeParams = {}) {
       cStat = String(ret.cStat ?? "");
       xMotivo = String(ret.xMotivo ?? "");
 
-      if (ret.ultNSU != null) {
+      // Em rejeição por consumo indevido, a SEFAZ pode devolver valores de NSU
+      // que não representam o cursor válido da empresa. Preserve o controle
+      // local para não regredir e repetir documentos já consultados.
+      if (cStat !== "656" && ret.ultNSU != null) {
         ultNSU = normalizeNsu(ret.ultNSU);
       }
 
-      if (ret.maxNSU != null) {
-        const nextMaxNsu = normalizeNsu(ret.maxNSU);
-        if (!(cStat === "656" && nextMaxNsu === "000000000000000")) {
-          maxNSU = nextMaxNsu;
-        }
+      if (cStat !== "656" && ret.maxNSU != null) {
+        maxNSU = normalizeNsu(ret.maxNSU);
       }
 
       consumoIndevidoUntil =
