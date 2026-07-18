@@ -9,6 +9,8 @@ export interface Categoria_transacao {
   id: number;
   nome: string;
   descricao?: string;
+  icone?: string;
+  codigo_sistema?: string | null;
   ativo: boolean;
 }
 
@@ -55,6 +57,8 @@ export interface Transaction {
   data: Date;
   metodopagamento: Metodo_pagamento;
   categoria: string;
+  categoria_id?: number | null;
+  categoria_dados?: { id: number; nome: string; icone: string } | null;
   tipo: Tipo_transacao;
   cliente_id?: number;
   banco_id?: number | null;
@@ -76,6 +80,7 @@ export interface NewTransaction {
   data?: Date;
   metodopagamento?: Metodo_pagamento;
   categoria?: string;
+  categoria_id?: number | null;
   tipo?: Tipo_transacao;
   cliente_id?: number | null;
   banco_id?: number | null;

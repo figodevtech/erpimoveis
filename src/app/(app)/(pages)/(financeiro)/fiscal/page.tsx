@@ -7,6 +7,16 @@ import { FilePlus2 } from "lucide-react";
 import { toast } from "@/lib/toast";
 
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import FiscalCards from "./components/fiscal-cards";
 import FiscalTable from "./components/fiscal-table";
 import type { FiscalKpis, FiscalViewMode, NotaFiscal, Pagination } from "./types";
@@ -31,6 +41,10 @@ export default function FiscalPage() {
   const [modelo, setModelo] = useState("");
   const [viewMode, setViewMode] = useState<FiscalViewMode>("EMITIDAS_POR_NOS");
   const [isSyncing, setIsSyncing] = useState(false);
+  const [companyChange, setCompanyChange] = useState<{
+    previousCnpj: string;
+    currentCnpj: string;
+  } | null>(null);
   const automaticSyncViewRef = useRef<FiscalViewMode | null>(null);
 
   const handleGetKpis = useCallback(async () => {
@@ -82,9 +96,14 @@ export default function FiscalPage() {
     [dateFrom, dateTo, modelo, pagination.limit, search, status, viewMode],
   );
 
-  const handleSyncTerceiros = useCallback(async (options?: { force?: boolean; automatic?: boolean }) => {
+  const handleSyncTerceiros = useCallback(async (options?: {
+    force?: boolean;
+    automatic?: boolean;
+    confirmCompanyChange?: boolean;
+  }) => {
     const force = options?.force === true;
     const automatic = options?.automatic === true;
+    const confirmCompanyChange = options?.confirmCompanyChange === true;
     setIsSyncing(true);
     const toastId = automatic
       ? null
@@ -94,7 +113,11 @@ export default function FiscalPage() {
             : "Sincronizando documentos fiscais recebidos...",
         );
     try {
-      const response = await axios.post("/api/fiscal/notas-recebidas/sync", { force, automatic });
+      const response = await axios.post("/api/fiscal/notas-recebidas/sync", {
+        force,
+        automatic,
+        confirmCompanyChange,
+      });
       if (response.data?.skipped) return;
 
       toast.success("Sincronização concluída", {
@@ -107,6 +130,14 @@ export default function FiscalPage() {
       ]);
     } catch (error: any) {
       const data = error?.response?.data;
+      if (data?.companyChangeDetected) {
+        if (toastId != null) toast.dismiss(toastId);
+        setCompanyChange({
+          previousCnpj: data.previousCnpj ?? "Não informado",
+          currentCnpj: data.currentCnpj ?? "Não informado",
+        });
+        return;
+      }
       const motivo = data?.xMotivo ?? data?.message ?? data?.detail ?? data?.error;
       const cStat = data?.cStat ? `cStat ${data.cStat}.` : null;
       const canForce = Boolean(data?.nextSyncAfter && !data?.consumoIndevidoUntil && !force);
@@ -186,6 +217,45 @@ export default function FiscalPage() {
         onSyncTerceiros={handleSyncTerceiros}
         isSyncing={isSyncing}
       />
+      <AlertDialog
+        open={Boolean(companyChange)}
+        onOpenChange={(open) => {
+          if (!open && !isSyncing) setCompanyChange(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Novo CNPJ detectado</AlertDialogTitle>
+            <AlertDialogDescription>
+              O CNPJ atual da empresa é diferente daquele usado na última sincronização de notas fiscais.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-3 text-sm">
+            <div className="rounded-md border bg-muted/30 p-3">
+              <p>CNPJ anterior: <span className="font-medium">{companyChange?.previousCnpj}</span></p>
+              <p>CNPJ atual: <span className="font-medium">{companyChange?.currentCnpj}</span></p>
+            </div>
+            <p className="text-muted-foreground">
+              Ao prosseguir, todas as notas fiscais recebidas armazenadas para esta empresa serão excluídas,
+              o controle de NSU será reiniciado e uma nova sincronização será iniciada. Confirme também que
+              o certificado digital já foi substituído pelo certificado correspondente ao novo CNPJ.
+            </p>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isSyncing}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isSyncing}
+              onClick={(event) => {
+                event.preventDefault();
+                setCompanyChange(null);
+                void handleSyncTerceiros({ confirmCompanyChange: true });
+              }}
+            >
+              Reiniciar e sincronizar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

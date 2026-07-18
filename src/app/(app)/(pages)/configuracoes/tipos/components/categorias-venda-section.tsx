@@ -227,7 +227,7 @@ export default function CategoriasVendaSection() {
                 <DialogTitle>{editing ? "Editar categoria de venda" : "Nova categoria de venda"}</DialogTitle>
               </DialogHeader>
 
-              <div className="mt-4 space-y-4">
+              <div className="mt-4 space-y-4 bg-card rounded-2xl p-4">
                 <div className="space-y-1.5">
                   <Label>Nome</Label>
                   <Input value={form.nome} onChange={(e) => handleChange("nome", e.target.value)} />

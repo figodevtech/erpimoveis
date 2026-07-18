@@ -376,7 +376,7 @@ export default function FinancialTable({
                 >
                   <TableCell className="flex flex-row items-center gap-2">
                     <div className="rounded-full p-2 bg-primary/50">
-                      {getCategoryIcon(t.categoria)}
+                      {getCategoryIcon(t.categoria, t.categoria_dados?.icone)}
                     </div>
                     <div className="flex flex-col items-start">
                       {t.descricao}

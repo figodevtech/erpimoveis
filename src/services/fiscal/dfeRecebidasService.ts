@@ -19,6 +19,7 @@ type SyncDfeParams = {
   empresaId?: number;
   force?: boolean;
   automatic?: boolean;
+  confirmCompanyChange?: boolean;
 };
 
 const AUTOMATIC_SYNC_INTERVAL_MS = 60 * 60 * 1000;
@@ -98,6 +99,12 @@ function clampInt(value: unknown, fallback: number, min: number, max: number) {
 
 function onlyDigits(value: unknown) {
   return String(value ?? "").replace(/\D/g, "");
+}
+
+function maskCnpj(value: unknown) {
+  const digits = onlyDigits(value);
+  if (digits.length !== 14) return "Não informado";
+  return `**.***.***/${digits.slice(8, 12)}-${digits.slice(12)}`;
 }
 
 function normalizeText(value: unknown) {
@@ -342,7 +349,36 @@ async function salvarLoteDfeComControle(
 export async function sincronizarDfeRecebidas(params: SyncDfeParams = {}) {
   const empresa = await getEmpresa(params.empresaId);
   const empresaId = Number(empresa.id);
-  const controle = await getControle(empresaId);
+  const currentCnpj = onlyDigits(empresa.cnpj);
+  let controle = await getControle(empresaId);
+  const controlCnpj = onlyDigits(controle.cnpj_consultado);
+
+  if (!controlCnpj) {
+    const { error } = await supabaseAdmin
+      .from("fiscal_dfe_controle")
+      .update({ cnpj_consultado: currentCnpj, updatedat: new Date().toISOString() })
+      .eq("empresa_id", empresaId);
+    if (error) throw error;
+    controle = { ...controle, cnpj_consultado: currentCnpj };
+  } else if (controlCnpj !== currentCnpj) {
+    if (!params.confirmCompanyChange) {
+      return {
+        success: false,
+        companyChangeDetected: true,
+        previousCnpj: maskCnpj(controlCnpj),
+        currentCnpj: maskCnpj(currentCnpj),
+        documentsWillBeDeleted: true,
+        message: "Novo CNPJ detectado. Confirme a reinicialização dos documentos fiscais recebidos.",
+      };
+    }
+
+    const { error } = await supabaseAdmin.rpc("fiscal_reset_dfe_por_troca_cnpj", {
+      p_empresa_id: empresaId,
+      p_cnpj: currentCnpj,
+    });
+    if (error) throw error;
+    controle = await getControle(empresaId);
+  }
 
   if (controle.consumo_indevido_until && new Date(controle.consumo_indevido_until).getTime() > Date.now()) {
     return {
@@ -428,15 +464,17 @@ export async function sincronizarDfeRecebidas(params: SyncDfeParams = {}) {
       cStat = String(ret.cStat ?? "");
       xMotivo = String(ret.xMotivo ?? "");
 
-      // Em rejeição por consumo indevido, a SEFAZ pode devolver valores de NSU
-      // que não representam o cursor válido da empresa. Preserve o controle
-      // local para não regredir e repetir documentos já consultados.
-      if (cStat !== "656" && ret.ultNSU != null) {
+      // O ultNSU devolvido deve ser persistido inclusive no cStat 656: nesse
+      // retorno a SEFAZ informa o cursor que espera na próxima solicitação.
+      if (ret.ultNSU != null) {
         ultNSU = normalizeNsu(ret.ultNSU);
       }
 
-      if (cStat !== "656" && ret.maxNSU != null) {
-        maxNSU = normalizeNsu(ret.maxNSU);
+      if (ret.maxNSU != null) {
+        const nextMaxNsu = normalizeNsu(ret.maxNSU);
+        if (!(cStat === "656" && nextMaxNsu === "000000000000000")) {
+          maxNSU = nextMaxNsu;
+        }
       }
 
       consumoIndevidoUntil =

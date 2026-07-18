@@ -331,3 +331,89 @@ export async function GET(
     );
   }
 }
+
+export async function DELETE(
+  _req: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
+  try {
+    await ensureAuth();
+
+    const { id } = await context.params;
+    const fornecedorId = parseId(id);
+    if (!fornecedorId) {
+      return NextResponse.json({ error: "ID inválido." }, { status: 400 });
+    }
+
+    const { data: fornecedor, error: fornecedorError } = await supabaseAdmin
+      .from("fornecedor")
+      .select("id, nomerazaosocial")
+      .eq("id", fornecedorId)
+      .maybeSingle();
+
+    if (fornecedorError) throw fornecedorError;
+    if (!fornecedor) {
+      return NextResponse.json({ error: "Fornecedor não encontrado." }, { status: 404 });
+    }
+
+    const [produtos, entradas, notas] = await Promise.all([
+      supabaseAdmin
+        .from("fornecedorprodutos")
+        .select("id", { count: "exact", head: true })
+        .eq("fornecedorid", fornecedorId),
+      supabaseAdmin
+        .from("entrada")
+        .select("id", { count: "exact", head: true })
+        .eq("fornecedorid", fornecedorId),
+      supabaseAdmin
+        .from("nfe")
+        .select("id", { count: "exact", head: true })
+        .eq("fornecedorid", fornecedorId),
+    ]);
+
+    const queryError = produtos.error ?? entradas.error ?? notas.error;
+    if (queryError) throw queryError;
+
+    const vinculos = {
+      produtos: produtos.count ?? 0,
+      entradas: entradas.count ?? 0,
+      notasFiscais: notas.count ?? 0,
+    };
+    const totalVinculos = vinculos.produtos + vinculos.entradas + vinculos.notasFiscais;
+
+    if (totalVinculos > 0) {
+      return NextResponse.json(
+        {
+          error: "Este fornecedor está vinculado a outros registros e não pode ser excluído.",
+          vinculos,
+        },
+        { status: 409 }
+      );
+    }
+
+    const { error: deleteError } = await supabaseAdmin
+      .from("fornecedor")
+      .delete()
+      .eq("id", fornecedorId);
+
+    if (deleteError) {
+      if (deleteError.code === "23503") {
+        return NextResponse.json(
+          { error: "O fornecedor recebeu um novo vínculo e não pode ser excluído." },
+          { status: 409 }
+        );
+      }
+      throw deleteError;
+    }
+
+    return NextResponse.json({ success: true, id: fornecedorId });
+  } catch (e: any) {
+    console.error("[/api/tipos/fornecedores/:id DELETE] error:", e);
+    const msg = String(e?.message ?? "");
+    const status = /auth|unauth|não autenticado/i.test(msg) ? 401 : 500;
+    return NextResponse.json(
+      { error: e?.message ?? "Erro ao excluir fornecedor" },
+      { status }
+    );
+  }
+}

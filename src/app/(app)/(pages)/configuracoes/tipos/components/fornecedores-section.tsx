@@ -11,6 +11,7 @@ import {
   Loader2,
   MoreHorizontal,
   Plus,
+  Trash2,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import FornecedorDialog from "./fornecedorDialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type Fornecedor = {
   id: number;
@@ -51,6 +62,8 @@ export default function FornecedoresSection() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Fornecedor | null>(null);
+  const [fornecedorExcluir, setFornecedorExcluir] = useState<Fornecedor | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(DEFAULT_LIMIT);
@@ -134,6 +147,44 @@ export default function FornecedoresSection() {
   function openEditar(f: Fornecedor) {
     setEditing(f);
     setDialogOpen(true);
+  }
+
+  async function excluirFornecedor() {
+    if (!fornecedorExcluir) return;
+
+    try {
+      setIsDeleting(true);
+      const res = await fetch(`/api/tipos/fornecedores/${fornecedorExcluir.id}`, {
+        method: "DELETE",
+      });
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        const vinculos = json?.vinculos;
+        const detalhes = vinculos
+          ? [
+              vinculos.produtos ? `${vinculos.produtos} produto(s)` : null,
+              vinculos.entradas ? `${vinculos.entradas} entrada(s)` : null,
+              vinculos.notasFiscais ? `${vinculos.notasFiscais} nota(s) fiscal(is)` : null,
+            ].filter(Boolean).join(", ")
+          : "";
+        throw new Error(
+          detalhes
+            ? `${json?.error ?? "Fornecedor vinculado."} Vínculos encontrados: ${detalhes}.`
+            : json?.error ?? "Erro ao excluir fornecedor",
+        );
+      }
+
+      toast.success("Fornecedor excluído.");
+      setFornecedorExcluir(null);
+      await loadFornecedores();
+    } catch (err: any) {
+      toast.error("Não foi possível excluir o fornecedor", {
+        description: err?.message ?? "Erro ao excluir fornecedor.",
+      });
+    } finally {
+      setIsDeleting(false);
+    }
   }
 
   return (
@@ -238,8 +289,15 @@ export default function FornecedoresSection() {
                           <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-32">
+                      <DropdownMenuContent align="end" className="w-36">
                         <DropdownMenuItem onClick={() => openEditar(f)}>Editar</DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onClick={() => setFornecedorExcluir(f)}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Excluir
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -335,6 +393,36 @@ export default function FornecedoresSection() {
           </div>
         </div>
       </CardContent>
+      <AlertDialog
+        open={Boolean(fornecedorExcluir)}
+        onOpenChange={(open) => {
+          if (!open && !isDeleting) setFornecedorExcluir(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir fornecedor?</AlertDialogTitle>
+            <AlertDialogDescription>
+              O fornecedor <strong>{fornecedorExcluir?.nomerazaosocial}</strong> será excluído permanentemente.
+              A operação será bloqueada se existirem produtos, entradas de estoque ou notas fiscais vinculadas.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={isDeleting}
+              onClick={(event) => {
+                event.preventDefault();
+                void excluirFornecedor();
+              }}
+            >
+              {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }

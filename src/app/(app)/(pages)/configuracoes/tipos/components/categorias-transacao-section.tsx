@@ -11,6 +11,7 @@ import {
   Loader2,
   Plus,
   MoreHorizontal,
+  Search,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -34,23 +35,34 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  TRANSACTION_CATEGORY_ICON_OPTIONS,
+  TransactionCategoryIcon,
+  type TransactionCategoryIconName,
+} from "@/lib/transaction-category-icons";
 
 type CategoriaTransacao = {
   id: number;
   nome: string;
   descricao: string | null;
+  icone: TransactionCategoryIconName;
   ativo: boolean | null;
+  codigo_sistema: string | null;
 };
 
 type CategoriaForm = {
   nome: string;
   descricao: string;
+  icone: TransactionCategoryIconName;
   ativo: boolean;
 };
 
 const emptyForm: CategoriaForm = {
   nome: "",
   descricao: "",
+  icone: "other",
   ativo: true,
 };
 
@@ -65,6 +77,8 @@ export default function CategoriasTransacaoSection() {
   const [isSaving, setIsSaving] = useState(false);
   const [editing, setEditing] = useState<CategoriaTransacao | null>(null);
   const [form, setForm] = useState<CategoriaForm>(emptyForm);
+  const [iconSearch, setIconSearch] = useState("");
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
 
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(DEFAULT_LIMIT);
@@ -86,6 +100,9 @@ export default function CategoriasTransacaoSection() {
         <TableRow key={`skeleton-${i}`} className="animate-pulse">
           <TableCell className="h-10">
             <div className="h-3 w-32 bg-muted rounded" />
+          </TableCell>
+          <TableCell>
+            <div className="h-8 w-8 bg-muted rounded-full" />
           </TableCell>
           <TableCell>
             <div className="h-3 w-48 bg-muted rounded" />
@@ -113,7 +130,9 @@ export default function CategoriasTransacaoSection() {
         id: Number(c.id),
         nome: String(c.nome ?? ""),
         descricao: (c.descricao as string | null) ?? null,
+        icone: (c.icone as TransactionCategoryIconName) ?? "other",
         ativo: typeof c.ativo === "boolean" ? (c.ativo as boolean) : true,
+        codigo_sistema: (c.codigo_sistema as string | null) ?? null,
       }));
 
       setCategorias(items);
@@ -146,6 +165,7 @@ export default function CategoriasTransacaoSection() {
     setForm({
       nome: c.nome ?? "",
       descricao: c.descricao ?? "",
+      icone: c.icone ?? "other",
       ativo: c.ativo ?? true,
     });
     setDialogOpen(true);
@@ -160,6 +180,7 @@ export default function CategoriasTransacaoSection() {
     const payload = {
       nome: form.nome.trim(),
       descricao: form.descricao.trim() || null,
+      icone: form.icone,
       ativo: form.ativo,
     };
 
@@ -229,6 +250,8 @@ export default function CategoriasTransacaoSection() {
               if (!open) {
                 setEditing(null);
                 setForm(emptyForm);
+                setIconSearch("");
+                setIconPickerOpen(false);
               }
             }}
           >
@@ -244,7 +267,7 @@ export default function CategoriasTransacaoSection() {
                 <DialogTitle>{editing ? "Editar categoria" : "Nova categoria"}</DialogTitle>
               </DialogHeader>
 
-              <div className="mt-4 space-y-4">
+              <div className="mt-4 space-y-4 bg-card rounded-2xl p-4">
                 <div className="space-y-1.5">
                   <Label>Nome</Label>
                   <Input value={form.nome} onChange={(e) => handleChange("nome", e.target.value)} />
@@ -257,6 +280,55 @@ export default function CategoriasTransacaoSection() {
                     placeholder="Descrição amigável"
                   />
                 </div>
+                <div className="space-y-1.5">
+                  <Label>Ícone</Label>
+                  <Popover open={iconPickerOpen} onOpenChange={setIconPickerOpen}>
+                    <PopoverTrigger asChild>
+                      <Button type="button" variant="outline" className="w-full justify-start">
+                        <TransactionCategoryIcon name={form.icone} className="h-4 w-4" />
+                        {TRANSACTION_CATEGORY_ICON_OPTIONS.find((option) => option.value === form.icone)?.label ?? "Outros"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[340px] p-3" align="start">
+                      <div className="relative mb-3">
+                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          value={iconSearch}
+                          onChange={(event) => setIconSearch(event.target.value)}
+                          placeholder="Buscar ícone..."
+                          className="pl-9"
+                        />
+                      </div>
+                      <ScrollArea
+                        className="h-64 overscroll-contain"
+                        onWheelCapture={(event) => event.stopPropagation()}
+                      >
+                        <div className="grid grid-cols-4 gap-2 pr-3">
+                          {TRANSACTION_CATEGORY_ICON_OPTIONS
+                            .filter((option) => option.label.toLocaleLowerCase("pt-BR").includes(iconSearch.toLocaleLowerCase("pt-BR")))
+                            .map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              title={option.label}
+                              onClick={() => {
+                                handleChange("icone", option.value);
+                                setIconPickerOpen(false);
+                                setIconSearch("");
+                              }}
+                              className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-md border p-2 text-[10px] transition-colors hover:bg-muted ${
+                                form.icone === option.value ? "border-primary bg-primary/10 text-primary" : ""
+                              }`}
+                            >
+                              <TransactionCategoryIcon name={option.value} className="h-5 w-5" />
+                              <span className="line-clamp-2 text-center">{option.label}</span>
+                            </button>
+                            ))}
+                        </div>
+                      </ScrollArea>
+                    </PopoverContent>
+                  </Popover>
+                </div>
                 <div className="mt-4 flex items-center justify-between rounded-md border px-3 py-2 bg-muted/40">
                   <div className="space-y-0.5">
                     <span className="text-sm font-medium">Status da categoria</span>
@@ -266,7 +338,11 @@ export default function CategoriasTransacaoSection() {
                     <span className="text-xs text-muted-foreground hidden sm:inline">
                       {form.ativo ? "Ativa" : "Inativa"}
                     </span>
-                    <Switch checked={form.ativo} onCheckedChange={(val) => handleChange("ativo", val)} />
+                    <Switch
+                      checked={form.ativo}
+                      disabled={Boolean(editing?.codigo_sistema)}
+                      onCheckedChange={(val) => handleChange("ativo", val)}
+                    />
                   </div>
                 </div>
               </div>
@@ -310,6 +386,7 @@ export default function CategoriasTransacaoSection() {
           <TableHeader>
             <TableRow>
               <TableHead>Nome</TableHead>
+              <TableHead>Ícone</TableHead>
               <TableHead>Descrição</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Ações</TableHead>
@@ -320,7 +397,7 @@ export default function CategoriasTransacaoSection() {
               linhasSkeleton
             ) : total === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="text-center py-10 text-muted-foreground">
+                <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
                   Nenhuma categoria cadastrada. Clique em <b>+ Categoria</b> para cadastrar.
                 </TableCell>
               </TableRow>
@@ -328,6 +405,11 @@ export default function CategoriasTransacaoSection() {
               pageItems.map((c) => (
                 <TableRow key={c.id} className="hover:cursor-default">
                   <TableCell className="font-mono">{c.nome}</TableCell>
+                  <TableCell>
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/15">
+                      <TransactionCategoryIcon name={c.icone} className="h-4 w-4" />
+                    </div>
+                  </TableCell>
                   <TableCell>{c.descricao || "—"}</TableCell>
                   <TableCell>
                     <Badge

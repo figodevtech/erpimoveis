@@ -13,6 +13,7 @@ const WRITABLE_FIELDS = new Set([
   "data",
   "metodopagamento",
   "categoria",
+  "categoria_id",
   "tipo",
   "cliente_id",
   "banco_id",
@@ -24,7 +25,7 @@ const WRITABLE_FIELDS = new Set([
 const FORTALEZA_OFFSET = "-03:00";
 
 const TRANSACAO_FIELDS =
-  "id, descricao, valor, valorLiquido, nomepagador, cpfcnpjpagador, pendente, data, ordemservicoid, vendaid, metodopagamento, categoria, tipo, cliente_id, banco_id, created_at, updated_at";
+  "id, descricao, valor, valorLiquido, nomepagador, cpfcnpjpagador, pendente, data, ordemservicoid, vendaid, metodopagamento, categoria, categoria_id, tipo, cliente_id, banco_id, created_at, updated_at";
 
 const BANCO_FIELDS =
   "id, titulo, tipo, agencia, contanumero, proprietario, valorinicial, empresa_id, created_at, updated_at";
@@ -129,7 +130,8 @@ function sanitizeTransacaoPayload(body: any, { strict }: { strict: boolean }) {
       }
       case "cliente_id":
       case "ordemservicoid":
-      case "vendaid": {
+      case "vendaid":
+      case "categoria_id": {
         const parsed = toNumberOrNull(body[key]);
         output[key] = parsed == null ? null : Math.trunc(parsed);
         break;
@@ -150,7 +152,7 @@ function sanitizeTransacaoPayload(body: any, { strict }: { strict: boolean }) {
   }
 
   if (strict) {
-    const required = ["descricao", "valor", "data", "metodopagamento", "categoria", "tipo"];
+    const required = ["descricao", "valor", "data", "metodopagamento", "tipo"];
     const missing = required.filter((key) => output[key] == null);
 
     if (missing.length) {
@@ -194,7 +196,8 @@ export async function GET(req: Request) {
       .select(
         `
         ${TRANSACAO_FIELDS},
-        banco:bancoconta!transacao_banco_id_fkey ( ${BANCO_FIELDS} )
+        banco:bancoconta!transacao_banco_id_fkey ( ${BANCO_FIELDS} ),
+        categoria_dados:categoriatransacao!transacao_categoria_id_fkey ( id, nome, icone )
         `,
         { count: "exact" }
       )
@@ -260,6 +263,26 @@ export async function POST(req: Request) {
     }
 
     const payload = sanitizeTransacaoPayload(json, { strict: true });
+
+    if (payload.vendaid != null) {
+      const { data: categoriaSistema, error: categoriaError } = await supabaseAdmin
+        .from("categoriatransacao")
+        .select("id, nome")
+        .eq("codigo_sistema", "VENDA")
+        .eq("ativo", true)
+        .maybeSingle();
+
+      if (categoriaError) throw categoriaError;
+      if (!categoriaSistema) {
+        return NextResponse.json(
+          { error: "A categoria de sistema para vendas não está configurada." },
+          { status: 409 }
+        );
+      }
+
+      payload.categoria_id = categoriaSistema.id;
+      payload.categoria = categoriaSistema.nome;
+    }
     const parcelasDetalhadas = sanitizeParcelasDetalhadas(body?.parcelasDetalhadas);
     const hasParcelamento = parcelasDetalhadas.length > 1;
     const totalParcelas = hasParcelamento ? parcelasDetalhadas.length : 1;
@@ -370,7 +393,8 @@ export async function POST(req: Request) {
       .select(
         `
         ${TRANSACAO_FIELDS},
-        banco:bancoconta!transacao_banco_id_fkey ( ${BANCO_FIELDS} )
+        banco:bancoconta!transacao_banco_id_fkey ( ${BANCO_FIELDS} ),
+        categoria_dados:categoriatransacao!transacao_categoria_id_fkey ( id, nome, icone )
         `
       );
 

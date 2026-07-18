@@ -14,6 +14,7 @@ const WRITABLE_FIELDS = new Set([
   "data",
   "metodopagamento",
   "categoria",
+  "categoria_id",
   "tipo",
   "cliente_id",
   "banco_id",
@@ -24,7 +25,7 @@ const WRITABLE_FIELDS = new Set([
 
 /** Campos retornados no select padrão (transacao) */
 const TRANSACAO_FIELDS =
-  "id, descricao, valor, valorLiquido, data, ordemservicoid, vendaid, metodopagamento, categoria, tipo, pendente, cliente_id, banco_id, created_at, updated_at";
+  "id, descricao, valor, valorLiquido, data, ordemservicoid, vendaid, metodopagamento, categoria, categoria_id, tipo, pendente, cliente_id, banco_id, created_at, updated_at";
 
 /** Campos do banco (bancoconta) alinhados ao que você precisa no front */
 const BANCO_FIELDS =
@@ -148,6 +149,13 @@ function sanitizeTransacaoPayload(body: any, { strict }: { strict: boolean }) {
         out[key] = n == null ? null : Math.trunc(n);
         break;
       }
+      case "ordemservicoid":
+      case "vendaid":
+      case "categoria_id": {
+        const n = toNumberOrNull(body[key]);
+        out[key] = n == null ? null : Math.trunc(n);
+        break;
+      }
       case "data": {
         out[key] = toDateISOStringOrNull(body[key]);
         break;
@@ -159,7 +167,7 @@ function sanitizeTransacaoPayload(body: any, { strict }: { strict: boolean }) {
   }
 
   if (strict) {
-    const required = ["descricao", "valor", "data", "metodopagamento", "categoria", "tipo"];
+    const required = ["descricao", "valor", "data", "metodopagamento", "tipo"];
     const missing = required.filter((k) => out[k] == null);
     if (missing.length) {
       throw new Error(`Campos obrigatórios ausentes: ${missing.join(", ")}`);
@@ -209,7 +217,8 @@ export async function GET(req: Request) {
       .select(
         `
         ${TRANSACAO_FIELDS},
-        banco:bancoconta!transacao_banco_id_fkey ( ${BANCO_FIELDS} )
+        banco:bancoconta!transacao_banco_id_fkey ( ${BANCO_FIELDS} ),
+        categoria_dados:categoriatransacao!transacao_categoria_id_fkey ( id, nome, icone )
         `,
         { count: "exact" }
       )
@@ -289,6 +298,32 @@ export async function POST(req: Request) {
     }
 
     const payload = sanitizeTransacaoPayload(json, { strict: true });
+
+    const codigoCategoriaSistema = payload.ordemservicoid != null
+      ? "ORDEM_SERVICO"
+      : payload.vendaid != null
+        ? "VENDA"
+        : null;
+
+    if (codigoCategoriaSistema) {
+      const { data: categoriaSistema, error: categoriaError } = await supabaseAdmin
+        .from("categoriatransacao")
+        .select("id, nome")
+        .eq("codigo_sistema", codigoCategoriaSistema)
+        .eq("ativo", true)
+        .maybeSingle();
+
+      if (categoriaError) throw categoriaError;
+      if (!categoriaSistema) {
+        return NextResponse.json(
+          { error: "A categoria de sistema deste pagamento não está configurada." },
+          { status: 409 }
+        );
+      }
+
+      payload.categoria_id = categoriaSistema.id;
+      payload.categoria = categoriaSistema.nome;
+    }
     const parcelasDetalhadas = sanitizeParcelasDetalhadas(body?.parcelasDetalhadas);
     const hasParcelamento = parcelasDetalhadas.length > 1;
     const totalParcelas = hasParcelamento ? parcelasDetalhadas.length : 1;
@@ -471,7 +506,8 @@ export async function POST(req: Request) {
       .select(
         `
         ${TRANSACAO_FIELDS},
-        banco:bancoconta!transacao_banco_id_fkey ( ${BANCO_FIELDS} )
+        banco:bancoconta!transacao_banco_id_fkey ( ${BANCO_FIELDS} ),
+        categoria_dados:categoriatransacao!transacao_categoria_id_fkey ( id, nome, icone )
         `
       );
 

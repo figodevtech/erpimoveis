@@ -4,6 +4,7 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { isTransactionCategoryIcon } from "@/lib/transaction-category-icons";
 
 function isOpen() {
   const v = (process.env.OPEN_PERMISSIONS ?? "")
@@ -45,10 +46,12 @@ export async function PUT(
     const {
       nome,
       descricao,
+      icone,
       ativo,
     } = body as {
       nome?: string;
       descricao?: string | null;
+      icone?: string;
       ativo?: boolean;
     };
 
@@ -59,11 +62,30 @@ export async function PUT(
       );
     }
 
+    if (!isTransactionCategoryIcon(icone)) {
+      return NextResponse.json({ error: "Selecione um ícone válido." }, { status: 400 });
+    }
+
     const now = new Date().toISOString();
+
+    const { data: categoriaAtual, error: categoriaAtualError } = await supabaseAdmin
+      .from("categoriatransacao")
+      .select("codigo_sistema")
+      .eq("id", categoriaId)
+      .maybeSingle();
+
+    if (categoriaAtualError) throw categoriaAtualError;
+    if (categoriaAtual?.codigo_sistema && ativo === false) {
+      return NextResponse.json(
+        { error: "Categorias de sistema não podem ser desativadas." },
+        { status: 409 }
+      );
+    }
 
     const payload: Record<string, any> = {
       nome: nome.trim().toUpperCase(),
       descricao: descricao?.trim() || null,
+      icone,
       updatedat: now,
     };
 
@@ -80,7 +102,9 @@ export async function PUT(
         id,
         nome,
         descricao,
-        ativo
+        icone,
+        ativo,
+        codigo_sistema
       `
       )
       .maybeSingle();
@@ -97,6 +121,8 @@ export async function PUT(
       id: data.id as number,
       nome: data.nome as string,
       descricao: (data.descricao as string | null) ?? null,
+      icone: String(data.icone ?? "other"),
+      codigo_sistema: (data.codigo_sistema as string | null) ?? null,
       ativo:
         typeof data.ativo === "boolean"
           ? (data.ativo as boolean)
@@ -158,6 +184,20 @@ export async function PATCH(
 
     const now = new Date().toISOString();
 
+    const { data: categoriaAtual, error: categoriaAtualError } = await supabaseAdmin
+      .from("categoriatransacao")
+      .select("codigo_sistema")
+      .eq("id", categoriaId)
+      .maybeSingle();
+
+    if (categoriaAtualError) throw categoriaAtualError;
+    if (categoriaAtual?.codigo_sistema && !ativo) {
+      return NextResponse.json(
+        { error: "Categorias de sistema não podem ser desativadas." },
+        { status: 409 }
+      );
+    }
+
     const { data, error } = await supabaseAdmin
       .from("categoriatransacao")
       .update({ ativo, updatedat: now })
@@ -167,7 +207,9 @@ export async function PATCH(
         id,
         nome,
         descricao,
-        ativo
+        icone,
+        ativo,
+        codigo_sistema
       `
       )
       .maybeSingle();
@@ -184,6 +226,8 @@ export async function PATCH(
       id: data.id as number,
       nome: data.nome as string,
       descricao: (data.descricao as string | null) ?? null,
+      icone: String(data.icone ?? "other"),
+      codigo_sistema: (data.codigo_sistema as string | null) ?? null,
       ativo:
         typeof data.ativo === "boolean"
           ? (data.ativo as boolean)

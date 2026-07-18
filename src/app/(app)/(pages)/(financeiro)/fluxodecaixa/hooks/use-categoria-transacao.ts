@@ -7,6 +7,8 @@ export type CategoriaFromApi = {
   id: number;
   nome: string;
   descricao: string | null;
+  icone: string;
+  codigo_sistema: string | null;
   ativo: boolean;
 };
 

@@ -145,7 +145,7 @@ export default function ServicoDialog({
           <DialogTitle>{editing ? "Editar serviço" : "Novo serviço"}</DialogTitle>
         </DialogHeader>
 
-        <div className="mt-4 space-y-4">
+        <div className="mt-4 space-y-4 rounded-2xl bg-card p-4">
           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,3fr)]">
             <div className="space-y-2">
               <label className="text-sm font-medium">Código</label>
