@@ -1,9 +1,10 @@
 "use client";
 
-import { UploadCloud } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { FileSearch, UploadCloud } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "@/lib/toast";
 import { NF } from "./types";
+import NfeSelect from "@/app/(app)/components/nfeSelect";
 
 
 interface BotaoNotaFiscalProps {
@@ -15,9 +16,10 @@ interface BotaoNotaFiscalProps {
 
 export default function BotaoNotaFiscal({ setParsed, file, setFile }: BotaoNotaFiscalProps) {
   const [loading, setLoading] = useState(false);
+  const [nfeSelectOpen, setNfeSelectOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  async function handleFileChange() {
+  const handleFileChange = useCallback(async () => {
     if (!file) return;
 
     setParsed(null);
@@ -44,7 +46,7 @@ export default function BotaoNotaFiscal({ setParsed, file, setFile }: BotaoNotaF
     } finally {
       setLoading(false);
     }
-  }
+  }, [file, setParsed]);
 
   useEffect(() => {
     if (file) {
@@ -56,14 +58,14 @@ export default function BotaoNotaFiscal({ setParsed, file, setFile }: BotaoNotaF
       fileInputRef.current.value = "";
     }
     }
-  }, [file]);
+  }, [file, handleFileChange]);
 
  
 
   return (
     <div className="max-w-2xl mx-auto p-4 space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <label className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm cursor-pointer hover:bg-muted">
+        <label className="inline-flex items-center bg-primary text-primary-foreground gap-2 rounded-md border px-3 py-2 text-sm cursor-pointer hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">
           <UploadCloud className="h-4 w-4" />
           {loading ? "Processando..." : "Adicionar NF"}
           <input
@@ -80,8 +82,22 @@ export default function BotaoNotaFiscal({ setParsed, file, setFile }: BotaoNotaF
             }}
           />
         </label>
-
-       
+        <NfeSelect
+          open={nfeSelectOpen}
+          setOpen={setNfeSelectOpen}
+          OnSelect={(nota) => {
+            setFile(undefined);
+            setParsed(nota);
+          }}
+        >
+          <button
+            type="button"
+            className="inline-flex items-center bg-primary text-primary-foreground gap-2 rounded-md border px-3 py-2 text-sm cursor-pointer hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <FileSearch className="h-4 w-4" />
+            Selecionar Nota
+          </button>
+        </NfeSelect>
       </div>
     </div>
   );

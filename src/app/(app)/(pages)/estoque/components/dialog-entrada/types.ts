@@ -1,6 +1,7 @@
 import { Fornecedor, Produto } from "../../types";
 
 export interface NF {
+  documentoFiscalRecebidoId?: number;
   chaveAcesso: number; // ideal seria string, mas mantive number como está no JSON
   numeroNota: number;
   serie: number;
