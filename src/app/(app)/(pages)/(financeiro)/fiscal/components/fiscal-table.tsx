@@ -14,6 +14,7 @@ import {
   FileSearch,
   Loader2,
   MoreHorizontal,
+  PackagePlus,
   Pencil,
   RefreshCw,
   Send,
@@ -68,6 +69,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { traduzStatusNfe } from "@/lib/nfe/statusNfe";
+import DialogEntradaFiscal from "../../../estoque/components/dialog-entrada/dialog-entrada-fiscal";
 
 import type { FiscalViewMode, NotaFiscal, Pagination } from "../types";
 
@@ -196,6 +198,7 @@ export default function FiscalTable({
   const [cancelandoNota, setCancelandoNota] = React.useState(false);
   const [notaForcarXml, setNotaForcarXml] = React.useState<NotaFiscal | null>(null);
   const [forcandoXml, setForcandoXml] = React.useState(false);
+  const [notaGerarEntrada, setNotaGerarEntrada] = React.useState<NotaFiscal | null>(null);
 
   const title =
     viewMode === "EMITIDAS_POR_NOS"
@@ -730,6 +733,12 @@ export default function FiscalTable({
                           <Download className="mr-2 h-4 w-4" />
                           Baixar XML
                         </DropdownMenuItem>
+                        {viewMode === "EMITIDAS_TERCEIROS" && nota.xmlStatus === "XML_COMPLETO" ? (
+                          <DropdownMenuItem onClick={() => setNotaGerarEntrada(nota)}>
+                            <PackagePlus className="mr-2 h-4 w-4" />
+                            Gerar Entrada
+                          </DropdownMenuItem>
+                        ) : null}
                         {podeConsultarSefaz ? (
                           <DropdownMenuItem onClick={() => consultarStatus(nota.id)}>
                             <FileSearch className="mr-2 h-4 w-4" />
@@ -961,6 +970,13 @@ export default function FiscalTable({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+    <DialogEntradaFiscal
+      isOpen={Boolean(notaGerarEntrada)}
+      setIsOpen={(open) => {
+        if (!open) setNotaGerarEntrada(null);
+      }}
+      notaFiscalRecebidaId={notaGerarEntrada?.id}
+    />
     </>
   );
 }

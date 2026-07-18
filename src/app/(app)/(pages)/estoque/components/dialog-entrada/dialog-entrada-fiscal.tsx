@@ -11,7 +11,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 
-import { Loader2, Minus, PackagePlus, Plus, Search, TriangleAlert, UserRoundPlus, X } from "lucide-react";
+import { Eye, Loader2, Minus, PackagePlus, Plus, Search, TriangleAlert, UserRoundPlus, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Estoque_status, Pagination } from "../../types";
 import BotaoNf from "./botao-nota-fiscal";
@@ -40,6 +40,7 @@ interface EntradaDialogProps {
   children?: React.ReactNode;
   isOpen?: boolean;
   setIsOpen?: (value: boolean) => void;
+  notaFiscalRecebidaId?: number;
   search?: string;
   handleGetProducts?: (pageNumber?: number, limit?: number, search?: string, status?: Estoque_status) => void;
   paginantion?: Pagination;
@@ -52,7 +53,7 @@ interface Parcela {
   valor?: number;
 }
 
-export default function DialogEntradaFiscal({ children, isOpen, setIsOpen }: EntradaDialogProps) {
+export default function DialogEntradaFiscal({ children, isOpen, setIsOpen, notaFiscalRecebidaId }: EntradaDialogProps) {
   const [parsed, setParsed] = useState<NF | null>(null);
   const [file, setFile] = useState<File | undefined>(undefined);
   const [isSubmiting, setIsSubmiting] = useState(false);
@@ -80,6 +81,53 @@ export default function DialogEntradaFiscal({ children, isOpen, setIsOpen }: Ent
   const [selectedMetodo, setSelectedMetodo] = useState<Metodo_pagamento | "">("");
   const [selectedCategoria, setSelectedCategoria] = useState<string>("");
   const { categorias } = useCategoriasTransacao();
+  const isCarregandoNotaRecebida = Boolean(isOpen && notaFiscalRecebidaId && !parsed);
+
+  useEffect(() => {
+    if (!isOpen || !notaFiscalRecebidaId) return;
+
+    let cancelled = false;
+
+    const carregarNotaRecebida = async () => {
+      setParsed(null);
+      setFile(undefined);
+
+      try {
+        const xmlResponse = await axios.get(`/api/fiscal/notas-recebidas/${notaFiscalRecebidaId}/xml`, {
+          responseType: "blob",
+        });
+        const formData = new FormData();
+        formData.append(
+          "file",
+          new File([xmlResponse.data], `nfe-${notaFiscalRecebidaId}.xml`, {
+            type: "application/xml",
+          }),
+        );
+
+        const parsedResponse = await axios.post("/api/entradas/nf", formData);
+        if (!cancelled) {
+          setParsed({
+            ...parsedResponse.data.parsed,
+            documentoFiscalRecebidoId: notaFiscalRecebidaId,
+          });
+        }
+      } catch (error) {
+        if (!cancelled) {
+          toast.error("Erro ao carregar nota fiscal", {
+            description: isAxiosError(error)
+              ? error.response?.data?.detail ?? error.response?.data?.error ?? error.message
+              : "Não foi possível carregar os dados da nota fiscal selecionada.",
+          });
+          setIsOpen?.(false);
+        }
+      }
+    };
+
+    void carregarNotaRecebida();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, notaFiscalRecebidaId, setIsOpen]);
 
 
   const handleGetBanks = async () => {
@@ -346,9 +394,16 @@ export default function DialogEntradaFiscal({ children, isOpen, setIsOpen }: Ent
             <DialogDescription className="flex flex-row items-center justify-between"></DialogDescription>
           </DialogHeader>
 
-          {!parsed && (
+          {!parsed && !isCarregandoNotaRecebida && (
             <div className="h-full min-h-0 overflow-auto dark:bg-muted-foreground/5 bg-muted px-6 py-10 space-y-2 relative">
               <BotaoNf file={file} setFile={setFile} setParsed={setParsed} />
+            </div>
+          )}
+
+          {isCarregandoNotaRecebida && (
+            <div className="flex h-full min-h-0 items-center justify-center gap-2 bg-muted px-6 py-10 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Carregando nota fiscal...
             </div>
           )}
 
@@ -362,7 +417,27 @@ export default function DialogEntradaFiscal({ children, isOpen, setIsOpen }: Ent
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base flex items-center justify-between gap-2">
                     <span>Dados da NF-e</span>
-                    {parsed?.numeroNota && <Badge variant="outline">NF nº {parsed.numeroNota}</Badge>}
+                    <div className="flex items-center gap-2">
+                      {parsed.documentoFiscalRecebidoId ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs hover:cursor-pointer"
+                          onClick={() =>
+                            window.open(
+                              `/nfe/${parsed.documentoFiscalRecebidoId}/danfe?origem=terceiros`,
+                              "_blank",
+                              "noopener,noreferrer",
+                            )
+                          }
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          Ver DANFE
+                        </Button>
+                      ) : null}
+                      {parsed?.numeroNota && <Badge variant="outline">NF nº {parsed.numeroNota}</Badge>}
+                    </div>
                   </CardTitle>
                   <CardDescription className="text-xs">
                     Informações identificadas a partir do XML enviado.
@@ -854,7 +929,7 @@ export default function DialogEntradaFiscal({ children, isOpen, setIsOpen }: Ent
               <Button
                 onClick={handleCreateEntradas}
                 className="hover:cursor-pointer"
-                disabled={isLoadingFornecedor || searchingFornecedor || isSubmiting}
+                disabled={isCarregandoNotaRecebida || isLoadingFornecedor || searchingFornecedor || isSubmiting}
               >
                 Registrar
               </Button>
