@@ -17,12 +17,10 @@ import {
 
 type SyncDfeParams = {
   empresaId?: number;
-  automatic?: boolean;
   confirmCompanyChange?: boolean;
 };
 
 const DFE_SYNC_COOLDOWN_MS = 70 * 60 * 1000;
-const AUTOMATIC_SYNC_INTERVAL_MS = DFE_SYNC_COOLDOWN_MS;
 
 type ListDfeParams = {
   page?: number;
@@ -430,28 +428,6 @@ export async function sincronizarDfeRecebidas(params: SyncDfeParams = {}) {
       consumoIndevidoUntil: controle.consumo_indevido_until,
       message: "Sincronização bloqueada temporariamente por consumo indevido.",
     };
-  }
-
-  if (params.automatic) {
-    const lastSyncAt = new Date(controle.last_sync_at ?? 0).getTime();
-    const lastStartedAt = new Date(controle.sync_started_at ?? 0).getTime();
-    const lastAttemptAt = Math.max(
-      Number.isFinite(lastSyncAt) ? lastSyncAt : 0,
-      Number.isFinite(lastStartedAt) ? lastStartedAt : 0,
-    );
-    const nextAutomaticSyncAt = lastAttemptAt + AUTOMATIC_SYNC_INTERVAL_MS;
-
-    if (lastAttemptAt > 0 && nextAutomaticSyncAt > Date.now()) {
-      return {
-        success: true,
-        skipped: true,
-        novosDocumentos: 0,
-        ultNSU: controle.ult_nsu,
-        maxNSU: controle.max_nsu,
-        nextSyncAfter: new Date(nextAutomaticSyncAt).toISOString(),
-        message: "Sincronização automática dispensada: última tentativa há menos de uma hora.",
-      };
-    }
   }
 
   const locked = await tryLock(empresaId);

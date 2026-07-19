@@ -11,10 +11,9 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json().catch(() => ({}));
     const empresaId = body?.empresaId ? Number(body.empresaId) : undefined;
-    const automatic = body?.automatic === true;
     const confirmCompanyChange = body?.confirmCompanyChange === true;
 
-    const result = await sincronizarDfeRecebidas({ empresaId, automatic, confirmCompanyChange });
+    const result = await sincronizarDfeRecebidas({ empresaId, confirmCompanyChange });
     return NextResponse.json(result, { status: result.success ? 200 : 409 });
   } catch (error: any) {
     const status = error?.statusCode === 403 ? 403 : 500;
