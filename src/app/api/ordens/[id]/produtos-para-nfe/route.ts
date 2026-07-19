@@ -1,6 +1,7 @@
 // src/app/api/ordens/[osId]/produtos-para-nfe/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { requireOSAccess } from "@/app/api/_authz/perms";
 
 export const runtime = "nodejs";
 
@@ -12,6 +13,9 @@ type ProdutoDb = {
   ncm: string | null;
   cfop: string | null;
   codigobarras: string | null;
+  referencia: string | null;
+  unidade: string | null;
+  origem_mercadoria: string | null;
 
   // campos fiscais adicionais
   csosn: string | null;
@@ -20,8 +24,18 @@ type ProdutoDb = {
   aliquotaicms: number | string | null;
   cst_pis: string | null;
   aliquota_pis: number | string | null;
+  modo_pis: string | null;
+  aliquota_por_unidade_pis: number | string | null;
   cst_cofins: string | null;
   aliquota_cofins: number | string | null;
+  modo_cofins: string | null;
+  aliquota_por_unidade_cofins: number | string | null;
+  rtc_habilitado: boolean | null;
+  cst_ibscbs: string | null;
+  cclass_trib: string | null;
+  aliquota_ibs_uf: number | string | null;
+  aliquota_ibs_municipio: number | string | null;
+  aliquota_cbs: number | string | null;
 };
 
 // Linha do osproduto + embed do produto
@@ -39,6 +53,7 @@ type OsProdutoDbRow = {
 type ProdutoParaNfeDTO = {
   // id estável baseado na PK composta da tabela osproduto
   osProdutoId: string;
+  sourceItemId: string;
   ordemservicoId: number;
   produtoId: number;
 
@@ -61,10 +76,23 @@ type ProdutoParaNfeDTO = {
   // fiscais opcionais (PIS/COFINS)
   cst_pis: string | null;
   aliquota_pis: number | null;
+  modo_pis: string | null;
+  aliquota_por_unidade_pis: number | null;
   cst_cofins: string | null;
   aliquota_cofins: number | null;
+  modo_cofins: string | null;
+  aliquota_por_unidade_cofins: number | null;
+  rtc_habilitado: boolean;
+  cst_ibscbs: string | null;
+  cclass_trib: string | null;
+  aliquota_ibs_uf: number | null;
+  aliquota_ibs_municipio: number | null;
+  aliquota_cbs: number | null;
 
   codigobarras: string | null;
+  referencia: string | null;
+  unidade: string | null;
+  origem_mercadoria: string | null;
 };
 
 // Extrai o osId direto da URL: /api/ordens/95/produtos-para-nfe
@@ -90,6 +118,7 @@ function normalizarProduto(campo: OsProdutoDbRow["produto"]): ProdutoDb | null {
 
 export async function GET(req: Request) {
   try {
+    await requireOSAccess();
     const idOs = getOsIdFromUrl(req);
 
     if (idOs === null) {
@@ -110,7 +139,7 @@ export async function GET(req: Request) {
     // 1) Garantir que a OS existe
     const { data: os, error: osError } = await supabaseAdmin
       .from("ordemservico")
-      .select("id, observacoes_fiscais")
+      .select("id, clienteid, observacoes_fiscais")
       .eq("id", idOs)
       .maybeSingle();
 
@@ -152,14 +181,27 @@ export async function GET(req: Request) {
             ncm,
             cfop,
             codigobarras,
+            referencia,
+            unidade,
+            origem_mercadoria,
             csosn,
             cst,
             cest,
             aliquotaicms,
             cst_pis,
             aliquota_pis,
+            modo_pis,
+            aliquota_por_unidade_pis,
             cst_cofins,
-            aliquota_cofins
+            aliquota_cofins,
+            modo_cofins,
+            aliquota_por_unidade_cofins,
+            rtc_habilitado,
+            cst_ibscbs,
+            cclass_trib,
+            aliquota_ibs_uf,
+            aliquota_ibs_municipio,
+            aliquota_cbs
           )
         `
       )
@@ -186,6 +228,7 @@ export async function GET(req: Request) {
       return {
         // PK composta real
         osProdutoId: `${i.ordemservicoid}-${i.produtoid}`,
+        sourceItemId: `os:${i.ordemservicoid}:${i.produtoid}`,
         ordemservicoId: i.ordemservicoid,
         produtoId: i.produtoid,
 
@@ -207,18 +250,45 @@ export async function GET(req: Request) {
         cst_pis: p?.cst_pis ?? null,
         aliquota_pis:
           p?.aliquota_pis != null ? Number(p.aliquota_pis) : null,
+        modo_pis: p?.modo_pis ?? null,
+        aliquota_por_unidade_pis:
+          p?.aliquota_por_unidade_pis != null ? Number(p.aliquota_por_unidade_pis) : null,
         cst_cofins: p?.cst_cofins ?? null,
         aliquota_cofins:
           p?.aliquota_cofins != null ? Number(p.aliquota_cofins) : null,
+        modo_cofins: p?.modo_cofins ?? null,
+        aliquota_por_unidade_cofins:
+          p?.aliquota_por_unidade_cofins != null ? Number(p.aliquota_por_unidade_cofins) : null,
+        rtc_habilitado: Boolean(p?.rtc_habilitado),
+        cst_ibscbs: p?.cst_ibscbs ?? null,
+        cclass_trib: p?.cclass_trib ?? null,
+        aliquota_ibs_uf: p?.aliquota_ibs_uf != null ? Number(p.aliquota_ibs_uf) : null,
+        aliquota_ibs_municipio:
+          p?.aliquota_ibs_municipio != null ? Number(p.aliquota_ibs_municipio) : null,
+        aliquota_cbs: p?.aliquota_cbs != null ? Number(p.aliquota_cbs) : null,
 
         codigobarras: p?.codigobarras ?? null,
+        referencia: p?.referencia ?? null,
+        unidade: p?.unidade ?? "UN",
+        origem_mercadoria: p?.origem_mercadoria ?? null,
       };
     });
+
+    const { data: cliente } = os.clienteid
+      ? await supabaseAdmin
+          .from("cliente")
+          .select("id, nomerazaosocial, estado")
+          .eq("id", os.clienteid)
+          .maybeSingle()
+      : { data: null };
 
     return NextResponse.json({
       ok: true,
       osId: idOs,
       observacoes_fiscais: os.observacoes_fiscais ?? null,
+      cliente: cliente
+        ? { id: cliente.id, nome: cliente.nomerazaosocial, uf: cliente.estado }
+        : null,
       itens: resposta,
     });
   } catch (e: any) {
@@ -226,13 +296,17 @@ export async function GET(req: Request) {
       "Erro em GET /api/ordens/[osId]/produtos-para-nfe:",
       e
     );
+    const status = e?.statusCode === 403 ? 403 : 500;
     return NextResponse.json(
       {
         ok: false,
-        message: "Erro interno ao buscar produtos da OS.",
+        message:
+          status === 403
+            ? "Você não tem permissão para acessar esta OS."
+            : "Erro interno ao buscar produtos da OS.",
         detalhe: String(e?.message ?? e),
       },
-      { status: 500 }
+      { status }
     );
   }
 }

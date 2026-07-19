@@ -3,17 +3,17 @@ import { Estoque_status } from "../../../types";
 export type CstCsosn = { cod: string; desc: string };
 
 export const CST_OPTIONS: CstCsosn[] = [
-  { cod: "000", desc: "Tributada Integralmente" },
-  { cod: "010", desc: "Tributada e com cobrança do ICMS por ST" },
-  { cod: "020", desc: "Com redução de base de cálculo" },
-  { cod: "030", desc: "Isenta/Não tributada e com cobrança do ICMS por ST" },
-  { cod: "040", desc: "Isenta" },
-  { cod: "041", desc: "Não Tributada" },
-  { cod: "050", desc: "Com Suspensão" },
-  { cod: "051", desc: "Com Diferimento" },
-  { cod: "060", desc: "ICMS Cobrado na Operação Anterior por Substituição Tributária" },
-  { cod: "070", desc: "Com redução de base de cálculo no ICMS ST" },
-  { cod: "090", desc: "Outras Operações" },
+  { cod: "00", desc: "Tributada Integralmente" },
+  { cod: "10", desc: "Tributada e com cobrança do ICMS por ST" },
+  { cod: "20", desc: "Com redução de base de cálculo" },
+  { cod: "30", desc: "Isenta/Não tributada e com cobrança do ICMS por ST" },
+  { cod: "40", desc: "Isenta" },
+  { cod: "41", desc: "Não Tributada" },
+  { cod: "50", desc: "Com Suspensão" },
+  { cod: "51", desc: "Com Diferimento" },
+  { cod: "60", desc: "ICMS Cobrado na Operação Anterior por Substituição Tributária" },
+  { cod: "70", desc: "Com redução de base de cálculo no ICMS ST" },
+  { cod: "90", desc: "Outras Operações" },
 ];
 
 export const CSOSN_OPTIONS: CstCsosn[] = [
@@ -22,6 +22,7 @@ export const CSOSN_OPTIONS: CstCsosn[] = [
   { cod: "103", desc: "Isenção do ICMS no Simples Nacional para faixa de receita" },
   { cod: "201", desc: "Tributada com permissão de crédito e com ST" },
   { cod: "202", desc: "Tributada sem permissão de crédito e com ST" },
+  { cod: "203", desc: "Isenção no Simples por faixa de receita e com ST" },
   { cod: "300", desc: "Imune" },
   { cod: "400", desc: "Não Tributada" },
   { cod: "500", desc: "ICMS cobrado anteriormente por substituição tributária (ST)" },
@@ -39,6 +40,7 @@ export const CST_PIS_OPTIONS: CstCsosn[] = [
   { cod: "08", desc: "Operação sem Incidência da Contribuição." },
   { cod: "09", desc: "Operação com Suspensão da Contribuição." },
   { cod: "49", desc: "Outras Operações de Saída" },
+  { cod: "99", desc: "Outras Operações" },
 ];
 
 export const ESTOQUE_STATUS_BADGES: {

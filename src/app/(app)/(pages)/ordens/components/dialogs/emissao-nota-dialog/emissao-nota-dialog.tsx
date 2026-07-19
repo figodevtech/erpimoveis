@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/lib/toast";
 import { supabase } from "@/lib/supabase";
-import { Loader2, Receipt, AlertCircle, CheckCircle2, XCircle, Info, X, Plus, RotateCw, Ellipsis } from "lucide-react";
+import { Loader2, Receipt, AlertCircle, CheckCircle2, XCircle, Info, X, Plus, RotateCw, Ellipsis, Download } from "lucide-react";
 import { AutorizarNfeButton } from "./autorizarNfe-button";
 import { GerarNotaDeOsDialog } from "./gerarNotaDeOsDialog/gerarNotaDeOsDialog";
 import { EmissaoNfseDialog } from "./emissao-nfse-dialog/emissao-nfse-dialog";
@@ -157,6 +157,7 @@ export function EmissaoNotaDialog({
   const [ambienteEmpresa, setAmbienteEmpresa] = useState<string | null>(null);
   const [openCancelNfseDialog, setOpenCancelNfseDialog] = useState(false);
   const [selectedNfseId, setSelectedNfseId] = useState<number | null>(null);
+  const [downloadingXmlId, setDownloadingXmlId] = useState<number | null>(null);
 
   const origem = osId ? "OS" : vendaId ? "VENDA" : entradaId ? "ENTRADA" : null;
   const origemId = osId ?? vendaId ?? entradaId ?? null;
@@ -169,6 +170,45 @@ export function EmissaoNotaDialog({
     if (origem === "VENDA") return `/api/nfe/por-venda/${origemId}`;
     return `/api/nfe/por-entrada/${origemId}`;
   }, [origem, origemId]);
+
+  const baixarXmlNfe = async (nfe: NfeResumo) => {
+    if (downloadingXmlId === nfe.id) return;
+
+    const toastId = toast.loading("Preparando XML da NF-e...");
+    setDownloadingXmlId(nfe.id);
+
+    try {
+      const response = await fetch(`/api/fiscal/notas-emitidas/${nfe.id}/xml`);
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.detail || body?.error || "Não foi possível baixar o XML da NF-e.");
+      }
+
+      const disposition = response.headers.get("Content-Disposition") ?? "";
+      const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
+      const fallbackName = `nfe-${nfe.chave_acesso || nfe.id}.xml`;
+      const filename = filenameMatch?.[1] || fallbackName;
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+
+      toast.success("XML da NF-e baixado com sucesso.", { id: toastId });
+    } catch (error: any) {
+      toast.error("Não foi possível baixar o XML da NF-e.", {
+        id: toastId,
+        description: error?.message,
+      });
+    } finally {
+      setDownloadingXmlId(null);
+    }
+  };
 
   /**
    * Busca NF-e da origem (OS/Venda) no backend.
@@ -265,7 +305,7 @@ export function EmissaoNotaDialog({
     return () => {
       ac.abort();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-disable
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canFetch, endpointListar]);
 
   /**
@@ -296,6 +336,7 @@ export function EmissaoNotaDialog({
     return () => {
       supabase.removeChannel(channel);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, osId]);
 
   const titulo = useMemo(() => {
@@ -593,7 +634,7 @@ export function EmissaoNotaDialog({
                                     </div>
                                   )}
 
-                                  {nfe.status === "AUTORIZADA" && (
+                                  {isAutorizada && (
                                     <div className="flex flex-col gap-1">
                                       <Button
                                         variant="outline"
@@ -604,6 +645,21 @@ export function EmissaoNotaDialog({
                                         }
                                       >
                                         Ver DANFE
+                                      </Button>
+
+                                      <Button
+                                        className="text-xs hover:cursor-pointer"
+                                        variant="outline"
+                                        size="sm"
+                                        disabled={downloadingXmlId === nfe.id}
+                                        onClick={() => void baixarXmlNfe(nfe)}
+                                      >
+                                        {downloadingXmlId === nfe.id ? (
+                                          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                        ) : (
+                                          <Download className="mr-1.5 h-3.5 w-3.5" />
+                                        )}
+                                        Baixar XML
                                       </Button>
 
                                       <Button
@@ -634,7 +690,7 @@ export function EmissaoNotaDialog({
 
                                       <CancelarNfeButton
                                         nfeId={nfe.id}
-                                        status={nfe.status}
+                                        status={nfe.status ?? ""}
                                         onAfterCancel={() => fetchNfes()}
                                       />
                                     </div>

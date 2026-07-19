@@ -8,8 +8,11 @@ import { requireEstoqueAccess, requireEstoqueDelete, requireEstoqueEdit } from "
 type Params = { id: string };
 
 const PRODUTO_FIELDS = `
-  id, descricao, precovenda, precocompra, estoque, estoqueminimo, ncm, cfop, unidade,
-  cest, csosn, cst, aliquotaicms, cst_pis, aliquota_pis, cst_cofins, aliquota_cofins, codigobarras, etiqueta, local, imgUrl, createdat, updatedat, referencia,
+  id, descricao, precovenda, precocompra, estoque, estoqueminimo, ncm, cfop, origem_mercadoria, unidade,
+  cest, csosn, cst, aliquotaicms, cst_pis, aliquota_pis, modo_pis, aliquota_por_unidade_pis,
+  cst_cofins, aliquota_cofins, modo_cofins, aliquota_por_unidade_cofins,
+  rtc_habilitado, cst_ibscbs, cclass_trib, aliquota_ibs_uf, aliquota_ibs_municipio, aliquota_cbs,
+  codigobarras, etiqueta, local, imgUrl, createdat, updatedat, referencia,
   titulo, status_estoque, fabricante, grupo_produto_id, grupo: produtogrupo(id, nome, descricao, ativo), exibirPdv,
   tituloMarketplace, descricaoMarketplace, conservacao
 `;
@@ -30,6 +33,7 @@ const WRITABLE_FIELDS = new Set([
   "estoqueminimo",
   "ncm",
   "cfop",
+  "origem_mercadoria",
   "unidade",
   "cest",
   "csosn",
@@ -37,8 +41,18 @@ const WRITABLE_FIELDS = new Set([
   "aliquotaicms",
   "cst_pis",
   "aliquota_pis",
+  "modo_pis",
+  "aliquota_por_unidade_pis",
   "cst_cofins",
   "aliquota_cofins",
+  "modo_cofins",
+  "aliquota_por_unidade_cofins",
+  "rtc_habilitado",
+  "cst_ibscbs",
+  "cclass_trib",
+  "aliquota_ibs_uf",
+  "aliquota_ibs_municipio",
+  "aliquota_cbs",
   "codigobarras",
   "etiqueta",
   "local",
@@ -101,7 +115,7 @@ function sanitizePayload(body: any, { strict }: { strict: boolean }) {
     }
 
     // boolean coerção
-    if (k === "exibirPdv") {
+    if (k === "exibirPdv" || k === "rtc_habilitado") {
       out[k] = v === true || v === "true" || v === 1 || v === "1";
       return;
     }
@@ -123,7 +137,14 @@ function sanitizePayload(body: any, { strict }: { strict: boolean }) {
         }
         break;
       }
-      case "aliquotaicms": {
+      case "aliquotaicms":
+      case "aliquota_pis":
+      case "aliquota_por_unidade_pis":
+      case "aliquota_cofins":
+      case "aliquota_por_unidade_cofins":
+      case "aliquota_ibs_uf":
+      case "aliquota_ibs_municipio":
+      case "aliquota_cbs": {
         // Campo nullable: pode enviar null
         out[key] = toNumberOrNull(body[key]);
         break;

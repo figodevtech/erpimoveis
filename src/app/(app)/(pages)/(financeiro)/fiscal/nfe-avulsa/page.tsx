@@ -37,7 +37,9 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -50,6 +52,7 @@ import ProductSelect from "@/app/(app)/components/productSelect";
 import type { Customer } from "@/app/(app)/(pages)/clientes/types";
 import type { Produto } from "@/app/(app)/(pages)/estoque/types";
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
+import { getRequiredPisCofinsMode, PIS_COFINS_CST_OPTIONS } from "@/lib/nfe/taxRules";
 import { DanfeView, type DanfeViewData } from "@/components/danfe/danfe-view";
 import ValueInput from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/components/transactionDialog/valueInput";
 
@@ -68,15 +71,26 @@ type ProdutoSetup = {
   precovenda: number;
   ncm?: string | null;
   cfop?: string | null;
+  origem_mercadoria?: string | null;
   unidade?: string | null;
   csosn?: string | null;
   cst?: string | null;
   aliquotaicms?: number | null;
   cst_pis?: string | null;
   aliquota_pis?: number | null;
+  modo_pis?: DraftItem["modoPis"] | null;
+  aliquota_por_unidade_pis?: number | null;
   cst_cofins?: string | null;
   aliquota_cofins?: number | null;
+  modo_cofins?: DraftItem["modoCofins"] | null;
+  aliquota_por_unidade_cofins?: number | null;
   cest?: string | null;
+  rtc_habilitado?: boolean | null;
+  cst_ibscbs?: string | null;
+  cclass_trib?: string | null;
+  aliquota_ibs_uf?: number | null;
+  aliquota_ibs_municipio?: number | null;
+  aliquota_cbs?: number | null;
 };
 
 type SetupResponse = {
@@ -108,6 +122,20 @@ type SetupResponse = {
   clientes: ClienteSetup[];
   produtos: ProdutoSetup[];
   unidades: string[];
+  versaoRegraFiscal: string;
+  regrasFiscais: {
+    icms: { csosn: string; cst: string; csosnPermitidos: string[]; cstPermitidos: string[] };
+    rtc: { status: string; obrigatorioAPartirDe?: string };
+  } | null;
+  classificacoesRtc: Array<{
+    codigo: string;
+    cst: string;
+    nome: string;
+    descricao?: string | null;
+    percentualReducaoIbs?: number | null;
+    percentualReducaoCbs?: number | null;
+    versaoFonte: string;
+  }>;
 };
 
 type DraftItem = {
@@ -119,6 +147,7 @@ type DraftItem = {
   unidade: string;
   quantidade: string;
   valorUnitario: string;
+  orig: string;
   csosn: string;
   cst: string;
   aliquotaIcms: string;
@@ -127,6 +156,26 @@ type DraftItem = {
   cstCofins: string;
   aliquotaCofins: string;
   cest: string;
+  modoPis: "" | "PERCENTUAL" | "QUANTIDADE" | "NAO_TRIBUTADO";
+  basePis: string;
+  quantidadePis: string;
+  aliquotaPorUnidadePis: string;
+  valorPis: string;
+  modoCofins: "" | "PERCENTUAL" | "QUANTIDADE" | "NAO_TRIBUTADO";
+  baseCofins: string;
+  quantidadeCofins: string;
+  aliquotaPorUnidadeCofins: string;
+  valorCofins: string;
+  rtcHabilitado: boolean;
+  cstIbsCbs: string;
+  cClassTrib: string;
+  baseRtc: string;
+  aliquotaIbsUf: string;
+  valorIbsUf: string;
+  aliquotaIbsMunicipio: string;
+  valorIbsMunicipio: string;
+  aliquotaCbs: string;
+  valorCbs: string;
 };
 
 type DraftTransporte = {
@@ -228,6 +277,28 @@ const steps = [
   "Autorização",
 ];
 
+const validationStepIndexes: Record<string, number> = {
+  operation: 0,
+  emitter: 1,
+  recipient: 2,
+  products: 3,
+  transport: 4,
+  payment: 5,
+  information: 6,
+  review: 7,
+  authorization: 8,
+};
+
+function formatValidationError(error: ValidationError) {
+  const stepIndex = validationStepIndexes[error.step];
+  const stepLabel = stepIndex === undefined ? "Cadastro" : steps[stepIndex];
+  const location = error.itemIndex === undefined
+    ? stepLabel
+    : `${stepLabel} · Produto ${error.itemIndex + 1}`;
+
+  return `${location}: ${error.message}`;
+}
+
 const paymentOptions = [
   { value: "01", label: "Dinheiro" },
   { value: "02", label: "Cheque" },
@@ -263,6 +334,48 @@ const cardBrandOptions = [
   { value: "99", label: "Outros" },
 ];
 
+const csosnDescriptions: Record<string, string> = {
+  "101": "Tributada pelo Simples Nacional com permissão de crédito",
+  "102": "Tributada pelo Simples Nacional sem permissão de crédito",
+  "103": "Isenção do ICMS no Simples Nacional para faixa de receita bruta",
+  "201": "Tributada pelo Simples Nacional com permissão de crédito e com cobrança do ICMS por substituição tributária",
+  "202": "Tributada pelo Simples Nacional sem permissão de crédito e com cobrança do ICMS por substituição tributária",
+  "203": "Isenção do ICMS no Simples Nacional para faixa de receita bruta e com cobrança do ICMS por substituição tributária",
+  "300": "Imune",
+  "400": "Não tributada pelo Simples Nacional",
+  "500": "ICMS cobrado anteriormente por substituição tributária ou por antecipação",
+  "900": "Outros",
+};
+
+function formatCsosn(value: string) {
+  const description = csosnDescriptions[value];
+  return description ? `${value} - ${description}` : value;
+}
+
+function formatPisCofinsCst(value: string) {
+  const option = PIS_COFINS_CST_OPTIONS.find((item) => item.value === value);
+  return option ? `${option.value} - ${option.description}` : value;
+}
+
+function inferPisCofinsMode(cst: unknown, rate?: unknown): DraftItem["modoPis"] {
+  const requiredMode = getRequiredPisCofinsMode(cst);
+  if (requiredMode) return requiredMode;
+  if (String(cst ?? "").trim() && rate !== null && rate !== undefined && rate !== "") return "PERCENTUAL";
+  return "";
+}
+
+function getPisCofinsModeOptions(cst: string) {
+  const options = [
+    { value: "PERCENTUAL", label: "Percentual" },
+    { value: "QUANTIDADE", label: "Por quantidade" },
+    { value: "NAO_TRIBUTADO", label: "Não tributado" },
+  ] as const;
+  const requiredMode = getRequiredPisCofinsMode(cst);
+  return requiredMode
+    ? options.filter((option) => option.value === requiredMode)
+    : options.filter((option) => option.value !== "NAO_TRIBUTADO");
+}
+
 const emptyItem: DraftItem = {
   produtoId: null,
   codigo: "",
@@ -272,14 +385,35 @@ const emptyItem: DraftItem = {
   unidade: "UN",
   quantidade: "1",
   valorUnitario: "0",
-  csosn: "102",
+  orig: "",
+  csosn: "",
   cst: "",
   aliquotaIcms: "",
-  cstPis: "07",
-  aliquotaPis: "0",
-  cstCofins: "07",
-  aliquotaCofins: "0",
+  cstPis: "",
+  aliquotaPis: "",
+  cstCofins: "",
+  aliquotaCofins: "",
   cest: "",
+  modoPis: "",
+  basePis: "",
+  quantidadePis: "",
+  aliquotaPorUnidadePis: "",
+  valorPis: "",
+  modoCofins: "",
+  baseCofins: "",
+  quantidadeCofins: "",
+  aliquotaPorUnidadeCofins: "",
+  valorCofins: "",
+  rtcHabilitado: false,
+  cstIbsCbs: "",
+  cClassTrib: "",
+  baseRtc: "",
+  aliquotaIbsUf: "",
+  valorIbsUf: "",
+  aliquotaIbsMunicipio: "",
+  valorIbsMunicipio: "",
+  aliquotaCbs: "",
+  valorCbs: "",
 };
 
 const initialDraft: DraftPayload = {
@@ -523,6 +657,7 @@ function mapServerDraftToPayload(value: any): { draft: DraftPayload; document: N
             unidade: String(item.unidade ?? "UN"),
             quantidade: stringifyNumber(item.quantidade, "1"),
             valorUnitario: stringifyNumber(item.valor_unitario, "0"),
+            orig: String(item.tributacao_snapshot?.orig ?? ""),
             csosn: String(item.csosn ?? ""),
             cst: String(item.cst ?? ""),
             aliquotaIcms: stringifyNumber(item.aliquotaicms),
@@ -531,6 +666,26 @@ function mapServerDraftToPayload(value: any): { draft: DraftPayload; document: N
             cstCofins: String(item.cst_cofins ?? ""),
             aliquotaCofins: stringifyNumber(item.aliquota_cofins),
             cest: String(item.cest ?? ""),
+            modoPis: item.tributacao_snapshot?.pis?.modo ?? inferPisCofinsMode(item.cst_pis, item.aliquota_pis),
+            basePis: stringifyNumber(item.tributacao_snapshot?.pis?.base),
+            quantidadePis: stringifyNumber(item.tributacao_snapshot?.pis?.quantidade),
+            aliquotaPorUnidadePis: stringifyNumber(item.tributacao_snapshot?.pis?.aliquotaPorUnidade),
+            valorPis: stringifyNumber(item.tributacao_snapshot?.pis?.valor),
+            modoCofins: item.tributacao_snapshot?.cofins?.modo ?? inferPisCofinsMode(item.cst_cofins, item.aliquota_cofins),
+            baseCofins: stringifyNumber(item.tributacao_snapshot?.cofins?.base),
+            quantidadeCofins: stringifyNumber(item.tributacao_snapshot?.cofins?.quantidade),
+            aliquotaPorUnidadeCofins: stringifyNumber(item.tributacao_snapshot?.cofins?.aliquotaPorUnidade),
+            valorCofins: stringifyNumber(item.tributacao_snapshot?.cofins?.valor),
+            rtcHabilitado: Boolean(item.tributacao_snapshot?.rtc),
+            cstIbsCbs: String(item.tributacao_snapshot?.rtc?.cstIbsCbs ?? ""),
+            cClassTrib: String(item.tributacao_snapshot?.rtc?.cClassTrib ?? ""),
+            baseRtc: stringifyNumber(item.tributacao_snapshot?.rtc?.baseCalculo),
+            aliquotaIbsUf: stringifyNumber(item.tributacao_snapshot?.rtc?.ibsUf?.aliquota),
+            valorIbsUf: stringifyNumber(item.tributacao_snapshot?.rtc?.ibsUf?.valor),
+            aliquotaIbsMunicipio: stringifyNumber(item.tributacao_snapshot?.rtc?.ibsMunicipio?.aliquota),
+            valorIbsMunicipio: stringifyNumber(item.tributacao_snapshot?.rtc?.ibsMunicipio?.valor),
+            aliquotaCbs: stringifyNumber(item.tributacao_snapshot?.rtc?.cbs?.aliquota),
+            valorCbs: stringifyNumber(item.tributacao_snapshot?.rtc?.cbs?.valor),
           }))
         : [],
     },
@@ -592,7 +747,6 @@ export default function NFeAvulsaPage() {
   const isFreteContratado = ["0", "1", "2"].includes(draft.transporte.modFrete);
   const isTransporteProprio = ["3", "4"].includes(draft.transporte.modFrete);
   const crtEmitente = String(setup?.empresa?.regimetributario ?? "");
-  const isSimplesOuMei = crtEmitente === "1" || crtEmitente === "4";
   const isRegimeNormal = crtEmitente === "3";
   const isSublimite = crtEmitente === "2";
   const isDestinatarioExterior = draft.destinatario.tipoPessoa === "ESTRANGEIRO";
@@ -683,6 +837,35 @@ export default function NFeAvulsaPage() {
     }));
   }
 
+  function updatePisCofinsCst(index: number, type: "PIS" | "COFINS", cst: string) {
+    const item = draft.itens[index];
+    if (!item) return;
+
+    const isPis = type === "PIS";
+    const currentMode = isPis ? item.modoPis : item.modoCofins;
+    const requiredMode = getRequiredPisCofinsMode(cst);
+    const mode = requiredMode ?? (currentMode === "NAO_TRIBUTADO" ? "" : currentMode);
+    const commonPatch = requiredMode === "NAO_TRIBUTADO"
+      ? {
+          ...(isPis
+            ? { aliquotaPis: "", basePis: "", quantidadePis: "", aliquotaPorUnidadePis: "", valorPis: "" }
+            : { aliquotaCofins: "", baseCofins: "", quantidadeCofins: "", aliquotaPorUnidadeCofins: "", valorCofins: "" }),
+        }
+      : requiredMode === "QUANTIDADE"
+        ? isPis
+          ? { aliquotaPis: "", basePis: "", valorPis: "" }
+          : { aliquotaCofins: "", baseCofins: "", valorCofins: "" }
+        : requiredMode === "PERCENTUAL"
+          ? isPis
+            ? { quantidadePis: "", aliquotaPorUnidadePis: "", valorPis: "" }
+            : { quantidadeCofins: "", aliquotaPorUnidadeCofins: "", valorCofins: "" }
+          : {};
+
+    updateItem(index, isPis
+      ? { cstPis: cst, modoPis: mode, ...commonPatch }
+      : { cstCofins: cst, modoCofins: mode, ...commonPatch });
+  }
+
   function addItemAvulso() {
     updateDraft((current) => ({ ...current, itens: [...current.itens, { ...emptyItem }] }));
   }
@@ -701,14 +884,27 @@ export default function NFeAvulsaPage() {
           cfop: onlyDigits(produto.cfop ?? "") || "5102",
           unidade: produto.unidade || "UN",
           valorUnitario: String(produto.precovenda ?? 0),
-          csosn: produto.csosn || "102",
-          cst: produto.cst || "",
+          orig: produto.origem_mercadoria || "",
+          csosn: crtEmitente === "1" || crtEmitente === "4" ? produto.csosn || "" : "",
+          cst: crtEmitente === "2" || crtEmitente === "3" ? produto.cst || "" : "",
           aliquotaIcms: produto.aliquotaicms == null ? "" : String(produto.aliquotaicms),
-          cstPis: produto.cst_pis || "07",
-          aliquotaPis: produto.aliquota_pis == null ? "0" : String(produto.aliquota_pis),
-          cstCofins: produto.cst_cofins || "07",
-          aliquotaCofins: produto.aliquota_cofins == null ? "0" : String(produto.aliquota_cofins),
-          cest: produto.cest || "",
+          cstPis: produto.cst_pis || "",
+          aliquotaPis: produto.aliquota_pis == null ? "" : String(produto.aliquota_pis),
+           modoPis: produto.modo_pis || inferPisCofinsMode(produto.cst_pis, produto.aliquota_pis),
+           quantidadePis: (produto.modo_pis || inferPisCofinsMode(produto.cst_pis, produto.aliquota_pis)) === "QUANTIDADE" ? "1" : "",
+           aliquotaPorUnidadePis: produto.aliquota_por_unidade_pis == null ? "" : String(produto.aliquota_por_unidade_pis),
+          cstCofins: produto.cst_cofins || "",
+          aliquotaCofins: produto.aliquota_cofins == null ? "" : String(produto.aliquota_cofins),
+           modoCofins: produto.modo_cofins || inferPisCofinsMode(produto.cst_cofins, produto.aliquota_cofins),
+           quantidadeCofins: (produto.modo_cofins || inferPisCofinsMode(produto.cst_cofins, produto.aliquota_cofins)) === "QUANTIDADE" ? "1" : "",
+           aliquotaPorUnidadeCofins: produto.aliquota_por_unidade_cofins == null ? "" : String(produto.aliquota_por_unidade_cofins),
+           cest: produto.cest || "",
+           rtcHabilitado: Boolean(produto.rtc_habilitado),
+           cstIbsCbs: produto.cst_ibscbs || "",
+           cClassTrib: produto.cclass_trib || "",
+           aliquotaIbsUf: produto.aliquota_ibs_uf == null ? "" : String(produto.aliquota_ibs_uf),
+           aliquotaIbsMunicipio: produto.aliquota_ibs_municipio == null ? "" : String(produto.aliquota_ibs_municipio),
+           aliquotaCbs: produto.aliquota_cbs == null ? "" : String(produto.aliquota_cbs),
         },
       ],
     }));
@@ -797,8 +993,22 @@ export default function NFeAvulsaPage() {
       return finalNfeId ?? null;
     } catch (error) {
       if (isAxiosError(error) && Array.isArray(error.response?.data?.errors)) {
-        setErrors(error.response.data.errors);
-        toast.error("Existem campos pendentes para salvar o rascunho.");
+        const validationErrors = error.response.data.errors as ValidationError[];
+        setErrors(validationErrors);
+
+        const firstErrorStep = validationStepIndexes[validationErrors[0]?.step];
+        if (firstErrorStep !== undefined) {
+          setDraft((current) => ({ ...current, currentStep: firstErrorStep }));
+        }
+
+        const visibleErrors = validationErrors.slice(0, 3).map(formatValidationError);
+        const remainingErrors = validationErrors.length - visibleErrors.length;
+        const description = [
+          visibleErrors.join(" • "),
+          remainingErrors > 0 ? `E mais ${remainingErrors} pendência${remainingErrors === 1 ? "" : "s"}.` : "",
+        ].filter(Boolean).join(" ");
+
+        toast.error("Revise os campos pendentes", { description });
       } else {
         const description = isAxiosError(error)
           ? error.response?.data?.detail ?? error.response?.data?.error ?? error.message
@@ -938,10 +1148,31 @@ export default function NFeAvulsaPage() {
       )}
 
       {errors.length > 0 && (
-        <Alert>
+        <Alert variant="destructive" aria-live="polite">
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Validações pendentes</AlertTitle>
-          <AlertDescription>{errors.map((error) => error.message).join(" ")}</AlertDescription>
+          <AlertTitle>{errors.length} {errors.length === 1 ? "pendência encontrada" : "pendências encontradas"}</AlertTitle>
+          <AlertDescription>
+            <ul className="mt-2 list-disc space-y-1 pl-4">
+              {errors.map((error, index) => {
+                const stepIndex = validationStepIndexes[error.step];
+                return (
+                  <li key={`${error.step}-${error.itemIndex ?? "general"}-${error.field ?? "field"}-${index}`}>
+                    {stepIndex === undefined ? (
+                      formatValidationError(error)
+                    ) : (
+                      <button
+                        type="button"
+                        className="text-left underline-offset-2 hover:underline"
+                        onClick={() => setDraft((current) => ({ ...current, currentStep: stepIndex }))}
+                      >
+                        {formatValidationError(error)}
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </AlertDescription>
         </Alert>
       )}
 
@@ -1385,27 +1616,141 @@ export default function NFeAvulsaPage() {
                           <Separator />
                         </div>
                         <p className="text-sm font-medium md:col-span-12">Tributação do item</p>
-                        <Field label="CSOSN" required={isSimplesOuMei || isSublimite}>
-                          <Input value={item.csosn} onChange={(event) => updateItem(index, { csosn: event.target.value })} />
+                        <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-4 md:col-span-12">
+                        <Field label="Origem da mercadoria" required className="sm:col-span-2">
+                          <Select value={item.orig} onValueChange={(value) => updateItem(index, { orig: value })}>
+                            <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                            <SelectContent>
+                              {[
+                                ["0", "Nacional"], ["1", "Estrangeira - importação direta"],
+                                ["2", "Estrangeira - mercado interno"], ["3", "Nacional, conteúdo importado > 40%"],
+                                ["4", "Nacional, processo produtivo básico"], ["5", "Nacional, conteúdo importado ≤ 40%"],
+                                ["6", "Estrangeira sem similar nacional"], ["7", "Estrangeira sem similar - mercado interno"],
+                                ["8", "Nacional, conteúdo importado > 70%"],
+                              ].map(([value, label]) => <SelectItem key={value} value={value}>{value} - {label}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
                         </Field>
-                        <Field label="CST ICMS" required={isRegimeNormal || isSublimite}>
-                          <Input value={item.cst} onChange={(event) => updateItem(index, { cst: event.target.value })} />
+                        {setup?.regrasFiscais?.icms.csosn === "REQUIRED" && (
+                          <Field label="CSOSN" required className="sm:col-span-2">
+                            <Select value={item.csosn} onValueChange={(value) => updateItem(index, { csosn: value, cst: "" })}>
+                              <SelectTrigger title={item.csosn ? formatCsosn(item.csosn) : undefined}>
+                                <SelectValue placeholder="Selecione" />
+                              </SelectTrigger>
+                              <SelectContent className="max-w-[calc(100vw-2rem)] sm:w-[32rem]">
+                                {setup.regrasFiscais.icms.csosnPermitidos.map((value) => (
+                                  <SelectItem
+                                    className="whitespace-normal py-2 pr-8 leading-snug"
+                                    key={value}
+                                    value={value}
+                                  >
+                                    {formatCsosn(value)}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </Field>
+                        )}
+                        {setup?.regrasFiscais?.icms.cst === "REQUIRED" && (
+                          <Field label="CST ICMS" required>
+                            <Select value={item.cst} onValueChange={(value) => updateItem(index, { cst: value, csosn: "" })}>
+                              <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                              <SelectContent>
+                                {setup.regrasFiscais.icms.cstPermitidos.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                          </Field>
+                        )}
+                        {((isRegimeNormal || isSublimite) && ["00", "10", "20", "51", "70", "90"].includes(item.cst) || item.csosn === "900") && (
+                          <Field label="% ICMS" required>
+                            <Input value={item.aliquotaIcms} onChange={(event) => updateItem(index, { aliquotaIcms: event.target.value })} />
+                          </Field>
+                        )}
+                        </div>
+
+                        <div className="md:col-span-12"><Separator /></div>
+                        <p className="text-sm font-medium md:col-span-12">PIS e COFINS</p>
+                        <div className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-4 md:col-span-12">
+                        <Field label="CST PIS" required className="sm:col-span-2">
+                          <PisCofinsCstSelect
+                            value={item.cstPis}
+                            operationType={draft.operacao.tipoOperacao}
+                            onValueChange={(value) => updatePisCofinsCst(index, "PIS", value)}
+                          />
                         </Field>
-                        <Field label="% ICMS">
-                          <Input value={item.aliquotaIcms} onChange={(event) => updateItem(index, { aliquotaIcms: event.target.value })} />
+                        <Field label="Modo PIS" required>
+                          <Select value={item.modoPis} onValueChange={(value: DraftItem["modoPis"]) => updateItem(index, { modoPis: value })}>
+                            <SelectTrigger disabled={!item.cstPis}><SelectValue placeholder={item.cstPis ? "Selecione" : "Escolha o CST"} /></SelectTrigger>
+                            <SelectContent>
+                              {getPisCofinsModeOptions(item.cstPis).map((option) => (
+                                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </Field>
-                        <Field label="CST PIS" required>
-                          <Input value={item.cstPis} onChange={(event) => updateItem(index, { cstPis: event.target.value })} />
+                        {item.modoPis === "PERCENTUAL" && <Field label="% PIS" required><Input value={item.aliquotaPis} onChange={(event) => updateItem(index, { aliquotaPis: event.target.value })} /></Field>}
+                        {item.modoPis === "QUANTIDADE" && <><Field label="Quantidade base PIS" required><Input value={item.quantidadePis} onChange={(event) => updateItem(index, { quantidadePis: event.target.value })} /></Field><Field label="Alíquota por unidade PIS" required><Input value={item.aliquotaPorUnidadePis} onChange={(event) => updateItem(index, { aliquotaPorUnidadePis: event.target.value })} /></Field></>}
+                        <Field label="CST COFINS" required className="sm:col-span-2">
+                          <PisCofinsCstSelect
+                            value={item.cstCofins}
+                            operationType={draft.operacao.tipoOperacao}
+                            onValueChange={(value) => updatePisCofinsCst(index, "COFINS", value)}
+                          />
                         </Field>
-                        <Field label="% PIS">
-                          <Input value={item.aliquotaPis} onChange={(event) => updateItem(index, { aliquotaPis: event.target.value })} />
+                        <Field label="Modo COFINS" required>
+                          <Select value={item.modoCofins} onValueChange={(value: DraftItem["modoCofins"]) => updateItem(index, { modoCofins: value })}>
+                            <SelectTrigger disabled={!item.cstCofins}><SelectValue placeholder={item.cstCofins ? "Selecione" : "Escolha o CST"} /></SelectTrigger>
+                            <SelectContent>
+                              {getPisCofinsModeOptions(item.cstCofins).map((option) => (
+                                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </Field>
-                        <Field label="CST COFINS" required>
-                          <Input value={item.cstCofins} onChange={(event) => updateItem(index, { cstCofins: event.target.value })} />
+                        {item.modoCofins === "PERCENTUAL" && <Field label="% COFINS" required><Input value={item.aliquotaCofins} onChange={(event) => updateItem(index, { aliquotaCofins: event.target.value })} /></Field>}
+                        {item.modoCofins === "QUANTIDADE" && <><Field label="Quantidade base COFINS" required><Input value={item.quantidadeCofins} onChange={(event) => updateItem(index, { quantidadeCofins: event.target.value })} /></Field><Field label="Alíquota por unidade COFINS" required><Input value={item.aliquotaPorUnidadeCofins} onChange={(event) => updateItem(index, { aliquotaPorUnidadeCofins: event.target.value })} /></Field></>}
+                        </div>
+
+                        <div className="md:col-span-12"><Separator /></div>
+                        <p className="text-sm font-medium md:col-span-12">Reforma tributária (IBS/CBS)</p>
+                        <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 md:col-span-12">
+                        <Field label="Aplicar IBS/CBS" required={setup?.regrasFiscais?.rtc.status === "REQUIRED"}>
+                          <Select value={item.rtcHabilitado ? "SIM" : "NAO"} onValueChange={(value) => updateItem(index, { rtcHabilitado: value === "SIM" })}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent><SelectItem value="NAO">Não se aplica</SelectItem><SelectItem value="SIM">Aplicar</SelectItem></SelectContent>
+                          </Select>
                         </Field>
-                        <Field label="% COFINS">
-                          <Input value={item.aliquotaCofins} onChange={(event) => updateItem(index, { aliquotaCofins: event.target.value })} />
-                        </Field>
+                        {item.rtcHabilitado && <>
+                          <Field label="Classificação tributária" required className="sm:col-span-2 xl:col-span-2">
+                            <Select value={item.cClassTrib} onValueChange={(value) => {
+                              const selected = setup?.classificacoesRtc.find((option) => option.codigo === value);
+                              updateItem(index, { cClassTrib: value, cstIbsCbs: selected?.cst ?? "" });
+                            }}>
+                              <SelectTrigger
+                                title={setup?.classificacoesRtc.find((option) => option.codigo === item.cClassTrib)?.nome}
+                              >
+                                <SelectValue placeholder="Selecione o cClassTrib" />
+                              </SelectTrigger>
+                              <SelectContent className="max-w-[calc(100vw-2rem)] sm:max-w-2xl">
+                                {setup?.classificacoesRtc.map((option) => (
+                                  <SelectItem
+                                    className="whitespace-normal py-2 pr-8 leading-snug"
+                                    key={`${option.cst}-${option.codigo}`}
+                                    value={option.codigo}
+                                  >
+                                    {option.cst} / {option.codigo} - {option.nome}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </Field>
+                          <Field label="CST IBS/CBS" required><Input value={item.cstIbsCbs} disabled /></Field>
+                          <Field label="Base IBS/CBS" required><Input value={item.baseRtc} placeholder="Total do item" onChange={(event) => updateItem(index, { baseRtc: event.target.value })} /></Field>
+                          <Field label="% IBS UF" required><Input value={item.aliquotaIbsUf} onChange={(event) => updateItem(index, { aliquotaIbsUf: event.target.value })} /></Field>
+                          <Field label="% IBS Município" required><Input value={item.aliquotaIbsMunicipio} onChange={(event) => updateItem(index, { aliquotaIbsMunicipio: event.target.value })} /></Field>
+                          <Field label="% CBS" required><Input value={item.aliquotaCbs} onChange={(event) => updateItem(index, { aliquotaCbs: event.target.value })} /></Field>
+                        </>}
+                        </div>
                       </CardContent>
                     </Card>
                   ))}
@@ -1715,18 +2060,67 @@ function RequiredMark() {
   return <span className="text-destructive">*</span>;
 }
 
+function PisCofinsCstSelect({
+  value,
+  operationType,
+  onValueChange,
+}: {
+  value: string;
+  operationType: DraftPayload["operacao"]["tipoOperacao"];
+  onValueChange: (value: string) => void;
+}) {
+  const groupOrder = operationType === "ENTRADA"
+    ? (["ENTRADA", "SAIDA", "OUTROS"] as const)
+    : (["SAIDA", "ENTRADA", "OUTROS"] as const);
+  const groupLabels = {
+    SAIDA: `Operações de saída${operationType === "SAIDA" ? " — tipo atual da NF-e" : ""}`,
+    ENTRADA: `Operações de entrada e crédito${operationType === "ENTRADA" ? " — tipo atual da NF-e" : ""}`,
+    OUTROS: "Outras situações",
+  } as const;
+
+  return (
+    <Select value={value} onValueChange={onValueChange}>
+      <SelectTrigger title={value ? formatPisCofinsCst(value) : undefined}>
+        <SelectValue placeholder="Selecione" />
+      </SelectTrigger>
+      <SelectContent className="max-w-[calc(100vw-2rem)] sm:w-[42rem]">
+        {groupOrder.map((group) => (
+          <SelectGroup key={group}>
+            <SelectLabel>{groupLabels[group]}</SelectLabel>
+            {PIS_COFINS_CST_OPTIONS
+              .filter((option) => option.operation === group)
+              .map((option) => (
+                <SelectItem
+                  className="whitespace-normal py-2 pr-8 leading-snug"
+                  key={option.value}
+                  value={option.value}
+                >
+                  {option.value} - {option.description}
+                </SelectItem>
+              ))}
+          </SelectGroup>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 function Field({
   label,
   children,
   required = false,
+  className = "",
 }: {
   label: React.ReactNode;
   children: React.ReactNode;
   required?: boolean;
+  className?: string;
 }) {
   return (
-    <div className="space-y-2">
-      <Label className="inline-flex items-center gap-1">
+    <div
+      className={`min-w-0 space-y-2 [&_[data-slot=select-trigger]]:w-full [&_[data-slot=select-trigger]]:min-w-0 [&_[data-slot=select-trigger]]:overflow-hidden [&_[data-slot=select-value]]:block [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:max-w-full [&_[data-slot=select-value]]:truncate ${className}`}
+    >
+      <Label className="inline-flex min-h-5 items-start gap-1 leading-tight">
         {label}
         {required && <RequiredMark />}
       </Label>
@@ -1791,22 +2185,44 @@ function NFeAutorizadaView({
     return {
       id: `${item.produtoId ?? item.codigo ?? "item"}-${index}`,
       n_item: index + 1,
-      produtoid: (item.produtoId ?? item.codigo) || null,
+      produtoid: item.produtoId != null ? String(item.produtoId) : item.codigo || null,
+      ean: "",
       descricao: item.descricao,
       ncm: item.ncm || null,
+      cest: item.cest,
       cfop: item.cfop,
+      origem: item.orig,
       csosn: item.csosn || item.cst || null,
       unidade: item.unidade,
       quantidade,
       valor_unitario: valorUnitario,
       valor_total: valorTotal,
+      valor_desconto: 0,
       valor_bc_icms: aliquotaIcms > 0 ? valorTotal : 0,
       aliquotaicms: aliquotaIcms,
       valor_icms: Number((valorTotal * (aliquotaIcms / 100)).toFixed(2)),
+      cst_ipi: null,
+      valor_bc_ipi: 0,
+      aliquota_ipi: 0,
+      valor_ipi: 0,
       cst_pis: item.cstPis || null,
+      aliquota_pis: aliquotaPis,
       valor_pis: Number((valorTotal * (aliquotaPis / 100)).toFixed(2)),
       cst_cofins: item.cstCofins || null,
+      aliquota_cofins: aliquotaCofins,
       valor_cofins: Number((valorTotal * (aliquotaCofins / 100)).toFixed(2)),
+      cst_ibs_cbs: item.rtcHabilitado ? item.cstIbsCbs || null : null,
+      classificacao_tributaria: item.rtcHabilitado ? item.cClassTrib || null : null,
+      base_ibs_cbs: item.rtcHabilitado ? parseNumberInput(item.baseRtc) : 0,
+      aliquota_ibs_uf: item.rtcHabilitado ? parseNumberInput(item.aliquotaIbsUf) : 0,
+      valor_ibs_uf: item.rtcHabilitado ? parseNumberInput(item.valorIbsUf) : 0,
+      aliquota_ibs_municipio: item.rtcHabilitado ? parseNumberInput(item.aliquotaIbsMunicipio) : 0,
+      valor_ibs_municipio: item.rtcHabilitado ? parseNumberInput(item.valorIbsMunicipio) : 0,
+      valor_ibs: item.rtcHabilitado ? parseNumberInput(item.valorIbsUf) + parseNumberInput(item.valorIbsMunicipio) : 0,
+      aliquota_cbs: item.rtcHabilitado ? parseNumberInput(item.aliquotaCbs) : 0,
+      valor_cbs: item.rtcHabilitado ? parseNumberInput(item.valorCbs) : 0,
+      cst_is: null,
+      valor_is: 0,
     };
   });
   const totalBcIcms = itensDisplay.reduce((sum, item) => sum + item.valor_bc_icms, 0);
@@ -1832,7 +2248,6 @@ function NFeAutorizadaView({
       ordemservicoid: null,
       protocolo: documentState.protocolo,
       dataautorizacao: documentState.dataAutorizacao,
-      total_servicos: 0,
     },
     emitenteNome: setup?.empresa?.razaosocial || "-",
     emitenteEndereco,
@@ -1847,20 +2262,85 @@ function NFeAutorizadaView({
         ? `${draft.destinatario.cidade}/${draft.destinatario.estado}`
         : "-",
     destinatarioCep: draft.destinatario.cep || "-",
+    destinatarioIe: draft.destinatario.inscricaoEstadual || null,
     dataEmissaoDanfe: documentState.dataAutorizacao,
+    dataSaidaEntrada: null,
     tipoOperacao: draft.operacao.tipoOperacao === "ENTRADA" ? "ENTRADA" : "SAÍDA",
+    naturezaOperacao: draft.operacao.naturezaOperacao || "-",
+    ambiente: (setup?.empresa?.ambiente || setup?.config?.ambiente) === "PRODUCAO" ? "1" : "2",
+    tipoEmissao: "1",
     statusUpper: "AUTORIZADA",
     statusLabel: "Autorizada",
+    chaveAcesso: documentState.chave || "",
     chaveFormatada: formatChaveAcesso(documentState.chave),
     isAutorizada: true,
     xmlError: null,
     xmlBaseAvailable: true,
     itensDisplay,
-    totalBcIcms,
-    totalIcms,
-    totalProdutos,
-    totalNota: totalProdutos,
+    totais: {
+      vBC: totalBcIcms,
+      vICMS: totalIcms,
+      vICMSDeson: 0,
+      vFCP: 0,
+      vBCST: 0,
+      vST: 0,
+      vFCPST: 0,
+      vFCPSTRet: 0,
+      vProd: totalProdutos,
+      vFrete: 0,
+      vSeg: 0,
+      vDesc: 0,
+      vII: 0,
+      vIPI: 0,
+      vIPIDevol: 0,
+      vPIS: itensDisplay.reduce((sum, item) => sum + item.valor_pis, 0),
+      vCOFINS: itensDisplay.reduce((sum, item) => sum + item.valor_cofins, 0),
+      vOutro: 0,
+      vNF: totalProdutos,
+      vTotTrib: 0,
+      vBCIBSCBS: itensDisplay.reduce((sum, item) => sum + item.base_ibs_cbs, 0),
+      vIBSUF: itensDisplay.reduce((sum, item) => sum + item.valor_ibs_uf, 0),
+      vIBSMun: itensDisplay.reduce((sum, item) => sum + item.valor_ibs_municipio, 0),
+      vIBS: itensDisplay.reduce((sum, item) => sum + item.valor_ibs, 0),
+      vCBS: itensDisplay.reduce((sum, item) => sum + item.valor_cbs, 0),
+      vIS: 0,
+      vServ: 0,
+      vBCISS: 0,
+      vISS: 0,
+    },
+    transporte: {
+      modFrete: draft.transporte.modFrete,
+      nome: draft.transporte.transportadora.nome,
+      documento: draft.transporte.transportadora.documento,
+      ie: draft.transporte.transportadora.inscricaoEstadual,
+      endereco: draft.transporte.transportadora.endereco,
+      municipio: draft.transporte.transportadora.municipio,
+      uf: draft.transporte.transportadora.uf,
+      placa: draft.transporte.veiculo.placa,
+      ufVeiculo: draft.transporte.veiculo.uf,
+      rntc: draft.transporte.veiculo.rntc,
+      volumes: draft.transporte.volume.quantidade || draft.transporte.volume.especie ? [{
+        quantidade: parseNumberInput(draft.transporte.volume.quantidade),
+        especie: draft.transporte.volume.especie,
+        marca: draft.transporte.volume.marca,
+        numeracao: draft.transporte.volume.numeracao,
+        pesoLiquido: parseNumberInput(draft.transporte.volume.pesoLiquido),
+        pesoBruto: parseNumberInput(draft.transporte.volume.pesoBruto),
+      }] : [],
+    },
+    fatura: null,
+    duplicatas: [],
+    pagamentos: [{
+      tipo: draft.pagamento.meio,
+      valor: totalProdutos,
+      descricao: "",
+      integracao: draft.pagamento.tipoIntegracao,
+      cnpjCredenciadora: draft.pagamento.cnpjCredenciadora,
+      bandeira: draft.pagamento.bandeira,
+      autorizacao: draft.pagamento.autorizacao,
+    }],
     infCpl: draft.operacao.observacoesFiscais || null,
+    infAdFisco: null,
   };
 
   return (

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { requireVendasAccess } from "@/app/api/_authz/perms";
 
 export const runtime = "nodejs";
 
@@ -11,6 +12,9 @@ type ProdutoDb = {
   ncm: string | null;
   cfop: string | null;
   codigobarras: string | null;
+  referencia: string | null;
+  unidade: string | null;
+  origem_mercadoria: string | null;
 
   csosn: string | null;
   cst: string | null;
@@ -18,8 +22,18 @@ type ProdutoDb = {
   aliquotaicms: number | string | null;
   cst_pis: string | null;
   aliquota_pis: number | string | null;
+  modo_pis: string | null;
+  aliquota_por_unidade_pis: number | string | null;
   cst_cofins: string | null;
   aliquota_cofins: number | string | null;
+  modo_cofins: string | null;
+  aliquota_por_unidade_cofins: number | string | null;
+  rtc_habilitado: boolean | null;
+  cst_ibscbs: string | null;
+  cclass_trib: string | null;
+  aliquota_ibs_uf: number | string | null;
+  aliquota_ibs_municipio: number | string | null;
+  aliquota_cbs: number | string | null;
 };
 
 type VendaProdutoDbRow = {
@@ -35,6 +49,7 @@ type VendaProdutoDbRow = {
 
 type ProdutoParaNfeDTO = {
   osProdutoId: string; // para reaproveitar o mesmo componente do front
+  sourceItemId: string;
   produtoId: number;
 
   titulo: string;
@@ -53,10 +68,23 @@ type ProdutoParaNfeDTO = {
 
   cst_pis: string | null;
   aliquota_pis: number | null;
+  modo_pis: string | null;
+  aliquota_por_unidade_pis: number | null;
   cst_cofins: string | null;
   aliquota_cofins: number | null;
+  modo_cofins: string | null;
+  aliquota_por_unidade_cofins: number | null;
+  rtc_habilitado: boolean;
+  cst_ibscbs: string | null;
+  cclass_trib: string | null;
+  aliquota_ibs_uf: number | null;
+  aliquota_ibs_municipio: number | null;
+  aliquota_cbs: number | null;
 
   codigobarras: string | null;
+  referencia: string | null;
+  unidade: string | null;
+  origem_mercadoria: string | null;
 };
 
 function normalizarProduto(campo: VendaProdutoDbRow["produto"]): ProdutoDb | null {
@@ -84,10 +112,11 @@ export async function GET(
   }
 
   try {
+    await requireVendasAccess();
     // 1) garantir que venda existe
     const { data: venda, error: vendaError } = await supabaseAdmin
       .from("venda")
-      .select("id, observacoes_fiscais")
+      .select("id, clienteid, observacoes_fiscais")
       .eq("id", vendaId)
       .maybeSingle();
 
@@ -125,14 +154,27 @@ export async function GET(
             ncm,
             cfop,
             codigobarras,
+            referencia,
+            unidade,
+            origem_mercadoria,
             csosn,
             cst,
             cest,
             aliquotaicms,
             cst_pis,
             aliquota_pis,
+            modo_pis,
+            aliquota_por_unidade_pis,
             cst_cofins,
-            aliquota_cofins
+            aliquota_cofins,
+            modo_cofins,
+            aliquota_por_unidade_cofins,
+            rtc_habilitado,
+            cst_ibscbs,
+            cclass_trib,
+            aliquota_ibs_uf,
+            aliquota_ibs_municipio,
+            aliquota_cbs
           )
         `
       )
@@ -159,6 +201,7 @@ export async function GET(
 
       return {
         osProdutoId: `${vendaId}-${row.produtoid}`, // reaproveita o mesmo campo do front
+        sourceItemId: `venda:${vendaId}:${row.id}`,
         produtoId: row.produtoid,
 
         titulo,
@@ -177,29 +220,60 @@ export async function GET(
 
         cst_pis: p?.cst_pis ?? null,
         aliquota_pis: p?.aliquota_pis != null ? Number(p.aliquota_pis) : null,
+        modo_pis: p?.modo_pis ?? null,
+        aliquota_por_unidade_pis:
+          p?.aliquota_por_unidade_pis != null ? Number(p.aliquota_por_unidade_pis) : null,
         cst_cofins: p?.cst_cofins ?? null,
         aliquota_cofins:
           p?.aliquota_cofins != null ? Number(p.aliquota_cofins) : null,
+        modo_cofins: p?.modo_cofins ?? null,
+        aliquota_por_unidade_cofins:
+          p?.aliquota_por_unidade_cofins != null ? Number(p.aliquota_por_unidade_cofins) : null,
+        rtc_habilitado: Boolean(p?.rtc_habilitado),
+        cst_ibscbs: p?.cst_ibscbs ?? null,
+        cclass_trib: p?.cclass_trib ?? null,
+        aliquota_ibs_uf: p?.aliquota_ibs_uf != null ? Number(p.aliquota_ibs_uf) : null,
+        aliquota_ibs_municipio:
+          p?.aliquota_ibs_municipio != null ? Number(p.aliquota_ibs_municipio) : null,
+        aliquota_cbs: p?.aliquota_cbs != null ? Number(p.aliquota_cbs) : null,
 
         codigobarras: p?.codigobarras ?? null,
+        referencia: p?.referencia ?? null,
+        unidade: p?.unidade ?? "UN",
+        origem_mercadoria: p?.origem_mercadoria ?? null,
       };
     });
+
+    const { data: cliente } = venda.clienteid
+      ? await supabaseAdmin
+          .from("cliente")
+          .select("id, nomerazaosocial, estado")
+          .eq("id", venda.clienteid)
+          .maybeSingle()
+      : { data: null };
 
     return NextResponse.json({
       ok: true,
       vendaId,
       observacoes_fiscais: venda.observacoes_fiscais ?? null,
+      cliente: cliente
+        ? { id: cliente.id, nome: cliente.nomerazaosocial, uf: cliente.estado }
+        : null,
       itens: resposta,
     });
   } catch (e: any) {
     console.error("Erro em GET /api/venda/[id]/produtos-para-nfe:", e);
+    const status = e?.statusCode === 403 ? 403 : 500;
     return NextResponse.json(
       {
         ok: false,
-        message: "Erro interno ao buscar produtos da venda.",
+        message:
+          status === 403
+            ? "Você não tem permissão para acessar esta venda."
+            : "Erro interno ao buscar produtos da venda.",
         detalhe: String(e?.message ?? e),
       },
-      { status: 500 }
+      { status }
     );
   }
 }

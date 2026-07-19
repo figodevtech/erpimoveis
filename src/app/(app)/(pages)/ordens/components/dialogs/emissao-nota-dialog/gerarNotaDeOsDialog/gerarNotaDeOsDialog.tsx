@@ -2,170 +2,81 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  AlertCircle,
+  CheckCircle2,
+  Info,
+  Loader2,
+  Package,
+  PackageSearch,
+  Pencil,
+  Receipt,
+  X,
+} from "lucide-react";
+
+import { DialogProduto } from "@/app/(app)/(pages)/estoque/components/dialog-produto/dialog-produto";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogClose,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
-import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
+
 import {
-  Loader2,
-  Receipt,
-  Package,
-  Info,
-  X,
-  PackageSearch,
-} from "lucide-react";
-import { DialogProduto } from "@/app/(app)/(pages)/estoque/components/dialog-produto/dialog-produto";
+  createAssistedItem,
+  type AssistedFiscalItem,
+  type AssistedItemIssue,
+  type FiscalSetup,
+  type SourceProduct,
+  toApiItem,
+  validateAssistedItem,
+} from "./emissao-assistida-model";
+import { NfeItemFiscalEditor } from "./nfe-item-fiscal-editor";
 
-type OsProdutoParaNfeBase = {
-  titulo: string;
-  osProdutoId: string; // <-- era number, agora string (no backend já vinha string)
-  produtoId: number;
-  descricao: string;
-  quantidade: number;
-  precoUnitario: number;
-  subtotal: number;
-  ncm: string | null;
-  cfop: string | null;
-  codigobarras: string | null;
-
-  // campos fiscais que precisamos para validação de NF-e
-  csosn?: string | null;
-  cst?: string | null;
-  cest?: string | null;
-  aliquotaicms?: string | number | null;
-
-  // opcionais (não obrigatórios para emitir NF-e)
-  cst_pis?: string | null;
-  aliquota_pis?: string | number | null;
-  cst_cofins?: string | null;
-  aliquota_cofins?: string | number | null;
-};
-
-type OsProdutoParaNfe = OsProdutoParaNfeBase & {
-  podeEmitirNfe: boolean;
-  errosNfe: string[];
-};
-
-type ListarProdutosOsResponse = {
+type SourceResponse = {
   ok: boolean;
   message?: string;
-  osId?: number;
   observacoes_fiscais?: string | null;
-  itens: OsProdutoParaNfeBase[];
+  cliente?: { id: number; nome: string; uf?: string | null } | null;
+  itens: SourceProduct[];
 };
 
-type ListarProdutosVendaResponse = {
+type GenerateResponse = {
   ok: boolean;
   message?: string;
-  vendaId?: number;
-  observacoes_fiscais?: string | null;
-  itens: OsProdutoParaNfeBase[];
-};
-
-type GerarNfeDeOsResponse = {
-  ok: boolean;
-  message?: string;
+  detalhe?: string;
   nfeId?: number;
+  errors?: Array<{
+    step: string;
+    itemIndex?: number;
+    field?: string;
+    message: string;
+  }>;
 };
 
-function fmtMoney(v: number | null | undefined) {
-  if (v == null || isNaN(Number(v))) return "—";
-  return Number(v).toLocaleString("pt-BR", {
+function fmtMoney(value: number | null | undefined) {
+  if (value == null || Number.isNaN(Number(value))) return "—";
+  return Number(value).toLocaleString("pt-BR", {
     style: "currency",
     currency: "BRL",
   });
 }
 
-function onlyDigits(v: string | null | undefined) {
-  return (v ?? "").replace(/\D/g, "");
-}
-
-/**
- * Campos obrigatórios para permitir emissão de NF-e:
- *  - NCM (8 dígitos numéricos)
- *  - CFOP (4 dígitos numéricos)
- *  - CSOSN preenchido
- *  - CST preenchido
- *  - CEST preenchido
- *  - aliquotaicms preenchida
- *
- * PIS/COFINS ficam opcionais.
- */
-function validarProdutoParaNfe(item: OsProdutoParaNfeBase): {
-  ok: boolean;
-  erros: string[];
-} {
-  const erros: string[] = [];
-
-  // NCM
-  const ncm = onlyDigits(item.ncm);
-  if (!ncm) {
-    erros.push("NCM não informado");
-  } else if (ncm.length !== 8) {
-    erros.push("NCM deve ter 8 dígitos numéricos");
-  }
-
-  // CFOP
-  const cfop = onlyDigits(item.cfop);
-  if (!cfop) {
-    erros.push("CFOP não informado");
-  } else if (cfop.length !== 4) {
-    erros.push("CFOP deve ter 4 dígitos numéricos");
-  }
-
-  // CSOSN
-  const csosn = (item.csosn ?? "").trim();
-  if (!csosn || csosn === "Selecione") {
-    erros.push("CSOSN não informado");
-  }
-
-  // CST
-  const cst = (item.cst ?? "").trim();
-  if (!cst || cst === "Selecione") {
-    erros.push("CST não informado");
-  }
-
-  // CEST
-  const cest = onlyDigits(item.cest);
-  if (!cest) {
-    erros.push("CEST não informado");
-  }
-
-  // Alíquota ICMS
-  const aliqIcmsStr = String(item.aliquotaicms ?? "").trim();
-  if (!aliqIcmsStr) {
-    erros.push("Alíquota de ICMS não informada");
-  }
-
-  return {
-    ok: erros.length === 0,
-    erros,
-  };
-}
-
 export interface GerarNotaDeOsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-
-  /**
-   * Agora você pode passar OS ou VENDA.
-   * - Se osId existir, ele tem prioridade.
-   * - Se não tiver osId, usa vendaId.
-   */
   osId?: number | null;
   vendaId?: number | null;
-
   onAfterGenerate?: (nfeId: number | null) => void;
 }
 
@@ -176,554 +87,474 @@ export function GerarNotaDeOsDialog({
   vendaId,
   onAfterGenerate,
 }: GerarNotaDeOsDialogProps) {
-  const [carregandoItens, setCarregandoItens] = useState(false);
-  const [salvando, setSalvando] = useState(false);
-  const [itens, setItens] = useState<OsProdutoParaNfe[] | null>(null);
-  const [selecionados, setSelecionados] = useState<number[]>([]);
-  const [emitirComObs, setEmitirComObs] = useState(false);
-  const [obsCarregadas, setObsCarregadas] = useState<string | null>(null);
-  const [obsEditavel, setObsEditavel] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [setup, setSetup] = useState<FiscalSetup | null>(null);
+  const [source, setSource] = useState<SourceResponse | null>(null);
+  const [items, setItems] = useState<AssistedFiscalItem[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [includeObservations, setIncludeObservations] = useState(false);
+  const [observations, setObservations] = useState("");
 
-  const origem = osId ? "OS" : vendaId ? "VENDA" : null;
-  const origemId = osId ?? vendaId ?? null;
+  const origin = osId ? "OS" : vendaId ? "VENDA" : null;
+  const originId = osId ?? vendaId ?? null;
+  const productsEndpoint = useMemo(() => {
+    if (!origin || !originId) return null;
+    return origin === "OS"
+      ? `/api/ordens/${originId}/produtos-para-nfe`
+      : `/api/venda/${originId}/produtos-para-nfe`;
+  }, [origin, originId]);
+  const generateEndpoint = useMemo(() => {
+    if (!origin || !originId) return null;
+    return origin === "OS"
+      ? `/api/nfe/de-os/${originId}/gerar-rascunho`
+      : `/api/nfe/de-venda/${originId}/gerar-rascunho`;
+  }, [origin, originId]);
 
-  const podeBuscar = open && !!origem && !!origemId;
-
-  const endpointProdutos = useMemo(() => {
-    if (!origem || !origemId) return null;
-    if (origem === "OS") return `/api/ordens/${origemId}/produtos-para-nfe`;
-    return `/api/venda/${origemId}/produtos-para-nfe`;
-  }, [origem, origemId]);
-
-  const endpointGerarRascunho = useMemo(() => {
-    if (!origem || !origemId) return null;
-    if (origem === "OS") return `/api/nfe/de-os/${origemId}/gerar-rascunho`;
-    return `/api/nfe/de-venda/${origemId}/gerar-rascunho`;
-  }, [origem, origemId]);
-
-  async function fetchItensOrigem(signal?: AbortSignal) {
-    if (!endpointProdutos) return;
-
-    setCarregandoItens(true);
+  async function load(signal?: AbortSignal) {
+    if (!productsEndpoint) return;
+    setLoading(true);
+    setLoadError(null);
+    setServerError(null);
     try {
-      const res = await fetch(endpointProdutos, {
-        method: "GET",
-        signal,
-      });
-
-      const json = (await res.json().catch(() => null)) as
-        | ListarProdutosOsResponse
-        | ListarProdutosVendaResponse
+      const [productsResponse, setupResponse] = await Promise.all([
+        fetch(productsEndpoint, { cache: "no-store", signal }),
+        fetch("/api/nfe/emissao-assistida/setup", { cache: "no-store", signal }),
+      ]);
+      const productsJson = (await productsResponse.json().catch(() => null)) as SourceResponse | null;
+      const setupJson = (await setupResponse.json().catch(() => null)) as
+        | FiscalSetup
+        | { error?: string; detail?: string }
         | null;
 
-      if (!res.ok || !json?.ok) {
-        const msg =
-          (json as any)?.message ||
-          `Erro ao buscar produtos (HTTP ${res.status}).`;
-        toast.error(msg);
-        setItens([]);
-        setSelecionados([]);
-        setObsCarregadas(null);
-        setObsEditavel("");
-        setEmitirComObs(false);
-        return;
+      if (!productsResponse.ok || !productsJson?.ok) {
+        throw new Error(productsJson?.message || "Não foi possível carregar os produtos da origem.");
+      }
+      if (!setupResponse.ok || !setupJson || !("regrasFiscais" in setupJson)) {
+        throw new Error(
+          (setupJson && "error" in setupJson && (setupJson.detail || setupJson.error)) ||
+            "Não foi possível carregar as regras fiscais.",
+        );
       }
 
-      const listaBase = (json as any).itens ?? [];
-      const obsRaw: string | null = (json as any).observacoes_fiscais ?? null;
-
-      setObsCarregadas(obsRaw);
-      setObsEditavel(obsRaw ?? "");
-      setEmitirComObs(!!obsRaw);
-
-      const listaComValidacao: OsProdutoParaNfe[] = listaBase.map((item: any) => {
-        const { ok, erros } = validarProdutoParaNfe(item);
-        return {
-          ...item,
-          podeEmitirNfe: ok,
-          errosNfe: erros,
-        };
-      });
-
-      setItens(listaComValidacao);
-
-      const idsValidos = listaComValidacao
-        .filter((i) => i.podeEmitirNfe)
-        .map((i) => i.produtoId);
-
-      setSelecionados(idsValidos);
-    } catch (e: any) {
-      if (e?.name === "AbortError") return;
-      console.log(e);
-      toast.error(e?.message || "Erro ao carregar produtos.");
-      setItens([]);
-      setSelecionados([]);
-      setObsCarregadas(null);
-      setObsEditavel("");
-      setEmitirComObs(false);
+      const fiscalSetup = setupJson as FiscalSetup;
+      const mapped = productsJson.itens.map((item) => createAssistedItem(item, fiscalSetup));
+      setSetup(fiscalSetup);
+      setSource(productsJson);
+      setItems(mapped);
+      setSelectedIds(mapped.map((item) => item.sourceItemId));
+      const existingObservations = productsJson.observacoes_fiscais ?? "";
+      setObservations(existingObservations);
+      setIncludeObservations(Boolean(existingObservations));
+    } catch (error: any) {
+      if (error?.name === "AbortError") return;
+      setLoadError(error?.message || "Erro ao preparar a emissão.");
+      setSetup(null);
+      setSource(null);
+      setItems([]);
+      setSelectedIds([]);
     } finally {
-      setCarregandoItens(false);
+      setLoading(false);
     }
   }
 
   useEffect(() => {
-    if (!podeBuscar) return;
-
-    const ac = new AbortController();
-    fetchItensOrigem(ac.signal);
-
-    return () => {
-      ac.abort();
-    };
+    if (!open || !productsEndpoint) return;
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [podeBuscar, endpointProdutos]);
+  }, [open, productsEndpoint]);
 
-  const toggleItem = (produtoId: number, checked: boolean) => {
-    setSelecionados((prev) => {
-      const set = new Set(prev);
-      if (checked) set.add(produtoId);
-      else set.delete(produtoId);
-      return Array.from(set);
-    });
-  };
-
-  const totalItens = itens?.length ?? 0;
-  const totalItensValidos = itens?.filter((i) => i.podeEmitirNfe).length ?? 0;
-
-  const todosSelecionados = useMemo(() => {
-    if (!itens || itens.length === 0) return false;
-    const idsValidos = itens
-      .filter((i) => i.podeEmitirNfe)
-      .map((i) => i.produtoId);
-    if (idsValidos.length === 0) return false;
-    return idsValidos.every((id) => selecionados.includes(id));
-  }, [itens, selecionados]);
-
-  const parcialSelecionado = useMemo(() => {
-    if (!itens || itens.length === 0) return false;
-    const idsValidos = itens
-      .filter((i) => i.podeEmitirNfe)
-      .map((i) => i.produtoId);
-    const qtdeSelecionadosValidos = idsValidos.filter((id) =>
-      selecionados.includes(id)
-    ).length;
-    return (
-      qtdeSelecionadosValidos > 0 && qtdeSelecionadosValidos < idsValidos.length
-    );
-  }, [itens, selecionados]);
-
-  const toggleSelecionarTodos = (checked: boolean) => {
-    if (!itens || itens.length === 0) return;
-    if (checked) {
-      setSelecionados(
-        itens.filter((i) => i.podeEmitirNfe).map((i) => i.produtoId)
+  const issuesByItem = useMemo(() => {
+    const map = new Map<string, AssistedItemIssue[]>();
+    if (!setup) return map;
+    for (const item of items) {
+      map.set(
+        item.sourceItemId,
+        validateAssistedItem(item, setup, { clienteUf: source?.cliente?.uf }),
       );
-    } else {
-      setSelecionados([]);
     }
-  };
+    return map;
+  }, [items, setup, source?.cliente?.uf]);
 
-  const resumo = useMemo(() => {
-    if (!itens || itens.length === 0) {
-      return {
-        totalItens: 0,
-        totalValidos: 0,
-        totalSelecionados: 0,
-        valorSelecionado: 0,
-      };
-    }
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const selectedItems = useMemo(
+    () => items.filter((item) => selectedSet.has(item.sourceItemId)),
+    [items, selectedSet],
+  );
+  const selectedIssues = useMemo(
+    () =>
+      selectedItems.flatMap((item) =>
+        (issuesByItem.get(item.sourceItemId) ?? []).map((issue) => ({ item, issue })),
+      ),
+    [issuesByItem, selectedItems],
+  );
+  const readyCount = items.filter((item) => (issuesByItem.get(item.sourceItemId) ?? []).length === 0).length;
+  const selectedTotal = selectedItems.reduce(
+    (total, item) => total + item.quantidade * item.valorUnitario,
+    0,
+  );
+  const allSelected = items.length > 0 && selectedIds.length === items.length;
+  const partiallySelected = selectedIds.length > 0 && selectedIds.length < items.length;
+  const editingItem = items.find((item) => item.sourceItemId === editingId) ?? null;
+  const editingIssues = editingItem ? issuesByItem.get(editingItem.sourceItemId) ?? [] : [];
 
-    const selecionadosSet = new Set(selecionados);
-    const itensSelecionados = itens.filter((i) =>
-      selecionadosSet.has(i.produtoId)
+  const title = origin === "VENDA"
+    ? `Gerar NF-e da Venda #${originId ?? ""}`
+    : `Gerar NF-e da OS #${originId ?? ""}`;
+  const operationLabel =
+    setup?.empresa?.uf && source?.cliente?.uf
+      ? setup.empresa.uf === source.cliente.uf
+        ? `Venda interna · ${setup.empresa.uf}`
+        : `Venda interestadual · ${setup.empresa.uf} → ${source.cliente.uf}`
+      : "Operação de saída";
+
+  function toggleItem(sourceItemId: string, checked: boolean) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(sourceItemId);
+      else next.delete(sourceItemId);
+      return Array.from(next);
+    });
+  }
+
+  function updateEditingItem(patch: Partial<AssistedFiscalItem>) {
+    if (!editingId) return;
+    setItems((current) =>
+      current.map((item) =>
+        item.sourceItemId === editingId ? { ...item, ...patch } : item,
+      ),
     );
+    setServerError(null);
+  }
 
-    const valorSelecionado = itensSelecionados.reduce(
-      (acc, i) => acc + Number(i.subtotal || 0),
-      0
-    );
-
-    return {
-      totalItens: itens.length,
-      totalValidos: itens.filter((i) => i.podeEmitirNfe).length,
-      totalSelecionados: itensSelecionados.length,
-      valorSelecionado,
-    };
-  }, [itens, selecionados]);
-
-  const titulo = useMemo(() => {
-    if (!origem || !origemId) return "Gerar NF-e";
-    return origem === "OS"
-      ? `Gerar NF-e a partir da OS #${origemId}`
-      : `Gerar NF-e a partir da Venda #${origemId}`;
-  }, [origem, origemId]);
-
-  async function handleGerarRascunho() {
-    if (!origem || !origemId) return;
-    if (!endpointGerarRascunho) return;
-
-    if (!itens || itens.length === 0) {
-      toast.error("Nenhum item disponível para gerar NF-e.");
-      return;
-    }
-    if (selecionados.length === 0) {
-      toast.error("Selecione pelo menos um item válido para gerar a NF-e.");
-      return;
-    }
-
+  async function refreshItemDefaults(sourceItemId: string) {
+    if (!productsEndpoint || !setup) return;
     try {
-      setSalvando(true);
+      const response = await fetch(productsEndpoint, { cache: "no-store" });
+      const json = (await response.json().catch(() => null)) as SourceResponse | null;
+      if (!response.ok || !json?.ok) throw new Error(json?.message || "Falha ao atualizar o produto.");
+      const updatedSource = json.itens.find((item) => item.sourceItemId === sourceItemId);
+      if (!updatedSource) throw new Error("A linha do produto não foi encontrada na origem.");
+      const updatedItem = createAssistedItem(updatedSource, setup);
+      setSource(json);
+      setItems((current) =>
+        current.map((item) => (item.sourceItemId === sourceItemId ? updatedItem : item)),
+      );
+      toast.success("Padrões fiscais do produto recarregados.");
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao recarregar os padrões do produto.");
+    }
+  }
 
-      const res = await fetch(endpointGerarRascunho, {
+  function openFirstPending() {
+    const first = selectedIssues[0]?.item;
+    if (first) setEditingId(first.sourceItemId);
+  }
+
+  async function generateDraft() {
+    if (!generateEndpoint || selectedItems.length === 0) {
+      toast.error("Selecione pelo menos um produto.");
+      return;
+    }
+    if (selectedIssues.length > 0) {
+      openFirstPending();
+      toast.error("Corrija as pendências fiscais dos produtos selecionados.");
+      return;
+    }
+    if (setup?.empresaErros.length) {
+      toast.error("Corrija o cadastro fiscal da empresa antes de emitir.");
+      return;
+    }
+
+    setSaving(true);
+    setServerError(null);
+    try {
+      const response = await fetch(generateEndpoint, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          itens: selecionados,
-          ...(emitirComObs && obsEditavel.trim()
-            ? { observacoesFiscais: obsEditavel.trim().slice(0, 500) }
-            : {}),
+          itens: selectedItems.map(toApiItem),
+          observacoesFiscais:
+            includeObservations && observations.trim()
+              ? observations.trim().slice(0, 500)
+              : null,
         }),
       });
-
-      const json = (await res.json().catch(() => null)) as
-        | GerarNfeDeOsResponse
-        | null;
-
-      if (!res.ok || !json?.ok) {
-        toast.error(json?.message || "Falha ao gerar rascunho da NF-e.");
+      const json = (await response.json().catch(() => null)) as GenerateResponse | null;
+      if (!response.ok || !json?.ok) {
+        const message =
+          json?.errors?.[0]?.message || json?.detalhe || json?.message || "Falha ao gerar o rascunho.";
+        setServerError(message);
+        const firstIndex = json?.errors?.find((error) => error.itemIndex != null)?.itemIndex;
+        if (firstIndex != null && selectedItems[firstIndex]) {
+          setEditingId(selectedItems[firstIndex].sourceItemId);
+        }
+        toast.error(message);
         return;
       }
 
       toast.success("Rascunho de NF-e gerado com sucesso.");
-
-      if (onAfterGenerate) {
-        onAfterGenerate(json.nfeId ?? null);
-      }
-
+      onAfterGenerate?.(json.nfeId ?? null);
       onOpenChange(false);
-    } catch (e: any) {
-      console.log(e);
-      toast.error(e?.message || "Erro ao gerar rascunho da NF-e.");
+    } catch (error: any) {
+      const message = error?.message || "Erro ao gerar o rascunho da NF-e.";
+      setServerError(message);
+      toast.error(message);
     } finally {
-      setSalvando(false);
+      setSaving(false);
     }
   }
 
-  const botaoDesabilitado =
-    !origem ||
-    !origemId ||
-    !itens ||
-    itens.length === 0 ||
-    selecionados.length === 0 ||
-    salvando;
-
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="
-          w-[95vw] sm:max-w-3xl
-          max-h-[85vh] sm:max-h-[85vh] supports-[height:100svh]:max-h-[85svh]
-          overflow-y-auto overscroll-contain
-          p-0
-        "
-      >
-        <div className="top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-b relative">
-          <DialogClose asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="absolute right-2 top-2"
-              aria-label="Fechar"
-              title="Fechar"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </DialogClose>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent
+          showCloseButton={false}
+          className="max-h-[90dvh] w-[calc(100vw-1rem)] max-w-5xl min-w-0 overflow-x-hidden overflow-y-auto p-0 sm:w-[96vw]"
+        >
+          <div className="relative min-w-0 border-b bg-background/95">
+            <DialogClose asChild>
+              <Button variant="ghost" size="icon" className="absolute right-2 top-2" aria-label="Fechar">
+                <X className="h-4 w-4" />
+              </Button>
+            </DialogClose>
+            <DialogHeader className="min-w-0 px-4 pb-4 pt-5 pr-12 sm:px-5 sm:pr-12">
+              <DialogTitle className="flex min-w-0 items-start gap-2 leading-snug">
+                <Receipt className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                <span className="min-w-0 break-words">{title}</span>
+              </DialogTitle>
+              <DialogDescription className="break-words">
+                Os dados da OS, do cliente e dos produtos já estão preenchidos. Ajuste somente as pendências fiscais.
+              </DialogDescription>
+            </DialogHeader>
+          </div>
 
-          <DialogHeader className="px-5 pt-5 pb-3">
-            <DialogTitle className="flex items-center gap-2">
-              <Receipt className="h-5 w-5 text-primary" />
-              {titulo}
-            </DialogTitle>
-            <DialogDescription>
-              Selecione os produtos que serão incluídos na NF-e. Neste passo a
-              nota será montada e salva como rascunho, sem envio para a SEFAZ.
-            </DialogDescription>
-          </DialogHeader>
-        </div>
-
-        <div className="px-5 pb-5 pt-3 space-y-4">
-          {!origemId && (
-            <div className="h-24 grid place-items-center text-sm text-muted-foreground">
-              Nenhuma {origem === "VENDA" ? "venda" : "OS"} selecionada.
-            </div>
-          )}
-
-          {!!origemId && carregandoItens && (
-            <div className="h-32 grid place-items-center">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          )}
-
-          {!!origemId && !carregandoItens && itens && itens.length === 0 && (
-            <div className="rounded-lg border border-dashed p-4 text-sm flex gap-3">
-              <Info className="h-4 w-4 mt-0.5 text-muted-foreground" />
-              <div>
-                <div className="font-medium">Nenhum produto encontrado</div>
-                <div className="text-muted-foreground text-xs">
-                  Vincule produtos para poder gerar uma NF-e.
-                </div>
+          <div className="min-w-0 space-y-4 px-3 pb-4 pt-4 sm:px-5 sm:pb-5">
+            {loading ? (
+              <div className="grid min-h-40 place-items-center">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
-            </div>
-          )}
+            ) : null}
 
-          {!!origemId && !carregandoItens && itens && itens.length > 0 && (
-            <>
-              <section className="rounded-lg border p-4 space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <Package className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium">Produtos</span>
-                    <Badge variant="outline" className="text-[10px]">
-                      {totalItens} itens
-                    </Badge>
-                    <Badge variant="outline" className="text-[10px]">
-                      {totalItensValidos} aptos p/ NF-e
-                    </Badge>
-                  </div>
+            {loadError ? (
+              <Alert variant="destructive" className="min-w-0 overflow-hidden">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Não foi possível preparar a emissão</AlertTitle>
+                <AlertDescription className="min-w-0 space-y-3 [overflow-wrap:anywhere]">
+                  <p>{loadError}</p>
+                  <Button type="button" variant="outline" size="sm" onClick={() => void load()}>
+                    Tentar novamente
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            ) : null}
 
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Checkbox
-                      checked={
-                        todosSelecionados
-                          ? true
-                          : parcialSelecionado
-                          ? "indeterminate"
-                          : false
-                      }
-                      onCheckedChange={(checked) =>
-                        toggleSelecionarTodos(!!checked)
-                      }
-                    />
-                    <span>Selecionar todos (apenas itens válidos)</span>
-                  </div>
-                </div>
-
-                <Separator />
-
-                <div className="space-y-2 text-sm">
-                  {itens.map((item) => {
-                    const checked = selecionados.includes(item.produtoId);
-
-                    return (
-                      <div
-                        key={item.osProdutoId}
-                        className="flex items-start gap-3 p-2 rounded-lg hover:bg-muted/40"
-                      >
-                        <Checkbox
-                          checked={checked}
-                          disabled={!item.podeEmitirNfe}
-                          onCheckedChange={(c) =>
-                            item.podeEmitirNfe && toggleItem(item.produtoId, !!c)
-                          }
-                          className="mt-1"
-                        />
-
-                        <div className="flex-1 min-w-0 space-y-0.5">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-medium">{item.titulo}</span>
-
-                            {!item.descricao && (
-                              <span className="text-xs text-muted-foreground">
-                                Produto sem descrição
-                              </span>
-                            )}
-
-                            <DialogProduto
-                              productId={item.produtoId}
-                              onAfterSaveProduct={() => {
-                                fetchItensOrigem();
-                              }}
-                            >
-                              <div className="p-1 rounded-full bg-primary/50 hover:bg-primary/90 transition-all hover:cursor-pointer">
-                                <PackageSearch className="w-2.5 h-2.5 " />
-                              </div>
-                            </DialogProduto>
-
-                            {item.ncm && (
-                              <Badge variant="outline" className="text-[10px]">
-                                NCM {item.ncm}
-                              </Badge>
-                            )}
-                            {item.cfop && (
-                              <Badge variant="outline" className="text-[10px]">
-                                CFOP {item.cfop}
-                              </Badge>
-                            )}
-                            {item.csosn && (
-                              <Badge variant="outline" className="text-[10px]">
-                                CSOSN {item.csosn}
-                              </Badge>
-                            )}
-                            {item.cst && (
-                              <Badge variant="outline" className="text-[10px]">
-                                CST {item.cst}
-                              </Badge>
-                            )}
-                            {item.cest && (
-                              <Badge variant="outline" className="text-[10px]">
-                                CEST {item.cest}
-                              </Badge>
-                            )}
-                            {item.aliquotaicms && (
-                              <Badge variant="outline" className="text-[10px]">
-                                ALÍQUOTA ICMS {item.aliquotaicms}%
-                              </Badge>
-                            )}
-
-                            {item.cst_pis && (
-                              <Badge variant="outline" className="text-[10px]">
-                                CST PIS {item.cst_pis}
-                              </Badge>
-                            )}
-                            {item.aliquota_pis && (
-                              <Badge variant="outline" className="text-[10px]">
-                                ALÍQUOTA PIS {item.aliquota_pis}%
-                              </Badge>
-                            )}
-                            {item.cst_cofins && (
-                              <Badge variant="outline" className="text-[10px]">
-                                CST COFINS {item.cst_cofins}
-                              </Badge>
-                            )}
-                            {item.aliquota_cofins && (
-                              <Badge variant="outline" className="text-[10px]">
-                                ALÍQUOTA COFINS {item.aliquota_cofins}%
-                              </Badge>
-                            )}
-
-                            {!item.podeEmitirNfe && (
-                              <Badge variant="destructive" className="text-[10px]">
-                                Cadastro fiscal incompleto p/ NF-e
-                              </Badge>
-                            )}
-                          </div>
-
-                          <div className="text-xs text-muted-foreground flex flex-wrap gap-3">
-                            <span>
-                              Qtde: <b>{item.quantidade}</b>
-                            </span>
-                            <span>
-                              Vlr. unitário: <b>{fmtMoney(item.precoUnitario)}</b>
-                            </span>
-                            <span>
-                              Subtotal: <b>{fmtMoney(item.subtotal)}</b>
-                            </span>
-                            {item.codigobarras && (
-                              <span className="break-all">
-                                Código de barras:{" "}
-                                <span className="font-mono text-[11px]">
-                                  {item.codigobarras}
-                                </span>
-                              </span>
-                            )}
-                          </div>
-
-                          {!item.podeEmitirNfe && item.errosNfe.length > 0 && (
-                            <div className="text-[11px] text-red-500 mt-1">
-                              Não é possível emitir NF-e deste produto.{" "}
-                              {item.errosNfe.join(" • ")}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-
-              <section className="rounded-lg border p-4 space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="space-y-0.5">
-                    <Label
-                      htmlFor="switch-obs-fiscais"
-                      className="text-sm font-medium cursor-pointer"
-                    >
-                      Emitir com observações fiscais
-                    </Label>
-                    {!obsCarregadas && (
-                      <p className="text-[11px] text-muted-foreground">
-                        Esta {origem === "VENDA" ? "venda" : "OS"} não possui observações fiscais cadastradas.
-                      </p>
-                    )}
-                    {obsCarregadas && !emitirComObs && (
-                      <p className="text-[11px] text-muted-foreground">
-                        Observações fiscais encontradas — ative para incluir na NF-e.
-                      </p>
-                    )}
-                  </div>
-                  <Switch
-                    id="switch-obs-fiscais"
-                    checked={emitirComObs}
-                    onCheckedChange={(v) => {
-                      setEmitirComObs(v);
-                      if (v && !obsEditavel) setObsEditavel(obsCarregadas ?? "");
-                    }}
-                  />
-                </div>
-
-                {emitirComObs && (
-                  <div className="space-y-1.5">
-                    <Textarea
-                      id="textarea-obs-fiscais"
-                      value={obsEditavel}
-                      onChange={(e) =>
-                        setObsEditavel(e.target.value.slice(0, 500))
-                      }
-                      placeholder="Digite as observações fiscais que serão incluídas na NF-e..."
-                      className="min-h-[80px] text-sm resize-none"
-                      maxLength={500}
-                    />
-                    <p className="text-[11px] text-muted-foreground text-right">
-                      {obsEditavel.length}/500 caracteres
+            {!loading && setup && source ? (
+              <>
+                <section className="flex min-w-0 flex-row gap-2 rounded-lg border bg-muted/20 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="break-words font-medium">{operationLabel}</p>
+                    <p className="break-words text-xs text-muted-foreground">
+                      Cliente: {source.cliente?.nome || "não identificado"} · CRT {setup.empresa?.crt || "não informado"} · Série {setup.config?.serie || "—"}
                     </p>
                   </div>
+                    {/* <Badge variant="outline" className="max-w-full self-start overflow-hidden text-ellipsis sm:shrink-0">
+                      {setup.versaoRegraFiscal}
+                    </Badge> */}
+                </section>
+
+                {setup.empresaErros.length > 0 ? (
+                  <Alert variant="destructive" className="min-w-0 overflow-hidden">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>Cadastro da empresa incompleto</AlertTitle>
+                    <AlertDescription className="min-w-0 [overflow-wrap:anywhere]">
+                      {setup.empresaErros.join(" ")}
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
+
+                {serverError ? (
+                  <Alert variant="destructive" className="min-w-0 overflow-hidden">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>A validação do servidor encontrou uma pendência</AlertTitle>
+                    <AlertDescription className="min-w-0 [overflow-wrap:anywhere]">{serverError}</AlertDescription>
+                  </Alert>
+                ) : null}
+
+                {items.length === 0 ? (
+                  <Alert>
+                    <Info className="h-4 w-4" />
+                    <AlertTitle>Nenhum produto encontrado</AlertTitle>
+                    <AlertDescription>Adicione produtos à origem antes de gerar a NF-e.</AlertDescription>
+                  </Alert>
+                ) : (
+                  <section className="min-w-0 space-y-3 rounded-lg border p-3 sm:p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0 flex flex-wrap items-center gap-2">
+                        <Package className="h-4 w-4 shrink-0 text-primary" />
+                        <span className="text-sm font-medium">Produtos da emissão</span>
+                        <Badge variant="outline">{readyCount} de {items.length} prontos</Badge>
+                        {items.length - readyCount > 0 ? (
+                          <Badge variant="destructive">{items.length - readyCount} com pendências</Badge>
+                        ) : null}
+                      </div>
+                      <label className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                        <Checkbox
+                          checked={allSelected ? true : partiallySelected ? "indeterminate" : false}
+                          onCheckedChange={(checked) =>
+                            setSelectedIds(checked ? items.map((item) => item.sourceItemId) : [])
+                          }
+                        />
+                        Selecionar todos
+                      </label>
+                    </div>
+                    <Separator />
+
+                    <div className="space-y-2">
+                      {items.map((item) => {
+                        const issues = issuesByItem.get(item.sourceItemId) ?? [];
+                        const selected = selectedSet.has(item.sourceItemId);
+                        return (
+                          <article
+                            key={item.sourceItemId}
+                            className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/30 sm:grid-cols-[auto_minmax(0,1fr)_auto]"
+                          >
+                            <Checkbox
+                              checked={selected}
+                              className="mt-1"
+                              onCheckedChange={(checked) => toggleItem(item.sourceItemId, Boolean(checked))}
+                            />
+                            <div className="min-w-0 flex-1 space-y-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="min-w-0 break-words font-medium [overflow-wrap:anywhere]">
+                                  {item.titulo}
+                                </span>
+                                {issues.length === 0 ? (
+                                  <Badge className="gap-1 bg-emerald-600 hover:bg-emerald-600">
+                                    <CheckCircle2 className="h-3 w-3" /> Pronto
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="destructive" className="gap-1">
+                                    <AlertCircle className="h-3 w-3" /> {issues.length} pendência(s)
+                                  </Badge>
+                                )}
+                                {item.ncm ? <Badge variant="outline">NCM {item.ncm}</Badge> : null}
+                                {item.cfop ? <Badge variant="outline">CFOP {item.cfop}</Badge> : null}
+                                {item.csosn ? <Badge variant="outline">CSOSN {item.csosn}</Badge> : null}
+                                {item.cst ? <Badge variant="outline">CST {item.cst}</Badge> : null}
+                              </div>
+                              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                                <span>Quantidade: <b>{item.quantidade}</b></span>
+                                <span>Unitário: <b>{fmtMoney(item.valorUnitario)}</b></span>
+                                <span>Total: <b>{fmtMoney(item.quantidade * item.valorUnitario)}</b></span>
+                              </div>
+                              {issues.length > 0 ? (
+                                <ul className="min-w-0 list-disc space-y-0.5 pl-4 text-xs text-destructive [overflow-wrap:anywhere]">
+                                  {issues.slice(0, 3).map((issue, index) => (
+                                    <li key={`${issue.code}-${index}`}>{issue.message}</li>
+                                  ))}
+                                  {issues.length > 3 ? <li>Mais {issues.length - 3} pendência(s)</li> : null}
+                                </ul>
+                              ) : null}
+                            </div>
+                            <div className="col-span-2 flex min-w-0 flex-wrap items-center justify-end gap-1 sm:col-span-1 sm:flex-nowrap">
+                              <DialogProduto
+                                productId={item.produtoId}
+                                onAfterSaveProduct={() => void refreshItemDefaults(item.sourceItemId)}
+                              >
+                                <Button type="button" variant="ghost" size="icon" title="Editar padrão no cadastro do produto">
+                                  <PackageSearch className="h-4 w-4" />
+                                </Button>
+                              </DialogProduto>
+                              <Button
+                                type="button"
+                                variant={issues.length > 0 ? "outline" : "ghost"}
+                                size="sm"
+                                className="max-w-full gap-1"
+                                onClick={() => setEditingId(item.sourceItemId)}
+                              >
+                                <Pencil className="h-3.5 w-3.5" /> Ajustar
+                              </Button>
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </section>
                 )}
-              </section>
 
-              <section className="rounded-lg border p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-xs text-muted-foreground space-y-1">
-                  <div>
-                    Itens selecionados para NF-e:{" "}
-                    <b>
-                      {resumo.totalSelecionados} de {resumo.totalValidos} itens
-                      aptos
-                    </b>
+                <section className="min-w-0 space-y-3 rounded-lg border p-3 sm:p-4">
+                  <div className="flex min-w-0 items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <Label htmlFor="nfe-origin-observations">Incluir observações fiscais</Label>
+                      <p className="break-words text-xs text-muted-foreground">Use somente quando houver informação adicional para esta NF-e.</p>
+                    </div>
+                    <Switch
+                      id="nfe-origin-observations"
+                      className="shrink-0"
+                      checked={includeObservations}
+                      onCheckedChange={setIncludeObservations}
+                    />
                   </div>
-                  <div>
-                    Total selecionado para NF-e: <b>{fmtMoney(resumo.valorSelecionado)}</b>
-                  </div>
-                  <div className="text-[11px]">
-                    A NF-e será criada em status <b>RASCUNHO</b>, permitindo
-                    revisão antes de enviar para a SEFAZ.
-                  </div>
-                </div>
+                  {includeObservations ? (
+                    <Textarea
+                      value={observations}
+                      maxLength={500}
+                      className="min-h-20 resize-none"
+                      onChange={(event) => setObservations(event.target.value.slice(0, 500))}
+                    />
+                  ) : null}
+                </section>
 
-                <Button
-                  className="mt-3 sm:mt-0"
-                  disabled={botaoDesabilitado}
-                  onClick={handleGerarRascunho}
-                >
-                  {salvando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                  Gerar rascunho de NF-e
-                </Button>
-              </section>
-            </>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
+                <section className="min-w-0  gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
+                  <div className="min-w-0 text-sm">
+                    <p className=""><b>{selectedItems.length}</b> produto(s) selecionado(s) · <b>{fmtMoney(selectedTotal)}</b></p>
+                    {selectedIssues.length > 0 ? (
+                      <p className="text-xs text-destructive">Existem {selectedIssues.length} pendência(s) nos itens selecionados.</p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Todos os itens selecionados passaram pela validação fiscal.</p>
+                    )}
+                  </div>
+                  <div className="flex min-w-0 flex-col mt-2 gap-2 sm:shrink-0 sm:flex-row">
+                    {selectedIssues.length > 0 ? (
+                      <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={openFirstPending}>
+                        Corrigir pendências
+                      </Button>
+                    ) : null}
+                    <Button
+                      type="button"
+                      className="h-auto min-h-9 w-full whitespace-normal text-center sm:w-auto"
+                      disabled={saving || selectedItems.length === 0 || setup.empresaErros.length > 0}
+                      onClick={() => void generateDraft()}
+                    >
+                      {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      Gerar rascunho de NF-e
+                    </Button>
+                  </div>
+                </section>
+              </>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {setup ? (
+        <NfeItemFiscalEditor
+          open={Boolean(editingItem)}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) setEditingId(null);
+          }}
+          item={editingItem}
+          setup={setup}
+          issues={editingIssues}
+          onChange={updateEditingItem}
+        />
+      ) : null}
+    </>
   );
 }

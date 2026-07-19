@@ -2,7 +2,10 @@ import type { NFeItem } from './types';
 import {
   buildCofinsXmlPorCRT,
   buildIcmsXmlPorCRT,
+  buildImpostoSeletivoXml,
+  buildIpiXml,
   buildPisXmlPorCRT,
+  buildRtcXml,
   getCestXml,
   normalizarCRT,
 } from './fiscal';
@@ -15,16 +18,15 @@ function formatNumber(value: number, decimals: number): string {
 /**
  * Gera <det> no layout NF-e 4.00.
  *
- * CRT 1 e 4 usam CSOSN. CRT 3 usa CST ICMS. CRT 2 fica explicito:
- * usa CST quando o item trouxer CST; usa CSOSN quando o item trouxer apenas
- * CSOSN. Ajustes por UF/sublimite devem vir da configuracao fiscal do item.
+ * CRT 1 e 4 usam CSOSN. CRT 2 e 3 usam CST ICMS. A camada RTC é
+ * emitida em paralelo aos tributos atuais quando estiver configurada.
  */
 export function buildDetXml(item: NFeItem, crt: string | number): string {
   const crtNormalizado = normalizarCRT(crt);
   const partes: string[] = [];
 
-  const qCom = formatNumber(item.quantidade, 2);
-  const vUnCom = formatNumber(item.valorUnitario, 2);
+  const qCom = formatNumber(item.quantidade, 4);
+  const vUnCom = formatNumber(item.valorUnitario, 10);
   const vProd = formatNumber(item.valorTotal, 2);
 
   const cEAN =
@@ -55,8 +57,11 @@ export function buildDetXml(item: NFeItem, crt: string | number): string {
 
   partes.push('<imposto>');
   partes.push(`<ICMS>${buildIcmsXmlPorCRT(item, crtNormalizado)}</ICMS>`);
+  partes.push(buildIpiXml(item));
   partes.push(buildPisXmlPorCRT(item, crtNormalizado));
   partes.push(buildCofinsXmlPorCRT(item, crtNormalizado));
+  partes.push(buildImpostoSeletivoXml(item));
+  partes.push(buildRtcXml(item));
   partes.push('</imposto>');
   partes.push('</det>');
 

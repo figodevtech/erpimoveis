@@ -3,6 +3,11 @@ import { cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { LoginFormClient } from "./login-form-client";
 import { fetchPrimeiroLogoEmpresa } from "@/lib/empresa-logo";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+
+const LOGIN_IMAGE_EXTENSIONS = /\.(avif|webp|png|jpe?g|gif|svg)$/i;
+const LOGIN_IMAGE_BUCKET = "empresa";
+const LOGIN_IMAGE_FOLDER = "images/login";
 
 async function urlExiste(url: string): Promise<boolean> {
   try {
@@ -21,38 +26,52 @@ async function urlExiste(url: string): Promise<boolean> {
   }
 }
 
-function safeUrl(base: string, path: string) {
-  try {
-    return new URL(path, base).toString();
-  } catch {
-    return "";
+async function fetchPrimeiraImagemLogin() {
+  const { data: files, error } = await supabaseAdmin.storage
+    .from(LOGIN_IMAGE_BUCKET)
+    .list(LOGIN_IMAGE_FOLDER, {
+      limit: 100,
+      offset: 0,
+      sortBy: { column: "name", order: "asc" },
+    });
+
+  if (error) {
+    console.error("Erro ao listar imagens de login no Supabase:", error);
+    return null;
   }
+
+  const firstImage = (files ?? []).find((file) => {
+    const name = String(file.name ?? "").trim();
+    const mimeType = String(file.metadata?.mimetype ?? "").toLowerCase();
+    return name !== ".emptyFolderPlaceholder"
+      && (mimeType.startsWith("image/") || LOGIN_IMAGE_EXTENSIONS.test(name));
+  });
+
+  if (!firstImage) return null;
+
+  const { data } = supabaseAdmin.storage
+    .from(LOGIN_IMAGE_BUCKET)
+    .getPublicUrl(`${LOGIN_IMAGE_FOLDER}/${firstImage.name}`);
+
+  return data.publicUrl || null;
 }
 
 export async function LoginForm({
   className,
   ...props
 }: React.ComponentProps<"div">) {
-  const supabaseBaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
-
-  const bgSupabase = supabaseBaseUrl
-    ? safeUrl(
-        supabaseBaseUrl,
-        "/storage/v1/object/public/empresa/images/login/login.jpg"
-      )
-    : "";
-
   // ✅ fallback local SOMENTE para background
   // Coloque em: /public/images/login-fallback.jpg
   const bgFallback = "/images/login-fallback.jpg";
 
   // Decide TUDO no server (sem swap no client)
-  const [finalLogo, bgOk] = await Promise.all([
+  const [finalLogo, bgSupabase] = await Promise.all([
     fetchPrimeiroLogoEmpresa(),
-    bgSupabase ? urlExiste(bgSupabase) : Promise.resolve(false),
+    fetchPrimeiraImagemLogin(),
   ]);
 
-  const finalBg = bgOk ? bgSupabase : bgFallback;
+  const bgOk = bgSupabase ? await urlExiste(bgSupabase) : false;
+  const finalBg = bgOk && bgSupabase ? bgSupabase : bgFallback;
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>

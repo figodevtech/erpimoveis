@@ -52,6 +52,7 @@ function formatDateTimeNFe(date: Date): string {
 export interface IdeOptions {
   nomeMunicipioEmitente?: string;
   tpNF?: 0 | 1;
+  idDest?: 1 | 2 | 3;
   natOp?: string;
   indFinal?: 0 | 1;
   indPres?: 0 | 1 | 2 | 3 | 4 | 9;
@@ -303,7 +304,7 @@ export function criarIdeParaEmpresa(
     nNF: numeroNota,
     dhEmi: formatDateTimeNFe(agora),
     tpNF: options?.tpNF ?? 1,
-    idDest: 1,
+    idDest: options?.idDest ?? 1,
     cMunFG: empresa.codigomunicipio,
     tpImp: options?.tpImp ?? 1,
     tpEmis,
@@ -313,7 +314,7 @@ export function criarIdeParaEmpresa(
     indFinal: options?.indFinal ?? (options?.tpNF === 0 ? 0 : 1),
     indPres: options?.indPres ?? 1,
     procEmi: 0,
-    verProc: 'ERPOficina 1.0.0',
+    verProc: 'ERPOficina 2026.1',
   };
 
   return { ide, cNF, chave, id };
@@ -338,11 +339,22 @@ export function buildNFePreviewXml(
   destinatario?: NFeDestinatario,
   options?: IdeOptions
 ): { xml: string; chave: string; id: string } {
+  const empresaUf = String(empresa.uf ?? "").trim().toUpperCase();
+  const destinatarioUf = String(destinatario?.endereco?.uf ?? "").trim().toUpperCase();
+  const destinatarioPais = String(destinatario?.endereco?.codigoPais ?? "").trim();
+  const destinatarioExterior =
+    Boolean(destinatario) &&
+    ((destinatarioPais !== "" && destinatarioPais !== "1058") || destinatarioUf === "EX");
+  const idDest = destinatarioExterior
+    ? 3
+    : empresaUf && destinatarioUf && empresaUf !== destinatarioUf
+      ? 2
+      : 1;
   const { ide, chave, id } = criarIdeParaEmpresa(
     empresa,
     numeroNota,
     serie,
-    options
+    { ...options, idDest: options?.idDest ?? idDest }
   );
 
   const nomeMunicipioEmitente = cleanText(options?.nomeMunicipioEmitente);
@@ -387,29 +399,10 @@ export function buildNFePreviewXml(
 
 
   // Se itensOverride não for passado, usa o item de teste (compatibilidade)
-  const itemTesteFiscal =
-    crt === 3
-      ? { cst: '00', aliquotaIcms: 18, cstPis: '01', aliquotaPis: 1.65, cstCofins: '01', aliquotaCofins: 7.6 }
-      : { csosn: '102', cstPis: crt === 4 ? '08' : '07', aliquotaPis: 0, cstCofins: crt === 4 ? '08' : '07', aliquotaCofins: 0 };
-
-  const itensBase: NFeItem[] =
-    itensOverride && itensOverride.length > 0
-      ? itensOverride
-      : [
-        {
-          numeroItem: 1,
-          codigoProduto: '001',
-          descricao: 'PECA TESTE',
-          ncm: '61091000', // NCM exemplo - AJUSTAR DEPOIS
-          cfop: '5102', // venda dentro do estado
-          unidade: 'UN',
-          quantidade: 1,
-          valorUnitario: 100.0,
-          valorTotal: 100.0,
-          orig: '0',
-          ...itemTesteFiscal,
-        },
-      ];
+  if (!itensOverride?.length) {
+    throw new Error('NFE_ITEMS_REQUIRED: informe ao menos um item com tributacao explicita.');
+  }
+  const itensBase: NFeItem[] = itensOverride;
 
   // Garante nº do item em cada item
   const itens: NFeItem[] = itensBase.map((item, index) => ({
@@ -434,31 +427,48 @@ export function buildNFePreviewXml(
   const vICMS = soma.vICMS.toFixed(2);
   const vPIS = soma.vPIS.toFixed(2);
   const vCOFINS = soma.vCOFINS.toFixed(2);
-  const vNF = vProd; // sem desconto/frete/outros por enquanto
+  const vNF = (soma.vProd + soma.vST + soma.vFCPST + soma.vIPI).toFixed(2);
+
+  const isTotXml = soma.vIS > 0
+    ? `<ISTot><vIS>${soma.vIS.toFixed(2)}</vIS></ISTot>`
+    : '';
+  const ibsCbsTotXml = itens.some((item) => item.rtc)
+    ? '<IBSCBSTot>' +
+      `<vBCIBSCBS>${soma.vBCIBSCBS.toFixed(2)}</vBCIBSCBS>` +
+      '<gIBS>' +
+      `<gIBSUF><vDif>0.00</vDif><vDevTrib>0.00</vDevTrib><vIBSUF>${soma.vIBSUF.toFixed(2)}</vIBSUF></gIBSUF>` +
+      `<gIBSMun><vDif>0.00</vDif><vDevTrib>0.00</vDevTrib><vIBSMun>${soma.vIBSMun.toFixed(2)}</vIBSMun></gIBSMun>` +
+      `<vIBS>${soma.vIBS.toFixed(2)}</vIBS>` +
+      '</gIBS>' +
+      `<gCBS><vDif>0.00</vDif><vDevTrib>0.00</vDevTrib><vCBS>${soma.vCBS.toFixed(2)}</vCBS></gCBS>` +
+      '</IBSCBSTot>'
+    : '';
 
   const totalXml =
     '<total>' +
     '<ICMSTot>' +
     `<vBC>${vBC}</vBC>` +
     `<vICMS>${vICMS}</vICMS>` +
-    `<vICMSDeson>0.00</vICMSDeson>` +
-    `<vFCP>0.00</vFCP>` +
-    `<vBCST>0.00</vBCST>` +
-    `<vST>0.00</vST>` +
-    `<vFCPST>0.00</vFCPST>` +
-    `<vFCPSTRet>0.00</vFCPSTRet>` +
+    `<vICMSDeson>${soma.vICMSDeson.toFixed(2)}</vICMSDeson>` +
+    `<vFCP>${soma.vFCP.toFixed(2)}</vFCP>` +
+    `<vBCST>${soma.vBCST.toFixed(2)}</vBCST>` +
+    `<vST>${soma.vST.toFixed(2)}</vST>` +
+    `<vFCPST>${soma.vFCPST.toFixed(2)}</vFCPST>` +
+    `<vFCPSTRet>${soma.vFCPSTRet.toFixed(2)}</vFCPSTRet>` +
     `<vProd>${vProd}</vProd>` +
     `<vFrete>0.00</vFrete>` +
     `<vSeg>0.00</vSeg>` +
     `<vDesc>0.00</vDesc>` +
     `<vII>0.00</vII>` +
-    `<vIPI>0.00</vIPI>` +
+    `<vIPI>${soma.vIPI.toFixed(2)}</vIPI>` +
     `<vIPIDevol>0.00</vIPIDevol>` +
     `<vPIS>${vPIS}</vPIS>` +
     `<vCOFINS>${vCOFINS}</vCOFINS>` +
     `<vOutro>0.00</vOutro>` +
     `<vNF>${vNF}</vNF>` +
     '</ICMSTot>' +
+    isTotXml +
+    ibsCbsTotXml +
     '</total>';
 
   const transpXml = buildTranspXml({

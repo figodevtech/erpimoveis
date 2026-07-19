@@ -13,6 +13,65 @@ export type CSTPisCofins =
   | '61' | '62' | '63' | '64' | '65' | '66' | '67' | '70' | '71'
   | '72' | '73' | '74' | '75' | '98' | '99';
 
+export type ModoCalculoPisCofins = 'PERCENTUAL' | 'QUANTIDADE' | 'NAO_TRIBUTADO';
+export type IbsCbsOption = 'SIMPLES' | 'REGULAR' | 'NOT_APPLICABLE';
+
+export type TributoPisCofins = {
+  cst: CSTPisCofins | string;
+  modo: ModoCalculoPisCofins;
+  base?: number;
+  aliquota?: number;
+  quantidade?: number;
+  aliquotaPorUnidade?: number;
+  valor?: number;
+};
+
+export type ParcelaIbsCbs = {
+  aliquota: number;
+  percentualReducao?: number;
+  aliquotaEfetiva?: number;
+  percentualDiferimento?: number;
+  valorDiferido?: number;
+  valor: number;
+};
+
+export type TributosRtc = {
+  cstIbsCbs: string;
+  cClassTrib: string;
+  baseCalculo: number;
+  ibsUf: ParcelaIbsCbs;
+  ibsMunicipio: ParcelaIbsCbs;
+  valorIbs: number;
+  cbs: ParcelaIbsCbs;
+  versaoClassificacao?: string;
+  validadoEm?: string;
+};
+
+export type ImpostoSeletivo = {
+  cst: string;
+  cClassTrib: string;
+  baseCalculo?: number;
+  aliquota?: number;
+  unidadeTributavel?: string;
+  quantidadeTributavel?: number;
+  aliquotaEspecifica?: number;
+  valor: number;
+};
+
+export type ClassificacaoTributariaRtc = {
+  codigo: string;
+  cst: string;
+  nome: string;
+  descricao?: string | null;
+  percentualReducaoIbs?: number | null;
+  percentualReducaoCbs?: number | null;
+  inicioVigencia: string;
+  fimVigencia?: string | null;
+  permiteNfe: boolean;
+  indicadores?: Record<string, boolean | string | number | null>;
+  versaoFonte: string;
+};
+
 export type EmpresaRow = {
   id: number;
   cnpj: string;
@@ -198,6 +257,21 @@ export interface NFeItem {
   vICMSSTRet?: number;
   pCredSN?: number;
   vCredICMSSN?: number;
+  vFCP?: number;
+  vBCFCP?: number;
+  pFCP?: number;
+  vBCFCPST?: number;
+  pFCPST?: number;
+  vFCPST?: number;
+  vBCFCPSTRet?: number;
+  pFCPSTRet?: number;
+  vFCPSTRet?: number;
+  vICMSDeson?: number;
+  motDesICMS?: string | number | null;
+  cBenef?: string | null;
+  vICMSOp?: number;
+  pDif?: number;
+  vICMSDif?: number;
 
   // ---------- PIS ----------
   /**
@@ -230,4 +304,22 @@ export interface NFeItem {
    * Valor de COFINS (vCOFINS)
    */
   valorCofins?: number;
+
+  /** Estruturas explícitas usadas pelo motor novo. Os aliases acima continuam
+   * sendo lidos para compatibilidade com notas antigas. */
+  pis?: TributoPisCofins;
+  cofins?: TributoPisCofins;
+
+  // ---------- IPI ----------
+  cstIpi?: string | null;
+  codigoEnquadramentoIpi?: string | null;
+  baseCalculoIpi?: number;
+  aliquotaIpi?: number;
+  quantidadeIpi?: number;
+  valorUnidadeIpi?: number;
+  valorIpi?: number;
+
+  // ---------- Reforma tributária ----------
+  rtc?: TributosRtc;
+  impostoSeletivo?: ImpostoSeletivo;
 }

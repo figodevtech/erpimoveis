@@ -2,7 +2,8 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { buildNFePreviewXml, type NFeTransporteOptions } from "@/lib/nfe/buildNFe";
 import { carregarCertificadoA1 } from "@/lib/nfe/certificado";
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
-import type { EmpresaRow, NFeDestinatario, NFeItem } from "@/lib/nfe/types";
+import type { CRT, ClassificacaoTributariaRtc, EmpresaRow, NFeDestinatario, NFeItem } from "@/lib/nfe/types";
+import { getNFeFiscalFieldRules, NFE_FISCAL_RULE_VERSION, validateNFeItemTax } from "@/lib/nfe/taxRules";
 import { resolverNomeMunicipioIbge } from "@/lib/ibge/municipio";
 
 type NFeConfigRow = {
@@ -15,6 +16,7 @@ type NFeConfigRow = {
 };
 
 export type NFeAvulsaItemInput = {
+  sourceItemId?: string | null;
   produtoId?: number | null;
   codigo?: string | null;
   descricao: string;
@@ -23,6 +25,7 @@ export type NFeAvulsaItemInput = {
   unidade: string;
   quantidade: string | number;
   valorUnitario: string | number;
+  orig?: string | number | null;
   csosn?: string | null;
   cst?: string | null;
   cstPis?: string | null;
@@ -31,11 +34,37 @@ export type NFeAvulsaItemInput = {
   aliquotaCofins?: string | number | null;
   aliquotaIcms?: string | number | null;
   cest?: string | null;
+  modoPis?: "PERCENTUAL" | "QUANTIDADE" | "NAO_TRIBUTADO" | null;
+  basePis?: string | number | null;
+  quantidadePis?: string | number | null;
+  aliquotaPorUnidadePis?: string | number | null;
+  valorPis?: string | number | null;
+  modoCofins?: "PERCENTUAL" | "QUANTIDADE" | "NAO_TRIBUTADO" | null;
+  baseCofins?: string | number | null;
+  quantidadeCofins?: string | number | null;
+  aliquotaPorUnidadeCofins?: string | number | null;
+  valorCofins?: string | number | null;
+  rtcHabilitado?: boolean;
+  cstIbsCbs?: string | null;
+  cClassTrib?: string | null;
+  baseRtc?: string | number | null;
+  aliquotaIbsUf?: string | number | null;
+  valorIbsUf?: string | number | null;
+  aliquotaIbsMunicipio?: string | number | null;
+  valorIbsMunicipio?: string | number | null;
+  aliquotaCbs?: string | number | null;
+  valorCbs?: string | number | null;
 };
 
 export type NFeAvulsaDraftInput = {
   nfeId?: number | null;
   currentStep?: number;
+  origem?: {
+    tipo: "AVULSA" | "OS" | "VENDA";
+    ordemServicoId?: number | null;
+    vendaId?: number | null;
+    clienteId?: number | null;
+  } | null;
   operacao: {
     tipoOperacao: "SAIDA" | "ENTRADA";
     naturezaOperacao: string;
@@ -136,6 +165,78 @@ function toOptionalDecimal(value: unknown) {
 
 function cleanText(value: unknown) {
   return String(value ?? "").trim();
+}
+
+function calculateValue(base: number, aliquota: number, informed: unknown) {
+  const explicit = toOptionalDecimal(informed);
+  return explicit ?? Number(((base * aliquota) / 100).toFixed(2));
+}
+
+function mapInputToTaxItem(item: NFeAvulsaItemInput, index: number): NFeItem {
+  const quantidade = toDecimalNumber(item.quantidade);
+  const valorUnitario = toDecimalNumber(item.valorUnitario);
+  const valorTotal = Number((quantidade * valorUnitario).toFixed(2));
+  const buildContribution = (type: "pis" | "cofins") => {
+    const isPis = type === "pis";
+    const modo = (isPis ? item.modoPis : item.modoCofins) ?? undefined;
+    const aliquota = toOptionalDecimal(isPis ? item.aliquotaPis : item.aliquotaCofins);
+    const base = toOptionalDecimal(isPis ? item.basePis : item.baseCofins);
+    const qtd = toOptionalDecimal(isPis ? item.quantidadePis : item.quantidadeCofins);
+    const unitRate = toOptionalDecimal(isPis ? item.aliquotaPorUnidadePis : item.aliquotaPorUnidadeCofins);
+    const explicitValue = toOptionalDecimal(isPis ? item.valorPis : item.valorCofins);
+    if (!modo) return undefined;
+    return {
+      cst: cleanText(isPis ? item.cstPis : item.cstCofins),
+      modo,
+      ...(base !== null ? { base } : {}),
+      ...(aliquota !== null ? { aliquota } : {}),
+      ...(qtd !== null ? { quantidade: qtd } : {}),
+      ...(unitRate !== null ? { aliquotaPorUnidade: unitRate } : {}),
+      ...(explicitValue !== null ? { valor: explicitValue } : {}),
+    };
+  };
+  const rtcEnabled = Boolean(item.rtcHabilitado);
+  const baseRtc = toDecimalNumber(item.baseRtc || valorTotal);
+  const pIbsUf = toDecimalNumber(item.aliquotaIbsUf);
+  const pIbsMun = toDecimalNumber(item.aliquotaIbsMunicipio);
+  const pCbs = toDecimalNumber(item.aliquotaCbs);
+  const vIbsUf = calculateValue(baseRtc, pIbsUf, item.valorIbsUf);
+  const vIbsMun = calculateValue(baseRtc, pIbsMun, item.valorIbsMunicipio);
+  return {
+    numeroItem: index + 1,
+    codigoProduto: cleanText(item.codigo) || String(item.produtoId ?? index + 1),
+    descricao: cleanText(item.descricao),
+    ncm: onlyDigits(item.ncm),
+    cfop: onlyDigits(item.cfop),
+    unidade: cleanText(item.unidade) || "UN",
+    quantidade,
+    valorUnitario,
+    valorTotal,
+    orig: cleanText(item.orig),
+    cest: onlyDigits(item.cest) || null,
+    csosn: cleanText(item.csosn) || null,
+    cst: cleanText(item.cst) || null,
+    cstIcms: cleanText(item.cst) || null,
+    aliquotaIcms: toOptionalDecimal(item.aliquotaIcms) ?? undefined,
+    baseCalculoIcms: toOptionalDecimal(item.aliquotaIcms) === null ? undefined : valorTotal,
+    cstPis: cleanText(item.cstPis) || null,
+    aliquotaPis: toOptionalDecimal(item.aliquotaPis) ?? undefined,
+    cstCofins: cleanText(item.cstCofins) || null,
+    aliquotaCofins: toOptionalDecimal(item.aliquotaCofins) ?? undefined,
+    pis: buildContribution("pis"),
+    cofins: buildContribution("cofins"),
+    ...(rtcEnabled ? {
+      rtc: {
+        cstIbsCbs: cleanText(item.cstIbsCbs),
+        cClassTrib: cleanText(item.cClassTrib),
+        baseCalculo: baseRtc,
+        ibsUf: { aliquota: pIbsUf, valor: vIbsUf },
+        ibsMunicipio: { aliquota: pIbsMun, valor: vIbsMun },
+        valorIbs: Number((vIbsUf + vIbsMun).toFixed(2)),
+        cbs: { aliquota: pCbs, valor: calculateValue(baseRtc, pCbs, item.valorCbs) },
+      },
+    } : {}),
+  };
 }
 
 function getDestinatarioSnapshot(input: NFeAvulsaDraftInput, empresa: EmpresaRow): NFeDestinatario {
@@ -261,6 +362,7 @@ function validarEmpresa(empresa: EmpresaRow | null, config: NFeConfigRow | null)
   if (!empresa.ambiente) erros.push("Ambiente fiscal da empresa ausente.");
   if (!config) erros.push("Configuração de NF-e não encontrada.");
   if (!config?.serie) erros.push("Série de NF-e não configurada.");
+  if (config && config.modelo !== "NFE") erros.push("Este motor emite exclusivamente NF-e modelo 55.");
   if (!empresa.certificadocaminho) erros.push("Certificado A1 não configurado.");
   if (!empresa.certificadosenha) erros.push("Senha do certificado A1 não configurada.");
   return erros;
@@ -449,12 +551,33 @@ export async function getNFeAvulsaSetup() {
 
   const { data: produtos, error: produtosError } = await supabaseAdmin
     .from("produto")
-    .select("id, titulo, descricao, precovenda, ncm, cfop, unidade, csosn, cst, aliquotaicms, cst_pis, aliquota_pis, cst_cofins, aliquota_cofins, cest")
+    .select("id, titulo, descricao, precovenda, ncm, cfop, unidade, origem_mercadoria, csosn, cst, aliquotaicms, cst_pis, aliquota_pis, modo_pis, aliquota_por_unidade_pis, cst_cofins, aliquota_cofins, modo_cofins, aliquota_por_unidade_cofins, cest, rtc_habilitado, cst_ibscbs, cclass_trib, aliquota_ibs_uf, aliquota_ibs_municipio, aliquota_cbs")
     .eq("is_deleted", false)
     .order("titulo", { ascending: true })
     .limit(300);
 
   if (produtosError) throw produtosError;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const { data: classificacoesRtc, error: classificacoesError } = await supabaseAdmin
+    .from("fiscal_nfe_classificacao_tributaria")
+    .select("codigo, cst, nome, descricao, percentual_reducao_ibs, percentual_reducao_cbs, inicio_vigencia, fim_vigencia, permite_nfe, indicadores, versao_fonte")
+    .eq("permite_nfe", true)
+    .lte("inicio_vigencia", today)
+    .or(`fim_vigencia.is.null,fim_vigencia.gte.${today}`)
+    .order("cst", { ascending: true })
+    .order("codigo", { ascending: true });
+
+  if (classificacoesError) throw classificacoesError;
+  const { data: cstRtc, error: cstRtcError } = await supabaseAdmin
+    .from("fiscal_nfe_cst_ibscbs")
+    .select("cst, indicadores")
+    .eq("versao_fonte", "IT2025.002-v1.60-2026-06-22");
+  if (cstRtcError) throw cstRtcError;
+  const cstPadraoDisponivel = new Set((cstRtc ?? [])
+    .filter((row: any) => Number(row.indicadores?.ind_gIBSCBS) === 1 && Number(row.indicadores?.ind_gDif) === 0)
+    .map((row: any) => row.cst));
+  const crt = empresa?.regimetributario ? Number(empresa.regimetributario) as CRT : null;
 
   return {
     empresa,
@@ -464,6 +587,21 @@ export async function getNFeAvulsaSetup() {
     clientes: clientes ?? [],
     produtos: produtos ?? [],
     unidades: Array.from(unidadesPermitidas),
+    regrasFiscais: crt ? getNFeFiscalFieldRules(crt) : null,
+    versaoRegraFiscal: NFE_FISCAL_RULE_VERSION,
+    classificacoesRtc: (classificacoesRtc ?? []).filter((row: any) => cstPadraoDisponivel.has(row.cst)).map((row: any) => ({
+      codigo: row.codigo,
+      cst: row.cst,
+      nome: row.nome,
+      descricao: row.descricao,
+      percentualReducaoIbs: row.percentual_reducao_ibs,
+      percentualReducaoCbs: row.percentual_reducao_cbs,
+      inicioVigencia: row.inicio_vigencia,
+      fimVigencia: row.fim_vigencia,
+      permiteNfe: row.permite_nfe,
+      indicadores: row.indicadores,
+      versaoFonte: row.versao_fonte,
+    })),
   };
 }
 
@@ -509,13 +647,14 @@ async function alocarNumero(configId: number) {
   };
 }
 
-function mapItemToInsert(item: NFeAvulsaItemInput, index: number, nfeId: number) {
-  const quantidade = toDecimalNumber(item.quantidade);
-  const valorUnitario = toDecimalNumber(item.valorUnitario);
-  const valorTotal = Number((quantidade * valorUnitario).toFixed(2));
-  const aliquotaIcms = toOptionalDecimal(item.aliquotaIcms);
-  const aliquotaPis = toOptionalDecimal(item.aliquotaPis);
-  const aliquotaCofins = toOptionalDecimal(item.aliquotaCofins);
+function mapItemToInsert(item: NFeAvulsaItemInput, index: number, nfeId: number, fiscalItem?: NFeItem) {
+  const taxItem = fiscalItem ?? mapInputToTaxItem(item, index);
+  const quantidade = taxItem.quantidade;
+  const valorUnitario = taxItem.valorUnitario;
+  const valorTotal = taxItem.valorTotal;
+  const aliquotaIcms = taxItem.aliquotaIcms ?? null;
+  const aliquotaPis = taxItem.pis?.aliquota ?? taxItem.aliquotaPis ?? null;
+  const aliquotaCofins = taxItem.cofins?.aliquota ?? taxItem.aliquotaCofins ?? null;
 
   return {
     nfe_id: nfeId,
@@ -526,6 +665,7 @@ function mapItemToInsert(item: NFeAvulsaItemInput, index: number, nfeId: number)
     cfop: onlyDigits(item.cfop),
     csosn: cleanText(item.csosn) || null,
     cst: cleanText(item.cst) || null,
+    origem_mercadoria: cleanText(taxItem.orig) || null,
     cest: onlyDigits(item.cest) || null,
     unidade: cleanText(item.unidade) || "UN",
     quantidade,
@@ -536,39 +676,15 @@ function mapItemToInsert(item: NFeAvulsaItemInput, index: number, nfeId: number)
     valor_icms: aliquotaIcms === null ? null : Number((valorTotal * (aliquotaIcms / 100)).toFixed(2)),
     cst_pis: cleanText(item.cstPis) || null,
     aliquota_pis: aliquotaPis,
-    valor_pis: aliquotaPis === null ? null : Number((valorTotal * (aliquotaPis / 100)).toFixed(2)),
+    valor_pis: taxItem.pis?.valor ?? (aliquotaPis === null ? null : Number((Number(taxItem.pis?.base ?? valorTotal) * (aliquotaPis / 100)).toFixed(2))),
     cst_cofins: cleanText(item.cstCofins) || null,
     aliquota_cofins: aliquotaCofins,
-    valor_cofins: aliquotaCofins === null ? null : Number((valorTotal * (aliquotaCofins / 100)).toFixed(2)),
+    valor_cofins: taxItem.cofins?.valor ?? (aliquotaCofins === null ? null : Number((Number(taxItem.cofins?.base ?? valorTotal) * (aliquotaCofins / 100)).toFixed(2))),
+    tributacao_snapshot: {
+      ...taxItem,
+      ...(item.sourceItemId ? { sourceItemId: item.sourceItemId } : {}),
+    },
     updatedat: new Date().toISOString(),
-  };
-}
-
-function mapItemToXml(row: any, index: number): NFeItem {
-  return {
-    numeroItem: Number(row.n_item ?? index + 1),
-    codigoProduto: row.produtoid != null ? String(row.produtoid) : String(row.n_item ?? index + 1),
-    descricao: String(row.descricao ?? ""),
-    ncm: String(row.ncm ?? ""),
-    cfop: String(row.cfop ?? ""),
-    unidade: String(row.unidade ?? "UN"),
-    quantidade: Number(row.quantidade ?? 0),
-    valorUnitario: Number(row.valor_unitario ?? 0),
-    valorTotal: Number(row.valor_total ?? 0),
-    codigoBarras: null,
-    cest: row.cest ?? null,
-    cstIcms: row.cst ?? null,
-    cst: row.cst ?? null,
-    csosn: row.csosn ?? null,
-    aliquotaIcms: row.aliquotaicms == null ? undefined : Number(row.aliquotaicms),
-    baseCalculoIcms: row.valor_bc_icms == null ? undefined : Number(row.valor_bc_icms),
-    valorIcms: row.valor_icms == null ? undefined : Number(row.valor_icms),
-    cstPis: row.cst_pis ?? null,
-    aliquotaPis: row.aliquota_pis == null ? undefined : Number(row.aliquota_pis),
-    valorPis: row.valor_pis == null ? undefined : Number(row.valor_pis),
-    cstCofins: row.cst_cofins ?? null,
-    aliquotaCofins: row.aliquota_cofins == null ? undefined : Number(row.aliquota_cofins),
-    valorCofins: row.valor_cofins == null ? undefined : Number(row.valor_cofins),
   };
 }
 
@@ -579,6 +695,85 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
   }
 
   const { config, empresa } = await getConfigAndEmpresa();
+  const crt = Number(empresa.regimetributario) as CRT;
+  const issueDate = new Date();
+  const selectedClassCodes = Array.from(new Set(input.itens.map((item) => cleanText(item.cClassTrib)).filter(Boolean)));
+  let classificationsByCode = new Map<string, ClassificacaoTributariaRtc>();
+  let validStandardRtcCsts = new Set<string>();
+  if (selectedClassCodes.length > 0) {
+    const issueDay = issueDate.toISOString().slice(0, 10);
+    const { data: rows, error: classError } = await supabaseAdmin
+      .from("fiscal_nfe_classificacao_tributaria")
+      .select("codigo, cst, nome, descricao, percentual_reducao_ibs, percentual_reducao_cbs, inicio_vigencia, fim_vigencia, permite_nfe, indicadores, versao_fonte")
+      .in("codigo", selectedClassCodes)
+      .lte("inicio_vigencia", issueDay)
+      .or(`fim_vigencia.is.null,fim_vigencia.gte.${issueDay}`);
+    if (classError) throw classError;
+    classificationsByCode = new Map((rows ?? []).map((row: any) => [row.codigo, {
+      codigo: row.codigo,
+      cst: row.cst,
+      nome: row.nome,
+      descricao: row.descricao,
+      percentualReducaoIbs: row.percentual_reducao_ibs,
+      percentualReducaoCbs: row.percentual_reducao_cbs,
+      inicioVigencia: row.inicio_vigencia,
+      fimVigencia: row.fim_vigencia,
+      permiteNfe: row.permite_nfe,
+      indicadores: row.indicadores,
+      versaoFonte: row.versao_fonte,
+    } as ClassificacaoTributariaRtc]));
+    const { data: cstRows, error: cstError } = await supabaseAdmin
+      .from("fiscal_nfe_cst_ibscbs")
+      .select("cst, indicadores")
+      .eq("versao_fonte", "IT2025.002-v1.60-2026-06-22");
+    if (cstError) throw cstError;
+    validStandardRtcCsts = new Set((cstRows ?? [])
+      .filter((row: any) => Number(row.indicadores?.ind_gIBSCBS) === 1 && Number(row.indicadores?.ind_gDif) === 0)
+      .map((row: any) => row.cst));
+  }
+
+  const itensXml = input.itens.map(mapInputToTaxItem);
+  for (const item of itensXml) {
+    if (!item.rtc) continue;
+    const classification = classificationsByCode.get(item.rtc.cClassTrib);
+    if (classification) {
+      item.rtc.versaoClassificacao = classification.versaoFonte;
+      item.rtc.validadoEm = issueDate.toISOString();
+    }
+    const reductionIbs = Number(classification?.percentualReducaoIbs ?? 0);
+    const reductionCbs = Number(classification?.percentualReducaoCbs ?? 0);
+    const applyReduction = (part: typeof item.rtc.ibsUf, reduction: number) => {
+      if (reduction <= 0) return;
+      part.percentualReducao = reduction;
+      part.aliquotaEfetiva = Number((part.aliquota * (1 - reduction / 100)).toFixed(4));
+      part.valor = Number((item.rtc!.baseCalculo * part.aliquotaEfetiva / 100).toFixed(2));
+    };
+    applyReduction(item.rtc.ibsUf, reductionIbs);
+    applyReduction(item.rtc.ibsMunicipio, reductionIbs);
+    applyReduction(item.rtc.cbs, reductionCbs);
+    item.rtc.valorIbs = Number((item.rtc.ibsUf.valor + item.rtc.ibsMunicipio.valor).toFixed(2));
+  }
+  const taxErrors: ValidationError[] = itensXml.flatMap((item, itemIndex) => {
+    const issues = validateNFeItemTax(item, crt, {
+      issueDate,
+      classificacaoRtc: item.rtc ? classificationsByCode.get(item.rtc.cClassTrib) ?? null : null,
+    });
+    if (item.rtc && !validStandardRtcCsts.has(item.rtc.cstIbsCbs)) {
+      issues.push({
+        code: "NFE_IBSCBS_GROUP_NOT_SUPPORTED",
+        field: "rtc.cClassTrib",
+        message: "A classificação exige grupo RTC especial (monofásico, diferimento ou sem cálculo) ainda não disponível nesta tela.",
+      });
+    }
+    return issues.map((issue) => ({
+      step: "products",
+      itemIndex,
+      field: issue.field,
+      message: `${issue.code}: ${issue.message}`,
+    }));
+  });
+  if (taxErrors.length > 0) return { ok: false as const, errors: taxErrors };
+
   const nomeMunicipioEmitente = await resolverNomeMunicipioIbge(
     empresa.codigomunicipio,
     empresa.uf
@@ -589,8 +784,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
   const transporte = getTransporteFiscal(input);
   const transporteDadosAvulsos = getTransporteDadosAvulsos(input);
   const now = new Date().toISOString();
-  const itensInsertBase = input.itens.map((item, index) => mapItemToInsert(item, index, 0));
-  const itensXml = itensInsertBase.map(mapItemToXml);
+  const itensInsertBase = input.itens.map((item, index) => mapItemToInsert(item, index, 0, itensXml[index]));
 
   let nfeId = Number(input.nfeId ?? 0);
   let numero: number;
@@ -623,11 +817,11 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
         chave_acesso: chave,
         ambiente: allocated.ambiente ?? config.ambiente ?? "HOMOLOGACAO",
         status: "RASCUNHO",
-        ordemservicoid: null,
-        vendaid: null,
+        ordemservicoid: input.origem?.ordemServicoId ?? null,
+        vendaid: input.origem?.vendaId ?? null,
         entradaid: null,
         fornecedorid: null,
-        clienteid: null,
+        clienteid: input.origem?.clienteId ?? input.destinatario.clienteId ?? null,
         destinatario_snapshot: destinatario,
         emitente_snapshot: {
           id: empresa.id,
@@ -644,11 +838,25 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
           regimetributario: empresa.regimetributario,
         },
         dados_avulsos: {
+          origem: input.origem ?? { tipo: "AVULSA" },
           operacao: input.operacao,
           pagamento: pagamentoDadosAvulsos,
           transporte: transporteDadosAvulsos,
           destinatario: input.destinatario,
           clienteSelecionadoId: input.destinatario.clienteId ?? null,
+          versaoRegraFiscal: NFE_FISCAL_RULE_VERSION,
+        },
+        versao_regra_fiscal: NFE_FISCAL_RULE_VERSION,
+        decisao_fiscal: {
+          modelo: "55",
+          crt,
+          dataEmissao: now,
+          classificacoesRtc: itensXml.filter((item) => item.rtc).map((item) => ({
+            item: item.numeroItem,
+            cst: item.rtc?.cstIbsCbs,
+            cClassTrib: item.rtc?.cClassTrib,
+            versaoFonte: classificationsByCode.get(item.rtc?.cClassTrib ?? "")?.versaoFonte,
+          })),
         },
         empresaid: Number(allocated.empresaid ?? config.empresaid),
         dataemissao: now,
@@ -699,14 +907,28 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
       .from("nfe")
       .update({
         chave_acesso: chave,
-        clienteid: null,
+        clienteid: input.origem?.clienteId ?? input.destinatario.clienteId ?? null,
         destinatario_snapshot: destinatario,
         dados_avulsos: {
+          origem: input.origem ?? { tipo: "AVULSA" },
           operacao: input.operacao,
           pagamento: pagamentoDadosAvulsos,
           transporte: transporteDadosAvulsos,
           destinatario: input.destinatario,
           clienteSelecionadoId: input.destinatario.clienteId ?? null,
+          versaoRegraFiscal: NFE_FISCAL_RULE_VERSION,
+        },
+        versao_regra_fiscal: NFE_FISCAL_RULE_VERSION,
+        decisao_fiscal: {
+          modelo: "55",
+          crt,
+          dataEmissao: now,
+          classificacoesRtc: itensXml.filter((item) => item.rtc).map((item) => ({
+            item: item.numeroItem,
+            cst: item.rtc?.cstIbsCbs,
+            cClassTrib: item.rtc?.cClassTrib,
+            versaoFonte: classificationsByCode.get(item.rtc?.cClassTrib ?? "")?.versaoFonte,
+          })),
         },
         tpNF: input.operacao.tipoOperacao === "ENTRADA" ? 0 : 1,
         cfop: onlyDigits(input.itens[0]?.cfop),

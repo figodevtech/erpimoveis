@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { requireFinanceirosAccess } from "@/app/api/_authz/perms";
+import { PERMS, requireAny } from "@/app/api/_authz/perms";
 import { buscarXmlNotaEmitida } from "@/services/fiscal/notasEmitidasService";
 
 export const runtime = "nodejs";
@@ -11,7 +11,7 @@ type Context = {
 
 export async function GET(_req: NextRequest, { params }: Context) {
   try {
-    await requireFinanceirosAccess();
+    await requireAny([PERMS.FINANCEIRO, PERMS.ORDENS, PERMS.VENDAS, PERMS.ESTOQUE]);
 
     const { id } = await params;
     const notaId = Number(id);

@@ -18,6 +18,7 @@ const WRITABLE_FIELDS = new Set([
   'estoqueminimo',
   'ncm',
   'cfop',
+  'origem_mercadoria',
   'unidade',
   'cest',
   'csosn',
@@ -26,8 +27,18 @@ const WRITABLE_FIELDS = new Set([
   'aliquotaicms',
   'cst_pis',
   'aliquota_pis',
+  'modo_pis',
+  'aliquota_por_unidade_pis',
   'cst_cofins',
   'aliquota_cofins',
+  'modo_cofins',
+  'aliquota_por_unidade_cofins',
+  'rtc_habilitado',
+  'cst_ibscbs',
+  'cclass_trib',
+  'aliquota_ibs_uf',
+  'aliquota_ibs_municipio',
+  'aliquota_cbs',
   'codigobarras',
   'etiqueta',
   'local',
@@ -43,7 +54,7 @@ const WRITABLE_FIELDS = new Set([
 
 /** Campos a retornar ao criar/listar/atualizar se quiser o objeto completo */
 const PRODUTO_FIELDS =
-  'id, descricao, titulo, referencia, precovenda, precocompra, estoque, estoqueminimo, unidade, ncm, cfop, csosn, cst, cest, aliquotaicms, cst_pis, aliquota_pis, cst_cofins, aliquota_cofins, codigobarras, etiqueta, local, imgUrl, status_estoque, fabricante, grupo: produtogrupo(id, nome, descricao, ativo), grupo_produto_id, exibirPdv, tituloMarketplace, descricaoMarketplace, conservacao, createdat, updatedat';
+  'id, descricao, titulo, referencia, precovenda, precocompra, estoque, estoqueminimo, unidade, ncm, cfop, origem_mercadoria, csosn, cst, cest, aliquotaicms, cst_pis, aliquota_pis, modo_pis, aliquota_por_unidade_pis, cst_cofins, aliquota_cofins, modo_cofins, aliquota_por_unidade_cofins, rtc_habilitado, cst_ibscbs, cclass_trib, aliquota_ibs_uf, aliquota_ibs_municipio, aliquota_cbs, codigobarras, etiqueta, local, imgUrl, status_estoque, fabricante, grupo: produtogrupo(id, nome, descricao, ativo), grupo_produto_id, exibirPdv, tituloMarketplace, descricaoMarketplace, conservacao, createdat, updatedat';
 
 function toNullIfEmpty(v: unknown) {
   return typeof v === 'string' && v.trim() === '' ? null : v;
@@ -64,7 +75,14 @@ function sanitizeProdutoPayload(body: any, { strict }: { strict: boolean }) {
 
     switch (key) {
       case 'precovenda':
-      case 'aliquotaicms': {
+      case 'aliquotaicms':
+      case 'aliquota_pis':
+      case 'aliquota_por_unidade_pis':
+      case 'aliquota_cofins':
+      case 'aliquota_por_unidade_cofins':
+      case 'aliquota_ibs_uf':
+      case 'aliquota_ibs_municipio':
+      case 'aliquota_cbs': {
         out[key] = toNumberOrNull(body[key]);
         break;
       }
