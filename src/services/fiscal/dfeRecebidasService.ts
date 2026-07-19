@@ -37,6 +37,7 @@ type ListDfeParams = {
 type ConsultaChaveParams = {
   empresaId?: number;
   chave: string;
+  force?: boolean;
 };
 
 export type TipoManifestacaoDestinatario =
@@ -453,22 +454,6 @@ export async function sincronizarDfeRecebidas(params: SyncDfeParams = {}) {
     }
   }
 
-  // O intervalo informado pela SEFAZ vale tambem para tentativas manuais.
-  // Consultar antes do prazo pode reiniciar o bloqueio por consumo indevido.
-  if (controle.next_sync_after && new Date(controle.next_sync_after).getTime() > Date.now()) {
-    return {
-      success: false,
-      blocked: true,
-      cStat: controle.last_cstat,
-      xMotivo: controle.last_xmotivo,
-      novosDocumentos: 0,
-      ultNSU: controle.ult_nsu,
-      maxNSU: controle.max_nsu,
-      nextSyncAfter: controle.next_sync_after,
-      message: "Sincronização bloqueada temporariamente. Tente novamente após o horário informado.",
-    };
-  }
-
   const locked = await tryLock(empresaId);
   if (!locked) {
     return {
@@ -518,10 +503,9 @@ export async function sincronizarDfeRecebidas(params: SyncDfeParams = {}) {
 
       consumoIndevidoUntil =
         cStat === "656" ? new Date(Date.now() + DFE_SYNC_COOLDOWN_MS).toISOString() : null;
-      nextSyncAfter =
-        cStat === "137" || (cStat === "138" && ultNSU === maxNSU)
-          ? new Date(Date.now() + DFE_SYNC_COOLDOWN_MS).toISOString()
-          : null;
+      // cStat 137 nao cria bloqueio local. A tentativa manual fica sob
+      // decisao do usuario; somente um 656 efetivo ativa o cooldown.
+      nextSyncAfter = null;
       const docs = cStat === "138" ? extractDocZipList(ret).map(prepararDocumentoDfe) : [];
 
       novosDocumentos += await salvarLoteDfeComControle(empresaId, docs, {
@@ -736,30 +720,6 @@ export async function consultarDfePorChave(params: ConsultaChaveParams) {
   }
 
   try {
-    const { data: reserva, error: reservaError } = await supabaseAdmin.rpc(
-      "fiscal_reservar_consulta_chave_dfe",
-      {
-        p_empresa_id: empresaId,
-        p_limite: 15,
-        p_janela: "70 minutes",
-      },
-    );
-    if (reservaError) throw reservaError;
-
-    if (!reserva?.permitido) {
-      return {
-        success: false,
-        blocked: true,
-        cStat: controle.last_cstat,
-        xMotivo:
-          reserva?.motivo === "LIMITE_LOCAL"
-            ? "Limite local de consultas pontuais atingido."
-            : controle.last_xmotivo,
-        novosDocumentos: 0,
-        nextCheckAfter: reserva?.proximaTentativa ?? controle.consumo_indevido_until,
-      };
-    }
-
     const { privateKeyPem, certificatePem } = await carregarCertificadoA1(empresa);
     const agent = new https.Agent({
       key: privateKeyPem,

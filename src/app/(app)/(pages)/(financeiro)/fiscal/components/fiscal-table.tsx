@@ -16,6 +16,7 @@ import {
   MoreHorizontal,
   PackagePlus,
   Pencil,
+  RefreshCw,
   Send,
   UploadCloud,
   Trash2,
@@ -196,6 +197,8 @@ export default function FiscalTable({
   const [motivoCancelamento, setMotivoCancelamento] = React.useState("");
   const [cancelandoNota, setCancelandoNota] = React.useState(false);
   const [notaGerarEntrada, setNotaGerarEntrada] = React.useState<NotaFiscal | null>(null);
+  const [notaForcarXml, setNotaForcarXml] = React.useState<NotaFiscal | null>(null);
+  const [forcandoXml, setForcandoXml] = React.useState(false);
 
   const title =
     viewMode === "EMITIDAS_POR_NOS"
@@ -227,7 +230,7 @@ export default function FiscalTable({
 
   async function baixarXml(
     nota: NotaFiscal,
-    options: { toastId?: string | number } = {},
+    options: { toastId?: string | number; showForceAction?: boolean } = {},
   ): Promise<boolean> {
     const id = nota.id;
     const endpoint =
@@ -235,6 +238,7 @@ export default function FiscalTable({
         ? `/api/fiscal/notas-recebidas/${id}/xml`
         : `/api/fiscal/notas-emitidas/${id}/xml`;
     const toastId = options.toastId ?? toast.loading("Preparando XML...");
+    const showForceAction = options.showForceAction ?? true;
 
     try {
       const response = await fetch(endpoint);
@@ -249,6 +253,16 @@ export default function FiscalTable({
         const toastOptions = {
           id: toastId,
           description,
+          action:
+            showForceAction &&
+            body?.xmlCompleto === false &&
+            viewMode === "EMITIDAS_TERCEIROS" &&
+            nota.chave_acesso
+              ? {
+                  label: "Forçar tentativa",
+                  onClick: () => setNotaForcarXml(nota),
+                }
+              : undefined,
         };
 
         if (body?.xmlCompleto === false) {
@@ -271,6 +285,13 @@ export default function FiscalTable({
           id: toastId,
           description:
             `${motivo || "A SEFAZ ainda não disponibilizou o XML completo da NF-e."}${nextCheckText}`,
+          action:
+            showForceAction && viewMode === "EMITIDAS_TERCEIROS" && nota.chave_acesso
+              ? {
+                  label: "Forçar tentativa",
+                  onClick: () => setNotaForcarXml(nota),
+                }
+              : undefined,
         });
         return false;
       }
@@ -353,6 +374,38 @@ export default function FiscalTable({
         ? error.response?.data?.detail ?? error.response?.data?.error ?? error.message
         : "Erro ao excluir rascunho.";
       toast.error("Falha ao excluir", { id: toastId, description });
+    }
+  }
+
+  async function forcarTentativaXml() {
+    if (!notaForcarXml) return;
+
+    setForcandoXml(true);
+    const toastId = toast.loading("Forçando nova tentativa na SEFAZ...");
+    try {
+      const nota = notaForcarXml;
+      setNotaForcarXml(null);
+
+      await axios.post("/api/fiscal/notas-recebidas/consultar-chave", {
+        chave: nota.chave_acesso,
+        empresaId: nota.empresaid,
+        force: true,
+      });
+
+      await handleGetNotas(pagination.page, pagination.limit);
+      await baixarXml(nota, { toastId, showForceAction: false });
+    } catch (error) {
+      const responseData = isAxiosError(error) ? error.response?.data : null;
+      const blockedUntil = responseData?.consumoIndevidoUntil ?? responseData?.nextCheckAfter;
+      const blockedText = blockedUntil
+        ? ` Tente novamente após ${new Date(blockedUntil).toLocaleString("pt-BR")}.`
+        : "";
+      const description = isAxiosError(error)
+        ? `${responseData?.xMotivo ?? responseData?.detail ?? responseData?.error ?? error.message}${blockedText}`
+        : "Erro ao forçar nova tentativa.";
+      toast.error("Falha na tentativa", { id: toastId, description });
+    } finally {
+      setForcandoXml(false);
     }
   }
 
@@ -877,6 +930,44 @@ export default function FiscalTable({
           >
             {cancelandoNota ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Confirmar cancelamento
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    <AlertDialog
+      open={Boolean(notaForcarXml)}
+      onOpenChange={(open) => {
+        if (forcandoXml) return;
+        if (!open) setNotaForcarXml(null);
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Forçar nova tentativa agora?</AlertDialogTitle>
+          <AlertDialogDescription>
+            A consulta será enviada novamente para a SEFAZ antes do horário sugerido para esta nota.
+            Se a SEFAZ responder com consumo indevido, novas consultas serão bloqueadas pelo prazo informado.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="rounded-md border bg-muted/30 p-3 text-sm">
+          <p className="font-medium">
+            NF-e {notaForcarXml?.numero ?? "-"} - Série {notaForcarXml?.serie ?? "-"}
+          </p>
+          <p className="mt-1 break-all text-xs text-muted-foreground">
+            Chave {notaForcarXml?.chave_acesso || "-"}
+          </p>
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={forcandoXml}>Voltar</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={forcandoXml}
+            onClick={(event) => {
+              event.preventDefault();
+              void forcarTentativaXml();
+            }}
+          >
+            {forcandoXml ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            Forçar tentativa
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
