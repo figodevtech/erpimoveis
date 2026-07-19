@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import Link from "next/link";
@@ -1686,7 +1686,7 @@ export default function NFeAvulsaPage() {
               eventos permitidos, como cancelamento ou carta de correção quando aplicável.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="rounded-md border bg-muted/30 p-3 text-sm">
+          <div className="rounded-md border bg-card p-3 text-sm">
             <p className="font-medium">{draft.destinatario.nomeRazaoSocial || "Destinatário pendente"}</p>
             <p className="mt-1 text-muted-foreground">
               Total da NF-e: {formatarEmReal(totalProdutos)} - Ambiente: {ambienteLabel}

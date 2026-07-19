@@ -35,6 +35,7 @@ export interface Customer {
   cidade: string | null
   estado: string | null
   bairro: string | null
+  foto_url?: string | null
   cep: string | null
   inscricaoestadual: string | null
   inscricaomunicipal: string | null

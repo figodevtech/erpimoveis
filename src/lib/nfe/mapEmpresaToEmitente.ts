@@ -22,7 +22,7 @@ export function mapEmpresaToEmitente(
     inscricaoEstadual: soNumeros(empresa.inscricaoestadual),
     inscricaoEstadualST: soNumeros(empresa.inscricaoestadualst),
     inscricaoMunicipal: soNumeros(empresa.inscricaomunicipal),
-    cnae: empresa.cnae || undefined,
+    cnae: soNumeros(empresa.cnae) || undefined,
     crt: normalizarCRT(empresa.regimetributario),
     endereco: {
       logradouro: empresa.endereco,

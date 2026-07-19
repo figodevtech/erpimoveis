@@ -104,6 +104,8 @@ export default function RegisterContent({
   const [isLoadingCep, setIsLoadingCep] = useState(false);
   const [isLoadingCNPJ, setIsLoadingCNPJ] = useState(false);
   const [open2, setOpen2] = useState(false);
+  const [selectedPhoto, setSelectedPhoto] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
 
   const handleInputChange = (field: keyof NewCustomer, value: string) => {
     setNewCustomer({ ...newCustomer, [field]: value });
@@ -216,7 +218,25 @@ export default function RegisterContent({
       });
 
       if (response.status === 201) {
-        console.log(response.data.data);
+        let registeredCustomer = response.data.data as Customer;
+
+        if (selectedPhoto) {
+          const photoData = new FormData();
+          photoData.append("file", selectedPhoto);
+          try {
+            const photoResponse = await axios.post(
+              `/api/customers/${response.data.id}/foto`,
+              photoData
+            );
+            registeredCustomer = {
+              ...registeredCustomer,
+              foto_url: photoResponse.data?.data?.foto_url ?? null,
+            };
+          } catch (photoError) {
+            toast.warning("Cliente cadastrado, mas não foi possível salvar a foto.");
+            console.error("Erro ao salvar foto do cliente:", photoError);
+          }
+        }
         toast.success("Sucesso!", {
           description: "Cliente cadastrado.",
           duration: 2000,
@@ -224,7 +244,9 @@ export default function RegisterContent({
         if (setSelectedCustomerId) {
           setSelectedCustomerId(response.data.id);
         }
-        onRegister?.(response.data.data);
+        onRegister?.(registeredCustomer);
+        setSelectedPhoto(null);
+        setPhotoPreview(null);
         setNewCustomer({
           tipopessoa: "FISICA",
           cpfcnpj: "",
@@ -278,6 +300,12 @@ export default function RegisterContent({
     console.log(newCustomer)
   }, [newCustomer])
 
+  useEffect(() => {
+    return () => {
+      if (photoPreview) URL.revokeObjectURL(photoPreview);
+    };
+  }, [photoPreview]);
+
   const DialogShellContent = isDesktop ? DialogContent : DrawerContent;
   const DialogShellHeader = isDesktop ? DialogHeader : DrawerHeader;
   const DialogShellFooter = isDesktop ? DialogFooter : DrawerFooter;
@@ -307,10 +335,7 @@ export default function RegisterContent({
               <div className="flex items-center gap-3">
                 <div className="relative shrink-0">
                   <Avatar className="h-12 w-12 sm:h-14 sm:w-14">
-                <AvatarImage
-                  // src={fotoPreview || "/placeholder.svg"}
-                  alt="Foto do cliente"
-                />
+                <AvatarImage src={photoPreview ?? undefined} alt="Foto do cliente" />
                 <AvatarFallback className="text-sm">
                   {newCustomer.tipopessoa === "FISICA" ? (
                     <User className="h-5 w-5 sm:h-6 sm:w-6" />
@@ -331,6 +356,23 @@ export default function RegisterContent({
                   type="file"
                   accept="image/*"
                   className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] ?? null;
+                    if (!file) return;
+                    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+                      toast.error("Use uma imagem JPG, PNG ou WebP.");
+                      event.target.value = "";
+                      return;
+                    }
+                    if (file.size > 5 * 1024 * 1024) {
+                      toast.error("A imagem deve ter no máximo 5 MB.");
+                      event.target.value = "";
+                      return;
+                    }
+                    if (photoPreview) URL.revokeObjectURL(photoPreview);
+                    setSelectedPhoto(file);
+                    setPhotoPreview(URL.createObjectURL(file));
+                  }}
                 />
               </Label>
                 </div>

@@ -5,6 +5,7 @@ import { validarEmitenteEmpresa } from '@/lib/nfe/validarEmitente';
 import { buildNFePreviewXml } from '@/lib/nfe/buildNFe';
 import { carregarCertificadoA1 } from '@/lib/nfe/certificado';
 import { assinarNFeXml } from '@/lib/nfe/assinatura';
+import { resolverNomeMunicipioIbge } from '@/lib/ibge/municipio';
 
 export const runtime = 'nodejs';
 
@@ -76,10 +77,14 @@ export async function GET(
     }
 
     // 3) Gerar XML da NF-e (sem assinatura)
+    const nomeMunicipioEmitente = await resolverNomeMunicipioIbge(empresa.codigomunicipio, empresa.uf);
     const { xml: xmlOriginal, chave, id: idNFe } = buildNFePreviewXml(
       empresa,
       numeroNota,
-      serie
+      serie,
+      undefined,
+      undefined,
+      { nomeMunicipioEmitente }
     );
 
     // 4) Checar se tem senha do certificado. O PFX vem do bucket empresa/certificado.

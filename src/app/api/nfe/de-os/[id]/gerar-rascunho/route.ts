@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { buildNFePreviewXml } from "@/lib/nfe/buildNFe";
 import { mapClienteToDestinatario } from "@/lib/nfe/mapClienteToDestinatario";
 import type { ClienteRow, EmpresaRow, NFeItem } from "@/lib/nfe/types";
+import { resolverNomeMunicipioIbge } from "@/lib/ibge/municipio";
 
 export const runtime = "nodejs";
 
@@ -494,13 +495,14 @@ export async function POST(req: Request) {
       ? body.observacoesFiscais.slice(0, 500)
       : undefined;
 
+    const nomeMunicipioEmitente = await resolverNomeMunicipioIbge(empresa.codigomunicipio, empresa.uf);
     const { xml: xmlRascunho, chave } = buildNFePreviewXml(
       empresa,
       Number(nfe.numero),
       Number(nfe.serie),
       itens,
       destinatario,
-      { observacoesFiscais }
+      { observacoesFiscais, nomeMunicipioEmitente }
     );
 
     console.log(

@@ -10,7 +10,13 @@ export function assinarNFeXml(
   privateKeyPem: string,
   certificatePem: string
 ): string {
-  const doc = new DOMParser().parseFromString(xmlNFe, 'text/xml');
+  // Uma NF-e rejeitada pode ter sido armazenada já assinada. Removemos a
+  // assinatura anterior para que uma nova tentativa nunca gere duas assinaturas.
+  const xmlSemAssinaturaAnterior = xmlNFe.replace(
+    /<(?:\w+:)?Signature\b[^>]*>[\s\S]*?<\/(?:\w+:)?Signature>/g,
+    ''
+  );
+  const doc = new DOMParser().parseFromString(xmlSemAssinaturaAnterior, 'text/xml');
 
   const infNFeNode =
     doc.getElementsByTagName('infNFe')[0] ||
@@ -52,7 +58,7 @@ export function assinarNFeXml(
     ],
   });
 
-  sx.computeSignature(xmlNFe, {
+  sx.computeSignature(xmlSemAssinaturaAnterior, {
     location: {
       reference: "/*[local-name()='NFe']/*[local-name()='infNFe']",
       action: 'after',

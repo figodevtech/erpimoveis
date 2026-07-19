@@ -3,6 +3,7 @@ import { buildNFePreviewXml, type NFeTransporteOptions } from "@/lib/nfe/buildNF
 import { carregarCertificadoA1 } from "@/lib/nfe/certificado";
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
 import type { EmpresaRow, NFeDestinatario, NFeItem } from "@/lib/nfe/types";
+import { resolverNomeMunicipioIbge } from "@/lib/ibge/municipio";
 
 type NFeConfigRow = {
   id: number;
@@ -578,6 +579,10 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
   }
 
   const { config, empresa } = await getConfigAndEmpresa();
+  const nomeMunicipioEmitente = await resolverNomeMunicipioIbge(
+    empresa.codigomunicipio,
+    empresa.uf
+  );
   const destinatario = getDestinatarioSnapshot(input, empresa);
   const pagamento = getPagamentoFiscal(input);
   const pagamentoDadosAvulsos = getPagamentoDadosAvulsos(input);
@@ -599,6 +604,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
     serie = Number(allocated.serie);
     ({ xml, chave } = buildNFePreviewXml(empresa, numero, serie, itensXml, destinatario, {
       tpNF: input.operacao.tipoOperacao === "ENTRADA" ? 0 : 1,
+      nomeMunicipioEmitente,
       natOp: cleanText(input.operacao.naturezaOperacao),
       indFinal: input.operacao.consumidorFinal ? 1 : 0,
       indPres: Number(input.operacao.indicadorPresenca || 1) as any,
@@ -679,6 +685,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
     serie = Number(nfe.serie);
     ({ xml, chave } = buildNFePreviewXml(empresa, numero, serie, itensXml, destinatario, {
       tpNF: input.operacao.tipoOperacao === "ENTRADA" ? 0 : 1,
+      nomeMunicipioEmitente,
       natOp: cleanText(input.operacao.naturezaOperacao),
       indFinal: input.operacao.consumidorFinal ? 1 : 0,
       indPres: Number(input.operacao.indicadorPresenca || 1) as any,

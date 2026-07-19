@@ -44,6 +44,8 @@ export default function FiscalPage() {
   const [companyChange, setCompanyChange] = useState<{
     previousCnpj: string;
     currentCnpj: string;
+    previousAmbiente: string;
+    currentAmbiente: string;
   } | null>(null);
   const automaticSyncViewRef = useRef<FiscalViewMode | null>(null);
 
@@ -97,24 +99,17 @@ export default function FiscalPage() {
   );
 
   const handleSyncTerceiros = useCallback(async (options?: {
-    force?: boolean;
     automatic?: boolean;
     confirmCompanyChange?: boolean;
   }) => {
-    const force = options?.force === true;
     const automatic = options?.automatic === true;
     const confirmCompanyChange = options?.confirmCompanyChange === true;
     setIsSyncing(true);
     const toastId = automatic
       ? null
-      : toast.loading(
-          force
-            ? "Forçando sincronização de documentos fiscais recebidos..."
-            : "Sincronizando documentos fiscais recebidos...",
-        );
+      : toast.loading("Sincronizando documentos fiscais recebidos...");
     try {
       const response = await axios.post("/api/fiscal/notas-recebidas/sync", {
-        force,
         automatic,
         confirmCompanyChange,
       });
@@ -135,12 +130,13 @@ export default function FiscalPage() {
         setCompanyChange({
           previousCnpj: data.previousCnpj ?? "Não informado",
           currentCnpj: data.currentCnpj ?? "Não informado",
+          previousAmbiente: data.previousAmbiente ?? "Não informado",
+          currentAmbiente: data.currentAmbiente ?? "Não informado",
         });
         return;
       }
       const motivo = data?.xMotivo ?? data?.message ?? data?.detail ?? data?.error;
       const cStat = data?.cStat ? `cStat ${data.cStat}.` : null;
-      const canForce = Boolean(data?.nextSyncAfter && !data?.consumoIndevidoUntil && !force);
       const blockedUntil = error?.response?.data?.consumoIndevidoUntil ?? error?.response?.data?.nextSyncAfter;
       const blockedMessage = blockedUntil
         ? `Tente novamente após ${new Date(blockedUntil).toLocaleString("pt-BR")}.`
@@ -151,14 +147,6 @@ export default function FiscalPage() {
         description:
           syncErrorDescription ||
           error?.message,
-        action: canForce
-          ? {
-              label: "Forçar tentativa",
-              onClick: () => {
-                void handleSyncTerceiros({ force: true });
-              },
-            }
-          : undefined,
       });
     } finally {
       setIsSyncing(false);
@@ -225,20 +213,22 @@ export default function FiscalPage() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Novo CNPJ detectado</AlertDialogTitle>
+            <AlertDialogTitle>Novo contexto fiscal detectado</AlertDialogTitle>
             <AlertDialogDescription>
-              O CNPJ atual da empresa é diferente daquele usado na última sincronização de notas fiscais.
+              O CNPJ ou o ambiente fiscal é diferente daquele usado na última sincronização de notas fiscais.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-3 text-sm">
             <div className="rounded-md border bg-muted/30 p-3">
               <p>CNPJ anterior: <span className="font-medium">{companyChange?.previousCnpj}</span></p>
               <p>CNPJ atual: <span className="font-medium">{companyChange?.currentCnpj}</span></p>
+              <p>Ambiente anterior: <span className="font-medium">{companyChange?.previousAmbiente}</span></p>
+              <p>Ambiente atual: <span className="font-medium">{companyChange?.currentAmbiente}</span></p>
             </div>
             <p className="text-muted-foreground">
-              Ao prosseguir, todas as notas fiscais recebidas armazenadas para esta empresa serão excluídas,
-              o controle de NSU será reiniciado e uma nova sincronização será iniciada. Confirme também que
-              o certificado digital já foi substituído pelo certificado correspondente ao novo CNPJ.
+              Ao prosseguir, as notas recebidas do contexto anterior serão removidas da listagem. Se este
+              contexto já tiver sido utilizado, seu último NSU será restaurado; caso contrário, a consulta
+              começará do NSU zero. Confirme também que o certificado digital corresponde ao CNPJ atual.
             </p>
           </div>
           <AlertDialogFooter>
@@ -251,7 +241,7 @@ export default function FiscalPage() {
                 void handleSyncTerceiros({ confirmCompanyChange: true });
               }}
             >
-              Reiniciar e sincronizar
+              Ativar e sincronizar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

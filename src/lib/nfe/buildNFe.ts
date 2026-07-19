@@ -50,6 +50,7 @@ function formatDateTimeNFe(date: Date): string {
  * Cria o bloco <ide> da NF-e, calculando cNF, chave de acesso e cDV.
  */
 export interface IdeOptions {
+  nomeMunicipioEmitente?: string;
   tpNF?: 0 | 1;
   natOp?: string;
   indFinal?: 0 | 1;
@@ -344,7 +345,11 @@ export function buildNFePreviewXml(
     options
   );
 
-  const emitente = mapEmpresaToEmitente(empresa, 'JOAO PESSOA');
+  const nomeMunicipioEmitente = cleanText(options?.nomeMunicipioEmitente);
+  if (!nomeMunicipioEmitente) {
+    throw new Error('Nome do município do emitente não foi resolvido pelo código IBGE.');
+  }
+  const emitente = mapEmpresaToEmitente(empresa, nomeMunicipioEmitente);
   const crt = normalizarCRT(emitente.crt);
 
   const destBase: NFeDestinatario =

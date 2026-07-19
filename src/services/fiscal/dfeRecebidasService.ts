@@ -17,12 +17,12 @@ import {
 
 type SyncDfeParams = {
   empresaId?: number;
-  force?: boolean;
   automatic?: boolean;
   confirmCompanyChange?: boolean;
 };
 
-const AUTOMATIC_SYNC_INTERVAL_MS = 60 * 60 * 1000;
+const DFE_SYNC_COOLDOWN_MS = 70 * 60 * 1000;
+const AUTOMATIC_SYNC_INTERVAL_MS = DFE_SYNC_COOLDOWN_MS;
 
 type ListDfeParams = {
   page?: number;
@@ -37,8 +37,6 @@ type ListDfeParams = {
 type ConsultaChaveParams = {
   empresaId?: number;
   chave: string;
-  useLock?: boolean;
-  force?: boolean;
 };
 
 export type TipoManifestacaoDestinatario =
@@ -89,7 +87,7 @@ const UF_CODES: Record<string, string> = {
   DF: "53",
 };
 
-const XML_COMPLETO_RETRY_INTERVAL_MS = 60 * 60 * 1000;
+const XML_COMPLETO_RETRY_INTERVAL_MS = DFE_SYNC_COOLDOWN_MS;
 
 function clampInt(value: unknown, fallback: number, min: number, max: number) {
   const parsed = Number(value);
@@ -113,6 +111,10 @@ function normalizeText(value: unknown) {
 
 function normalizeNsu(value: unknown) {
   return String(value ?? "").replace(/\D/g, "").padStart(15, "0").slice(-15);
+}
+
+function normalizeAmbiente(value: unknown): "HOMOLOGACAO" | "PRODUCAO" {
+  return String(value ?? "").toUpperCase() === "PRODUCAO" ? "PRODUCAO" : "HOMOLOGACAO";
 }
 
 function escapeXml(value: unknown) {
@@ -346,35 +348,70 @@ async function salvarLoteDfeComControle(
   return Number(data ?? 0);
 }
 
+async function salvarConsultaPontualDfe(
+  empresaId: number,
+  docs: Array<ReturnType<typeof prepararDocumentoDfe>>,
+  retorno: {
+    cStat: string;
+    xMotivo: string;
+    consumoIndevidoUntil?: string | null;
+  },
+) {
+  const { data, error } = await supabaseAdmin.rpc("fiscal_salvar_dfe_consulta_pontual", {
+    p_empresa_id: empresaId,
+    p_docs: docs.filter(Boolean),
+    p_cstat: retorno.cStat,
+    p_xmotivo: retorno.xMotivo,
+    p_consumo_indevido_until: retorno.consumoIndevidoUntil ?? null,
+  });
+
+  if (error) throw error;
+  return Number(data ?? 0);
+}
+
 export async function sincronizarDfeRecebidas(params: SyncDfeParams = {}) {
   const empresa = await getEmpresa(params.empresaId);
   const empresaId = Number(empresa.id);
   const currentCnpj = onlyDigits(empresa.cnpj);
+  const currentAmbiente = normalizeAmbiente(empresa.ambiente);
   let controle = await getControle(empresaId);
   const controlCnpj = onlyDigits(controle.cnpj_consultado);
+  const controlAmbiente = normalizeText(controle.ambiente_consultado).toUpperCase();
 
-  if (!controlCnpj) {
+  if (!controlCnpj || !controlAmbiente) {
     const { error } = await supabaseAdmin
       .from("fiscal_dfe_controle")
-      .update({ cnpj_consultado: currentCnpj, updatedat: new Date().toISOString() })
+      .update({
+        cnpj_consultado: currentCnpj,
+        ambiente_consultado: currentAmbiente,
+        updatedat: new Date().toISOString(),
+      })
       .eq("empresa_id", empresaId);
     if (error) throw error;
-    controle = { ...controle, cnpj_consultado: currentCnpj };
-  } else if (controlCnpj !== currentCnpj) {
+    controle = {
+      ...controle,
+      cnpj_consultado: currentCnpj,
+      ambiente_consultado: currentAmbiente,
+    };
+  } else if (controlCnpj !== currentCnpj || controlAmbiente !== currentAmbiente) {
     if (!params.confirmCompanyChange) {
       return {
         success: false,
         companyChangeDetected: true,
+        fiscalContextChangeDetected: true,
         previousCnpj: maskCnpj(controlCnpj),
         currentCnpj: maskCnpj(currentCnpj),
+        previousAmbiente: controlAmbiente,
+        currentAmbiente,
         documentsWillBeDeleted: true,
-        message: "Novo CNPJ detectado. Confirme a reinicialização dos documentos fiscais recebidos.",
+        message: "Novo contexto fiscal detectado. Confirme a troca antes de sincronizar.",
       };
     }
 
-    const { error } = await supabaseAdmin.rpc("fiscal_reset_dfe_por_troca_cnpj", {
+    const { error } = await supabaseAdmin.rpc("fiscal_ativar_contexto_dfe", {
       p_empresa_id: empresaId,
       p_cnpj: currentCnpj,
+      p_ambiente: currentAmbiente,
     });
     if (error) throw error;
     controle = await getControle(empresaId);
@@ -416,7 +453,9 @@ export async function sincronizarDfeRecebidas(params: SyncDfeParams = {}) {
     }
   }
 
-  if (!params.force && controle.next_sync_after && new Date(controle.next_sync_after).getTime() > Date.now()) {
+  // O intervalo informado pela SEFAZ vale tambem para tentativas manuais.
+  // Consultar antes do prazo pode reiniciar o bloqueio por consumo indevido.
+  if (controle.next_sync_after && new Date(controle.next_sync_after).getTime() > Date.now()) {
     return {
       success: false,
       blocked: true,
@@ -478,9 +517,11 @@ export async function sincronizarDfeRecebidas(params: SyncDfeParams = {}) {
       }
 
       consumoIndevidoUntil =
-        cStat === "656" ? new Date(Date.now() + 60 * 60 * 1000).toISOString() : null;
+        cStat === "656" ? new Date(Date.now() + DFE_SYNC_COOLDOWN_MS).toISOString() : null;
       nextSyncAfter =
-        cStat === "137" ? new Date(Date.now() + 60 * 60 * 1000).toISOString() : null;
+        cStat === "137" || (cStat === "138" && ultNSU === maxNSU)
+          ? new Date(Date.now() + DFE_SYNC_COOLDOWN_MS).toISOString()
+          : null;
       const docs = cStat === "138" ? extractDocZipList(ret).map(prepararDocumentoDfe) : [];
 
       novosDocumentos += await salvarLoteDfeComControle(empresaId, docs, {
@@ -667,8 +708,22 @@ export async function consultarDfePorChave(params: ConsultaChaveParams) {
   const empresa = await getEmpresa(params.empresaId);
   const empresaId = Number(empresa.id);
   const controle = await getControle(empresaId);
-  const useLock = params.useLock !== false;
-  const locked = useLock ? await tryLock(empresaId) : true;
+
+  if (
+    controle.consumo_indevido_until &&
+    new Date(controle.consumo_indevido_until).getTime() > Date.now()
+  ) {
+    return {
+      success: false,
+      blocked: true,
+      cStat: controle.last_cstat,
+      xMotivo: controle.last_xmotivo,
+      novosDocumentos: 0,
+      consumoIndevidoUntil: controle.consumo_indevido_until,
+    };
+  }
+
+  const locked = await tryLock(empresaId);
 
   if (!locked) {
     return {
@@ -681,6 +736,30 @@ export async function consultarDfePorChave(params: ConsultaChaveParams) {
   }
 
   try {
+    const { data: reserva, error: reservaError } = await supabaseAdmin.rpc(
+      "fiscal_reservar_consulta_chave_dfe",
+      {
+        p_empresa_id: empresaId,
+        p_limite: 15,
+        p_janela: "70 minutes",
+      },
+    );
+    if (reservaError) throw reservaError;
+
+    if (!reserva?.permitido) {
+      return {
+        success: false,
+        blocked: true,
+        cStat: controle.last_cstat,
+        xMotivo:
+          reserva?.motivo === "LIMITE_LOCAL"
+            ? "Limite local de consultas pontuais atingido."
+            : controle.last_xmotivo,
+        novosDocumentos: 0,
+        nextCheckAfter: reserva?.proximaTentativa ?? controle.consumo_indevido_until,
+      };
+    }
+
     const { privateKeyPem, certificatePem } = await carregarCertificadoA1(empresa);
     const agent = new https.Agent({
       key: privateKeyPem,
@@ -692,10 +771,8 @@ export async function consultarDfePorChave(params: ConsultaChaveParams) {
     const xMotivo = String(ret.xMotivo ?? "");
     const docs = cStat === "138" ? extractDocZipList(ret).map(prepararDocumentoDfe) : [];
     const consumoIndevidoUntil =
-      cStat === "656" ? new Date(Date.now() + 60 * 60 * 1000).toISOString() : null;
-    const novosDocumentos = await salvarLoteDfeComControle(empresaId, docs, {
-      ultNSU: normalizeNsu(controle.ult_nsu ?? "000000000000000"),
-      maxNSU: normalizeNsu(controle.max_nsu ?? "000000000000000"),
+      cStat === "656" ? new Date(Date.now() + DFE_SYNC_COOLDOWN_MS).toISOString() : null;
+    const novosDocumentos = await salvarConsultaPontualDfe(empresaId, docs, {
       cStat,
       xMotivo,
       consumoIndevidoUntil,
@@ -708,9 +785,7 @@ export async function consultarDfePorChave(params: ConsultaChaveParams) {
       novosDocumentos,
     };
   } finally {
-    if (useLock) {
-      await releaseLock(empresaId);
-    }
+    await releaseLock(empresaId);
   }
 }
 
@@ -766,7 +841,6 @@ export async function manifestarDfeRecebida(params: ManifestarParams) {
       xmlCompletoConsulta = await consultarDfePorChave({
         empresaId: Number(empresa.id),
         chave: chaveFromXml,
-        useLock: false,
       });
     }
 
@@ -1282,7 +1356,6 @@ export async function buscarXmlDfeRecebida(id: number) {
       consulta = await consultarDfePorChave({
         empresaId,
         chave,
-        useLock: false,
       });
 
       const resumo = data.resumo && typeof data.resumo === "object" ? data.resumo : {};

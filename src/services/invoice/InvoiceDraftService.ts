@@ -2,6 +2,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { CreateInvoiceDTO, InvoiceDraftResult } from "./invoice.types";
 import { buildNFePreviewXml } from "@/lib/nfe/buildNFe";
 import { EmpresaRow, NFeDestinatario } from "@/lib/nfe/types";
+import { resolverNomeMunicipioIbge } from "@/lib/ibge/municipio";
 
 export class InvoiceDraftService {
   async createDraft(dto: CreateInvoiceDTO): Promise<InvoiceDraftResult> {
@@ -15,6 +16,10 @@ export class InvoiceDraftService {
     if (empError || !empresa) {
       throw new Error(`Empresa ${dto.empresaId} não encontrada.`);
     }
+    const nomeMunicipioEmitente = await resolverNomeMunicipioIbge(
+      empresa.codigomunicipio,
+      empresa.uf
+    );
 
     const { data: config, error: cfgError } = await supabaseAdmin
       .from("nfe_config")
@@ -165,7 +170,8 @@ export class InvoiceDraftService {
             destinatario,
             {
                 tpNF: dto.tipoOperacao === '1' ? 1 : 0,
-                natOp: dto.naturezaOperacao || 'VENDA DE MERCADORIA'
+                natOp: dto.naturezaOperacao || 'VENDA DE MERCADORIA',
+                nomeMunicipioEmitente
             }
         );
 

@@ -47,7 +47,7 @@ const mockItem: NFeItem = {
     aliquotaIcms: 0
 };
 
-const result = buildNFePreviewXml(mockEmpresa, 1, 1, [mockItem]);
+const result = buildNFePreviewXml(mockEmpresa, 1, 1, [mockItem], undefined, { nomeMunicipioEmitente: 'SAO PAULO' });
 
 console.log("Checking UF (Expected 35):");
 if (result.xml.includes('<cUF>35</cUF>')) {

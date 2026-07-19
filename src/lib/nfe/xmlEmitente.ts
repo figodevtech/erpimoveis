@@ -49,10 +49,12 @@ export function buildEmitXml(emit: NFeEmitente): string {
 
   if (emit.inscricaoMunicipal) {
     partes.push(`<IM>${emit.inscricaoMunicipal}</IM>`);
-  }
 
-  if (emit.cnae) {
-    partes.push(`<CNAE>${emit.cnae}</CNAE>`);
+    // No schema da NF-e, CNAE integra o grupo da Inscrição Municipal.
+    // Enviá-lo isoladamente faz a SEFAZ rejeitar todo o lote por falha de schema.
+    if (emit.cnae) {
+      partes.push(`<CNAE>${emit.cnae}</CNAE>`);
+    }
   }
 
   partes.push(`<CRT>${emit.crt}</CRT>`);

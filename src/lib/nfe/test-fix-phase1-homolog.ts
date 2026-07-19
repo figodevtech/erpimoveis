@@ -37,7 +37,7 @@ const mockEmpresa = {
 
 console.log("--- TEST HOMOLOGACAO ---");
 mockEmpresa.ambiente = 'HOMOLOGACAO';
-const resHom = buildNFePreviewXml(mockEmpresa, 1, 1, [mockItem], mockDest);
+const resHom = buildNFePreviewXml(mockEmpresa, 1, 1, [mockItem], mockDest, { nomeMunicipioEmitente: 'JOAO PESSOA' });
 // Match xNome inside dest tag structure roughly, or just check the specific string presence which is unique enough
 const hasHomologText = resHom.xml.includes('NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL');
 
@@ -57,7 +57,7 @@ console.log("\n--- TEST PRODUCAO ---");
 mockEmpresa.ambiente = 'PRODUCAO';
 mockDest.razaoSocial = 'CLIENTE REAL EM PRODUCAO';
 
-const resProd = buildNFePreviewXml(mockEmpresa, 1, 1, [mockItem], mockDest);
+const resProd = buildNFePreviewXml(mockEmpresa, 1, 1, [mockItem], mockDest, { nomeMunicipioEmitente: 'JOAO PESSOA' });
 const hasHomologTextProd = resProd.xml.includes('NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL');
 const hasRealName = resProd.xml.includes('CLIENTE REAL EM PRODUCAO');
 

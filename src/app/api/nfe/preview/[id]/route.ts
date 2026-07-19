@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import type { EmpresaRow } from '@/lib/nfe/types';
 import { validarEmitenteEmpresa } from '@/lib/nfe/validarEmitente';
 import { buildNFePreviewXml } from '@/lib/nfe/buildNFe';
+import { resolverNomeMunicipioIbge } from '@/lib/ibge/municipio';
 
 export const runtime = 'nodejs';
 
@@ -71,10 +72,14 @@ export async function GET(
       );
     }
 
+    const nomeMunicipioEmitente = await resolverNomeMunicipioIbge(data.codigomunicipio, data.uf);
     const { xml, chave, id: idNFe } = buildNFePreviewXml(
       data,
       numeroNota,
-      serie
+      serie,
+      undefined,
+      undefined,
+      { nomeMunicipioEmitente }
     );
 
     return NextResponse.json({

@@ -10,7 +10,7 @@ type Params = { params: Promise<{ id: string }> };
 const CLIENTE_FIELDS = `
   id, tipopessoa, cpfcnpj, nomerazaosocial, email, telefone, endereco,
   cidade, estado, bairro, cep, inscricaoestadual, inscricaomunicipal, codigomunicipio,
-  createdat, updatedat, endereconumero, enderecocomplemento, status, rank
+  createdat, updatedat, endereconumero, enderecocomplemento, status, rank, foto_url
 `;
 
 const VEICULO_FIELDS = `

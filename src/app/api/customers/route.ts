@@ -11,7 +11,7 @@ const STATUS_SET = new Set<Status>(["ATIVO", "INATIVO", "PENDENTE"]);
 const CLIENTE_FIELDS = `
   id, tipopessoa, cpfcnpj, nomerazaosocial, email, telefone, endereco,
   cidade, estado, bairro, cep, inscricaoestadual, inscricaomunicipal, codigomunicipio,
-  createdat, updatedat, endereconumero, enderecocomplemento, status
+  createdat, updatedat, endereconumero, enderecocomplemento, status, foto_url
 `;
 
 const VEICULO_FIELDS = `
@@ -74,7 +74,7 @@ export async function GET(req: Request) {
         `
         id, tipopessoa, cpfcnpj, nomerazaosocial, email, telefone, endereco,
         cidade, estado, bairro, cep, inscricaoestadual, inscricaomunicipal, codigomunicipio,
-        createdat, updatedat,endereconumero, enderecocomplemento, status
+        createdat, updatedat,endereconumero, enderecocomplemento, status, foto_url
         `,
         { count: "exact" }
       )
@@ -181,6 +181,9 @@ export async function POST(req: Request) {
       email: normalizeString(json.email ?? null),
       telefone: normalizeString(json.telefone ?? null),
       endereco: normalizeString(json.endereco ?? null),
+      endereconumero: normalizeString(json.endereconumero ?? null),
+      enderecocomplemento: normalizeString(json.enderecocomplemento ?? null),
+      bairro: normalizeString(json.bairro ?? null),
       cidade: normalizeString(json.cidade ?? null),
       codigomunicipio: normalizeString(json.codigomunicipio ?? null),
       estado: normalizeUF(json.estado ?? null),

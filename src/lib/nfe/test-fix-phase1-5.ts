@@ -28,7 +28,7 @@ const mockItem: NFeItem = {
 };
 
 // Test 1: Entrada (tpNF=0) => Expect indFinal=0
-const resultEntrada = buildNFePreviewXml(mockEmpresa, 1, 1, [mockItem], undefined, { tpNF: 0 });
+const resultEntrada = buildNFePreviewXml(mockEmpresa, 1, 1, [mockItem], undefined, { tpNF: 0, nomeMunicipioEmitente: 'SAO PAULO' });
 
 console.log("Checking Entrada (tpNF=0) => indFinal should be 0");
 if (resultEntrada.xml.includes('<indFinal>0</indFinal>')) {
