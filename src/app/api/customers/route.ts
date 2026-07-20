@@ -145,7 +145,14 @@ export async function POST(req: Request) {
       );
     }
 
-    const missing = ["tipopessoa", "cpfcnpj", "nomerazaosocial", "telefone"].filter(
+    const missing = [
+      "tipopessoa",
+      "cpfcnpj",
+      "nomerazaosocial",
+      "telefone",
+      "cidade",
+      "estado",
+    ].filter(
       (k) => !json[k] || String(json[k]).trim() === ""
     );
     if (missing.length) {

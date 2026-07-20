@@ -211,6 +211,12 @@ export default function RegisterContent({
       toast.warning("Insira um email válido")
       return
     }
+
+    if (!newCustomer.estado.trim() || !newCustomer.cidade.trim()) {
+      toast.warning("Informe o estado e a cidade do cliente.");
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const response = await axios.post("/api/customers", {
@@ -645,7 +651,7 @@ export default function RegisterContent({
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
               <div className="min-w-0 space-y-2">
                 <Label htmlFor="estado" className="text-sm">
-                  Estado
+                  Estado <span className="text-destructive">*</span>
                 </Label>
 
                 <Popover open={open2} onOpenChange={setOpen2}>
@@ -691,6 +697,14 @@ export default function RegisterContent({
                                 setNewCustomer({
                                   ...newCustomer,
                                   estado: currentValue,
+                                  cidade:
+                                    currentValue === newCustomer.estado
+                                      ? newCustomer.cidade
+                                      : "",
+                                  codigomunicipio:
+                                    currentValue === newCustomer.estado
+                                      ? newCustomer.codigomunicipio
+                                      : "",
                                 });
                                 setOpen2(false);
                               }}
@@ -715,7 +729,7 @@ export default function RegisterContent({
 
               <div className="min-w-0 space-y-2">
                 <Label htmlFor="cidade" className="text-sm">
-                  Cidade
+                  Cidade <span className="text-destructive">*</span>
                 </Label>
 
                 <Popover open={open} onOpenChange={setOpen}>
