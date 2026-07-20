@@ -1,4 +1,5 @@
 import { useIsMobile } from "@/app/(app)/hooks/use-mobile";
+import FornecedorSelect from "@/app/(app)/components/fornecedorSelect";
 import { Button } from "@/components/ui/button";
 import {
   Drawer,
@@ -23,8 +24,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Building2, Loader2, Search, X } from "lucide-react";
+import { useState } from "react";
 import ValueInput from "../dialog-produto/entrada-valor";
 import { toast } from "@/lib/toast";
 import axios, { isAxiosError } from "axios";
@@ -59,27 +60,18 @@ export default function DialogEntrada({
   const [value, setValue] = useState(0);
   const isMobile = useIsMobile();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isLoadingFornecedor, setIsLoadingFornecedor] = useState(false);
-  const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
-  const [selectedFornecedorId, setSelectedFornecedorId] = useState<number | undefined>(undefined);
+  const [openFornecedor, setOpenFornecedor] = useState(false);
+  const [selectedFornecedor, setSelectedFornecedor] = useState<Fornecedor | undefined>(undefined);
   const [selectedType, setSelectedType] = useState<Entrada_tipo | undefined>(undefined)
 
   const ENTRADA_API = "/api/entradas";
 
-  const handleGetFornecedores = async () => {
-    setIsLoadingFornecedor(true);
-    try {
-      const response = await axios.get("/api/tipos/fornecedores");
-      if (response.status === 200) {
-        setFornecedores(response.data.items);
-      }
-    } catch (error) {
-      if (isAxiosError(error)) {
-        toast.error("Erro ao buscar fornecedores: " + error.message);
-      }
-    } finally {
-      setIsLoadingFornecedor(false);
-    }
+  const onCloseReset = () => {
+    setNewQtd(0);
+    setValue(0);
+    setSelectedFornecedor(undefined);
+    setSelectedType(undefined);
+    setOpenFornecedor(false);
   };
 
   const handleCreateEntrada = async () => {
@@ -110,7 +102,7 @@ export default function DialogEntrada({
       // Formato simples (compatível com a API ajustada):
       // cria 1 entrada (cabeçalho) + 1 entradaitens
       const payload = {
-        fornecedorid: selectedFornecedorId ?? null,
+        fornecedorid: selectedFornecedor?.id ?? null,
         produtoid: productId,
         quantidade: newQtd,
         valor_unitario: value,
@@ -128,6 +120,7 @@ export default function DialogEntrada({
           duration: 2000,
         });
 
+        onCloseReset();
         setIsOpen?.(false);
 
         // Atualiza lista (se necessário)
@@ -147,15 +140,52 @@ export default function DialogEntrada({
     }
   };
 
-  useEffect(() => {
-    handleGetFornecedores();
-  }, []);
+  const fornecedorField = (
+    <div className="space-y-2">
+      <Label>Fornecedor</Label>
+      <div className="flex min-w-0 items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          className="h-auto min-h-10 min-w-0 flex-1 justify-start px-3 py-2 text-left font-normal"
+          onClick={() => setOpenFornecedor(true)}
+        >
+          {selectedFornecedor ? (
+            <>
+              <Building2 className="mr-2 h-4 w-4 shrink-0 text-primary" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">
+                  {selectedFornecedor.nomerazaosocial}
+                </span>
+                <span className="block truncate text-[11px] text-muted-foreground">
+                  #{selectedFornecedor.id}
+                  {selectedFornecedor.cpfcnpj ? ` · ${selectedFornecedor.cpfcnpj}` : ""}
+                </span>
+              </span>
+            </>
+          ) : (
+            <>
+              <Search className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="text-muted-foreground">Selecionar fornecedor</span>
+            </>
+          )}
+        </Button>
 
-  const onCloseReset = () => {
-    setNewQtd(0);
-    setValue(0);
-    setSelectedFornecedorId(undefined);
-  };
+        {selectedFornecedor ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-10 w-10 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            onClick={() => setSelectedFornecedor(undefined)}
+            aria-label="Remover fornecedor selecionado"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
 
   if (isMobile) {
     return (
@@ -167,6 +197,14 @@ export default function DialogEntrada({
         }}
       >
         <DrawerTrigger asChild>{children}</DrawerTrigger>
+        <FornecedorSelect
+          OnSelect={(fornecedor) => {
+            setSelectedFornecedor(fornecedor);
+            setOpenFornecedor(false);
+          }}
+          open={openFornecedor}
+          setOpen={setOpenFornecedor}
+        />
         <DrawerContent onDoubleClick={(e) => e.stopPropagation()}>
           <div className="mx-auto w-full max-w-sm">
             <DrawerHeader className="border-b px-4 py-3">
@@ -201,25 +239,7 @@ export default function DialogEntrada({
                 <ValueInput price={value} setPrice={setValue} />
               </div>
 
-              <div className="space-y-2">
-                <Label>Fornecedor</Label>
-                <Select
-                  disabled={isLoadingFornecedor}
-                  value={selectedFornecedorId?.toString()}
-                  onValueChange={(v) => setSelectedFornecedorId(Number(v))}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder={isLoadingFornecedor ? "Carregando..." : "Selecione"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {fornecedores.map((f) => (
-                      <SelectItem className="hover:cursor-pointer" key={f.id} value={f.id.toString()}>
-                        {f.nomerazaosocial}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {fornecedorField}
             </div>
 
             <DrawerFooter className="flex flex-row gap-2 items-center justify-center">
@@ -258,6 +278,14 @@ export default function DialogEntrada({
       }}
     >
       <DialogTrigger asChild>{children}</DialogTrigger>
+      <FornecedorSelect
+        OnSelect={(fornecedor) => {
+          setSelectedFornecedor(fornecedor);
+          setOpenFornecedor(false);
+        }}
+        open={openFornecedor}
+        setOpen={setOpenFornecedor}
+      />
       <DialogContent className="p-0 overflow-hidden h-[600px]" onDoubleClick={(e) => e.stopPropagation()}>
         <div className="flex h-full min-h-0 flex-col">
           <DialogHeader className="shrink-0 px-6 py-4 border-b-1">
@@ -293,25 +321,7 @@ export default function DialogEntrada({
                 <ValueInput price={value} setPrice={setValue} />
               </div>
 
-              <div className="space-y-2">
-                <Label>Fornecedor</Label>
-                <Select
-                  disabled={isLoadingFornecedor}
-                  value={selectedFornecedorId?.toString()}
-                  onValueChange={(v) => setSelectedFornecedorId(Number(v))}
-                >
-                  <SelectTrigger className="w-full not-dark:bg-white">
-                    <SelectValue placeholder={isLoadingFornecedor ? "Carregando..." : "Selecione"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {fornecedores.map((f) => (
-                      <SelectItem className="hover:cursor-pointer" key={f.id} value={f.id.toString()}>
-                        {f.nomerazaosocial}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {fornecedorField}
             </div>
           </div>
 

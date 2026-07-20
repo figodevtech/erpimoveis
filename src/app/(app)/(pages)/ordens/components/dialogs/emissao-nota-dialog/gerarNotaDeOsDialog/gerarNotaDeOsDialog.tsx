@@ -31,6 +31,8 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
+import { normalizeCfopForOperation } from "@/lib/nfe/cfopOperation";
+import { normalizeFiscalRecipient } from "@/lib/nfe/recipientNormalization";
 
 import {
   createAssistedItem,
@@ -42,12 +44,23 @@ import {
   validateAssistedItem,
 } from "./emissao-assistida-model";
 import { NfeItemFiscalEditor } from "./nfe-item-fiscal-editor";
+import {
+  emptyEntrySupplier,
+  NfeEntrySupplierEditor,
+  type NFeEntrySupplierDraft,
+  validateEntrySupplier,
+} from "./nfe-entry-supplier-editor";
 
 type SourceResponse = {
   ok: boolean;
   message?: string;
   observacoes_fiscais?: string | null;
   cliente?: { id: number; nome: string; uf?: string | null } | null;
+  fornecedor?: { id: number | null; nome: string | null; uf?: string | null } | null;
+  parceiro_erros?: string[];
+  tipo_operacao?: "SAIDA" | "ENTRADA";
+  natureza_operacao?: string;
+  destinatario?: NFeEntrySupplierDraft;
   itens: SourceProduct[];
 };
 
@@ -77,6 +90,7 @@ export interface GerarNotaDeOsDialogProps {
   onOpenChange: (open: boolean) => void;
   osId?: number | null;
   vendaId?: number | null;
+  entradaId?: number | null;
   onAfterGenerate?: (nfeId: number | null) => void;
 }
 
@@ -85,6 +99,7 @@ export function GerarNotaDeOsDialog({
   onOpenChange,
   osId,
   vendaId,
+  entradaId,
   onAfterGenerate,
 }: GerarNotaDeOsDialogProps) {
   const [loading, setLoading] = useState(false);
@@ -98,20 +113,21 @@ export function GerarNotaDeOsDialog({
   const [serverError, setServerError] = useState<string | null>(null);
   const [includeObservations, setIncludeObservations] = useState(false);
   const [observations, setObservations] = useState("");
+  const [entrySupplier, setEntrySupplier] = useState<NFeEntrySupplierDraft>(emptyEntrySupplier);
 
-  const origin = osId ? "OS" : vendaId ? "VENDA" : null;
-  const originId = osId ?? vendaId ?? null;
+  const origin = osId ? "OS" : vendaId ? "VENDA" : entradaId ? "ENTRADA" : null;
+  const originId = osId ?? vendaId ?? entradaId ?? null;
   const productsEndpoint = useMemo(() => {
     if (!origin || !originId) return null;
-    return origin === "OS"
-      ? `/api/ordens/${originId}/produtos-para-nfe`
-      : `/api/venda/${originId}/produtos-para-nfe`;
+    if (origin === "OS") return `/api/ordens/${originId}/produtos-para-nfe`;
+    if (origin === "VENDA") return `/api/venda/${originId}/produtos-para-nfe`;
+    return `/api/entradas/${originId}/produtos-para-nfe`;
   }, [origin, originId]);
   const generateEndpoint = useMemo(() => {
     if (!origin || !originId) return null;
-    return origin === "OS"
-      ? `/api/nfe/de-os/${originId}/gerar-rascunho`
-      : `/api/nfe/de-venda/${originId}/gerar-rascunho`;
+    if (origin === "OS") return `/api/nfe/de-os/${originId}/gerar-rascunho`;
+    if (origin === "VENDA") return `/api/nfe/de-venda/${originId}/gerar-rascunho`;
+    return `/api/nfe/de-entrada/${originId}/gerar-rascunho`;
   }, [origin, originId]);
 
   async function load(signal?: AbortSignal) {
@@ -141,11 +157,18 @@ export function GerarNotaDeOsDialog({
       }
 
       const fiscalSetup = setupJson as FiscalSetup;
-      const mapped = productsJson.itens.map((item) => createAssistedItem(item, fiscalSetup));
+      const parceiro = productsJson.fornecedor ?? productsJson.cliente;
+      const mapped = productsJson.itens.map((item) =>
+        createAssistedItem(item, fiscalSetup, {
+          tipoOperacao: productsJson.tipo_operacao ?? "SAIDA",
+          parceiroUf: parceiro?.uf,
+        }),
+      );
       setSetup(fiscalSetup);
       setSource(productsJson);
       setItems(mapped);
       setSelectedIds(mapped.map((item) => item.sourceItemId));
+      setEntrySupplier(productsJson.destinatario ?? emptyEntrySupplier);
       const existingObservations = productsJson.observacoes_fiscais ?? "";
       setObservations(existingObservations);
       setIncludeObservations(Boolean(existingObservations));
@@ -156,6 +179,7 @@ export function GerarNotaDeOsDialog({
       setSource(null);
       setItems([]);
       setSelectedIds([]);
+      setEntrySupplier(emptyEntrySupplier);
     } finally {
       setLoading(false);
     }
@@ -172,14 +196,20 @@ export function GerarNotaDeOsDialog({
   const issuesByItem = useMemo(() => {
     const map = new Map<string, AssistedItemIssue[]>();
     if (!setup) return map;
+    const parceiroUf = origin === "ENTRADA"
+      ? entrySupplier.estado
+      : (source?.fornecedor ?? source?.cliente)?.uf;
     for (const item of items) {
       map.set(
         item.sourceItemId,
-        validateAssistedItem(item, setup, { clienteUf: source?.cliente?.uf }),
+        validateAssistedItem(item, setup, {
+          tipoOperacao: source?.tipo_operacao ?? "SAIDA",
+          parceiroUf,
+        }),
       );
     }
     return map;
-  }, [items, setup, source?.cliente?.uf]);
+  }, [entrySupplier.estado, items, origin, setup, source]);
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const selectedItems = useMemo(
@@ -205,13 +235,25 @@ export function GerarNotaDeOsDialog({
 
   const title = origin === "VENDA"
     ? `Gerar NF-e da Venda #${originId ?? ""}`
-    : `Gerar NF-e da OS #${originId ?? ""}`;
+    : origin === "ENTRADA"
+      ? `Gerar NF-e da Entrada #${originId ?? ""}`
+      : `Gerar NF-e da OS #${originId ?? ""}`;
+  const parceiro = origin === "ENTRADA"
+    ? { nome: entrySupplier.nomeRazaoSocial, uf: entrySupplier.estado }
+    : source?.fornecedor ?? source?.cliente;
+  const parceiroLabel = origin === "ENTRADA" ? "Fornecedor" : "Cliente";
+  const entrySupplierErrors = useMemo(
+    () => origin === "ENTRADA" ? validateEntrySupplier(entrySupplier) : [],
+    [entrySupplier, origin],
+  );
   const operationLabel =
-    setup?.empresa?.uf && source?.cliente?.uf
-      ? setup.empresa.uf === source.cliente.uf
-        ? `Venda interna · ${setup.empresa.uf}`
-        : `Venda interestadual · ${setup.empresa.uf} → ${source.cliente.uf}`
-      : "Operação de saída";
+    setup?.empresa?.uf && parceiro?.uf
+      ? setup.empresa.uf === parceiro.uf
+        ? `${origin === "ENTRADA" ? "Entrada" : "Venda"} interna · ${setup.empresa.uf}`
+        : origin === "ENTRADA"
+          ? `Entrada interestadual · ${parceiro.uf} → ${setup.empresa.uf}`
+          : `Venda interestadual · ${setup.empresa.uf} → ${parceiro.uf}`
+      : origin === "ENTRADA" ? "Operação de entrada" : "Operação de saída";
 
   function toggleItem(sourceItemId: string, checked: boolean) {
     setSelectedIds((current) => {
@@ -232,6 +274,24 @@ export function GerarNotaDeOsDialog({
     setServerError(null);
   }
 
+  function updateEntrySupplier(next: NFeEntrySupplierDraft) {
+    if (setup && next.estado !== entrySupplier.estado) {
+      setItems((current) =>
+        current.map((item) => ({
+          ...item,
+          cfop: normalizeCfopForOperation(
+            item.cfop,
+            "ENTRADA",
+            setup.empresa?.uf,
+            next.estado,
+          ),
+        })),
+      );
+    }
+    setEntrySupplier(next);
+    setServerError(null);
+  }
+
   async function refreshItemDefaults(sourceItemId: string) {
     if (!productsEndpoint || !setup) return;
     try {
@@ -240,7 +300,11 @@ export function GerarNotaDeOsDialog({
       if (!response.ok || !json?.ok) throw new Error(json?.message || "Falha ao atualizar o produto.");
       const updatedSource = json.itens.find((item) => item.sourceItemId === sourceItemId);
       if (!updatedSource) throw new Error("A linha do produto não foi encontrada na origem.");
-      const updatedItem = createAssistedItem(updatedSource, setup);
+      const parceiro = json.fornecedor ?? json.cliente;
+      const updatedItem = createAssistedItem(updatedSource, setup, {
+        tipoOperacao: json.tipo_operacao ?? "SAIDA",
+        parceiroUf: parceiro?.uf,
+      });
       setSource(json);
       setItems((current) =>
         current.map((item) => (item.sourceItemId === sourceItemId ? updatedItem : item)),
@@ -270,6 +334,10 @@ export function GerarNotaDeOsDialog({
       toast.error("Corrija o cadastro fiscal da empresa antes de emitir.");
       return;
     }
+    if (entrySupplierErrors.length) {
+      toast.error("Preencha os dados fiscais do fornecedor antes de emitir.");
+      return;
+    }
 
     setSaving(true);
     setServerError(null);
@@ -283,6 +351,14 @@ export function GerarNotaDeOsDialog({
             includeObservations && observations.trim()
               ? observations.trim().slice(0, 500)
               : null,
+          ...(origin === "ENTRADA"
+            ? {
+                destinatario: {
+                  ...normalizeFiscalRecipient(entrySupplier),
+                  clienteId: null,
+                },
+              }
+            : {}),
         }),
       });
       const json = (await response.json().catch(() => null)) as GenerateResponse | null;
@@ -329,7 +405,7 @@ export function GerarNotaDeOsDialog({
                 <span className="min-w-0 break-words">{title}</span>
               </DialogTitle>
               <DialogDescription className="break-words">
-                Os dados da OS, do cliente e dos produtos já estão preenchidos. Ajuste somente as pendências fiscais.
+                Os dados da origem, do {parceiroLabel.toLowerCase()} e dos produtos já estão preenchidos. Ajuste somente as pendências fiscais.
               </DialogDescription>
             </DialogHeader>
           </div>
@@ -356,11 +432,11 @@ export function GerarNotaDeOsDialog({
 
             {!loading && setup && source ? (
               <>
-                <section className="flex min-w-0 flex-row gap-2 rounded-lg border bg-muted/20 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                <section className="flex min-w-0 flex-row gap-2 rounded-lg border bg-card p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
                     <p className="break-words font-medium">{operationLabel}</p>
                     <p className="break-words text-xs text-muted-foreground">
-                      Cliente: {source.cliente?.nome || "não identificado"} · CRT {setup.empresa?.crt || "não informado"} · Série {setup.config?.serie || "—"}
+                      {parceiroLabel}: {parceiro?.nome || "não identificado"} · CRT {setup.empresa?.crt || "não informado"} · Série {setup.config?.serie || "—"}
                     </p>
                   </div>
                     {/* <Badge variant="outline" className="max-w-full self-start overflow-hidden text-ellipsis sm:shrink-0">
@@ -368,12 +444,29 @@ export function GerarNotaDeOsDialog({
                     </Badge> */}
                 </section>
 
+                {origin === "ENTRADA" ? (
+                  <NfeEntrySupplierEditor
+                    value={entrySupplier}
+                    onChange={updateEntrySupplier}
+                  />
+                ) : null}
+
                 {setup.empresaErros.length > 0 ? (
                   <Alert variant="destructive" className="min-w-0 overflow-hidden">
                     <AlertCircle className="h-4 w-4" />
                     <AlertTitle>Cadastro da empresa incompleto</AlertTitle>
                     <AlertDescription className="min-w-0 [overflow-wrap:anywhere]">
                       {setup.empresaErros.join(" ")}
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
+
+                {entrySupplierErrors.length ? (
+                  <Alert variant="destructive" className="min-w-0 overflow-hidden">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>Complete os dados do fornecedor da nota</AlertTitle>
+                    <AlertDescription className="min-w-0 [overflow-wrap:anywhere]">
+                      {entrySupplierErrors.join(" ")}
                     </AlertDescription>
                   </Alert>
                 ) : null}
@@ -393,7 +486,7 @@ export function GerarNotaDeOsDialog({
                     <AlertDescription>Adicione produtos à origem antes de gerar a NF-e.</AlertDescription>
                   </Alert>
                 ) : (
-                  <section className="min-w-0 space-y-3 rounded-lg border p-3 sm:p-4">
+                  <section className="min-w-0 space-y-3 rounded-lg border p-3 bg-card sm:p-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div className="min-w-0 flex flex-wrap items-center gap-2">
                         <Package className="h-4 w-4 shrink-0 text-primary" />
@@ -488,7 +581,7 @@ export function GerarNotaDeOsDialog({
                   </section>
                 )}
 
-                <section className="min-w-0 space-y-3 rounded-lg border p-3 sm:p-4">
+                <section className="min-w-0 space-y-3 bg-card rounded-lg border p-3 sm:p-4">
                   <div className="flex min-w-0 items-center justify-between gap-3">
                     <div className="min-w-0">
                       <Label htmlFor="nfe-origin-observations">Incluir observações fiscais</Label>
@@ -511,7 +604,7 @@ export function GerarNotaDeOsDialog({
                   ) : null}
                 </section>
 
-                <section className="min-w-0  gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
+                <section className="min-w-0 bg-card  gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
                   <div className="min-w-0 text-sm">
                     <p className=""><b>{selectedItems.length}</b> produto(s) selecionado(s) · <b>{fmtMoney(selectedTotal)}</b></p>
                     {selectedIssues.length > 0 ? (
@@ -529,7 +622,12 @@ export function GerarNotaDeOsDialog({
                     <Button
                       type="button"
                       className="h-auto min-h-9 w-full whitespace-normal text-center sm:w-auto"
-                      disabled={saving || selectedItems.length === 0 || setup.empresaErros.length > 0}
+                      disabled={
+                        saving ||
+                        selectedItems.length === 0 ||
+                        setup.empresaErros.length > 0 ||
+                        entrySupplierErrors.length > 0
+                      }
                       onClick={() => void generateDraft()}
                     >
                       {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}

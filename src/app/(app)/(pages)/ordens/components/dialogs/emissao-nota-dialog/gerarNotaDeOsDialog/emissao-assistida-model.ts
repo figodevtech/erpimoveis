@@ -9,6 +9,11 @@ import {
   validateNFeItemTax,
   type NFeFiscalFieldRules,
 } from "@/lib/nfe/taxRules";
+import {
+  isCfopCompatibleWithOperation,
+  normalizeCfopForOperation,
+  type NFeOperationDirection,
+} from "@/lib/nfe/cfopOperation";
 
 export type FiscalSetup = {
   empresa: {
@@ -152,6 +157,10 @@ export function inferPisCofinsMode(
 export function createAssistedItem(
   source: SourceProduct,
   setup: FiscalSetup,
+  context?: {
+    tipoOperacao?: NFeOperationDirection;
+    parceiroUf?: string | null;
+  },
 ): AssistedFiscalItem {
   const crt = Number(setup.empresa?.crt ?? 0);
   const modoPis = source.modo_pis || inferPisCofinsMode(source.cst_pis, source.aliquota_pis);
@@ -167,7 +176,12 @@ export function createAssistedItem(
     valorUnitario: Number(source.precoUnitario || 0),
     subtotal: Number(source.subtotal || 0),
     ncm: onlyDigits(source.ncm),
-    cfop: onlyDigits(source.cfop) || "5102",
+    cfop: normalizeCfopForOperation(
+      source.cfop,
+      context?.tipoOperacao ?? "SAIDA",
+      setup.empresa?.uf,
+      context?.parceiroUf,
+    ),
     unidade: source.unidade || "UN",
     orig: String(source.origem_mercadoria ?? ""),
     csosn: crt === 1 || crt === 4 ? normalizeCode(source.csosn, 3) : "",
@@ -305,7 +319,11 @@ export function toNFeItem(item: AssistedFiscalItem, index = 0): NFeItem {
 export function validateAssistedItem(
   item: AssistedFiscalItem,
   setup: FiscalSetup,
-  context?: { clienteUf?: string | null },
+  context?: {
+    clienteUf?: string | null;
+    parceiroUf?: string | null;
+    tipoOperacao?: NFeOperationDirection;
+  },
 ): AssistedItemIssue[] {
   const issues: AssistedItemIssue[] = [];
   if (!item.descricao.trim()) {
@@ -329,14 +347,20 @@ export function validateAssistedItem(
   }
 
   const empresaUf = String(setup.empresa?.uf ?? "").toUpperCase();
-  const clienteUf = String(context?.clienteUf ?? "").toUpperCase();
-  if (cfop.length === 4 && empresaUf && clienteUf) {
-    if (empresaUf === clienteUf && cfop.startsWith("6")) {
-      issues.push({ code: "NFE_CFOP_DESTINATION_MISMATCH", field: "cfop", message: `Use CFOP interno para destinatário em ${clienteUf}.` });
-    }
-    if (empresaUf !== clienteUf && cfop.startsWith("5")) {
-      issues.push({ code: "NFE_CFOP_DESTINATION_MISMATCH", field: "cfop", message: `Use CFOP interestadual para destinatário em ${clienteUf}.` });
-    }
+  const parceiroUf = String(context?.parceiroUf ?? context?.clienteUf ?? "").toUpperCase();
+  const tipoOperacao = context?.tipoOperacao ?? "SAIDA";
+  if (
+    cfop.length === 4 &&
+    empresaUf &&
+    parceiroUf &&
+    !isCfopCompatibleWithOperation(cfop, tipoOperacao, empresaUf, parceiroUf)
+  ) {
+    const sentido = tipoOperacao === "ENTRADA" ? "entrada" : "saída";
+    issues.push({
+      code: "NFE_CFOP_DESTINATION_MISMATCH",
+      field: "cfop",
+      message: `CFOP incompatível com a operação de ${sentido} entre ${empresaUf} e ${parceiroUf}.`,
+    });
   }
 
   const cst = normalizeCode(item.cst, 2);

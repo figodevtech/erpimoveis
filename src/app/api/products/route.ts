@@ -66,6 +66,11 @@ function toNumberOrNull(v: any) {
   return Number.isFinite(n) ? n : null;
 }
 
+function toPositiveInt(v: unknown) {
+  const n = Number(v);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
 /** Saneia e valida payload de produto */
 function sanitizeProdutoPayload(body: any, { strict }: { strict: boolean }) {
   const out: Record<string, any> = {};
@@ -231,6 +236,12 @@ export async function POST(req: Request) {
 
     const fornecedorId = fornecedorIdRaw ? Number(fornecedorIdRaw) : undefined;
     const ultimoValorDeCompra = toNumberOrNull(ultimoValorDeCompraRaw);
+    const loteIdRaw = body.loteId ?? body.lote_id ?? json.loteId ?? json.lote_id;
+    const loteId = loteIdRaw == null || loteIdRaw === "" ? null : toPositiveInt(loteIdRaw);
+
+    if (loteIdRaw != null && loteIdRaw !== "" && !loteId) {
+      return NextResponse.json({ error: "Lote inválido." }, { status: 400 });
+    }
 
     const payload = sanitizeProdutoPayload(json, { strict: true });
 
@@ -255,6 +266,19 @@ export async function POST(req: Request) {
       );
     }
 
+    const warnings: string[] = [];
+
+    if (loteId) {
+      const { error: loteError } = await supabaseAdmin
+        .from("lote_pecas")
+        .insert({ lote_id: loteId, produto_id: data.id });
+
+      if (loteError) {
+        console.error("[POST /products] Erro ao vincular produto ao lote:", loteError);
+        warnings.push("Não foi possível vincular o produto ao lote selecionado.");
+      }
+    }
+
     // Se veio fornecedorId + codigoFornecedor, cria vínculo em fornecedorprodutos
     if (fornecedorId && codigoFornecedor) {
       const vinculoPayload = {
@@ -277,20 +301,19 @@ export async function POST(req: Request) {
           "[POST /products] Erro ao criar vínculo fornecedorprodutos:",
           relError
         );
-        // Produto foi criado, mas o vínculo falhou – retornamos 201 com warning
-        return NextResponse.json(
-          {
-            data,
-            id: data.id,
-            warning: "Produto criado, porém não foi possível vincular ao fornecedor.",
-          },
-          { status: 201 }
-        );
+        warnings.push("Não foi possível vincular o produto ao fornecedor.");
       }
     }
 
     // 201 Created
-    return NextResponse.json({ data, id: data.id }, { status: 201 });
+    return NextResponse.json(
+      {
+        data,
+        id: data.id,
+        warning: warnings.length > 0 ? `Produto criado, porém ${warnings.join(" ")}` : undefined,
+      },
+      { status: 201 },
+    );
   } catch (e: any) {
     const msg =
       e?.message ??

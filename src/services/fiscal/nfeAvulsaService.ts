@@ -5,6 +5,11 @@ import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
 import type { CRT, ClassificacaoTributariaRtc, EmpresaRow, NFeDestinatario, NFeItem } from "@/lib/nfe/types";
 import { getNFeFiscalFieldRules, NFE_FISCAL_RULE_VERSION, validateNFeItemTax } from "@/lib/nfe/taxRules";
 import { resolverNomeMunicipioIbge } from "@/lib/ibge/municipio";
+import {
+  isValidCnpj,
+  isValidCpf,
+  normalizeFiscalRecipient,
+} from "@/lib/nfe/recipientNormalization";
 
 type NFeConfigRow = {
   id: number;
@@ -60,10 +65,12 @@ export type NFeAvulsaDraftInput = {
   nfeId?: number | null;
   currentStep?: number;
   origem?: {
-    tipo: "AVULSA" | "OS" | "VENDA";
+    tipo: "AVULSA" | "OS" | "VENDA" | "ENTRADA";
     ordemServicoId?: number | null;
     vendaId?: number | null;
+    entradaId?: number | null;
     clienteId?: number | null;
+    fornecedorId?: number | null;
   } | null;
   operacao: {
     tipoOperacao: "SAIDA" | "ENTRADA";
@@ -240,7 +247,7 @@ function mapInputToTaxItem(item: NFeAvulsaItemInput, index: number): NFeItem {
 }
 
 function getDestinatarioSnapshot(input: NFeAvulsaDraftInput, empresa: EmpresaRow): NFeDestinatario {
-  const dest = input.destinatario;
+  const dest = normalizeFiscalRecipient(input.destinatario);
   const documento = onlyDigits(dest.cpfCnpj);
   const tipoPessoa =
     dest.tipoPessoa ??
@@ -248,6 +255,7 @@ function getDestinatarioSnapshot(input: NFeAvulsaDraftInput, empresa: EmpresaRow
   const isCnpj = tipoPessoa === "JURIDICA" || documento.length === 14;
   const isCpf = tipoPessoa === "FISICA" || documento.length === 11;
   const ie = onlyDigits(dest.inscricaoEstadual);
+  const indicadorIe = cleanText(dest.indicadorIe) || (ie ? "1" : "9");
 
   return {
     cnpj: isCnpj && documento ? documento : undefined,
@@ -256,8 +264,8 @@ function getDestinatarioSnapshot(input: NFeAvulsaDraftInput, empresa: EmpresaRow
       empresa.ambiente === "PRODUCAO"
         ? cleanText(dest.nomeRazaoSocial)
         : NFE_HOMOLOGACAO_DESTINATARIO_NOME,
-    indIEDest: cleanText(dest.indicadorIe) || (ie ? "1" : "9"),
-    inscricaoEstadual: ie || undefined,
+    indIEDest: indicadorIe,
+    inscricaoEstadual: indicadorIe === "1" ? ie || undefined : undefined,
     endereco: {
       logradouro: cleanText(dest.endereco) || "NAO INFORMADO",
       numero: cleanText(dest.numero) || "S/N",
@@ -390,11 +398,42 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
       message: "Nome ou razão social do destinatário é obrigatório.",
     });
   }
-  if (!isExterior && docDestinatario.length !== 11 && docDestinatario.length !== 14) {
+  if (
+    !isExterior &&
+    ((destinatario.tipoPessoa === "FISICA" && !isValidCpf(docDestinatario)) ||
+      (destinatario.tipoPessoa !== "FISICA" && !isValidCnpj(docDestinatario)))
+  ) {
     errors.push({
       step: "recipient",
       field: "cpfCnpj",
-      message: "CPF ou CNPJ do destinatário deve ser válido.",
+      message: `${destinatario.tipoPessoa === "FISICA" ? "CPF" : "CNPJ"} do destinatário é inválido.`,
+    });
+  }
+  if (!["1", "2", "9"].includes(cleanText(destinatario.indicadorIe))) {
+    errors.push({
+      step: "recipient",
+      field: "indicadorIe",
+      message: "Indicador de inscrição estadual do destinatário é inválido.",
+    });
+  }
+  if (
+    cleanText(destinatario.indicadorIe) === "1" &&
+    !onlyDigits(destinatario.inscricaoEstadual)
+  ) {
+    errors.push({
+      step: "recipient",
+      field: "inscricaoEstadual",
+      message: "Inscrição estadual é obrigatória para contribuinte ICMS.",
+    });
+  }
+  if (
+    cleanText(destinatario.email) &&
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanText(destinatario.email))
+  ) {
+    errors.push({
+      step: "recipient",
+      field: "email",
+      message: "E-mail do destinatário é inválido.",
     });
   }
   if (!cleanText(destinatario.endereco)) {
@@ -689,9 +728,31 @@ function mapItemToInsert(item: NFeAvulsaItemInput, index: number, nfeId: number,
 }
 
 export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
+  input = {
+    ...input,
+    destinatario: normalizeFiscalRecipient(input.destinatario),
+  };
   const errors = validarDraftAvulso(input);
   if (errors.length > 0) {
     return { ok: false as const, errors };
+  }
+
+  if (input.destinatario.tipoPessoa !== "ESTRANGEIRO") {
+    try {
+      input.destinatario.cidade = await resolverNomeMunicipioIbge(
+        input.destinatario.codigoMunicipio ?? "",
+        input.destinatario.estado,
+      );
+    } catch (error: any) {
+      return {
+        ok: false as const,
+        errors: [{
+          step: "recipient",
+          field: "codigoMunicipio",
+          message: error?.message || "Não foi possível validar o município no IBGE.",
+        }],
+      };
+    }
   }
 
   const { config, empresa } = await getConfigAndEmpresa();
@@ -785,6 +846,10 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
   const transporteDadosAvulsos = getTransporteDadosAvulsos(input);
   const now = new Date().toISOString();
   const itensInsertBase = input.itens.map((item, index) => mapItemToInsert(item, index, 0, itensXml[index]));
+  const fornecedorId = input.origem?.fornecedorId ?? null;
+  const clienteId = fornecedorId
+    ? null
+    : input.origem?.clienteId ?? input.destinatario.clienteId ?? null;
 
   let nfeId = Number(input.nfeId ?? 0);
   let numero: number;
@@ -819,9 +884,9 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
         status: "RASCUNHO",
         ordemservicoid: input.origem?.ordemServicoId ?? null,
         vendaid: input.origem?.vendaId ?? null,
-        entradaid: null,
-        fornecedorid: null,
-        clienteid: input.origem?.clienteId ?? input.destinatario.clienteId ?? null,
+        entradaid: input.origem?.entradaId ?? null,
+        fornecedorid: fornecedorId,
+        clienteid: clienteId,
         destinatario_snapshot: destinatario,
         emitente_snapshot: {
           id: empresa.id,
@@ -844,6 +909,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
           transporte: transporteDadosAvulsos,
           destinatario: input.destinatario,
           clienteSelecionadoId: input.destinatario.clienteId ?? null,
+          fornecedorSelecionadoId: fornecedorId,
           versaoRegraFiscal: NFE_FISCAL_RULE_VERSION,
         },
         versao_regra_fiscal: NFE_FISCAL_RULE_VERSION,
@@ -907,7 +973,11 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
       .from("nfe")
       .update({
         chave_acesso: chave,
-        clienteid: input.origem?.clienteId ?? input.destinatario.clienteId ?? null,
+        ordemservicoid: input.origem?.ordemServicoId ?? null,
+        vendaid: input.origem?.vendaId ?? null,
+        entradaid: input.origem?.entradaId ?? null,
+        fornecedorid: fornecedorId,
+        clienteid: clienteId,
         destinatario_snapshot: destinatario,
         dados_avulsos: {
           origem: input.origem ?? { tipo: "AVULSA" },
@@ -916,6 +986,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
           transporte: transporteDadosAvulsos,
           destinatario: input.destinatario,
           clienteSelecionadoId: input.destinatario.clienteId ?? null,
+          fornecedorSelecionadoId: fornecedorId,
           versaoRegraFiscal: NFE_FISCAL_RULE_VERSION,
         },
         versao_regra_fiscal: NFE_FISCAL_RULE_VERSION,

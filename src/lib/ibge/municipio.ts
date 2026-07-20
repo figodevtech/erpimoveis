@@ -10,7 +10,7 @@ const municipioCache = new Map<string, string>();
 export async function resolverNomeMunicipioIbge(codigo: string, uf?: string | null): Promise<string> {
   const codigoNormalizado = String(codigo ?? "").replace(/\D/g, "");
   if (codigoNormalizado.length !== 7) {
-    throw new Error("Código IBGE do município do emitente deve possuir 7 dígitos.");
+    throw new Error("Código IBGE do município deve possuir 7 dígitos.");
   }
 
   if (uf && codigoNormalizado.slice(0, 2) !== getCodigoUF(uf)) {

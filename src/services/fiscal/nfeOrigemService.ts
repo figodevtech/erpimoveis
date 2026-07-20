@@ -1,3 +1,5 @@
+import { isCfopCompatibleWithOperation } from "@/lib/nfe/cfopOperation";
+import { normalizeFiscalRecipient } from "@/lib/nfe/recipientNormalization";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { ClienteRow } from "@/lib/nfe/types";
 import {
@@ -6,7 +8,7 @@ import {
   type NFeAvulsaItemInput,
 } from "@/services/fiscal/nfeAvulsaService";
 
-export type NFeOrigemTipo = "OS" | "VENDA";
+export type NFeOrigemTipo = "OS" | "VENDA" | "ENTRADA";
 
 export type NFeOrigemItemInput = NFeAvulsaItemInput & {
   sourceItemId: string;
@@ -15,6 +17,7 @@ export type NFeOrigemItemInput = NFeAvulsaItemInput & {
 export type NFeOrigemDraftInput = {
   itens: NFeOrigemItemInput[];
   observacoesFiscais?: string | null;
+  destinatario?: NFeAvulsaDraftInput["destinatario"];
 };
 
 type ProdutoFiscalRow = {
@@ -26,6 +29,21 @@ type ProdutoFiscalRow = {
   unidade: string | null;
 };
 
+type FornecedorRow = {
+  id: number;
+  cpfcnpj: string | null;
+  nomerazaosocial: string | null;
+  contato: string | null;
+  endereco: string | null;
+  endereconumero: string | null;
+  enderecocomplemento: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  estado: string | null;
+  cep: string | null;
+  codigomunicipio: string | null;
+};
+
 type SourceItem = {
   sourceItemId: string;
   produtoId: number;
@@ -34,6 +52,18 @@ type SourceItem = {
   unidade: string;
   quantidade: number;
   valorUnitario: number;
+};
+
+type LoadedSource = {
+  clienteId: number | null;
+  fornecedorId: number | null;
+  partnerUf: string | null;
+  tipoOperacao: "SAIDA" | "ENTRADA";
+  naturezaOperacao: string;
+  finalidade: NFeAvulsaDraftInput["operacao"]["finalidade"];
+  observacoesFiscais: string | null;
+  destinatario: NFeAvulsaDraftInput["destinatario"] | null;
+  itens: SourceItem[];
 };
 
 function normalizeRelation<T>(value: T | T[] | null): T | null {
@@ -80,6 +110,28 @@ function clienteToDraft(cliente: ClienteRow): NFeAvulsaDraftInput["destinatario"
   };
 }
 
+function fornecedorToDraft(fornecedor: FornecedorRow): NFeAvulsaDraftInput["destinatario"] {
+  const documento = onlyDigits(fornecedor.cpfcnpj);
+  return {
+    clienteId: null,
+    tipoPessoa: documento.length === 14 ? "JURIDICA" : "FISICA",
+    cpfCnpj: documento,
+    nomeRazaoSocial: fornecedor.nomerazaosocial,
+    indicadorIe: "9",
+    telefone: fornecedor.contato,
+    endereco: fornecedor.endereco,
+    numero: fornecedor.endereconumero,
+    complemento: fornecedor.enderecocomplemento,
+    bairro: fornecedor.bairro,
+    cidade: fornecedor.cidade,
+    estado: fornecedor.estado,
+    cep: fornecedor.cep,
+    codigoMunicipio: fornecedor.codigomunicipio,
+    codigoPais: "1058",
+    nomePais: "BRASIL",
+  };
+}
+
 async function getCliente(clienteId: number) {
   const { data, error } = await supabaseAdmin
     .from("cliente")
@@ -91,6 +143,20 @@ async function getCliente(clienteId: number) {
 
   if (error) throw error;
   if (!data) throw new Error("Cliente da origem não encontrado.");
+  return data;
+}
+
+async function getFornecedor(fornecedorId: number) {
+  const { data, error } = await supabaseAdmin
+    .from("fornecedor")
+    .select(
+      "id, cpfcnpj, nomerazaosocial, contato, endereco, endereconumero, enderecocomplemento, bairro, cidade, estado, cep, codigomunicipio",
+    )
+    .eq("id", fornecedorId)
+    .maybeSingle<FornecedorRow>();
+
+  if (error) throw error;
+  if (!data) throw new Error("Fornecedor da entrada não encontrado.");
   return data;
 }
 
@@ -113,7 +179,7 @@ async function getEmpresaUf() {
   return String(empresa?.uf ?? "").trim().toUpperCase();
 }
 
-async function loadOs(osId: number) {
+async function loadOs(osId: number): Promise<LoadedSource> {
   const { data: os, error: osError } = await supabaseAdmin
     .from("ordemservico")
     .select("id, clienteid, observacoes_fiscais")
@@ -135,27 +201,32 @@ async function loadOs(osId: number) {
     .eq("ordemservicoid", osId);
   if (error) throw error;
 
-  const itens: SourceItem[] = (data ?? []).map((row: any) => {
-    const produto = normalizeRelation<ProdutoFiscalRow>(row.produto);
-    return {
-      sourceItemId: `os:${osId}:${row.produtoid}`,
-      produtoId: Number(row.produtoid),
-      codigo: String(produto?.referencia || produto?.codigobarras || row.produtoid),
-      descricao: String(produto?.titulo || produto?.descricao || `Produto #${row.produtoid}`),
-      unidade: String(produto?.unidade || "UN"),
-      quantidade: toNumber(row.quantidade),
-      valorUnitario: toNumber(row.precounitario),
-    };
-  });
-
+  const cliente = await getCliente(Number(os.clienteid));
   return {
     clienteId: Number(os.clienteid),
+    fornecedorId: null,
+    partnerUf: cliente.estado ?? null,
+    tipoOperacao: "SAIDA",
+    naturezaOperacao: "VENDA DE MERCADORIA",
+    finalidade: "NORMAL",
     observacoesFiscais: os.observacoes_fiscais as string | null,
-    itens,
+    destinatario: clienteToDraft(cliente),
+    itens: (data ?? []).map((row: any) => {
+      const produto = normalizeRelation<ProdutoFiscalRow>(row.produto);
+      return {
+        sourceItemId: `os:${osId}:${row.produtoid}`,
+        produtoId: Number(row.produtoid),
+        codigo: String(produto?.referencia || produto?.codigobarras || row.produtoid),
+        descricao: String(produto?.titulo || produto?.descricao || `Produto #${row.produtoid}`),
+        unidade: String(produto?.unidade || "UN"),
+        quantidade: toNumber(row.quantidade),
+        valorUnitario: toNumber(row.precounitario),
+      };
+    }),
   };
 }
 
-async function loadVenda(vendaId: number) {
+async function loadVenda(vendaId: number): Promise<LoadedSource> {
   const { data: venda, error: vendaError } = await supabaseAdmin
     .from("venda")
     .select("id, clienteid, observacoes_fiscais")
@@ -177,26 +248,94 @@ async function loadVenda(vendaId: number) {
     .eq("venda_id", vendaId);
   if (error) throw error;
 
-  const itens: SourceItem[] = (data ?? []).map((row: any) => {
-    const produto = normalizeRelation<ProdutoFiscalRow>(row.produto);
-    const quantidade = toNumber(row.quantidade);
-    const valorTotal = toNumber(row.valor_total);
-    return {
-      sourceItemId: `venda:${vendaId}:${row.id}`,
-      produtoId: Number(row.produtoid),
-      codigo: String(produto?.referencia || produto?.codigobarras || row.produtoid),
-      descricao: String(produto?.titulo || produto?.descricao || `Produto #${row.produtoid}`),
-      unidade: String(produto?.unidade || "UN"),
-      quantidade,
-      valorUnitario: quantidade > 0 ? valorTotal / quantidade : valorTotal,
-    };
-  });
-
+  const cliente = await getCliente(Number(venda.clienteid));
   return {
     clienteId: Number(venda.clienteid),
+    fornecedorId: null,
+    partnerUf: cliente.estado ?? null,
+    tipoOperacao: "SAIDA",
+    naturezaOperacao: "VENDA DE MERCADORIA",
+    finalidade: "NORMAL",
     observacoesFiscais: venda.observacoes_fiscais as string | null,
-    itens,
+    destinatario: clienteToDraft(cliente),
+    itens: (data ?? []).map((row: any) => {
+      const produto = normalizeRelation<ProdutoFiscalRow>(row.produto);
+      const quantidade = toNumber(row.quantidade);
+      const valorTotal = toNumber(row.valor_total);
+      return {
+        sourceItemId: `venda:${vendaId}:${row.id}`,
+        produtoId: Number(row.produtoid),
+        codigo: String(produto?.referencia || produto?.codigobarras || row.produtoid),
+        descricao: String(produto?.titulo || produto?.descricao || `Produto #${row.produtoid}`),
+        unidade: String(produto?.unidade || "UN"),
+        quantidade,
+        valorUnitario: quantidade > 0 ? valorTotal / quantidade : valorTotal,
+      };
+    }),
   };
+}
+
+async function loadEntrada(entradaId: number): Promise<LoadedSource> {
+  const { data: entrada, error: entradaError } = await supabaseAdmin
+    .from("entrada")
+    .select("id, fornecedorid, tipo")
+    .eq("id", entradaId)
+    .maybeSingle();
+  if (entradaError) throw entradaError;
+  if (!entrada) throw new Error("Entrada não encontrada.");
+  const { data, error } = await supabaseAdmin
+    .from("entradaitens")
+    .select(`
+      id,
+      produto_id,
+      quantidade,
+      precovenda,
+      referencia,
+      titulo,
+      unidade,
+      produto:produto_id (id, titulo, descricao, referencia, codigobarras, unidade)
+    `)
+    .eq("entrada_id", entradaId);
+  if (error) throw error;
+
+  const fornecedor = entrada.fornecedorid
+    ? await getFornecedor(Number(entrada.fornecedorid))
+    : null;
+  const naturezaOperacao =
+    entrada.tipo === "DEVOLUCAO"
+      ? "ENTRADA POR DEVOLUCAO"
+      : entrada.tipo === "COMPRA_PF"
+        ? "COMPRA DE PESSOA FISICA"
+        : "COMPRA PARA COMERCIALIZACAO";
+
+  return {
+    clienteId: null,
+    fornecedorId: fornecedor?.id ?? null,
+    partnerUf: fornecedor?.estado ?? null,
+    tipoOperacao: "ENTRADA",
+    naturezaOperacao,
+    finalidade: "NORMAL",
+    observacoesFiscais: null,
+    destinatario: fornecedor ? fornecedorToDraft(fornecedor) : null,
+    itens: (data ?? []).map((row: any) => {
+      const produto = normalizeRelation<ProdutoFiscalRow>(row.produto);
+      return {
+        sourceItemId: `entrada:${entradaId}:${row.id}`,
+        produtoId: Number(row.produto_id),
+        codigo: String(row.referencia || produto?.referencia || produto?.codigobarras || row.produto_id),
+        descricao: String(row.titulo || produto?.titulo || produto?.descricao || `Produto #${row.produto_id}`),
+        unidade: String(row.unidade || produto?.unidade || "UN"),
+        quantidade: toNumber(row.quantidade),
+        valorUnitario: toNumber(row.precovenda),
+      };
+    }),
+  };
+}
+
+async function loadSource(tipo: NFeOrigemTipo, origemId: number) {
+  if (tipo === "OS") return loadOs(origemId);
+  if (tipo === "VENDA") return loadVenda(origemId);
+  return loadEntrada(origemId);
 }
 
 export async function salvarNFeDeOrigem(
@@ -214,8 +353,20 @@ export async function salvarNFeDeOrigem(
     };
   }
 
-  const source = tipo === "OS" ? await loadOs(origemId) : await loadVenda(origemId);
-  const cliente = await getCliente(source.clienteId);
+  const source = await loadSource(tipo, origemId);
+  const rawDestinatario = tipo === "ENTRADA"
+    ? input.destinatario ?? source.destinatario
+    : source.destinatario;
+  if (!rawDestinatario) {
+    return {
+      ok: false as const,
+      errors: [{ step: "recipient", message: "Preencha os dados do fornecedor da NF-e de entrada." }],
+    };
+  }
+  const destinatario = normalizeFiscalRecipient(rawDestinatario);
+  const partnerUf = tipo === "ENTRADA"
+    ? String(destinatario.estado ?? "").trim().toUpperCase()
+    : source.partnerUf;
   const sourceById = new Map(source.itens.map((item) => [item.sourceItemId, item]));
   const requestedIds = new Set<string>();
   const errors: Array<{ step: string; itemIndex?: number; field?: string; message: string }> = [];
@@ -245,27 +396,20 @@ export async function salvarNFeDeOrigem(
   });
 
   const empresaUf = await getEmpresaUf();
-  const clienteUf = String(cliente.estado ?? "").trim().toUpperCase();
-  const isOperacaoInterna = Boolean(empresaUf && clienteUf && empresaUf === clienteUf);
   itens.forEach((item, itemIndex) => {
     const cfop = onlyDigits(item.cfop);
-    if (empresaUf && clienteUf && cfop) {
-      if (isOperacaoInterna && cfop.startsWith("6")) {
-        errors.push({
-          step: "products",
-          itemIndex,
-          field: "cfop",
-          message: `CFOP ${cfop} é interestadual, mas emitente e destinatário estão em ${empresaUf}.`,
-        });
-      }
-      if (!isOperacaoInterna && cfop.startsWith("5")) {
-        errors.push({
-          step: "products",
-          itemIndex,
-          field: "cfop",
-          message: `CFOP ${cfop} é interno, mas o destinatário está em ${clienteUf}.`,
-        });
-      }
+    if (
+      empresaUf &&
+      partnerUf &&
+      cfop &&
+      !isCfopCompatibleWithOperation(cfop, source.tipoOperacao, empresaUf, partnerUf)
+    ) {
+      errors.push({
+        step: "products",
+        itemIndex,
+        field: "cfop",
+        message: `CFOP ${cfop} é incompatível com esta operação de ${source.tipoOperacao === "ENTRADA" ? "entrada" : "saída"}.`,
+      });
     }
   });
 
@@ -276,20 +420,25 @@ export async function salvarNFeDeOrigem(
       tipo,
       ordemServicoId: tipo === "OS" ? origemId : null,
       vendaId: tipo === "VENDA" ? origemId : null,
+      entradaId: tipo === "ENTRADA" ? origemId : null,
       clienteId: source.clienteId,
+      fornecedorId: source.fornecedorId,
     },
     operacao: {
-      tipoOperacao: "SAIDA",
-      naturezaOperacao: "VENDA DE MERCADORIA",
-      finalidade: "NORMAL",
-      consumidorFinal: true,
-      indicadorPresenca: "1",
+      tipoOperacao: source.tipoOperacao,
+      naturezaOperacao: source.naturezaOperacao,
+      finalidade: source.finalidade,
+      consumidorFinal: source.tipoOperacao === "SAIDA",
+      indicadorPresenca: source.tipoOperacao === "ENTRADA" ? "0" : "1",
       observacoesFiscais:
         input.observacoesFiscais?.trim().slice(0, 500) || source.observacoesFiscais || null,
     },
-    pagamento: { meio: "01", tipoIntegracao: "2" },
+    pagamento: {
+      meio: source.tipoOperacao === "ENTRADA" ? "90" : "01",
+      tipoIntegracao: "2",
+    },
     transporte: { modFrete: "9" },
-    destinatario: clienteToDraft(cliente),
+    destinatario,
     itens,
   });
 }

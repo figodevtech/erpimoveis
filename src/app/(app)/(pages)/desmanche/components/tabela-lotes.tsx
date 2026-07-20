@@ -42,6 +42,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 
 import { DialogLote } from "../dialog-lote/dialog-lote";
 import { Lote, Pagination } from "../types";
+import formatarEmReal from "@/utils/formatarEmReal";
 
 type TabelaLotesProps = {
   lotes: Lote[];
@@ -198,6 +199,7 @@ export function TabelaLotes({ lotes, pagination, search, isLoading, handleGetLot
               <TableHead className="text-center">Placa</TableHead>
               <TableHead className="text-center">Descrição</TableHead>
               <TableHead className="hidden text-center md:table-cell">Fab/Mod</TableHead>
+              <TableHead className="hidden text-center lg:table-cell">Compra</TableHead>
               <TableHead className="text-center">Peças</TableHead>
               <TableHead>Ações</TableHead>
             </TableRow>
@@ -220,6 +222,9 @@ export function TabelaLotes({ lotes, pagination, search, isLoading, handleGetLot
                   </TableCell>
                   <TableCell className="hidden text-center md:table-cell">
                     {`${lote.ano ?? "-"}/${lote.ano_modelo ?? "-"}`}
+                  </TableCell>
+                  <TableCell className="hidden text-center lg:table-cell">
+                    {formatarEmReal(Number(lote.valor_compra ?? 0))}
                   </TableCell>
                   <TableCell className="text-center">
                     <Badge variant="outline">{lote.pecas?.length ?? 0}</Badge>

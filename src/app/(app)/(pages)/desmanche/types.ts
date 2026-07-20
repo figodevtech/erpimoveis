@@ -12,6 +12,21 @@ export interface LotePeca {
   produto_id: number;
   createdat?: string;
   produto?: Produto | null;
+  quantidade_vendida?: number;
+  valor_apurado?: number;
+  vendas_realizadas?: number;
+}
+
+export interface LotePecasKpis {
+  totalPecas: number;
+  pecasVendidas: number;
+  quantidadeVendida: number;
+  valorCompra: number;
+  valorPecas: number;
+  valorApurado: number;
+  valorDisponivel: number;
+  resultadoApurado: number;
+  resultadoPotencial: number;
 }
 
 export interface Lote {
@@ -27,6 +42,7 @@ export interface Lote {
   ano_modelo?: number | null;
   versao?: string | null;
   fipe?: number | null;
+  valor_compra?: number | null;
   combustivel?: string | null;
   transmissao?: string | null;
   observacoes?: string | null;
@@ -34,6 +50,7 @@ export interface Lote {
   createdat?: string | null;
   updatedat?: string | null;
   pecas?: LotePeca[];
+  pecasKpis?: LotePecasKpis;
 }
 
 export interface Pagination {

@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireDesmancheAccess, requireDesmancheEdit } from "@/app/api/_authz/perms";
+import { carregarResumoPecasLote } from "@/services/desmanche/lote-pecas-service";
 
 function respostaJSON(body: any, status = 200) {
   return NextResponse.json(body, {
@@ -27,32 +28,7 @@ export async function GET(_request: Request, ctx: Ctx) {
     const loteId = toPositiveInt(rawId);
     if (!loteId) return respostaJSON({ error: "Parâmetro 'id' inválido." }, 400);
 
-    const { data, error } = await supabaseAdmin
-      .from("lote_pecas")
-      .select(
-        `
-        id,
-        lote_id,
-        produto_id,
-        createdat,
-        produto:produto_id (
-          id,
-          titulo,
-          referencia,
-          fabricante,
-          estoque,
-          precovenda,
-          conservacao,
-          status_estoque
-        )
-      `,
-      )
-      .eq("lote_id", loteId)
-      .order("id", { ascending: false });
-
-    if (error) throw error;
-
-    return respostaJSON({ pecas: data ?? [] });
+    return respostaJSON(await carregarResumoPecasLote(loteId));
   } catch (error: any) {
     console.error("GET /api/lotes/[id]/pecas", error);
     const status = Number(error?.statusCode ?? 500);
@@ -121,7 +97,8 @@ export async function POST(request: Request, ctx: Ctx) {
       throw error;
     }
 
-    return respostaJSON({ peca: data }, 201);
+    const resumo = await carregarResumoPecasLote(loteId);
+    return respostaJSON({ peca: data, ...resumo }, 201);
   } catch (error: any) {
     console.error("POST /api/lotes/[id]/pecas", error);
     const status = Number(error?.statusCode ?? 500);
@@ -149,7 +126,8 @@ export async function DELETE(request: Request, ctx: Ctx) {
     const { error } = await query;
     if (error) throw error;
 
-    return respostaJSON({ ok: true });
+    const resumo = await carregarResumoPecasLote(loteId);
+    return respostaJSON({ ok: true, ...resumo });
   } catch (error: any) {
     console.error("DELETE /api/lotes/[id]/pecas", error);
     const status = Number(error?.statusCode ?? 500);

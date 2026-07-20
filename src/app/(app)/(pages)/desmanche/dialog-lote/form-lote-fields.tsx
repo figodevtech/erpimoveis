@@ -788,7 +788,7 @@ export default function LoteFormFields({ lote, setLote, isOpen }: LoteFormFields
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
         <div className="space-y-2">
           <Label htmlFor="combustivel" className="text-sm">
             Combustível
@@ -826,7 +826,17 @@ export default function LoteFormFields({ lote, setLote, isOpen }: LoteFormFields
           </Select>
         </div>
 
-        <div className="col-span-2 space-y-2 lg:col-span-1">
+        <div className="space-y-2">
+          <Label htmlFor="valor_compra" className="text-sm">
+            Valor de compra
+          </Label>
+          <ValueInput
+            price={lote.valor_compra ?? 0}
+            setPrice={(value) => handleInputChange("valor_compra", value)}
+          />
+        </div>
+
+        <div className="space-y-2">
           <Label htmlFor="fipe" className="text-sm">
             FIPE (R$)
           </Label>

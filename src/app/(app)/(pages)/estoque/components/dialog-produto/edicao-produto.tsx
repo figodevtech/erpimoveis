@@ -213,6 +213,7 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
               loadingUnidades={loadingUnidades}
               errorUnidades={errorUnidades}
               showDates
+              onLoteVinculoAlterado={onAfterSaveProduct}
             />
 
             <TabMarketplace produto={selectedProduct} onChange={handleChange} />

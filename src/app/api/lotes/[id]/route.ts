@@ -8,24 +8,10 @@ import {
   requireDesmancheDelete,
   requireDesmancheEdit,
 } from "@/app/api/_authz/perms";
+import { carregarResumoPecasLote } from "@/services/desmanche/lote-pecas-service";
 
 const LOTE_FIELDS = `
-  id, placa, modelo, marca, ano, cor, kmatual, tipo, chassi, ano_modelo, versao, fipe, combustivel, transmissao, observacoes, "imgUrl", createdat, updatedat,
-  pecas:lote_pecas (
-    id,
-    produto_id,
-    createdat,
-    produto:produto_id (
-      id,
-      titulo,
-      referencia,
-      fabricante,
-      estoque,
-      precovenda,
-      conservacao,
-      status_estoque
-    )
-  )
+  id, placa, modelo, marca, ano, cor, kmatual, tipo, chassi, ano_modelo, versao, fipe, valor_compra, combustivel, transmissao, observacoes, "imgUrl", createdat, updatedat
 `;
 
 function respostaJSON(body: any, status = 200) {
@@ -76,6 +62,7 @@ function sanitizeLotePatch(input: any) {
     ano_modelo: toNullableNumber(lote.ano_modelo),
     versao: toNullableString(lote.versao),
     fipe: toNullableNumber(lote.fipe),
+    valor_compra: Math.max(0, toNullableNumber(lote.valor_compra) ?? 0),
     combustivel: toNullableString(lote.combustivel),
     transmissao: toNullableString(lote.transmissao),
     observacoes: toNullableString(lote.observacoes),
@@ -96,7 +83,8 @@ export async function GET(_request: Request, ctx: Ctx) {
     const { data, error } = await supabaseAdmin.from("lotes").select(LOTE_FIELDS).eq("id", id).single();
     if (error) return respostaJSON({ error: "Lote não encontrado." }, 404);
 
-    return respostaJSON({ lote: data });
+    const resumoPecas = await carregarResumoPecasLote(id, data.valor_compra);
+    return respostaJSON({ lote: { ...data, ...resumoPecas } });
   } catch (error: any) {
     console.error("GET /api/lotes/[id]", error);
     const status = Number(error?.statusCode ?? 500);
@@ -121,7 +109,7 @@ export async function PUT(request: Request, ctx: Ctx) {
       .from("lotes")
       .update(patch)
       .eq("id", id)
-      .select('id, placa, modelo, marca, ano, cor, kmatual, tipo, chassi, ano_modelo, versao, fipe, combustivel, transmissao, observacoes, "imgUrl", createdat, updatedat')
+      .select('id, placa, modelo, marca, ano, cor, kmatual, tipo, chassi, ano_modelo, versao, fipe, valor_compra, combustivel, transmissao, observacoes, "imgUrl", createdat, updatedat')
       .single();
 
     if (error) {

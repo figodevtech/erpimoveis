@@ -16,6 +16,7 @@ import { useUnidadesMedida } from "./hooks/use-unidades-medida";
 import { useEffect, useRef, useState } from "react";
 import { Unidade_medida } from "../../types";
 import { useGruposProduto } from "./hooks/use-grupo-produtos";
+import type { LoteSelectItem } from "@/app/(app)/components/loteSelect";
 
 interface ConteudoCadastroProdutoProps {
   setSelectedProductId?: (value: number | undefined) => void;
@@ -49,6 +50,7 @@ export default function CadastroProduto({
   const [ordemImagensPendentes, setOrdemImagensPendentes] = useState<string[]>([]);
   const [progressoUploadImagens, setProgressoUploadImagens] = useState<Record<string, number>>({});
   const [currentTab, setCurrentTab] = useState<string>("Geral");
+  const [lotePendente, setLotePendente] = useState<LoteSelectItem | null>(null);
   const { unidades, loadingUnidades, errorUnidades } = useUnidadesMedida();
   const { grupos } = useGruposProduto();
 
@@ -127,6 +129,7 @@ export default function CadastroProduto({
     try {
       const response = await axios.post("/api/products", {
         newProduct: payload,
+        loteId: lotePendente?.id,
       });
 
       if (response.status === 201) {
@@ -136,6 +139,13 @@ export default function CadastroProduto({
         });
 
         const produtoId = response.data.data.id as number;
+
+        if (response.data.warning) {
+          toast.warning("Cadastro concluído com ressalvas", {
+            description: response.data.warning,
+            duration: 3500,
+          });
+        }
 
         // envia imagens se selecionadas
         if (imagensPendentes.length > 0) {
@@ -177,6 +187,7 @@ export default function CadastroProduto({
           handleSearchFornecedor?.();
 
           limparImagensSelecionadas();
+          setLotePendente(null);
           setCurrentTab("Geral");
           onAfterSaveProduct?.();
         } else {
@@ -184,6 +195,7 @@ export default function CadastroProduto({
           handleSearchFornecedor?.();
 
           limparImagensSelecionadas();
+          setLotePendente(null);
           onAfterSaveProduct?.();
         }
       }
@@ -263,6 +275,8 @@ export default function CadastroProduto({
         grupos={grupos}
         loadingUnidades={loadingUnidades}
         errorUnidades={errorUnidades}
+        lotePendente={lotePendente}
+        onLotePendenteChange={setLotePendente}
       />
 
       <TabFiscal produto={newProduct} onChange={handleChange} />

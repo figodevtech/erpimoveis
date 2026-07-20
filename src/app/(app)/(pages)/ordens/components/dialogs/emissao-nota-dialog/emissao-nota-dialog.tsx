@@ -153,7 +153,6 @@ export function EmissaoNotaDialog({
   const [nfes, setNfes] = useState<NfeResumo[] | null>(null);
   const [openGerarNfe, setOpenGerarNfe] = useState(false);
   const [openGerarNfse, setOpenGerarNfse] = useState(false);
-  const [generatingEntryParams, setGeneratingEntryParams] = useState(false);
   const [ambienteEmpresa, setAmbienteEmpresa] = useState<string | null>(null);
   const [openCancelNfseDialog, setOpenCancelNfseDialog] = useState(false);
   const [selectedNfseId, setSelectedNfseId] = useState<number | null>(null);
@@ -346,30 +345,6 @@ export function EmissaoNotaDialog({
     return `Emissão de Nota Fiscal - Entrada #${origemId}`;
   }, [origem, origemId]);
 
-  const handleGerarNotaEntrada = async () => {
-    if (!entradaId) return;
-    try {
-      setGeneratingEntryParams(true);
-      const res = await fetch(`/api/nfe/de-entrada/${entradaId}/gerar-rascunho`, {
-        method: "POST",
-      });
-      const json = await res.json().catch(() => ({}));
-
-      if (!res.ok || !json.ok) {
-        toast.error(json.message || "Erro ao gerar nota da entrada");
-        return;
-      }
-
-      toast.success("Rascunho criado com sucesso!");
-      fetchNfes();
-    } catch (err) {
-      console.error(err);
-      toast.error("Erro ao gerar nota.");
-    } finally {
-      setGeneratingEntryParams(false);
-    }
-  };
-
   return (
     <Dialog
       open={open}
@@ -438,25 +413,18 @@ export function EmissaoNotaDialog({
 
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
-                    disabled={loading || generatingEntryParams}
+                    disabled={loading}
                     variant="secondary"
                     size="sm"
-                    onClick={() => {
-                      if (origem === "ENTRADA") {
-                        handleGerarNotaEntrada();
-                      } else {
-                        setOpenGerarNfe(true);
-                      }
-                    }}
+                    onClick={() => setOpenGerarNfe(true)}
                     className="h-8 gap-2 text-xs hover:cursor-pointer"
                   >
-                    {generatingEntryParams && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                    <Plus className={generatingEntryParams ? "hidden" : "h-3.5 w-3.5"} /> NF-e (Produto)
+                    <Plus className="h-3.5 w-3.5" /> NF-e (Produto)
                   </Button>
 
                   {origem === "OS" && (
                     <Button
-                      disabled={loading || generatingEntryParams}
+                      disabled={loading}
                       variant="secondary"
                       size="sm"
                       onClick={() => setOpenGerarNfse(true)}
@@ -822,6 +790,7 @@ export function EmissaoNotaDialog({
             }}
             osId={osId ?? null}
             vendaId={vendaId ?? null}
+            entradaId={entradaId ?? null}
             onAfterGenerate={() => fetchNfes()}
           />
         )}

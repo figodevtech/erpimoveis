@@ -16,6 +16,8 @@ import type { UnidadeFromApi } from "../hooks/use-unidades-medida";
 import { GrupoFromApi } from "../hooks/use-grupo-produtos";
 import { TagInput } from "../tag-input";
 import { Info } from "lucide-react";
+import type { LoteSelectItem } from "@/app/(app)/components/loteSelect";
+import { ProdutoLoteCard } from "./produto-lote-card";
 
 type Props = {
   mode: "create" | "edit";
@@ -26,6 +28,9 @@ type Props = {
   errorUnidades: string | null;
   showDates?: boolean;
   grupos: GrupoFromApi[];
+  lotePendente?: LoteSelectItem | null;
+  onLotePendenteChange?: (lote: LoteSelectItem | null) => void;
+  onLoteVinculoAlterado?: () => void;
 };
 
 export function TabGeral({
@@ -37,6 +42,9 @@ export function TabGeral({
   loadingUnidades,
   errorUnidades,
   showDates,
+  lotePendente,
+  onLotePendenteChange,
+  onLoteVinculoAlterado,
 }: Props) {
   const LIMITE_TITULO = 100;
   const LIMITE_DESCRICAO = 300;
@@ -228,6 +236,14 @@ export function TabGeral({
             />
           </div>
         </div>
+
+        <ProdutoLoteCard
+          mode={mode}
+          produtoId={produto.id}
+          lotePendente={lotePendente}
+          onLotePendenteChange={onLotePendenteChange}
+          onAfterChange={onLoteVinculoAlterado}
+        />
 
         {showDates ? (
           <>
