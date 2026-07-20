@@ -271,6 +271,15 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
       toast.warning("Insira um email válido");
       return;
     }
+    if (
+      selectedCustomer?.tipopessoa === "JURIDICA" &&
+      (!selectedCustomer.telefone?.trim() ||
+        !selectedCustomer.estado?.trim() ||
+        !selectedCustomer.cidade?.trim())
+    ) {
+      toast.warning("Informe o telefone, o estado e a cidade do cliente.");
+      return;
+    }
     setIsSubmitting(true);
     try {
       const response = await axios.put("/api/customers/" + customerId, selectedCustomer);

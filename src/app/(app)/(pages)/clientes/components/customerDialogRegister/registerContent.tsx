@@ -212,8 +212,13 @@ export default function RegisterContent({
       return
     }
 
-    if (!newCustomer.estado.trim() || !newCustomer.cidade.trim()) {
-      toast.warning("Informe o estado e a cidade do cliente.");
+    if (
+      newCustomer.tipopessoa === "JURIDICA" &&
+      (!newCustomer.telefone.trim() ||
+        !newCustomer.estado.trim() ||
+        !newCustomer.cidade.trim())
+    ) {
+      toast.warning("Informe o telefone, o estado e a cidade do cliente.");
       return;
     }
 
@@ -565,7 +570,7 @@ export default function RegisterContent({
                 className="flex items-center gap-2 text-sm"
               >
                 <Phone className="h-3 w-3 sm:h-4 sm:w-4" />
-                Telefone *
+                Telefone {newCustomer.tipopessoa === "JURIDICA" && "*"}
               </Label>
               <Input
                 inputMode="tel"
@@ -651,7 +656,7 @@ export default function RegisterContent({
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
               <div className="min-w-0 space-y-2">
                 <Label htmlFor="estado" className="text-sm">
-                  Estado <span className="text-destructive">*</span>
+                  Estado {newCustomer.tipopessoa === "JURIDICA" && <span className="text-destructive">*</span>}
                 </Label>
 
                 <Popover open={open2} onOpenChange={setOpen2}>
@@ -729,7 +734,7 @@ export default function RegisterContent({
 
               <div className="min-w-0 space-y-2">
                 <Label htmlFor="cidade" className="text-sm">
-                  Cidade <span className="text-destructive">*</span>
+                  Cidade {newCustomer.tipopessoa === "JURIDICA" && <span className="text-destructive">*</span>}
                 </Label>
 
                 <Popover open={open} onOpenChange={setOpen}>

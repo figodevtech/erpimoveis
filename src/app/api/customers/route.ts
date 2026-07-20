@@ -145,29 +145,28 @@ export async function POST(req: Request) {
       );
     }
 
-    const missing = [
-      "tipopessoa",
-      "cpfcnpj",
-      "nomerazaosocial",
-      "telefone",
-      "cidade",
-      "estado",
-    ].filter(
-      (k) => !json[k] || String(json[k]).trim() === ""
-    );
-    if (missing.length) {
-      return NextResponse.json(
-        { error: `Campos obrigatórios ausentes: ${missing.join(", ")}.` },
-        { status: 400 }
-      );
-    }
-
     const tipopessoa = normalizeTipopessoa(String(json.tipopessoa));
     if (!tipopessoa) {
       return NextResponse.json(
         {
           error: "Valor de 'tipopessoa' inválido. Use 'FISICA' ou 'JURIDICA'.",
         },
+        { status: 400 }
+      );
+    }
+
+    const required = [
+      "tipopessoa",
+      "cpfcnpj",
+      "nomerazaosocial",
+      ...(tipopessoa === "JURIDICA" ? ["telefone", "cidade", "estado"] : []),
+    ];
+    const missing = required.filter(
+      (k) => !json[k] || String(json[k]).trim() === ""
+    );
+    if (missing.length) {
+      return NextResponse.json(
+        { error: `Campos obrigatórios ausentes: ${missing.join(", ")}.` },
         { status: 400 }
       );
     }

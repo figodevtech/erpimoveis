@@ -87,7 +87,12 @@ function sanitizePayload(body: any, { strict }: { strict: boolean }) {
   }
 
   if (strict) {
-    const required = ["tipopessoa", "cpfcnpj", "nomerazaosocial", "telefone"];
+    const required = [
+      "tipopessoa",
+      "cpfcnpj",
+      "nomerazaosocial",
+      ...(out.tipopessoa === "JURIDICA" ? ["telefone", "cidade", "estado"] : []),
+    ];
     const missing = required.filter((k) => out[k] == null);
     if (missing.length) {
       throw new Error(
