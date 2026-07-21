@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { toast } from "@/lib/toast";
 import Kpi from "../dashboard-ordemservico/components/kpi-ordemservico";
@@ -35,6 +36,7 @@ export default function DashboardRendimentos() {
   const [data, setData] = useState<any>(null);
   const [anterior, setAnterior] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [animKey, setAnimKey] = useState(0);
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
 
   async function load() {
@@ -55,6 +57,7 @@ export default function DashboardRendimentos() {
       if (!response.ok) throw new Error(json?.error || "Falha ao carregar rendimentos.");
       setData(json);
       setAnterior(previousResponse.ok ? previousJson : null);
+      setAnimKey((current) => current + 1);
     } catch (error: any) { toast.error("Erro ao carregar rendimentos", { description: error.message }); }
     finally { setLoading(false); }
   }
@@ -66,7 +69,7 @@ export default function DashboardRendimentos() {
   const cards = [
     [visao === "PREVISTO" ? "Faturamento" : "Recebido líquido", visao === "PREVISTO" ? k.faturamento : k.recebidoLiquido],
     [visao === "PREVISTO" ? "Lucro previsto" : "Lucro realizado", visao === "PREVISTO" ? k.lucroPrevisto : k.lucroRealizado],
-    [visao === "PREVISTO" ? "Margem prevista" : "Margem realizada", `${Number(visao === "PREVISTO" ? k.margemPrevista : k.margemRealizada || 0).toFixed(2)}%`],
+    [visao === "PREVISTO" ? "Margem prevista" : "Margem realizada", `${Number((visao === "PREVISTO" ? k.margemPrevista : k.margemRealizada) ?? 0).toFixed(2)}%`],
     ["Registros", String(k.ordens || 0)], ["Custos de produtos", k.custoProdutos],
     ["Comissões", k.comissoes], ["Taxas", k.taxas], ["Despesas internas", k.despesas],
   ];
@@ -84,6 +87,15 @@ export default function DashboardRendimentos() {
   const variacao = (atual: number, previo: number) => previo ? ((atual - previo) / Math.abs(previo)) * 100 : null;
   const variacaoReceita = variacao(Number(visao === "PREVISTO" ? k.faturamento : k.recebidoLiquido), Number(visao === "PREVISTO" ? anterior?.kpis?.faturamento : anterior?.kpis?.recebidoLiquido));
   const variacaoLucro = variacao(Number(visao === "PREVISTO" ? k.lucroPrevisto : k.lucroRealizado), Number(visao === "PREVISTO" ? anterior?.kpis?.lucroPrevisto : anterior?.kpis?.lucroRealizado));
+  const evolucaoGrafico = loading
+    ? (data?.evolucao ?? []).map((item: any) => ({ ...item, faturamento: 0, recebidoLiquido: 0, lucroPrevisto: 0, lucroRealizado: 0 }))
+    : (data?.evolucao ?? []);
+  const composicaoGrafico = loading
+    ? (data?.composicao ?? []).map((item: any) => ({ ...item, valor: 0 }))
+    : (data?.composicao ?? []);
+  const setoresGrafico = loading
+    ? (data?.setoresRentabilidade ?? []).map((item: any) => ({ ...item, lucroPrevisto: 0, lucroRealizado: 0 }))
+    : (data?.setoresRentabilidade ?? []);
 
   return (
     <Card className="w-full">
@@ -126,15 +138,15 @@ export default function DashboardRendimentos() {
       <CardContent className="space-y-4 px-3 pb-3 sm:space-y-5 sm:px-4 sm:pb-4">
 
       {data?.qualidade?.semCusto > 0 && <div className="flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm"><AlertTriangle className="size-4 shrink-0 text-amber-500" /><span>Existem {data.qualidade.semCusto} item(ns) sem valor de compra informado. O lucro desses itens pode estar incorreto.</span></div>}
-      <div className="flex flex-wrap gap-2 text-xs"><Badge variant="outline">Receita vs. período anterior: {variacaoReceita == null ? "sem base" : `${variacaoReceita >= 0 ? "+" : ""}${variacaoReceita.toFixed(2)}%`}</Badge><Badge variant="outline">Lucro vs. período anterior: {variacaoLucro == null ? "sem base" : `${variacaoLucro >= 0 ? "+" : ""}${variacaoLucro.toFixed(2)}%`}</Badge></div>
-      <div className={`grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 ${loading ? "opacity-80" : ""}`}>{cards.map(([label, value]) => <Kpi key={String(label)} label={String(label)} value={typeof value === "string" ? value : money(Number(value))} />)}</div>
+      {loading ? <div className="flex gap-2"><Skeleton className="h-6 w-56" /><Skeleton className="h-6 w-52" /></div> : <div className="flex flex-wrap gap-2 text-xs"><Badge variant="outline">Receita vs. período anterior: {variacaoReceita == null ? "sem base" : `${variacaoReceita >= 0 ? "+" : ""}${variacaoReceita.toFixed(2)}%`}</Badge><Badge variant="outline">Lucro vs. período anterior: {variacaoLucro == null ? "sem base" : `${variacaoLucro >= 0 ? "+" : ""}${variacaoLucro.toFixed(2)}%`}</Badge></div>}
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">{cards.map(([label, value]) => loading ? <div key={String(label)} className="rounded-lg border p-3"><div className="flex items-center justify-between"><Skeleton className="h-4 w-28" /><Skeleton className="size-4 rounded-full" /></div><Skeleton className="mt-2 h-7 w-36" /></div> : <Kpi key={String(label)} label={String(label)} value={typeof value === "string" ? value : money(Number(value))} />)}</div>
 
       <div className="grid gap-4 xl:grid-cols-3">
-        <ChartCard title="Evolução dos rendimentos" description={`${visao === "PREVISTO" ? "Faturamento e lucro previsto" : "Recebimento e lucro realizado"} por dia`} className="xl:col-span-2"><ChartContainer className="h-72 w-full" config={{ receita: { label: visao === "PREVISTO" ? "Faturamento" : "Recebido", color: "#6d28d9" }, lucro: { label: "Lucro", color: "#10b981" } }}><AreaChart data={data?.evolucao ?? []}><CartesianGrid vertical={false} /><XAxis dataKey="data" tickFormatter={(v) => String(v).slice(5)} /><YAxis tickFormatter={shortMoney} /><ChartTooltip content={<ChartTooltipContent />} /><Area dataKey={visao === "PREVISTO" ? "faturamento" : "recebidoLiquido"} name="receita" stroke="var(--color-receita)" fill="var(--color-receita)" fillOpacity={0.15} /><Area dataKey={visao === "PREVISTO" ? "lucroPrevisto" : "lucroRealizado"} name="lucro" stroke="var(--color-lucro)" fill="var(--color-lucro)" fillOpacity={0.15} /></AreaChart></ChartContainer></ChartCard>
-        <ChartCard title="Composição dos custos" description="Produtos, comissões, taxas e despesas"><ChartContainer className="h-72 w-full" config={{ valor: { label: "Valor", color: "#6d28d9" } }}><PieChart><ChartTooltip content={<ChartTooltipContent nameKey="nome" />} /><Pie data={data?.composicao ?? []} dataKey="valor" nameKey="nome" innerRadius={55} outerRadius={90}>{(data?.composicao ?? []).map((_: any, index: number) => <Cell key={index} fill={COLORS[index % COLORS.length]} />)}</Pie></PieChart></ChartContainer></ChartCard>
+        <ChartCard title="Evolução dos rendimentos" description={`${visao === "PREVISTO" ? "Faturamento e lucro previsto" : "Recebimento e lucro realizado"} por dia`} className="xl:col-span-2"><ChartContainer className="h-72 w-full" config={{ receita: { label: visao === "PREVISTO" ? "Faturamento" : "Recebido", color: "#6d28d9" }, lucro: { label: "Lucro", color: "#10b981" } }}><AreaChart key={`evolucao-${animKey}-${loading}`} data={evolucaoGrafico}><CartesianGrid vertical={false} /><XAxis dataKey="data" tickFormatter={(v) => String(v).slice(5)} /><YAxis tickFormatter={shortMoney} /><ChartTooltip content={<ChartTooltipContent />} /><Area isAnimationActive={!loading} animationDuration={700} dataKey={visao === "PREVISTO" ? "faturamento" : "recebidoLiquido"} name="receita" stroke="var(--color-receita)" fill="var(--color-receita)" fillOpacity={0.15} /><Area isAnimationActive={!loading} animationDuration={700} dataKey={visao === "PREVISTO" ? "lucroPrevisto" : "lucroRealizado"} name="lucro" stroke="var(--color-lucro)" fill="var(--color-lucro)" fillOpacity={0.15} /></AreaChart></ChartContainer></ChartCard>
+        <ChartCard title="Composição dos custos" description="Produtos, comissões, taxas e despesas"><ChartContainer className="h-72 w-full" config={{ valor: { label: "Valor", color: "#6d28d9" } }}><PieChart key={`composicao-${animKey}-${loading}`}><ChartTooltip content={<ChartTooltipContent nameKey="nome" />} /><Pie data={composicaoGrafico} dataKey="valor" nameKey="nome" innerRadius={55} outerRadius={90} isAnimationActive={!loading} animationDuration={700}>{composicaoGrafico.map((_: any, index: number) => <Cell key={index} fill={COLORS[index % COLORS.length]} />)}</Pie></PieChart></ChartContainer></ChartCard>
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
-        <Card><CardHeader><CardTitle>Lucro por setor/canal</CardTitle></CardHeader><CardContent><ChartContainer className="h-72 w-full" config={{ lucro: { label: "Lucro", color: "#6d28d9" } }}><BarChart data={data?.setoresRentabilidade ?? []} layout="vertical"><CartesianGrid horizontal={false} /><XAxis type="number" tickFormatter={shortMoney} /><YAxis type="category" dataKey="nome" width={100} /><ChartTooltip content={<ChartTooltipContent />} /><Bar dataKey={visao === "PREVISTO" ? "lucroPrevisto" : "lucroRealizado"} name="lucro" fill="var(--color-lucro)" radius={4} /></BarChart></ChartContainer></CardContent></Card>
+        <Card><CardHeader><CardTitle>Lucro por setor/canal</CardTitle></CardHeader><CardContent><ChartContainer className="h-72 w-full" config={{ lucro: { label: "Lucro", color: "#6d28d9" } }}><BarChart key={`setores-${animKey}-${loading}`} data={setoresGrafico} layout="vertical"><CartesianGrid horizontal={false} /><XAxis type="number" tickFormatter={shortMoney} /><YAxis type="category" dataKey="nome" width={100} /><ChartTooltip content={<ChartTooltipContent />} /><Bar isAnimationActive={!loading} animationDuration={700} dataKey={visao === "PREVISTO" ? "lucroPrevisto" : "lucroRealizado"} name="lucro" fill="var(--color-lucro)" radius={4} /></BarChart></ChartContainer></CardContent></Card>
         <Card><CardHeader><CardTitle>Produtos com maior lucro bruto</CardTitle></CardHeader><CardContent className="space-y-2">{(data?.produtos ?? []).map((item: any) => <div key={item.produtoid} className="flex items-center justify-between rounded-lg border p-3"><div className="min-w-0"><p className="truncate text-sm font-medium">{item.nome}</p><p className="text-xs text-muted-foreground">Venda {money(item.receita)} · Custo {money(item.custo)}</p></div><span className="font-semibold">{money(item.lucro)}</span></div>)}</CardContent></Card>
       </div>
       {(data?.prejuizos ?? []).length > 0 && <ChartCard title="Registros com prejuízo" description="Maiores resultados negativos do período"><div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{data.prejuizos.map((item: any) => <div key={`${item.origem}-${item.id}`} className="flex items-center justify-between rounded-lg border border-red-500/20 bg-red-500/5 p-3"><div><p className="text-sm font-medium">{item.origem === "MERCADO_LIVRE" ? "Mercado Livre" : item.origem} #{item.id}</p><p className="text-xs text-muted-foreground">{item.cliente}</p></div><span className="font-semibold text-red-500">{money(visao === "PREVISTO" ? item.lucroPrevisto : item.lucroRealizado)}</span></div>)}</div></ChartCard>}
