@@ -252,11 +252,11 @@ export default function FinancialTable({
           </div>
 
           <div className="flex flex-1 items-center justify-center xl:absolute xl:left-1/2 xl:top-1/2 xl:-translate-x-1/2 xl:-translate-y-1/2">
-            <div className="inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground">
+            <div className="inline-flex h-auto items-center justify-center gap-1.5 rounded-2xl border bg-muted/40 p-1 backdrop-blur-sm">
               <button
                 type="button"
                 onClick={() => setViewMode(viewMode === "A_PAGAR" ? "TODAS" : "A_PAGAR")}
-                className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all cursor-pointer ${viewMode === "A_PAGAR"
+                className={`inline-flex h-8 items-center justify-center whitespace-nowrap rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground ${viewMode === "A_PAGAR"
                   ? "bg-primary text-primary-foreground shadow-sm"
                   : "hover:bg-background/50 hover:text-foreground"
                   }`}
@@ -266,7 +266,7 @@ export default function FinancialTable({
               <button
                 type="button"
                 onClick={() => setViewMode(viewMode === "A_RECEBER" ? "TODAS" : "A_RECEBER")}
-                className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all cursor-pointer ${viewMode === "A_RECEBER"
+                className={`inline-flex h-8 items-center justify-center whitespace-nowrap rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground ${viewMode === "A_RECEBER"
                   ? "bg-primary text-primary-foreground shadow-sm"
                   : "hover:bg-background/50 hover:text-foreground"
                   }`}
