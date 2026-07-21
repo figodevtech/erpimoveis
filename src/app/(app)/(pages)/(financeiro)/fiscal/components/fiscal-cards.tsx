@@ -29,7 +29,7 @@ function KpiCard({
   icon: typeof ReceiptText;
 }) {
   return (
-    <Card>
+    <Card className="gap-2">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-sm font-medium">{title}</CardTitle>
         <Icon className="h-4 w-4 text-muted-foreground" />
@@ -46,7 +46,7 @@ export default function FiscalCards({ kpis, isLoading }: FiscalCardsProps) {
   const suffix = isLoading ? "Atualizando..." : "Indicador geral";
 
   return (
-    <div className="grid  grid-cols-2 gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
       <KpiCard
         title="Notas próprias"
         value={String(kpis?.emitidasPorNos ?? 0)}

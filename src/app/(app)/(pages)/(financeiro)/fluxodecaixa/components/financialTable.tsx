@@ -220,12 +220,12 @@ export default function FinancialTable({
         : "Lista de Transações";
 
   return (
-    <Card className="">
-      <CardHeader className="border-b-2">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <Card className="bg-card">
+      <CardHeader className="border-b-2 pb-4">
+        <div className="relative flex min-w-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <CardTitle className="text-lg font-medium">{title}</CardTitle>
-            <CardDescription className="flex flex-col">
+            <CardTitle>{title}</CardTitle>
+            <CardDescription className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => {
@@ -251,7 +251,32 @@ export default function FinancialTable({
             </CardDescription>
           </div>
 
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
+          <div className="flex flex-1 items-center justify-center xl:absolute xl:left-1/2 xl:top-1/2 xl:-translate-x-1/2 xl:-translate-y-1/2">
+            <div className="inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground">
+              <button
+                type="button"
+                onClick={() => setViewMode(viewMode === "A_PAGAR" ? "TODAS" : "A_PAGAR")}
+                className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all cursor-pointer ${viewMode === "A_PAGAR"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "hover:bg-background/50 hover:text-foreground"
+                  }`}
+              >
+                A Pagar
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode(viewMode === "A_RECEBER" ? "TODAS" : "A_RECEBER")}
+                className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all cursor-pointer ${viewMode === "A_RECEBER"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "hover:bg-background/50 hover:text-foreground"
+                  }`}
+              >
+                A Receber
+              </button>
+            </div>
+          </div>
+
+          <div className="flex w-full flex-col gap-2 md:w-auto md:items-end">
             <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
               <SearchFilter
                 renderOnlyTrigger
@@ -302,34 +327,6 @@ export default function FinancialTable({
                 </TransactionDialog>
               ) : null}
             </div>
-          </div>
-        </div>
-        <div className="w-full flex items-center justify-center">
-          <div className="inline-flex h-10 items-center justify-center rounded-md rounded-b-none bg-muted p-1 text-muted-foreground">
-            <button
-              type="button"
-              onClick={() =>
-                setViewMode(viewMode === "A_PAGAR" ? "TODAS" : "A_PAGAR")
-              }
-              className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm rounded-b-none px-3 py-1.5 text-sm font-medium transition-all cursor-pointer ${viewMode === "A_PAGAR"
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "hover:bg-background/50 hover:text-foreground"
-                }`}
-            >
-              A Pagar
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                setViewMode(viewMode === "A_RECEBER" ? "TODAS" : "A_RECEBER")
-              }
-              className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm rounded-b-none px-3 py-1.5 text-sm font-medium transition-all cursor-pointer ${viewMode === "A_RECEBER"
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "hover:bg-background/50 hover:text-foreground"
-                }`}
-            >
-              A Receber
-            </button>
           </div>
         </div>
       </CardHeader>

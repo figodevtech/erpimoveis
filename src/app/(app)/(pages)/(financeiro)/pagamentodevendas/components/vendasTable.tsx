@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Pagination } from "../../fluxodecaixa/types";
 import {
   ChevronLeftIcon,
@@ -23,7 +23,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import formatarEmReal from "@/utils/formatarEmReal";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useEffect, useState } from "react";
 import { VendaComItens, vendaStatus } from "../../../(vendas)/historicovendas/types";
 import { formatDate } from "@/utils/formatDate";
@@ -62,8 +61,6 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
   });
   const limitUid = React.useId();
   const limitListboxId = `${limitUid}-os-limit-listbox`;
-  const tabTheme =
-    " dark:data-[state=active]:bg-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground";
   const hasActiveFilters = Boolean(
     filters.cliente.trim() ||
       filters.notaNumero.trim() ||
@@ -77,12 +74,53 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
   const config = useConfig();
 
   return (
-    <Card className="">
-      <CardHeader className="border-b-2 flex flex-col">
-        <div className="flex flex-row justify-between gap-3 w-full">
-          <CardTitle className="text-lg font-medium">
-            Vendas <span className="text-muted-foreground text-xs font-mono font-extralight">|EM PAGAMENTO</span>
-          </CardTitle>
+    <Card className="bg-card">
+      <CardHeader className="border-b-2 pb-4">
+        <div className="relative flex min-w-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="min-w-0">
+            <CardTitle>
+              Vendas <span className="text-muted-foreground text-xs font-mono font-extralight">|EM PAGAMENTO</span>
+            </CardTitle>
+            <CardDescription className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  handleGetVendas(selectedStatus, pagination.page, pagination.limit, search, filters)
+                }
+                className="inline-flex items-center gap-1 text-foreground/50 hover:text-foreground/70"
+              >
+                <Loader2 className="h-3 w-3" />
+                Recarregar
+              </button>
+              {hasActiveFilters && <span>Filtros ativos</span>}
+            </CardDescription>
+          </div>
+
+          <div className="flex flex-1 items-center justify-center xl:absolute xl:left-1/2 xl:top-1/2 xl:-translate-x-1/2 xl:-translate-y-1/2">
+            <div className="inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground">
+              <button
+                type="button"
+                onClick={() => setSelectedStatus(vendaStatus.PAGAMENTO)}
+                className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all cursor-pointer ${selectedStatus === vendaStatus.PAGAMENTO
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "hover:bg-background/50 hover:text-foreground"
+                  }`}
+              >
+                Abertas
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedStatus(vendaStatus.FINALIZADA)}
+                className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all cursor-pointer ${selectedStatus === vendaStatus.FINALIZADA
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "hover:bg-background/50 hover:text-foreground"
+                  }`}
+              >
+                Concluídas
+              </button>
+            </div>
+          </div>
+
           <div className="flex items-center gap-2">
             {hasActiveFilters && (
               <Button
@@ -114,39 +152,6 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
             />
           </div>
         </div>
-
-        <div className="flex items-center gap-3">
-          <div
-            onClick={() =>
-              handleGetVendas(selectedStatus, pagination.page, pagination.limit, search, filters)
-            }
-            className="flex flex-row space-x-1 items-center hover:cursor-pointer"
-          >
-            <Loader2 className="w-3 h-3" />
-            <span className="text-xs text-muted-foreground"> Recarregar</span>
-          </div>
-          {hasActiveFilters && (
-            <span className="text-xs text-muted-foreground">Filtros ativos</span>
-          )}
-        </div>
-        <Tabs defaultValue="abertas" className="w-full items-center">
-          <TabsList className="rounded-b-none">
-            <TabsTrigger
-              onClick={() => setSelectedStatus(vendaStatus.PAGAMENTO)}
-              className={" rounded-b-none cursor-pointer" + tabTheme}
-              value="abertas"
-            >
-              Abertas
-            </TabsTrigger>
-            <TabsTrigger
-              onClick={() => setSelectedStatus(vendaStatus.FINALIZADA)}
-              className={" rounded-b-none cursor-pointer" + tabTheme}
-              value="concluidas"
-            >
-              Concluídas
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
       </CardHeader>
 
       <CardContent className="min-h-[300px] -mt-[24px] px-4 pb-4 pt-0 relative flex flex-col justify-between">

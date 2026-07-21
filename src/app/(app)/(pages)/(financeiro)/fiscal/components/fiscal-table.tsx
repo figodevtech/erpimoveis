@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import axios, { isAxiosError } from "axios";
 import {
   Calendar,
@@ -12,12 +13,14 @@ import {
   Download,
   Eye,
   FileSearch,
+  FilePlus2,
   Loader2,
   MoreHorizontal,
   PackagePlus,
   Pencil,
   RefreshCw,
   Send,
+  SlidersHorizontal,
   UploadCloud,
   Trash2,
   XCircle,
@@ -67,6 +70,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { traduzStatusNfe } from "@/lib/nfe/statusNfe";
 import DialogEntradaFiscal from "../../../estoque/components/dialog-entrada/dialog-entrada-fiscal";
@@ -199,6 +203,7 @@ export default function FiscalTable({
   const [notaGerarEntrada, setNotaGerarEntrada] = React.useState<NotaFiscal | null>(null);
   const [notaForcarXml, setNotaForcarXml] = React.useState<NotaFiscal | null>(null);
   const [forcandoXml, setForcandoXml] = React.useState(false);
+  const [filtrosAbertos, setFiltrosAbertos] = React.useState(false);
 
   const title =
     viewMode === "EMITIDAS_POR_NOS"
@@ -469,12 +474,12 @@ export default function FiscalTable({
 
   return (
     <>
-    <Card>
-      <CardHeader className="border-b-2">
-        <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+    <Card className="bg-card">
+      <CardHeader className="border-b-2 pb-4">
+        <div className="relative flex min-w-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
-            <CardTitle className="text-lg font-medium">{title}</CardTitle>
-            <CardDescription>
+            <CardTitle>{title}</CardTitle>
+            <CardDescription className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => handleGetNotas(pagination.page, pagination.limit)}
@@ -486,11 +491,38 @@ export default function FiscalTable({
             </CardDescription>
           </div>
 
-          <div className="grid w-full min-w-0 grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5 2xl:grid-cols-7">
+          <div className="flex flex-1 items-center justify-center xl:absolute xl:left-1/2 xl:top-1/2 xl:-translate-x-1/2 xl:-translate-y-1/2">
+            <div className="inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground">
+              <button
+                type="button"
+                onClick={() => setViewMode("EMITIDAS_POR_NOS")}
+                className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all cursor-pointer ${
+                  viewMode === "EMITIDAS_POR_NOS"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "hover:bg-background/50 hover:text-foreground"
+                }`}
+              >
+                Próprias
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("EMITIDAS_TERCEIROS")}
+                className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all cursor-pointer ${
+                  viewMode === "EMITIDAS_TERCEIROS"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "hover:bg-background/50 hover:text-foreground"
+                }`}
+              >
+                Terceiros
+              </button>
+            </div>
+          </div>
+
+          <div className="flex w-full flex-wrap items-center justify-end gap-2 md:w-auto">
             {viewMode === "EMITIDAS_TERCEIROS" ? (
               <Button
                 type="button"
-                className="h-9 w-full min-w-0"
+                className="h-9"
                 onClick={onSyncTerceiros}
                 disabled={isSyncing}
               >
@@ -499,81 +531,62 @@ export default function FiscalTable({
                 ) : (
                   <UploadCloud className="h-4 w-4" />
                 )}
-                Sincronizar terceiros
+                Sincronizar
               </Button>
             ) : null}
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Buscar nota/chave"
-              className="h-9 w-full"
-            />
-              <DatePicker value={dateFrom} onChange={setDateFrom} placeholder="Data inicial" className="min-w-0" />
-              <DatePicker value={dateTo} onChange={setDateTo} placeholder="Data final" className="min-w-0" />
-
-            <Select value={status || "TODOS"} onValueChange={(value) => setStatus(value === "TODOS" ? "" : value)}>
-              <SelectTrigger className="h-9 w-full">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="TODOS">Todos status</SelectItem>
-                <SelectItem value="RASCUNHO">Rascunho</SelectItem>
-                <SelectItem value="AUTORIZADA">Autorizada</SelectItem>
-                <SelectItem value="CANCELADA">Cancelada</SelectItem>
-                <SelectItem value="REJEITADA">Rejeitada</SelectItem>
-                <SelectItem value="DENEGADA">Denegada</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={modelo || "TODOS"} onValueChange={(value) => setModelo(value === "TODOS" ? "" : value)}>
-              <SelectTrigger className="h-9 w-full">
-                <SelectValue placeholder="Modelo" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="TODOS">Todos modelos</SelectItem>
-                <SelectItem value="NFE">NF-e</SelectItem>
-                <SelectItem value="NFCE">NFC-e</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button
-              type="button"
-              variant="outline"
-              className="h-9 w-full min-w-0 sm:col-span-2 xl:col-span-1"
-              onClick={limparFiltros}
-              disabled={!search && !dateFrom && !dateTo && !status && !modelo}
-            >
-              <XCircle className="h-4 w-4" />
-              Limpar filtros
+            <Button asChild size="sm">
+              <Link href="/fiscal/nfe-avulsa">
+                <FilePlus2 className="h-4 w-4" />
+                Emitir NF-e
+              </Link>
             </Button>
+            <Sheet open={filtrosAbertos} onOpenChange={setFiltrosAbertos}>
+              <SheetTrigger asChild>
+                <Button type="button" variant="outline" size="sm" className="gap-1">
+                  <SlidersHorizontal className="h-4 w-4" />
+                  Filtros
+                  {[search, dateFrom, dateTo, status, modelo].filter(Boolean).length > 0 ? (
+                    <Badge variant="secondary" className="ml-1 h-5 min-w-5 justify-center px-1 text-[10px]">
+                      {[search, dateFrom, dateTo, status, modelo].filter(Boolean).length}
+                    </Badge>
+                  ) : null}
+                </Button>
+              </SheetTrigger>
+              <SheetContent>
+                <SheetHeader><SheetTitle>Filtros fiscais</SheetTitle></SheetHeader>
+                <div className="grid flex-1 auto-rows-min gap-6 px-4">
+                  <div className="space-y-3">
+                    <p className="text-xs font-medium text-muted-foreground">Busca</p>
+                    <div className="space-y-1">
+                      <p className="text-[11px] text-muted-foreground">Nota fiscal ou chave de acesso</p>
+                      <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar nota/chave" className="h-9 w-full" />
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <p className="text-xs font-medium text-muted-foreground">Intervalo de datas</p>
+                    <div className="flex flex-col gap-3 sm:flex-row">
+                      <div className="flex-1 space-y-1"><p className="text-[11px] text-muted-foreground">Data inicial</p><DatePicker value={dateFrom} onChange={setDateFrom} placeholder="Selecione" className="min-w-0" /></div>
+                      <div className="flex-1 space-y-1"><p className="text-[11px] text-muted-foreground">Data final</p><DatePicker value={dateTo} onChange={setDateTo} placeholder="Selecione" className="min-w-0" /></div>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <p className="text-xs font-medium text-muted-foreground">Documento fiscal</p>
+                    <div className="space-y-3">
+                      <div className="space-y-1"><p className="text-[11px] text-muted-foreground">Status</p><Select value={status || "TODOS"} onValueChange={(value) => setStatus(value === "TODOS" ? "" : value)}><SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="TODOS">Todos status</SelectItem><SelectItem value="RASCUNHO">Rascunho</SelectItem><SelectItem value="AUTORIZADA">Autorizada</SelectItem><SelectItem value="CANCELADA">Cancelada</SelectItem><SelectItem value="REJEITADA">Rejeitada</SelectItem><SelectItem value="DENEGADA">Denegada</SelectItem></SelectContent></Select></div>
+                      <div className="space-y-1"><p className="text-[11px] text-muted-foreground">Modelo</p><Select value={modelo || "TODOS"} onValueChange={(value) => setModelo(value === "TODOS" ? "" : value)}><SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="TODOS">Todos modelos</SelectItem><SelectItem value="NFE">NF-e</SelectItem><SelectItem value="NFCE">NFC-e</SelectItem></SelectContent></Select></div>
+                    </div>
+                  </div>
+                  <div className="mt-2 flex justify-between gap-2">
+                    <Button type="button" variant="outline" onClick={limparFiltros} disabled={!search && !dateFrom && !dateTo && !status && !modelo}><XCircle className="h-4 w-4" />Limpar filtros</Button>
+                    <SheetClose asChild><Button type="button" onClick={() => handleGetNotas(1, pagination.limit)}>Aplicar filtros</Button></SheetClose>
+                  </div>
+                </div>
+              </SheetContent>
+            </Sheet>
             
           </div>
         </div>
 
-        <div className="w-full flex items-center justify-center">
-          <div className="inline-flex h-10 items-center justify-center rounded-md rounded-b-none bg-muted p-1 text-muted-foreground">
-            <button
-              type="button"
-              onClick={() => setViewMode("EMITIDAS_POR_NOS")}
-              className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm rounded-b-none px-3 py-1.5 text-sm font-medium transition-all cursor-pointer ${
-                viewMode === "EMITIDAS_POR_NOS"
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "hover:bg-background/50 hover:text-foreground"
-              }`}
-            >
-              Próprias
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("EMITIDAS_TERCEIROS")}
-              className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm rounded-b-none px-3 py-1.5 text-sm font-medium transition-all cursor-pointer ${
-                viewMode === "EMITIDAS_TERCEIROS"
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "hover:bg-background/50 hover:text-foreground"
-              }`}
-            >
-              Terceiros
-            </button>
-          </div>
-        </div>
       </CardHeader>
 
       <CardContent className="min-h-[300px] -mt-[24px] px-4 pb-4 pt-0 relative">
