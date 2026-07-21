@@ -1,12 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import axios from "axios";
-import { FilePlus2 } from "lucide-react";
 import { toast } from "@/lib/toast";
 
-import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -161,14 +158,6 @@ export default function FiscalPage() {
   return (
     <div className="space-y-4">
       <FiscalCards kpis={kpis} isLoading={isLoadingKpis} />
-      <div className="flex justify-end">
-        <Button asChild>
-          <Link href="/fiscal/nfe-avulsa">
-            <FilePlus2 className="h-4 w-4" />
-            Emitir NF-e
-          </Link>
-        </Button>
-      </div>
       <FiscalTable
         notas={notas}
         pagination={pagination}
