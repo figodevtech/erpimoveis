@@ -6,6 +6,7 @@ import ConteudoGeral from "./components/dashboard-ordemservico/page";
 import ConteudoUsuarios from "./components/dashboard-clientes/components/dashboard-clientes";
 import ConteudoFinanceiro from "./components/dashboard-financeiro/page";
 import ConteudoResumoDiario from "./components/dashboard-resumo-diario/page";
+import ConteudoRendimentos from "./components/dashboard-rendimentos/page";
 
 export default function PaginaDashboard() {
   return (
@@ -32,6 +33,10 @@ export default function PaginaDashboard() {
 
           <TabsContent value="resumo-diario">
             <ConteudoResumoDiario />
+          </TabsContent>
+
+          <TabsContent value="rendimentos">
+            <ConteudoRendimentos />
           </TabsContent>
         </Tabs>
       </div>
