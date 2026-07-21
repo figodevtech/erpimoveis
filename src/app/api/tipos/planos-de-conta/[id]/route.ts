@@ -85,6 +85,8 @@ export async function PUT(
       codigo: (data.codigo as string | null) ?? null,
       nome: data.nome as string,
       descricao: (data.descricao as string | null) ?? null,
+      icone: "other",
+      codigo_sistema: null,
       ativo: typeof data.ativo === "boolean" ? (data.ativo as boolean) : true,
     };
 
@@ -152,6 +154,8 @@ export async function PATCH(
       id: data.id as number,
       nome: data.nome as string,
       descricao: (data.descricao as string | null) ?? null,
+      icone: "other",
+      codigo_sistema: null,
       ativo: typeof data.ativo === "boolean" ? (data.ativo as boolean) : true,
     };
 

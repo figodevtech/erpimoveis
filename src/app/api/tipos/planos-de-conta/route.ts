@@ -41,6 +41,8 @@ export async function GET(req: NextRequest) {
         codigo: (c.codigo as string | null) ?? null,
         nome: c.nome as string,
         descricao: (c.descricao as string | null) ?? null,
+        icone: "other",
+        codigo_sistema: null,
         ativo: typeof c.ativo === "boolean" ? (c.ativo as boolean) : true,
       })) ?? [];
 
@@ -116,6 +118,8 @@ export async function POST(req: NextRequest) {
       codigo: (data.codigo as string | null) ?? null,
       nome: data.nome as string,
       descricao: (data.descricao as string | null) ?? null,
+      icone: "other",
+      codigo_sistema: null,
       ativo: typeof data.ativo === "boolean" ? (data.ativo as boolean) : true,
     };
 

@@ -68,7 +68,29 @@ const emptyForm: CategoriaForm = {
 
 const DEFAULT_LIMIT = 10;
 
-export default function CategoriasTransacaoSection() {
+type AssignmentTypeSectionConfig = {
+  endpoint: string;
+  title: string;
+  singular: string;
+  plural: string;
+  gender: "M" | "F";
+  showIcons?: boolean;
+};
+
+const CATEGORY_CONFIG: AssignmentTypeSectionConfig = {
+  endpoint: "/api/tipos/categorias-transacao",
+  title: "Categorias de transação",
+  singular: "categoria",
+  plural: "categorias",
+  gender: "F",
+  showIcons: true,
+};
+
+export default function CategoriasTransacaoSection({
+  config = CATEGORY_CONFIG,
+}: {
+  config?: AssignmentTypeSectionConfig;
+}) {
   const [categorias, setCategorias] = useState<CategoriaTransacao[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -101,9 +123,9 @@ export default function CategoriasTransacaoSection() {
           <TableCell className="h-10">
             <div className="h-3 w-32 bg-muted rounded" />
           </TableCell>
-          <TableCell>
+          {config.showIcons !== false ? <TableCell>
             <div className="h-8 w-8 bg-muted rounded-full" />
-          </TableCell>
+          </TableCell> : null}
           <TableCell>
             <div className="h-3 w-48 bg-muted rounded" />
           </TableCell>
@@ -115,16 +137,16 @@ export default function CategoriasTransacaoSection() {
           </TableCell>
         </TableRow>
       )),
-    [limit]
+    [config.showIcons, limit]
   );
 
   async function loadCategorias() {
     try {
       setIsLoading(true);
       setErro(null);
-      const res = await fetch("/api/tipos/categorias-transacao", { cache: "no-store" });
+      const res = await fetch(config.endpoint, { cache: "no-store" });
       const j = await res.json();
-      if (!res.ok) throw new Error(j?.error || "Erro ao carregar categorias");
+      if (!res.ok) throw new Error(j?.error || `Erro ao carregar ${config.plural}`);
 
       const items: CategoriaTransacao[] = (j.items ?? j.data ?? []).map((c: any) => ({
         id: Number(c.id),
@@ -137,7 +159,7 @@ export default function CategoriasTransacaoSection() {
 
       setCategorias(items);
     } catch (e: any) {
-      const msg = e?.message || "Erro ao carregar categorias";
+      const msg = e?.message || `Erro ao carregar ${config.plural}`;
       setErro(msg);
       toast.error(msg);
       setCategorias([]);
@@ -148,6 +170,8 @@ export default function CategoriasTransacaoSection() {
 
   useEffect(() => {
     loadCategorias();
+    // A carga deve ocorrer somente ao montar a seção; o endpoint não muda durante sua vida útil.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function handleChange<K extends keyof CategoriaForm>(key: K, value: CategoriaForm[K]) {
@@ -188,23 +212,23 @@ export default function CategoriasTransacaoSection() {
       setIsSaving(true);
 
       if (editing) {
-        const res = await fetch(`/api/tipos/categorias-transacao/${editing.id}`, {
+        const res = await fetch(`${config.endpoint}/${editing.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
         const j = await res.json();
-        if (!res.ok) throw new Error(j?.error || "Falha ao atualizar categoria");
-        toast.success("Categoria atualizada.");
+        if (!res.ok) throw new Error(j?.error || `Falha ao atualizar ${config.singular}`);
+        toast.success(`${config.gender === "F" ? "Categoria atualizada" : "Plano de conta atualizado"}.`);
       } else {
-        const res = await fetch("/api/tipos/categorias-transacao", {
+        const res = await fetch(config.endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
         const j = await res.json();
-        if (!res.ok) throw new Error(j?.error || "Falha ao cadastrar categoria");
-        toast.success("Categoria cadastrada.");
+        if (!res.ok) throw new Error(j?.error || `Falha ao cadastrar ${config.singular}`);
+        toast.success(`${config.gender === "F" ? "Categoria cadastrada" : "Plano de conta cadastrado"}.`);
       }
 
       setDialogOpen(false);
@@ -212,7 +236,7 @@ export default function CategoriasTransacaoSection() {
       setForm(emptyForm);
       await loadCategorias();
     } catch (e: any) {
-      toast.error(e?.message || "Erro ao salvar categoria");
+      toast.error(e?.message || `Erro ao salvar ${config.singular}`);
     } finally {
       setIsSaving(false);
     }
@@ -223,7 +247,7 @@ export default function CategoriasTransacaoSection() {
       <CardHeader className="border-b pb-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <CardTitle>Categorias de transação</CardTitle>
+            <CardTitle>{config.title}</CardTitle>
             <CardDescription className="flex items-center gap-2">
               <button
                 onClick={loadCategorias}
@@ -233,7 +257,7 @@ export default function CategoriasTransacaoSection() {
                 <Loader2 width={12} className={isLoading ? "animate-spin" : ""} />
               </button>
               <span className="text-foreground/60">
-                {total} categoria{total === 1 ? "" : "s"}
+                {total} {total === 1 ? config.singular : config.plural}
               </span>
               {erro && (
                 <Badge variant="destructive" className="ml-1">
@@ -258,13 +282,17 @@ export default function CategoriasTransacaoSection() {
             <DialogTrigger asChild>
               <Button size="sm" className="hover:cursor-pointer" onClick={openNovo}>
                 <Plus className="mr-1 h-4 w-4" />
-                Categoria
+                {config.gender === "F" ? "Categoria" : "Plano de conta"}
               </Button>
             </DialogTrigger>
 
             <DialogContent className="max-w-md">
               <DialogHeader>
-                <DialogTitle>{editing ? "Editar categoria" : "Nova categoria"}</DialogTitle>
+                <DialogTitle>
+                  {editing
+                    ? `Editar ${config.singular}`
+                    : `${config.gender === "F" ? "Nova" : "Novo"} ${config.singular}`}
+                </DialogTitle>
               </DialogHeader>
 
               <div className="mt-4 space-y-4 bg-card rounded-2xl p-4">
@@ -280,7 +308,7 @@ export default function CategoriasTransacaoSection() {
                     placeholder="Descrição amigável"
                   />
                 </div>
-                <div className="space-y-1.5">
+                {config.showIcons !== false ? <div className="space-y-1.5">
                   <Label>Ícone</Label>
                   <Popover open={iconPickerOpen} onOpenChange={setIconPickerOpen}>
                     <PopoverTrigger asChild>
@@ -328,15 +356,17 @@ export default function CategoriasTransacaoSection() {
                       </ScrollArea>
                     </PopoverContent>
                   </Popover>
-                </div>
+                </div> : null}
                 <div className="mt-4 flex items-center justify-between rounded-md border px-3 py-2 bg-muted/40">
                   <div className="space-y-0.5">
-                    <span className="text-sm font-medium">Status da categoria</span>
-                    <p className="text-xs text-muted-foreground">Habilita esta categoria para uso.</p>
+                    <span className="text-sm font-medium">Status {config.gender === "F" ? "da" : "do"} {config.singular}</span>
+                    <p className="text-xs text-muted-foreground">Habilita {config.gender === "F" ? "esta" : "este"} {config.singular} para uso.</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground hidden sm:inline">
-                      {form.ativo ? "Ativa" : "Inativa"}
+                      {form.ativo
+                        ? config.gender === "F" ? "Ativa" : "Ativo"
+                        : config.gender === "F" ? "Inativa" : "Inativo"}
                     </span>
                     <Switch
                       checked={form.ativo}
@@ -386,7 +416,7 @@ export default function CategoriasTransacaoSection() {
           <TableHeader>
             <TableRow>
               <TableHead>Nome</TableHead>
-              <TableHead>Ícone</TableHead>
+              {config.showIcons !== false ? <TableHead>Ícone</TableHead> : null}
               <TableHead>Descrição</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Ações</TableHead>
@@ -397,26 +427,28 @@ export default function CategoriasTransacaoSection() {
               linhasSkeleton
             ) : total === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
-                  Nenhuma categoria cadastrada. Clique em <b>+ Categoria</b> para cadastrar.
+                  <TableCell colSpan={config.showIcons !== false ? 5 : 4} className="text-center py-10 text-muted-foreground">
+                  {config.gender === "F" ? "Nenhuma" : "Nenhum"} {config.singular} cadastrad{config.gender === "F" ? "a" : "o"}. Clique em <b>+ {config.gender === "F" ? "Categoria" : "Plano de conta"}</b> para cadastrar.
                 </TableCell>
               </TableRow>
             ) : (
               pageItems.map((c) => (
                 <TableRow key={c.id} className="hover:cursor-default">
                   <TableCell className="font-mono">{c.nome}</TableCell>
-                  <TableCell>
+                  {config.showIcons !== false ? <TableCell>
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/15">
                       <TransactionCategoryIcon name={c.icone} className="h-4 w-4" />
                     </div>
-                  </TableCell>
+                  </TableCell> : null}
                   <TableCell>{c.descricao || "—"}</TableCell>
                   <TableCell>
                     <Badge
                       variant={c.ativo ? "default" : "outline"}
                       className={c.ativo ? "" : "border-destructive bg-destructive"}
                     >
-                      {c.ativo ? "Ativa" : "Inativa"}
+                      {c.ativo
+                        ? config.gender === "F" ? "Ativa" : "Ativo"
+                        : config.gender === "F" ? "Inativa" : "Inativo"}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
