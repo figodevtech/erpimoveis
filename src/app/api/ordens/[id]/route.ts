@@ -499,6 +499,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         servicoid: item.servicoid,
         descricao: item.descricaoServico || item.servico?.descricao || "Serviço",
         valorServico: item.subtotal,
+        receitaLiquida: item.subtotal * fatorDescontoOs,
         valorComissao: realizadores.reduce(
           (acc, realizador) => acc + realizador.valorComissao,
           0,

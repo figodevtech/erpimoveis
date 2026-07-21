@@ -14,6 +14,8 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
 import {
 AlertTriangle,
+ArrowDown,
+ArrowUp,
 Building2,
 Calculator,
 Car,
@@ -25,6 +27,7 @@ FileText,
 ImageIcon,
 Link2,
 ListChecks,
+ListTree,
 Loader2,
 Package,
 Paperclip,
@@ -264,6 +267,7 @@ type OSDetalhesResponse = {
       servicoid: number;
       descricao: string;
       valorServico: number;
+      receitaLiquida: number;
       valorComissao: number;
       realizadores: Array<{
         usuarioid: string;
@@ -573,6 +577,78 @@ export function OSDetalhesDialog({
   );
   const totalGeral = useMemo(() => totalProdutos + totalServicos, [totalProdutos, totalServicos]);
 
+  const fluxoOs = useMemo(() => {
+    if (!data?.rentabilidade) return [];
+
+    const lancamentos: Array<{
+      id: string;
+      tipo: "ENTRADA" | "SAIDA";
+      descricao: string;
+      detalhe: string;
+      valor: number;
+      pendente?: boolean;
+    }> = [];
+
+    data.rentabilidade.produtos.forEach((produto, index) => {
+      lancamentos.push({
+        id: `produto-venda-${produto.produtoid}-${index}`,
+        tipo: "ENTRADA",
+        descricao: `Venda · ${produto.descricao}`,
+        detalhe: `${produto.quantidade} unidade(s)`,
+        valor: produto.receitaLiquida,
+      });
+      lancamentos.push({
+        id: `produto-custo-${produto.produtoid}-${index}`,
+        tipo: "SAIDA",
+        descricao: `Custo · ${produto.descricao}`,
+        detalhe: produto.custoNaoInformado
+          ? "Custo ainda não informado"
+          : produto.custoEstimado
+            ? "Último valor de compra atual"
+            : "Custo registrado na OS",
+        valor: produto.custoTotal,
+      });
+    });
+
+    data.rentabilidade.comissoesServicos.forEach((servico, index) => {
+      lancamentos.push({
+        id: `servico-venda-${servico.servicoid}-${index}`,
+        tipo: "ENTRADA",
+        descricao: `Serviço · ${servico.descricao}`,
+        detalhe: "Valor líquido após descontos",
+        valor: servico.receitaLiquida,
+      });
+      if (servico.valorComissao > 0) {
+        lancamentos.push({
+          id: `servico-comissao-${servico.servicoid}-${index}`,
+          tipo: "SAIDA",
+          descricao: `Comissão · ${servico.descricao}`,
+          detalhe: servico.realizadores.map((item) => item.nome || "Realizador").join(", "),
+          valor: servico.valorComissao,
+        });
+      }
+    });
+
+    (data.transacoes ?? [])
+      .filter((transacao) => transacao.tipo === "DESPESA")
+      .forEach((transacao) => {
+        lancamentos.push({
+          id: `despesa-${transacao.id}`,
+          tipo: "SAIDA",
+          descricao: transacao.descricao,
+          detalhe: transacao.plano_de_conta || "Despesa vinculada à OS",
+          valor: transacao.valor,
+          pendente: transacao.pendente,
+        });
+      });
+
+    let saldo = 0;
+    return lancamentos.map((lancamento) => {
+      saldo += lancamento.tipo === "ENTRADA" ? lancamento.valor : -lancamento.valor;
+      return { ...lancamento, saldo };
+    });
+  }, [data?.rentabilidade, data?.transacoes]);
+
   const tabTriggerClass =
     "group h-8 rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary dark:data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm";
 
@@ -824,6 +900,12 @@ export function OSDetalhesDialog({
                       <span className="flex items-center gap-2">
                         <Calculator className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
                         Rentabilidade
+                      </span>
+                    </TabsTrigger>
+                    <TabsTrigger value="fluxo-os" className={tabTriggerClass}>
+                      <span className="flex items-center gap-2">
+                        <ListTree className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                        Fluxo da OS
                       </span>
                     </TabsTrigger>
                     <TabsTrigger value="anexos" className={tabTriggerClass}>
@@ -1254,6 +1336,92 @@ export function OSDetalhesDialog({
                   ) : (
                     <p className="text-sm text-muted-foreground">Não foi possível calcular a rentabilidade.</p>
                   )}
+                </TabsContent>
+
+                <TabsContent value="fluxo-os" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-4 sm:px-6 sm:py-5">
+                  <div className="rounded-xl border bg-card p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="font-medium">Fluxo econômico da OS</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Entradas e custos que formam o lucro previsto desta ordem de serviço.
+                        </p>
+                      </div>
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <TransactionDialog
+                          osId={data.os.id}
+                          open={despesaDialogOpen}
+                          setOpen={setDespesaDialogOpen}
+                          handleGetTransactions={() => void recarregarDetalhes()}
+                          internalCompanyExpense
+                          initialTransaction={{
+                            tipo: Tipo_transacao.DESPESA,
+                            descricao: "",
+                            valor: 0,
+                            valorLiquido: 0,
+                            pendente: true,
+                            parcelas: 1,
+                          }}
+                        >
+                          <Button type="button" size="sm">Adicionar despesa</Button>
+                        </TransactionDialog>
+                        <div className="rounded-lg border bg-muted/40 px-3 py-2 sm:text-right">
+                          <p className="text-xs text-muted-foreground">Saldo final previsto</p>
+                          <p className="text-lg font-semibold">{fmtMoney(fluxoOs.at(-1)?.saldo ?? 0)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="overflow-hidden rounded-xl border bg-card">
+                    <div className="hidden grid-cols-[minmax(0,1fr)_130px_130px] gap-3 border-b bg-muted/50 px-4 py-2 text-xs font-medium text-muted-foreground sm:grid">
+                      <span>Lançamento</span>
+                      <span className="text-right">Valor</span>
+                      <span className="text-right">Saldo</span>
+                    </div>
+                    {fluxoOs.length ? (
+                      <div className="divide-y">
+                        {fluxoOs.map((lancamento) => (
+                          <div key={lancamento.id} className="grid gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_130px_130px] sm:items-center">
+                            <div className="flex min-w-0 items-start gap-3">
+                              <span
+                                className={
+                                  lancamento.tipo === "ENTRADA"
+                                    ? "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                                    : "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-red-500/15 text-red-600 dark:text-red-400"
+                                }
+                              >
+                                {lancamento.tipo === "ENTRADA" ? (
+                                  <ArrowUp className="size-3.5" />
+                                ) : (
+                                  <ArrowDown className="size-3.5" />
+                                )}
+                              </span>
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="truncate text-sm font-medium">{lancamento.descricao}</p>
+                                  {lancamento.pendente ? <Badge variant="outline">A pagar</Badge> : null}
+                                </div>
+                                <p className="truncate text-xs text-muted-foreground">{lancamento.detalhe}</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between sm:block sm:text-right">
+                              <span className="text-xs text-muted-foreground sm:hidden">Valor</span>
+                              <span className={lancamento.tipo === "ENTRADA" ? "font-medium text-emerald-600 dark:text-emerald-400" : "font-medium text-red-600 dark:text-red-400"}>
+                                {lancamento.tipo === "ENTRADA" ? "+" : "−"} {fmtMoney(lancamento.valor)}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between sm:block sm:text-right">
+                              <span className="text-xs text-muted-foreground sm:hidden">Saldo</span>
+                              <span className="font-semibold">{fmtMoney(lancamento.saldo)}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="p-6 text-center text-sm text-muted-foreground">Nenhum lançamento disponível para esta OS.</p>
+                    )}
+                  </div>
                 </TabsContent>
 
                 <TabsContent value="checklist" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 sm:px-6 sm:py-5">
