@@ -53,7 +53,16 @@ interface Parcela {
   valor?: number;
 }
 
-export default function DialogEntradaFiscal({ children, isOpen, setIsOpen, notaFiscalRecebidaId }: EntradaDialogProps) {
+export default function DialogEntradaFiscal({
+  children,
+  isOpen,
+  setIsOpen,
+  notaFiscalRecebidaId,
+  search,
+  handleGetProducts,
+  paginantion,
+  status,
+}: EntradaDialogProps) {
   const [parsed, setParsed] = useState<NF | null>(null);
   const [file, setFile] = useState<File | undefined>(undefined);
   const [isSubmiting, setIsSubmiting] = useState(false);
@@ -82,6 +91,20 @@ export default function DialogEntradaFiscal({ children, isOpen, setIsOpen, notaF
   const [selectedCategoria, setSelectedCategoria] = useState<string>("");
   const { categorias } = useCategoriasTransacao();
   const isCarregandoNotaRecebida = Boolean(isOpen && notaFiscalRecebidaId && !parsed);
+
+  const resetState = () => {
+    setParsed(null);
+    setFile(undefined);
+    setIsSubmiting(false);
+    setIsPagamentoFuturo(false);
+    setParcelas([]);
+    setSelectedBankId("");
+    setSelectedMetodo("");
+    setSelectedCategoria("");
+    setProductSelectItemIndex(null);
+    setSelectedProductId(undefined);
+    setProductDialogItemIndex(null);
+  };
 
   useEffect(() => {
     if (!isOpen || !notaFiscalRecebidaId) return;
@@ -201,16 +224,6 @@ export default function DialogEntradaFiscal({ children, isOpen, setIsOpen, notaF
         return;
       }
 
-      if (!selectedBankId) {
-        toast.error("Selecione um banco para as parcelas.");
-        return;
-      }
-
-      if (!selectedMetodo) {
-        toast.error("Selecione um método de pagamento para as parcelas.");
-        return;
-      }
-
       if (!selectedCategoria) {
         toast.error("Selecione uma categoria para as parcelas.");
         return;
@@ -240,8 +253,8 @@ export default function DialogEntradaFiscal({ children, isOpen, setIsOpen, notaF
           }))
         : [],
 
-      bancoId: isPagamentoFuturo ? Number(selectedBankId) : 1,
-      metodoPagamento: isPagamentoFuturo ? selectedMetodo : Metodo_pagamento.PIX ?? "PIX",
+      bancoId: isPagamentoFuturo ? (selectedBankId ? Number(selectedBankId) : null) : null,
+      metodoPagamento: isPagamentoFuturo ? (selectedMetodo || null) : null,
       categoria: isPagamentoFuturo ? selectedCategoria : "DESPESAS OPERACIONAIS",
       tipo: "DESPESA",
       nomePagador: parsed.fornecedorReferente?.nomerazaosocial ?? parsed.emitente.nome ?? "",
@@ -262,12 +275,17 @@ export default function DialogEntradaFiscal({ children, isOpen, setIsOpen, notaF
 
       if (response.status === 201) {
         toast.success("Entrada registrada com sucesso!");
-        // se quiser, pode limpar estado/fechar modal aqui
+        resetState();
+        setIsOpen?.(false);
+        handleGetProducts?.(paginantion?.page ?? 1, paginantion?.limit ?? 20, search, status);
       }
     } catch (error) {
       if (isAxiosError(error)) {
         toast.error("Erro ao registrar entrada", {
-          description: error.message,
+          description:
+            error.response?.data?.details ??
+            error.response?.data?.error ??
+            error.message,
         });
       }
     } finally {
@@ -383,6 +401,9 @@ export default function DialogEntradaFiscal({ children, isOpen, setIsOpen, notaF
     <Dialog
       open={isOpen}
       onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          resetState();
+        }
         setIsOpen?.(nextOpen);
       }}
     >

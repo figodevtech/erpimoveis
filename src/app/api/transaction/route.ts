@@ -14,6 +14,8 @@ const WRITABLE_FIELDS = new Set([
   "metodopagamento",
   "categoria",
   "categoria_id",
+  "plano_de_conta",
+  "plano_de_conta_id",
   "tipo",
   "cliente_id",
   "banco_id",
@@ -25,7 +27,7 @@ const WRITABLE_FIELDS = new Set([
 const FORTALEZA_OFFSET = "-03:00";
 
 const TRANSACAO_FIELDS =
-  "id, descricao, valor, valorLiquido, nomepagador, cpfcnpjpagador, pendente, data, ordemservicoid, vendaid, metodopagamento, categoria, categoria_id, tipo, cliente_id, banco_id, created_at, updated_at";
+  "id, descricao, valor, valorLiquido, nomepagador, cpfcnpjpagador, pendente, data, ordemservicoid, vendaid, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, tipo, cliente_id, banco_id, created_at, updated_at";
 
 const BANCO_FIELDS =
   "id, titulo, tipo, agencia, contanumero, proprietario, valorinicial, empresa_id, created_at, updated_at";
@@ -131,7 +133,8 @@ function sanitizeTransacaoPayload(body: any, { strict }: { strict: boolean }) {
       case "cliente_id":
       case "ordemservicoid":
       case "vendaid":
-      case "categoria_id": {
+      case "categoria_id":
+      case "plano_de_conta_id": {
         const parsed = toNumberOrNull(body[key]);
         output[key] = parsed == null ? null : Math.trunc(parsed);
         break;
@@ -152,7 +155,7 @@ function sanitizeTransacaoPayload(body: any, { strict }: { strict: boolean }) {
   }
 
   if (strict) {
-    const required = ["descricao", "valor", "data", "metodopagamento", "tipo"];
+    const required = ["descricao", "valor", "data", "tipo"];
     const missing = required.filter((key) => output[key] == null);
 
     if (missing.length) {
@@ -197,7 +200,8 @@ export async function GET(req: Request) {
         `
         ${TRANSACAO_FIELDS},
         banco:bancoconta!transacao_banco_id_fkey ( ${BANCO_FIELDS} ),
-        categoria_dados:categoriatransacao!transacao_categoria_id_fkey ( id, nome, icone )
+        categoria_dados:categoriatransacao!transacao_categoria_id_fkey ( id, nome, icone ),
+        plano_de_conta_dados:planosdeconta!transacao_plano_de_conta_id_fkey ( id, codigo, nome )
         `,
         { count: "exact" }
       )

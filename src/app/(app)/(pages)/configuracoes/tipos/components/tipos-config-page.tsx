@@ -20,6 +20,7 @@ import ServicosSection from "./servicos-section";
 import FornecedoresSection from "./fornecedores-section";
 import BancosSection from "./contas-bancarias-section";
 import CategoriasTransacaoSection from "./categorias-transacao-section";
+import PlanosDeContaSection from "./planos-de-conta-section";
 import CategoriasVendaSection from "./categorias-venda-section";
 import SetoresSection from "./setores-section";
 import CoresVeiculosSection from "./cores-veiculos-section";
@@ -32,6 +33,7 @@ type TabId =
   | "setores"
   | "bancos"
   | "categorias"
+  | "planos_conta"
   | "categorias_venda"
   | "cores_veiculos";
 
@@ -86,6 +88,12 @@ export default function TiposConfigPage() {
       icon: Tags,
       title: "Categorias de transação",
       subtitle: "Organize o financeiro",
+    },
+    {
+      id: "planos_conta",
+      icon: LayoutPanelLeft,
+      title: "Planos de conta",
+      subtitle: "Organize o plano de contas",
     },
     {
       id: "categorias_venda",
@@ -175,6 +183,7 @@ export default function TiposConfigPage() {
           {activeTab === "setores" && <SetoresSection />}
           {activeTab === "bancos" && <BancosSection />}
           {activeTab === "categorias" && <CategoriasTransacaoSection />}
+          {activeTab === "planos_conta" && <PlanosDeContaSection />}
           {activeTab === "categorias_venda" && <CategoriasVendaSection />}
           {activeTab === "cores_veiculos" && <CoresVeiculosSection />}
         </div>

@@ -32,6 +32,7 @@ import { formatCpfCnpj } from "../../utils";
 import { Switch } from "@/components/ui/switch";
 import { Info } from "lucide-react";
 import { useCategoriasTransacao } from "../../hooks/use-categoria-transacao";
+import { usePlanosDeConta } from "../../hooks/use-planos-de-conta";
 import { toast } from "@/lib/toast";
 import {
   DrawerClose,
@@ -106,6 +107,7 @@ export default function EditContent({
   const [banks, setBanks] = useState<Banco[]>([]);
   const { categorias, loadingCategorias, errorCategorias } =
     useCategoriasTransacao();
+  const { planosDeConta, loadingPlanos } = usePlanosDeConta();
 
   const handleChange = (
     field: keyof TransactionForm,
@@ -236,7 +238,9 @@ export default function EditContent({
 
             <div className="grid space-y-4 gap-4 sm:grid-cols-3">
               <div className="space-y-2 w-full">
-                <Label htmlFor="tipo">Tipo</Label>
+                <Label htmlFor="tipo">
+                  Tipo <span className="text-red-500">*</span>
+                </Label>
                 <Select
                   disabled
                   value={selectedTransaction.tipo}
@@ -319,7 +323,9 @@ export default function EditContent({
               </div>
 
               <div className="space-y-2 w-full">
-                <Label htmlFor="valor">Valor*</Label>
+                <Label htmlFor="valor">
+                  Valor <span className="text-red-500">*</span>
+                </Label>
                 <ValueInput
                   disabled
                   price={selectedTransaction.valor || 0}
@@ -390,8 +396,43 @@ export default function EditContent({
                 </Select>
               </div>
 
+              <div className="space-y-2 w-full">
+                <Label htmlFor="plano-de-conta">Plano de Conta</Label>
+                <Select
+                  disabled={loadingPlanos}
+                  value={selectedTransaction.plano_de_conta_id?.toString() || ""}
+                  onValueChange={(v) => {
+                    const selected = planosDeConta.find((p) => String(p.id) === v);
+                    setSelectedTransaction((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            plano_de_conta_id: selected ? selected.id : null,
+                            plano_de_conta: selected ? selected.nome : null,
+                          }
+                        : prev,
+                    );
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue
+                      placeholder={loadingPlanos ? "Carregando..." : "Selecione"}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {planosDeConta.map((p) => (
+                      <SelectItem key={p.id} value={p.id.toString()}>
+                        {p.codigo ? `${p.codigo} - ${p.nome}` : p.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
               <div className="space-y-2 w-full col-span-full">
-                <Label htmlFor="descricao">Descricao*</Label>
+                <Label htmlFor="descricao">
+                  Descrição <span className="text-red-500">*</span>
+                </Label>
                 <Input
                   disabled
                   id="descricao"
@@ -463,7 +504,9 @@ export default function EditContent({
 
             <div className="grid space-y-4 gap-4 sm:grid-cols-2">
               <div className="space-y-2 w-full">
-                <Label htmlFor="nomepagador">Nome do pagador*</Label>
+                <Label htmlFor="nomepagador">
+                  Nome do pagador <span className="text-red-500">*</span>
+                </Label>
                 <Input
                   disabled
                   id="nomepagador"
@@ -475,7 +518,9 @@ export default function EditContent({
               </div>
 
               <div className="space-y-2 w-full">
-                <Label htmlFor="cpfcnpjpagador">CPF/CNPJ do pagador*</Label>
+                <Label htmlFor="cpfcnpjpagador">
+                  CPF/CNPJ do pagador <span className="text-red-500">*</span>
+                </Label>
                 <Input
                   disabled
                   id="cpfcnpjpagador"

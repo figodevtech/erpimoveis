@@ -35,6 +35,7 @@ import { CalendarIcon, Info, Minus, Plus, Save } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { useCategoriasTransacao } from "../../hooks/use-categoria-transacao";
+import { usePlanosDeConta } from "../../hooks/use-planos-de-conta";
 import {
   DrawerClose,
   DrawerContent,
@@ -167,6 +168,7 @@ export default function RegisterContent({
   >([]);
   const { categorias, loadingCategorias, errorCategorias } =
     useCategoriasTransacao();
+  const { planosDeConta, loadingPlanos } = usePlanosDeConta();
   const canManageParcelas =
     newTransaction.metodopagamento === Metodo_pagamento.BOLETO &&
     !!newTransaction.pendente;
@@ -380,11 +382,6 @@ export default function RegisterContent({
     try {
       let parcelasPayload: Array<{ data: Date; valor: number }> | undefined;
 
-      if (!newTransaction.banco_id) {
-        toast.error("Selecione um banco.");
-        return;
-      }
-
       if (canManageParcelas) {
         if (parcelasDetalhadas.length === 0) {
           toast.error("Adicione ao menos uma parcela.");
@@ -593,7 +590,9 @@ export default function RegisterContent({
               {/* dados da transação */}
               <div className="space-y-4 grid sm:grid-cols-3 gap-4">
                 <div className="space-y-2 w-full">
-                  <Label htmlFor="tipo">Tipo</Label>
+                  <Label htmlFor="tipo">
+                    Tipo <span className="text-red-500">*</span>
+                  </Label>
                   {osId || vendaId ? (
                     <Select
                       disabled
@@ -687,7 +686,9 @@ export default function RegisterContent({
                 </div>
 
                 <div className="hidden space-y-2 w-full col-span-full">
-                  <Label htmlFor="descricao">Descrição*</Label>
+                  <Label htmlFor="descricao">
+                    Descrição <span className="text-red-500">*</span>
+                  </Label>
                   <Input
                     disabled={osId || vendaId ? true : false}
                     id="descricao"
@@ -699,7 +700,9 @@ export default function RegisterContent({
                 </div>
                 <div className="space-y-2 w-full">
                   <div className="p-0 m-0 mb-1 flex flex-row justify-between items-center">
-                    <Label htmlFor="valor">Valor* </Label>
+                    <Label htmlFor="valor">
+                      Valor <span className="text-red-500">*</span>
+                    </Label>
                     {(newTransaction.tipo === Tipo_transacao.RECEITA ||
                       newTransaction.tipo === Tipo_transacao.SAQUE) && (
                       <div className="flex flex-row gap-2">
@@ -878,8 +881,42 @@ export default function RegisterContent({
                     </Select>
                   )}
                 </div>
+                <div className="space-y-2 w-full">
+                  <Label htmlFor="plano-de-conta">Plano de Conta</Label>
+                  <Select
+                    disabled={loadingPlanos}
+                    value={newTransaction.plano_de_conta_id?.toString() || ""}
+                    onValueChange={(v) => {
+                      const selected = planosDeConta.find((p) => String(p.id) === v);
+                      setNewTransaction({
+                        ...newTransaction,
+                        plano_de_conta_id: selected ? selected.id : null,
+                        plano_de_conta: selected ? selected.nome : null,
+                      });
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue
+                        placeholder={loadingPlanos ? "Carregando..." : "Selecione"}
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {planosDeConta.map((p) => (
+                        <SelectItem
+                          className="hover:cursor-pointer"
+                          key={p.id}
+                          value={p.id.toString()}
+                        >
+                          {p.codigo ? `${p.codigo} - ${p.nome}` : p.nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="space-y-2 w-full col-span-full">
-                  <Label htmlFor="descricao-topo">Descrição*</Label>
+                  <Label htmlFor="descricao-topo">
+                    Descrição <span className="text-red-500">*</span>
+                  </Label>
                   <Input
                     disabled={osId || vendaId ? true : false}
                     id="descricao-topo"
@@ -1213,7 +1250,9 @@ export default function RegisterContent({
               </div>
               <div className="space-y-4 grid sm:grid-cols-2 gap-4">
                 <div className="space-y-2 w-full">
-                  <Label htmlFor="nomepagador">Nome do pagador*</Label>
+                  <Label htmlFor="nomepagador">
+                    Nome do pagador <span className="text-red-500">*</span>
+                  </Label>
                   <Input
                     disabled={selectedCustomer ? true : false}
                     id="descricao"
@@ -1226,7 +1265,9 @@ export default function RegisterContent({
                   />
                 </div>
                 <div className="space-y-2 w-full">
-                  <Label htmlFor="nomepagador">CPF/CNPJ do pagador*</Label>
+                  <Label htmlFor="cpfcnpjpagador">
+                    CPF/CNPJ do pagador <span className="text-red-500">*</span>
+                  </Label>
                   <Input
                     disabled={selectedCustomer ? true : false}
                     id="cpfcnpjpagador"

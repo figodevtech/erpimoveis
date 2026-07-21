@@ -32,8 +32,8 @@ interface RegistrarEntradaDTO {
   parcelas?: ParcelaDTO[];
 
   // Dados para criar transacao
-  bancoId: number;
-  metodoPagamento: string; // public.metodo_pagamento
+  bancoId?: number | null;
+  metodoPagamento?: string | null; // public.metodo_pagamento
   categoria: string; // public.categoria_transacao
   tipo: string; // public.tipos_transacao (ex: "DESPESA")
 
@@ -307,11 +307,11 @@ export async function POST(req: NextRequest) {
           valor: parcela.valor,
           valorLiquido: parcela.valor,
           data,
-          metodopagamento: metodoPagamento,
+          metodopagamento: metodoPagamento || null,
           categoria,
           tipo,
           cliente_id: null,
-          banco_id: bancoId,
+          banco_id: bancoId ?? null,
           nomepagador: nomePagador,
           cpfcnpjpagador: cpfCnpjPagador,
           pendente: true,

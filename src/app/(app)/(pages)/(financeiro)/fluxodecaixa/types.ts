@@ -49,6 +49,14 @@ export interface Banco {
   proprietario: string;
 }
 
+export interface Plano_de_conta {
+  id: number;
+  codigo?: string | null;
+  nome: string;
+  descricao?: string | null;
+  ativo: boolean;
+}
+
 export interface Transaction {
   id: number;
   descricao: string;
@@ -59,6 +67,9 @@ export interface Transaction {
   categoria: string;
   categoria_id?: number | null;
   categoria_dados?: { id: number; nome: string; icone: string } | null;
+  plano_de_conta?: string | null;
+  plano_de_conta_id?: number | null;
+  plano_de_conta_dados?: { id: number; codigo?: string | null; nome: string } | null;
   tipo: Tipo_transacao;
   cliente_id?: number;
   banco_id?: number | null;
@@ -69,9 +80,8 @@ export interface Transaction {
   ordemservicoid?: number | null
   vendaid?: number | null
   pendente?: boolean
-
-
 }
+
 export interface NewTransaction {
   id?: number;
   descricao?: string;
@@ -81,6 +91,8 @@ export interface NewTransaction {
   metodopagamento?: Metodo_pagamento;
   categoria?: string;
   categoria_id?: number | null;
+  plano_de_conta?: string | null;
+  plano_de_conta_id?: number | null;
   tipo?: Tipo_transacao;
   cliente_id?: number | null;
   banco_id?: number | null;

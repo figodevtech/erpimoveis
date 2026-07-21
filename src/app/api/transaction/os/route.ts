@@ -15,6 +15,8 @@ const WRITABLE_FIELDS = new Set([
   "metodopagamento",
   "categoria",
   "categoria_id",
+  "plano_de_conta",
+  "plano_de_conta_id",
   "tipo",
   "cliente_id",
   "banco_id",
@@ -25,7 +27,7 @@ const WRITABLE_FIELDS = new Set([
 
 /** Campos retornados no select padrão (transacao) */
 const TRANSACAO_FIELDS =
-  "id, descricao, valor, valorLiquido, data, ordemservicoid, vendaid, metodopagamento, categoria, categoria_id, tipo, pendente, cliente_id, banco_id, created_at, updated_at";
+  "id, descricao, valor, valorLiquido, data, ordemservicoid, vendaid, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, tipo, pendente, cliente_id, banco_id, created_at, updated_at";
 
 /** Campos do banco (bancoconta) alinhados ao que você precisa no front */
 const BANCO_FIELDS =
@@ -167,7 +169,7 @@ function sanitizeTransacaoPayload(body: any, { strict }: { strict: boolean }) {
   }
 
   if (strict) {
-    const required = ["descricao", "valor", "data", "metodopagamento", "tipo"];
+    const required = ["descricao", "valor", "data", "tipo"];
     const missing = required.filter((k) => out[k] == null);
     if (missing.length) {
       throw new Error(`Campos obrigatórios ausentes: ${missing.join(", ")}`);

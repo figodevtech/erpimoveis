@@ -115,7 +115,9 @@ export default function FinancialTable({
   >(undefined);
   const [isOpen, setIsOpen] = useState(false);
   const [isAlertOpen, setIsAlertOpen] = useState(false);
-  const [isAlertOpen2, setIsAlertOpen2] = useState(false);
+  const [selectedTransactionForPago, setSelectedTransactionForPago] =
+    useState<Transaction | null>(null);
+  const [isPagoDialogOpen, setIsPagoDialogOpen] = useState(false);
   const [, setIsDeleting] = useState(false);
   const canCreate = permissionSetHas(
     (session?.user as any)?.permissoes,
@@ -309,11 +311,10 @@ export default function FinancialTable({
               onClick={() =>
                 setViewMode(viewMode === "A_PAGAR" ? "TODAS" : "A_PAGAR")
               }
-              className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm rounded-b-none px-3 py-1.5 text-sm font-medium transition-all cursor-pointer ${
-                viewMode === "A_PAGAR"
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "hover:bg-background/50 hover:text-foreground"
-              }`}
+              className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm rounded-b-none px-3 py-1.5 text-sm font-medium transition-all cursor-pointer ${viewMode === "A_PAGAR"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "hover:bg-background/50 hover:text-foreground"
+                }`}
             >
               A Pagar
             </button>
@@ -322,11 +323,10 @@ export default function FinancialTable({
               onClick={() =>
                 setViewMode(viewMode === "A_RECEBER" ? "TODAS" : "A_RECEBER")
               }
-              className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm rounded-b-none px-3 py-1.5 text-sm font-medium transition-all cursor-pointer ${
-                viewMode === "A_RECEBER"
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "hover:bg-background/50 hover:text-foreground"
-              }`}
+              className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm rounded-b-none px-3 py-1.5 text-sm font-medium transition-all cursor-pointer ${viewMode === "A_RECEBER"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "hover:bg-background/50 hover:text-foreground"
+                }`}
             >
               A Receber
             </button>
@@ -337,14 +337,12 @@ export default function FinancialTable({
       <CardContent className="min-h-[300px] -mt-[24px] px-4 pb-4 pt-0 relative">
         {/* barra superior de loading */}
         <div
-          className={`${
-            isLoading && "opacity-100"
-          } transition-all opacity-0 h-0.5 bg-slate-400 w-full overflow-hidden absolute left-0 right-0 top-0`}
+          className={`${isLoading && "opacity-100"
+            } transition-all opacity-0 h-0.5 bg-slate-400 w-full overflow-hidden absolute left-0 right-0 top-0`}
         >
           <div
-            className={`w-1/2 bg-primary h-full absolute left-0 rounded-lg -translate-x-[100%] ${
-              isLoading && "animate-slideIn"
-            }`}
+            className={`w-1/2 bg-primary h-full absolute left-0 rounded-lg -translate-x-[100%] ${isLoading && "animate-slideIn"
+              }`}
           />
         </div>
 
@@ -389,7 +387,7 @@ export default function FinancialTable({
                         ID: {t.id}
                       </span>
                       <span className="text-xs text-muted-foreground md:hidden">
-                        {t.banco?.titulo ?? "Sem banco"} - {t.metodopagamento}
+                        {t.banco?.titulo ?? "Sem banco"} - {t.metodopagamento ?? "Método não definido"}
                       </span>
                       <span className="text-muted-foreground text-nowrap flex-nowrap flex justify-center items-center gap-2 md:hidden">
                         <Calendar className="w-[10px] h-[10px]" />
@@ -429,7 +427,7 @@ export default function FinancialTable({
                     {t.banco?.titulo ?? "Sem banco"}
                   </TableCell>
                   <TableCell className="hidden md:table-cell">
-                    {t.metodopagamento}
+                    {t.metodopagamento ?? "Não definido"}
                   </TableCell>
 
                   <TableCell className={`text-right ${getTypeColor(t.tipo)}`}>
@@ -474,19 +472,15 @@ export default function FinancialTable({
                         </DropdownMenuItem>
 
                         {canEdit && t.pendente && (
-                          <ConculidoAlert
-                            isAlertOpen={isAlertOpen2}
-                            setIsAlertOpen={setIsAlertOpen2}
-                            handleSetConcluido={(value) => handleSetPago(value)}
-                            idConcluido={t.id}
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setSelectedTransactionForPago(t);
+                              setIsPagoDialogOpen(true);
+                            }}
                           >
-                            <DropdownMenuItem
-                              onSelect={(e) => e.preventDefault()}
-                            >
-                              <Check className="mr-2 h-4 w-4" />
-                              Pago
-                            </DropdownMenuItem>
-                          </ConculidoAlert>
+                            <Check className="mr-2 h-4 w-4" />
+                            Pago
+                          </DropdownMenuItem>
                         )}
 
                         {canDelete ? (
@@ -634,6 +628,26 @@ export default function FinancialTable({
           </div>
         </div>
       </CardContent>
+
+      {selectedTransactionForPago && (
+        <ConculidoAlert
+          isAlertOpen={isPagoDialogOpen}
+          setIsAlertOpen={setIsPagoDialogOpen}
+          transaction={selectedTransactionForPago}
+          onSuccess={() => {
+            handleGetTransactions(
+              pagination.page,
+              pagination.limit,
+              search,
+              dateFrom,
+              dateTo,
+              tipo,
+              pendenteFilter,
+            );
+            handleGetStatusCounter();
+          }}
+        />
+      )}
     </Card>
   );
 }
