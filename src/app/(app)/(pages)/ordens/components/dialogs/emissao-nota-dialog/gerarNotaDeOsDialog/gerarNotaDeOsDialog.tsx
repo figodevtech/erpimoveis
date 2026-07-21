@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 
 import { DialogProduto } from "@/app/(app)/(pages)/estoque/components/dialog-produto/dialog-produto";
+import { CustomerDialog } from "@/app/(app)/(pages)/clientes/components/customerDialogRegister/customerDialog";
+import type { Customer } from "@/app/(app)/(pages)/clientes/types";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,7 +34,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
 import { normalizeCfopForOperation } from "@/lib/nfe/cfopOperation";
-import { normalizeFiscalRecipient } from "@/lib/nfe/recipientNormalization";
+import { isValidCnpj, isValidCpf, normalizeFiscalRecipient } from "@/lib/nfe/recipientNormalization";
 
 import {
   createAssistedItem,
@@ -55,7 +57,7 @@ type SourceResponse = {
   ok: boolean;
   message?: string;
   observacoes_fiscais?: string | null;
-  cliente?: { id: number; nome: string; uf?: string | null } | null;
+  cliente?: FiscalCustomer | null;
   fornecedor?: { id: number | null; nome: string | null; uf?: string | null } | null;
   parceiro_erros?: string[];
   tipo_operacao?: "SAIDA" | "ENTRADA";
@@ -63,6 +65,56 @@ type SourceResponse = {
   destinatario?: NFeEntrySupplierDraft;
   itens: SourceProduct[];
 };
+
+type FiscalCustomer = {
+  id: number;
+  nome: string;
+  uf?: string | null;
+  tipopessoa?: string | null;
+  cpfcnpj?: string | null;
+  nomerazaosocial?: string | null;
+  email?: string | null;
+  telefone?: string | null;
+  endereco?: string | null;
+  endereconumero?: string | null;
+  enderecocomplemento?: string | null;
+  bairro?: string | null;
+  cidade?: string | null;
+  estado?: string | null;
+  cep?: string | null;
+  inscricaoestadual?: string | null;
+  inscricaomunicipal?: string | null;
+  codigomunicipio?: string | null;
+};
+
+function onlyDigits(value: unknown) {
+  return String(value ?? "").replace(/\D/g, "");
+}
+
+function validateFiscalCustomer(cliente?: FiscalCustomer | null) {
+  if (!cliente) return ["Cliente não encontrado na origem."];
+  const errors: string[] = [];
+  const document = onlyDigits(cliente.cpfcnpj);
+  if (!(document.length === 11 ? isValidCpf(document) : isValidCnpj(document))) {
+    errors.push("CPF/CNPJ inválido ou ausente.");
+  }
+  if (!String(cliente.nomerazaosocial ?? cliente.nome ?? "").trim()) errors.push("Nome ou razão social ausente.");
+  if (!String(cliente.endereco ?? "").trim()) errors.push("Endereço ausente.");
+  if (!String(cliente.bairro ?? "").trim()) errors.push("Bairro ausente.");
+  if (!String(cliente.cidade ?? "").trim()) errors.push("Cidade ausente.");
+  if (String(cliente.estado ?? "").trim().length !== 2) errors.push("UF ausente ou inválida.");
+  if (onlyDigits(cliente.cep).length !== 8) errors.push("CEP ausente ou inválido.");
+  if (onlyDigits(cliente.codigomunicipio).length !== 7) errors.push("Código IBGE do município ausente ou inválido.");
+  return errors;
+}
+
+function customerToFiscalCustomer(customer: Customer): FiscalCustomer {
+  return {
+    ...customer,
+    nome: customer.nomerazaosocial,
+    uf: customer.estado,
+  };
+}
 
 type GenerateResponse = {
   ok: boolean;
@@ -114,6 +166,7 @@ export function GerarNotaDeOsDialog({
   const [includeObservations, setIncludeObservations] = useState(false);
   const [observations, setObservations] = useState("");
   const [entrySupplier, setEntrySupplier] = useState<NFeEntrySupplierDraft>(emptyEntrySupplier);
+  const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
 
   const origin = osId ? "OS" : vendaId ? "VENDA" : entradaId ? "ENTRADA" : null;
   const originId = osId ?? vendaId ?? entradaId ?? null;
@@ -246,6 +299,10 @@ export function GerarNotaDeOsDialog({
     () => origin === "ENTRADA" ? validateEntrySupplier(entrySupplier) : [],
     [entrySupplier, origin],
   );
+  const customerErrors = useMemo(
+    () => origin === "OS" || origin === "VENDA" ? validateFiscalCustomer(source?.cliente) : [],
+    [origin, source?.cliente],
+  );
   const operationLabel =
     setup?.empresa?.uf && parceiro?.uf
       ? setup.empresa.uf === parceiro.uf
@@ -336,6 +393,11 @@ export function GerarNotaDeOsDialog({
     }
     if (entrySupplierErrors.length) {
       toast.error("Preencha os dados fiscais do fornecedor antes de emitir.");
+      return;
+    }
+    if (customerErrors.length) {
+      toast.error("Complete os dados fiscais do cliente antes de emitir.");
+      setCustomerDialogOpen(true);
       return;
     }
 
@@ -449,6 +511,45 @@ export function GerarNotaDeOsDialog({
                     value={entrySupplier}
                     onChange={updateEntrySupplier}
                   />
+                ) : null}
+
+                {(origin === "OS" || origin === "VENDA") && source.cliente ? (
+                  <section className="min-w-0 space-y-3 rounded-lg border bg-card p-3 sm:p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-medium">Dados fiscais do cliente</p>
+                          {customerErrors.length === 0 ? (
+                            <Badge className="gap-1 bg-emerald-600 hover:bg-emerald-600">
+                              <CheckCircle2 className="h-3 w-3" /> Cadastro completo
+                            </Badge>
+                          ) : (
+                            <Badge variant="destructive">{customerErrors.length} pendência(s)</Badge>
+                          )}
+                        </div>
+                        <p className="break-words text-sm">{source.cliente.nomerazaosocial || source.cliente.nome}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {source.cliente.endereco
+                            ? `${source.cliente.endereco}, ${source.cliente.endereconumero || "S/N"} · ${source.cliente.cidade || "Cidade pendente"}/${source.cliente.estado || "UF"}`
+                            : "Endereço não informado"}
+                        </p>
+                      </div>
+                      <Button type="button" variant={customerErrors.length ? "default" : "outline"} onClick={() => setCustomerDialogOpen(true)}>
+                        <Pencil className="mr-2 h-4 w-4" /> Editar cliente
+                      </Button>
+                    </div>
+                    {customerErrors.length ? (
+                      <Alert variant="destructive">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertTitle>Complete o cadastro para emitir a NF-e</AlertTitle>
+                        <AlertDescription>
+                          <ul className="list-disc space-y-0.5 pl-4">
+                            {customerErrors.map((error) => <li key={error}>{error}</li>)}
+                          </ul>
+                        </AlertDescription>
+                      </Alert>
+                    ) : null}
+                  </section>
                 ) : null}
 
                 {setup.empresaErros.length > 0 ? (
@@ -626,7 +727,8 @@ export function GerarNotaDeOsDialog({
                         saving ||
                         selectedItems.length === 0 ||
                         setup.empresaErros.length > 0 ||
-                        entrySupplierErrors.length > 0
+                        entrySupplierErrors.length > 0 ||
+                        customerErrors.length > 0
                       }
                       onClick={() => void generateDraft()}
                     >
@@ -652,6 +754,27 @@ export function GerarNotaDeOsDialog({
           issues={editingIssues}
           onChange={updateEditingItem}
         />
+      ) : null}
+      {source?.cliente ? (
+        <CustomerDialog
+          customerId={source.cliente.id}
+          isOpen={customerDialogOpen}
+          setIsOpen={setCustomerDialogOpen}
+          onUpdate={(customer) => {
+            const updated = customerToFiscalCustomer(customer);
+            setSource((current) => current ? { ...current, cliente: updated } : current);
+            if (setup && updated.uf !== source.cliente?.uf) {
+              setItems((current) => current.map((item) => ({
+                ...item,
+                cfop: normalizeCfopForOperation(item.cfop, "SAIDA", setup.empresa?.uf, updated.uf),
+              })));
+            }
+            setCustomerDialogOpen(false);
+            setServerError(null);
+          }}
+        >
+          <span className="hidden" />
+        </CustomerDialog>
       ) : null}
     </>
   );

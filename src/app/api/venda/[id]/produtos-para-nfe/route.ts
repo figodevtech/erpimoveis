@@ -247,7 +247,7 @@ export async function GET(
     const { data: cliente } = venda.clienteid
       ? await supabaseAdmin
           .from("cliente")
-          .select("id, nomerazaosocial, estado")
+          .select("id, tipopessoa, cpfcnpj, nomerazaosocial, email, telefone, endereco, endereconumero, enderecocomplemento, bairro, cidade, estado, cep, inscricaoestadual, inscricaomunicipal, codigomunicipio")
           .eq("id", venda.clienteid)
           .maybeSingle()
       : { data: null };
@@ -257,7 +257,11 @@ export async function GET(
       vendaId,
       observacoes_fiscais: venda.observacoes_fiscais ?? null,
       cliente: cliente
-        ? { id: cliente.id, nome: cliente.nomerazaosocial, uf: cliente.estado }
+        ? {
+            ...cliente,
+            nome: cliente.nomerazaosocial,
+            uf: cliente.estado,
+          }
         : null,
       itens: resposta,
     });
