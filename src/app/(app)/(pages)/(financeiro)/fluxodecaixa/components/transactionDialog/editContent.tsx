@@ -399,7 +399,7 @@ export default function EditContent({
               <div className="space-y-2 w-full">
                 <Label htmlFor="plano-de-conta">Plano de Conta</Label>
                 <Select
-                  disabled={loadingPlanos}
+                  disabled
                   value={selectedTransaction.plano_de_conta_id?.toString() || ""}
                   onValueChange={(v) => {
                     const selected = planosDeConta.find((p) => String(p.id) === v);
@@ -416,7 +416,11 @@ export default function EditContent({
                 >
                   <SelectTrigger className="w-full">
                     <SelectValue
-                      placeholder={loadingPlanos ? "Carregando..." : "Selecione"}
+                      placeholder={
+                        loadingPlanos
+                          ? "Carregando..."
+                          : selectedTransaction.plano_de_conta || "Selecione"
+                      }
                     />
                   </SelectTrigger>
                   <SelectContent>

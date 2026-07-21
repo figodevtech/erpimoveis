@@ -8,7 +8,7 @@ import { requireFinanceiroDelete, requireFinanceiroEdit, requireFinanceirosAcces
 type Params = { params: Promise<{ id: string }> };
 
 const TRANSACAO_FIELDS = `
-  id, descricao, valor, data, metodopagamento, categoria, tipo, cliente_id,
+  id, descricao, valor, data, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, tipo, cliente_id,
   banco_id, nomepagador, cpfcnpjpagador, pendente, ordemservicoid, valorLiquido, vendaid,
   created_at, updated_at
 `;
@@ -148,6 +148,8 @@ function sanitizePayload(body: any, { strict }: { strict: boolean }) {
         break;
 
       case "cliente_id":
+      case "categoria_id":
+      case "plano_de_conta_id":
       case "ordemservicoid":
       case "vendaid":
         out[key] = toIntOrNull(body[key]);
@@ -229,7 +231,9 @@ export async function GET(_: Request, ctx: Params) {
       .select(
         `
         ${TRANSACAO_FIELDS},
-        banco:bancoconta!transacao_banco_id_fkey ( ${BANCO_FIELDS} )
+        banco:bancoconta!transacao_banco_id_fkey ( ${BANCO_FIELDS} ),
+        categoria_dados:categoriatransacao!transacao_categoria_id_fkey ( id, nome, icone ),
+        plano_de_conta_dados:planosdeconta!transacao_plano_de_conta_id_fkey ( id, codigo, nome )
         `
       )
       .eq("id", id)
