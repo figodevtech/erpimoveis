@@ -123,6 +123,18 @@ type MlOrder = {
   created_at?: string | null;
 };
 
+type PublishedListing = {
+  id: string;
+  title: string;
+  status?: string | null;
+  price: number;
+  soldQuantity: number;
+  availableQuantity: number;
+  thumbnail?: string | null;
+  permalink?: string | null;
+  produtoId?: number | null;
+};
+
 function marketplaceOrdersRevision(orders: MlOrder[]) {
   if (orders.length === 0) return "empty";
 
@@ -1571,6 +1583,9 @@ export default function MarketplacePage() {
   const [actionKey, setActionKey] = useState<string | null>(null);
   const [linkingProductId, setLinkingProductId] = useState<number | null>(null);
   const [linkValue, setLinkValue] = useState("");
+  const [publishedListings, setPublishedListings] = useState<PublishedListing[]>([]);
+  const [loadingPublishedListings, setLoadingPublishedListings] = useState(false);
+  const [publishedProductByItem, setPublishedProductByItem] = useState<Record<string, string>>({});
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [createDialogTab, setCreateDialogTab] = useState("dados");
   const [listingFieldErrors, setListingFieldErrors] = useState<Record<string, string>>({});
@@ -1695,6 +1710,7 @@ export default function MarketplacePage() {
   const unlinkedCount = Math.max(products.length - linkedCount, 0);
   const linkedProducts = products.filter((product) => product.mercadolivre);
   const publishableProducts = products.filter((product) => !product.mercadolivre);
+  const unlinkedPublishedListings = publishedListings.filter((listing) => !listing.produtoId);
   const productsTotalPages = Math.max(1, Math.ceil(products.length / productsPageSize));
   const safeProductsPage = Math.min(productsPage, productsTotalPages);
   const productsPageStart = products.length === 0 ? 0 : (safeProductsPage - 1) * productsPageSize + 1;
@@ -3187,6 +3203,50 @@ export default function MarketplacePage() {
     setActiveTab(value);
   }
 
+  async function loadPublishedListings() {
+    setLoadingPublishedListings(true);
+    try {
+      const response = await fetch("/api/integracoes/mercadolivre/product-links", {
+        cache: "no-store",
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json?.error || "Falha ao buscar anúncios publicados.");
+      setPublishedListings(Array.isArray(json?.data) ? json.data : []);
+    } catch (e: any) {
+      toast.error("Erro ao buscar anúncios", { description: marketplaceErrorMessage(e) });
+    } finally {
+      setLoadingPublishedListings(false);
+    }
+  }
+
+  async function linkPublishedListing(itemId: string) {
+    const produtoId = Number(publishedProductByItem[itemId]);
+    if (!Number.isInteger(produtoId) || produtoId <= 0) {
+      toast.error("Selecione um produto do ERP.");
+      return;
+    }
+
+    setActionKey(`published-link:${itemId}`);
+    try {
+      const response = await fetch("/api/integracoes/mercadolivre/product-links", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ produtoId, mlItemId: itemId }),
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json?.error || "Falha ao vincular anúncio.");
+      toast.success("Anúncio vinculado ao produto.");
+      setPublishedListings((current) =>
+        current.map((item) => (item.id === itemId ? { ...item, produtoId } : item)),
+      );
+      await loadProducts();
+    } catch (e: any) {
+      toast.error("Erro ao vincular anúncio", { description: marketplaceErrorMessage(e) });
+    } finally {
+      setActionKey(null);
+    }
+  }
+
   useEffect(() => {
     if (!createDialogOpen) return;
     if (categoryParent && categorySearch.trim().length === 0) return;
@@ -3516,6 +3576,21 @@ export default function MarketplacePage() {
                     Sincronizar pedidos
                   </Button>
                 )}
+                {activeTab === "listings" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={loadPublishedListings}
+                    disabled={!connected || loadingPublishedListings}
+                  >
+                    {loadingPublishedListings ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCcw className="h-4 w-4" />
+                    )}
+                    Sincronizar anúncios
+                  </Button>
+                )}
                 {(activeTab === "products" || activeTab === "listings") && (
                   <Button size="sm" onClick={openCreateListing} disabled={!connected}>
                     <Plus className="h-4 w-4" />
@@ -3583,7 +3658,9 @@ export default function MarketplacePage() {
                   >
                     <Store className="h-3.5 w-3.5" />
                     Mercado Livre
-                    <span className="rounded bg-background/20 px-1 text-[10px] tabular-nums">{linkedCount}</span>
+                    <span className="rounded bg-background/20 px-1 text-[10px] tabular-nums">
+                      {publishedListings.length || linkedCount}
+                    </span>
                   </TabsTrigger>
                   <TabsTrigger
                     value="orders"
@@ -3862,6 +3939,56 @@ export default function MarketplacePage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
+                    {unlinkedPublishedListings.map((listing) => (
+                      <TableRow key={listing.id}>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs">{listing.id}</span>
+                              {statusBadge(listing.status)}
+                            </div>
+                            <div className="max-w-[320px] truncate text-xs text-muted-foreground">{listing.title}</div>
+                            {listing.permalink && (
+                              <a className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground" href={listing.permalink} target="_blank" rel="noreferrer">
+                                <ExternalLink className="h-3 w-3" />
+                                Abrir anúncio
+                              </a>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex min-w-[260px] gap-2">
+                            <Select
+                              value={publishedProductByItem[listing.id] || ""}
+                              onValueChange={(value) =>
+                                setPublishedProductByItem((current) => ({ ...current, [listing.id]: value }))
+                              }
+                            >
+                              <SelectTrigger className="min-w-0 flex-1">
+                                <SelectValue placeholder="Vincular produto do ERP" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {publishableProducts.map((product) => (
+                                  <SelectItem key={product.id} value={String(product.id)}>
+                                    {product.titulo}{product.referencia ? ` · ${product.referencia}` : ""}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Button size="sm" onClick={() => linkPublishedListing(listing.id)} disabled={actionKey === `published-link:${listing.id}`}>
+                              {actionKey === `published-link:${listing.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+                            </Button>
+                          </div>
+                        </TableCell>
+                        <TableCell>-</TableCell>
+                        <TableCell className="font-medium">{listing.soldQuantity.toLocaleString("pt-BR")}</TableCell>
+                        <TableCell className="font-medium">{listing.availableQuantity.toLocaleString("pt-BR")}</TableCell>
+                        <TableCell>-</TableCell>
+                        <TableCell><Badge variant="outline">Sem vínculo</Badge></TableCell>
+                        <TableCell>{formatCurrency(listing.price)}</TableCell>
+                        <TableCell className="text-right">-</TableCell>
+                      </TableRow>
+                    ))}
                     {linkedProducts.map((product) => {
                       const link = product.mercadolivre;
                       if (!link) return null;
@@ -3917,10 +4044,18 @@ export default function MarketplacePage() {
                         </TableRow>
                       );
                     })}
-                    {linkedProducts.length === 0 && (
+                    {loadingPublishedListings && linkedProducts.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
-                          Nenhum anúncio vinculado.
+                          <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                          Carregando anúncios do Mercado Livre...
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {!loadingPublishedListings && linkedProducts.length === 0 && unlinkedPublishedListings.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                          Nenhum anúncio encontrado na conta Mercado Livre.
                         </TableCell>
                       </TableRow>
                     )}
@@ -4495,6 +4630,87 @@ export default function MarketplacePage() {
           </CardContent>
         </Card>
       </Tabs>
+
+      <Dialog open={false} onOpenChange={() => undefined}>
+        <DialogContent className="flex max-h-[85dvh] max-w-3xl flex-col overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>Anúncios publicados no Mercado Livre</DialogTitle>
+            <DialogDescription>
+              Consulte os anúncios ativos ou pausados da conta e vincule cada um ao produto correspondente no ERP.
+            </DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="min-h-0 flex-1 pr-3">
+            {loadingPublishedListings ? (
+              <div className="flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Buscando anúncios...
+              </div>
+            ) : publishedListings.length ? (
+              <div className="space-y-2 py-1">
+                {publishedListings.map((listing) => (
+                  <div key={listing.id} className="rounded-lg border p-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate text-sm font-medium">{listing.title}</p>
+                          <Badge variant={listing.status === "active" ? "default" : "outline"}>
+                            {listing.status === "active" ? "Ativo" : listing.status === "paused" ? "Pausado" : listing.status || "—"}
+                          </Badge>
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {listing.id} · {formatCurrency(listing.price)} · Estoque {listing.availableQuantity}
+                        </p>
+                      </div>
+                      {listing.produtoId ? (
+                        <Badge variant="secondary">Já vinculado</Badge>
+                      ) : (
+                        <div className="flex min-w-0 flex-col gap-2 sm:w-[330px] sm:flex-row">
+                          <Select
+                            value={publishedProductByItem[listing.id] || ""}
+                            onValueChange={(value) =>
+                              setPublishedProductByItem((current) => ({ ...current, [listing.id]: value }))
+                            }
+                          >
+                            <SelectTrigger className="min-w-0 flex-1">
+                              <SelectValue placeholder="Selecione o produto do ERP" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {publishableProducts.map((product) => (
+                                <SelectItem key={product.id} value={String(product.id)}>
+                                  {product.titulo}{product.referencia ? ` · ${product.referencia}` : ""}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Button
+                            size="sm"
+                            onClick={() => linkPublishedListing(listing.id)}
+                            disabled={actionKey === `published-link:${listing.id}`}
+                          >
+                            {actionKey === `published-link:${listing.id}` ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Link2 className="h-4 w-4" />
+                            )}
+                            Vincular
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex min-h-48 items-center justify-center text-center text-sm text-muted-foreground">
+                Nenhum anúncio ativo ou pausado foi encontrado nesta conta.
+              </div>
+            )}
+          </ScrollArea>
+          <DialogFooter>
+            <Button variant="outline">Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={createDialogOpen}

@@ -7,6 +7,72 @@ import { mercadoLivreApiGet } from "@/lib/integrations/mercadolivre";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+export async function GET() {
+  try {
+    await requireVendasEdit();
+    const empresaId = await requireEmpresaId();
+    const account = await getDefaultAccount(empresaId);
+    const searches = await Promise.all(
+      ["active", "paused", "closed"].map((status) =>
+        mercadoLivreApiGet<any>(
+          account.access_token,
+          `/users/${account.ml_user_id}/items/search?status=${status}&limit=100`,
+        ),
+      ),
+    );
+    const itemIds = Array.from(
+      new Set(
+        searches.flatMap((search) =>
+          Array.isArray(search?.results) ? search.results.map(String).filter(Boolean) : [],
+        ),
+      ),
+    );
+
+    const { data: links, error: linksError } = await supabaseAdmin
+      .from("mercadolivre_product_link")
+      .select("ml_item_id, produto_id")
+      .eq("empresa_id", empresaId)
+      .in("ml_item_id", itemIds.length ? itemIds : ["__nenhum__"]);
+    if (linksError) throw linksError;
+
+    const linkedByItem = new Map(
+      (links ?? []).map((link) => [String(link.ml_item_id), Number(link.produto_id)]),
+    );
+    const items: any[] = [];
+
+    for (let index = 0; index < itemIds.length; index += 20) {
+      const ids = itemIds.slice(index, index + 20);
+      const batch = await mercadoLivreApiGet<any[]>(
+        account.access_token,
+        `/items?ids=${encodeURIComponent(ids.join(","))}`,
+      );
+      for (const response of batch ?? []) {
+        const item = response?.body ?? response;
+        if (!item?.id) continue;
+        items.push({
+          id: String(item.id),
+          title: item.title ?? "Anúncio sem título",
+          status: item.status ?? null,
+          price: Number(item.price ?? 0),
+          soldQuantity: Number(item.sold_quantity ?? 0),
+          availableQuantity: Number(item.available_quantity ?? 0),
+          thumbnail: item.thumbnail ?? null,
+          permalink: item.permalink ?? null,
+          produtoId: linkedByItem.get(String(item.id)) ?? null,
+        });
+      }
+    }
+
+    return NextResponse.json({ data: items, total: itemIds.length });
+  } catch (e: any) {
+    console.error("GET /api/integracoes/mercadolivre/product-links", e);
+    return NextResponse.json(
+      { error: e?.message || "Falha ao buscar anúncios publicados." },
+      { status: errorStatus(e) },
+    );
+  }
+}
+
 export async function POST(req: Request) {
   try {
     await requireVendasEdit();
@@ -91,12 +157,17 @@ export async function DELETE(req: Request) {
 async function getDefaultAccount(empresaId: number) {
   const { data, error } = await supabaseAdmin
     .from("mercadolivre_account")
-    .select("id, empresa_id, access_token")
+    .select("id, empresa_id, ml_user_id, access_token")
     .eq("empresa_id", empresaId)
     .order("updated_at", { ascending: false })
     .limit(1)
     .single();
 
   if (error) throw error;
-  return data as { id: number; empresa_id: number; access_token: string };
+  return data as {
+    id: number;
+    empresa_id: number;
+    ml_user_id: number;
+    access_token: string;
+  };
 }
