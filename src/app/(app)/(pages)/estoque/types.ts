@@ -105,6 +105,7 @@ export interface Produto {
   id?: number;
   precovenda?: number;
   precocompra?: number;
+  ultimovalordecompra?: number | null;
   descricao?: string;
   estoque?: number; // default 0 no banco, mas pode ser null
   estoqueminimo?: number; // default 0 no banco, mas pode ser null

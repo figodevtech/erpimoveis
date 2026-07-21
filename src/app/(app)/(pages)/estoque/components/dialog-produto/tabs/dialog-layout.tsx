@@ -103,7 +103,7 @@ export function ProductDialogLayout({
                   }
                 >
                   <TabsList
-                    className="h-auto min-w-full justify-start gap-1.5 rounded-2xl border bg-muted/40 p-1 backdrop-blur-sm"
+                    className="h-auto min-w-full justify-start gap-1.5 rounded-2xl border-border bg-muted/90 p-1 shadow-sm backdrop-blur-sm"
                   >
                     {tabs}
                   </TabsList>

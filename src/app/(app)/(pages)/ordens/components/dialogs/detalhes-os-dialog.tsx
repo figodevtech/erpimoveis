@@ -28,6 +28,7 @@ ListChecks,
 Loader2,
 Package,
 Paperclip,
+Receipt,
 StickyNote,
 Trash2,
 Upload,
@@ -50,6 +51,9 @@ CommandList,
 import { Popover,PopoverContent,PopoverTrigger } from "@/components/ui/popover";
 
 import { carregarDetalhesOS,listarUsuariosAtivos,type UsuarioAtivo } from "../../lib/api";
+import TransactionDialog from "../../../(financeiro)/fluxodecaixa/components/transactionDialog/transactionDialog";
+import ConcluidoAlert from "../../../(financeiro)/fluxodecaixa/components/concluidoAlert";
+import { Tipo_transacao, type Transaction } from "../../../(financeiro)/fluxodecaixa/types";
 
 const PUBLIC_APPROVAL_BASE = "/aprovacao";
 function approvalUrlFromToken(token: string) {
@@ -137,6 +141,8 @@ type ItemProduto = {
   quantidade: number;
   precounitario: number;
   subtotal: number;
+  custoUnitarioAplicado?: number | null;
+  custoEstimado?: boolean;
   produto?: {
     id: number;
     codigo?: string | null;
@@ -144,6 +150,7 @@ type ItemProduto = {
     titulo?: string | null;
     precounitario?: number | null;
     unidade?: string | null;
+    ultimovalordecompra?: number | null;
   } | null;
 };
 
@@ -215,6 +222,62 @@ type OSDetalhesResponse = {
   itensServico: ItemServico[];
   checklist: ChecklistItem[];
   aprovacoes?: Aprovacao[];
+  transacoes?: Array<{
+    id: number;
+    descricao: string;
+    valor: number;
+    valorLiquido: number;
+    data: string;
+    tipo: string;
+    pendente: boolean;
+    metodopagamento?: any;
+    banco_id?: number | null;
+    plano_de_conta?: string | null;
+    plano_de_conta_id?: number | null;
+  }>;
+  rentabilidade?: {
+    valorFinalOs: number;
+    recebidoBruto: number;
+    recebidoLiquido: number;
+    taxasRecebimento: number;
+    saldoAReceber: number;
+    custoProdutos: number;
+    itensCustoEstimado: number;
+    itensSemCusto: number;
+    produtos: Array<{
+      produtoid: number;
+      descricao: string;
+      quantidade: number;
+      receitaLiquida: number;
+      custoUnitario: number;
+      custoTotal: number;
+      lucroBruto: number;
+      margemBruta: number;
+      custoEstimado: boolean;
+      custoNaoInformado: boolean;
+    }>;
+    despesasComprometidas: number;
+    despesasPagas: number;
+    despesasPendentes: number;
+    totalComissoesServicos: number;
+    comissoesServicos: Array<{
+      servicoid: number;
+      descricao: string;
+      valorServico: number;
+      valorComissao: number;
+      realizadores: Array<{
+        usuarioid: string;
+        nome: string | null;
+        percentual: number;
+        valorBase: number;
+        valorComissao: number;
+      }>;
+    }>;
+    lucroPrevisto: number;
+    lucroRealizado: number;
+    margemPrevista: number;
+    margemRealizada: number;
+  };
 };
 
 function uniq(arr: string[]) {
@@ -384,6 +447,9 @@ export function OSDetalhesDialog({
   const [loadingResponsaveis, setLoadingResponsaveis] = useState(false);
   const [savingResponsavelKey, setSavingResponsavelKey] = useState<string | null>(null);
   const [currentTab, setCurrentTab] = useState("resumo");
+  const [despesaDialogOpen, setDespesaDialogOpen] = useState(false);
+  const [baixaDialogOpen, setBaixaDialogOpen] = useState(false);
+  const [despesaParaBaixa, setDespesaParaBaixa] = useState<Transaction | null>(null);
   const [anexos, setAnexos] = useState<OsAnexo[]>([]);
   const [loadingAnexos, setLoadingAnexos] = useState(false);
   const [uploadingAnexo, setUploadingAnexo] = useState(false);
@@ -409,26 +475,23 @@ export function OSDetalhesDialog({
     [statusUpper, temServicoSemResponsavel]
   );
 
-  useEffect(() => {
-    if (!canFetch || !osId) return;
-
-    const ac = new AbortController();
-    (async () => {
+  const recarregarDetalhes = useCallback(async () => {
+    if (!osId) return;
+    try {
       setLoading(true);
-      try {
-        const j = await carregarDetalhesOS<OSDetalhesResponse>(osId);
-        if (!ac.signal.aborted) setData(j);
-      } catch (e: any) {
-        if (e?.name === "AbortError") return;
-        toast.error(e?.message || "Erro ao carregar detalhes");
-        if (!ac.signal.aborted) setData(null);
-      } finally {
-        if (!ac.signal.aborted) setLoading(false);
-      }
-    })();
+      const j = await carregarDetalhesOS<OSDetalhesResponse>(osId);
+      setData(j);
+    } catch (e: any) {
+      toast.error(e?.message || "Erro ao carregar detalhes");
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [osId]);
 
-    return () => ac.abort();
-  }, [canFetch, osId]);
+  useEffect(() => {
+    if (canFetch) void recarregarDetalhes();
+  }, [canFetch, recarregarDetalhes]);
 
   const carregarAnexos = useCallback(async () => {
     if (!osId) {
@@ -757,6 +820,12 @@ export function OSDetalhesDialog({
                         Checklist
                       </span>
                     </TabsTrigger>
+                    <TabsTrigger value="rentabilidade" className={tabTriggerClass}>
+                      <span className="flex items-center gap-2">
+                        <Calculator className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                        Rentabilidade
+                      </span>
+                    </TabsTrigger>
                     <TabsTrigger value="anexos" className={tabTriggerClass}>
                       <span className="flex items-center gap-2">
                         <Paperclip className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
@@ -991,6 +1060,200 @@ export function OSDetalhesDialog({
                 </div>
               </section>
 
+                </TabsContent>
+
+                <TabsContent value="rentabilidade" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-4 sm:px-6 sm:py-5">
+                  {data.rentabilidade ? (
+                    <>
+                      <div className="flex flex-col gap-3 rounded-xl border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <Receipt className="h-4 w-4 text-primary" />
+                            <p className="font-medium">Resultado interno da OS</p>
+                          </div>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Custos e despesas desta aba não são exibidos ao cliente.
+                          </p>
+                        </div>
+                        <TransactionDialog
+                          osId={data.os.id}
+                          open={despesaDialogOpen}
+                          setOpen={setDespesaDialogOpen}
+                          handleGetTransactions={() => void recarregarDetalhes()}
+                          internalCompanyExpense
+                          initialTransaction={{
+                            tipo: Tipo_transacao.DESPESA,
+                            descricao: "",
+                            valor: 0,
+                            valorLiquido: 0,
+                            pendente: true,
+                            parcelas: 1,
+                          }}
+                        >
+                          <Button type="button" size="sm">Adicionar despesa</Button>
+                        </TransactionDialog>
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        {[
+                          ["Valor final da OS", data.rentabilidade.valorFinalOs],
+                          ["Recebido bruto", data.rentabilidade.recebidoBruto],
+                          ["Taxas de recebimento", data.rentabilidade.taxasRecebimento],
+                          ["Recebido líquido", data.rentabilidade.recebidoLiquido],
+                          ["Custo dos produtos", data.rentabilidade.custoProdutos],
+                          ["Comissões dos serviços", data.rentabilidade.totalComissoesServicos],
+                          ["Despesas pagas", data.rentabilidade.despesasPagas],
+                          ["Despesas pendentes", data.rentabilidade.despesasPendentes],
+                          ["Saldo a receber", data.rentabilidade.saldoAReceber],
+                        ].map(([rotulo, valor]) => (
+                          <div key={String(rotulo)} className="rounded-xl border bg-card p-3">
+                            <p className="text-xs text-muted-foreground">{rotulo}</p>
+                            <p className="mt-1 text-lg font-semibold">{fmtMoney(Number(valor))}</p>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div className="rounded-xl border bg-card p-4">
+                          <p className="text-xs text-muted-foreground">Lucro previsto</p>
+                          <p className="mt-1 text-2xl font-semibold">{fmtMoney(data.rentabilidade.lucroPrevisto)}</p>
+                          <p className="text-xs text-muted-foreground">Margem {data.rentabilidade.margemPrevista.toFixed(2)}%</p>
+                        </div>
+                        <div className="rounded-xl border bg-card p-4">
+                          <p className="text-xs text-muted-foreground">Lucro realizado</p>
+                          <p className="mt-1 text-2xl font-semibold">{fmtMoney(data.rentabilidade.lucroRealizado)}</p>
+                          <p className="text-xs text-muted-foreground">Margem {data.rentabilidade.margemRealizada.toFixed(2)}%</p>
+                        </div>
+                      </div>
+
+                      {data.rentabilidade.itensCustoEstimado > 0 ? (
+                        <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                          <span>
+                            {data.rentabilidade.itensCustoEstimado} produto(s) antigo(s) sem custo registrado na OS; foi usado o último valor de compra atual como estimativa.
+                          </span>
+                        </div>
+                      ) : null}
+
+                      {data.rentabilidade.itensSemCusto > 0 ? (
+                        <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm">
+                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+                          <span>
+                            {data.rentabilidade.itensSemCusto} produto(s) sem último valor de compra. O custo foi considerado como zero e deve ser cadastrado para corrigir o lucro.
+                          </span>
+                        </div>
+                      ) : null}
+
+                      <div className="rounded-xl border bg-card p-4">
+                        <p className="font-medium">Rentabilidade por produto</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Lucro bruto do item após descontos, antes das demais despesas da OS.
+                        </p>
+                        <div className="mt-3 space-y-2">
+                          {data.rentabilidade.produtos.length ? (
+                            data.rentabilidade.produtos.map((produto) => (
+                              <div key={produto.produtoid} className="rounded-lg border p-3">
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                  <div className="min-w-0">
+                                    <p className="truncate text-sm font-medium">{produto.descricao}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {produto.quantidade} un. · Venda {fmtMoney(produto.receitaLiquida)} · Custo {fmtMoney(produto.custoTotal)}
+                                    </p>
+                                  </div>
+                                  <div className="text-left sm:text-right">
+                                    <p className="font-semibold">{fmtMoney(produto.lucroBruto)}</p>
+                                    <p className="text-xs text-muted-foreground">Margem {produto.margemBruta.toFixed(2)}%</p>
+                                  </div>
+                                </div>
+                                {produto.custoNaoInformado ? (
+                                  <p className="mt-2 text-xs text-red-500">Custo não informado; cálculo provisório.</p>
+                                ) : produto.custoEstimado ? (
+                                  <p className="mt-2 text-xs text-amber-500">Custo estimado pelo último valor de compra atual.</p>
+                                ) : null}
+                              </div>
+                            ))
+                          ) : (
+                            <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">Nenhum produto nesta OS.</p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border bg-card p-4">
+                        <p className="font-medium">Comissões por serviço</p>
+                        <div className="mt-3 space-y-2">
+                          {data.rentabilidade.comissoesServicos.some(
+                            (servico) => servico.realizadores.length > 0,
+                          ) ? (
+                            data.rentabilidade.comissoesServicos
+                              .filter((servico) => servico.realizadores.length > 0)
+                              .map((servico) => (
+                                <div key={servico.servicoid} className="rounded-lg border p-3">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <p className="truncate text-sm font-medium">{servico.descricao}</p>
+                                    <span className="font-medium">{fmtMoney(servico.valorComissao)}</span>
+                                  </div>
+                                  <div className="mt-2 space-y-1">
+                                    {servico.realizadores.map((realizador) => (
+                                      <div key={realizador.usuarioid} className="flex justify-between gap-3 text-xs text-muted-foreground">
+                                        <span className="truncate">{realizador.nome || "Realizador"} · {realizador.percentual.toFixed(2)}%</span>
+                                        <span>{fmtMoney(realizador.valorComissao)}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))
+                          ) : (
+                            <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">Nenhuma comissão de serviço nesta OS.</p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border bg-card p-4">
+                        <p className="font-medium">Despesas vinculadas</p>
+                        <div className="mt-3 space-y-2">
+                          {(data.transacoes ?? []).filter((t) => t.tipo === "DESPESA").length ? (
+                            (data.transacoes ?? []).filter((t) => t.tipo === "DESPESA").map((t) => (
+                              <div key={t.id} className="flex flex-col gap-2 rounded-lg border px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-medium">{t.descricao}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {fmtDate(t.data)}{t.plano_de_conta ? ` · ${t.plano_de_conta}` : ""}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant={t.pendente ? "outline" : "default"}>{t.pendente ? "A pagar" : "Pago"}</Badge>
+                                  <span className="font-medium">{fmtMoney(t.valor)}</span>
+                                  {t.pendente ? (
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => {
+                                        setDespesaParaBaixa({ ...t, data: new Date(t.data) } as Transaction);
+                                        setBaixaDialogOpen(true);
+                                      }}
+                                    >
+                                      Dar baixa
+                                    </Button>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">Nenhuma despesa vinculada.</p>
+                          )}
+                        </div>
+                      </div>
+                      <ConcluidoAlert
+                        isAlertOpen={baixaDialogOpen}
+                        setIsAlertOpen={setBaixaDialogOpen}
+                        transaction={despesaParaBaixa}
+                        onSuccess={() => void recarregarDetalhes()}
+                      />
+                    </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Não foi possível calcular a rentabilidade.</p>
+                  )}
                 </TabsContent>
 
                 <TabsContent value="checklist" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 sm:px-6 sm:py-5">

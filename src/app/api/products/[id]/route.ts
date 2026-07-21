@@ -8,7 +8,7 @@ import { requireEstoqueAccess, requireEstoqueDelete, requireEstoqueEdit } from "
 type Params = { id: string };
 
 const PRODUTO_FIELDS = `
-  id, descricao, precovenda, precocompra, estoque, estoqueminimo, ncm, cfop, origem_mercadoria, unidade,
+  id, descricao, precovenda, precocompra, ultimovalordecompra, estoque, estoqueminimo, ncm, cfop, origem_mercadoria, unidade,
   cest, csosn, cst, aliquotaicms, cst_pis, aliquota_pis, modo_pis, aliquota_por_unidade_pis,
   cst_cofins, aliquota_cofins, modo_cofins, aliquota_por_unidade_cofins,
   rtc_habilitado, cst_ibscbs, cclass_trib, aliquota_ibs_uf, aliquota_ibs_municipio, aliquota_cbs,
@@ -29,6 +29,7 @@ const WRITABLE_FIELDS = new Set([
   "descricao",
   "precovenda",
   "precocompra",
+  "ultimovalordecompra",
   "estoque",
   "estoqueminimo",
   "ncm",
@@ -127,7 +128,9 @@ function sanitizePayload(body: any, { strict }: { strict: boolean }) {
     if (!WRITABLE_FIELDS.has(key)) continue;
 
     switch (key) {
-      case "precovenda": {
+      case "precovenda":
+      case "precocompra":
+      case "ultimovalordecompra": {
         const n = toNumberOrNull(body[key]);
         if (n == null) {
           if (strict) out[key] = null; // PUT: validation pega adiante

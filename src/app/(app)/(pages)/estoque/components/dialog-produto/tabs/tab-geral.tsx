@@ -159,8 +159,8 @@ export function TabGeral({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
-            <div className="col-span-2 space-y-2 lg:col-span-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+            <div className="space-y-2 lg:col-span-2">
               <div className="flex justify-between items-center">
                 <Label htmlFor="fabricante">Fabricante</Label>
                 <span
@@ -187,11 +187,7 @@ export function TabGeral({
                 maxLength={14}
               />
             </div>
-            <div className="order-4 space-y-2 lg:col-span-3">
-              <Label htmlFor="precovenda">Valor de Venda (Unitário)</Label>
-              <ValueInput price={produto.precovenda} setPrice={(v) => onChange("precovenda", v)} />
-            </div>
-            <div className="order-3 space-y-2 lg:col-span-2">
+            <div className="space-y-2 lg:col-span-2">
               <Label htmlFor="unidade">Unidade</Label>
               <Select
                 value={produto.unidade || undefined}
@@ -214,9 +210,23 @@ export function TabGeral({
 
               {errorUnidades && <p className="mt-1 text-xs text-destructive">{errorUnidades}</p>}
             </div>
-            <div className="order-5 space-y-2 lg:col-span-3">
+            <div className="space-y-2 lg:col-span-2">
+              <Label htmlFor="precovenda">Valor de Venda (Unitário)</Label>
+              <ValueInput price={produto.precovenda} setPrice={(v) => onChange("precovenda", v)} />
+            </div>
+            <div className="space-y-2 lg:col-span-2">
               <Label htmlFor="precocompra">Valor Médio de Compra</Label>
               <ValueInput price={produto.precocompra} setPrice={(v) => onChange("precocompra", v)} />
+            </div>
+            <div className="space-y-2 lg:col-span-2">
+              <Label htmlFor="ultimovalordecompra">Último Valor de Compra</Label>
+              <ValueInput
+                price={produto.ultimovalordecompra ?? 0}
+                setPrice={(v) => onChange("ultimovalordecompra", v)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Usado como referência de custo nas novas ordens de serviço.
+              </p>
             </div>
           </div>
           <div className="space-y-2 sm:col-span-4 ">

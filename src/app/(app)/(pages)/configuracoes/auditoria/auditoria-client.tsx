@@ -214,6 +214,7 @@ const ROTULOS_CAMPOS: Record<string, string> = {
   perfilid: "Perfil de acesso",
   permissaoid: "Permissão",
   precocompra: "Preço de compra",
+  ultimovalordecompra: "Último valor de compra",
   precovenda: "Preço de venda",
   referencia: "Referência",
   setorid: "Setor",

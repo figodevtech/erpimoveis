@@ -138,6 +138,7 @@ interface RegisterContentProps {
   handleGetTransactions?: (pageNumber?: number) => void;
   setOpen?: (value: boolean) => void;
   isDesktop?: boolean;
+  internalCompanyExpense?: boolean;
 }
 
 export default function RegisterContent({
@@ -152,6 +153,7 @@ export default function RegisterContent({
   handleGetTransactions,
   setOpen,
   isDesktop,
+  internalCompanyExpense = false,
 }: RegisterContentProps) {
   const [isCustomerSelectOpen, setIsCustomerSelectOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -172,7 +174,7 @@ export default function RegisterContent({
   const canManageParcelas =
     newTransaction.metodopagamento === Metodo_pagamento.BOLETO &&
     !!newTransaction.pendente;
-  const canUseMesmoCliente = Boolean(osId || vendaId);
+  const canUseMesmoCliente = Boolean(osId || vendaId) && !internalCompanyExpense;
 
   const handleChange = (
     field: keyof NewTransaction,
@@ -318,6 +320,45 @@ export default function RegisterContent({
       }));
     }
   }, [setNewTransaction, selectedCustomer]);
+
+  useEffect(() => {
+    if (!dialogOpen || !internalCompanyExpense) return;
+
+    setPagoPeloMesmo(false);
+    setClienteMesmoCache(undefined);
+    setSelectedCustomer(undefined);
+    setNewTransaction((prev) => ({
+      ...prev,
+      tipo: Tipo_transacao.DESPESA,
+      cliente_id: null,
+      nomepagador: "PRÓPRIA EMPRESA",
+      cpfcnpjpagador: "",
+    }));
+
+    void (async () => {
+      try {
+        const response = await axios.get("/api/config/empresa");
+        const empresa = response.data?.empresa;
+        if (!empresa) return;
+
+        setNewTransaction((prev) => ({
+          ...prev,
+          tipo: Tipo_transacao.DESPESA,
+          cliente_id: null,
+          nomepagador:
+            empresa.razaosocial || empresa.nomefantasia || "PRÓPRIA EMPRESA",
+          cpfcnpjpagador: empresa.cnpj || "",
+        }));
+      } catch {
+        toast.error("Não foi possível carregar os dados da empresa.");
+      }
+    })();
+  }, [
+    dialogOpen,
+    internalCompanyExpense,
+    setNewTransaction,
+    setSelectedCustomer,
+  ]);
 
   useEffect(() => {
     if (!canUseMesmoCliente) {
@@ -596,14 +637,26 @@ export default function RegisterContent({
                   {osId || vendaId ? (
                     <Select
                       disabled
-                      value={"RECEITA"}
+                      value={
+                        internalCompanyExpense
+                          ? Tipo_transacao.DESPESA
+                          : Tipo_transacao.RECEITA
+                      }
                       onValueChange={(v) => handleChange("tipo", v)}
                     >
                       <SelectTrigger className="w-full">
                         <SelectValue placeholder="Selecione" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="RECEITA">RECEITA</SelectItem>
+                        <SelectItem
+                          value={
+                            internalCompanyExpense
+                              ? Tipo_transacao.DESPESA
+                              : Tipo_transacao.RECEITA
+                          }
+                        >
+                          {internalCompanyExpense ? "DESPESA" : "RECEITA"}
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                   ) : (
@@ -820,7 +873,7 @@ export default function RegisterContent({
                 </div>
                 <div className="space-y-2 w-full">
                   <Label htmlFor="categoria-topo">Categoria</Label>
-                  {osId && (
+                  {osId && !internalCompanyExpense && (
                     <Select
                       disabled
                       value={newTransaction.categoria}
@@ -850,7 +903,7 @@ export default function RegisterContent({
                       </SelectContent>
                     </Select>
                   )}
-                  {!osId && !vendaId && (
+                  {((!osId && !vendaId) || (osId && internalCompanyExpense)) && (
                     <Select
                       disabled={loadingCategorias || !!errorCategorias}
                       value={newTransaction.categoria}
@@ -915,14 +968,19 @@ export default function RegisterContent({
                 </div>
                 <div className="space-y-2 w-full col-span-full">
                   <Label htmlFor="descricao-topo">
-                    Descrição <span className="text-red-500">*</span>
+                    {internalCompanyExpense ? "Motivo da despesa" : "Descrição"}{" "}
+                    <span className="text-red-500">*</span>
                   </Label>
                   <Input
-                    disabled={osId || vendaId ? true : false}
+                    disabled={Boolean(osId || vendaId) && !internalCompanyExpense}
                     id="descricao-topo"
                     value={newTransaction.descricao || ""}
                     onChange={(e) => handleChange("descricao", e.target.value)}
-                    placeholder="Descrição"
+                    placeholder={
+                      internalCompanyExpense
+                        ? "Ex.: reboque, lava-jato, serviço terceirizado"
+                        : "Descrição"
+                    }
                     className="w-full"
                   />
                 </div>
@@ -1101,7 +1159,7 @@ export default function RegisterContent({
                 )}
                 <div className="hidden space-y-2 w-full">
                   <Label htmlFor="categoria">Categoria</Label>
-                  {osId && (
+                  {osId && !internalCompanyExpense && (
                     <Select
                       disabled
                       value={newTransaction.categoria}
@@ -1131,7 +1189,7 @@ export default function RegisterContent({
                       </SelectContent>
                     </Select>
                   )}
-                  {!osId && !vendaId && (
+                  {((!osId && !vendaId) || (osId && internalCompanyExpense)) && (
                     <Select
                       disabled={loadingCategorias || !!errorCategorias}
                       value={newTransaction.categoria}
@@ -1205,7 +1263,7 @@ export default function RegisterContent({
 
                   {selectedCustomer ? (
                     <Button
-                      disabled={pagoPeloMesmo}
+                      disabled={pagoPeloMesmo || internalCompanyExpense}
                       onClick={() => {
                         setNewTransaction({
                           ...newTransaction,
@@ -1236,7 +1294,7 @@ export default function RegisterContent({
                       />
 
                       <Button
-                        disabled={pagoPeloMesmo}
+                        disabled={pagoPeloMesmo || internalCompanyExpense}
                         onClick={() => setIsCustomerSelectOpen(true)}
                         className="hover:cursor-pointer"
                         variant={"outline"}
@@ -1254,7 +1312,7 @@ export default function RegisterContent({
                     Nome do pagador <span className="text-red-500">*</span>
                   </Label>
                   <Input
-                    disabled={selectedCustomer ? true : false}
+                    disabled={Boolean(selectedCustomer) || internalCompanyExpense}
                     id="descricao"
                     value={newTransaction.nomepagador || ""}
                     onChange={(e) =>
@@ -1269,7 +1327,7 @@ export default function RegisterContent({
                     CPF/CNPJ do pagador <span className="text-red-500">*</span>
                   </Label>
                   <Input
-                    disabled={selectedCustomer ? true : false}
+                    disabled={Boolean(selectedCustomer) || internalCompanyExpense}
                     id="cpfcnpjpagador"
                     maxLength={14}
                     value={

@@ -317,7 +317,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     // Itens — produtos
     const prod_res = await supabase
       .from("osproduto")
-      .select("ordemservicoid, produtoid, quantidade, precounitario, subtotal, desconto_tipo, desconto, produto:produtoid (id, titulo, descricao, referencia, codigobarras, precovenda, unidade)")
+      .select("ordemservicoid, produtoid, quantidade, precounitario, subtotal, desconto_tipo, desconto, custo_unitario_aplicado, produto:produtoid (id, titulo, descricao, referencia, codigobarras, precovenda, ultimovalordecompra, unidade)")
       .eq("ordemservicoid", osId);
     if (prod_res.error) throw prod_res.error;
 
@@ -329,6 +329,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       subtotal: toNum(r.subtotal),
       descontoTipo: r.desconto_tipo ?? null,
       desconto: toNum(r.desconto ?? 0),
+      custoUnitarioAplicado: r.custo_unitario_aplicado == null ? null : toNum(r.custo_unitario_aplicado),
+      custoEstimado: r.custo_unitario_aplicado == null,
       produto: r.produto
         ? {
             id: Number(r.produto.id),
@@ -336,6 +338,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
             titulo: String(r.produto.titulo ?? ""),
             descricao: String(r.produto.descricao ?? ""),
             precounitario: r.produto.precovenda ?? null,
+            ultimovalordecompra: r.produto.ultimovalordecompra ?? null,
             unidade: r.produto.unidade ?? null,
           }
         : null,
@@ -369,6 +372,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
           ordemservicoid,
           servicoid,
           usuarioid,
+          comissao_percent_aplicada,
+          valor_base,
+          valor_comissao,
           usuario:usuarioid (id, nome)
         `
       )
@@ -377,6 +383,16 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     if (rel_res.error) throw rel_res.error;
 
     const realizadoresByServico = new Map<number, RealizadorLite[]>();
+    const comissoesByServico = new Map<
+      number,
+      Array<{
+        usuarioid: string;
+        nome: string | null;
+        percentual: number;
+        valorBase: number;
+        valorComissao: number;
+      }>
+    >();
     for (const rr of rel_res.data ?? []) {
       const sid = Number((rr as any).servicoid);
       const usuario = (rr as any).usuario;
@@ -390,6 +406,16 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       const arr = realizadoresByServico.get(sid) ?? [];
       arr.push(item);
       realizadoresByServico.set(sid, arr);
+
+      const comissoes = comissoesByServico.get(sid) ?? [];
+      comissoes.push({
+        usuarioid: String(usuario?.id ?? usuarioid),
+        nome: usuario?.nome ?? null,
+        percentual: toNum((rr as any).comissao_percent_aplicada),
+        valorBase: toNum((rr as any).valor_base),
+        valorComissao: toNum((rr as any).valor_comissao),
+      });
+      comissoesByServico.set(sid, comissoes);
     }
 
     const itensServico = (serv_res.data ?? []).map((r: any) => ({
@@ -411,6 +437,103 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
           }
         : null,
     }));
+
+    const trans_res = await supabase
+      .from("transacao")
+      .select("id, descricao, valor, valorLiquido, data, tipo, pendente, metodopagamento, categoria, plano_de_conta, plano_de_conta_id, banco_id")
+      .eq("ordemservicoid", osId)
+      .eq("is_deleted", false)
+      .order("data", { ascending: false });
+    if (trans_res.error) throw trans_res.error;
+
+    const transacoes = (trans_res.data ?? []).map((t: any) => ({
+      ...t,
+      valor: toNum(t.valor),
+      valorLiquido: t.valorLiquido == null ? toNum(t.valor) : toNum(t.valorLiquido),
+      pendente: Boolean(t.pendente),
+    }));
+
+    const receitasPagas = transacoes.filter((t: any) => t.tipo === "RECEITA" && !t.pendente);
+    const despesas = transacoes.filter((t: any) => t.tipo === "DESPESA");
+    const despesasPagas = despesas.filter((t: any) => !t.pendente);
+    const despesasPendentes = despesas.filter((t: any) => t.pendente);
+    const recebidoBruto = receitasPagas.reduce((acc: number, t: any) => acc + t.valor, 0);
+    const recebidoLiquido = receitasPagas.reduce((acc: number, t: any) => acc + t.valorLiquido, 0);
+    const valorFinalOs = toNum(osRow.orcamentototal);
+    const subtotalItens = [...itensProduto, ...itensServico].reduce(
+      (acc: number, item: any) => acc + toNum(item.subtotal),
+      0,
+    );
+    const fatorDescontoOs = subtotalItens > 0 ? valorFinalOs / subtotalItens : 1;
+    const produtosRentabilidade = itensProduto.map((item: any) => {
+      const custoAtual = item.produto?.ultimovalordecompra;
+      const custoNaoInformado = item.custoUnitarioAplicado == null && custoAtual == null;
+      const custoEstimado = item.custoUnitarioAplicado == null && custoAtual != null;
+      const custoUnitario = item.custoUnitarioAplicado ?? toNum(custoAtual);
+      const custoTotal = custoUnitario * item.quantidade;
+      const receitaLiquida = toNum(item.subtotal) * fatorDescontoOs;
+      const lucroBruto = receitaLiquida - custoTotal;
+
+      return {
+        produtoid: item.produtoid,
+        descricao: item.produto?.titulo || item.produto?.descricao || "Produto",
+        quantidade: item.quantidade,
+        receitaLiquida,
+        custoUnitario,
+        custoTotal,
+        lucroBruto,
+        margemBruta: receitaLiquida > 0 ? (lucroBruto / receitaLiquida) * 100 : 0,
+        custoEstimado,
+        custoNaoInformado,
+      };
+    });
+    const custoProdutos = itensProduto.reduce((acc: number, item: any) => {
+      const custoUnitario = item.custoUnitarioAplicado ?? toNum(item.produto?.ultimovalordecompra);
+      return acc + custoUnitario * item.quantidade;
+    }, 0);
+    const despesasComprometidas = despesas.reduce((acc: number, t: any) => acc + t.valor, 0);
+    const despesasRealizadas = despesasPagas.reduce((acc: number, t: any) => acc + t.valorLiquido, 0);
+    const comissoesServicos = itensServico.map((item: any) => {
+      const realizadores = comissoesByServico.get(item.servicoid) ?? [];
+      return {
+        servicoid: item.servicoid,
+        descricao: item.descricaoServico || item.servico?.descricao || "Serviço",
+        valorServico: item.subtotal,
+        valorComissao: realizadores.reduce(
+          (acc, realizador) => acc + realizador.valorComissao,
+          0,
+        ),
+        realizadores,
+      };
+    });
+    const totalComissoesServicos = comissoesServicos.reduce(
+      (acc, servico) => acc + servico.valorComissao,
+      0,
+    );
+    const lucroPrevisto =
+      valorFinalOs - custoProdutos - despesasComprometidas - totalComissoesServicos;
+    const lucroRealizado =
+      recebidoLiquido - custoProdutos - despesasRealizadas - totalComissoesServicos;
+    const rentabilidade = {
+      valorFinalOs,
+      recebidoBruto,
+      recebidoLiquido,
+      taxasRecebimento: Math.max(0, recebidoBruto - recebidoLiquido),
+      saldoAReceber: Math.max(0, valorFinalOs - recebidoBruto),
+      custoProdutos,
+      itensCustoEstimado: produtosRentabilidade.filter((item) => item.custoEstimado).length,
+      itensSemCusto: produtosRentabilidade.filter((item) => item.custoNaoInformado).length,
+      produtos: produtosRentabilidade,
+      despesasComprometidas,
+      despesasPagas: despesasRealizadas,
+      despesasPendentes: despesasPendentes.reduce((acc: number, t: any) => acc + t.valor, 0),
+      totalComissoesServicos,
+      comissoesServicos,
+      lucroPrevisto,
+      lucroRealizado,
+      margemPrevista: valorFinalOs > 0 ? (lucroPrevisto / valorFinalOs) * 100 : 0,
+      margemRealizada: recebidoLiquido > 0 ? (lucroRealizado / recebidoLiquido) * 100 : 0,
+    };
 
     // Aprovações
     const ap_res = await supabase.from("osaprovacao").select("id, token, expira_em, usado_em, created_at").eq("ordemservicoid", osId);
@@ -465,7 +588,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     };
 
     return NextResponse.json(
-      { os, cliente: os.cliente, itensProduto, itensServico, checklist, aprovacoes, orcamento },
+      { os, cliente: os.cliente, itensProduto, itensServico, checklist, aprovacoes, orcamento, transacoes, rentabilidade },
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch (e: any) {

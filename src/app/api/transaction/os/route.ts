@@ -301,6 +301,13 @@ export async function POST(req: Request) {
 
     const payload = sanitizeTransacaoPayload(json, { strict: true });
 
+    if (!payload.pendente && (payload.banco_id == null || payload.metodopagamento == null)) {
+      return NextResponse.json(
+        { error: "Informe a conta bancária e o método de pagamento para registrar uma transação já realizada." },
+        { status: 400 }
+      );
+    }
+
     const codigoCategoriaSistema = payload.ordemservicoid != null
       ? "ORDEM_SERVICO"
       : payload.vendaid != null

@@ -13,6 +13,8 @@ const STATUS_SET = new Set<Status>(['OK', 'CRITICO', 'BAIXO', 'SEM_ESTOQUE']);
 const WRITABLE_FIELDS = new Set([
   'descricao',
   'precovenda',
+  'precocompra',
+  'ultimovalordecompra',
   'estoque',
   'estoqueminimo',
   'ncm',
@@ -51,7 +53,7 @@ const WRITABLE_FIELDS = new Set([
 
 /** Campos a retornar ao criar/listar/atualizar se quiser o objeto completo */
 const PRODUTO_FIELDS =
-  'id, descricao, titulo, referencia, precovenda, estoque, estoqueminimo, unidade, ncm, cfop, origem_mercadoria, csosn, cst, cest, aliquotaicms, cst_pis, aliquota_pis, modo_pis, aliquota_por_unidade_pis, cst_cofins, aliquota_cofins, modo_cofins, aliquota_por_unidade_cofins, rtc_habilitado, cst_ibscbs, cclass_trib, aliquota_ibs_uf, aliquota_ibs_municipio, aliquota_cbs, codigobarras, status_estoque, fabricante, grupo: produtogrupo(id, nome, descricao, ativo), grupo_produto_id, exibirPdv, tituloMarketplace, descricaoMarketplace, createdat, updatedat, conservacao';
+  'id, descricao, titulo, referencia, precovenda, precocompra, ultimovalordecompra, estoque, estoqueminimo, unidade, ncm, cfop, origem_mercadoria, csosn, cst, cest, aliquotaicms, cst_pis, aliquota_pis, modo_pis, aliquota_por_unidade_pis, cst_cofins, aliquota_cofins, modo_cofins, aliquota_por_unidade_cofins, rtc_habilitado, cst_ibscbs, cclass_trib, aliquota_ibs_uf, aliquota_ibs_municipio, aliquota_cbs, codigobarras, status_estoque, fabricante, grupo: produtogrupo(id, nome, descricao, ativo), grupo_produto_id, exibirPdv, tituloMarketplace, descricaoMarketplace, createdat, updatedat, conservacao';
 
 function toNullIfEmpty(v: unknown) {
   return typeof v === 'string' && v.trim() === '' ? null : v;
@@ -72,6 +74,8 @@ function sanitizeProdutoPayload(body: any, { strict }: { strict: boolean }) {
 
     switch (key) {
       case 'precovenda':
+      case 'precocompra':
+      case 'ultimovalordecompra':
       case 'aliquotaicms':
       case 'aliquota_pis':
       case 'aliquota_por_unidade_pis':
@@ -140,6 +144,8 @@ export async function GET(req: Request) {
   id,
   descricao,
   precovenda,
+  precocompra,
+  ultimovalordecompra,
   estoque,
   estoqueminimo,
   ncm,

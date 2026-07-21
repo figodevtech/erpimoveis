@@ -63,7 +63,7 @@ export interface Transaction {
   valor: number;
   valorLiquido: number;
   data: Date;
-  metodopagamento: Metodo_pagamento;
+  metodopagamento: Metodo_pagamento | null;
   categoria: string;
   categoria_id?: number | null;
   categoria_dados?: { id: number; nome: string; icone: string } | null;

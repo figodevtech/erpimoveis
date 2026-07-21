@@ -24,6 +24,8 @@ interface TransactionDialogProps {
   selectedTransactionId?: number | undefined;
   handleGetTransactions?: (pageNumber?: number) => void;
   initialMetodoPagamento?: Metodo_pagamento;
+  initialTransaction?: Partial<NewTransaction>;
+  internalCompanyExpense?: boolean;
 }
 export default function TransactionDialog({
   children,
@@ -35,6 +37,8 @@ export default function TransactionDialog({
   setOpen,
   handleGetTransactions,
   initialMetodoPagamento,
+  initialTransaction,
+  internalCompanyExpense = false,
 }: TransactionDialogProps) {
   const [newTransaction, setNewTransaction] = useState<NewTransaction>({});
   const [selectedCustomer, setSelectedCustomer] = useState<
@@ -61,6 +65,7 @@ export default function TransactionDialog({
                 valor: 0,
                 valorLiquido: 0,
                 parcelas: 1,
+                ...initialTransaction,
               });
             }
 
@@ -74,6 +79,7 @@ export default function TransactionDialog({
                 valorLiquido: 0,
                 metodopagamento: initialMetodoPagamento,
                 parcelas: 1,
+                ...initialTransaction,
               });
             }
 
@@ -111,6 +117,7 @@ export default function TransactionDialog({
             setSelectedTransactionId={setSelectedTransactionId}
             setOpen={setOpen}
             isDesktop={true}
+            internalCompanyExpense={internalCompanyExpense}
           />
         )}
       </Dialog>
@@ -133,6 +140,7 @@ export default function TransactionDialog({
               valor: 0,
               valorLiquido: 0,
               parcelas: 1,
+              ...initialTransaction,
             });
           }
 
@@ -146,6 +154,7 @@ export default function TransactionDialog({
               valorLiquido: 0,
               metodopagamento: initialMetodoPagamento,
               parcelas: 1,
+              ...initialTransaction,
             });
           }
 
@@ -183,6 +192,7 @@ export default function TransactionDialog({
           setSelectedTransactionId={setSelectedTransactionId}
           setOpen={setOpen}
           isDesktop={false}
+          internalCompanyExpense={internalCompanyExpense}
         />
       )}
     </Drawer>
