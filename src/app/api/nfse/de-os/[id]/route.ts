@@ -75,7 +75,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       );
     }
 
-    if (!empresa.inscricaomunicipal) {
+    const isMei = String(empresa.regimetributario) === "4";
+
+    if (!isMei && !empresa.inscricaomunicipal) {
       return NextResponse.json(
         { 
           ok: false, 
@@ -123,10 +125,15 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     // 3. Prepare parameters using Service Mapper
     const nfseService = new NFSeService();
     nfseService.configurarAmbiente(empresa.ambiente);
-    const emitirParams = nfseService.mapearOSParaFocus(os, empresa, itemServico);
+    const modeloEmissao = isMei ? "NACIONAL" : "MUNICIPAL";
+    const emitirParams = isMei
+      ? nfseService.mapearOSParaFocusNacional(os, empresa, itemServico)
+      : nfseService.mapearOSParaFocus(os, empresa, itemServico);
 
-    // 4. Send to Focus API
-    const result = await nfseService.emitir(emitirParams);
+    // 4. MEI (CRT 4) usa NFS-e Nacional; demais regimes mantêm João Pessoa municipal.
+    const result = isMei
+      ? await nfseService.emitirNacional(emitirParams as any)
+      : await nfseService.emitir(emitirParams as any);
 
 
     console.info("[POST /api/nfse/de-os] Focus retorno", {
@@ -141,9 +148,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       clienteid: os.cliente.id,
       empresaid: empresa.id,
       referencia: emitirParams.referencia,
-      status: result.ok ? result.status : "REJEITADA",
+      status: result.ok
+        ? ({ autorizado: "AUTORIZADA", processando_autorizacao: "PROCESSANDO", erro_autorizacao: "REJEITADA", cancelado: "CANCELADA" } as Record<string, string>)[String(result.status)] || String(result.status || "PROCESSANDO").toUpperCase()
+        : "REJEITADA",
       erros: result.ok ? null : result.erros,
-      valor_total: emitirParams.servico.valor_servicos,
+      valor_total: isMei ? (emitirParams as any).valor_servico : (emitirParams as any).servico.valor_servicos,
+      modelo_emissao: modeloEmissao,
     };
 
 

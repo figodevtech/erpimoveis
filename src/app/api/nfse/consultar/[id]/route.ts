@@ -46,7 +46,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const nfseService = new NFSeService();
     if (empresa) nfseService.configurarAmbiente(empresa.ambiente);
 
-    const resultado = await nfseService.consultar(nfsDb.referencia);
+    const modelo = nfsDb.modelo_emissao === "NACIONAL" ? "NACIONAL" : "MUNICIPAL";
+    const resultado = await nfseService.consultar(nfsDb.referencia, modelo);
 
     // 3. Update DB state
     if (resultado.ok) {

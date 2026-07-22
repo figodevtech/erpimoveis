@@ -166,6 +166,11 @@ export function EmissaoNfseDialog({
                           <div className="font-medium line-clamp-2">
                              {s.servico?.descricao || "Serviço Padrão"}
                           </div>
+                          {s.notaFiscalModelo ? (
+                            <Badge variant="outline" className="mt-1 text-[9px]">
+                              {s.notaFiscalModelo === "NACIONAL" ? "NFS-e Nacional · MEI" : "NFS-e João Pessoa"}
+                            </Badge>
+                          ) : null}
                           <div className="text-[10px] text-muted-foreground font-mono">
                             Qtd: {s.quantidade} • Un: R$ {(s.precounitario || 0).toFixed(2)}
                           </div>

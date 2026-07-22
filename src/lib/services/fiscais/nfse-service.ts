@@ -34,6 +34,34 @@ export type NFSeEmitirParams = {
   };
 };
 
+export type NFSeNacionalEmitirParams = {
+  referencia: string;
+  data_competencia: string;
+  codigo_municipio_emissora: number;
+  cnpj_prestador: string;
+  inscricao_municipal_prestador?: string;
+  codigo_opcao_simples_nacional: 2;
+  regime_especial_tributacao: 5;
+  cpf_tomador?: string;
+  cnpj_tomador?: string;
+  razao_social_tomador: string;
+  codigo_municipio_tomador?: number;
+  cep_tomador?: string;
+  logradouro_tomador?: string;
+  numero_tomador?: string;
+  complemento_tomador?: string;
+  bairro_tomador?: string;
+  email_tomador?: string;
+  codigo_municipio_prestacao: string;
+  codigo_tributacao_nacional_iss: string;
+  descricao_servico: string;
+  valor_servico: number;
+  tributacao_iss: 1;
+  tipo_retencao_iss: 1;
+  percentual_aliquota_relativa_municipio?: number;
+  indicador_total_tributacao: "0";
+};
+
 export class NFSeService {
   private apiUrl: string;
   private token: string;
@@ -120,10 +148,27 @@ export class NFSeService {
     };
   }
 
-  async consultar(referencia: string) {
+  async emitirNacional(params: NFSeNacionalEmitirParams) {
+    if (!this.token) throw new Error("FOCUS_NFE_API_TOKEN não configurado.");
+    const { referencia, ...dados } = params;
+    const payload = { data_emissao: `${formatDateTimeForFocus(new Date())}-03:00`, ...dados };
+    const res = await fetch(`${this.apiUrl}/v2/nfsen?ref=${encodeURIComponent(referencia)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: this.getAuthHeader() },
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok) {
+      const erros = json?.erros || (json ? [json] : []);
+      return { ok: false, message: json?.mensagem || json?.codigo || `Erro ${res.status} ao emitir NFS-e Nacional`, erros };
+    }
+    return { ok: true, status: json?.status || "processando_autorizacao", referencia: json?.ref || referencia };
+  }
+
+  async consultar(referencia: string, modelo: "MUNICIPAL" | "NACIONAL" = "MUNICIPAL") {
     if (!this.token) throw new Error("FOCUS_NFE_API_TOKEN não configurado.");
 
-    const url = `${this.apiUrl}/v2/nfse/${referencia}`;
+    const url = `${this.apiUrl}/v2/${modelo === "NACIONAL" ? "nfsen" : "nfse"}/${referencia}`;
 
     const res = await fetch(url, {
       method: "GET",
@@ -147,16 +192,16 @@ export class NFSeService {
       status: json?.status,
       numero: json?.numero,
       codigo_verificacao: json?.codigo_verificacao,
-      url: json?.url,
+      url: json?.url || json?.url_pdf || json?.url_danfse || json?.caminho_danfse,
       caminho_xml_nota_fiscal: json?.caminho_xml_nota_fiscal,
       erros: json?.erros,
     };
   }
 
-  async cancelar(referencia: string, justificativa?: string) {
+  async cancelar(referencia: string, justificativa?: string, modelo: "MUNICIPAL" | "NACIONAL" = "MUNICIPAL") {
     if (!this.token) throw new Error("FOCUS_NFE_API_TOKEN não configurado.");
 
-    const url = `${this.apiUrl}/v2/nfse/${referencia}`;
+    const url = `${this.apiUrl}/v2/${modelo === "NACIONAL" ? "nfsen" : "nfse"}/${referencia}`;
 
     const options: RequestInit = {
       method: "DELETE",
@@ -309,6 +354,44 @@ export class NFSeService {
         codigo_cnae: (empresa.cnae?.replace(/\D/g, "") || "4520001").padEnd(9, "0"),
         valor_servicos: val,
       },
+    };
+  }
+
+  mapearOSParaFocusNacional(os: any, empresa: any, itemServico: any): NFSeNacionalEmitirParams {
+    const cliente = os.cliente;
+    const servico = itemServico.servico;
+    const documento = String(cliente.cpfcnpj || "").replace(/\D/g, "");
+    const itemLista = String(servico?.itemlistaservico || "14.01").replace(/\D/g, "");
+    const codigoTributacao = itemLista.length === 6 ? itemLista : `${itemLista.padStart(4, "0")}01`;
+    const quantidade = Number(itemServico.quantidade || 1);
+    const valor = quantidade * Number(itemServico.precounitario || 0);
+    const hoje = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo" }).format(new Date());
+    return {
+      referencia: `OS_${os.id}_SRV_${itemServico.servicoid}_${Date.now()}`,
+      data_competencia: hoje,
+      codigo_municipio_emissora: Number(empresa.codigomunicipio || 2507507),
+      cnpj_prestador: String(empresa.cnpj || "").replace(/\D/g, ""),
+      inscricao_municipal_prestador: String(empresa.inscricaomunicipal || "").replace(/\D/g, "") || undefined,
+      codigo_opcao_simples_nacional: 2,
+      regime_especial_tributacao: 5,
+      cpf_tomador: documento.length <= 11 ? documento : undefined,
+      cnpj_tomador: documento.length > 11 ? documento : undefined,
+      razao_social_tomador: cliente.nomerazaosocial || "Consumidor Final",
+      codigo_municipio_tomador: Number(cliente.codigomunicipio || empresa.codigomunicipio || 2507507),
+      cep_tomador: String(cliente.cep || "").replace(/\D/g, "") || undefined,
+      logradouro_tomador: cliente.endereco || undefined,
+      numero_tomador: cliente.endereconumero || undefined,
+      complemento_tomador: cliente.enderecocomplemento || undefined,
+      bairro_tomador: cliente.bairro || undefined,
+      email_tomador: cliente.email || undefined,
+      codigo_municipio_prestacao: String(empresa.codigomunicipio || 2507507),
+      codigo_tributacao_nacional_iss: codigoTributacao,
+      descricao_servico: `${quantidade}x ${servico?.descricao || "Serviço"} - OS #${os.id}`,
+      valor_servico: valor,
+      tributacao_iss: 1,
+      tipo_retencao_iss: 1,
+      percentual_aliquota_relativa_municipio: Number(servico?.aliquotaiss || 0) || undefined,
+      indicador_total_tributacao: "0",
     };
   }
 }
