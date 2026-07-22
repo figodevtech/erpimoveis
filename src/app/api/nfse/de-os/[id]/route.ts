@@ -75,6 +75,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       );
     }
 
+    const { data: nfseConfig } = await supabaseAdmin
+      .from("nfse_config")
+      .select("token")
+      .eq("empresa_id", empresa.id)
+      .maybeSingle();
+
     const isMei = String(empresa.regimetributario) === "4";
 
     if (!isMei && !empresa.inscricaomunicipal) {
@@ -124,7 +130,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     // 3. Prepare parameters using Service Mapper
     const nfseService = new NFSeService();
-    nfseService.configurarAmbiente(empresa.ambiente);
+    nfseService.configurarAmbiente(empresa.ambiente, nfseConfig?.token);
     const modeloEmissao = isMei ? "NACIONAL" : "MUNICIPAL";
     const emitirParams = isMei
       ? nfseService.mapearOSParaFocusNacional(os, empresa, itemServico)
@@ -179,9 +185,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
   } catch (e: any) {
     console.error("[POST /api/nfse/de-os] Exception", e);
+    const configuracaoAusente = String(e?.message || "").includes("Token da Focus NFe não configurado");
     return NextResponse.json(
-      { ok: false, message: "Erro inesperado ao emitir NFS-e." },
-      { status: 500 }
+      { ok: false, message: configuracaoAusente ? e.message : "Erro inesperado ao emitir NFS-e." },
+      { status: configuracaoAusente ? 400 : 500 }
     );
   }
 }

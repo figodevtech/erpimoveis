@@ -42,9 +42,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
 
     // 2. Call Focus NFe API
-    const { data: empresa } = await supabaseAdmin.from("empresa").select("ambiente").limit(1).single();
+    const { data: empresa } = await supabaseAdmin.from("empresa").select("id, ambiente").limit(1).single();
+    const { data: nfseConfig } = empresa
+      ? await supabaseAdmin.from("nfse_config").select("token").eq("empresa_id", empresa.id).maybeSingle()
+      : { data: null };
     const nfseService = new NFSeService();
-    if (empresa) nfseService.configurarAmbiente(empresa.ambiente);
+    if (empresa) nfseService.configurarAmbiente(empresa.ambiente, nfseConfig?.token);
 
     const modelo = nfsDb.modelo_emissao === "NACIONAL" ? "NACIONAL" : "MUNICIPAL";
     const resultado = await nfseService.consultar(nfsDb.referencia, modelo);

@@ -41,7 +41,7 @@ export type NFSeNacionalEmitirParams = {
   cnpj_prestador: string;
   inscricao_municipal_prestador?: string;
   codigo_opcao_simples_nacional: 2;
-  regime_especial_tributacao: 5;
+  regime_especial_tributacao: 0;
   cpf_tomador?: string;
   cnpj_tomador?: string;
   razao_social_tomador: string;
@@ -65,6 +65,7 @@ export type NFSeNacionalEmitirParams = {
 export class NFSeService {
   private apiUrl: string;
   private token: string;
+  private ambiente: "PRODUCAO" | "HOMOLOGACAO" = "HOMOLOGACAO";
 
   constructor() {
     this.token = "";
@@ -75,12 +76,13 @@ export class NFSeService {
    * Configura o ambiente (Homologação ou Produção) baseado na coluna ambiente da tabela empresa.
    * Chamado antes de qualquer emissão ou consulta.
    */
-  configurarAmbiente(ambiente: "PRODUCAO" | "HOMOLOGACAO" | string) {
+  configurarAmbiente(ambiente: "PRODUCAO" | "HOMOLOGACAO" | string, tokenConfigurado?: string | null) {
+    this.ambiente = ambiente === "PRODUCAO" ? "PRODUCAO" : "HOMOLOGACAO";
     if (ambiente === "PRODUCAO") {
-      this.token = process.env.FOCUS_NFE_API_TOKEN || "";
+      this.token = process.env.FOCUS_NFE_API_TOKEN || tokenConfigurado?.trim() || "";
       this.apiUrl = "https://api.focusnfe.com.br";
     } else {
-      this.token = process.env.FOCUS_NFE_API_TOKEN_HOMOLOGACAO || "";
+      this.token = process.env.FOCUS_NFE_API_TOKEN_HOMOLOGACAO || tokenConfigurado?.trim() || "";
       this.apiUrl = "https://homologacao.focusnfe.com.br";
     }
 
@@ -94,8 +96,15 @@ export class NFSeService {
     return `Basic ${Buffer.from(this.token + ":").toString("base64")}`;
   }
 
+  private assertToken() {
+    if (!this.token) {
+      const variavel = this.ambiente === "PRODUCAO" ? "FOCUS_NFE_API_TOKEN" : "FOCUS_NFE_API_TOKEN_HOMOLOGACAO";
+      throw new Error(`Token da Focus NFe não configurado para ${this.ambiente}. Cadastre o token da NFS-e nas configurações fiscais ou defina ${variavel}.`);
+    }
+  }
+
   async emitir(params: NFSeEmitirParams) {
-    if (!this.token) throw new Error("FOCUS_NFE_API_TOKEN não configurado.");
+    this.assertToken();
 
     const url = `${this.apiUrl}/v2/nfse?ref=${params.referencia}`;
 
@@ -149,7 +158,7 @@ export class NFSeService {
   }
 
   async emitirNacional(params: NFSeNacionalEmitirParams) {
-    if (!this.token) throw new Error("FOCUS_NFE_API_TOKEN não configurado.");
+    this.assertToken();
     const { referencia, ...dados } = params;
     const payload = { data_emissao: `${formatDateTimeForFocus(new Date())}-03:00`, ...dados };
     const res = await fetch(`${this.apiUrl}/v2/nfsen?ref=${encodeURIComponent(referencia)}`, {
@@ -166,7 +175,7 @@ export class NFSeService {
   }
 
   async consultar(referencia: string, modelo: "MUNICIPAL" | "NACIONAL" = "MUNICIPAL") {
-    if (!this.token) throw new Error("FOCUS_NFE_API_TOKEN não configurado.");
+    this.assertToken();
 
     const url = `${this.apiUrl}/v2/${modelo === "NACIONAL" ? "nfsen" : "nfse"}/${referencia}`;
 
@@ -199,7 +208,7 @@ export class NFSeService {
   }
 
   async cancelar(referencia: string, justificativa?: string, modelo: "MUNICIPAL" | "NACIONAL" = "MUNICIPAL") {
-    if (!this.token) throw new Error("FOCUS_NFE_API_TOKEN não configurado.");
+    this.assertToken();
 
     const url = `${this.apiUrl}/v2/${modelo === "NACIONAL" ? "nfsen" : "nfse"}/${referencia}`;
 
@@ -237,7 +246,7 @@ export class NFSeService {
   }
 
   async configurarEmpresa(empresa: any, certificadoBase64?: string, senhaCertificado?: string) {
-    if (!this.token) throw new Error("FOCUS_NFE_API_TOKEN não configurado.");
+    this.assertToken();
 
     const cnpj = empresa.cnpj?.replace(/\D/g, "");
     if (!cnpj) throw new Error("CNPJ é obrigatório para configurar empresa.");
@@ -373,7 +382,7 @@ export class NFSeService {
       cnpj_prestador: String(empresa.cnpj || "").replace(/\D/g, ""),
       inscricao_municipal_prestador: String(empresa.inscricaomunicipal || "").replace(/\D/g, "") || undefined,
       codigo_opcao_simples_nacional: 2,
-      regime_especial_tributacao: 5,
+      regime_especial_tributacao: 0,
       cpf_tomador: documento.length <= 11 ? documento : undefined,
       cnpj_tomador: documento.length > 11 ? documento : undefined,
       razao_social_tomador: cliente.nomerazaosocial || "Consumidor Final",
