@@ -12,6 +12,7 @@ DialogTitle,
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
 AlertTriangle,
 ArrowDown,
@@ -32,6 +33,9 @@ Loader2,
 Package,
 Paperclip,
 Pencil,
+RefreshCw,
+Eye,
+MoreHorizontal,
 StickyNote,
 Trash2,
 Upload,
@@ -57,6 +61,7 @@ import { carregarDetalhesOS,listarUsuariosAtivos,type UsuarioAtivo } from "../..
 import ConcluidoAlert from "../../../(financeiro)/fluxodecaixa/components/concluidoAlert";
 import TransactionDialog from "../../../(financeiro)/fluxodecaixa/components/transactionDialog/transactionDialog";
 import ValueInput from "../../../(financeiro)/fluxodecaixa/components/transactionDialog/valueInput";
+import { DialogProduto } from "../../../estoque/components/dialog-produto/dialog-produto";
 import { Tipo_transacao, type Transaction } from "../../../(financeiro)/fluxodecaixa/types";
 
 const PUBLIC_APPROVAL_BASE = "/aprovacao";
@@ -475,6 +480,9 @@ export function OSDetalhesDialog({
   const [eventoEdicao, setEventoEdicao] = useState<{ id: number; descricao: string; valor: number } | null>(null);
   const [valorSnapshotEdicao, setValorSnapshotEdicao] = useState(0);
   const [salvandoSnapshot, setSalvandoSnapshot] = useState(false);
+  const [sincronizandoCustoId, setSincronizandoCustoId] = useState<number | null>(null);
+  const [produtoDialogId, setProdutoDialogId] = useState<number | undefined>();
+  const [produtoDialogOpen, setProdutoDialogOpen] = useState(false);
   const [baixaDialogOpen, setBaixaDialogOpen] = useState(false);
   const [despesaParaBaixa, setDespesaParaBaixa] = useState<Transaction | null>(null);
   const [anexos, setAnexos] = useState<OsAnexo[]>([]);
@@ -617,6 +625,7 @@ export function OSDetalhesDialog({
         valor: Number(evento.valor || 0),
         origem: evento.origem,
         status: evento.status,
+        produtoid: evento.produtoid ?? null,
         podeGerarTransacao: evento.pode_gerar_transacao,
         grupo:
           evento.origem === "PRODUTO"
@@ -678,6 +687,38 @@ export function OSDetalhesDialog({
       await recarregarDetalhes();
     } catch (error: any) { toast.error(error?.message || "Erro ao alterar snapshot"); }
     finally { setSalvandoSnapshot(false); }
+  }
+
+  async function sincronizarUltimoCusto(eventoId: number) {
+    if (!osId) return;
+    setSincronizandoCustoId(eventoId);
+    const toastId = toast.loading("Sincronizando último valor de entrada...", { duration: Infinity });
+    try {
+      const response = await fetch(`/api/ordens/${osId}/eventos-financeiros/${eventoId}/sincronizar-ultimo-custo`, { method: "POST" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Erro ao sincronizar último valor de entrada");
+      toast.success("Último valor de entrada sincronizado.", { id: toastId });
+      await recarregarDetalhes();
+    } catch (error: any) { toast.error(error?.message || "Erro ao sincronizar último valor de entrada", { id: toastId }); }
+    finally { setSincronizandoCustoId(null); }
+  }
+
+  async function sincronizarValorVenda(eventoId: number) {
+    if (!osId) return;
+    setSincronizandoCustoId(eventoId);
+    try {
+      const response = await fetch(`/api/ordens/${osId}/eventos-financeiros/${eventoId}/sincronizar-valor-venda`, { method: "POST" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Erro ao sincronizar valor de venda");
+      toast.success("Valor de venda sincronizado.");
+      await recarregarDetalhes();
+    } catch (error: any) { toast.error(error?.message || "Erro ao sincronizar valor de venda"); }
+    finally { setSincronizandoCustoId(null); }
+  }
+
+  function visualizarProduto(produtoid: number) {
+    setProdutoDialogId(produtoid);
+    setProdutoDialogOpen(true);
   }
 
   const tabTriggerClass =
@@ -1356,25 +1397,27 @@ export function OSDetalhesDialog({
                 </TabsContent>
 
                 <TabsContent value="fluxo-os" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-4 sm:px-6 sm:py-5">
-                  <div className="rounded-xl border bg-card p-4">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <p className="font-medium">Fluxo econômico da OS</p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Entradas e custos que formam o lucro previsto desta ordem de serviço.
-                        </p>
-                      </div>
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                        <Button type="button" size="sm" onClick={() => setEventoDialogOpen(true)}>
-                          Adicionar evento avulso
-                        </Button>
-                        <div className="grid grid-cols-3 gap-3 rounded-lg border bg-muted/40 px-3 py-2 text-right">
-                          <div><p className="text-xs text-muted-foreground">Receitas</p><p className="font-semibold text-emerald-600">{fmtMoney(totaisEventos.receita)}</p></div>
-                          <div><p className="text-xs text-muted-foreground">Despesas</p><p className="font-semibold text-red-600">{fmtMoney(totaisEventos.despesa)}</p></div>
-                          <div><p className="text-xs text-muted-foreground">Líquido real</p><p className="font-semibold">{fmtMoney(totaisEventos.liquido)}</p></div>
-                        </div>
-                      </div>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-xl border bg-card p-4">
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground"><ArrowUp className="size-4 text-emerald-600" /> Receitas</div>
+                      <p className="mt-2 text-xl font-semibold text-emerald-600">{fmtMoney(totaisEventos.receita)}</p>
                     </div>
+                    <div className="rounded-xl border bg-card p-4">
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground"><ArrowDown className="size-4 text-red-600" /> Despesas</div>
+                      <p className="mt-2 text-xl font-semibold text-red-600">{fmtMoney(totaisEventos.despesa)}</p>
+                    </div>
+                    <div className="rounded-xl border bg-card p-4">
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground"><Calculator className="size-4 text-primary" /> Lucro real</div>
+                      <p className={`mt-2 text-xl font-semibold ${totaisEventos.liquido < 0 ? "text-red-600" : "text-emerald-600"}`}>
+                        {fmtMoney(totaisEventos.liquido)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end">
+                    <Button type="button" size="sm" onClick={() => setEventoDialogOpen(true)}>
+                      Novo lançamento
+                    </Button>
                   </div>
 
                   <div className="overflow-hidden rounded-xl border bg-card">
@@ -1412,45 +1455,62 @@ export function OSDetalhesDialog({
                             </div>
                             <div className="flex items-center justify-between sm:block sm:text-right">
                               <span className="text-xs text-muted-foreground sm:hidden">Valor</span>
-                              <span className={lancamento.tipo === "ENTRADA" ? "font-medium text-emerald-600 dark:text-emerald-400" : "font-medium text-red-600 dark:text-red-400"}>
+                              <span className={lancamento.tipo === "ENTRADA" ? "text-sm text-emerald-600 dark:text-emerald-400" : "text-sm text-red-600 dark:text-red-400"}>
                                 {lancamento.tipo === "ENTRADA" ? "+" : "−"} {fmtMoney(lancamento.valor)}
                               </span>
                             </div>
                             <div className="flex items-center justify-end gap-1 sm:text-right">
                               <span className="mr-auto text-xs text-muted-foreground sm:hidden">Ações</span>
-                              {!osFinalizada ? (
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  className="size-8"
-                                  title="Editar valor do snapshot"
-                                  onClick={() => abrirEdicaoSnapshot(lancamento.id, lancamento.descricao, lancamento.valor)}
-                                >
-                                  <Pencil className="size-3.5" />
-                                </Button>
-                              ) : null}
-                              {lancamento.podeGerarTransacao && lancamento.status === "ATIVO" ? (
-                                <TransactionDialog
-                                  osId={data.os.id}
-                                  handleGetTransactions={() => void recarregarDetalhes()}
-                                  internalCompanyExpense={lancamento.tipo === "SAIDA"}
-                                  initialTransaction={{
-                                    evento_financeiro_id: lancamento.id,
-                                    tipo: lancamento.tipo === "ENTRADA" ? Tipo_transacao.RECEITA : Tipo_transacao.DESPESA,
-                                    descricao: lancamento.descricao,
-                                    valor: lancamento.valor,
-                                    valorLiquido: lancamento.valor,
-                                    pendente: true,
-                                    parcelas: 1,
-                                    data: new Date(),
-                                  }}
-                                >
-                                  <Button type="button" variant="outline" size="sm" className="h-8 text-xs">
-                                    Lançar
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button type="button" variant="ghost" size="icon" className="size-8" aria-label="Abrir ações do evento">
+                                    <MoreHorizontal className="size-4" />
                                   </Button>
-                                </TransactionDialog>
-                              ) : null}
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-60">
+                                  {!osFinalizada ? (
+                                    <DropdownMenuItem onSelect={() => abrirEdicaoSnapshot(lancamento.id, lancamento.descricao, lancamento.valor)}>
+                                      <Pencil /> Editar valor do lançamento
+                                    </DropdownMenuItem>
+                                  ) : null}
+                                  {lancamento.produtoid ? (
+                                    <DropdownMenuItem onSelect={() => visualizarProduto(lancamento.produtoid!)}>
+                                      <Eye /> Visualizar produto
+                                    </DropdownMenuItem>
+                                  ) : null}
+                                  {!osFinalizada && lancamento.origem === "PRODUTO" && lancamento.tipo === "SAIDA" && lancamento.valor === 0 ? (
+                                    <DropdownMenuItem disabled={sincronizandoCustoId === lancamento.id} onSelect={() => void sincronizarUltimoCusto(lancamento.id)}>
+                                      <RefreshCw className={sincronizandoCustoId === lancamento.id ? "animate-spin" : ""} />
+                                      Sincronizar último valor de entrada
+                                    </DropdownMenuItem>
+                                  ) : null}
+                                  {!osFinalizada && lancamento.origem === "PRODUTO" && lancamento.tipo === "ENTRADA" ? (
+                                    <DropdownMenuItem disabled={sincronizandoCustoId === lancamento.id} onSelect={() => void sincronizarValorVenda(lancamento.id)}>
+                                      <RefreshCw className={sincronizandoCustoId === lancamento.id ? "animate-spin" : ""} />
+                                      Sincronizar valor de venda
+                                    </DropdownMenuItem>
+                                  ) : null}
+                                  {lancamento.podeGerarTransacao && lancamento.status === "ATIVO" ? (
+                                    <TransactionDialog
+                                      osId={data.os.id}
+                                      handleGetTransactions={() => void recarregarDetalhes()}
+                                      internalCompanyExpense={lancamento.tipo === "SAIDA"}
+                                      initialTransaction={{
+                                        evento_financeiro_id: lancamento.id,
+                                        tipo: lancamento.tipo === "ENTRADA" ? Tipo_transacao.RECEITA : Tipo_transacao.DESPESA,
+                                        descricao: lancamento.descricao,
+                                        valor: lancamento.valor,
+                                        valorLiquido: lancamento.valor,
+                                        pendente: true,
+                                        parcelas: 1,
+                                        data: new Date(),
+                                      }}
+                                    >
+                                      <DropdownMenuItem>Lançar no financeiro</DropdownMenuItem>
+                                    </TransactionDialog>
+                                  ) : null}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             </div>
                           </div>
                         ))}
@@ -1460,13 +1520,21 @@ export function OSDetalhesDialog({
                     )}
                   </div>
 
+                  <DialogProduto
+                    productId={produtoDialogId}
+                    isOpen={produtoDialogOpen}
+                    setIsOpen={setProdutoDialogOpen}
+                    setSelectedProductId={setProdutoDialogId}
+                    onAfterSaveProduct={() => void recarregarDetalhes()}
+                  />
+
                   <Dialog open={eventoDialogOpen} onOpenChange={setEventoDialogOpen}>
                     <DialogContent className="sm:max-w-md">
                       <DialogHeader>
                         <DialogTitle>Novo evento financeiro</DialogTitle>
                         <DialogDescription>Registre uma receita ou despesa avulsa vinculada à OS.</DialogDescription>
                       </DialogHeader>
-                      <div className="space-y-3">
+                      <div className="space-y-3 p-4 bg-card rounded-2xl">
                         <label className="block text-sm font-medium">Natureza
                           <select className="mt-1 h-10 w-full rounded-md border bg-background px-3" value={eventoNatureza} onChange={(e) => setEventoNatureza(e.target.value as "RECEITA" | "DESPESA")}>
                             <option value="DESPESA">Despesa</option><option value="RECEITA">Receita</option>
