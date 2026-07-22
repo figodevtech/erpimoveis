@@ -241,6 +241,7 @@ export async function GET(_: Request, ctx: Params) {
         `
       )
       .eq("id", id)
+      .eq("is_deleted", false)
       .single();
 
     if (error) {
@@ -281,6 +282,7 @@ export async function PATCH(req: NextRequest, ctx: Params) {
       .from("transacao")
       .update(payload)
       .eq("id", id)
+      .eq("is_deleted", false)
       .select(TRANSACAO_FIELDS)
       .single();
 
@@ -343,6 +345,7 @@ export async function PUT(req: NextRequest, ctx: Params) {
       .from("transacao")
       .update(payload)
       .eq("id", id)
+      .eq("is_deleted", false)
       .select(TRANSACAO_FIELDS)
       .single();
 

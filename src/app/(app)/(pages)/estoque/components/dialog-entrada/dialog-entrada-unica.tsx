@@ -90,6 +90,7 @@ export default function DialogEntrada({
 
       if(!selectedType){
         toast.error("Selecione um tipo para a entrada")
+        return;
       }
 
       // valor_unitario em entradaitens é NOT NULL.
@@ -106,6 +107,7 @@ export default function DialogEntrada({
         produtoid: productId,
         quantidade: newQtd,
         valor_unitario: value,
+        tipo: selectedType,
         // opcional:
         // tipo: "COMPRA_FORNECEDOR",
         // fiscal: false,

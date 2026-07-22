@@ -18,7 +18,7 @@ const PRODUTO_FIELDS = `
 `;
 const GET_PRODUTO_FIELDS = `
   ${PRODUTO_FIELDS},
-  entrada: entradaitens (id, quantidade, created_at, entradainfo: entrada(id, tipo, status, fiscal, fornecedorid, fornecedor: fornecedor(id, nomerazaosocial, cpfcnpj))),
+  entrada: entradaitens (id, quantidade, created_at, entradainfo: entrada(id, tipo, status, origem, fiscal, fornecedorid, fornecedor: fornecedor(id, nomerazaosocial, cpfcnpj))),
   vendasdoproduto: vendaproduto (
   id, venda_id, produtoid, sub_total, valor_total, valor_desconto, tipo_desconto, quantidade, venda (id, valortotal, status, datavenda, desconto_valor, sub_total, cliente: cliente(nomerazaosocial))
   ),

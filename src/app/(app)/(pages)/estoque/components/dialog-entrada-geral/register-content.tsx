@@ -152,7 +152,10 @@ function criarItemDeProduto(produto: Produto): EntradaItemForm {
         : n((produto as any).aliquota_cofins),
 
     quantidade: 1,
-    precovenda: n((produto as any).precovenda, 0),
+    precovenda: n(
+      (produto as any).ultimovalordecompra ?? (produto as any).precocompra,
+      0,
+    ),
   };
 }
 
@@ -653,7 +656,7 @@ export default function RegisterContent({
                       </div>
 
                       <div className="space-y-1.5">
-                        <Label>Preço venda (snapshot)</Label>
+                        <Label>Valor unitário de compra</Label>
                         <Input
                           type="number"
                           min={0}
@@ -664,8 +667,7 @@ export default function RegisterContent({
                           }
                         />
                         <p className="text-[11px] text-muted-foreground">
-                          Isso grava em <b>entradaitens.precovenda</b> (não
-                          altera o produto).
+                          Este valor será salvo como o último valor de compra do produto.
                         </p>
                       </div>
 

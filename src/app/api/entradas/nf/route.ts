@@ -53,8 +53,8 @@ export async function POST(req: NextRequest) {
     const result = {
       // Chave de acesso
       chaveAcesso:
-        json.nfeProc?.protNFe?.infProt?.chNFe ||
         infNFe["@_Id"]?.replace("NFe", "") ||
+        String(json.nfeProc?.protNFe?.infProt?.chNFe ?? "") ||
         null,
 
       // Dados básicos
@@ -124,6 +124,11 @@ export async function POST(req: NextRequest) {
             quantidade: prod.qCom || null,
             valorUnitario: prod.vUnCom || null,
             valorTotal: prod.vProd || null,
+            valorDesconto: prod.vDesc || 0,
+            valorFrete: prod.vFrete || 0,
+            valorSeguro: prod.vSeg || 0,
+            outrasDespesas: prod.vOutro || 0,
+            valorIpi: imposto.IPI?.IPITrib?.vIPI || imposto.IPI?.IPINT?.vIPI || 0,
             icms: imposto.ICMS || null,
           };
         }),

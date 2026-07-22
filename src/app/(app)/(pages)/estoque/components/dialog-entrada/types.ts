@@ -2,7 +2,7 @@ import { Fornecedor, Produto } from "../../types";
 
 export interface NF {
   documentoFiscalRecebidoId?: number;
-  chaveAcesso: number; // ideal seria string, mas mantive number como está no JSON
+  chaveAcesso: string;
   numeroNota: number;
   serie: number;
   dataEmissao: string; // ISO 8601
@@ -62,6 +62,11 @@ export interface ItemNF {
   quantidade: number;
   valorUnitario: number;
   valorTotal: number;
+  valorDesconto?: number;
+  valorFrete?: number;
+  valorSeguro?: number;
+  outrasDespesas?: number;
+  valorIpi?: number;
   icms: Icms;
   produtoReferenciaId?: number;
   produtoReferencia?: Produto;

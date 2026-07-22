@@ -299,18 +299,22 @@ async function loadVenda(vendaId: number): Promise<LoadedSource> {
 async function loadEntrada(entradaId: number): Promise<LoadedSource> {
   const { data: entrada, error: entradaError } = await supabaseAdmin
     .from("entrada")
-    .select("id, fornecedorid, tipo")
+    .select("id, fornecedorid, tipo, status, origem")
     .eq("id", entradaId)
     .maybeSingle();
   if (entradaError) throw entradaError;
   if (!entrada) throw new Error("Entrada não encontrada.");
+  if (entrada.status !== "CONFIRMADA") throw new Error("Somente entradas confirmadas podem originar uma NF-e.");
+  if (entrada.origem === "NFE_TERCEIRO") {
+    throw new Error("Uma NF-e recebida de terceiro não pode originar outra NF-e de entrada.");
+  }
   const { data, error } = await supabaseAdmin
     .from("entradaitens")
     .select(`
       id,
       produto_id,
       quantidade,
-      precovenda,
+      precovenda, valor_unitario_compra,
       referencia,
       titulo,
       unidade,
@@ -350,7 +354,7 @@ async function loadEntrada(entradaId: number): Promise<LoadedSource> {
         descricao: String(row.titulo || produto?.titulo || produto?.descricao || `Produto #${row.produto_id}`),
         unidade: String(row.unidade || produto?.unidade || "UN"),
         quantidade: toNumber(row.quantidade),
-        valorUnitario: toNumber(row.precovenda),
+        valorUnitario: toNumber(row.valor_unitario_compra ?? row.precovenda),
       };
     }),
   };

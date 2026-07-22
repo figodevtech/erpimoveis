@@ -147,6 +147,7 @@ export async function GET(req: Request) {
           `,
           { count: "exact" }
         )
+        .eq("is_deleted", false)
         .order("data", { ascending: true })
         .order("id", { ascending: true });
 

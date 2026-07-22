@@ -38,9 +38,8 @@ export enum Entrada_tipo {
 }
 
 export enum Entrada_status {
-  RASCUNHO,
-  CONFIRMADA,
-  CANCELADA,
+  CONFIRMADA = "CONFIRMADA",
+  CANCELADA = "CANCELADA",
 }
 
 export interface EntradaInfo {
@@ -48,6 +47,7 @@ export interface EntradaInfo {
   tipo: Entrada_tipo;
   status: Entrada_status;
   fiscal: boolean;
+  origem: "AJUSTE_RAPIDO" | "MANUAL" | "NFE_TERCEIRO";
   fornecedorid: number;
   fornecedor: Fornecedor;
   notachave?: string;

@@ -212,6 +212,7 @@ export async function GET(req: Request) {
         `,
         { count: "exact" }
       )
+      .eq("is_deleted", false)
       .order("data", { ascending: false })
       .order("id", { ascending: false })
       .range(from, to);
@@ -361,7 +362,8 @@ export async function POST(req: Request) {
         .from("transacao")
         .select("valor")
         .eq("vendaid", vendaId)
-        .eq("tipo", "RECEITA");
+        .eq("tipo", "RECEITA")
+        .eq("is_deleted", false);
 
       if (txErr) {
         return NextResponse.json({ error: "Erro ao somar pagamentos existentes da venda." }, { status: 500 });

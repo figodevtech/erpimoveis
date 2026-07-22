@@ -35,6 +35,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Banco, Metodo_pagamento } from "../../../(financeiro)/fluxodecaixa/types";
 import { Label } from "@/components/ui/label";
 import { useCategoriasTransacao } from "../../../(financeiro)/fluxodecaixa/hooks/use-categoria-transacao";
+import { usePlanosDeConta } from "../../../(financeiro)/fluxodecaixa/hooks/use-planos-de-conta";
+import { useCentrosCusto } from "../../../(financeiro)/fluxodecaixa/hooks/use-centros-custo";
+import { PlanoContaCombobox } from "../../../(financeiro)/fluxodecaixa/components/plano-conta-combobox";
+import { SearchCombobox } from "../../../(financeiro)/fluxodecaixa/components/search-combobox";
 
 interface EntradaDialogProps {
   children?: React.ReactNode;
@@ -89,7 +93,11 @@ export default function DialogEntradaFiscal({
   const [selectedBankId, setSelectedBankId] = useState<string>("");
   const [selectedMetodo, setSelectedMetodo] = useState<Metodo_pagamento | "">("");
   const [selectedCategoria, setSelectedCategoria] = useState<string>("");
+  const [selectedPlanoId, setSelectedPlanoId] = useState<string>("");
+  const [selectedCentroCustoId, setSelectedCentroCustoId] = useState<string>("");
   const { categorias } = useCategoriasTransacao();
+  const { gruposPlanosDeConta, loadingPlanos } = usePlanosDeConta();
+  const { centrosCusto, loadingCentrosCusto } = useCentrosCusto();
   const isCarregandoNotaRecebida = Boolean(isOpen && notaFiscalRecebidaId && !parsed);
 
   const resetState = () => {
@@ -101,6 +109,8 @@ export default function DialogEntradaFiscal({
     setSelectedBankId("");
     setSelectedMetodo("");
     setSelectedCategoria("");
+    setSelectedPlanoId("");
+    setSelectedCentroCustoId("");
     setProductSelectItemIndex(null);
     setSelectedProductId(undefined);
     setProductDialogItemIndex(null);
@@ -219,7 +229,7 @@ export default function DialogEntradaFiscal({
     if (isPagamentoFuturo) {
       const somaParcelas = parcelas.reduce((sum, parcela) => sum + (parcela.valor ?? 0), 0);
 
-      if (somaParcelas !== parsed.totais.valorNota) {
+      if (Math.abs(somaParcelas - Number(parsed.totais.valorNota)) > 0.01) {
         toast.error("A soma das parcelas deve ser igual ao valor da nota.");
         return;
       }
@@ -233,7 +243,11 @@ export default function DialogEntradaFiscal({
     const payload = {
       fornecedorId: parsed.fornecedorReferenteId ?? null,
       numeroNota: parsed.numeroNota ?? null,
+      serie: parsed.serie ?? null,
+      dataEmissao: parsed.dataEmissao ?? null,
       notaChave: parsed.chaveAcesso ?? null,
+      documentoFiscalRecebidoId: parsed.documentoFiscalRecebidoId ?? null,
+      valorTotalDocumento: parsed.totais.valorNota,
       fiscal: true,
 
       itens: parsed.itens
@@ -241,6 +255,13 @@ export default function DialogEntradaFiscal({
         .map((item) => ({
           produtoId: item.produtoReferenciaId!,
           quantidade: item.quantidade,
+          valorUnitario: item.valorUnitario,
+          valorDesconto: item.valorDesconto ?? 0,
+          valorFrete: item.valorFrete ?? 0,
+          outrasDespesas: (item.outrasDespesas ?? 0) + (item.valorSeguro ?? 0) + (item.valorIpi ?? 0),
+          unidade: item.unidade,
+          ncm: String(item.ncm ?? ""),
+          cfop: String(item.cfop ?? ""),
         })),
 
       isPagamentoFuturo,
@@ -256,7 +277,9 @@ export default function DialogEntradaFiscal({
       bancoId: isPagamentoFuturo ? (selectedBankId ? Number(selectedBankId) : null) : null,
       metodoPagamento: isPagamentoFuturo ? (selectedMetodo || null) : null,
       categoria: isPagamentoFuturo ? selectedCategoria : "DESPESAS OPERACIONAIS",
-      tipo: "DESPESA",
+      categoriaId: categorias.find((categoria) => categoria.nome === selectedCategoria)?.id ?? null,
+      planoContaId: selectedPlanoId ? Number(selectedPlanoId) : null,
+      centroCustoId: selectedCentroCustoId ? Number(selectedCentroCustoId) : null,
       nomePagador: parsed.fornecedorReferente?.nomerazaosocial ?? parsed.emitente.nome ?? "",
       cpfCnpjPagador: parsed.emitente.cnpj?.toString() ?? "",
       descricaoTransacao: parsed.numeroNota != null ? `Compra NF ${parsed.numeroNota}` : "Compra de mercadorias",
@@ -756,7 +779,7 @@ export default function DialogEntradaFiscal({
                       className={`text-xs ${isPagamentoFuturo ? "text-accent-foreground" : "text-muted-foreground"
                         } transition-all`}
                     >
-                      Lançar como pagamento futuro
+                      Lançar parcelas futuras no financeiro (opcional)
                     </span>
                     <Switch
                       checked={isPagamentoFuturo}
@@ -771,6 +794,8 @@ export default function DialogEntradaFiscal({
                           setSelectedBankId("");
                           setSelectedMetodo("");
                           setSelectedCategoria("");
+                          setSelectedPlanoId("");
+                          setSelectedCentroCustoId("");
                         }
                       }}
                     />
@@ -928,6 +953,36 @@ export default function DialogEntradaFiscal({
                               ))}
                             </SelectContent>
                           </Select>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[minmax(8rem,1fr)_minmax(0,2fr)] sm:items-center">
+                          <Label className="text-muted-foreground">Plano de conta:</Label>
+                          <PlanoContaCombobox
+                            value={selectedPlanoId}
+                            groups={gruposPlanosDeConta}
+                            loading={loadingPlanos}
+                            clearable
+                            onClear={() => setSelectedPlanoId("")}
+                            onValueChange={(value) => setSelectedPlanoId(value)}
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[minmax(8rem,1fr)_minmax(0,2fr)] sm:items-center">
+                          <Label className="text-muted-foreground">Centro de custo:</Label>
+                          <SearchCombobox
+                            value={selectedCentroCustoId}
+                            options={centrosCusto.map((centro) => ({
+                              value: String(centro.id),
+                              label: centro.nome,
+                              description: centro.descricao ?? undefined,
+                            }))}
+                            loading={loadingCentrosCusto}
+                            clearable
+                            clearLabel="Sem centro de custo"
+                            placeholder="Selecione o centro de custo"
+                            searchPlaceholder="Pesquisar centro de custo..."
+                            onValueChange={setSelectedCentroCustoId}
+                          />
                         </div>
                       </div>
                     </div>

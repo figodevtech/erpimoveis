@@ -6,17 +6,44 @@ import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TabsContent } from "@/components/ui/tabs";
-import { ChevronDown, Edit, Undo2, Receipt, ArrowRightLeft } from "lucide-react";
+import { ChevronDown, Undo2, Receipt, ArrowRightLeft } from "lucide-react";
 import { Produto } from "../../../types";
 import { formatDate } from "@/utils/formatDate";
-import { DialogEntradaGeral } from "../../dialog-entrada-geral/dialog-entrada-geral";
 import { EmissaoNotaDialog } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/emissao-nota-dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { toast } from "@/lib/toast";
 
-export function TabFluxo({ produto }: { produto: Produto }) {
+export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfterChange?: () => void | Promise<void> }) {
   const entradas = (produto as any).entrada ?? [];
-  const [selectedEntradaId, setSelectedEntradaId] = useState<number | null>(null);
-  const [openDialogEntradaGeral, setOpenDialogEntradaGeral] = useState(false);
   const [nfeDialogEntradaId, setNfeDialogEntradaId] = useState<number | null>(null);
+  const [entradaParaCancelar, setEntradaParaCancelar] = useState<number | null>(null);
+  const [cancelando, setCancelando] = useState(false);
+
+  const cancelarEntrada = async () => {
+    if (!entradaParaCancelar) return;
+    setCancelando(true);
+    try {
+      const response = await fetch(`/api/entradas/${entradaParaCancelar}/cancelar`, { method: "POST" });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error ?? "Não foi possível cancelar a entrada.");
+      toast.success("Entrada cancelada e estoque estornado.");
+      setEntradaParaCancelar(null);
+      await onAfterChange?.();
+    } catch (error: any) {
+      toast.error("Erro ao cancelar entrada", { description: error?.message });
+    } finally {
+      setCancelando(false);
+    }
+  };
 
   const getStatusBadge = (status: string) => {
     if (!status) return <Badge variant="outline">Desconhecido</Badge>;
@@ -27,9 +54,9 @@ export function TabFluxo({ produto }: { produto: Produto }) {
       case "CONCLUIDA":
       case "CONCLUÍDA":
       case "EFETIVADA":
-        return <Badge variant="outline" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20">Efetivada</Badge>;
+      case "CONFIRMADA":
+        return <Badge variant="outline" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20">Confirmada</Badge>;
       case "PENDENTE":
-      case "RASCUNHO":
         return <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20">{formatted}</Badge>;
       case "CANCELADA":
         return <Badge variant="outline" className="bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20">Cancelada</Badge>;
@@ -45,19 +72,24 @@ export function TabFluxo({ produto }: { produto: Produto }) {
         onOpenChange={(v) => !v && setNfeDialogEntradaId(null)}
         entradaId={nfeDialogEntradaId}
       />
-      <DialogEntradaGeral
-        selectedEntradaId={selectedEntradaId ?? undefined}
-        open={openDialogEntradaGeral}
-        onOpenChange={(v)=>{
-          if(!v){
-            setSelectedEntradaId(null)
-            setOpenDialogEntradaGeral(false)
-          }else{
-            setOpenDialogEntradaGeral(true)
-          }
-        }}
-      />
-
+      <AlertDialog open={entradaParaCancelar !== null} onOpenChange={(open) => !open && setEntradaParaCancelar(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancelar esta entrada?</AlertDialogTitle>
+            <AlertDialogDescription>
+              O estoque recebido será retirado. Parcelas financeiras pendentes serão anuladas e pagamentos já
+              realizados receberão um lançamento inverso. A entrada permanecerá no histórico como cancelada e não
+              poderá ser editada. O cancelamento será impedido se o estoque atual não comportar o estorno.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cancelando}>Voltar</AlertDialogCancel>
+            <AlertDialogAction disabled={cancelando} onClick={(event) => { event.preventDefault(); void cancelarEntrada(); }}>
+              {cancelando ? "Cancelando..." : "Cancelar entrada"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <div className="space-y-4">
         {/* Header */}
         <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -85,7 +117,7 @@ export function TabFluxo({ produto }: { produto: Produto }) {
                 <TableHead className="w-[80px]">ID</TableHead>
                 <TableHead>Data</TableHead>
                 <TableHead>Fornecedor</TableHead>
-                {/* <TableHead>Status</TableHead> */}
+                <TableHead>Status</TableHead>
                 <TableHead className="text-right">Quantidade</TableHead>
                 <TableHead className="w-[50px]"></TableHead>
               </TableRow>
@@ -99,10 +131,12 @@ export function TabFluxo({ produto }: { produto: Produto }) {
                   
                   return (
                     <TableRow key={e.id} className="hover:bg-muted/50 transition-colors">
-                      <TableCell className="font-medium text-muted-foreground">#{e.id}</TableCell>
+                      <TableCell className="font-medium text-muted-foreground">
+                        #{entradaInfo.id ?? e.id}
+                      </TableCell>
                       <TableCell>{formatDate(e.created_at)}</TableCell>
                       <TableCell className="max-w-[200px] truncate" title={fornecedorNome}>{fornecedorNome}</TableCell>
-                      {/* <TableCell>{getStatusBadge(entradaInfo.status)}</TableCell> */}
+                      <TableCell>{getStatusBadge(entradaInfo.status)}</TableCell>
                       <TableCell className="text-right font-bold text-green-600 dark:text-green-500">+ {e.quantidade}</TableCell>
                       <TableCell>
                         <DropdownMenu>
@@ -112,29 +146,19 @@ export function TabFluxo({ produto }: { produto: Produto }) {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-[180px]">
-                            <Button onClick={()=>{
-                              if (entradaInfo.id) {
-                                setSelectedEntradaId(entradaInfo.id)
-                                setOpenDialogEntradaGeral(true)
-                              }
-                            }} variant="ghost" className="w-full justify-start cursor-pointer px-2 text-xs">
-                              <Edit className="mr-2 h-4 w-4" />
-                              Editar Entrada
-                            </Button>
-                            
-                            <Button onClick={()=>{
+                            {entradaInfo.status === "CONFIRMADA" && entradaInfo.origem !== "NFE_TERCEIRO" ? <Button onClick={()=>{
                               if (entradaInfo.id) {
                                 setNfeDialogEntradaId(entradaInfo.id)
                               }
                             }} variant="ghost" className="w-full justify-start cursor-pointer px-2 text-xs">
                               <Receipt className="mr-2 h-4 w-4 text-emerald-500" />
                               Emitir Nota
-                            </Button>
+                            </Button> : null}
                             
-                            <Button variant="ghost" className="w-full justify-start cursor-pointer px-2 text-xs text-red-600 hover:text-red-700 hover:bg-red-500/10">
+                            {entradaInfo.status === "CONFIRMADA" ? <Button onClick={() => setEntradaParaCancelar(entradaInfo.id)} variant="ghost" className="w-full justify-start cursor-pointer px-2 text-xs text-red-600 hover:text-red-700 hover:bg-red-500/10">
                               <Undo2 className="mr-2 h-4 w-4" />
                               Cancelar Entrada
-                            </Button>
+                            </Button> : null}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>

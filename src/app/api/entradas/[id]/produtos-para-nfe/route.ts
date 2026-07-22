@@ -54,6 +54,8 @@ export async function GET(_request: Request, context: Context) {
         id,
         fornecedorid,
         tipo,
+        status,
+        origem,
         fornecedor:fornecedorid (
           id,
           cpfcnpj,
@@ -77,6 +79,15 @@ export async function GET(_request: Request, context: Context) {
     if (!entrada) {
       return NextResponse.json({ ok: false, message: "Entrada não encontrada." }, { status: 404 });
     }
+    if (entrada.status !== "CONFIRMADA") {
+      return NextResponse.json({ ok: false, message: "Somente entradas confirmadas podem originar uma NF-e." }, { status: 409 });
+    }
+    if (entrada.origem === "NFE_TERCEIRO") {
+      return NextResponse.json(
+        { ok: false, message: "Uma NF-e recebida de terceiro não pode originar outra NF-e de entrada." },
+        { status: 409 },
+      );
+    }
 
     const fornecedor = relationOne<any>(entrada.fornecedor);
     const { data: rows, error: itensError } = await supabaseAdmin
@@ -88,6 +99,7 @@ export async function GET(_request: Request, context: Context) {
         unidade,
         quantidade,
         precovenda,
+        valor_unitario_compra,
         ncm,
         cest,
         csosn,
@@ -142,7 +154,7 @@ export async function GET(_request: Request, context: Context) {
       const produto = relationOne<any>(row.produto);
       const titulo = String(row.titulo || produto?.titulo || `Produto #${row.produto_id}`);
       const quantidade = numero(row.quantidade);
-      const valorUnitario = numero(row.precovenda);
+      const valorUnitario = numero(row.valor_unitario_compra ?? row.precovenda);
 
       return {
         osProdutoId: String(row.id),

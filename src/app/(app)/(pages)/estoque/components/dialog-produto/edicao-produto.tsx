@@ -242,7 +242,13 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
             <TabEstoque mode="edit" produto={selectedProduct} onChange={handleChange} />
             <TabVendas produto={selectedProduct} />
             <TabOrdens produto={selectedProduct} />
-            <TabFluxo produto={selectedProduct} />
+            <TabFluxo
+              produto={selectedProduct}
+              onAfterChange={async () => {
+                await handleRefreshProductSilently(productId);
+                onAfterSaveProduct?.();
+              }}
+            />
           </>
         )}
 
