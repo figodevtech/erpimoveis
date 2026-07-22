@@ -34,6 +34,7 @@ import {
   ScanLine,
   Repeat2,
   FileClock,
+  CreditCard,
 } from "lucide-react";
 
 import { NavMain } from "./components/nav-main";
@@ -57,6 +58,7 @@ type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
   user?: { nome: string; email: string };
   setOpen?: (open: boolean) => void;
   hoverHabilitado?: boolean;
+  billingBlocked?: boolean;
 };
 
 const data = {
@@ -214,6 +216,11 @@ const data = {
       icon: ClipboardList,
       perm: PERMS.RELATORIOS,
     },
+    {
+      title: "Seu Plano",
+      url: "/plano",
+      icon: CreditCard,
+    },
   ],
   navSettings: [
     {
@@ -315,7 +322,7 @@ function SidebarModulesLoading() {
   );
 }
 
-export function AppSidebar({ user, setOpen, hoverHabilitado, ...props }: AppSidebarProps) {
+export function AppSidebar({ user, setOpen, hoverHabilitado, billingBlocked = false, ...props }: AppSidebarProps) {
   const { data: session, status } = useSession();
 
   // Se tiver sessão, usa usuário da sessão; senão, usa o user vindo por props (do layout)
@@ -333,12 +340,14 @@ export function AppSidebar({ user, setOpen, hoverHabilitado, ...props }: AppSide
   const isSessionLoading = status === "loading" && !effectiveUser;
 
   const navOptions = React.useMemo(
-    () => filterByPermission(data.navOptions, effectiveUser),
-    [effectiveUser]
+    () => billingBlocked
+      ? data.navOptions.filter((item) => item.url === "/plano")
+      : filterByPermission(data.navOptions, effectiveUser),
+    [billingBlocked, effectiveUser]
   );
   const navSettings = React.useMemo(
-    () => filterByPermission(data.navSettings, effectiveUser),
-    [effectiveUser]
+    () => billingBlocked ? [] : filterByPermission(data.navSettings, effectiveUser),
+    [billingBlocked, effectiveUser]
   );
 
   return (

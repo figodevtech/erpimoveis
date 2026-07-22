@@ -38,6 +38,7 @@ const routeTitles: Record<string, string> = {
   "/configuracoes/tipos": "Configurações de Tipos",
   "/historicovendas": "Histórico de Vendas",
   "/configuracoes/perfis": "Perfis de Permissões",
+  "/plano": "Seu Plano",
 };
 
 function humanize(path: string) {
@@ -77,8 +78,27 @@ export default function ClientAppShell({
 
   const [sideBarOpen, setSidebarOpen] = React.useState(true);
   const [hoverHabilitado, setHoverHabilitado] = React.useState(true);
+  const [billing, setBilling] = React.useState({ blocked: false, showBanner: false, message: null as string | null });
   const hoverTimerRef = React.useRef<number | null>(null);
   const loggingOutRef = React.useRef(false);
+
+  React.useEffect(() => {
+    let active = true;
+    fetch("/api/plano/status", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((result) => {
+        if (!active || !result?.data?.access) return;
+        const next = {
+          blocked: !result.data.access.allowed,
+          showBanner: result.data.access.showBanner,
+          message: result.data.access.message as string | null,
+        };
+        setBilling(next);
+        if (next.blocked && !pathname.startsWith("/plano")) router.replace("/plano");
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [pathname, router]);
 
   React.useEffect(() => {
     // limpa timer anterior se trocar de rota rápido
@@ -173,20 +193,21 @@ export default function ClientAppShell({
   }, [router]);
 
   return (
-    <div className={`flex min-h-svh w-full flex-col ${config?.aviso_pagamento ? "pt-10" : ""}`}>
-      {config?.aviso_pagamento && (
+    <div className={`flex min-h-svh w-full flex-col ${config?.aviso_pagamento || billing.showBanner || billing.blocked ? "pt-10" : ""}`}>
+      {(config?.aviso_pagamento || billing.showBanner || billing.blocked) && (
         <div
           role="alert"
           className="fixed inset-x-0 top-0 z-[60] flex h-10 w-full items-center justify-center gap-2 border-b border-amber-300 bg-amber-50 px-3 py-1 text-center text-xs font-medium leading-tight text-amber-900 shadow-sm sm:text-sm"
         >
           <TriangleAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
-          <span>Debitos pendentes, contate o time da FIGO para regularização.</span>
+          <span>{billing.message || "Débitos pendentes. Acesse Seu Plano para regularização."}</span>
         </div>
       )}
 
       <SidebarProvider className="min-h-0 flex-1" open={sideBarOpen} onOpenChange={setSidebarOpen}>
         <AppSidebar
-          className={config?.aviso_pagamento ? "!top-10 !h-[calc(100svh-2.5rem)]" : undefined}
+          className={config?.aviso_pagamento || billing.showBanner || billing.blocked ? "!top-10 !h-[calc(100svh-2.5rem)]" : undefined}
+          billingBlocked={billing.blocked}
           hoverHabilitado={hoverHabilitado}
           setOpen={setSidebarOpen}
         />
@@ -205,7 +226,7 @@ export default function ClientAppShell({
           </header>
         ) : (
           // quando não tem header, mostra um trigger flutuante no mobile
-          <div className={`fixed left-3 z-50 md:hidden ${config?.aviso_pagamento ? "top-[3.25rem]" : "top-3"}`}>
+          <div className={`fixed left-3 z-50 md:hidden ${config?.aviso_pagamento || billing.showBanner || billing.blocked ? "top-[3.25rem]" : "top-3"}`}>
             <SidebarTrigger className="h-10 w-10 rounded-md border bg-background/90 shadow-sm backdrop-blur" />
           </div>
         )}

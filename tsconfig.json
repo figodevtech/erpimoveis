@@ -23,5 +23,5 @@
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "src/app/(app)/(pages)/dashboard/components/dashboard-clientes"],
-  "exclude": ["node_modules", "alphagaragepb"]
+  "exclude": ["node_modules", "alphagaragepb", "central"]
 }

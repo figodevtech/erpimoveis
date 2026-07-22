@@ -193,6 +193,27 @@ async function fetchFreshUserState(userId: string) {
   return Array.isArray(rows) ? rows[0] ?? null : null;
 }
 
+async function fetchPlatformAccess() {
+  const url = process.env.PLATFORM_API_URL?.trim().replace(/\/$/, "");
+  const installationId = process.env.PLATFORM_INSTALLATION_ID?.trim();
+  const secret = process.env.PLATFORM_API_SECRET?.trim();
+  if (!url || !installationId || !secret) return null;
+
+  try {
+    const response = await fetch(`${url}/api/v1/subscription`, {
+      cache: "no-store",
+      headers: { "X-Installation-Id": installationId, Authorization: `Bearer ${secret}` },
+      signal: AbortSignal.timeout(3_000),
+    });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    return typeof payload?.access?.allowed === "boolean" ? payload.access.allowed : null;
+  } catch {
+    // Falha aberta: indisponibilidade da Central nunca deve parar a oficina.
+    return null;
+  }
+}
+
 export default auth(async (req: NextRequest & { auth?: any }) => {
   const { nextUrl } = req;
   const pathname = nextUrl.pathname;
@@ -264,6 +285,30 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
     const url = new URL("/login", nextUrl);
     url.searchParams.set("reason", "inactive");
     return NextResponse.redirect(url);
+  }
+
+  const isBillingPath = pathname === "/plano" || pathname.startsWith("/plano/");
+  const isBillingApi = pathname === "/api/plano" || pathname.startsWith("/api/plano/");
+  const isMutation = !["GET", "HEAD", "OPTIONS"].includes(req.method.toUpperCase());
+  if (isApi && isMutation && !isBillingApi && !pathname.startsWith("/api/auth")) {
+    const platformAllowed = await fetchPlatformAccess();
+    if (platformAllowed === false) {
+      return NextResponse.json({ error: "SUBSCRIPTION_BLOCKED" }, {
+        status: 403,
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+  }
+  if (!isApi) {
+    const platformAllowed = await fetchPlatformAccess();
+    if (platformAllowed === false && !isBillingPath) {
+      return NextResponse.redirect(new URL("/plano", nextUrl), {
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+    if (isBillingPath) {
+      return NextResponse.next({ headers: { "Cache-Control": "no-store" } });
+    }
   }
 
   // âœ… LÃ³gica de UsuÃ¡rio ROOT
