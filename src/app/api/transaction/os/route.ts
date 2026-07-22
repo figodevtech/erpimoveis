@@ -25,6 +25,7 @@ const WRITABLE_FIELDS = new Set([
   "nomepagador",
   "cpfcnpjpagador",
   "pendente",
+  "evento_financeiro_id",
 ]);
 
 /** Campos retornados no select padrão (transacao) */
@@ -157,7 +158,8 @@ function sanitizeTransacaoPayload(body: any, { strict }: { strict: boolean }) {
       case "vendaid":
       case "categoria_id":
       case "plano_de_conta_id":
-      case "centro_custo_id": {
+      case "centro_custo_id":
+      case "evento_financeiro_id": {
         const n = toNumberOrNull(body[key]);
         out[key] = n == null ? null : Math.trunc(n);
         break;
@@ -340,6 +342,9 @@ export async function POST(req: Request) {
       payload.categoria = categoriaSistema.nome;
     }
     const parcelasDetalhadas = sanitizeParcelasDetalhadas(body?.parcelasDetalhadas);
+    if (payload.evento_financeiro_id != null && parcelasDetalhadas.length > 1) {
+      return NextResponse.json({ error: "Um evento financeiro deve gerar uma única transação." }, { status: 400 });
+    }
     const hasParcelamento = parcelasDetalhadas.length > 1;
     const totalParcelas = hasParcelamento ? parcelasDetalhadas.length : 1;
 

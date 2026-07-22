@@ -24,6 +24,7 @@ const WRITABLE_FIELDS = new Set([
   "nomepagador",
   "cpfcnpjpagador",
   "pendente",
+  "evento_financeiro_id",
 ]);
 
 const FORTALEZA_OFFSET = "-03:00";
@@ -137,7 +138,8 @@ function sanitizeTransacaoPayload(body: any, { strict }: { strict: boolean }) {
       case "vendaid":
       case "categoria_id":
       case "plano_de_conta_id":
-      case "centro_custo_id": {
+      case "centro_custo_id":
+      case "evento_financeiro_id": {
         const parsed = toNumberOrNull(body[key]);
         output[key] = parsed == null ? null : Math.trunc(parsed);
         break;
@@ -302,6 +304,9 @@ export async function POST(req: Request) {
       payload.categoria = categoriaSistema.nome;
     }
     const parcelasDetalhadas = sanitizeParcelasDetalhadas(body?.parcelasDetalhadas);
+    if (payload.evento_financeiro_id != null && parcelasDetalhadas.length > 1) {
+      return NextResponse.json({ error: "Um evento financeiro deve gerar uma única transação." }, { status: 400 });
+    }
     const hasParcelamento = parcelasDetalhadas.length > 1;
     const totalParcelas = hasParcelamento ? parcelasDetalhadas.length : 1;
     const isReceita = typeof payload.tipo === "string" && payload.tipo.toUpperCase() === "RECEITA";
