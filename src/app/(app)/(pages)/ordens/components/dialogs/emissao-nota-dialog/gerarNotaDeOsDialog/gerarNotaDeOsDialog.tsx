@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
+  ChevronsUpDown,
   Info,
   Loader2,
   Package,
@@ -20,6 +21,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Command, CommandGroup, CommandItem, CommandList } from "@/components/ui/command";
 import {
   Dialog,
   DialogClose,
@@ -29,11 +31,26 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
+import ValueInput from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/components/transactionDialog/valueInput";
 import { normalizeCfopForOperation } from "@/lib/nfe/cfopOperation";
+import {
+  NFE_FREIGHT_OPTIONS,
+  NFE_PAYMENT_OPTIONS,
+  NFE_PRESENCE_OPTIONS,
+} from "@/lib/nfe/originFiscalDefaults";
 import { isValidCnpj, isValidCpf, normalizeFiscalRecipient } from "@/lib/nfe/recipientNormalization";
 
 import {
@@ -63,7 +80,38 @@ type SourceResponse = {
   tipo_operacao?: "SAIDA" | "ENTRADA";
   natureza_operacao?: string;
   destinatario?: NFeEntrySupplierDraft;
+  configuracao_fiscal?: Partial<AssistedFiscalConfig>;
   itens: SourceProduct[];
+};
+
+type AssistedFiscalConfig = {
+  consumidorFinal: boolean;
+  indicadorPresenca: string;
+  pagamentos: Array<{ meio: string; valor: number }>;
+  modFrete: string;
+  transportadora: {
+    documento: string;
+    nome: string;
+    inscricaoEstadual: string;
+    endereco: string;
+    municipio: string;
+    uf: string;
+  };
+};
+
+const defaultFiscalConfig: AssistedFiscalConfig = {
+  consumidorFinal: true,
+  indicadorPresenca: "1",
+  pagamentos: [],
+  modFrete: "9",
+  transportadora: {
+    documento: "",
+    nome: "",
+    inscricaoEstadual: "",
+    endereco: "",
+    municipio: "",
+    uf: "",
+  },
 };
 
 type FiscalCustomer = {
@@ -166,7 +214,9 @@ export function GerarNotaDeOsDialog({
   const [includeObservations, setIncludeObservations] = useState(false);
   const [observations, setObservations] = useState("");
   const [entrySupplier, setEntrySupplier] = useState<NFeEntrySupplierDraft>(emptyEntrySupplier);
+  const [fiscalConfig, setFiscalConfig] = useState<AssistedFiscalConfig>(defaultFiscalConfig);
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
+  const [paymentMethodsOpen, setPaymentMethodsOpen] = useState(false);
 
   const origin = osId ? "OS" : vendaId ? "VENDA" : entradaId ? "ENTRADA" : null;
   const originId = osId ?? vendaId ?? entradaId ?? null;
@@ -222,6 +272,15 @@ export function GerarNotaDeOsDialog({
       setItems(mapped);
       setSelectedIds(mapped.map((item) => item.sourceItemId));
       setEntrySupplier(productsJson.destinatario ?? emptyEntrySupplier);
+      setFiscalConfig({
+        ...defaultFiscalConfig,
+        ...productsJson.configuracao_fiscal,
+        pagamentos: [],
+        transportadora: {
+          ...defaultFiscalConfig.transportadora,
+          ...productsJson.configuracao_fiscal?.transportadora,
+        },
+      });
       const existingObservations = productsJson.observacoes_fiscais ?? "";
       setObservations(existingObservations);
       setIncludeObservations(Boolean(existingObservations));
@@ -233,6 +292,7 @@ export function GerarNotaDeOsDialog({
       setItems([]);
       setSelectedIds([]);
       setEntrySupplier(emptyEntrySupplier);
+      setFiscalConfig(defaultFiscalConfig);
     } finally {
       setLoading(false);
     }
@@ -303,6 +363,38 @@ export function GerarNotaDeOsDialog({
     () => origin === "OS" || origin === "VENDA" ? validateFiscalCustomer(source?.cliente) : [],
     [origin, source?.cliente],
   );
+  const transportErrors = useMemo(() => {
+    if (!(origin === "OS" || origin === "VENDA") || !["0", "1", "2"].includes(fiscalConfig.modFrete)) {
+      return [];
+    }
+    const errors: string[] = [];
+    const document = onlyDigits(fiscalConfig.transportadora.documento);
+    if (document.length !== 11 && document.length !== 14) errors.push("Informe o CPF/CNPJ da transportadora.");
+    if (!fiscalConfig.transportadora.nome.trim()) errors.push("Informe o nome da transportadora.");
+    if (fiscalConfig.transportadora.uf.trim().length !== 2) errors.push("Informe a UF da transportadora.");
+    return errors;
+  }, [fiscalConfig.modFrete, fiscalConfig.transportadora, origin]);
+  const paymentErrors = useMemo(() => {
+    if (!(origin === "OS" || origin === "VENDA")) return [];
+    if (fiscalConfig.pagamentos.length === 0) return ["Selecione pelo menos um método de pagamento."];
+    if (fiscalConfig.pagamentos.length === 1) return [];
+
+    const errors: string[] = [];
+    if (fiscalConfig.pagamentos.some((pagamento) => pagamento.valor <= 0)) {
+      errors.push("Informe um valor maior que zero para cada método.");
+    }
+    const totalPagamentos = fiscalConfig.pagamentos.reduce((total, pagamento) => total + pagamento.valor, 0);
+    if (Math.abs(totalPagamentos - selectedTotal) > 0.01) {
+      errors.push(`A soma dos pagamentos deve ser ${fmtMoney(selectedTotal)}.`);
+    }
+    return errors;
+  }, [fiscalConfig.pagamentos, origin, selectedTotal]);
+
+  const paymentMethodsLabel = fiscalConfig.pagamentos.length === 0
+    ? "Selecione os métodos"
+    : fiscalConfig.pagamentos
+        .map((pagamento) => NFE_PAYMENT_OPTIONS.find((option) => option.value === pagamento.meio)?.label ?? pagamento.meio)
+        .join(", ");
   const operationLabel =
     setup?.empresa?.uf && parceiro?.uf
       ? setup.empresa.uf === parceiro.uf
@@ -346,6 +438,26 @@ export function GerarNotaDeOsDialog({
       );
     }
     setEntrySupplier(next);
+    setServerError(null);
+  }
+
+  function togglePaymentMethod(meio: string) {
+    setFiscalConfig((current) => ({
+      ...current,
+      pagamentos: current.pagamentos.some((pagamento) => pagamento.meio === meio)
+        ? current.pagamentos.filter((pagamento) => pagamento.meio !== meio)
+        : [...current.pagamentos, { meio, valor: 0 }],
+    }));
+    setServerError(null);
+  }
+
+  function updatePaymentAmount(meio: string, valor: number) {
+    setFiscalConfig((current) => ({
+      ...current,
+      pagamentos: current.pagamentos.map((pagamento) =>
+        pagamento.meio === meio ? { ...pagamento, valor } : pagamento,
+      ),
+    }));
     setServerError(null);
   }
 
@@ -400,6 +512,14 @@ export function GerarNotaDeOsDialog({
       setCustomerDialogOpen(true);
       return;
     }
+    if (transportErrors.length) {
+      toast.error("Complete os dados da transportadora antes de emitir.");
+      return;
+    }
+    if (paymentErrors.length) {
+      toast.error(paymentErrors[0]);
+      return;
+    }
 
     setSaving(true);
     setServerError(null);
@@ -418,6 +538,23 @@ export function GerarNotaDeOsDialog({
                 destinatario: {
                   ...normalizeFiscalRecipient(entrySupplier),
                   clienteId: null,
+                },
+              }
+            : {}),
+          ...(origin === "OS" || origin === "VENDA"
+            ? {
+                configuracaoFiscal: {
+                  consumidorFinal: fiscalConfig.consumidorFinal,
+                  indicadorPresenca: fiscalConfig.indicadorPresenca,
+                  pagamentos: fiscalConfig.pagamentos.map((pagamento) => ({
+                    meio: pagamento.meio,
+                    valor: fiscalConfig.pagamentos.length === 1 ? selectedTotal : pagamento.valor,
+                    tipoIntegracao: "2",
+                  })),
+                  transporte: {
+                    modFrete: fiscalConfig.modFrete,
+                    transportadora: fiscalConfig.transportadora,
+                  },
                 },
               }
             : {}),
@@ -453,7 +590,7 @@ export function GerarNotaDeOsDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent
           showCloseButton={false}
-          className="max-h-[90dvh] w-[calc(100vw-1rem)] max-w-5xl min-w-0 overflow-x-hidden overflow-y-auto p-0 sm:w-[96vw]"
+          className="max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] min-w-0 overflow-x-hidden overflow-y-auto p-0 sm:max-h-[92dvh] sm:w-[94vw] sm:max-w-[94vw] lg:w-[92vw] lg:max-w-6xl xl:max-w-7xl 2xl:max-w-[1440px]"
         >
           <div className="relative min-w-0 border-b bg-background/95">
             <DialogClose asChild>
@@ -552,6 +689,233 @@ export function GerarNotaDeOsDialog({
                   </section>
                 ) : null}
 
+                {origin === "OS" || origin === "VENDA" ? (
+                  <section className="min-w-0 space-y-4 rounded-lg border bg-card p-3 sm:p-4">
+                    <div>
+                      <p className="font-medium">Dados da operação</p>
+                      <p className="text-xs text-muted-foreground">
+                        Revise os dados trazidos da {origin === "OS" ? "ordem de serviço" : "venda"} antes de gerar a NF-e.
+                      </p>
+                    </div>
+                    <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-2">
+                      <div className="min-w-0 space-y-1.5">
+                        <Label>Consumidor final</Label>
+                        <Select
+                          value={fiscalConfig.consumidorFinal ? "SIM" : "NAO"}
+                          onValueChange={(value) => setFiscalConfig((current) => ({
+                            ...current,
+                            consumidorFinal: value === "SIM",
+                          }))}
+                        >
+                          <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="SIM">Sim</SelectItem>
+                            <SelectItem value="NAO">Não</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="min-w-0 space-y-1.5">
+                        <Label>Indicador de presença</Label>
+                        <Select
+                          value={fiscalConfig.indicadorPresenca}
+                          onValueChange={(value) => setFiscalConfig((current) => ({ ...current, indicadorPresenca: value }))}
+                        >
+                          <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {NFE_PRESENCE_OPTIONS.filter((option) => option.value !== "0").map((option) => (
+                              <SelectItem key={option.value} value={option.value}>{option.value} - {option.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="min-w-0 space-y-1.5">
+                        <Label>Métodos de pagamento</Label>
+                        <Popover open={paymentMethodsOpen} onOpenChange={setPaymentMethodsOpen} modal>
+                          <PopoverTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              role="combobox"
+                              aria-expanded={paymentMethodsOpen}
+                              className="w-full min-w-0 justify-between px-3 font-normal"
+                            >
+                              <span className="truncate text-left">{paymentMethodsLabel}</span>
+                              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-[--radix-popover-trigger-width] min-w-64 p-0" align="start">
+                            <Command>
+                              <CommandList
+                                className="max-h-72 overscroll-contain"
+                                onWheel={(event) => event.stopPropagation()}
+                              >
+                                <CommandGroup>
+                                  {NFE_PAYMENT_OPTIONS.filter((option) => option.value !== "90").map((option) => {
+                                    const checked = fiscalConfig.pagamentos.some(
+                                      (pagamento) => pagamento.meio === option.value,
+                                    );
+                                    return (
+                                      <CommandItem
+                                        key={option.value}
+                                        value={`${option.value} ${option.label}`}
+                                        onSelect={() => togglePaymentMethod(option.value)}
+                                        className="gap-2"
+                                      >
+                                        <Checkbox
+                                          checked={checked}
+                                          aria-label={`Selecionar ${option.label}`}
+                                          className="pointer-events-none"
+                                        />
+                                        <span className="min-w-0 truncate">
+                                          {option.value} - {option.label}
+                                        </span>
+                                      </CommandItem>
+                                    );
+                                  })}
+                                </CommandGroup>
+                              </CommandList>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
+                        {fiscalConfig.pagamentos.length === 1 ? (
+                          <p className="text-xs text-muted-foreground">
+                            O total da NF-e será atribuído a este método.
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="min-w-0 space-y-1.5">
+                        <Label>Modalidade do frete</Label>
+                        <Select
+                          value={fiscalConfig.modFrete}
+                          onValueChange={(value) => setFiscalConfig((current) => ({ ...current, modFrete: value }))}
+                        >
+                          <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {NFE_FREIGHT_OPTIONS.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>{option.value} - {option.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    {fiscalConfig.pagamentos.length > 1 ? (
+                      <div className="min-w-0 space-y-3 rounded-md border bg-muted/20 p-3">
+                        <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="text-sm font-medium">Distribuição do pagamento</p>
+                            <p className="text-xs text-muted-foreground">
+                              Informe quanto foi pago em cada método selecionado.
+                            </p>
+                          </div>
+                          <p className="shrink-0 text-sm font-medium">Total da NF-e: {fmtMoney(selectedTotal)}</p>
+                        </div>
+                        <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                          {fiscalConfig.pagamentos.map((pagamento) => {
+                            const option = NFE_PAYMENT_OPTIONS.find((item) => item.value === pagamento.meio);
+                            return (
+                              <div key={pagamento.meio} className="min-w-0 space-y-1.5">
+                                <Label className="block truncate" title={option?.label}>
+                                  {pagamento.meio} - {option?.label ?? "Método de pagamento"}
+                                </Label>
+                                <ValueInput
+                                  price={pagamento.valor}
+                                  setPrice={(valor) => updatePaymentAmount(pagamento.meio, valor)}
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {paymentErrors.length ? (
+                          <p className="text-xs text-destructive">{paymentErrors.join(" ")}</p>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">
+                            Soma informada: {fmtMoney(fiscalConfig.pagamentos.reduce(
+                              (total, pagamento) => total + pagamento.valor,
+                              0,
+                            ))}
+                          </p>
+                        )}
+                      </div>
+                    ) : paymentErrors.length ? (
+                      <p className="text-xs text-destructive">{paymentErrors.join(" ")}</p>
+                    ) : null}
+
+                    {["0", "1", "2"].includes(fiscalConfig.modFrete) ? (
+                      <div className="space-y-3 border-t pt-3">
+                        <p className="text-sm font-medium">Transportadora contratada</p>
+                        <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                          <div className="min-w-0 space-y-1.5">
+                            <Label>CPF/CNPJ *</Label>
+                            <Input
+                              value={fiscalConfig.transportadora.documento}
+                              inputMode="numeric"
+                              onChange={(event) => setFiscalConfig((current) => ({
+                                ...current,
+                                transportadora: { ...current.transportadora, documento: onlyDigits(event.target.value).slice(0, 14) },
+                              }))}
+                            />
+                          </div>
+                          <div className="min-w-0 space-y-1.5 lg:col-span-2">
+                            <Label>Nome/Razão social *</Label>
+                            <Input
+                              value={fiscalConfig.transportadora.nome}
+                              onChange={(event) => setFiscalConfig((current) => ({
+                                ...current,
+                                transportadora: { ...current.transportadora, nome: event.target.value },
+                              }))}
+                            />
+                          </div>
+                          <div className="min-w-0 space-y-1.5">
+                            <Label>Inscrição estadual</Label>
+                            <Input
+                              value={fiscalConfig.transportadora.inscricaoEstadual}
+                              onChange={(event) => setFiscalConfig((current) => ({
+                                ...current,
+                                transportadora: { ...current.transportadora, inscricaoEstadual: event.target.value },
+                              }))}
+                            />
+                          </div>
+                          <div className="min-w-0 space-y-1.5">
+                            <Label>Município</Label>
+                            <Input
+                              value={fiscalConfig.transportadora.municipio}
+                              onChange={(event) => setFiscalConfig((current) => ({
+                                ...current,
+                                transportadora: { ...current.transportadora, municipio: event.target.value },
+                              }))}
+                            />
+                          </div>
+                          <div className="min-w-0 space-y-1.5">
+                            <Label>UF *</Label>
+                            <Input
+                              value={fiscalConfig.transportadora.uf}
+                              maxLength={2}
+                              onChange={(event) => setFiscalConfig((current) => ({
+                                ...current,
+                                transportadora: { ...current.transportadora, uf: event.target.value.toUpperCase().slice(0, 2) },
+                              }))}
+                            />
+                          </div>
+                          <div className="min-w-0 space-y-1.5 sm:col-span-2 lg:col-span-3">
+                            <Label>Endereço</Label>
+                            <Input
+                              value={fiscalConfig.transportadora.endereco}
+                              onChange={(event) => setFiscalConfig((current) => ({
+                                ...current,
+                                transportadora: { ...current.transportadora, endereco: event.target.value },
+                              }))}
+                            />
+                          </div>
+                        </div>
+                        {transportErrors.length ? (
+                          <p className="text-xs text-destructive">{transportErrors.join(" ")}</p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </section>
+                ) : null}
+
                 {setup.empresaErros.length > 0 ? (
                   <Alert variant="destructive" className="min-w-0 overflow-hidden">
                     <AlertCircle className="h-4 w-4" />
@@ -609,7 +973,7 @@ export function GerarNotaDeOsDialog({
                     </div>
                     <Separator />
 
-                    <div className="space-y-2">
+                    <div className="space-y-2 grid lg:grid-cols-2 gap-2">
                       {items.map((item) => {
                         const issues = issuesByItem.get(item.sourceItemId) ?? [];
                         const selected = selectedSet.has(item.sourceItemId);
@@ -728,7 +1092,9 @@ export function GerarNotaDeOsDialog({
                         selectedItems.length === 0 ||
                         setup.empresaErros.length > 0 ||
                         entrySupplierErrors.length > 0 ||
-                        customerErrors.length > 0
+                        customerErrors.length > 0 ||
+                        transportErrors.length > 0 ||
+                        paymentErrors.length > 0
                       }
                       onClick={() => void generateDraft()}
                     >

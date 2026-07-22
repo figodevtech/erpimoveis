@@ -33,6 +33,9 @@ import { Switch } from "@/components/ui/switch";
 import { Info } from "lucide-react";
 import { useCategoriasTransacao } from "../../hooks/use-categoria-transacao";
 import { usePlanosDeConta } from "../../hooks/use-planos-de-conta";
+import { useCentrosCusto } from "../../hooks/use-centros-custo";
+import { PlanoContaCombobox } from "../plano-conta-combobox";
+import { SearchCombobox } from "../search-combobox";
 import { toast } from "@/lib/toast";
 import {
   DrawerClose,
@@ -107,7 +110,8 @@ export default function EditContent({
   const [banks, setBanks] = useState<Banco[]>([]);
   const { categorias, loadingCategorias, errorCategorias } =
     useCategoriasTransacao();
-  const { planosDeConta, loadingPlanos } = usePlanosDeConta();
+  const { gruposPlanosDeConta, loadingPlanos } = usePlanosDeConta();
+  const { centrosCusto, loadingCentrosCusto, errorCentrosCusto } = useCentrosCusto();
 
   const handleChange = (
     field: keyof TransactionForm,
@@ -156,7 +160,7 @@ export default function EditContent({
   }, [selectedTransactionId]);
 
   const isLoading =
-    isLoadingTransaction || isLoadingBanks || loadingCategorias;
+    isLoadingTransaction || isLoadingBanks || loadingCategorias || loadingCentrosCusto;
 
   const Content = isDesktop ? DialogContent : DrawerContent;
   const Header = isDesktop ? DialogHeader : DrawerHeader;
@@ -335,11 +339,12 @@ export default function EditContent({
 
               <div className="space-y-2 w-full">
                 <Label htmlFor="banco">Banco</Label>
-                <Select
+                <SearchCombobox
                   disabled
+                  loading={isLoadingBanks}
                   value={selectedTransaction.banco_id?.toString() || ""}
-                  onValueChange={(v) => {
-                    const bancoId = Number(v);
+                  onValueChange={(value) => {
+                    const bancoId = Number(value);
                     const banco = banks.find((x) => x.id === bancoId);
 
                     setSelectedTransaction((prev) =>
@@ -350,87 +355,87 @@ export default function EditContent({
                             banco: banco
                               ? { ...(prev as any).banco, ...banco }
                               : (prev as any).banco,
-                          }
+                      }
                         : prev,
                     );
                   }}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Selecione" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {banks.map((b) => (
-                      <SelectItem key={b.id} value={b.id.toString()}>
-                        {b.titulo}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  placeholder="Selecione"
+                  searchPlaceholder="Pesquisar banco ou conta..."
+                  emptyMessage="Nenhum banco encontrado."
+                  options={banks.map((bank) => ({
+                    value: String(bank.id),
+                    label: bank.titulo,
+                    description: [bank.tipo, bank.agencia && `Ag. ${bank.agencia}`, bank.contanumero && `Conta ${bank.contanumero}`]
+                      .filter(Boolean)
+                      .join(" · "),
+                    searchText: `${bank.proprietario ?? ""} ${bank.tipo ?? ""}`,
+                  }))}
+                />
               </div>
 
               <div className="space-y-2 w-full">
                 <Label htmlFor="categoria">Categoria</Label>
-                <Select
+                <SearchCombobox
                   disabled
+                  loading={loadingCategorias}
                   value={selectedTransaction.categoria}
-                  onValueChange={(v) => handleChange("categoria", v)}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue
-                      placeholder={
-                        loadingCategorias
-                          ? "Carregando..."
-                          : errorCategorias
-                            ? "Erro ao carregar"
-                            : "Selecione"
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {categorias.map((c) => (
-                      <SelectItem key={c.id} value={c.nome}>
-                        {c.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  onValueChange={(value) => handleChange("categoria", value)}
+                  placeholder={errorCategorias ? "Erro ao carregar" : "Selecione"}
+                  searchPlaceholder="Pesquisar categoria..."
+                  emptyMessage="Nenhuma categoria encontrada."
+                  options={categorias.map((categoria) => ({
+                    value: categoria.nome,
+                    label: categoria.nome,
+                    description: categoria.descricao ?? undefined,
+                  }))}
+                />
               </div>
 
               <div className="space-y-2 w-full">
                 <Label htmlFor="plano-de-conta">Plano de Conta</Label>
-                <Select
+                <PlanoContaCombobox
                   disabled
+                  loading={loadingPlanos}
+                  groups={gruposPlanosDeConta}
                   value={selectedTransaction.plano_de_conta_id?.toString() || ""}
-                  onValueChange={(v) => {
-                    const selected = planosDeConta.find((p) => String(p.id) === v);
+                  onValueChange={(_, selected) => {
                     setSelectedTransaction((prev) =>
                       prev
                         ? {
                             ...prev,
-                            plano_de_conta_id: selected ? selected.id : null,
-                            plano_de_conta: selected ? selected.nome : null,
+                            plano_de_conta_id: selected.id,
+                            plano_de_conta: selected.nome,
                           }
                         : prev,
                     );
                   }}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue
-                      placeholder={
-                        loadingPlanos
-                          ? "Carregando..."
-                          : selectedTransaction.plano_de_conta || "Selecione"
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {planosDeConta.map((p) => (
-                      <SelectItem key={p.id} value={p.id.toString()}>
-                        {p.codigo ? `${p.codigo} - ${p.nome}` : p.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  placeholder={selectedTransaction.plano_de_conta || "Selecione"}
+                />
+              </div>
+
+              <div className="space-y-2 w-full">
+                <Label htmlFor="centro-custo">Centro de custo</Label>
+                <SearchCombobox
+                  disabled
+                  loading={loadingCentrosCusto}
+                  value={selectedTransaction.centro_custo_id?.toString() || ""}
+                  onValueChange={(value) => {
+                    const selected = centrosCusto.find((centro) => String(centro.id) === value);
+                    setSelectedTransaction((current) => current ? {
+                      ...current,
+                      centro_custo_id: selected?.id ?? null,
+                      centro_custo: selected?.nome ?? null,
+                    } : current);
+                  }}
+                  placeholder={errorCentrosCusto ? "Erro ao carregar" : selectedTransaction.centro_custo || "Selecione"}
+                  searchPlaceholder="Pesquisar centro de custo..."
+                  emptyMessage="Nenhum centro de custo encontrado."
+                  options={centrosCusto.map((centro) => ({
+                    value: String(centro.id),
+                    label: centro.nome,
+                    description: centro.descricao ?? undefined,
+                  }))}
+                />
               </div>
 
               <div className="space-y-2 w-full col-span-full">

@@ -38,11 +38,12 @@ export async function PUT(
     }
 
     const body = await req.json().catch(() => ({}));
-    const { codigo, nome, descricao, ativo } = body as {
+    const { codigo, nome, descricao, ativo, grupo_id } = body as {
       codigo?: string | null;
       nome?: string;
       descricao?: string | null;
       ativo?: boolean;
+      grupo_id?: number | string | null;
     };
 
     if (!nome?.trim()) {
@@ -52,12 +53,31 @@ export async function PUT(
       );
     }
 
+    const grupoId = Number(grupo_id);
+    if (!Number.isInteger(grupoId) || grupoId <= 0) {
+      return NextResponse.json(
+        { error: "Grupo do plano de conta é obrigatório." },
+        { status: 400 },
+      );
+    }
+
+    const { data: grupo, error: grupoError } = await supabaseAdmin
+      .from("planosdecontagrupos")
+      .select("id")
+      .eq("id", grupoId)
+      .maybeSingle();
+    if (grupoError) throw grupoError;
+    if (!grupo) {
+      return NextResponse.json({ error: "Grupo de plano de conta não encontrado." }, { status: 404 });
+    }
+
     const now = new Date().toISOString();
 
     const payload: Record<string, any> = {
       codigo: codigo?.trim() || null,
-      nome: nome.trim().toUpperCase(),
+      nome: nome.trim(),
       descricao: descricao?.trim() || null,
+      grupo_id: grupoId,
       updatedat: now,
     };
 
@@ -69,7 +89,21 @@ export async function PUT(
       .from("planosdeconta")
       .update(payload)
       .eq("id", planoId)
-      .select(`id, codigo, nome, descricao, ativo`)
+      .select(`
+        id,
+        codigo,
+        nome,
+        descricao,
+        ativo,
+        grupo_id,
+        grupo:planosdecontagrupos!planosdeconta_grupo_id_fkey!inner (
+          id,
+          codigo,
+          nome,
+          descricao,
+          ativo
+        )
+      `)
       .maybeSingle();
 
     if (error) throw error;
@@ -85,6 +119,8 @@ export async function PUT(
       codigo: (data.codigo as string | null) ?? null,
       nome: data.nome as string,
       descricao: (data.descricao as string | null) ?? null,
+      grupo_id: data.grupo_id as number,
+      grupo: Array.isArray(data.grupo) ? data.grupo[0] ?? null : data.grupo,
       icone: "other",
       codigo_sistema: null,
       ativo: typeof data.ativo === "boolean" ? (data.ativo as boolean) : true,
@@ -96,7 +132,7 @@ export async function PUT(
     const msg = String(e?.message ?? "");
     const status = /auth|unauth|não autenticado/i.test(msg)
       ? 401
-      : /duplicate|unique|planosdeconta_nome_key/i.test(msg)
+      : /duplicate|unique|planosdeconta_(grupo_nome|codigo)_unique/i.test(msg)
         ? 409
         : 500;
 

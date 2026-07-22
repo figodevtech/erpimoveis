@@ -39,7 +39,6 @@ import {
   Plus,
   Trash2Icon,
 } from "lucide-react";
-import { formatDate } from "@/utils/formatDate";
 import formatarEmReal from "@/utils/formatarEmReal";
 import TransactionDialog from "./transactionDialog/transactionDialog";
 import {
@@ -51,10 +50,15 @@ import {
 import DeleteAlert from "./deleteAlert";
 import { toast } from "@/lib/toast";
 import axios, { isAxiosError } from "axios";
-import { Pagination, Tipo_transacao, Transaction } from "../types";
+import {
+  Pagination,
+  Tipo_transacao,
+  Transaction,
+  type TransactionRelationFilters,
+} from "../types";
 import { getCategoryIcon, getTypeColor } from "../utils";
 import { ExportTransactionsButton } from "./ExportTransactionsButton";
-import ConculidoAlert from "./concluidoAlert";
+import ConcluidoAlert from "./concluidoAlert";
 import SearchFilter from "./searchFilter";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 
@@ -86,6 +90,8 @@ interface FinancialTableProps {
   setDateFrom: (value: string) => void;
   setDateTo: (value: string) => void;
   setViewMode: (value: FluxoViewMode) => void;
+  relationFilters: TransactionRelationFilters;
+  setRelationFilters: (value: TransactionRelationFilters) => void;
   handleGetStatusCounter: () => void;
 }
 
@@ -105,6 +111,8 @@ export default function FinancialTable({
   setDateFrom,
   setDateTo,
   setViewMode,
+  relationFilters,
+  setRelationFilters,
   handleGetStatusCounter,
   dateTo,
   dateFrom,
@@ -135,40 +143,6 @@ export default function FinancialTable({
   useEffect(() => {
     if (selectedTransactionId) setIsOpen(true);
   }, [selectedTransactionId]);
-
-  const handleSetPago = async (id: number) => {
-    if (!canEdit) return;
-    toast(
-      <div className="flex flex-row flex-nowrap items-center gap-1 ">
-        {" "}
-        <span>Marcando como concluído</span>{" "}
-        <Loader2 className="w-3 h-3 animate-spin" />
-      </div>,
-    );
-    try {
-      const response = await axios.patch(`/api/transaction/${id}`, {
-        pendente: false,
-      });
-
-      if (response.status === 200) {
-        toast.success("Transação Atualizada");
-      }
-    } catch (error) {
-      if (isAxiosError(error)) {
-        toast(error.code, { description: error.message });
-      }
-    } finally {
-      handleGetTransactions(
-        pagination.page,
-        pagination.limit,
-        search,
-        dateFrom,
-        dateTo,
-        tipo,
-        pendenteFilter,
-      );
-    }
-  };
 
   const handleDeleteTransaction = async (id: number) => {
     if (!canDelete) return;
@@ -280,11 +254,11 @@ export default function FinancialTable({
             <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
               <SearchFilter
                 renderOnlyTrigger
-                pagination={pagination}
-                handleGetTransactions={handleGetTransactions}
                 tipo={rawTipo}
                 viewMode={viewMode}
                 setViewMode={setViewMode}
+                relationFilters={relationFilters}
+                setRelationFilters={setRelationFilters}
                 setSearch={setSearch}
                 search={dateSearch}
                 setTipo={setTipo}
@@ -306,6 +280,10 @@ export default function FinancialTable({
                 tipo={tipo}
                 dateFrom={dateFrom}
                 dateTo={dateTo}
+                categoriaId={relationFilters.categoriaId ? Number(relationFilters.categoriaId) : null}
+                bancoId={relationFilters.bancoId ? Number(relationFilters.bancoId) : null}
+                planoContaId={relationFilters.planoContaId ? Number(relationFilters.planoContaId) : null}
+                centroCustoId={relationFilters.centroCustoId ? Number(relationFilters.centroCustoId) : null}
                 className="h-9 w-full hover:cursor-pointer sm:w-auto"
               />
 
@@ -627,7 +605,7 @@ export default function FinancialTable({
       </CardContent>
 
       {selectedTransactionForPago && (
-        <ConculidoAlert
+        <ConcluidoAlert
           isAlertOpen={isPagoDialogOpen}
           setIsAlertOpen={setIsPagoDialogOpen}
           transaction={selectedTransactionForPago}

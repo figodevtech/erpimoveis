@@ -55,7 +55,31 @@ export interface Plano_de_conta {
   nome: string;
   descricao?: string | null;
   ativo: boolean;
+  grupo_id: number;
+  grupo?: Plano_de_conta_grupo | null;
 }
+
+export interface Plano_de_conta_grupo {
+  id: number;
+  codigo: string;
+  nome: string;
+  descricao?: string | null;
+  ativo: boolean;
+}
+
+export interface Centro_custo {
+  id: number;
+  nome: string;
+  descricao?: string | null;
+  ativo: boolean;
+}
+
+export type TransactionRelationFilters = {
+  categoriaId: string;
+  bancoId: string;
+  planoContaId: string;
+  centroCustoId: string;
+};
 
 export interface Transaction {
   id: number;
@@ -70,6 +94,9 @@ export interface Transaction {
   plano_de_conta?: string | null;
   plano_de_conta_id?: number | null;
   plano_de_conta_dados?: { id: number; codigo?: string | null; nome: string } | null;
+  centro_custo?: string | null;
+  centro_custo_id?: number | null;
+  centro_custo_dados?: Centro_custo | null;
   tipo: Tipo_transacao;
   cliente_id?: number;
   banco_id?: number | null;
@@ -93,6 +120,8 @@ export interface NewTransaction {
   categoria_id?: number | null;
   plano_de_conta?: string | null;
   plano_de_conta_id?: number | null;
+  centro_custo?: string | null;
+  centro_custo_id?: number | null;
   tipo?: Tipo_transacao;
   cliente_id?: number | null;
   banco_id?: number | null;

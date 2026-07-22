@@ -840,13 +840,13 @@ export function OSDetalhesDialog({
               </div>
 
               <span className="grid grid-cols-2 gap-2 text-left sm:ml-auto sm:min-w-[260px] sm:text-right">
-                <span className="rounded-md border bg-muted/35 px-2.5 py-1.5">
+                <span className="rounded-md border bg-card px-2.5 py-1.5">
                   <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                     Entrada
                   </span>
                   <span className="block text-xs font-semibold text-foreground">{fmtDate(data?.os?.dataentrada)}</span>
                 </span>
-                <span className="rounded-md border bg-muted/35 px-2.5 py-1.5">
+                <span className="rounded-md border bg-card px-2.5 py-1.5">
                   <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                     Saída real
                   </span>
@@ -905,7 +905,7 @@ export function OSDetalhesDialog({
                     <TabsTrigger value="fluxo-os" className={tabTriggerClass}>
                       <span className="flex items-center gap-2">
                         <ListTree className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
-                        Fluxo da OS
+                        Eventos Financeiros
                       </span>
                     </TabsTrigger>
                     <TabsTrigger value="anexos" className={tabTriggerClass}>
@@ -1147,7 +1147,7 @@ export function OSDetalhesDialog({
                 <TabsContent value="rentabilidade" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-4 sm:px-6 sm:py-5">
                   {data.rentabilidade ? (
                     <>
-                      <div className="flex flex-col gap-3 rounded-xl border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
+                      {/* <div className="flex flex-col gap-3 rounded-xl border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                           <div className="flex items-center gap-2">
                             <Receipt className="h-4 w-4 text-primary" />
@@ -1174,8 +1174,8 @@ export function OSDetalhesDialog({
                         >
                           <Button type="button" size="sm">Adicionar despesa</Button>
                         </TransactionDialog>
-                      </div>
-
+                      </div> */}
+{/* 
                       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                         {[
                           ["Valor final da OS", data.rentabilidade.valorFinalOs],
@@ -1193,7 +1193,7 @@ export function OSDetalhesDialog({
                             <p className="mt-1 text-lg font-semibold">{fmtMoney(Number(valor))}</p>
                           </div>
                         ))}
-                      </div>
+                      </div> */}
 
                       <div className="grid gap-3 md:grid-cols-2">
                         <div className="rounded-xl border bg-card p-4">

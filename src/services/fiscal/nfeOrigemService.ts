@@ -1,5 +1,11 @@
 import { isCfopCompatibleWithOperation } from "@/lib/nfe/cfopOperation";
 import { normalizeFiscalRecipient } from "@/lib/nfe/recipientNormalization";
+import {
+  mapSalesChannelToPresence,
+  NFE_FREIGHT_OPTIONS,
+  NFE_PAYMENT_OPTIONS,
+  NFE_PRESENCE_OPTIONS,
+} from "@/lib/nfe/originFiscalDefaults";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { ClienteRow } from "@/lib/nfe/types";
 import {
@@ -18,6 +24,12 @@ export type NFeOrigemDraftInput = {
   itens: NFeOrigemItemInput[];
   observacoesFiscais?: string | null;
   destinatario?: NFeAvulsaDraftInput["destinatario"];
+  configuracaoFiscal?: {
+    consumidorFinal?: boolean;
+    indicadorPresenca?: string | null;
+    pagamentos?: NonNullable<NFeAvulsaDraftInput["pagamentos"]>;
+    transporte?: NFeAvulsaDraftInput["transporte"];
+  };
 };
 
 type ProdutoFiscalRow = {
@@ -63,6 +75,9 @@ type LoadedSource = {
   finalidade: NFeAvulsaDraftInput["operacao"]["finalidade"];
   observacoesFiscais: string | null;
   destinatario: NFeAvulsaDraftInput["destinatario"] | null;
+  consumidorFinal: boolean;
+  indicadorPresenca: string;
+  transporte: NFeAvulsaDraftInput["transporte"];
   itens: SourceItem[];
 };
 
@@ -211,6 +226,9 @@ async function loadOs(osId: number): Promise<LoadedSource> {
     finalidade: "NORMAL",
     observacoesFiscais: os.observacoes_fiscais as string | null,
     destinatario: clienteToDraft(cliente),
+    consumidorFinal: true,
+    indicadorPresenca: "1",
+    transporte: { modFrete: "9" },
     itens: (data ?? []).map((row: any) => {
       const produto = normalizeRelation<ProdutoFiscalRow>(row.produto);
       return {
@@ -229,7 +247,7 @@ async function loadOs(osId: number): Promise<LoadedSource> {
 async function loadVenda(vendaId: number): Promise<LoadedSource> {
   const { data: venda, error: vendaError } = await supabaseAdmin
     .from("venda")
-    .select("id, clienteid, observacoes_fiscais")
+    .select("id, clienteid, observacoes_fiscais, canal")
     .eq("id", vendaId)
     .maybeSingle();
   if (vendaError) throw vendaError;
@@ -258,6 +276,9 @@ async function loadVenda(vendaId: number): Promise<LoadedSource> {
     finalidade: "NORMAL",
     observacoesFiscais: venda.observacoes_fiscais as string | null,
     destinatario: clienteToDraft(cliente),
+    consumidorFinal: true,
+    indicadorPresenca: mapSalesChannelToPresence(venda.canal),
+    transporte: { modFrete: "9" },
     itens: (data ?? []).map((row: any) => {
       const produto = normalizeRelation<ProdutoFiscalRow>(row.produto);
       const quantidade = toNumber(row.quantidade);
@@ -317,6 +338,9 @@ async function loadEntrada(entradaId: number): Promise<LoadedSource> {
     finalidade: "NORMAL",
     observacoesFiscais: null,
     destinatario: fornecedor ? fornecedorToDraft(fornecedor) : null,
+    consumidorFinal: false,
+    indicadorPresenca: "0",
+    transporte: { modFrete: "9" },
     itens: (data ?? []).map((row: any) => {
       const produto = normalizeRelation<ProdutoFiscalRow>(row.produto);
       return {
@@ -413,6 +437,75 @@ export async function salvarNFeDeOrigem(
     }
   });
 
+  const requestedFiscalConfig = tipo === "ENTRADA" ? undefined : input.configuracaoFiscal;
+  const consumidorFinal = typeof requestedFiscalConfig?.consumidorFinal === "boolean"
+    ? requestedFiscalConfig.consumidorFinal
+    : source.consumidorFinal;
+  const indicadorPresenca = String(requestedFiscalConfig?.indicadorPresenca ?? source.indicadorPresenca);
+  const transporte = requestedFiscalConfig?.transporte ?? source.transporte;
+  const modFrete = String(transporte?.modFrete ?? "9");
+  const totalProdutos = itens.reduce(
+    (total, item) => total + toNumber(item.quantidade) * toNumber(item.valorUnitario),
+    0,
+  );
+  const pagamentos = tipo === "ENTRADA"
+    ? [{ meio: "90", valor: 0, tipoIntegracao: "2" }]
+    : (requestedFiscalConfig?.pagamentos ?? []).map((pagamento) => ({
+        ...pagamento,
+        meio: String(pagamento.meio ?? ""),
+        valor: requestedFiscalConfig?.pagamentos?.length === 1
+          ? Number(totalProdutos.toFixed(2))
+          : Number(toNumber(pagamento.valor).toFixed(2)),
+        tipoIntegracao: "2",
+      }));
+
+  if (!NFE_PRESENCE_OPTIONS.some((option) => option.value === indicadorPresenca)) {
+    errors.push({ step: "operation", field: "indicadorPresenca", message: "Indicador de presença inválido para NF-e." });
+  }
+  if (pagamentos.length === 0) {
+    errors.push({ step: "payment", field: "pagamentos", message: "Selecione pelo menos um método de pagamento." });
+  }
+  if (new Set(pagamentos.map((pagamento) => pagamento.meio)).size !== pagamentos.length) {
+    errors.push({
+      step: "payment",
+      field: "pagamentos",
+      message: "O mesmo método de pagamento não pode ser informado mais de uma vez.",
+    });
+  }
+  pagamentos.forEach((pagamento, paymentIndex) => {
+    if (
+      tipo !== "ENTRADA" &&
+      (pagamento.meio === "90" ||
+        !NFE_PAYMENT_OPTIONS.some((option) => option.value === pagamento.meio))
+    ) {
+      errors.push({
+        step: "payment",
+        field: `pagamentos.${paymentIndex}.meio`,
+        message: "Método de pagamento inválido para esta emissão.",
+      });
+    }
+    if (pagamentos.length > 1 && toNumber(pagamento.valor) <= 0) {
+      errors.push({
+        step: "payment",
+        field: `pagamentos.${paymentIndex}.valor`,
+        message: "Informe um valor maior que zero para cada método de pagamento.",
+      });
+    }
+  });
+  if (
+    pagamentos.length > 1 &&
+    Math.abs(pagamentos.reduce((total, pagamento) => total + toNumber(pagamento.valor), 0) - totalProdutos) > 0.01
+  ) {
+    errors.push({
+      step: "payment",
+      field: "pagamentos",
+      message: "A soma dos métodos de pagamento deve ser igual ao total dos produtos selecionados.",
+    });
+  }
+  if (!NFE_FREIGHT_OPTIONS.some((option) => option.value === modFrete)) {
+    errors.push({ step: "transport", field: "modFrete", message: "Modalidade de frete inválida para NF-e." });
+  }
+
   if (errors.length > 0) return { ok: false as const, errors };
 
   return salvarNFeAvulsaDraft({
@@ -428,16 +521,17 @@ export async function salvarNFeDeOrigem(
       tipoOperacao: source.tipoOperacao,
       naturezaOperacao: source.naturezaOperacao,
       finalidade: source.finalidade,
-      consumidorFinal: source.tipoOperacao === "SAIDA",
-      indicadorPresenca: source.tipoOperacao === "ENTRADA" ? "0" : "1",
+      consumidorFinal,
+      indicadorPresenca,
       observacoesFiscais:
         input.observacoesFiscais?.trim().slice(0, 500) || source.observacoesFiscais || null,
     },
     pagamento: {
-      meio: source.tipoOperacao === "ENTRADA" ? "90" : "01",
+      meio: pagamentos[0]?.meio ?? "90",
       tipoIntegracao: "2",
     },
-    transporte: { modFrete: "9" },
+    pagamentos: tipo === "ENTRADA" ? undefined : pagamentos,
+    transporte,
     destinatario,
     itens,
   });

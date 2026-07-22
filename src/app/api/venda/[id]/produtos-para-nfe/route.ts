@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireVendasAccess } from "@/app/api/_authz/perms";
+import { mapSalesChannelToPresence } from "@/lib/nfe/originFiscalDefaults";
 
 export const runtime = "nodejs";
 
@@ -116,7 +117,7 @@ export async function GET(
     // 1) garantir que venda existe
     const { data: venda, error: vendaError } = await supabaseAdmin
       .from("venda")
-      .select("id, clienteid, observacoes_fiscais")
+      .select("id, clienteid, observacoes_fiscais, canal")
       .eq("id", vendaId)
       .maybeSingle();
 
@@ -255,6 +256,13 @@ export async function GET(
     return NextResponse.json({
       ok: true,
       vendaId,
+      tipo_operacao: "SAIDA",
+      natureza_operacao: "VENDA DE MERCADORIA",
+      configuracao_fiscal: {
+        consumidorFinal: true,
+        indicadorPresenca: mapSalesChannelToPresence(venda.canal),
+        modFrete: "9",
+      },
       observacoes_fiscais: venda.observacoes_fiscais ?? null,
       cliente: cliente
         ? {

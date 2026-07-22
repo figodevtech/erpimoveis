@@ -86,6 +86,10 @@ const CATEGORY_CONFIG: AssignmentTypeSectionConfig = {
   showIcons: true,
 };
 
+function capitalize(value: string) {
+  return value.charAt(0).toLocaleUpperCase("pt-BR") + value.slice(1);
+}
+
 export default function CategoriasTransacaoSection({
   config = CATEGORY_CONFIG,
 }: {
@@ -219,7 +223,7 @@ export default function CategoriasTransacaoSection({
         });
         const j = await res.json();
         if (!res.ok) throw new Error(j?.error || `Falha ao atualizar ${config.singular}`);
-        toast.success(`${config.gender === "F" ? "Categoria atualizada" : "Plano de conta atualizado"}.`);
+        toast.success(`${capitalize(config.singular)} atualizad${config.gender === "F" ? "a" : "o"}.`);
       } else {
         const res = await fetch(config.endpoint, {
           method: "POST",
@@ -228,7 +232,7 @@ export default function CategoriasTransacaoSection({
         });
         const j = await res.json();
         if (!res.ok) throw new Error(j?.error || `Falha ao cadastrar ${config.singular}`);
-        toast.success(`${config.gender === "F" ? "Categoria cadastrada" : "Plano de conta cadastrado"}.`);
+        toast.success(`${capitalize(config.singular)} cadastrad${config.gender === "F" ? "a" : "o"}.`);
       }
 
       setDialogOpen(false);
@@ -282,7 +286,7 @@ export default function CategoriasTransacaoSection({
             <DialogTrigger asChild>
               <Button size="sm" className="hover:cursor-pointer" onClick={openNovo}>
                 <Plus className="mr-1 h-4 w-4" />
-                {config.gender === "F" ? "Categoria" : "Plano de conta"}
+                {capitalize(config.singular)}
               </Button>
             </DialogTrigger>
 
@@ -428,7 +432,7 @@ export default function CategoriasTransacaoSection({
             ) : total === 0 ? (
               <TableRow>
                   <TableCell colSpan={config.showIcons !== false ? 5 : 4} className="text-center py-10 text-muted-foreground">
-                  {config.gender === "F" ? "Nenhuma" : "Nenhum"} {config.singular} cadastrad{config.gender === "F" ? "a" : "o"}. Clique em <b>+ {config.gender === "F" ? "Categoria" : "Plano de conta"}</b> para cadastrar.
+                  {config.gender === "F" ? "Nenhuma" : "Nenhum"} {config.singular} cadastrad{config.gender === "F" ? "a" : "o"}. Clique em <b>+ {capitalize(config.singular)}</b> para cadastrar.
                 </TableCell>
               </TableRow>
             ) : (

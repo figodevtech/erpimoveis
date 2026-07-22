@@ -172,7 +172,7 @@ export type NFeIde = {
   tpAmb: 1 | 2;
   finNFe: 1 | 2 | 3 | 4;
   indFinal: 0 | 1;
-  indPres: 0 | 1 | 2 | 3 | 4 | 9;
+  indPres: 0 | 1 | 2 | 3 | 4 | 5 | 9;
   procEmi: 0 | 1 | 2 | 3;
   verProc: string;
 };

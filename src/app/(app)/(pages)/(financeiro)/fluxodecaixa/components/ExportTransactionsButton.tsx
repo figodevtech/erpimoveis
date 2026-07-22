@@ -25,9 +25,12 @@ type TransactionProps = BaseProps & {
   kind: "transactions";
   tipo?: string | null;
   categoria?: string | null;
+  categoriaId?: number | null;
   ordemservicoid?: string | number | null;
   metodopagamento?: string | null; // pode usar 'metodo' no BE também
   bancoId?: number | null;
+  planoContaId?: number | null;
+  centroCustoId?: number | null;
   clienteId?: number | null;
   dateFrom?: string | null; // YYYY-MM-DD
   dateTo?: string | null;   // YYYY-MM-DD
@@ -69,9 +72,12 @@ export function ExportExcelButton({
         const {
           tipo,
           categoria,
+          categoriaId,
           ordemservicoid,
           metodopagamento,
           bancoId,
+          planoContaId,
+          centroCustoId,
           clienteId,
           dateFrom,
           dateTo,
@@ -79,9 +85,12 @@ export function ExportExcelButton({
 
         if (tipo) qp.set("tipo", tipo);
         if (categoria) qp.set("categoria", categoria);
+        if (categoriaId != null) qp.set("categoriaId", String(categoriaId));
         if (ordemservicoid != null) qp.set("ordemservicoid", String(ordemservicoid));
         if (metodopagamento) qp.set("metodopagamento", metodopagamento);
         if (bancoId != null) qp.set("bancoId", String(bancoId));
+        if (planoContaId != null) qp.set("planoContaId", String(planoContaId));
+        if (centroCustoId != null) qp.set("centroCustoId", String(centroCustoId));
         if (clienteId != null) qp.set("clienteId", String(clienteId));
         if (dateFrom) qp.set("dateFrom", dateFrom); // YYYY-MM-DD
         if (dateTo) qp.set("dateTo", dateTo);       // YYYY-MM-DD

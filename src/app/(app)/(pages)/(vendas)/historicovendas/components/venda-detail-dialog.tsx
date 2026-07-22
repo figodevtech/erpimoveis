@@ -776,7 +776,7 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange }: VendaDetails
                         ) : (
                           <div className="flex min-h-[200px] flex-col items-center justify-center gap-3 text-center text-muted-foreground">
                             <Truck className="h-12 w-12 opacity-20" />
-                            <p>Esta e uma venda de PDV (presencial). Nao possui dados de entrega.</p>
+                            <p>Esta é uma venda de PDV (presencial). Nao possui dados de entrega.</p>
                           </div>
                         )}
                       </TabsContent>

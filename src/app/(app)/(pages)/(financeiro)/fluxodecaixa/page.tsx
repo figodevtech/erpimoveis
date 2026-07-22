@@ -1,7 +1,12 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import axios from "axios";
-import { StatusInfo, Tipo_transacao, Transaction } from "./types";
+import {
+  StatusInfo,
+  Tipo_transacao,
+  Transaction,
+  type TransactionRelationFilters,
+} from "./types";
 import Cards from "./components/cards";
 import FinancialTable from "./components/financialTable";
 
@@ -25,7 +30,13 @@ export default function FinanceiroPage() {
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
   const [viewMode, setViewMode] = useState<FluxoViewMode>("TODAS");
-  const handleGetTransactions = async (
+  const [relationFilters, setRelationFilters] = useState<TransactionRelationFilters>({
+    categoriaId: "",
+    bancoId: "",
+    planoContaId: "",
+    centroCustoId: "",
+  });
+  const handleGetTransactions = useCallback(async (
     pageNumber?: number,
     limit?: number,
     search?: string,
@@ -39,12 +50,16 @@ export default function FinanceiroPage() {
       const response = await axios.get("/api/transaction", {
         params: {
           page: pageNumber || 1,
-          limit: pagination.limit,
+          limit: limit || pagination.limit,
           search: search || undefined,
           tipo: tipo,
           pendente: pendente === "" ? undefined : pendente,
           dateFrom: dateFrom,
           dateTo: dateTo,
+          categoriaId: relationFilters.categoriaId || undefined,
+          bancoId: relationFilters.bancoId || undefined,
+          planoContaId: relationFilters.planoContaId || undefined,
+          centroCustoId: relationFilters.centroCustoId || undefined,
         },
       });
       if (response.status === 200) {
@@ -56,9 +71,9 @@ export default function FinanceiroPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [pagination.limit, relationFilters]);
 
-  const handleGetStatusCounter = async () => {
+  const handleGetStatusCounter = useCallback(async () => {
     setIsLoadingStatus(true);
     try {
       const response = await axios.get("/api/transaction/status-counter", {});
@@ -66,17 +81,17 @@ export default function FinanceiroPage() {
         params: { offset: -1 },
       });
       if (response.status === 200 && response2.status === 200) {
-        setStatusInfo({
-          ...statusInfo,
+        setStatusInfo((current) => ({
+          ...current,
           mesAtual: response.data,
           mesAnterior: response2.data,
-        });
+        }));
       }
     } catch {
     } finally {
       setIsLoadingStatus(false);
     }
-  };
+  }, []);
 
   const effectiveTipo =
     viewMode === "A_RECEBER"
@@ -98,18 +113,25 @@ export default function FinanceiroPage() {
       effectiveTipo,
       effectivePendente,
     );
-  }, [tipo, search, dateFrom, dateTo, viewMode]);
+  }, [
+    dateFrom,
+    dateTo,
+    effectivePendente,
+    effectiveTipo,
+    handleGetTransactions,
+    pagination.limit,
+    search,
+  ]);
 
   useEffect(() => {
     if (viewMode !== "TODAS" && tipo) {
       setTipo("");
     }
-  }, [viewMode]);
+  }, [tipo, viewMode]);
 
   useEffect(() => {
-    handleGetTransactions(1, pagination.limit, search, dateFrom, dateTo, effectiveTipo, effectivePendente);
-    handleGetStatusCounter();
-  }, []);
+    void handleGetStatusCounter();
+  }, [handleGetStatusCounter]);
 
   return (
     <div className="p-y-4 space-y-4">
@@ -131,6 +153,8 @@ export default function FinanceiroPage() {
         setDateFrom={setDateFrom}
         setDateTo={setDateTo}
         setViewMode={setViewMode}
+        relationFilters={relationFilters}
+        setRelationFilters={setRelationFilters}
         handleGetTransactions={handleGetTransactions}
         pagination={pagination}
         transactions={transactions}

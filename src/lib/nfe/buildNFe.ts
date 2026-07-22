@@ -55,16 +55,18 @@ export interface IdeOptions {
   idDest?: 1 | 2 | 3;
   natOp?: string;
   indFinal?: 0 | 1;
-  indPres?: 0 | 1 | 2 | 3 | 4 | 9;
+  indPres?: 0 | 1 | 2 | 3 | 4 | 5 | 9;
   finNFe?: 1 | 2 | 3 | 4;
   tpImp?: 1 | 2 | 3 | 4 | 5;
   observacoesFiscais?: string | null;
   pagamento?: NFePagamentoOptions | null;
+  pagamentos?: NFePagamentoOptions[] | null;
   transporte?: NFeTransporteOptions | null;
 }
 
 export type NFePagamentoOptions = {
   tPag: string;
+  valor?: string | number | null;
   tpIntegra?: "1" | "2" | string | null;
   cnpjCredenciadora?: string | null;
   bandeira?: string | null;
@@ -232,35 +234,52 @@ function buildTranspXml(params: {
   );
 }
 
-function buildPagXml(params: { pagamento?: NFePagamentoOptions | null; vNF: string; finNFe: 1 | 2 | 3 | 4 }) {
-  const tPag = params.finNFe === 3 || params.finNFe === 4
-    ? "90"
-    : onlyDigits(params.pagamento?.tPag || "01").padStart(2, "0").slice(0, 2);
-  const vPag = tPag === "90" ? "0.00" : params.vNF;
-  const isCartao = tPag === "03" || tPag === "04";
-  const tpIntegra = params.pagamento?.tpIntegra === "1" ? "1" : "2";
-  const cnpjCredenciadora = onlyDigits(params.pagamento?.cnpjCredenciadora);
-  const bandeira = onlyDigits(params.pagamento?.bandeira);
-  const autorizacao = String(params.pagamento?.autorizacao ?? "").trim();
+function buildPagXml(params: {
+  pagamento?: NFePagamentoOptions | null;
+  pagamentos?: NFePagamentoOptions[] | null;
+  vNF: string;
+  finNFe: 1 | 2 | 3 | 4;
+}) {
+  const pagamentos = params.finNFe === 3 || params.finNFe === 4
+    ? [{ tPag: "90", valor: 0 }]
+    : params.pagamentos?.length
+      ? params.pagamentos
+      : [params.pagamento ?? { tPag: "01" }];
 
-  const cardXml = isCartao
-    ? '<card>' +
-      `<tpIntegra>${tpIntegra}</tpIntegra>` +
-      (tpIntegra === "1" && cnpjCredenciadora.length === 14 ? `<CNPJ>${cnpjCredenciadora}</CNPJ>` : "") +
-      (bandeira ? `<tBand>${bandeira}</tBand>` : "") +
-      (tpIntegra === "1" && autorizacao ? `<cAut>${escapeXml(autorizacao)}</cAut>` : "") +
-      '</card>'
-    : "";
+  const detalhes = pagamentos.map((pagamento, index) => {
+    const tPag = onlyDigits(pagamento.tPag || "01").padStart(2, "0").slice(0, 2);
+    const valorInformado = Number(pagamento.valor);
+    const vPag = tPag === "90"
+      ? "0.00"
+      : Number.isFinite(valorInformado) && valorInformado >= 0
+        ? valorInformado.toFixed(2)
+        : pagamentos.length === 1 && index === 0
+          ? params.vNF
+          : "0.00";
+    const isCartao = tPag === "03" || tPag === "04";
+    const tpIntegra = pagamento.tpIntegra === "1" ? "1" : "2";
+    const cnpjCredenciadora = onlyDigits(pagamento.cnpjCredenciadora);
+    const bandeira = onlyDigits(pagamento.bandeira);
+    const autorizacao = String(pagamento.autorizacao ?? "").trim();
+    const cardXml = isCartao
+      ? '<card>' +
+        `<tpIntegra>${tpIntegra}</tpIntegra>` +
+        (tpIntegra === "1" && cnpjCredenciadora.length === 14 ? `<CNPJ>${cnpjCredenciadora}</CNPJ>` : "") +
+        (bandeira ? `<tBand>${bandeira}</tBand>` : "") +
+        (tpIntegra === "1" && autorizacao ? `<cAut>${escapeXml(autorizacao)}</cAut>` : "") +
+        '</card>'
+      : "";
 
-  return (
-    '<pag>' +
-    '<detPag>' +
-    `<tPag>${tPag}</tPag>` +
-    `<vPag>${vPag}</vPag>` +
-    cardXml +
-    '</detPag>' +
-    '</pag>'
-  );
+    return '<detPag>' + `<tPag>${tPag}</tPag>` + `<vPag>${vPag}</vPag>` + cardXml + '</detPag>';
+  });
+
+  const totalPago = pagamentos.reduce((total, pagamento) => {
+    const valor = Number(pagamento.valor);
+    return total + (Number.isFinite(valor) ? valor : 0);
+  }, 0);
+  const troco = totalPago - Number(params.vNF);
+
+  return '<pag>' + detalhes.join('') + (troco > 0.009 ? `<vTroco>${troco.toFixed(2)}</vTroco>` : '') + '</pag>';
 }
 
 export function criarIdeParaEmpresa(
@@ -479,6 +498,7 @@ export function buildNFePreviewXml(
 
   const pagXml = buildPagXml({
     pagamento: options?.pagamento,
+    pagamentos: options?.pagamentos,
     vNF,
     finNFe: ide.finNFe,
   });

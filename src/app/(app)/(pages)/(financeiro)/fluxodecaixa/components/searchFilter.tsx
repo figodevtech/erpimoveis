@@ -15,8 +15,13 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { Calendar as CalendarIcon, SlidersHorizontal } from "lucide-react";
-import type { Pagination } from "../types";
+import type { Banco, TransactionRelationFilters } from "../types";
 import { Tipo_transacao } from "../types";
+import { useCategoriasTransacao } from "../hooks/use-categoria-transacao";
+import { useCentrosCusto } from "../hooks/use-centros-custo";
+import { usePlanosDeConta } from "../hooks/use-planos-de-conta";
+import { PlanoContaCombobox } from "./plano-conta-combobox";
+import { SearchCombobox } from "./search-combobox";
 
 type FluxoViewMode = "TODAS" | "A_RECEBER" | "A_PAGAR";
 
@@ -31,16 +36,8 @@ interface SearchFilterProps {
   tipo: Tipo_transacao | "";
   viewMode: FluxoViewMode;
   setViewMode: (value: FluxoViewMode) => void;
-  pagination?: Pagination;
-  handleGetTransactions?: (
-    pageNumber?: number,
-    limit?: number,
-    search?: string,
-    dateFrom?: string,
-    dateTo?: string,
-    tipo?: Tipo_transacao | "",
-    pendente?: boolean | "",
-  ) => void | Promise<any>;
+  relationFilters: TransactionRelationFilters;
+  setRelationFilters: (value: TransactionRelationFilters) => void;
   disableTipo?: boolean;
   lockedTipoLabel?: string;
   renderOnlyTrigger?: boolean;
@@ -67,6 +64,8 @@ export default function SearchFilter({
   setDateTo,
   viewMode,
   setViewMode,
+  relationFilters,
+  setRelationFilters,
   disableTipo = false,
   lockedTipoLabel,
   renderOnlyTrigger = false,
@@ -80,6 +79,14 @@ export default function SearchFilter({
   const [draftDateFrom, setDraftDateFrom] = React.useState(dateFrom);
   const [draftDateTo, setDraftDateTo] = React.useState(dateTo);
   const [draftViewMode, setDraftViewMode] = React.useState<FluxoViewMode>(viewMode);
+  const [draftRelationFilters, setDraftRelationFilters] =
+    React.useState<TransactionRelationFilters>(relationFilters);
+  const [banks, setBanks] = React.useState<Banco[]>([]);
+  const [loadingBanks, setLoadingBanks] = React.useState(false);
+  const [bankLoadError, setBankLoadError] = React.useState<string | null>(null);
+  const { categorias, loadingCategorias, errorCategorias } = useCategoriasTransacao();
+  const { gruposPlanosDeConta, loadingPlanos, errorPlanos } = usePlanosDeConta();
+  const { centrosCusto, loadingCentrosCusto, errorCentrosCusto } = useCentrosCusto();
 
   React.useEffect(() => {
     if (!sheetOpen) {
@@ -88,8 +95,38 @@ export default function SearchFilter({
       setDraftDateFrom(dateFrom);
       setDraftDateTo(dateTo);
       setDraftViewMode(viewMode);
+      setDraftRelationFilters(relationFilters);
     }
-  }, [sheetOpen, search, tipo, dateFrom, dateTo, viewMode]);
+  }, [sheetOpen, search, tipo, dateFrom, dateTo, viewMode, relationFilters]);
+
+  React.useEffect(() => {
+    if (!sheetOpen) return;
+    let active = true;
+
+    async function loadBanks() {
+      try {
+        setLoadingBanks(true);
+        setBankLoadError(null);
+        const response = await fetch("/api/banks?limit=100", { cache: "no-store" });
+        const json = await response.json();
+        if (!response.ok) throw new Error(json?.error || "Erro ao carregar bancos");
+        if (active) setBanks(json.data ?? []);
+      } catch (error) {
+        console.error("Erro ao carregar bancos dos filtros:", error);
+        if (active) {
+          setBanks([]);
+          setBankLoadError("Erro ao carregar bancos");
+        }
+      } finally {
+        if (active) setLoadingBanks(false);
+      }
+    }
+
+    void loadBanks();
+    return () => {
+      active = false;
+    };
+  }, [sheetOpen]);
 
   const range: DateRange | undefined = React.useMemo(() => {
     const from = parseYYYYMMDD(draftDateFrom);
@@ -104,6 +141,10 @@ export default function SearchFilter({
     dateFrom,
     dateTo,
     viewMode !== "TODAS" ? viewMode : "",
+    relationFilters.categoriaId,
+    relationFilters.bancoId,
+    relationFilters.planoContaId,
+    relationFilters.centroCustoId,
   ].filter(Boolean).length;
 
   const periodLabel = React.useMemo(() => {
@@ -120,6 +161,7 @@ export default function SearchFilter({
     setDateFrom(draftDateFrom);
     setDateTo(draftDateTo);
     setViewMode(draftViewMode);
+    setRelationFilters(draftRelationFilters);
     setSheetOpen(false);
   };
 
@@ -129,11 +171,19 @@ export default function SearchFilter({
     setDraftDateFrom("");
     setDraftDateTo("");
     setDraftViewMode("TODAS");
+    const emptyRelations: TransactionRelationFilters = {
+      categoriaId: "",
+      bancoId: "",
+      planoContaId: "",
+      centroCustoId: "",
+    };
+    setDraftRelationFilters(emptyRelations);
     setSearch("");
     setTipo("");
     setDateFrom("");
     setDateTo("");
     setViewMode("TODAS");
+    setRelationFilters(emptyRelations);
   };
 
   return (
@@ -167,12 +217,12 @@ export default function SearchFilter({
             </Button>
           </SheetTrigger>
 
-          <SheetContent>
+          <SheetContent className="w-full overflow-hidden sm:max-w-md">
             <SheetHeader>
               <SheetTitle>Filtros do fluxo de caixa</SheetTitle>
             </SheetHeader>
 
-            <div className="grid flex-1 auto-rows-min gap-6 px-4">
+            <div className="grid flex-1 auto-rows-min gap-5 overflow-y-auto p-4">
               <div className="space-y-2">
                 <Label>Lançamentos futuros</Label>
                 <Tabs value={draftViewMode} onValueChange={(value) => setDraftViewMode(value as FluxoViewMode)}>
@@ -190,109 +240,207 @@ export default function SearchFilter({
                 </Tabs>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="fluxo-search">Busca</Label>
-                <Input
-                  id="fluxo-search"
-                  value={draftSearch}
-                  onChange={(e) => setDraftSearch(e.target.value)}
-                  placeholder="Buscar na descrição"
-                />
-              </div>
+              <div className="space-y-5 rounded-xl border bg-card p-4">
+                <div className="space-y-2">
+                  <Label htmlFor="fluxo-search">Busca</Label>
+                  <Input
+                    id="fluxo-search"
+                    value={draftSearch}
+                    onChange={(e) => setDraftSearch(e.target.value)}
+                    placeholder="Buscar na descrição"
+                  />
+                </div>
 
-              <div className="space-y-2">
-                <Label>Tipo</Label>
-                <Select
-                  disabled={disableTipo || draftViewMode !== "TODAS"}
-                  value={draftTipo || ""}
-                  onValueChange={(value) => {
-                    if (value === "TODOS") setDraftTipo("");
-                    else setDraftTipo(value as Tipo_transacao);
-                  }}
-                >
-                  <SelectTrigger className="w-full" aria-controls={listboxId}>
-                    <SelectValue
-                      placeholder={
-                        draftViewMode !== "TODAS"
-                          ? lockedTipoLabel || "Tipo definido pela visualização"
-                          : "Todos"
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent id={listboxId}>
-                    <SelectItem value="TODOS">Todos</SelectItem>
-                    <SelectItem value={Tipo_transacao.RECEITA}>Receitas</SelectItem>
-                    <SelectItem value={Tipo_transacao.DESPESA}>Despesas</SelectItem>
-                    <SelectItem value={Tipo_transacao.DEPOSITO}>Depósitos</SelectItem>
-                    <SelectItem value={Tipo_transacao.SAQUE}>Saques</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Período</Label>
-                <Popover open={openRange} onOpenChange={setOpenRange}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className={cn(
-                        "w-full justify-between text-left font-normal",
-                        !range?.from && "text-muted-foreground",
-                      )}
-                    >
-                      <span className="truncate">{periodLabel}</span>
-                      <CalendarIcon className="ml-2 h-4 w-4 shrink-0 opacity-70" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <div className="p-3">
-                      <Calendar
-                        mode="range"
-                        numberOfMonths={2}
-                        selected={range}
-                        onSelect={(next) => {
-                          setDraftDateFrom(toYYYYMMDD(next?.from));
-                          setDraftDateTo(toYYYYMMDD(next?.to));
-                        }}
-                        locale={ptBR}
-                        initialFocus
+                <div className="space-y-2">
+                  <Label>Tipo</Label>
+                  <Select
+                    disabled={disableTipo || draftViewMode !== "TODAS"}
+                    value={draftTipo || ""}
+                    onValueChange={(value) => {
+                      if (value === "TODOS") setDraftTipo("");
+                      else setDraftTipo(value as Tipo_transacao);
+                    }}
+                  >
+                    <SelectTrigger className="w-full" aria-controls={listboxId}>
+                      <SelectValue
+                        placeholder={
+                          draftViewMode !== "TODAS"
+                            ? lockedTipoLabel || "Tipo definido pela visualização"
+                            : "Todos"
+                        }
                       />
+                    </SelectTrigger>
+                    <SelectContent id={listboxId}>
+                      <SelectItem value="TODOS">Todos</SelectItem>
+                      <SelectItem value={Tipo_transacao.RECEITA}>Receitas</SelectItem>
+                      <SelectItem value={Tipo_transacao.DESPESA}>Despesas</SelectItem>
+                      <SelectItem value={Tipo_transacao.DEPOSITO}>Depósitos</SelectItem>
+                      <SelectItem value={Tipo_transacao.SAQUE}>Saques</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-                      <div className="mt-3 flex w-full gap-2">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          className="flex-1"
-                          onClick={() => {
-                            setDraftDateFrom("");
-                            setDraftDateTo("");
+                <div className="space-y-4 border-t pt-4">
+                  <p className="text-sm font-medium">Classificação</p>
+
+                  <div className="space-y-2">
+                    <Label>Categoria</Label>
+                    <SearchCombobox
+                      value={draftRelationFilters.categoriaId}
+                      onValueChange={(categoriaId) =>
+                        setDraftRelationFilters((current) => ({ ...current, categoriaId }))
+                      }
+                      loading={loadingCategorias}
+                      disabled={!!errorCategorias}
+                      placeholder={errorCategorias ? "Erro ao carregar" : "Todas as categorias"}
+                      searchPlaceholder="Pesquisar categoria..."
+                      emptyMessage="Nenhuma categoria encontrada."
+                      clearable
+                      clearLabel="Todas as categorias"
+                      options={categorias.map((categoria) => ({
+                        value: String(categoria.id),
+                        label: categoria.nome,
+                        description: categoria.descricao ?? undefined,
+                      }))}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Banco / conta</Label>
+                    <SearchCombobox
+                      value={draftRelationFilters.bancoId}
+                      onValueChange={(bancoId) =>
+                        setDraftRelationFilters((current) => ({ ...current, bancoId }))
+                      }
+                      loading={loadingBanks}
+                      disabled={!!bankLoadError}
+                      placeholder={bankLoadError ?? "Todos os bancos"}
+                      searchPlaceholder="Pesquisar banco ou conta..."
+                      emptyMessage="Nenhum banco encontrado."
+                      clearable
+                      clearLabel="Todos os bancos"
+                      options={banks.map((bank) => ({
+                        value: String(bank.id),
+                        label: bank.titulo,
+                        description: [
+                          bank.tipo,
+                          bank.agencia && `Ag. ${bank.agencia}`,
+                          bank.contanumero && `Conta ${bank.contanumero}`,
+                        ]
+                          .filter(Boolean)
+                          .join(" · "),
+                        searchText: `${bank.proprietario ?? ""} ${bank.tipo ?? ""}`,
+                      }))}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Plano de conta</Label>
+                    <PlanoContaCombobox
+                      value={draftRelationFilters.planoContaId}
+                      onValueChange={(planoContaId) =>
+                        setDraftRelationFilters((current) => ({ ...current, planoContaId }))
+                      }
+                      onClear={() =>
+                        setDraftRelationFilters((current) => ({ ...current, planoContaId: "" }))
+                      }
+                      clearable
+                      clearLabel="Todos os planos de conta"
+                      loading={loadingPlanos}
+                      disabled={!!errorPlanos}
+                      groups={gruposPlanosDeConta}
+                      placeholder={errorPlanos ? "Erro ao carregar" : "Todos os planos de conta"}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Centro de custo</Label>
+                    <SearchCombobox
+                      value={draftRelationFilters.centroCustoId}
+                      onValueChange={(centroCustoId) =>
+                        setDraftRelationFilters((current) => ({ ...current, centroCustoId }))
+                      }
+                      loading={loadingCentrosCusto}
+                      disabled={!!errorCentrosCusto}
+                      placeholder={errorCentrosCusto ? "Erro ao carregar" : "Todos os centros de custo"}
+                      searchPlaceholder="Pesquisar centro de custo..."
+                      emptyMessage="Nenhum centro de custo encontrado."
+                      clearable
+                      clearLabel="Todos os centros de custo"
+                      options={centrosCusto.map((centro) => ({
+                        value: String(centro.id),
+                        label: centro.nome,
+                        description: centro.descricao ?? undefined,
+                      }))}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2 border-t pt-4">
+                  <Label>Período</Label>
+                  <Popover open={openRange} onOpenChange={setOpenRange}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className={cn(
+                          "w-full justify-between text-left font-normal",
+                          !range?.from && "text-muted-foreground",
+                        )}
+                      >
+                        <span className="truncate">{periodLabel}</span>
+                        <CalendarIcon className="ml-2 h-4 w-4 shrink-0 opacity-70" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <div className="p-3">
+                        <Calendar
+                          mode="range"
+                          numberOfMonths={2}
+                          selected={range}
+                          onSelect={(next) => {
+                            setDraftDateFrom(toYYYYMMDD(next?.from));
+                            setDraftDateTo(toYYYYMMDD(next?.to));
                           }}
-                        >
-                          Limpar
-                        </Button>
+                          locale={ptBR}
+                          initialFocus
+                        />
 
-                        <Button
-                          type="button"
-                          className="flex-1"
-                          onClick={() => setOpenRange(false)}
-                          disabled={!range?.from || !range?.to}
-                        >
-                          Aplicar
-                        </Button>
+                        <div className="mt-3 flex w-full gap-2">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="flex-1"
+                            onClick={() => {
+                              setDraftDateFrom("");
+                              setDraftDateTo("");
+                            }}
+                          >
+                            Limpar
+                          </Button>
+
+                          <Button
+                            type="button"
+                            className="flex-1"
+                            onClick={() => setOpenRange(false)}
+                            disabled={!range?.from || !range?.to}
+                          >
+                            Aplicar
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
 
-              <div className="mt-2 flex justify-between gap-2">
-                <Button type="button" variant="outline" className="w-30" onClick={clearFilters}>
-                  Limpar
-                </Button>
-                <Button type="button" className="w-30" onClick={applyFilters}>
-                  Aplicar
-                </Button>
+                <div className="flex justify-end gap-2 border-t pt-4">
+                  <Button type="button" variant="outline" onClick={clearFilters}>
+                    Limpar
+                  </Button>
+                  <Button type="button" onClick={applyFilters}>
+                    Aplicar filtros
+                  </Button>
+                </div>
               </div>
             </div>
           </SheetContent>

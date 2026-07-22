@@ -88,3 +88,35 @@ describe("destino da operação na NF-e", () => {
     assert.match(result.xml, /<idDest>2<\/idDest>/);
   });
 });
+
+describe("pagamentos na NF-e", () => {
+  it("gera um detPag para cada método informado", () => {
+    const result = buildNFePreviewXml(
+      empresa,
+      3,
+      1,
+      [{ ...item, valorUnitario: 100, valorTotal: 100 }],
+      destinatario("SP"),
+      {
+        nomeMunicipioEmitente: "SAO PAULO",
+        pagamentos: [
+          { tPag: "17", valor: 40 },
+          { tPag: "03", valor: 60, tpIntegra: "2" },
+        ],
+      },
+    );
+
+    assert.equal(result.xml.match(/<detPag>/g)?.length, 2);
+    assert.match(result.xml, /<tPag>17<\/tPag><vPag>40\.00<\/vPag>/);
+    assert.match(result.xml, /<tPag>03<\/tPag><vPag>60\.00<\/vPag><card><tpIntegra>2<\/tpIntegra><\/card>/);
+  });
+
+  it("atribui o total da nota ao método único quando o valor não é informado", () => {
+    const result = buildNFePreviewXml(empresa, 4, 1, [item], destinatario("SP"), {
+      nomeMunicipioEmitente: "SAO PAULO",
+      pagamento: { tPag: "17" },
+    });
+
+    assert.match(result.xml, /<tPag>17<\/tPag><vPag>10\.00<\/vPag>/);
+  });
+});

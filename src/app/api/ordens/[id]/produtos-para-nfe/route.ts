@@ -285,6 +285,13 @@ export async function GET(req: Request) {
     return NextResponse.json({
       ok: true,
       osId: idOs,
+      tipo_operacao: "SAIDA",
+      natureza_operacao: "VENDA DE MERCADORIA",
+      configuracao_fiscal: {
+        consumidorFinal: true,
+        indicadorPresenca: "1",
+        modFrete: "9",
+      },
       observacoes_fiscais: os.observacoes_fiscais ?? null,
       cliente: cliente
         ? {

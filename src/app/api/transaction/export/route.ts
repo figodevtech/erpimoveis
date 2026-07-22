@@ -16,7 +16,7 @@ const FORTALEZA_OFFSET = "-03:00";
  *           cliente_id, banco_id, created_at, updated_at
  */
 const TRANSACAO_FIELDS =
-  'id, descricao, valor, "valorLiquido", data, ordemservicoid, metodopagamento, categoria, tipo, cliente_id, banco_id, created_at, updated_at';
+  'id, descricao, valor, "valorLiquido", data, ordemservicoid, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, banco_id, created_at, updated_at';
 
 /** bancoconta: id, titulo, ... , created_at, updated_at */
 const BANCO_FIELDS = "id, titulo, created_at, updated_at";
@@ -73,6 +73,7 @@ export async function GET(req: Request) {
 
     const tipo = (searchParams.get("tipo") ?? "").trim();
     const categoria = (searchParams.get("categoria") ?? "").trim();
+    const categoriaId = toIntFilter(searchParams.get("categoriaId"));
 
     const ordemservicoid = toIntFilter(searchParams.get("ordemservicoid"));
     const metodo = (searchParams.get("metodo") ?? searchParams.get("metodopagamento") ?? "")
@@ -80,6 +81,8 @@ export async function GET(req: Request) {
       .slice(0, 100);
 
     const bancoId = toBigintFilter(searchParams.get("bancoId"));
+    const planoContaId = toIntFilter(searchParams.get("planoContaId"));
+    const centroCustoId = toIntFilter(searchParams.get("centroCustoId"));
     const clienteId = toIntFilter(searchParams.get("clienteId"));
 
     const dateFrom = searchParams.get("dateFrom");
@@ -97,6 +100,8 @@ export async function GET(req: Request) {
       "Descrição",
       "Tipo",
       "Categoria",
+      "Plano de conta",
+      "Centro de custo",
       "Método Pagamento",
       "Valor (R$)",
       "Valor Líquido (R$)",
@@ -118,6 +123,8 @@ export async function GET(req: Request) {
       { wch: 40 }, // Descrição
       { wch: 12 }, // Tipo
       { wch: 18 }, // Categoria
+      { wch: 28 }, // Plano de conta
+      { wch: 24 }, // Centro de custo
       { wch: 18 }, // Método
       { wch: 14 }, // Valor
       { wch: 16 }, // Valor Líquido
@@ -147,8 +154,11 @@ export async function GET(req: Request) {
       if (ordemservicoid != null) query = query.eq("ordemservicoid", ordemservicoid);
       if (tipo) query = query.eq("tipo", tipo);
       if (categoria) query = query.eq("categoria", categoria);
+      if (categoriaId != null) query = query.eq("categoria_id", categoriaId);
       if (metodo) query = query.eq("metodopagamento", metodo);
       if (bancoId != null) query = query.eq("banco_id", bancoId as any);
+      if (planoContaId != null) query = query.eq("plano_de_conta_id", planoContaId);
+      if (centroCustoId != null) query = query.eq("centro_custo_id", centroCustoId);
       if (clienteId != null) query = query.eq("cliente_id", clienteId);
 
       if (dateFrom) query = query.gte("data", localDayStartToUtcIso(dateFrom));
@@ -171,6 +181,8 @@ export async function GET(req: Request) {
         t.descricao ?? "",
         t.tipo ?? "",
         t.categoria ?? "",
+        t.plano_de_conta ?? "",
+        t.centro_custo ?? "",
         t.metodopagamento ?? "",
         t.valor ?? null,
         t["valorLiquido"] ?? null, // <-- no schema é "valorLiquido"

@@ -13,6 +13,7 @@ import {
   Palette,
   ChevronDown,
   ShoppingBag,
+  Building2,
 } from "lucide-react";
 import GruposProdutoSection from "./grupos-produto-section";
 import UnidadesMedidaSection from "./unidades-medida-section";
@@ -24,6 +25,7 @@ import PlanosDeContaSection from "./planos-de-conta-section";
 import CategoriasVendaSection from "./categorias-venda-section";
 import SetoresSection from "./setores-section";
 import CoresVeiculosSection from "./cores-veiculos-section";
+import CentrosCustoSection from "./centros-custo-section";
 
 type TabId =
   | "grupos"
@@ -34,6 +36,7 @@ type TabId =
   | "bancos"
   | "categorias"
   | "planos_conta"
+  | "centros_custo"
   | "categorias_venda"
   | "cores_veiculos";
 
@@ -96,6 +99,12 @@ export default function TiposConfigPage() {
       subtitle: "Organize o plano de contas",
     },
     {
+      id: "centros_custo",
+      icon: Building2,
+      title: "Centros de custo",
+      subtitle: "Destino interno das transações",
+    },
+    {
       id: "categorias_venda",
       icon: ShoppingBag,
       title: "Categorias de venda",
@@ -134,7 +143,7 @@ export default function TiposConfigPage() {
           </button>
           <div
             className={`overflow-hidden transition-[max-height] duration-300 ease-in-out ${
-              mobileOpen ? "max-h-[520px] mt-2" : "max-h-0"
+              mobileOpen ? "max-h-[620px] mt-2" : "max-h-0"
             }`}
           >
             <div className="w-full border rounded-md overflow-hidden bg-card">
@@ -184,6 +193,7 @@ export default function TiposConfigPage() {
           {activeTab === "bancos" && <BancosSection />}
           {activeTab === "categorias" && <CategoriasTransacaoSection />}
           {activeTab === "planos_conta" && <PlanosDeContaSection />}
+          {activeTab === "centros_custo" && <CentrosCustoSection />}
           {activeTab === "categorias_venda" && <CategoriasVendaSection />}
           {activeTab === "cores_veiculos" && <CoresVeiculosSection />}
         </div>

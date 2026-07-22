@@ -16,6 +16,8 @@ const WRITABLE_FIELDS = new Set([
   "categoria_id",
   "plano_de_conta",
   "plano_de_conta_id",
+  "centro_custo",
+  "centro_custo_id",
   "tipo",
   "cliente_id",
   "banco_id",
@@ -27,7 +29,7 @@ const WRITABLE_FIELDS = new Set([
 const FORTALEZA_OFFSET = "-03:00";
 
 const TRANSACAO_FIELDS =
-  "id, descricao, valor, valorLiquido, nomepagador, cpfcnpjpagador, pendente, data, ordemservicoid, vendaid, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, tipo, cliente_id, banco_id, created_at, updated_at";
+  "id, descricao, valor, valorLiquido, nomepagador, cpfcnpjpagador, pendente, data, ordemservicoid, vendaid, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, banco_id, created_at, updated_at";
 
 const BANCO_FIELDS =
   "id, titulo, tipo, agencia, contanumero, proprietario, valorinicial, empresa_id, created_at, updated_at";
@@ -134,7 +136,8 @@ function sanitizeTransacaoPayload(body: any, { strict }: { strict: boolean }) {
       case "ordemservicoid":
       case "vendaid":
       case "categoria_id":
-      case "plano_de_conta_id": {
+      case "plano_de_conta_id":
+      case "centro_custo_id": {
         const parsed = toNumberOrNull(body[key]);
         output[key] = parsed == null ? null : Math.trunc(parsed);
         break;
@@ -182,10 +185,13 @@ export async function GET(req: Request) {
 
     const tipo = (searchParams.get("tipo") ?? "").trim();
     const categoria = (searchParams.get("categoria") ?? "").trim();
+    const categoriaId = toNumberOrNull(searchParams.get("categoriaId"));
     const ordemservicoid = searchParams.get("ordemservicoid");
     const vendaid = searchParams.get("vendaid");
     const metodo = (searchParams.get("metodo") ?? searchParams.get("metodopagamento") ?? "").trim();
     const bancoId = toNumberOrNull(searchParams.get("bancoId"));
+    const planoContaId = toNumberOrNull(searchParams.get("planoContaId"));
+    const centroCustoId = toNumberOrNull(searchParams.get("centroCustoId"));
     const clienteId = toNumberOrNull(searchParams.get("clienteId"));
     const pendenteBool = parseBooleanParam(searchParams.get("pendente"));
     const dateFrom = searchParams.get("dateFrom");
@@ -201,7 +207,8 @@ export async function GET(req: Request) {
         ${TRANSACAO_FIELDS},
         banco:bancoconta!transacao_banco_id_fkey ( ${BANCO_FIELDS} ),
         categoria_dados:categoriatransacao!transacao_categoria_id_fkey ( id, nome, icone ),
-        plano_de_conta_dados:planosdeconta!transacao_plano_de_conta_id_fkey ( id, codigo, nome )
+        plano_de_conta_dados:planosdeconta!transacao_plano_de_conta_id_fkey ( id, codigo, nome ),
+        centro_custo_dados:centrosdecusto!transacao_centro_custo_id_fkey ( id, nome, descricao, ativo )
         `,
         { count: "exact" }
       )
@@ -214,8 +221,11 @@ export async function GET(req: Request) {
     if (vendaid) query = query.eq("vendaid", vendaid);
     if (tipo) query = query.eq("tipo", tipo);
     if (categoria) query = query.eq("categoria", categoria);
+    if (categoriaId != null) query = query.eq("categoria_id", categoriaId);
     if (metodo) query = query.eq("metodopagamento", metodo);
     if (bancoId != null) query = query.eq("banco_id", bancoId);
+    if (planoContaId != null) query = query.eq("plano_de_conta_id", planoContaId);
+    if (centroCustoId != null) query = query.eq("centro_custo_id", centroCustoId);
     if (clienteId != null) query = query.eq("cliente_id", clienteId);
     if (pendenteBool !== null) query = query.eq("pendente", pendenteBool);
     if (dateFrom) query = query.gte("data", localDayStartToUtcIso(dateFrom));
@@ -243,8 +253,11 @@ export async function GET(req: Request) {
         search,
         tipo: tipo || null,
         categoria: categoria || null,
+        categoriaId: categoriaId ?? null,
         metodopagamento: metodo || null,
         bancoId: bancoId ?? null,
+        planoContaId: planoContaId ?? null,
+        centroCustoId: centroCustoId ?? null,
         clienteId: clienteId ?? null,
         pendente: pendenteBool,
         dateFrom: dateFrom ?? null,
@@ -398,7 +411,9 @@ export async function POST(req: Request) {
         `
         ${TRANSACAO_FIELDS},
         banco:bancoconta!transacao_banco_id_fkey ( ${BANCO_FIELDS} ),
-        categoria_dados:categoriatransacao!transacao_categoria_id_fkey ( id, nome, icone )
+        categoria_dados:categoriatransacao!transacao_categoria_id_fkey ( id, nome, icone ),
+        plano_de_conta_dados:planosdeconta!transacao_plano_de_conta_id_fkey ( id, codigo, nome ),
+        centro_custo_dados:centrosdecusto!transacao_centro_custo_id_fkey ( id, nome, descricao, ativo )
         `
       );
 

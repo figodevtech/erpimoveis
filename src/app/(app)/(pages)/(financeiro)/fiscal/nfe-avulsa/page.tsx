@@ -7,6 +7,7 @@ import axios, { isAxiosError } from "axios";
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronsUpDown,
   FileText,
   Download,
   Loader2,
@@ -32,8 +33,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Command, CommandGroup, CommandItem, CommandList } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -52,6 +56,7 @@ import ProductSelect from "@/app/(app)/components/productSelect";
 import type { Customer } from "@/app/(app)/(pages)/clientes/types";
 import type { Produto } from "@/app/(app)/(pages)/estoque/types";
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
+import { normalizeCfopForOperation } from "@/lib/nfe/cfopOperation";
 import { getRequiredPisCofinsMode, PIS_COFINS_CST_OPTIONS } from "@/lib/nfe/taxRules";
 import { DanfeView, type DanfeViewData } from "@/components/danfe/danfe-view";
 import ValueInput from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/components/transactionDialog/valueInput";
@@ -215,13 +220,8 @@ type DraftPayload = {
     observacaoInterna: string;
     observacoesFiscais: string;
   };
-  pagamento: {
-    meio: string;
-    tipoIntegracao: "1" | "2";
-    cnpjCredenciadora: string;
-    bandeira: string;
-    autorizacao: string;
-  };
+  pagamento: DraftPayment;
+  pagamentos: DraftPayment[];
   transporte: DraftTransporte;
   destinatario: {
     clienteId: number | null;
@@ -245,6 +245,15 @@ type DraftPayload = {
     nomePais: string;
   };
   itens: DraftItem[];
+};
+
+type DraftPayment = {
+  meio: string;
+  valor: number;
+  tipoIntegracao: "1" | "2";
+  cnpjCredenciadora: string;
+  bandeira: string;
+  autorizacao: string;
 };
 
 type ValidationError = {
@@ -430,11 +439,20 @@ const initialDraft: DraftPayload = {
   },
   pagamento: {
     meio: "01",
+    valor: 0,
     tipoIntegracao: "2",
     cnpjCredenciadora: "",
     bandeira: "",
     autorizacao: "",
   },
+  pagamentos: [{
+    meio: "01",
+    valor: 0,
+    tipoIntegracao: "2",
+    cnpjCredenciadora: "",
+    bandeira: "",
+    autorizacao: "",
+  }],
   transporte: {
     modFrete: "9",
     transportadora: {
@@ -543,11 +561,25 @@ function normalizePagamento(value: unknown): DraftPayload["pagamento"] {
     ...initialDraft.pagamento,
     ...pagamento,
     meio: meio ? meio.padStart(2, "0").slice(0, 2) : initialDraft.pagamento.meio,
+    valor: Math.max(0, parseNumberInput(pagamento.valor)),
     tipoIntegracao,
     cnpjCredenciadora: onlyDigits(String(pagamento.cnpjCredenciadora ?? "")),
     bandeira: onlyDigits(String(pagamento.bandeira ?? "")),
     autorizacao: String(pagamento.autorizacao ?? ""),
   };
+}
+
+function normalizePagamentos(value: unknown, legacyPayment?: unknown): DraftPayment[] {
+  const pagamentos = Array.isArray(value)
+    ? value.map(normalizePagamento)
+    : legacyPayment
+      ? [normalizePagamento(legacyPayment)]
+      : initialDraft.pagamentos.map((pagamento) => ({ ...pagamento }));
+
+  const unique = pagamentos.filter(
+    (pagamento, index) => pagamentos.findIndex((item) => item.meio === pagamento.meio) === index,
+  );
+  return unique.length ? unique : initialDraft.pagamentos.map((pagamento) => ({ ...pagamento }));
 }
 
 function normalizeTransporte(value: unknown): DraftTransporte {
@@ -582,6 +614,7 @@ function normalizePersistedDraft(value: unknown): DraftPayload | null {
   if (!value || typeof value !== "object") return null;
   const draft = value as Partial<DraftPayload>;
   if (!draft.operacao || !draft.destinatario || !Array.isArray(draft.itens)) return null;
+  const pagamentos = normalizePagamentos(draft.pagamentos, draft.pagamento);
   return {
     ...initialDraft,
     ...draft,
@@ -591,7 +624,8 @@ function normalizePersistedDraft(value: unknown): DraftPayload | null {
       ...initialDraft.operacao,
       ...draft.operacao,
     },
-    pagamento: normalizePagamento(draft.pagamento),
+    pagamento: pagamentos[0],
+    pagamentos,
     transporte: normalizeTransporte(draft.transporte),
     destinatario: {
       ...initialDraft.destinatario,
@@ -613,6 +647,7 @@ function mapServerDraftToPayload(value: any): { draft: DraftPayload; document: N
   const destinatarioOriginal = dadosAvulsos.destinatario ?? {};
   const operacaoOriginal = dadosAvulsos.operacao ?? {};
   const pagamentoOriginal = dadosAvulsos.pagamento ?? {};
+  const pagamentosOriginais = normalizePagamentos(dadosAvulsos.pagamentos, pagamentoOriginal);
   const transporteOriginal = dadosAvulsos.transporte ?? {};
   const itens = Array.isArray(value?.itens) ? value.itens : [];
 
@@ -625,7 +660,8 @@ function mapServerDraftToPayload(value: any): { draft: DraftPayload; document: N
         ...initialDraft.operacao,
         ...operacaoOriginal,
       },
-      pagamento: normalizePagamento(pagamentoOriginal),
+      pagamento: pagamentosOriginais[0],
+      pagamentos: pagamentosOriginais,
       transporte: normalizeTransporte(transporteOriginal),
       destinatario: {
         ...initialDraft.destinatario,
@@ -721,6 +757,7 @@ export default function NFeAvulsaPage() {
   const [dirty, setDirty] = React.useState(false);
   const [openCustomerSelect, setOpenCustomerSelect] = React.useState(false);
   const [openProductSelect, setOpenProductSelect] = React.useState(false);
+  const [paymentMethodsOpen, setPaymentMethodsOpen] = React.useState(false);
   const [confirmAuthorizeOpen, setConfirmAuthorizeOpen] = React.useState(false);
 
   const totalProdutos = React.useMemo(
@@ -741,8 +778,47 @@ export default function NFeAvulsaPage() {
   const isAutorizada = String(documentState.status ?? "").toUpperCase() === "AUTORIZADA";
   const isSemPagamentoObrigatorio =
     draft.operacao.finalidade === "AJUSTE" || draft.operacao.finalidade === "DEVOLUCAO";
-  const meioPagamentoAtual = isSemPagamentoObrigatorio ? "90" : draft.pagamento.meio;
-  const isPagamentoCartao = meioPagamentoAtual === "03" || meioPagamentoAtual === "04";
+  const pagamentosAtuais = isSemPagamentoObrigatorio
+    ? [{ ...initialDraft.pagamento, meio: "90", valor: 0 }]
+    : draft.pagamentos;
+  const paymentMethodsLabel = pagamentosAtuais.length === 0
+    ? "Selecione os métodos"
+    : pagamentosAtuais
+        .map((pagamento) => getPaymentLabel(pagamento.meio))
+        .join(", ");
+  const paymentSummary = pagamentosAtuais.length === 0
+    ? "Pendente"
+    : pagamentosAtuais
+        .map((pagamento) => `${pagamento.meio} - ${getPaymentLabel(pagamento.meio)}`)
+        .join(" · ");
+  const paymentErrors = React.useMemo(() => {
+    if (isSemPagamentoObrigatorio) return [];
+    if (draft.pagamentos.length === 0) return ["Selecione pelo menos um método de pagamento."];
+
+    const result: string[] = [];
+    if (draft.pagamentos.length > 1 && draft.pagamentos.some((pagamento) => pagamento.valor <= 0)) {
+      result.push("Informe um valor maior que zero para cada método.");
+    }
+    const totalPagamentos = draft.pagamentos.reduce((total, pagamento) => total + pagamento.valor, 0);
+    if (draft.pagamentos.length > 1 && Math.abs(totalPagamentos - totalProdutos) > 0.01) {
+      result.push(`A soma dos pagamentos deve ser ${formatarEmReal(totalProdutos)}.`);
+    }
+    draft.pagamentos.forEach((pagamento) => {
+      if (pagamento.meio !== "03" && pagamento.meio !== "04") return;
+      if (!pagamento.bandeira) {
+        result.push(`Informe a bandeira de ${getPaymentLabel(pagamento.meio)}.`);
+      }
+      if (pagamento.tipoIntegracao === "1") {
+        if (onlyDigits(pagamento.cnpjCredenciadora).length !== 14) {
+          result.push(`Informe o CNPJ da credenciadora de ${getPaymentLabel(pagamento.meio)}.`);
+        }
+        if (!pagamento.autorizacao.trim()) {
+          result.push(`Informe o código de autorização de ${getPaymentLabel(pagamento.meio)}.`);
+        }
+      }
+    });
+    return result;
+  }, [draft.pagamentos, isSemPagamentoObrigatorio, totalProdutos]);
   const isSemTransporte = draft.transporte.modFrete === "9";
   const isFreteContratado = ["0", "1", "2"].includes(draft.transporte.modFrete);
   const isTransporteProprio = ["3", "4"].includes(draft.transporte.modFrete);
@@ -830,6 +906,57 @@ export default function NFeAvulsaPage() {
     setDirty(true);
   }
 
+  function togglePaymentMethod(meio: string) {
+    updateDraft((current) => {
+      const selected = current.pagamentos.some((pagamento) => pagamento.meio === meio);
+      const pagamentos = selected
+        ? current.pagamentos.filter((pagamento) => pagamento.meio !== meio)
+        : [
+            ...current.pagamentos,
+            {
+              ...initialDraft.pagamento,
+              meio,
+              bandeira: meio === "03" || meio === "04" ? "99" : "",
+            },
+          ];
+      return {
+        ...current,
+        pagamentos,
+        pagamento: pagamentos[0] ?? current.pagamento,
+      };
+    });
+  }
+
+  function updatePayment(meio: string, patch: Partial<DraftPayment>) {
+    updateDraft((current) => {
+      const pagamentos = current.pagamentos.map((pagamento) =>
+        pagamento.meio === meio ? { ...pagamento, ...patch } : pagamento,
+      );
+      return {
+        ...current,
+        pagamentos,
+        pagamento: pagamentos[0] ?? current.pagamento,
+      };
+    });
+  }
+
+  function getDraftForSubmission(current: DraftPayload): DraftPayload {
+    const pagamentos = current.operacao.finalidade === "AJUSTE" || current.operacao.finalidade === "DEVOLUCAO"
+      ? [{ ...initialDraft.pagamento, meio: "90", valor: 0 }]
+      : current.pagamentos.map((pagamento) => ({
+          ...pagamento,
+          valor: current.pagamentos.length === 1
+            ? Number(totalProdutos.toFixed(2))
+            : Number(pagamento.valor.toFixed(2)),
+        }));
+
+    return {
+      ...current,
+      pagamento: pagamentos[0] ?? current.pagamento,
+      pagamentos,
+    };
+  }
+
   function updateItem(index: number, patch: Partial<DraftItem>) {
     updateDraft((current) => ({
       ...current,
@@ -867,7 +994,21 @@ export default function NFeAvulsaPage() {
   }
 
   function addItemAvulso() {
-    updateDraft((current) => ({ ...current, itens: [...current.itens, { ...emptyItem }] }));
+    updateDraft((current) => ({
+      ...current,
+      itens: [
+        ...current.itens,
+        {
+          ...emptyItem,
+          cfop: normalizeCfopForOperation(
+            emptyItem.cfop,
+            current.operacao.tipoOperacao,
+            setup?.empresa?.uf,
+            current.destinatario.estado,
+          ),
+        },
+      ],
+    }));
   }
 
   function addItemFromProduct(produto: Produto) {
@@ -881,7 +1022,12 @@ export default function NFeAvulsaPage() {
           codigo: String(produto.referencia ?? produto.codigobarras ?? produto.id ?? ""),
             descricao: produto.titulo || produto.descricao || String(produto.id ?? ""),
           ncm: onlyDigits(produto.ncm ?? ""),
-          cfop: onlyDigits(produto.cfop ?? "") || "5102",
+          cfop: normalizeCfopForOperation(
+            onlyDigits(produto.cfop ?? "") || "5102",
+            current.operacao.tipoOperacao,
+            setup?.empresa?.uf,
+            current.destinatario.estado,
+          ),
           unidade: produto.unidade || "UN",
           valorUnitario: String(produto.precovenda ?? 0),
           orig: produto.origem_mercadoria || "",
@@ -921,6 +1067,15 @@ export default function NFeAvulsaPage() {
   function preencherDestinatarioComCliente(cliente: Customer) {
     updateDraft((current) => ({
       ...current,
+      itens: current.itens.map((item) => ({
+        ...item,
+        cfop: normalizeCfopForOperation(
+          item.cfop,
+          current.operacao.tipoOperacao,
+          setup?.empresa?.uf,
+          cliente.estado,
+        ),
+      })),
       destinatario: {
         ...current.destinatario,
         clienteId: cliente.id,
@@ -962,14 +1117,26 @@ export default function NFeAvulsaPage() {
     setSaving(true);
     setErrors([]);
     try {
+      if (paymentErrors.length > 0) {
+        const validationErrors = paymentErrors.map((message) => ({
+          step: "payment",
+          field: "pagamentos",
+          message,
+        }));
+        setErrors(validationErrors);
+        setDraft((current) => ({ ...current, currentStep: validationStepIndexes.payment }));
+        toast.error("Revise os pagamentos", { description: paymentErrors[0] });
+        return null;
+      }
+      const submissionDraft = getDraftForSubmission(draft);
       const response = draft.nfeId
-        ? await axios.patch(`/api/fiscal/nfe-avulsa/drafts/${draft.nfeId}`, draft)
-        : await axios.post("/api/fiscal/nfe-avulsa/drafts", draft);
+        ? await axios.patch(`/api/fiscal/nfe-avulsa/drafts/${draft.nfeId}`, submissionDraft)
+        : await axios.post("/api/fiscal/nfe-avulsa/drafts", submissionDraft);
 
       const nfeId = Number(response.data?.nfeId);
       const finalNfeId = Number.isFinite(nfeId) ? nfeId : draft.nfeId;
       setDraft((current) => ({
-        ...current,
+        ...getDraftForSubmission(current),
         nfeId: finalNfeId ?? current.nfeId,
         currentStep: goNext ? Math.min(current.currentStep + 1, steps.length - 1) : current.currentStep,
       }));
@@ -1022,6 +1189,11 @@ export default function NFeAvulsaPage() {
   }
 
   function irParaProximoPasso() {
+    if (draft.currentStep === validationStepIndexes.payment && paymentErrors.length > 0) {
+      setErrors(paymentErrors.map((message) => ({ step: "payment", field: "pagamentos", message })));
+      toast.error("Revise os pagamentos", { description: paymentErrors[0] });
+      return;
+    }
     updateDraft((current) => ({
       ...current,
       currentStep: Math.min(current.currentStep + 1, steps.length - 1),
@@ -1033,7 +1205,7 @@ export default function NFeAvulsaPage() {
     setAuthorizing(true);
     const toastId = toast.loading("Transmitindo NF-e para a SEFAZ...");
     try {
-      const nfeId = draft.nfeId ?? (await salvarRascunho({ silent: true, replaceUrl: false }));
+      const nfeId = await salvarRascunho({ silent: true, replaceUrl: false });
       if (!nfeId) {
         toast.error("Falha na autorização", {
           id: toastId,
@@ -1209,6 +1381,15 @@ export default function NFeAvulsaPage() {
                       updateDraft((current) => ({
                         ...current,
                         operacao: { ...current.operacao, tipoOperacao: value },
+                        itens: current.itens.map((item) => ({
+                          ...item,
+                          cfop: normalizeCfopForOperation(
+                            item.cfop,
+                            value,
+                            setup?.empresa?.uf,
+                            current.destinatario.estado,
+                          ),
+                        })),
                       }))
                     }
                   >
@@ -1223,14 +1404,20 @@ export default function NFeAvulsaPage() {
                   <Select
                     value={draft.operacao.finalidade}
                     onValueChange={(value: DraftPayload["operacao"]["finalidade"]) =>
-                      updateDraft((current) => ({
-                        ...current,
-                        operacao: { ...current.operacao, finalidade: value },
-                        pagamento:
-                          value === "AJUSTE" || value === "DEVOLUCAO"
-                            ? { ...current.pagamento, meio: "90" }
-                            : current.pagamento,
-                      }))
+                      updateDraft((current) => {
+                        const semPagamento = value === "AJUSTE" || value === "DEVOLUCAO";
+                        const pagamentos = semPagamento
+                          ? [{ ...initialDraft.pagamento, meio: "90", valor: 0 }]
+                          : current.pagamentos.length === 0 || current.pagamentos.every((item) => item.meio === "90")
+                            ? initialDraft.pagamentos.map((item) => ({ ...item }))
+                            : current.pagamentos;
+                        return {
+                          ...current,
+                          operacao: { ...current.operacao, finalidade: value },
+                          pagamento: pagamentos[0],
+                          pagamentos,
+                        };
+                      })
                     }
                   >
                     <SelectTrigger><SelectValue /></SelectTrigger>
@@ -1268,7 +1455,7 @@ export default function NFeAvulsaPage() {
                       <SelectItem value="1">Operação presencial</SelectItem>
                       <SelectItem value="2">Internet</SelectItem>
                       <SelectItem value="3">Teleatendimento</SelectItem>
-                      <SelectItem value="4">NFC-e entrega em domicílio</SelectItem>
+                      <SelectItem value="5">Presencial fora do estabelecimento</SelectItem>
                       <SelectItem value="9">Outros</SelectItem>
                     </SelectContent>
                   </Select>
@@ -1494,12 +1681,24 @@ export default function NFeAvulsaPage() {
                     <Input
                       value={draft.destinatario.estado}
                       maxLength={2}
-                      onChange={(event) =>
+                      onChange={(event) => {
+                        const estado = event.target.value.toUpperCase();
                         updateDraft((current) => ({
                           ...current,
-                          destinatario: { ...current.destinatario, estado: event.target.value.toUpperCase() },
-                        }))
-                      }
+                          destinatario: { ...current.destinatario, estado },
+                          itens: estado.length === 2
+                            ? current.itens.map((item) => ({
+                                ...item,
+                                cfop: normalizeCfopForOperation(
+                                  item.cfop,
+                                  current.operacao.tipoOperacao,
+                                  setup?.empresa?.uf,
+                                  estado,
+                                ),
+                              }))
+                            : current.itens,
+                        }));
+                      }}
                     />
                   </Field>
                   <Field label="CEP" required={!isDestinatarioExterior}>
@@ -1775,60 +1974,141 @@ export default function NFeAvulsaPage() {
             )}
 
             {currentStep === 5 && (
-              <section className="grid gap-4 md:grid-cols-2">
-                <Field label="Método de pagamento" required>
-                  <Select
-                    value={meioPagamentoAtual}
-                    disabled={isSemPagamentoObrigatorio}
-                    onValueChange={(value) =>
-                      updateDraft((current) => ({
-                        ...current,
-                        pagamento: {
-                          ...current.pagamento,
-                          meio: value,
-                          bandeira:
-                            (value === "03" || value === "04") && !current.pagamento.bandeira
-                              ? "99"
-                              : current.pagamento.bandeira,
-                        },
-                      }))
-                    }
-                  >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {paymentOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.value} - {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <Info
-                  label="Valor informado no pagamento"
-                  value={meioPagamentoAtual === "90" ? formatarEmReal(0) : formatarEmReal(totalProdutos)}
-                />
-
-                {isSemPagamentoObrigatorio && (
-                  <Alert className="md:col-span-2">
+              <section className="min-w-0 space-y-4">
+                {isSemPagamentoObrigatorio ? (
+                  <Alert>
                     <AlertTriangle className="h-4 w-4" />
                     <AlertTitle>Pagamento definido pela finalidade</AlertTitle>
                     <AlertDescription>
                       NF-e de ajuste ou devolução deve ser emitida com 90 - Sem pagamento.
                     </AlertDescription>
                   </Alert>
+                ) : (
+                  <div className="grid min-w-0 gap-4 md:grid-cols-2">
+                    <Field label="Métodos de pagamento" required>
+                      <Popover open={paymentMethodsOpen} onOpenChange={setPaymentMethodsOpen} modal>
+                        <PopoverTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            role="combobox"
+                            aria-expanded={paymentMethodsOpen}
+                            className="w-full min-w-0 justify-between px-3 font-normal"
+                          >
+                            <span className="truncate text-left">{paymentMethodsLabel}</span>
+                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[--radix-popover-trigger-width] min-w-64 p-0" align="start">
+                          <Command>
+                            <CommandList
+                              className="max-h-72 overscroll-contain"
+                              onWheel={(event) => event.stopPropagation()}
+                            >
+                              <CommandGroup>
+                                {paymentOptions.filter((option) => option.value !== "90").map((option) => {
+                                  const checked = draft.pagamentos.some(
+                                    (pagamento) => pagamento.meio === option.value,
+                                  );
+                                  return (
+                                    <CommandItem
+                                      key={option.value}
+                                      value={`${option.value} ${option.label}`}
+                                      onSelect={() => togglePaymentMethod(option.value)}
+                                      className="gap-2"
+                                    >
+                                      <Checkbox
+                                        checked={checked}
+                                        aria-label={`Selecionar ${option.label}`}
+                                        className="pointer-events-none"
+                                      />
+                                      <span className="min-w-0 truncate">
+                                        {option.value} - {option.label}
+                                      </span>
+                                    </CommandItem>
+                                  );
+                                })}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                    </Field>
+                    <Info
+                      label="Total da NF-e"
+                      value={formatarEmReal(totalProdutos)}
+                    />
+                  </div>
                 )}
 
-                {isPagamentoCartao && (
-                  <>
-                    <Field label="Integração do cartão" required>
+                {!isSemPagamentoObrigatorio && draft.pagamentos.length === 1 ? (
+                  <Alert>
+                    <CheckCircle2 className="h-4 w-4" />
+                    <AlertTitle>Pagamento integral</AlertTitle>
+                    <AlertDescription>
+                      O total de {formatarEmReal(totalProdutos)} será atribuído automaticamente ao método selecionado.
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
+
+                {!isSemPagamentoObrigatorio && draft.pagamentos.length > 1 ? (
+                  <div className="min-w-0 space-y-3 rounded-lg border bg-muted/20 p-3 sm:p-4">
+                    <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-medium">Distribuição do pagamento</p>
+                        <p className="text-xs text-muted-foreground">
+                          Informe quanto foi pago em cada método selecionado.
+                        </p>
+                      </div>
+                      <p className="shrink-0 text-sm font-medium">Total: {formatarEmReal(totalProdutos)}</p>
+                    </div>
+                    <div className="grid min-w-0 gap-3 md:grid-cols-2">
+                      {draft.pagamentos.map((pagamento) => (
+                        <Field
+                          key={pagamento.meio}
+                          label={`${pagamento.meio} - ${getPaymentLabel(pagamento.meio)}`}
+                          required
+                        >
+                          <ValueInput
+                            price={pagamento.valor}
+                            setPrice={(valor) => updatePayment(pagamento.meio, { valor })}
+                          />
+                        </Field>
+                      ))}
+                    </div>
+                    {paymentErrors.length ? (
+                      <p className="text-xs text-destructive">{paymentErrors.join(" ")}</p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Soma informada: {formatarEmReal(draft.pagamentos.reduce(
+                          (total, pagamento) => total + pagamento.valor,
+                          0,
+                        ))}
+                      </p>
+                    )}
+                  </div>
+                ) : !isSemPagamentoObrigatorio && paymentErrors.length ? (
+                  <p className="text-xs text-destructive">{paymentErrors.join(" ")}</p>
+                ) : null}
+
+                {!isSemPagamentoObrigatorio && draft.pagamentos
+                  .filter((pagamento) => pagamento.meio === "03" || pagamento.meio === "04")
+                  .map((pagamento) => (
+                    <div key={pagamento.meio} className="min-w-0 space-y-4 rounded-lg border p-3 sm:p-4">
+                      <div>
+                        <p className="font-medium">
+                          Dados do {pagamento.meio} - {getPaymentLabel(pagamento.meio)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Informe os dados específicos desta forma de pagamento.
+                        </p>
+                      </div>
+                      <div className="grid min-w-0 gap-4 md:grid-cols-2">
+                        <Field label="Integração do cartão" required>
                       <Select
-                        value={draft.pagamento.tipoIntegracao}
+                        value={pagamento.tipoIntegracao}
                         onValueChange={(value: "1" | "2") =>
-                          updateDraft((current) => ({
-                            ...current,
-                            pagamento: { ...current.pagamento, tipoIntegracao: value },
-                          }))
+                          updatePayment(pagamento.meio, { tipoIntegracao: value })
                         }
                       >
                         <SelectTrigger><SelectValue /></SelectTrigger>
@@ -1837,16 +2117,11 @@ export default function NFeAvulsaPage() {
                           <SelectItem value="1">Integrado ao sistema</SelectItem>
                         </SelectContent>
                       </Select>
-                    </Field>
-                    <Field label="Bandeira" required>
+                        </Field>
+                        <Field label="Bandeira" required>
                       <Select
-                        value={draft.pagamento.bandeira || "99"}
-                        onValueChange={(value) =>
-                          updateDraft((current) => ({
-                            ...current,
-                            pagamento: { ...current.pagamento, bandeira: value },
-                          }))
-                        }
+                        value={pagamento.bandeira || "99"}
+                        onValueChange={(value) => updatePayment(pagamento.meio, { bandeira: value })}
                       >
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
@@ -1857,38 +2132,32 @@ export default function NFeAvulsaPage() {
                           ))}
                         </SelectContent>
                       </Select>
-                    </Field>
-                    {draft.pagamento.tipoIntegracao === "1" && (
-                      <>
-                        <Field label="CNPJ da credenciadora" required>
+                        </Field>
+                        {pagamento.tipoIntegracao === "1" && (
+                          <>
+                            <Field label="CNPJ da credenciadora" required>
                           <Input
-                            value={draft.pagamento.cnpjCredenciadora}
+                            value={pagamento.cnpjCredenciadora}
                             onChange={(event) =>
-                              updateDraft((current) => ({
-                                ...current,
-                                pagamento: {
-                                  ...current.pagamento,
-                                  cnpjCredenciadora: onlyDigits(event.target.value),
-                                },
-                              }))
+                              updatePayment(pagamento.meio, {
+                                cnpjCredenciadora: onlyDigits(event.target.value),
+                              })
                             }
                           />
-                        </Field>
-                        <Field label="Código de autorização" required>
+                            </Field>
+                            <Field label="Código de autorização" required>
                           <Input
-                            value={draft.pagamento.autorizacao}
+                            value={pagamento.autorizacao}
                             onChange={(event) =>
-                              updateDraft((current) => ({
-                                ...current,
-                                pagamento: { ...current.pagamento, autorizacao: event.target.value },
-                              }))
+                              updatePayment(pagamento.meio, { autorizacao: event.target.value })
                             }
                           />
-                        </Field>
-                      </>
-                    )}
-                  </>
-                )}
+                            </Field>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
               </section>
             )}
 
@@ -1913,7 +2182,7 @@ export default function NFeAvulsaPage() {
                   <Info label="Operação" value={draft.operacao.naturezaOperacao} />
                   <Info label="Destinatário" value={draft.destinatario.nomeRazaoSocial || "Pendente"} />
                   <Info label="Total" value={formatarEmReal(totalProdutos)} />
-                  <Info label="Pagamento" value={`${meioPagamentoAtual} - ${getPaymentLabel(meioPagamentoAtual)}`} />
+                  <Info label="Pagamento" value={paymentSummary} />
                   <Info label="Frete" value={`${draft.transporte.modFrete} - ${getFreightLabel(draft.transporte.modFrete)}`} />
                 </div>
                 <Table>
@@ -2015,7 +2284,7 @@ export default function NFeAvulsaPage() {
             <Info label="Destinatário" value={draft.destinatario.nomeRazaoSocial || "Pendente"} />
             <Info label="Itens" value={draft.itens.length} />
             <Info label="Total dos produtos" value={formatarEmReal(totalProdutos)} />
-            <Info label="Pagamento" value={`${meioPagamentoAtual} - ${getPaymentLabel(meioPagamentoAtual)}`} />
+            <Info label="Pagamento" value={paymentSummary} />
             <Info label="Status do documento" value={draft.nfeId ? `Rascunho #${draft.nfeId}` : "Não salvo"} />
           </CardContent>
         </Card>
@@ -2140,6 +2409,10 @@ function NFeAutorizadaView({
   setup: SetupResponse | null;
   totalProdutos: number;
 }) {
+  const pagamentosAtuais = draft.operacao.finalidade === "AJUSTE" || draft.operacao.finalidade === "DEVOLUCAO"
+    ? [{ ...initialDraft.pagamento, meio: "90", valor: 0 }]
+    : draft.pagamentos;
+
   async function baixarXml() {
     if (!draft.nfeId) return;
 
@@ -2330,15 +2603,19 @@ function NFeAutorizadaView({
     },
     fatura: null,
     duplicatas: [],
-    pagamentos: [{
-      tipo: draft.pagamento.meio,
-      valor: totalProdutos,
+    pagamentos: pagamentosAtuais.map((pagamento) => ({
+      tipo: pagamento.meio,
+      valor: pagamento.meio === "90"
+        ? 0
+        : pagamentosAtuais.length === 1
+          ? totalProdutos
+          : pagamento.valor,
       descricao: "",
-      integracao: draft.pagamento.tipoIntegracao,
-      cnpjCredenciadora: draft.pagamento.cnpjCredenciadora,
-      bandeira: draft.pagamento.bandeira,
-      autorizacao: draft.pagamento.autorizacao,
-    }],
+      integracao: pagamento.tipoIntegracao,
+      cnpjCredenciadora: pagamento.cnpjCredenciadora,
+      bandeira: pagamento.bandeira,
+      autorizacao: pagamento.autorizacao,
+    })),
     infCpl: draft.operacao.observacoesFiscais || null,
     infAdFisco: null,
   };

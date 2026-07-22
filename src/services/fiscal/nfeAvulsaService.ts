@@ -1,10 +1,15 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { buildNFePreviewXml, type NFeTransporteOptions } from "@/lib/nfe/buildNFe";
+import {
+  buildNFePreviewXml,
+  type NFePagamentoOptions,
+  type NFeTransporteOptions,
+} from "@/lib/nfe/buildNFe";
 import { carregarCertificadoA1 } from "@/lib/nfe/certificado";
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
 import type { CRT, ClassificacaoTributariaRtc, EmpresaRow, NFeDestinatario, NFeItem } from "@/lib/nfe/types";
 import { getNFeFiscalFieldRules, NFE_FISCAL_RULE_VERSION, validateNFeItemTax } from "@/lib/nfe/taxRules";
 import { resolverNomeMunicipioIbge } from "@/lib/ibge/municipio";
+import { isCfopCompatibleWithOperation } from "@/lib/nfe/cfopOperation";
 import {
   isValidCnpj,
   isValidCpf,
@@ -88,6 +93,14 @@ export type NFeAvulsaDraftInput = {
     bandeira?: string | null;
     autorizacao?: string | null;
   } | null;
+  pagamentos?: Array<{
+    meio?: string | null;
+    valor?: string | number | null;
+    tipoIntegracao?: "1" | "2" | string | null;
+    cnpjCredenciadora?: string | null;
+    bandeira?: string | null;
+    autorizacao?: string | null;
+  }> | null;
   transporte?: {
     modFrete?: "0" | "1" | "2" | "3" | "4" | "9" | string | null;
     transportadora?: {
@@ -289,7 +302,7 @@ function finalidadeToFinNFe(finalidade: NFeAvulsaDraftInput["operacao"]["finalid
   return 1 as const;
 }
 
-function getPagamentoFiscal(input: NFeAvulsaDraftInput) {
+function getPagamentoFiscal(input: NFeAvulsaDraftInput): NFePagamentoOptions {
   const finNFe = finalidadeToFinNFe(input.operacao.finalidade);
   const rawMeio = onlyDigits(input.pagamento?.meio);
   const meioNormalizado = rawMeio ? rawMeio.padStart(2, "0").slice(0, 2) : "01";
@@ -304,6 +317,21 @@ function getPagamentoFiscal(input: NFeAvulsaDraftInput) {
   };
 }
 
+function getPagamentosFiscais(input: NFeAvulsaDraftInput): NFePagamentoOptions[] {
+  const finNFe = finalidadeToFinNFe(input.operacao.finalidade);
+  if (finNFe === 3 || finNFe === 4) return [{ tPag: "90", valor: 0, tpIntegra: "2" }];
+  if (!input.pagamentos?.length) return [getPagamentoFiscal(input)];
+
+  return input.pagamentos.map((pagamento) => ({
+    tPag: onlyDigits(pagamento.meio).padStart(2, "0").slice(0, 2),
+    valor: toDecimalNumber(pagamento.valor),
+    tpIntegra: pagamento.tipoIntegracao === "1" ? "1" : "2",
+    cnpjCredenciadora: onlyDigits(pagamento.cnpjCredenciadora),
+    bandeira: onlyDigits(pagamento.bandeira),
+    autorizacao: cleanText(pagamento.autorizacao),
+  }));
+}
+
 function getPagamentoDadosAvulsos(input: NFeAvulsaDraftInput) {
   const pagamento = getPagamentoFiscal(input);
 
@@ -314,6 +342,17 @@ function getPagamentoDadosAvulsos(input: NFeAvulsaDraftInput) {
     bandeira: pagamento.bandeira,
     autorizacao: pagamento.autorizacao,
   };
+}
+
+function getPagamentosDadosAvulsos(input: NFeAvulsaDraftInput) {
+  return getPagamentosFiscais(input).map((pagamento) => ({
+    meio: pagamento.tPag,
+    valor: pagamento.valor ?? null,
+    tipoIntegracao: pagamento.tpIntegra,
+    cnpjCredenciadora: pagamento.cnpjCredenciadora,
+    bandeira: pagamento.bandeira,
+    autorizacao: pagamento.autorizacao,
+  }));
 }
 
 function getTransporteFiscal(input: NFeAvulsaDraftInput): NFeTransporteOptions {
@@ -487,21 +526,66 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
     }
   });
 
-  const pagamentoFiscal = getPagamentoFiscal(input);
+  const pagamentosFiscais = getPagamentosFiscais(input);
 
-  if ((pagamentoFiscal.tPag === "03" || pagamentoFiscal.tPag === "04") && pagamentoFiscal.tpIntegra === "1") {
-    if (pagamentoFiscal.cnpjCredenciadora.length !== 14) {
+  pagamentosFiscais.forEach((pagamentoFiscal, paymentIndex) => {
+    if ((pagamentoFiscal.tPag === "03" || pagamentoFiscal.tPag === "04") && pagamentoFiscal.tpIntegra === "1") {
+      if (onlyDigits(pagamentoFiscal.cnpjCredenciadora).length !== 14) {
+        errors.push({
+          step: "payment",
+          field: `pagamentos.${paymentIndex}.cnpjCredenciadora`,
+          message: "Informe o CNPJ da credenciadora quando o cartão for integrado ao sistema.",
+        });
+      }
+      if (!pagamentoFiscal.autorizacao) {
+        errors.push({
+          step: "payment",
+          field: `pagamentos.${paymentIndex}.autorizacao`,
+          message: "Informe o código de autorização quando o cartão for integrado ao sistema.",
+        });
+      }
+    }
+  });
+
+  if (input.pagamentos?.length) {
+    if (new Set(pagamentosFiscais.map((pagamento) => pagamento.tPag)).size !== pagamentosFiscais.length) {
       errors.push({
         step: "payment",
-        field: "cnpjCredenciadora",
-        message: "Informe o CNPJ da credenciadora quando o cartão for integrado ao sistema.",
+        field: "pagamentos",
+        message: "O mesmo método de pagamento não pode ser informado mais de uma vez.",
       });
     }
-    if (!pagamentoFiscal.autorizacao) {
+    if (
+      pagamentosFiscais.length > 1 &&
+      pagamentosFiscais.some((pagamento) => toDecimalNumber(pagamento.valor) <= 0)
+    ) {
       errors.push({
         step: "payment",
-        field: "autorizacao",
-        message: "Informe o código de autorização quando o cartão for integrado ao sistema.",
+        field: "pagamentos",
+        message: "Informe um valor maior que zero para cada método de pagamento.",
+      });
+    }
+    if (pagamentosFiscais.length > 1 && pagamentosFiscais.some((pagamento) => pagamento.tPag === "90")) {
+      errors.push({
+        step: "payment",
+        field: "pagamentos",
+        message: "Sem pagamento não pode ser combinado com outros métodos.",
+      });
+    }
+    const totalProdutos = input.itens.reduce(
+      (total, item) => total + toDecimalNumber(item.quantidade) * toDecimalNumber(item.valorUnitario),
+      0,
+    );
+    const totalPagamentos = pagamentosFiscais.reduce(
+      (total, pagamento) => total + toDecimalNumber(pagamento.valor),
+      0,
+    );
+    const exigePagamento = ![3, 4].includes(finalidadeToFinNFe(input.operacao.finalidade));
+    if (exigePagamento && Math.abs(totalPagamentos - totalProdutos) > 0.01) {
+      errors.push({
+        step: "payment",
+        field: "pagamentos",
+        message: `A soma dos pagamentos (${totalPagamentos.toFixed(2)}) deve ser igual ao total dos produtos (${totalProdutos.toFixed(2)}).`,
       });
     }
   }
@@ -756,6 +840,30 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
   }
 
   const { config, empresa } = await getConfigAndEmpresa();
+  const empresaUf = cleanText(empresa.uf).toUpperCase();
+  const destinatarioUf = cleanText(input.destinatario.estado).toUpperCase();
+  const cfopErrors: ValidationError[] = input.itens.flatMap((item, itemIndex) => {
+    const cfop = onlyDigits(item.cfop);
+    if (
+      cfop.length === 4 &&
+      !isCfopCompatibleWithOperation(
+        cfop,
+        input.operacao.tipoOperacao,
+        empresaUf,
+        destinatarioUf,
+      )
+    ) {
+      return [{
+        step: "products",
+        itemIndex,
+        field: "cfop",
+        message: `CFOP ${cfop} é incompatível com a operação de ${input.operacao.tipoOperacao === "ENTRADA" ? "entrada" : "saída"} e o destino informado.`,
+      }];
+    }
+    return [];
+  });
+  if (cfopErrors.length > 0) return { ok: false as const, errors: cfopErrors };
+
   const crt = Number(empresa.regimetributario) as CRT;
   const issueDate = new Date();
   const selectedClassCodes = Array.from(new Set(input.itens.map((item) => cleanText(item.cClassTrib)).filter(Boolean)));
@@ -841,7 +949,9 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
   );
   const destinatario = getDestinatarioSnapshot(input, empresa);
   const pagamento = getPagamentoFiscal(input);
+  const pagamentos = getPagamentosFiscais(input);
   const pagamentoDadosAvulsos = getPagamentoDadosAvulsos(input);
+  const pagamentosDadosAvulsos = getPagamentosDadosAvulsos(input);
   const transporte = getTransporteFiscal(input);
   const transporteDadosAvulsos = getTransporteDadosAvulsos(input);
   const now = new Date().toISOString();
@@ -870,6 +980,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
       finNFe: finalidadeToFinNFe(input.operacao.finalidade),
       observacoesFiscais: input.operacao.observacoesFiscais,
       pagamento,
+      pagamentos,
       transporte,
     }));
 
@@ -906,6 +1017,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
           origem: input.origem ?? { tipo: "AVULSA" },
           operacao: input.operacao,
           pagamento: pagamentoDadosAvulsos,
+          pagamentos: pagamentosDadosAvulsos,
           transporte: transporteDadosAvulsos,
           destinatario: input.destinatario,
           clienteSelecionadoId: input.destinatario.clienteId ?? null,
@@ -966,6 +1078,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
       finNFe: finalidadeToFinNFe(input.operacao.finalidade),
       observacoesFiscais: input.operacao.observacoesFiscais,
       pagamento,
+      pagamentos,
       transporte,
     }));
 
@@ -983,6 +1096,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
           origem: input.origem ?? { tipo: "AVULSA" },
           operacao: input.operacao,
           pagamento: pagamentoDadosAvulsos,
+          pagamentos: pagamentosDadosAvulsos,
           transporte: transporteDadosAvulsos,
           destinatario: input.destinatario,
           clienteSelecionadoId: input.destinatario.clienteId ?? null,
