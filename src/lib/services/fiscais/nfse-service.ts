@@ -2,6 +2,7 @@ export type NFSeEmitirParams = {
   referencia: string;
   natureza_operacao?: number | string;
   optante_simples_nacional?: boolean;
+  regime_tributario_simples_nacional?: 1 | 2 | 3;
   regime_especial_tributacao?: number | string;
   prestador: {
     cnpj: string;
@@ -13,6 +14,7 @@ export type NFSeEmitirParams = {
     cnpj?: string;
     razao_social: string;
     email?: string;
+    telefone?: string;
     endereco?: {
       logradouro?: string;
       numero?: string;
@@ -121,6 +123,9 @@ export class NFSeService {
 
     if (params.natureza_operacao !== undefined) payload.natureza_operacao = params.natureza_operacao;
     if (params.optante_simples_nacional !== undefined) payload.optante_simples_nacional = params.optante_simples_nacional;
+    if (params.regime_tributario_simples_nacional !== undefined) {
+      payload.regime_tributario_simples_nacional = params.regime_tributario_simples_nacional;
+    }
     if (params.regime_especial_tributacao !== undefined) payload.regime_especial_tributacao = params.regime_especial_tributacao;
 
     const res = await fetch(url, {
@@ -362,6 +367,56 @@ export class NFSeService {
         item_lista_servico: "14.01", // Padrão oficina mecânica João Pessoa
         codigo_cnae: (empresa.cnae?.replace(/\D/g, "") || "4520001").padEnd(9, "0"),
         valor_servicos: val,
+      },
+    };
+  }
+
+  mapearOSParaFocusCabedelo(os: any, empresa: any, itemServico: any): NFSeEmitirParams {
+    const cliente = os.cliente;
+    const servico = itemServico.servico;
+    const documento = String(cliente.cpfcnpj || "").replace(/\D/g, "");
+    const quantidade = Number(itemServico.quantidade || 1);
+    const valor = quantidade * Number(itemServico.precounitario || 0);
+    const cnae = String(servico?.cnae || empresa.cnae || "").replace(/\D/g, "");
+    const itemLista = String(servico?.itemlistaservico || "14.01").trim();
+
+    if (!cnae) throw new Error("Informe o CNAE do serviço ou da empresa para emitir NFS-e em Cabedelo.");
+    if (!itemLista) throw new Error("Informe o item da lista de serviço para emitir NFS-e em Cabedelo.");
+
+    return {
+      referencia: `OS_${os.id}_SRV_${itemServico.servicoid}_${Date.now()}`,
+      natureza_operacao: 1,
+      optante_simples_nacional: String(empresa.regimetributario) === "1",
+      regime_tributario_simples_nacional: String(empresa.regimetributario) === "1" ? 1 : undefined,
+      regime_especial_tributacao: String(empresa.regimetributario) === "1" ? 6 : undefined,
+      prestador: {
+        cnpj: String(empresa.cnpj || "").replace(/\D/g, ""),
+        inscricao_municipal: String(empresa.inscricaomunicipal || "").replace(/\D/g, ""),
+        codigo_municipio: "2503209",
+      },
+      tomador: {
+        cpf: documento.length <= 11 ? documento : undefined,
+        cnpj: documento.length > 11 ? documento : undefined,
+        razao_social: cliente.nomerazaosocial || "Consumidor Final",
+        email: cliente.email || undefined,
+        telefone: String(cliente.telefone || "").replace(/\D/g, "") || undefined,
+        endereco: {
+          logradouro: String(cliente.endereco || "").substring(0, 100),
+          numero: cliente.endereconumero || "S/N",
+          complemento: String(cliente.enderecocomplemento || "").substring(0, 100) || undefined,
+          bairro: String(cliente.bairro || "").substring(0, 60),
+          codigo_municipio: cliente.codigomunicipio || "2503209",
+          uf: cliente.estado || "PB",
+          cep: String(cliente.cep || "").replace(/\D/g, "").substring(0, 8),
+        },
+      },
+      servico: {
+        aliquota: Number(servico?.aliquotaiss || 3),
+        discriminacao: `${quantidade}x ${servico?.descricao || "Serviço"} - OS #${os.id}`,
+        iss_retido: false,
+        item_lista_servico: itemLista,
+        codigo_cnae: cnae,
+        valor_servicos: valor,
       },
     };
   }

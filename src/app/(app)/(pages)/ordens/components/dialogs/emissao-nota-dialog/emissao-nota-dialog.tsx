@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/lib/toast";
 import { supabase } from "@/lib/supabase";
-import { Loader2, Receipt, AlertCircle, CheckCircle2, XCircle, Info, X, Plus, RotateCw, Ellipsis, Download } from "lucide-react";
+import { Loader2, Receipt, AlertCircle, CheckCircle2, XCircle, Info, X, Plus, RotateCw, Ellipsis, Download, Package, Wrench } from "lucide-react";
 import { AutorizarNfeButton } from "./autorizarNfe-button";
 import { GerarNotaDeOsDialog } from "./gerarNotaDeOsDialog/gerarNotaDeOsDialog";
 import { EmissaoNfseDialog } from "./emissao-nfse-dialog/emissao-nfse-dialog";
@@ -69,6 +69,12 @@ type ListarNfeResponsePorEntrada = {
   message?: string;
   entradaId?: number;
   nfes: NfeResumo[];
+};
+
+type EmpresaFiscal = {
+  ambiente: string | null;
+  codigomunicipio: string | null;
+  regimetributario: string | null;
 };
 
 const nfeStatusClasses: Record<string, string> = {
@@ -153,7 +159,7 @@ export function EmissaoNotaDialog({
   const [nfes, setNfes] = useState<NfeResumo[] | null>(null);
   const [openGerarNfe, setOpenGerarNfe] = useState(false);
   const [openGerarNfse, setOpenGerarNfse] = useState(false);
-  const [ambienteEmpresa, setAmbienteEmpresa] = useState<string | null>(null);
+  const [empresaFiscal, setEmpresaFiscal] = useState<EmpresaFiscal | null>(null);
   const [openCancelNfseDialog, setOpenCancelNfseDialog] = useState(false);
   const [selectedNfseId, setSelectedNfseId] = useState<number | null>(null);
   const [downloadingXmlId, setDownloadingXmlId] = useState<number | null>(null);
@@ -162,6 +168,18 @@ export function EmissaoNotaDialog({
   const origemId = osId ?? vendaId ?? entradaId ?? null;
 
   const canFetch = open && !!origem && !!origemId;
+
+  const ambienteProducao = empresaFiscal?.ambiente === "PRODUCAO";
+  const ambienteLabel = ambienteProducao ? "Produção" : "Homologação";
+  const nfseRota = useMemo(() => {
+    if (!empresaFiscal) return "Carregando configuração";
+
+    const municipio = String(empresaFiscal.codigomunicipio || "").replace(/\D/g, "");
+    if (String(empresaFiscal.regimetributario) === "4") return "NFS-e Nacional · MEI";
+    if (municipio === "2503209") return "Cabedelo · Focus NFe";
+    if (municipio === "2507507") return "João Pessoa · Focus NFe";
+    return `Município ${municipio || "não configurado"}`;
+  }, [empresaFiscal]);
 
   const endpointListar = useMemo(() => {
     if (!origem || !origemId) return null;
@@ -287,7 +305,12 @@ export function EmissaoNotaDialog({
       const res = await fetch("/api/empresa");
       const json = await res.json();
       if (json.ok && json.empresas?.length > 0) {
-        setAmbienteEmpresa(json.empresas[0].ambiente);
+        const empresa = json.empresas[0];
+        setEmpresaFiscal({
+          ambiente: empresa.ambiente ?? null,
+          codigomunicipio: empresa.codigomunicipio ?? null,
+          regimetributario: empresa.regimetributario ?? null,
+        });
       }
     } catch (e) {
       console.error("Erro ao buscar ambiente da empresa:", e);
@@ -377,26 +400,41 @@ export function EmissaoNotaDialog({
           </DialogClose>
 
           <DialogHeader className="px-5 pt-5 pb-3 border-b-1">
-            <DialogTitle className="flex items-center justify-between gap-2 pr-4">
+            <DialogTitle className="flex items-center gap-2 pr-4">
               <div className="flex items-center gap-2">
                 <Receipt className="h-5 w-5 text-primary" />
                 {titulo}
               </div>
-
-              {ambienteEmpresa && (
-                <Badge
-                  variant="outline"
-                  className={`text-[10px] uppercase font-bold py-0 h-5 ${
-                    ambienteEmpresa === "PRODUCAO"
-                      ? "bg-emerald-500/15 text-emerald-600 border-emerald-500/30"
-                      : "bg-amber-500/15 text-amber-600 border-amber-500/30"
-                  }`}
-                >
-                  Ambiente: {ambienteEmpresa === "PRODUCAO" ? "PRODUÇÃO" : "HOMOLOGAÇÃO"}
-                </Badge>
-              )}
             </DialogTitle>
             <DialogDescription>Visualize as NF-e vinculadas e gere novas NF-e a partir dos produtos.</DialogDescription>
+
+            <div className="grid gap-2 sm:grid-cols-2" aria-label="Ambientes de emissão fiscal">
+              <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 px-3 py-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Package className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium">NF-e de produto</p>
+                    <p className="truncate text-[11px] text-muted-foreground">SEFAZ</p>
+                  </div>
+                </div>
+                <Badge variant="outline" className={ambienteProducao ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-600" : "border-amber-500/30 bg-amber-500/15 text-amber-600"}>
+                  {empresaFiscal ? ambienteLabel : "Carregando"}
+                </Badge>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 px-3 py-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Wrench className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium">NFS-e de serviço</p>
+                    <p className="truncate text-[11px] text-muted-foreground" title={nfseRota}>{nfseRota}</p>
+                  </div>
+                </div>
+                <Badge variant="outline" className={ambienteProducao ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-600" : "border-amber-500/30 bg-amber-500/15 text-amber-600"}>
+                  {empresaFiscal ? ambienteLabel : "Carregando"}
+                </Badge>
+              </div>
+            </div>
 
             {!!origemId && (
               <div className="flex flex-wrap items-center justify-between gap-3">

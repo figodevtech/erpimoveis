@@ -168,7 +168,11 @@ export function EmissaoNfseDialog({
                           </div>
                           {s.notaFiscalModelo ? (
                             <Badge variant="outline" className="mt-1 text-[9px]">
-                              {s.notaFiscalModelo === "NACIONAL" ? "NFS-e Nacional · MEI" : "NFS-e João Pessoa"}
+                              {s.notaFiscalModelo === "NACIONAL"
+                                ? "NFS-e Nacional · MEI"
+                                : s.notaFiscalModelo === "MUNICIPAL_CABEDELO"
+                                  ? "NFS-e Cabedelo"
+                                  : "NFS-e João Pessoa"}
                             </Badge>
                           ) : null}
                           <div className="text-[10px] text-muted-foreground font-mono">

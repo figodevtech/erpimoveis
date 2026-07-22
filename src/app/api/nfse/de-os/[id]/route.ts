@@ -82,6 +82,16 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       .maybeSingle();
 
     const isMei = String(empresa.regimetributario) === "4";
+    const codigoMunicipioEmpresa = String(empresa.codigomunicipio || "").replace(/\D/g, "");
+    const isJoaoPessoa = codigoMunicipioEmpresa === "2507507";
+    const isCabedelo = codigoMunicipioEmpresa === "2503209";
+
+    if (!isMei && !isJoaoPessoa && !isCabedelo) {
+      return NextResponse.json(
+        { ok: false, message: `A emissão municipal ainda não está configurada para o município IBGE ${codigoMunicipioEmpresa || "não informado"}.` },
+        { status: 400 },
+      );
+    }
 
     if (!isMei && !empresa.inscricaomunicipal) {
       return NextResponse.json(
@@ -131,9 +141,11 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     // 3. Prepare parameters using Service Mapper
     const nfseService = new NFSeService();
     nfseService.configurarAmbiente(empresa.ambiente, nfseConfig?.token);
-    const modeloEmissao = isMei ? "NACIONAL" : "MUNICIPAL";
+    const modeloEmissao = isMei ? "NACIONAL" : isCabedelo ? "MUNICIPAL_CABEDELO" : "MUNICIPAL_JOAO_PESSOA";
     const emitirParams = isMei
       ? nfseService.mapearOSParaFocusNacional(os, empresa, itemServico)
+      : isCabedelo
+        ? nfseService.mapearOSParaFocusCabedelo(os, empresa, itemServico)
       : nfseService.mapearOSParaFocus(os, empresa, itemServico);
 
     // 4. MEI (CRT 4) usa NFS-e Nacional; demais regimes mantêm João Pessoa municipal.
@@ -163,12 +175,29 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     };
 
 
-    const { error: insertError } = await supabaseAdmin
+    let { error: insertError } = await supabaseAdmin
       .from("nfse")
       .insert([insercao]);
 
+    // Compatibilidade temporária com bases que ainda não receberam a migration
+    // de modelo_emissao. A nota municipal continua consultável pelo endpoint legado.
+    if (insertError?.message?.includes("modelo_emissao")) {
+      const insercaoLegada: Record<string, unknown> = { ...insercao };
+      delete insercaoLegada.modelo_emissao;
+      const retry = await supabaseAdmin.from("nfse").insert([insercaoLegada]);
+      insertError = retry.error;
+    }
+
     if (insertError) {
       console.error("[POST /api/nfse/de-os] Erro ao gravar NFS-e no banco", insertError);
+      return NextResponse.json(
+        {
+          ok: false,
+          message: "A NFS-e foi recebida pela Focus, mas não foi possível registrá-la no sistema. Não emita novamente antes de consultar a referência.",
+          referencia: result.referencia || emitirParams.referencia,
+        },
+        { status: 500 },
+      );
     }
 
     if (!result.ok) {
@@ -179,7 +208,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
 
     return NextResponse.json(
-      { ok: true, message: "NFS-e enviada para processamento.", referencia: result.referencia },
+      { ok: true, message: "NFS-e enviada para processamento.", referencia: result.referencia || emitirParams.referencia },
       { status: 200 }
     );
 
