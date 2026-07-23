@@ -30,7 +30,9 @@ import {
 } from "@/components/ui/select";
 import { CalendarIcon, Loader2, Network, Printer, FileSpreadsheet } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "@/lib/toast";
 import type { Setor } from "@/types/setor";
+import { SpreadsheetPdfButton } from "../spreadsheet-pdf-button";
 
 function parseYYYYMMDD(value: string) {
   if (!value) return undefined;
@@ -49,6 +51,11 @@ export default function DialogComissaoSetor() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [isExporting, setIsExporting] = useState(false);
+  const invalidPeriod = Boolean(dateFrom && dateTo && dateFrom > dateTo);
+  const pdfParams = new URLSearchParams();
+  if (selectedSetorId !== "all") pdfParams.set("setor", selectedSetorId);
+  if (dateFrom) pdfParams.set("inicio", dateFrom);
+  if (dateTo) pdfParams.set("fim", dateTo);
 
   const setThisMonth = () => {
     const now = new Date();
@@ -124,7 +131,7 @@ export default function DialogComissaoSetor() {
       document.body.removeChild(tempLink);
       window.URL.revokeObjectURL(url);
     } catch (error: any) {
-      alert(error.message || "Erro na solicitação de exportação.");
+      toast.error(error.message || "Erro na solicitação de exportação.");
     } finally {
       setIsExporting(false);
     }
@@ -156,7 +163,7 @@ export default function DialogComissaoSetor() {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-6 rounded-2xl bg-muted/50 p-4">
+        <div className="flex flex-col gap-6 rounded-2xl bg-card p-4">
           <div className="space-y-2">
             <Label>Setor</Label>
             <Select value={selectedSetorId} onValueChange={setSelectedSetorId}>
@@ -257,6 +264,7 @@ export default function DialogComissaoSetor() {
         </div>
 
         <DialogFooter className="flex flex-row items-center gap-2 justify-end w-full">
+          <SpreadsheetPdfButton endpoint={`/api/users/export/comissao-setor?${pdfParams.toString()}`} title="Comissão por setor" disabled={isExporting || invalidPeriod} />
           <Button 
             type="button" 
             variant="outline" 

@@ -12,6 +12,7 @@ type BaseProps = {
   className?: string;
   title?: string;
   children?: React.ReactNode;
+  disabled?: boolean;
 };
 
 /** --------- Clientes --------- */
@@ -27,11 +28,18 @@ type TransactionProps = BaseProps & {
   categoria?: string | null;
   categoriaId?: number | null;
   ordemservicoid?: string | number | null;
+  vendaid?: string | number | null;
   metodopagamento?: string | null; // pode usar 'metodo' no BE também
   bancoId?: number | null;
   planoContaId?: number | null;
   centroCustoId?: number | null;
   clienteId?: number | null;
+  pendente?: boolean | null;
+  nomePagador?: string | null;
+  documentoPagador?: string | null;
+  valorMin?: number | null;
+  valorMax?: number | null;
+  vinculo?: "OS" | "VENDA" | "EVENTO" | "AVULSO" | null;
   dateFrom?: string | null; // YYYY-MM-DD
   dateTo?: string | null;   // YYYY-MM-DD
 };
@@ -46,6 +54,7 @@ export function ExportExcelButton({
   className = "hover:cursor-pointer",
   title,
   children,
+  disabled = false,
   ...rest
 }: Props) {
   const [loading, setLoading] = useState(false);
@@ -74,11 +83,18 @@ export function ExportExcelButton({
           categoria,
           categoriaId,
           ordemservicoid,
+          vendaid,
           metodopagamento,
           bancoId,
           planoContaId,
           centroCustoId,
           clienteId,
+          pendente,
+          nomePagador,
+          documentoPagador,
+          valorMin,
+          valorMax,
+          vinculo,
           dateFrom,
           dateTo,
         } = rest as TransactionProps;
@@ -87,11 +103,18 @@ export function ExportExcelButton({
         if (categoria) qp.set("categoria", categoria);
         if (categoriaId != null) qp.set("categoriaId", String(categoriaId));
         if (ordemservicoid != null) qp.set("ordemservicoid", String(ordemservicoid));
+        if (vendaid != null) qp.set("vendaid", String(vendaid));
         if (metodopagamento) qp.set("metodopagamento", metodopagamento);
         if (bancoId != null) qp.set("bancoId", String(bancoId));
         if (planoContaId != null) qp.set("planoContaId", String(planoContaId));
         if (centroCustoId != null) qp.set("centroCustoId", String(centroCustoId));
         if (clienteId != null) qp.set("clienteId", String(clienteId));
+        if (pendente != null) qp.set("pendente", String(pendente));
+        if (nomePagador) qp.set("nomePagador", nomePagador);
+        if (documentoPagador) qp.set("documentoPagador", documentoPagador);
+        if (valorMin != null) qp.set("valorMin", String(valorMin));
+        if (valorMax != null) qp.set("valorMax", String(valorMax));
+        if (vinculo) qp.set("vinculo", vinculo);
         if (dateFrom) qp.set("dateFrom", dateFrom); // YYYY-MM-DD
         if (dateTo) qp.set("dateTo", dateTo);       // YYYY-MM-DD
       }
@@ -130,7 +153,7 @@ export function ExportExcelButton({
   return (
     <Button
       onClick={handleExport}
-      disabled={loading}
+      disabled={loading || disabled}
       size="sm"
       variant="outline"
       className={className}

@@ -1,91 +1,71 @@
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  DialogFooter,
-  DialogHeader,
-  DialogTrigger,
-  DialogDescription,
-  DialogClose,
-} from "@/components/ui/dialog";
-import { PieChart, Search, X } from "lucide-react";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
+"use client";
+
 import { useState } from "react";
+import { PackageSearch, Search, X } from "lucide-react";
 
 import ProductSelect from "@/app/(app)/components/productSelect";
-import { Produto } from "../../../estoque/types";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import type { Produto } from "../../../estoque/types";
+import { ReportFiltersPanel, ReportPeriod, ReportTrigger, isInvalidPeriod } from "../report-ui";
+import { SpreadsheetPdfButton } from "../spreadsheet-pdf-button";
 import { BotaoExportProdutoVendas } from "./botao-export-produto-vendas";
 
 export default function DialogProdutoCompras() {
-  // const [categoria, setCategoria] = useState<Categoria_transacao | "">("");
-  const [selectedProdutc, setSelectedProduct] = useState<Produto  | undefined>(undefined)
-  const [open, setOpen] = useState(false)
+  const [product, setProduct] = useState<Produto>();
+  const [productSelectOpen, setProductSelectOpen] = useState(false);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [status, setStatus] = useState("");
+  const invalid = isInvalidPeriod(dateFrom, dateTo);
+  const reportParams = new URLSearchParams();
+  if (product?.id) reportParams.set("produtoId", String(product.id));
+  if (status) reportParams.set("status", status);
+  if (dateFrom) reportParams.set("dateFrom", dateFrom);
+  if (dateTo) reportParams.set("dateTo", dateTo);
+
   return (
     <Dialog>
       <DialogTrigger asChild>
-       <Button
-            variant="outline"
-            className="h-auto hover:cursor-pointer flex-col items-start justify-start gap-2 p-4 text-left hover:bg-accent hover:text-accent-foreground bg-transparent"
-          >
-            <div className="flex w-full items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                <PieChart />
-              </div>
-              <span className="flex-1 font-medium">Vendas por Produto</span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Histórico de vendas realizadas de um produto
-            </p>
-          </Button>
+        <ReportTrigger icon={<PackageSearch className="h-4 w-4" />} title="Vendas por produto" description="Histórico de vendas, quantidades e valores de um produto" tone="bg-blue-500/10 text-blue-600" />
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Exportar vendas</DialogTitle>
-          <DialogDescription>
-            Selecione dados para gerar o relatório
-          </DialogDescription>
+          <DialogTitle>Vendas por produto</DialogTitle>
+          <DialogDescription>Selecione o produto, o período e os status incluídos na planilha.</DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-6 bg-muted/50 p-4 rounded-2xl">
-          <div className="flex flex-col gap-2">
-            <Label>Produto:</Label>
-            <ProductSelect
-            setOpen={setOpen}
-            open={open}
-            OnSelect={(p)=>setSelectedProduct(p)}
-            />
-            <div className="w-full flex flex-row gap-1 items-center">
-
-            <Input className="hover:cursor-pointer text-xs h-8" type="text" disabled value={selectedProdutc?.titulo || "Selecione o produto"}/>
-            {selectedProdutc?.id ? (
-
-            <div onClick={()=> setSelectedProduct(undefined)} className="p-1.5 rounded-full bg-muted h-min hover:cursor-pointer">
-              <X className="w-3 h-3 text-red-500"/>
+        <ReportFiltersPanel>
+          <div className="space-y-2">
+            <Label>Produto</Label>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" className="min-w-0 flex-1 justify-start font-normal" onClick={() => setProductSelectOpen(true)}>
+                <Search className="mr-2 h-4 w-4" /><span className="truncate">{product?.titulo ?? "Selecionar produto"}</span>
+              </Button>
+              {product && <Button type="button" variant="outline" size="icon" aria-label="Limpar produto" onClick={() => setProduct(undefined)}><X className="h-4 w-4" /></Button>}
             </div>
-
-            ):(
-
-            <div onClick={()=>(setOpen(true))} className="p-1.5 rounded-full bg-muted h-min hover:cursor-pointer">
-              <Search className="w-3.5 h-3.5"/>
-            </div>
-            )}
-            </div>
-                
-              
+            <ProductSelect open={productSelectOpen} setOpen={setProductSelectOpen} OnSelect={(selected) => { setProduct(selected); setProductSelectOpen(false); }} />
           </div>
-          
-          
-        </div>
-        <DialogFooter className="flex flex-row items-center">
-            <BotaoExportProdutoVendas
-            produtoId={selectedProdutc?.id}
-            
-            />
-          
-          <DialogClose asChild>
-            <Button className="hover:cursor-pointer">Cancelar</Button>
-          </DialogClose>
+          <div className="space-y-2">
+            <Label>Status da venda</Label>
+            <Select value={status || "TODOS"} onValueChange={(value) => setStatus(value === "TODOS" ? "" : value)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="TODOS">Todos os status</SelectItem>
+                <SelectItem value="PENDENTE">Pendente</SelectItem>
+                <SelectItem value="PAGAMENTO">Aguardando pagamento</SelectItem>
+                <SelectItem value="FINALIZADA">Finalizada</SelectItem>
+                <SelectItem value="CANCELADA">Cancelada</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <ReportPeriod dateFrom={dateFrom} dateTo={dateTo} onDateFromChange={setDateFrom} onDateToChange={setDateTo} />
+        </ReportFiltersPanel>
+        <DialogFooter>
+          <DialogClose asChild><Button type="button" variant="outline">Cancelar</Button></DialogClose>
+          <SpreadsheetPdfButton endpoint={`/api/venda/export/produto?${reportParams.toString()}`} title="Vendas por produto" disabled={!product?.id || invalid} />
+          <BotaoExportProdutoVendas produtoId={product?.id} dateFrom={dateFrom} dateTo={dateTo} status={status} disabled={!product?.id || invalid}>Exportar Excel</BotaoExportProdutoVendas>
         </DialogFooter>
       </DialogContent>
     </Dialog>

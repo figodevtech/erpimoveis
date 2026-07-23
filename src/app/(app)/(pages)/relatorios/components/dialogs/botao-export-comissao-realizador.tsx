@@ -22,6 +22,7 @@ type Props = {
   variant?: "default" | "secondary" | "destructive" | "outline" | "ghost" | "link";
   className?: string;
   children?: React.ReactNode;
+  disabled?: boolean;
 };
 
 export function BotaoExportComissaoRealizador({
@@ -31,6 +32,7 @@ export function BotaoExportComissaoRealizador({
   variant = "secondary",
   className = "hover:cursor-pointer",
   children,
+  disabled = false,
 }: Props) {
   const [loading, setLoading] = useState(false);
 
@@ -83,7 +85,7 @@ export function BotaoExportComissaoRealizador({
     <Button
       type="button"
       onClick={handleExport}
-      disabled={loading}
+      disabled={loading || disabled}
       variant={variant}
       className={className}
     >

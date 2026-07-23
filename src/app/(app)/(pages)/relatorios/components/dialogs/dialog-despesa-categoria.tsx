@@ -1,118 +1,54 @@
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  DialogFooter,
-  DialogHeader,
-  DialogTrigger,
-  DialogDescription,
-  DialogClose,
-} from "@/components/ui/dialog";
-import { PieChart } from "lucide-react";
-import { ExportTransactionsButton } from "../../../(financeiro)/fluxodecaixa/components/ExportTransactionsButton";
-import { Label } from "@/components/ui/label";
+"use client";
+
 import { useState } from "react";
-import { DatePicker } from "@/components/ui/date-picker";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Tipo_transacao } from "../../../(financeiro)/fluxodecaixa/types";
+import { PieChart } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ExportTransactionsButton } from "../../../(financeiro)/fluxodecaixa/components/ExportTransactionsButton";
 import { useCategoriasTransacao } from "../../../(financeiro)/fluxodecaixa/hooks/use-categoria-transacao";
+import { Tipo_transacao } from "../../../(financeiro)/fluxodecaixa/types";
+import { ReportFiltersPanel, ReportPeriod, ReportTrigger, isInvalidPeriod } from "../report-ui";
+import { SpreadsheetPdfButton } from "../spreadsheet-pdf-button";
 
 export default function DialogDespesaCategoria() {
-  const [dateFrom, setDateFrom] = useState<string>("");
-  const [dateTo, setDateTo] = useState<string>("");
-  const [selectedCategoria, setSelectedCategoria] = useState<string>("");
- const { categorias } = useCategoriasTransacao();
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [categoriaId, setCategoriaId] = useState("");
+  const { categorias, loadingCategorias, errorCategorias } = useCategoriasTransacao();
+  const invalid = isInvalidPeriod(dateFrom, dateTo);
+  const reportParams = new URLSearchParams({ tipo: Tipo_transacao.DESPESA });
+  if (categoriaId) reportParams.set("categoriaId", categoriaId);
+  if (dateFrom) reportParams.set("dateFrom", dateFrom);
+  if (dateTo) reportParams.set("dateTo", dateTo);
 
   return (
     <Dialog>
       <DialogTrigger asChild>
-       <Button
-            variant="outline"
-            className="h-auto hover:cursor-pointer flex-col items-start justify-start gap-2 p-4 text-left hover:bg-accent hover:text-accent-foreground bg-transparent"
-          >
-            <div className="flex w-full items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                <PieChart />
-              </div>
-              <span className="flex-1 font-medium">Despesas por Categoria</span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Categorização de despesas
-            </p>
-          </Button>
+        <ReportTrigger icon={<PieChart className="h-4 w-4" />} title="Despesas por categoria" description="Detalhamento das despesas por classificação financeira" tone="bg-red-500/10 text-red-600" />
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Despesas por Categoria</DialogTitle>
-          <DialogDescription>
-            Selecione dados para gerar o relatório
-          </DialogDescription>
+          <DialogTitle>Despesas por categoria</DialogTitle>
+          <DialogDescription>Selecione uma categoria e o período para exportar a planilha.</DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-6 bg-muted/50 p-4 rounded-2xl">
-          <div className="flex flex-col gap-2">
-            <Label>Categoria de Transação:</Label>
-            <Select
-              value={selectedCategoria || ""}
-              onValueChange={(value) => {
-                if (value === "TODOS") setSelectedCategoria("");
-                else setSelectedCategoria(value);
-              }}
-            >
-              <SelectTrigger
-                className="w-full md:w-2/6 hover:cursor-pointer not-dark:bg-white"
-                // <- estável
-              >
-                <SelectValue placeholder="Todos" />
-              </SelectTrigger>
-              <SelectContent>
-                {" "}
-                {/* <- estável */}
-                <SelectItem value="TODOS" className="hover:cursor-pointer">
-                  Todos
-                </SelectItem>
-                {categorias.map((c) => (
-
-                <SelectItem
-                key={c.id}
-                  value={c.nome}
-                  className="hover:cursor-pointer"
-                >
-                  {c.nome}
-                </SelectItem>
-                ))}
-                
-               
-              </SelectContent>
+        <ReportFiltersPanel>
+          <div className="space-y-2 p-4 rounded-2xl bg-card">
+            <Label>Categoria da transação</Label>
+            <Select value={categoriaId || "TODOS"} onValueChange={(value) => setCategoriaId(value === "TODOS" ? "" : value)} disabled={loadingCategorias || Boolean(errorCategorias)}>
+              <SelectTrigger><SelectValue placeholder={loadingCategorias ? "Carregando..." : "Todas as categorias"} /></SelectTrigger>
+              <SelectContent><SelectItem value="TODOS">Todas as categorias</SelectItem>{categorias.map((item) => <SelectItem key={item.id} value={String(item.id)}>{item.nome}</SelectItem>)}</SelectContent>
             </Select>
+            {errorCategorias && <p className="text-xs text-destructive">{errorCategorias}</p>}
           </div>
-          
-          <div className="flex flex-col md:flex-row gap-6">
-            <div className="flex flex-row gap-2">
-              <Label>De:</Label>
-              <DatePicker value={dateFrom} onChange={setDateFrom} placeholder="Data inicial" />
-            </div>
-            <div className="flex flex-row gap-2">
-              <Label>Até:</Label>
-              <DatePicker value={dateTo} onChange={setDateTo} placeholder="Data final" />
-            </div>
-          </div>
-        </div>
-        <DialogFooter className="flex flex-row items-center">
-          <ExportTransactionsButton
-          tipo={Tipo_transacao.DESPESA}
-          categoria={selectedCategoria}
-          dateTo={dateTo}
-          dateFrom={dateFrom} />
-          <DialogClose asChild>
-            <Button className="hover:cursor-pointer">Cancelar</Button>
-          </DialogClose>
+          <ReportPeriod dateFrom={dateFrom} dateTo={dateTo} onDateFromChange={setDateFrom} onDateToChange={setDateTo} />
+        </ReportFiltersPanel>
+        <DialogFooter>
+          <DialogClose asChild><Button type="button" variant="outline">Cancelar</Button></DialogClose>
+          <SpreadsheetPdfButton endpoint={`/api/transaction/export?${reportParams.toString()}`} title="Despesas por categoria" disabled={invalid} />
+          <ExportTransactionsButton tipo={Tipo_transacao.DESPESA} categoriaId={categoriaId ? Number(categoriaId) : null} dateTo={dateTo} dateFrom={dateFrom} disabled={invalid}>Exportar Excel</ExportTransactionsButton>
         </DialogFooter>
       </DialogContent>
     </Dialog>
