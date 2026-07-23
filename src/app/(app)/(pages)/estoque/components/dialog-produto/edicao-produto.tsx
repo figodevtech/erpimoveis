@@ -2,7 +2,7 @@
 
 import { TabsTrigger } from "@/components/ui/tabs";
 import { Upload, Package, Store, Image as ImageIcon, FileText, Boxes, ShoppingCart, ClipboardList, ArrowRightLeft, Tag } from "lucide-react";
-import axios from "axios";
+import axios, { isAxiosError } from "axios";
 import { toast } from "@/lib/toast";
 import { Produto } from "../../types";
 import { ProductDialogLayout } from "./tabs/dialog-layout";
@@ -20,6 +20,7 @@ import { useProdutoImagens } from "./hooks/use-produto-imagens";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useGruposProduto } from "./hooks/use-grupo-produtos";
+import { useConfig } from "../../../config-context";
 
 interface EdicaoProdutoProps {
   productId: number;
@@ -38,6 +39,8 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
   const latestProductIdRef = useRef(productId);
   const { unidades, loadingUnidades, errorUnidades } = useUnidadesMedida();
   const { grupos } = useGruposProduto();
+  const config = useConfig();
+  const precoMedioCompraObrigatorio = config?.produto_preco_medio_compra_obrigatorio === true;
 
   latestProductIdRef.current = productId;
 
@@ -85,6 +88,14 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
   const handleUpdateProduct = async () => {
     if (!selectedProduct) return;
 
+    if (precoMedioCompraObrigatorio && !(Number(selectedProduct.precocompra) > 0)) {
+      setCurrentTab("Geral");
+      toast.error("Valor médio de compra obrigatório", {
+        description: "Informe um valor médio de compra maior que zero.",
+      });
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const response = await axios.put("/api/products/" + productId, selectedProduct);
@@ -100,7 +111,12 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
       }
     } catch (error) {
       console.log("Erro ao atualizar produto:", error);
-      toast.error("Erro", { description: "Não foi possível salvar o produto.", duration: 2500 });
+      toast.error("Erro", {
+        description: isAxiosError(error)
+          ? error.response?.data?.error ?? "Não foi possível salvar o produto."
+          : "Não foi possível salvar o produto.",
+        duration: 2500,
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -214,6 +230,7 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
               errorUnidades={errorUnidades}
               showDates
               onLoteVinculoAlterado={onAfterSaveProduct}
+              precoMedioCompraObrigatorio={precoMedioCompraObrigatorio}
             />
 
             <TabMarketplace produto={selectedProduct} onChange={handleChange} />

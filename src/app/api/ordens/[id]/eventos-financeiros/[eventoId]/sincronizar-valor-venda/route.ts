@@ -25,7 +25,7 @@ export async function POST(_: NextRequest, { params }: { params: Promise<Params>
       .select("id, produtoid, quantidade_snapshot, dados_snapshot, origem, natureza, status")
       .eq("id", eventId).eq("ordemservicoid", osId).maybeSingle();
     if (eventoError) throw eventoError;
-    if (!evento || evento.origem !== "PRODUTO" || evento.natureza !== "RECEITA" || evento.status === "CANCELADO") {
+    if (!evento || evento.origem !== "PRODUTO" || evento.natureza !== "RECEITA" || evento.status !== "ATIVO") {
       return NextResponse.json({ error: "Este evento não é um snapshot de venda de produto." }, { status: 409 });
     }
     const { data: produto, error: produtoError } = await supabaseAdmin.from("produto").select("precovenda").eq("id", evento.produtoid).maybeSingle();

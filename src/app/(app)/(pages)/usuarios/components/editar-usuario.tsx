@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import ValueInput from "@/components/ui/value-input";
 import {
   Select,
   SelectContent,
@@ -345,16 +346,9 @@ export function EditarUsuarioDialog({
                 <TabsContent value="financeiro" className="mt-4 space-y-4">
                   <div className="grid gap-2">
                     <Label>Salário</Label>
-                    <Input
-                      inputMode="numeric"
-                      placeholder="R$ 0,00"
-                      value={salario}
-                      onChange={(e) => {
-                        const n = parseBRLStringToNumber(e.target.value);
-                        setSalario(
-                          e.target.value ? formatBRLFromNumber(n) : "",
-                        );
-                      }}
+                    <ValueInput
+                      value={parseBRLStringToNumber(salario)}
+                      onValueChange={(value) => setSalario(formatBRLFromNumber(value))}
                     />
                   </div>
 

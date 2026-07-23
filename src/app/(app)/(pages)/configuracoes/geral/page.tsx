@@ -109,6 +109,7 @@ export default function ConfigGeralPage() {
       impressao_cor_primaria: "#2563eb",
       impressao_cor_secundaria: "#0891b2",
       modo_baixa_estoque_os: "ORCAMENTO",
+      produto_preco_medio_compra_obrigatorio: false,
     },
   });
 
@@ -622,7 +623,23 @@ export default function ConfigGeralPage() {
             </div>
             <CardDescription>Defina quando os produtos da OS saem do estoque.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-2">
+          <CardContent className="space-y-6">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col space-y-1">
+                <Label>Valor médio de compra obrigatório</Label>
+                <span className="text-xs text-muted-foreground">
+                  Exige um custo médio maior que zero ao cadastrar ou editar produtos.
+                </span>
+              </div>
+              <Switch
+                checked={watch("produto_preco_medio_compra_obrigatorio")}
+                onCheckedChange={(value) =>
+                  setValue("produto_preco_medio_compra_obrigatorio", value, { shouldDirty: true })
+                }
+              />
+            </div>
+            <Separator />
+            <div className="space-y-2">
             <Label>Modo de baixa no estoque</Label>
             <Select
               value={watch("modo_baixa_estoque_os") ?? "ORCAMENTO"}
@@ -641,6 +658,7 @@ export default function ConfigGeralPage() {
             <p className="text-xs text-muted-foreground">
               Na execução, o estoque é validado quando a OS é iniciada.
             </p>
+            </div>
           </CardContent>
         </Card>
 

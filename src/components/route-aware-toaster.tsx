@@ -2,9 +2,21 @@
 
 import { Toaster } from "sonner";
 import { usePathname } from "next/navigation";
+import { useEffect, useRef } from "react";
+import { toast } from "@/lib/toast";
 
 export function RouteAwareToaster() {
   const pathname = usePathname() || "/";
+  const previousPathname = useRef(pathname);
+
+  useEffect(() => {
+    if (previousPathname.current !== pathname) {
+      toast.getToasts().forEach((item) => {
+        if ("type" in item && item.type === "loading") toast.dismiss(item.id);
+      });
+      previousPathname.current = pathname;
+    }
+  }, [pathname]);
 
   // Ajuste a regex/lista abaixo com as suas rotas públicas
   const isPublic =

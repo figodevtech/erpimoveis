@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import ValueInput from "@/components/ui/value-input";
 import {
   ShoppingCart,
   Search,
@@ -946,24 +947,11 @@ export function POSSystem() {
                                 <span className="text-[10px] text-muted-foreground">
                                   Preço unitário
                                 </span>
-                                <div className="flex items-center gap-1">
-                                  <span className="text-xs font-medium text-muted-foreground">
-                                    R$
-                                  </span>
-                                  <Input
-                                    type="number"
-                                    min={0}
-                                    step="0.01"
-                                    value={item.precovenda}
-                                    onChange={(e) =>
-                                      updatePrice(
-                                        item.id,
-                                        Number(e.target.value || 0)
-                                      )
-                                    }
-                                    className="h-7 text-xs"
-                                  />
-                                </div>
+                                <ValueInput
+                                  value={item.precovenda}
+                                  onValueChange={(value) => updatePrice(item.id, value)}
+                                  className="h-7 text-right text-xs"
+                                />
                               </div>
                             </div>
                             <div className="flex items-center gap-3">
@@ -1064,24 +1052,24 @@ export function POSSystem() {
                               ? "Percentual (%)"
                               : "Valor do desconto"}
                           </span>
-                          <Input
-                            type="number"
-                            min={0}
-                            max={
-                              discountType === "PORCENTAGEM" ? 100 : undefined
-                            }
-                            step="0.01"
-                            value={discount}
-                            onChange={(e) =>
-                              setDiscount(Number(e.target.value || 0))
-                            }
-                            disabled={!discountType}
-                            placeholder={
-                              discountType === "PORCENTAGEM"
-                                ? "0,00%"
-                                : "R$ 0,00"
-                            }
-                          />
+                          {discountType === "PORCENTAGEM" ? (
+                            <Input
+                              type="number"
+                              min={0}
+                              max={100}
+                              step="0.01"
+                              value={discount}
+                              onChange={(e) => setDiscount(Number(e.target.value || 0))}
+                              disabled={!discountType}
+                              placeholder="0,00%"
+                            />
+                          ) : (
+                            <ValueInput
+                              value={discount}
+                              onValueChange={setDiscount}
+                              disabled={!discountType}
+                            />
+                          )}
                         </div>
                       </div>
                       <div className="flex justify-between text-sm text-muted-foreground">
@@ -1219,11 +1207,11 @@ export function POSSystem() {
                                   return (
                                     <div key={method} className="grid grid-cols-[minmax(0,1fr)_minmax(7rem,9rem)] items-center gap-2">
                                       <span className="truncate text-sm text-foreground">{label}</span>
-                                      <Input
-                                        value={paymentAmounts[method] ?? ""}
-                                        onChange={(event) => updatePaymentAmount(method, event.target.value)}
-                                        inputMode="decimal"
-                                        placeholder="R$ 0,00"
+                                      <ValueInput
+                                        value={centsToNumber(amountInputToCents(paymentAmounts[method] ?? "") ?? 0)}
+                                        onValueChange={(value) =>
+                                          updatePaymentAmount(method, formatCentsToPaymentInput(moneyToCents(value)))
+                                        }
                                         className="h-9 text-right"
                                       />
                                     </div>

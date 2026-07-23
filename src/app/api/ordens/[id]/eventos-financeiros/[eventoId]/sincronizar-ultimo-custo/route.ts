@@ -34,7 +34,7 @@ export async function POST(_: NextRequest, { params }: { params: Promise<Params>
       .eq("ordemservicoid", osId)
       .maybeSingle();
     if (eventoError) throw eventoError;
-    if (!evento || evento.origem !== "PRODUTO" || evento.natureza !== "DESPESA" || evento.status === "CANCELADO") {
+    if (!evento || evento.origem !== "PRODUTO" || evento.natureza !== "DESPESA" || evento.status !== "ATIVO") {
       return NextResponse.json({ error: "Este evento não é um snapshot de custo de produto." }, { status: 409 });
     }
     if (Number(evento.valor) !== 0) {

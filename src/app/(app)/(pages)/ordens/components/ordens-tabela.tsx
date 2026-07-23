@@ -325,6 +325,12 @@ export function OrdensTabela({
 
   const [approvalToastId, setApprovalToastId] = useState<string | number | null>(null);
 
+  useEffect(() => {
+    return () => {
+      if (approvalToastId != null) toast.dismiss(approvalToastId);
+    };
+  }, [approvalToastId]);
+
   const [realizadoresOpen, setRealizadoresOpen] = useState(false);
   const [realizadoresOsId, setRealizadoresOsId] = useState<number | null>(null);
   const [estoqueDialog, setEstoqueDialog] = useState<EstoqueInsuficienteDialog | null>(null);

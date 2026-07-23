@@ -1,6 +1,7 @@
 "use client";
 
 import { Input } from "@/components/ui/input";
+import ValueInput from "@/components/ui/value-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { TipoDesconto } from "../tipos";
 
@@ -24,7 +25,6 @@ export function CampoDesconto({
   inputClassName,
 }: CampoDescontoProps) {
   const temDesconto = Boolean(tipo);
-  const valorInput = temDesconto && Number(valor ?? 0) > 0 ? String(valor) : "";
   const isPorcentagem = tipo === "PORCENTAGEM";
 
   return (
@@ -48,32 +48,31 @@ export function CampoDesconto({
       </Select>
 
       <div className="relative">
-        {temDesconto && !isPorcentagem ? (
-          <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-            R$
-          </span>
-        ) : null}
-        <Input
-          type="number"
-          min={0}
-          max={isPorcentagem ? 100 : undefined}
-          step="0.01"
-          inputMode="decimal"
-          disabled={!temDesconto}
-          value={valorInput}
-          placeholder={temDesconto ? "0" : "-"}
-          onChange={(event) => {
-            const raw = event.target.value.trim().replace(",", ".");
-            onValorChange(raw ? Number(raw) : 0);
-          }}
-          className={[
-            inputClassName ?? "h-8",
-            temDesconto && !isPorcentagem ? "pl-8" : "",
-            isPorcentagem ? "pr-7" : "",
-          ]
-            .filter(Boolean)
-            .join(" ")}
-        />
+        {isPorcentagem ? (
+          <Input
+            type="number"
+            min={0}
+            max={100}
+            step="0.01"
+            inputMode="decimal"
+            disabled={!temDesconto}
+            value={temDesconto && Number(valor ?? 0) > 0 ? String(valor) : ""}
+            placeholder={temDesconto ? "0" : "-"}
+            onChange={(event) => {
+              const raw = event.target.value.trim().replace(",", ".");
+              onValorChange(raw ? Number(raw) : 0);
+            }}
+            className={[inputClassName ?? "h-8", "pr-7"].filter(Boolean).join(" ")}
+          />
+        ) : (
+          <ValueInput
+            value={valor ?? 0}
+            onValueChange={onValorChange}
+            disabled={!temDesconto}
+            className={inputClassName ?? "h-8"}
+            placeholder={temDesconto ? "R$ 0,00" : "-"}
+          />
+        )}
         {isPorcentagem ? (
           <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
             %

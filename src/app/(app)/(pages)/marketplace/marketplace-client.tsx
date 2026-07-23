@@ -10,6 +10,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import ValueInput from "@/components/ui/value-input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -577,12 +578,6 @@ function formatCurrencyInputFromNumber(value: unknown) {
   const number = Number(value ?? 0);
   if (!Number.isFinite(number)) return "";
   return number.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function formatCurrencyInput(value: string) {
-  const digits = value.replace(/\D/g, "");
-  if (!digits) return "";
-  return (Number(digits) / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function parseCurrencyInput(value: string) {
@@ -4801,16 +4796,12 @@ export default function MarketplacePage() {
                 <div className="grid gap-4 sm:grid-cols-3">
                   <div className="space-y-2">
                     <Label>Preço</Label>
-                    <div className="relative">
-                      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-                        R$
-                      </span>
-                      <Input
-                        inputMode="numeric"
-                        value={listingForm.price}
-                        onChange={(event) => updateListingForm("price", formatCurrencyInput(event.target.value))}
+                    <div>
+                      <ValueInput
+                        value={parseCurrencyInput(listingForm.price)}
+                        onValueChange={(value) => updateListingForm("price", formatCurrencyInputFromNumber(value))}
                         disabled={creatingListing}
-                        className={`${fieldClass("price")} pl-10`}
+                        className={fieldClass("price")}
                       />
                     </div>
                     {listingFieldErrors.price && <p className="text-xs text-destructive">{listingFieldErrors.price}</p>}
@@ -5477,15 +5468,14 @@ export default function MarketplacePage() {
                   <div className="grid gap-4 sm:grid-cols-4">
                     <div className="space-y-2">
                       <Label>Valor do frete</Label>
-                      <div className="relative">
-                        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">R$</span>
-                        <Input
-                          value={listingForm.customShippingCost}
-                          onChange={(event) => updateListingForm("customShippingCost", formatCurrencyInput(event.target.value))}
+                      <div>
+                        <ValueInput
+                          value={parseCurrencyInput(listingForm.customShippingCost)}
+                          onValueChange={(value) =>
+                            updateListingForm("customShippingCost", formatCurrencyInputFromNumber(value))
+                          }
                           disabled={creatingListing || listingForm.freeShipping}
-                          className={`${fieldClass("shipping")} pl-10`}
-                          inputMode="decimal"
-                          placeholder="0,00"
+                          className={fieldClass("shipping")}
                         />
                       </div>
                     </div>
@@ -5750,14 +5740,12 @@ export default function MarketplacePage() {
               )}
               <div className="space-y-2">
                 <Label>Preço</Label>
-                <div className="relative">
-                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">R$</span>
-                  <Input
-                    inputMode="numeric"
-                    value={editForm.price}
-                    onChange={(event) => updateEditForm("price", formatCurrencyInput(event.target.value))}
+                <div>
+                  <ValueInput
+                    value={parseCurrencyInput(editForm.price)}
+                    onValueChange={(value) => updateEditForm("price", formatCurrencyInputFromNumber(value))}
                     disabled={editingListing || loadingEditListing}
-                    className={`${listingFieldClass} pl-10`}
+                    className={listingFieldClass}
                   />
                 </div>
               </div>

@@ -477,7 +477,9 @@ export function ChecklistEditDialog({ open, onOpenChange, osId }: Props) {
       onOpenChange={handleOpenChange}
       title={titulo}
       description="Edite o checklist salvo desta OS."
-      maxW="lg:max-w-5xl xl:max-w-6xl"
+      maxW="md:max-w-[1100px]"
+      mobileFull
+      fixedHeight
       footer={
         <>
           <Button variant="outline" className="bg-transparent" onClick={() => handleOpenChange(false)} disabled={saving}>

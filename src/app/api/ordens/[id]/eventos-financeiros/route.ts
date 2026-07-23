@@ -43,6 +43,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<Param
     await requireOSEdit();
     const osId = idValido((await params).id);
     if (!osId) return NextResponse.json({ error: "ID inválido." }, { status: 400 });
+    const { data: os, error: osError } = await supabaseAdmin
+      .from("ordemservico")
+      .select("id, status")
+      .eq("id", osId)
+      .eq("is_deleted", false)
+      .maybeSingle();
+    if (osError) throw osError;
+    if (!os) return NextResponse.json({ error: "OS não encontrada." }, { status: 404 });
+    if (["CONCLUIDO", "SEM_COBRANCA", "CANCELADO"].includes(String(os.status))) {
+      return NextResponse.json({ error: "Não é possível inserir eventos financeiros em uma OS finalizada." }, { status: 409 });
+    }
+
     const body = await req.json();
     const natureza = String(body?.natureza ?? "").toUpperCase();
     const descricao = String(body?.descricao ?? "").trim();

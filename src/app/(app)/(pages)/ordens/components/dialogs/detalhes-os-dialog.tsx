@@ -48,6 +48,16 @@ import { toast } from "@/lib/toast";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+AlertDialog,
+AlertDialogAction,
+AlertDialogCancel,
+AlertDialogContent,
+AlertDialogDescription,
+AlertDialogFooter,
+AlertDialogHeader,
+AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
 Command,
 CommandEmpty,
 CommandGroup,
@@ -475,10 +485,17 @@ export function OSDetalhesDialog({
   const [eventoNatureza, setEventoNatureza] = useState<"RECEITA" | "DESPESA">("DESPESA");
   const [eventoDescricao, setEventoDescricao] = useState("");
   const [eventoDetalhe, setEventoDetalhe] = useState("");
-  const [eventoValor, setEventoValor] = useState("");
+  const [eventoValor, setEventoValor] = useState(0);
   const [salvandoEvento, setSalvandoEvento] = useState(false);
   const [eventoEdicao, setEventoEdicao] = useState<{ id: number; descricao: string; valor: number } | null>(null);
   const [valorSnapshotEdicao, setValorSnapshotEdicao] = useState(0);
+  const [eventoConvertidoParaEditar, setEventoConvertidoParaEditar] = useState<{
+    id: number;
+    descricao: string;
+    valor: number;
+    transacaoId: number;
+  } | null>(null);
+  const [excluindoTransacaoEvento, setExcluindoTransacaoEvento] = useState(false);
   const [salvandoSnapshot, setSalvandoSnapshot] = useState(false);
   const [sincronizandoCustoId, setSincronizandoCustoId] = useState<number | null>(null);
   const [produtoDialogId, setProdutoDialogId] = useState<number | undefined>();
@@ -654,21 +671,49 @@ export function OSDetalhesDialog({
       const response = await fetch(`/api/ordens/${osId}/eventos-financeiros`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ natureza: eventoNatureza, descricao: eventoDescricao, detalhe: eventoDetalhe, valor: Number(eventoValor.replace(",", ".")) }),
+        body: JSON.stringify({ natureza: eventoNatureza, descricao: eventoDescricao, detalhe: eventoDetalhe, valor: eventoValor }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || "Erro ao adicionar evento");
       setEventoDialogOpen(false);
-      setEventoDescricao(""); setEventoDetalhe(""); setEventoValor("");
+      setEventoDescricao(""); setEventoDetalhe(""); setEventoValor(0);
       toast.success("Evento financeiro registrado.");
       await recarregarDetalhes();
     } catch (error: any) { toast.error(error?.message || "Erro ao adicionar evento"); }
     finally { setSalvandoEvento(false); }
   }
 
-  function abrirEdicaoSnapshot(id: number, descricao: string, valor: number) {
+  function abrirEdicaoSnapshot(id: number, descricao: string, valor: number, status: string, transacaoId?: number | null) {
+    if (status === "CONVERTIDO") {
+      if (!transacaoId) {
+        toast.error("A transação vinculada não foi localizada.");
+        return;
+      }
+      setEventoConvertidoParaEditar({ id, descricao, valor, transacaoId });
+      return;
+    }
     setEventoEdicao({ id, descricao, valor });
     setValorSnapshotEdicao(valor);
+  }
+
+  async function excluirTransacaoEEditarEvento() {
+    if (!eventoConvertidoParaEditar) return;
+    setExcluindoTransacaoEvento(true);
+    try {
+      const response = await fetch(`/api/transaction/${eventoConvertidoParaEditar.transacaoId}`, { method: "DELETE" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Erro ao excluir a transação vinculada");
+      const evento = eventoConvertidoParaEditar;
+      setEventoConvertidoParaEditar(null);
+      setEventoEdicao({ id: evento.id, descricao: evento.descricao, valor: evento.valor });
+      setValorSnapshotEdicao(evento.valor);
+      toast.success("Transação excluída. O evento está disponível para edição e novo lançamento.");
+      await recarregarDetalhes();
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao excluir a transação vinculada");
+    } finally {
+      setExcluindoTransacaoEvento(false);
+    }
   }
 
   async function salvarSnapshot() {
@@ -697,9 +742,11 @@ export function OSDetalhesDialog({
       const response = await fetch(`/api/ordens/${osId}/eventos-financeiros/${eventoId}/sincronizar-ultimo-custo`, { method: "POST" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || "Erro ao sincronizar último valor de entrada");
-      toast.success("Último valor de entrada sincronizado.", { id: toastId });
+      toast.success("Último valor de entrada sincronizado.", { id: toastId, duration: 3000 });
       await recarregarDetalhes();
-    } catch (error: any) { toast.error(error?.message || "Erro ao sincronizar último valor de entrada", { id: toastId }); }
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao sincronizar último valor de entrada", { id: toastId, duration: 4000 });
+    }
     finally { setSincronizandoCustoId(null); }
   }
 
@@ -886,8 +933,8 @@ export function OSDetalhesDialog({
       <DialogContent
         className="
           flex h-[100dvh] w-[100dvw] max-w-[100dvw] flex-col rounded-none
-          sm:h-[85vh] sm:w-[95vw] sm:max-w-5xl sm:rounded-lg
-          supports-[height:100svh]:sm:h-[85svh]
+          sm:h-svh sm:max-h-[850px] sm:w-[95vw] sm:rounded-lg
+          md:max-w-[1100px]
           overflow-hidden
           !gap-0 p-0
         "
@@ -1407,18 +1454,18 @@ export function OSDetalhesDialog({
                       <p className="mt-2 text-xl font-semibold text-red-600">{fmtMoney(totaisEventos.despesa)}</p>
                     </div>
                     <div className="rounded-xl border bg-card p-4">
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground"><Calculator className="size-4 text-primary" /> Lucro real</div>
-                      <p className={`mt-2 text-xl font-semibold ${totaisEventos.liquido < 0 ? "text-red-600" : "text-emerald-600"}`}>
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground"><Calculator className="size-4 text-primary" /> {osFinalizada ? "Lucro Real" : "Resultado Previsto"}</div>
+                      <p className={`mt-2 text-xl font-semibold ${totaisEventos.liquido < 0 ? "text-red-600" : "text-primary"}`}>
                         {fmtMoney(totaisEventos.liquido)}
                       </p>
                     </div>
                   </div>
 
-                  <div className="flex justify-end">
+                  {!osFinalizada ? <div className="flex justify-end">
                     <Button type="button" size="sm" onClick={() => setEventoDialogOpen(true)}>
                       Novo lançamento
                     </Button>
-                  </div>
+                  </div> : null}
 
                   <div className="overflow-hidden rounded-xl border bg-card">
                     <div className="hidden grid-cols-[minmax(0,1fr)_130px_130px] gap-3 border-b bg-muted/50 px-4 py-2 text-xs font-medium text-muted-foreground sm:grid">
@@ -1469,7 +1516,13 @@ export function OSDetalhesDialog({
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end" className="w-60">
                                   {!osFinalizada ? (
-                                    <DropdownMenuItem onSelect={() => abrirEdicaoSnapshot(lancamento.id, lancamento.descricao, lancamento.valor)}>
+                                    <DropdownMenuItem onSelect={() => abrirEdicaoSnapshot(
+                                      lancamento.id,
+                                      lancamento.descricao,
+                                      lancamento.valor,
+                                      lancamento.status,
+                                      data.eventosFinanceiros?.find((item) => item.id === lancamento.id)?.transacaoid,
+                                    )}>
                                       <Pencil /> Editar valor do lançamento
                                     </DropdownMenuItem>
                                   ) : null}
@@ -1495,6 +1548,7 @@ export function OSDetalhesDialog({
                                       osId={data.os.id}
                                       handleGetTransactions={() => void recarregarDetalhes()}
                                       internalCompanyExpense={lancamento.tipo === "SAIDA"}
+                                      lockValue
                                       initialTransaction={{
                                         evento_financeiro_id: lancamento.id,
                                         tipo: lancamento.tipo === "ENTRADA" ? Tipo_transacao.RECEITA : Tipo_transacao.DESPESA,
@@ -1547,7 +1601,7 @@ export function OSDetalhesDialog({
                           <input className="mt-1 h-10 w-full rounded-md border bg-background px-3" value={eventoDetalhe} onChange={(e) => setEventoDetalhe(e.target.value)} />
                         </label>
                         <label className="block text-sm font-medium">Valor
-                          <input type="number" min="0.01" step="0.01" className="mt-1 h-10 w-full rounded-md border bg-background px-3" value={eventoValor} onChange={(e) => setEventoValor(e.target.value)} />
+                          <ValueInput price={eventoValor} setPrice={setEventoValor} className="mt-1 h-10 w-full" />
                         </label>
                         <Button className="w-full" disabled={salvandoEvento} onClick={() => void adicionarEventoAvulso()}>
                           {salvandoEvento ? "Salvando..." : "Registrar evento"}
@@ -1567,15 +1621,31 @@ export function OSDetalhesDialog({
                             <ValueInput price={valorSnapshotEdicao} setPrice={setValorSnapshotEdicao} />
                           </div>
                         </label>
-                        {eventoEdicao && data.eventosFinanceiros?.find((item) => item.id === eventoEdicao.id)?.status === "CONVERTIDO" ? (
-                          <p className="text-xs text-amber-600">A transação já lançada não será alterada.</p>
-                        ) : null}
                         <Button className="w-full" disabled={salvandoSnapshot} onClick={() => void salvarSnapshot()}>
                           {salvandoSnapshot ? "Salvando..." : "Salvar novo valor"}
                         </Button>
                       </div>
                     </DialogContent>
                   </Dialog>
+                  <AlertDialog
+                    open={Boolean(eventoConvertidoParaEditar)}
+                    onOpenChange={(open) => { if (!open && !excluindoTransacaoEvento) setEventoConvertidoParaEditar(null); }}
+                  >
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Excluir transação vinculada?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Este evento já foi lançado no financeiro. Para alterar seu valor, será necessário excluir a transação vinculada. Deseja continuar?
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel disabled={excluindoTransacaoEvento}>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction disabled={excluindoTransacaoEvento} onClick={(event) => { event.preventDefault(); void excluirTransacaoEEditarEvento(); }}>
+                          {excluindoTransacaoEvento ? "Excluindo..." : "Excluir e continuar"}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </TabsContent>
 
                 <TabsContent value="checklist" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 sm:px-6 sm:py-5">

@@ -9,6 +9,7 @@ import axios, { isAxiosError } from "axios";
 import TransactionDialog from "../../../fluxodecaixa/components/transactionDialog/transactionDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import ValueInput from "@/components/ui/value-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -20,6 +21,46 @@ import { formatDate } from "@/utils/formatDate";
 interface OsContentProps {
   osId: number;
   IsOpen?: boolean;
+}
+
+function CampoValorDesconto({
+  tipo,
+  valor,
+  onChange,
+  className,
+}: {
+  tipo: "FIXO" | "PORCENTAGEM" | null | undefined;
+  valor: number;
+  onChange: (value: number) => void;
+  className?: string;
+}) {
+  if (tipo !== "PORCENTAGEM") {
+    return (
+      <ValueInput
+        value={valor}
+        onValueChange={onChange}
+        disabled={!tipo}
+        className={className}
+      />
+    );
+  }
+
+  return (
+    <div className="relative">
+      <Input
+        type="number"
+        min={0}
+        max={100}
+        step="0.01"
+        value={valor > 0 ? valor : ""}
+        onChange={(event) => onChange(Number(event.target.value || 0))}
+        className={`${className ?? ""} pr-7`}
+      />
+      <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-xs text-muted-foreground">
+        %
+      </span>
+    </div>
+  );
 }
 
 type OsProdutoItem = {
@@ -509,28 +550,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                     <span className="text-xs text-muted-foreground">
                       {descontoTipo === "PORCENTAGEM" ? "Percentual (%)" : "Valor"}
                     </span>
-                    <div className="relative">
-                      <Input
-                        type="number"
-                        min={0}
-                        max={descontoTipo === "PORCENTAGEM" ? 100 : undefined}
-                        step="0.01"
-                        value={desconto > 0 ? desconto : ""}
-                        disabled={!descontoTipo}
-                        onChange={(event) => setDesconto(Number(event.target.value || 0))}
-                        className={descontoTipo === "PORCENTAGEM" ? "pr-8" : descontoTipo === "FIXO" ? "pl-9" : undefined}
-                      />
-                      {descontoTipo === "FIXO" ? (
-                        <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-xs text-muted-foreground">
-                          R$
-                        </span>
-                      ) : null}
-                      {descontoTipo === "PORCENTAGEM" ? (
-                        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-muted-foreground">
-                          %
-                        </span>
-                      ) : null}
-                    </div>
+                    <CampoValorDesconto tipo={descontoTipo} valor={desconto} onChange={setDesconto} />
                   </div>
                   <Button type="button" onClick={handleSaveDiscounts} disabled={isSavingDiscount || ordem.status === "CONCLUIDO"}>
                     {isSavingDiscount ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
@@ -566,28 +586,12 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                             <SelectItem value="PORCENTAGEM">Porcentagem</SelectItem>
                           </SelectContent>
                         </Select>
-                        <div className="relative">
-                          <Input
-                            type="number"
-                            min={0}
-                            max={item.descontoTipo === "PORCENTAGEM" ? 100 : undefined}
-                            step="0.01"
-                            disabled={!item.descontoTipo}
-                            value={(item.desconto ?? 0) > 0 ? item.desconto : ""}
-                            onChange={(event) => handleProdutoDiscountChange(index, { desconto: Number(event.target.value || 0) })}
-                            className={`h-8 ${item.descontoTipo === "PORCENTAGEM" ? "pr-7" : item.descontoTipo === "FIXO" ? "pl-8" : ""}`}
-                          />
-                          {item.descontoTipo === "FIXO" ? (
-                            <span className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-xs text-muted-foreground">
-                              R$
-                            </span>
-                          ) : null}
-                          {item.descontoTipo === "PORCENTAGEM" ? (
-                            <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-xs text-muted-foreground">
-                              %
-                            </span>
-                          ) : null}
-                        </div>
+                        <CampoValorDesconto
+                          tipo={item.descontoTipo}
+                          valor={item.desconto ?? 0}
+                          onChange={(desconto) => handleProdutoDiscountChange(index, { desconto })}
+                          className="h-8"
+                        />
                       </div>
                     )) : (
                       <p className="rounded-md border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">Nenhum produto.</p>
@@ -622,28 +626,12 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                             <SelectItem value="PORCENTAGEM">Porcentagem</SelectItem>
                           </SelectContent>
                         </Select>
-                        <div className="relative">
-                          <Input
-                            type="number"
-                            min={0}
-                            max={item.descontoTipo === "PORCENTAGEM" ? 100 : undefined}
-                            step="0.01"
-                            disabled={!item.descontoTipo}
-                            value={(item.desconto ?? 0) > 0 ? item.desconto : ""}
-                            onChange={(event) => handleServicoDiscountChange(index, { desconto: Number(event.target.value || 0) })}
-                            className={`h-8 ${item.descontoTipo === "PORCENTAGEM" ? "pr-7" : item.descontoTipo === "FIXO" ? "pl-8" : ""}`}
-                          />
-                          {item.descontoTipo === "FIXO" ? (
-                            <span className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-xs text-muted-foreground">
-                              R$
-                            </span>
-                          ) : null}
-                          {item.descontoTipo === "PORCENTAGEM" ? (
-                            <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-xs text-muted-foreground">
-                              %
-                            </span>
-                          ) : null}
-                        </div>
+                        <CampoValorDesconto
+                          tipo={item.descontoTipo}
+                          valor={item.desconto ?? 0}
+                          onChange={(desconto) => handleServicoDiscountChange(index, { desconto })}
+                          className="h-8"
+                        />
                       </div>
                     )) : (
                       <p className="rounded-md border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">Nenhum serviço.</p>

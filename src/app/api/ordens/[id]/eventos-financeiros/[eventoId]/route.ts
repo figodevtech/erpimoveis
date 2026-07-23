@@ -36,13 +36,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
 
     const { data: evento, error: eventoError } = await supabaseAdmin
       .from("eventos_financeiros")
-      .select("id, dados_snapshot")
+      .select("id, status, transacaoid, dados_snapshot")
       .eq("id", eventId)
       .eq("ordemservicoid", osId)
       .neq("status", "CANCELADO")
       .maybeSingle();
     if (eventoError) throw eventoError;
     if (!evento) return NextResponse.json({ error: "Evento financeiro não encontrado." }, { status: 404 });
+
+    if (evento.status === "CONVERTIDO" || evento.transacaoid) {
+      return NextResponse.json(
+        { error: "Exclua a transação vinculada antes de editar este evento financeiro.", transacaoId: evento.transacaoid },
+        { status: 409 },
+      );
+    }
 
     const session = await auth();
     const ajustadoEm = new Date().toISOString();

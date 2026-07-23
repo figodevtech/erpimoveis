@@ -31,6 +31,7 @@ type Props = {
   lotePendente?: LoteSelectItem | null;
   onLotePendenteChange?: (lote: LoteSelectItem | null) => void;
   onLoteVinculoAlterado?: () => void;
+  precoMedioCompraObrigatorio?: boolean;
 };
 
 export function TabGeral({
@@ -45,6 +46,7 @@ export function TabGeral({
   lotePendente,
   onLotePendenteChange,
   onLoteVinculoAlterado,
+  precoMedioCompraObrigatorio = false,
 }: Props) {
   const LIMITE_TITULO = 100;
   const LIMITE_DESCRICAO = 300;
@@ -215,7 +217,10 @@ export function TabGeral({
               <ValueInput price={produto.precovenda} setPrice={(v) => onChange("precovenda", v)} />
             </div>
             <div className="space-y-2 lg:col-span-2">
-              <Label htmlFor="precocompra">Valor Médio de Compra</Label>
+              <Label htmlFor="precocompra">
+                Valor Médio de Compra
+                {precoMedioCompraObrigatorio && <span className="text-destructive"> *</span>}
+              </Label>
               <ValueInput price={produto.precocompra} setPrice={(v) => onChange("precocompra", v)} />
             </div>
             <div className="space-y-2 lg:col-span-2">

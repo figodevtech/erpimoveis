@@ -77,6 +77,46 @@ function toNumberOrNull(v: any) {
   return Number.isFinite(n) ? n : null;
 }
 
+function precoMedioCompraValido(value: unknown) {
+  const numero = Number(value);
+  return Number.isFinite(numero) && numero > 0;
+}
+
+async function exigePrecoMedioCompra() {
+  const { data, error } = await supabaseAdmin
+    .from("config_geral")
+    .select("produto_preco_medio_compra_obrigatorio")
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    if ((error as any).code === "42703") return false;
+    throw error;
+  }
+
+  return data?.produto_preco_medio_compra_obrigatorio === true;
+}
+
+async function validarPrecoMedioCompra(id: number, payload: Record<string, any>) {
+  if (!(await exigePrecoMedioCompra())) return;
+
+  let valor = payload.precocompra;
+  if (!("precocompra" in payload)) {
+    const { data, error } = await supabaseAdmin
+      .from("produto")
+      .select("precocompra")
+      .eq("id", id)
+      .maybeSingle();
+    if (error) throw error;
+    valor = data?.precocompra;
+  }
+
+  if (!precoMedioCompraValido(valor)) {
+    throw new Error("Informe um valor médio de compra maior que zero.");
+  }
+}
+
 /**
  * - Converte strings vazias para null (com exceções)
  * - Coerce campos numéricos para number
@@ -225,6 +265,12 @@ export async function PATCH(req: NextRequest, context: { params: Promise<Params>
     const body = await req.json().catch(() => ({}));
     const payload = sanitizePayload(body, { strict: false });
 
+    // PATCH também é usado por fluxos rápidos de etiqueta/localização. Neles,
+    // a regra só se aplica se o custo estiver sendo alterado.
+    if ("precocompra" in payload) {
+      await validarPrecoMedioCompra(id, payload);
+    }
+
     // Se só veio updatedat (porque tudo foi omitido), não há mudanças
     if (Object.keys(payload).length === 1 && "updatedat" in payload) {
       return NextResponse.json({ error: "Nada para atualizar." }, { status: 400 });
@@ -253,7 +299,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<Params>
     return NextResponse.json({ data, id: data.id });
   } catch (e: any) {
     const msg = e?.message ?? "Erro ao atualizar produto.";
-    const status = msg.includes("ID inválido") ? 400 : 500;
+    const status = msg.includes("ID inválido") || msg.includes("valor médio de compra") ? 400 : 500;
     return NextResponse.json({ error: msg }, { status });
   }
 }
@@ -266,6 +312,8 @@ export async function PUT(req: NextRequest, context: { params: Promise<Params> }
     const id = await parseId(context);
     const body = await req.json().catch(() => ({}));
     const payload = sanitizePayload(body, { strict: true });
+
+    await validarPrecoMedioCompra(id, payload);
 
     const { data, error } = await supabaseAdmin
       .from("produto")
@@ -291,7 +339,9 @@ export async function PUT(req: NextRequest, context: { params: Promise<Params> }
   } catch (e: any) {
     const msg = e?.message ?? "Erro ao atualizar produto.";
     const status =
-      msg.includes("ID inválido") || msg.includes("Campos obrigatórios") ? 400 : 500;
+      msg.includes("ID inválido") || msg.includes("Campos obrigatórios") || msg.includes("valor médio de compra")
+        ? 400
+        : 500;
     return NextResponse.json({ error: msg }, { status });
   }
 }
