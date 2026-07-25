@@ -7,6 +7,15 @@ import { requireEstoqueAccess, requireEstoqueDelete, requireEstoqueEdit } from "
 
 type Params = { id: string };
 
+class HttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
 const PRODUTO_FIELDS = `
   id, descricao, precovenda, precocompra, ultimovalordecompra, estoque, estoqueminimo, ncm, cfop, origem_mercadoria, unidade,
   cest, csosn, cst, aliquotaicms, cst_pis, aliquota_pis, modo_pis, aliquota_por_unidade_pis,
@@ -80,6 +89,94 @@ function toNumberOrNull(v: any) {
 function precoMedioCompraValido(value: unknown) {
   const numero = Number(value);
   return Number.isFinite(numero) && numero > 0;
+}
+
+function getExpectedUpdatedAt(body: any, { required }: { required: boolean }) {
+  const raw = body?.expectedUpdatedAt;
+  if (raw == null || raw === "") {
+    if (required) {
+      throw new HttpError(
+        "A versão original do produto não foi informada. Recarregue o produto antes de salvar.",
+        409,
+      );
+    }
+    return null;
+  }
+
+  if (typeof raw !== "string" || Number.isNaN(Date.parse(raw))) {
+    throw new HttpError("Versão original do produto inválida.", 400);
+  }
+
+  return raw;
+}
+
+type ExpectedField = { field: string; original: unknown };
+
+function parseFieldChanges(body: any) {
+  if (body?.changes == null) return null;
+  if (typeof body.changes !== "object" || Array.isArray(body.changes)) {
+    throw new HttpError("Formato de alterações inválido.", 400);
+  }
+
+  const values: Record<string, unknown> = {};
+  const expectedFields: ExpectedField[] = [];
+
+  for (const [field, change] of Object.entries(body.changes)) {
+    if (!WRITABLE_FIELDS.has(field)) {
+      throw new HttpError(`Campo não permitido na atualização: ${field}.`, 400);
+    }
+    if (!change || typeof change !== "object" || Array.isArray(change) || !("value" in change) || !("original" in change)) {
+      throw new HttpError(`Alteração inválida para o campo ${field}.`, 400);
+    }
+
+    const typedChange = change as { original: unknown; value: unknown };
+    values[field] = typedChange.value;
+    expectedFields.push({ field, original: typedChange.original });
+  }
+
+  if (expectedFields.length === 0) {
+    throw new HttpError("Nenhuma alteração foi informada.", 400);
+  }
+
+  return { values, expectedFields };
+}
+
+async function updateProduto(
+  id: number,
+  payload: Record<string, any>,
+  expectedUpdatedAt: string | null,
+  expectedFields: ExpectedField[] = [],
+) {
+  let query = supabaseAdmin.from("produto").update(payload).eq("id", id);
+  if (expectedUpdatedAt) query = query.eq("updatedat", expectedUpdatedAt);
+  for (const { field, original } of expectedFields) {
+    query = original == null ? query.is(field, null) : query.eq(field, original);
+  }
+
+  const { data, error } = await query.select(PRODUTO_FIELDS).maybeSingle();
+
+  if (error) {
+    if ((error as any).code === "23505") {
+      throw new HttpError("Violação de unicidade (já cadastrado).", 409);
+    }
+    throw error;
+  }
+
+  if (data) return data;
+
+  const { data: existente, error: lookupError } = await supabaseAdmin
+    .from("produto")
+    .select("id")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (lookupError) throw lookupError;
+  if (!existente) throw new HttpError("Produto não encontrado.", 404);
+
+  throw new HttpError(
+    "Este produto foi alterado por outro usuário. Recarregue os dados antes de salvar.",
+    409,
+  );
 }
 
 async function exigePrecoMedioCompra() {
@@ -263,7 +360,9 @@ export async function PATCH(req: NextRequest, context: { params: Promise<Params>
     await requireEstoqueEdit();
     const id = await parseId(context);
     const body = await req.json().catch(() => ({}));
-    const payload = sanitizePayload(body, { strict: false });
+    const fieldChanges = parseFieldChanges(body);
+    const expectedUpdatedAt = fieldChanges ? null : getExpectedUpdatedAt(body, { required: false });
+    const payload = sanitizePayload(fieldChanges?.values ?? body, { strict: false });
 
     // PATCH também é usado por fluxos rápidos de etiqueta/localização. Neles,
     // a regra só se aplica se o custo estiver sendo alterado.
@@ -276,30 +375,16 @@ export async function PATCH(req: NextRequest, context: { params: Promise<Params>
       return NextResponse.json({ error: "Nada para atualizar." }, { status: 400 });
     }
 
-    const { data, error } = await supabaseAdmin
-      .from("produto")
-      .update(payload)
-      .eq("id", id)
-      .select(PRODUTO_FIELDS)
-      .single();
-
-    if (error) {
-      if ((error as any).code === "23505") {
-        return NextResponse.json(
-          { error: "Violação de unicidade (já cadastrado)." },
-          { status: 409 }
-        );
-      }
-      if ((error as any).code === "PGRST116") {
-        return NextResponse.json({ error: "Produto não encontrado." }, { status: 404 });
-      }
-      throw error;
-    }
+    const data = await updateProduto(id, payload, expectedUpdatedAt, fieldChanges?.expectedFields);
 
     return NextResponse.json({ data, id: data.id });
   } catch (e: any) {
     const msg = e?.message ?? "Erro ao atualizar produto.";
-    const status = msg.includes("ID inválido") || msg.includes("valor médio de compra") ? 400 : 500;
+    const status = e instanceof HttpError
+      ? e.status
+      : msg.includes("ID inválido") || msg.includes("valor médio de compra")
+        ? 400
+        : 500;
     return NextResponse.json({ error: msg }, { status });
   }
 }
@@ -311,35 +396,19 @@ export async function PUT(req: NextRequest, context: { params: Promise<Params> }
     await requireEstoqueEdit();
     const id = await parseId(context);
     const body = await req.json().catch(() => ({}));
+    const expectedUpdatedAt = getExpectedUpdatedAt(body, { required: true });
     const payload = sanitizePayload(body, { strict: true });
 
     await validarPrecoMedioCompra(id, payload);
 
-    const { data, error } = await supabaseAdmin
-      .from("produto")
-      .update(payload)
-      .eq("id", id)
-      .select(PRODUTO_FIELDS)
-      .single();
-
-    if (error) {
-      if ((error as any).code === "23505") {
-        return NextResponse.json(
-          { error: "Violação de unicidade (já cadastrado)." },
-          { status: 409 }
-        );
-      }
-      if ((error as any).code === "PGRST116") {
-        return NextResponse.json({ error: "Produto não encontrado." }, { status: 404 });
-      }
-      throw error;
-    }
+    const data = await updateProduto(id, payload, expectedUpdatedAt);
 
     return NextResponse.json({ data, id: data.id });
   } catch (e: any) {
     const msg = e?.message ?? "Erro ao atualizar produto.";
-    const status =
-      msg.includes("ID inválido") || msg.includes("Campos obrigatórios") || msg.includes("valor médio de compra")
+    const status = e instanceof HttpError
+      ? e.status
+      : msg.includes("ID inválido") || msg.includes("Campos obrigatórios") || msg.includes("valor médio de compra")
         ? 400
         : 500;
     return NextResponse.json({ error: msg }, { status });

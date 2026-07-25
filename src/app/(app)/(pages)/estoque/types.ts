@@ -135,7 +135,7 @@ export interface Produto {
   etiqueta?: string;
   local?: string;
   createdat?: Date; // timestamp no banco, pode ser null
-  updatedat?: Date; // timestamp no banco, pode ser null
+  updatedat?: Date | string; // APIs retornam timestamp serializado
   referencia?: string;
   titulo?: string;
   fornecedor?: string;
@@ -143,7 +143,7 @@ export interface Produto {
   grupo?: Grupo_produto; // grupo_produto no banco, default 'OUTROS'
   grupo_produto_id?: number;
   status_estoque?: Estoque_status;
-  imgUrl?: string;
+  imgUrl?: string | null;
   exibirPdv?: boolean;
   tituloMarketplace?: string;
   descricaoMarketplace?: string;

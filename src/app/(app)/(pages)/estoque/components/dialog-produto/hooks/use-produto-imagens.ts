@@ -13,6 +13,11 @@ export type ProdutoImagem = {
   createdat?: string;
 };
 
+export type ProdutoCapaPatch = {
+  imgUrl: string | null;
+  updatedat?: string;
+};
+
 function imageKey(id: number) {
   return `img-${id}`;
 }
@@ -31,9 +36,10 @@ function idFromImageKey(key: string) {
 
 export function useProdutoImagens(params: {
   productId: number | undefined;
-  onAfterChangeCapa?: () => Promise<void> | void;
+  currentCoverUrl?: string | null;
+  onAfterChangeCapa?: (patch: ProdutoCapaPatch) => Promise<void> | void;
 }) {
-  const { productId, onAfterChangeCapa } = params;
+  const { productId, currentCoverUrl, onAfterChangeCapa } = params;
 
   const [imagens, setImagens] = useState<ProdutoImagem[]>([]);
   const [imagensPendentes, setImagensPendentes] = useState<ProdutoImagemPendente[]>([]);
@@ -48,6 +54,17 @@ export function useProdutoImagens(params: {
   const [removendoImagemId, setRemovendoImagemId] = useState<number | null>(null);
   const [definindoCapaImagemId, setDefinindoCapaImagemId] = useState<number | null>(null);
   const definindoCapaRef = useRef<number | null>(null);
+  const currentCoverUrlRef = useRef<string | null>(currentCoverUrl ?? null);
+
+  useEffect(() => {
+    currentCoverUrlRef.current = currentCoverUrl ?? null;
+  }, [currentCoverUrl]);
+
+  const applyCoverPatch = useCallback(async (patch?: ProdutoCapaPatch | null) => {
+    if (!patch) return;
+    currentCoverUrlRef.current = patch.imgUrl ?? null;
+    await onAfterChangeCapa?.(patch);
+  }, [onAfterChangeCapa]);
 
   const setOrdem = useCallback((keys: string[], markDirty = false) => {
     ordemItensRef.current = keys;
@@ -98,7 +115,6 @@ export function useProdutoImagens(params: {
       setImagens(nextImages);
       setOrdem(nextImages.map((img) => imageKey(img.id)));
       setOrdemAlterada(false);
-      await onAfterChangeCapa?.();
     } catch (err) {
       console.error("Erro ao salvar ordem das imagens:", err);
       if (isAxiosError(err)) {
@@ -108,7 +124,7 @@ export function useProdutoImagens(params: {
     } finally {
       setSalvandoOrdem(false);
     }
-  }, [onAfterChangeCapa, productId, setOrdem]);
+  }, [productId, setOrdem]);
 
   const onPick = useCallback((files: File[]) => {
     if (files.length === 0) return;
@@ -177,6 +193,7 @@ export function useProdutoImagens(params: {
 
         const saved = (res.data?.imagens?.[0] ?? null) as ProdutoImagem | null;
         if (!saved) throw new Error("Upload concluido sem retorno da imagem.");
+        await applyCoverPatch(res.data?.product);
 
         URL.revokeObjectURL(pending.previewUrl);
         uploadedImages.push(saved);
@@ -198,7 +215,7 @@ export function useProdutoImagens(params: {
     } finally {
       setSubindoImagens(false);
     }
-  }, [productId, salvarOrdem, setOrdem]);
+  }, [applyCoverPatch, productId, salvarOrdem, setOrdem]);
 
   const definirImagemPrincipal = useCallback(
     async (imageId: number) => {
@@ -208,9 +225,12 @@ export function useProdutoImagens(params: {
       definindoCapaRef.current = imageId;
       setDefinindoCapaImagemId(imageId);
       try {
-        await axios.patch(`/api/products/${productId}/images/${imageId}`, { principal: true });
+        const response = await axios.patch(`/api/products/${productId}/images/${imageId}`, {
+          principal: true,
+          expectedImgUrl: currentCoverUrlRef.current,
+        });
         toast.success("Sucesso!", { description: "Imagem principal atualizada.", duration: 2000 });
-        await onAfterChangeCapa?.();
+        await applyCoverPatch(response.data?.product);
         await carregarImagens({ silent: true });
       } catch (err) {
         console.error("Erro ao definir imagem principal:", err);
@@ -220,7 +240,7 @@ export function useProdutoImagens(params: {
         setDefinindoCapaImagemId(null);
       }
     },
-    [carregarImagens, onAfterChangeCapa, productId]
+    [applyCoverPatch, carregarImagens, productId]
   );
 
   const removerImagem = useCallback(
@@ -228,10 +248,12 @@ export function useProdutoImagens(params: {
       if (!productId) return;
       setRemovendoImagemId(imageId);
       try {
-        await axios.delete(`/api/products/${productId}/images/${imageId}`);
+        const response = await axios.delete(`/api/products/${productId}/images/${imageId}`, {
+          data: { expectedImgUrl: currentCoverUrlRef.current },
+        });
         toast.success("Sucesso!", { description: "Imagem removida.", duration: 2000 });
         setOrdem(ordemItensRef.current.filter((key) => key !== imageKey(imageId)));
-        await onAfterChangeCapa?.();
+        await applyCoverPatch(response.data?.product);
         await carregarImagens({ silent: true });
       } catch (err) {
         console.error("Erro ao remover imagem:", err);
@@ -240,7 +262,7 @@ export function useProdutoImagens(params: {
         setRemovendoImagemId(null);
       }
     },
-    [carregarImagens, onAfterChangeCapa, productId, setOrdem]
+    [applyCoverPatch, carregarImagens, productId, setOrdem]
   );
 
   useEffect(() => {

@@ -138,12 +138,23 @@ export default function RegistrarEtiquetaPage() {
 
     setSaving(true);
     try {
-      await axios.patch(`/api/products/${produto.id}`, { etiqueta: etiqueta.trim() });
+      await axios.patch(`/api/products/${produto.id}`, {
+        changes: {
+          etiqueta: {
+            original: produto.etiqueta ?? null,
+            value: etiqueta.trim(),
+          },
+        },
+      });
       toast.success("Etiqueta vinculada");
       setStep(4);
     } catch (err: any) {
+      const apiMessage = err?.response?.data?.error as string | undefined;
+      const concurrentConflict = err?.response?.status === 409 && apiMessage?.includes("alterado por outro");
       toast.error("Nao foi possivel vincular", {
-        description: err?.response?.data?.error ?? "Tente novamente.",
+        description: concurrentConflict
+          ? "A etiqueta deste produto foi alterada por outra pessoa. Busque o produto novamente."
+          : apiMessage ?? "Tente novamente.",
       });
     } finally {
       setSaving(false);
