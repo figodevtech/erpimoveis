@@ -7,6 +7,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
 import { requireVendasAccess, requireVendasCreate } from "@/app/api/_authz/perms";
 import { syncPendingMercadoLivreStock } from "@/lib/integrations/mercadolivre-stock-sync";
+import { buscarModoBaixaEstoqueOS } from "@/lib/ordens/estoque-os";
 
 type Status =
   | "ORCAMENTO"
@@ -53,6 +54,7 @@ type VendaPostBody = {
   valorTotal?: number;
   dataVenda?: string | null; // opcional, ISO string. Se não vier, usa default do banco (now()).
   itens: VendaItemInput[];
+  baixarEstoque?: boolean;
 };
 
 const VENDA_SELECT = `
@@ -563,6 +565,8 @@ export async function POST(req: Request) {
     body.subTotal = serverSubTotal;
     body.descontoValor = serverDiscount > 0 ? serverDiscount : null;
     body.valorTotal = roundMoney(serverSubTotal - serverDiscount);
+    const modoBaixa = await buscarModoBaixaEstoqueOS();
+    body.baixarEstoque = body.status !== "ORCAMENTO" || modoBaixa === "ORCAMENTO";
 
     // Chama função RPC no Postgres (tudo transacional lá)
     const { data: vendaId, error: rpcError } = await supabaseAdmin.rpc(
