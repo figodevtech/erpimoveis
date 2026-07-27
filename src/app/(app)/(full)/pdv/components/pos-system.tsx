@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -22,7 +22,13 @@ import {
   ReceiptText,
   Info,
   ChevronsUpDown,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
 } from "lucide-react";
+import Image from "next/image";
 import { Estoque_status, Produto } from "@/app/(app)/(pages)/estoque/types";
 import {
   Select,
@@ -136,10 +142,15 @@ const formatCentsToPaymentInput = (value: number) =>
 export function POSSystem() {
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingProductsPage, setLoadingProductsPage] = useState(false);
+  const [productsPage, setProductsPage] = useState(1);
+  const [productsTotalPages, setProductsTotalPages] = useState(1);
+  const [productsTotal, setProductsTotal] = useState(0);
   const [categoriasVenda, setCategoriasVenda] = useState<CategoriaVenda[]>([]);
   const [loadingCategoriasVenda, setLoadingCategoriasVenda] = useState(false);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [submittedSearch, setSubmittedSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("TODOS");
   const [selectedSaleCategoryId, setSelectedSaleCategoryId] = useState<number | null>(null);
   const [creatingVenda, setCreatingVenda] = useState(false);
@@ -154,38 +165,54 @@ export function POSSystem() {
   );
   const [paymentAmounts, setPaymentAmounts] = useState<PaymentAmounts>({});
   const [paymentMethodsOpen, setPaymentMethodsOpen] = useState(false);
-  const [selectedProductInfo, setSelectedProductInfo] = useState<
-    Produto | undefined
-  >(undefined);
+  const [selectedProductInfo, setSelectedProductInfo] = useState<Produto>();
   const [isAlertOpen, setIsAlertOpen] = useState(false);
   const { grupos } = useGruposProduto();
   const router = useRouter();
   const config = useConfig();
 
   useEffect(() => {
-    const fetchProdutos = async () => {
-      try {
-        setLoading(true);
-        const response = await axios.get("/api/pdv/products");
-        if (response.status === 200) {
-          const items = response.data.data;
-          setProdutos(items);
-        }
-      } catch (error) {
-        if (isAxiosError(error)) {
-          toast.error("Falha ao buscar produtos", {
-            description: error.message,
-          });
-          console.log(error);
-        }
-        setProdutos([]);
-      } finally {
-        setLoading(false);
-      }
-    };
+    const timer = window.setTimeout(() => {
+      setSubmittedSearch(searchTerm.trim());
+    }, 350);
 
-    fetchProdutos();
-  }, []);
+    return () => window.clearTimeout(timer);
+  }, [searchTerm]);
+
+  const fetchProdutos = useCallback(async (page: number) => {
+    setLoadingProductsPage(true);
+    try {
+      const response = await axios.get("/api/pdv/products", {
+        params: {
+          page,
+          limit: 48,
+          q: submittedSearch || undefined,
+          groupId: selectedCategory === "TODOS" ? undefined : selectedCategory,
+        },
+      });
+      const items: Produto[] = Array.isArray(response.data?.data)
+        ? response.data.data
+        : [];
+      setProdutos(items);
+      setProductsPage(Number(response.data?.pagination?.page ?? page));
+      setProductsTotalPages(Number(response.data?.pagination?.totalPages ?? 1));
+      setProductsTotal(Number(response.data?.pagination?.total ?? items.length));
+    } catch (error) {
+      if (isAxiosError(error)) {
+        toast.error("Falha ao buscar produtos", {
+          description: error.response?.data?.error || error.message,
+        });
+      }
+      setProdutos([]);
+    } finally {
+      setLoading(false);
+      setLoadingProductsPage(false);
+    }
+  }, [submittedSearch, selectedCategory]);
+
+  useEffect(() => {
+    void fetchProdutos(1);
+  }, [fetchProdutos]);
 
   useEffect(() => {
     const fetchCategoriasVenda = async () => {
@@ -221,12 +248,15 @@ export function POSSystem() {
   const ALL = "TODOS";
 
   const filteredProducts = produtos.filter((p) => {
-    const q = searchTerm.trim().toLowerCase();
-    const matchesText = p.titulo?.toLowerCase().includes(q);
+    const q = submittedSearch.toLowerCase();
+    const matchesText = submittedSearch
+      ? true // a busca completa já foi aplicada pelo servidor
+      : [p.titulo, p.referencia, p.descricao, p.fabricante]
+          .some((value) => value?.toLowerCase().includes(q));
 
     // se ALL, nÃ£o filtra por grupo
     const matchesCategory =
-      selectedCategory === ALL || p.grupo?.nome === selectedCategory;
+      selectedCategory === ALL || String(p.grupo?.id) === selectedCategory;
 
     return matchesText && matchesCategory;
   });
@@ -294,8 +324,8 @@ export function POSSystem() {
 
     setCart(
       cart.map((item) =>
-        item.id === productId ? { ...item, precovenda: price } : item
-      )
+        item.id === productId ? { ...item, precovenda: price } : item,
+      ),
     );
   };
 
@@ -342,7 +372,8 @@ export function POSSystem() {
       if (hasMethod) {
         const next = current.filter((value) => value !== method);
         setPaymentAmounts((amounts) => {
-          const { [method]: _removed, ...remaining } = amounts;
+          const remaining = { ...amounts };
+          delete remaining[method];
           return remaining;
         });
         return next.length > 0 ? next : ["NAO_INFORMAR"];
@@ -571,6 +602,15 @@ export function POSSystem() {
     }
   };
 
+  const firstVisibleProductPage = Math.max(
+    1,
+    Math.min(productsPage - 2, productsTotalPages - 4),
+  );
+  const visibleProductPages = Array.from(
+    { length: Math.min(5, productsTotalPages) },
+    (_, index) => firstVisibleProductPage + index,
+  );
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -588,13 +628,13 @@ export function POSSystem() {
     <div className="min-h-screen bg-background p-4">
       <div className="mx-auto ">
         {/* Header */}
-        <div className="mb-8 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="mb-6 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary">
               <Store className="h-6 w-6 text-primary-foreground" />
             </div>
-            <div className="flex flex-row items-center gap-4">
-              <h1 className="text-3xl font-bold text-foreground">
+            <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-4">
+              <h1 className="text-2xl font-bold text-foreground sm:text-3xl">
                 Ponto de Venda
               </h1>
               <div
@@ -606,11 +646,11 @@ export function POSSystem() {
               </div>
             </div>
           </div>
-          <div className="text-right">
+          <div className="text-left sm:text-right">
             <div className="text-sm text-muted-foreground">
               Total em Carrinho
             </div>
-            <div className="text-3xl font-bold text-primary">
+            <div className="text-2xl font-bold text-primary sm:text-3xl">
               {formatCurrencyBRL(total)}
             </div>
           </div>
@@ -621,16 +661,42 @@ export function POSSystem() {
           <div className="lg:col-span-2 space-y-6">
             {/* Search and Filter */}
             <Card className="bg-card border-border">
-              <CardContent className="pt-6 space-y-4">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <CardContent className="space-y-4">
+                <form
+                  className="relative"
+                  role="search"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    setSubmittedSearch(searchTerm.trim());
+                  }}
+                >
+                  <button
+                    type="submit"
+                    className="absolute left-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                    aria-label="Buscar produtos"
+                  >
+                    <Search className="h-4 w-4" />
+                  </button>
                   <Input
                     placeholder="Buscar produtos..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="border-border bg-card pl-10 text-foreground placeholder:text-muted-foreground"
+                    className="border-border bg-card pl-10 pr-10 text-foreground placeholder:text-muted-foreground"
                   />
-                </div>
+                  {searchTerm && (
+                    <button
+                      type="button"
+                      className="absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                      aria-label="Limpar busca"
+                      onClick={() => {
+                        setSearchTerm("");
+                        setSubmittedSearch("");
+                      }}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </form>
 
                 {/* Categories */}
                 <div className="flex gap-2 flex-wrap">
@@ -659,13 +725,13 @@ export function POSSystem() {
               {filteredProducts.map((product) => (
                 <Card
                   key={product.id}
-                  className={`bg-card border-border hover:border-primary/50 transition-all ${
-                    product.estoque && product.estoque <= 0
+                  className={`group bg-card border-border hover:border-primary/50 transition-all ${
+                    (product.estoque ?? 0) <= 0
                       ? "opacity-60"
-                      : "cursor-default group"
+                      : "cursor-default"
                   }`}
                 >
-                  <CardContent className="p-4 space-y-3">
+                  <CardContent className=" space-y-3">
                     <div className="aspect-[1/1] bg-white rounded-lg flex items-center justify-center group-hover:bg-white duration-75 transition-all relative">
                       {product.imgUrl ? (
                         <div className="w-full h-full relative">
@@ -677,10 +743,12 @@ export function POSSystem() {
                             /> */}
                           </div>
                           <div className="w-full h-full overflow-hidden flex items-center justify-center absolute z-10">
-                            <img
+                            <Image
                               alt={product.titulo || "imagem do produto"}
                               className="h-full group-hover:scale-105 transition-all duration-500"
                               src={product.imgUrl}
+                              width={500}
+                              height={500}
                             />
                           </div>
                         </div>
@@ -693,7 +761,7 @@ export function POSSystem() {
                             type="button"
                             size="icon"
                             variant="secondary"
-                            className="absolute top-2 left-2 z-20 h-8 w-8 rounded-full bg-background/90 hover:bg-background hover:cursor-pointer"
+                            className="absolute left-2 top-2 z-20 h-8 w-8 rounded-full bg-background/90 opacity-100 transition-opacity hover:bg-background md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"
                             onClick={() => setSelectedProductInfo(product)}
                           >
                             <Info className="h-4 w-4" />
@@ -711,13 +779,15 @@ export function POSSystem() {
                           <div className="grid gap-4 sm:grid-cols-[160px_1fr]">
                             <div className="h-40 overflow-hidden rounded-lg border border-border bg-muted flex items-center justify-center">
                               {selectedProductInfo?.imgUrl ? (
-                                <img
+                                <Image
                                   alt={
                                     selectedProductInfo?.titulo ||
                                     "imagem do produto"
                                   }
                                   className="h-full w-full object-contain"
                                   src={selectedProductInfo.imgUrl}
+                                  width={320}
+                                  height={320}
                                 />
                               ) : (
                                 <Wrench className="h-10 w-10 text-muted-foreground" />
@@ -789,7 +859,7 @@ export function POSSystem() {
 
                       {config?.alerta_estoque_pdv &&
                         product.status_estoque === Estoque_status.CRITICO && (
-                          <div className="absolute z-20 top-1 right-1 flex p-1 items-center justify-center rounded-full bg-red-800 not-dark:bg-red-300">
+                          <div className="absolute right-1 top-1 z-20 flex items-center justify-center rounded-full bg-red-800 p-1 opacity-100 transition-opacity not-dark:bg-red-300 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
                             <Tooltip>
                               <TooltipTrigger>
                                 <AlertCircle className="h-4 w-4" />
@@ -800,7 +870,7 @@ export function POSSystem() {
                         )}
                       {config?.alerta_estoque_pdv &&
                         product.status_estoque === Estoque_status.BAIXO && (
-                          <div className="absolute top-1 z-20 right-1 flex p-1 items-center justify-center rounded-full bg-yellow-800 not-dark:bg-yellow-300">
+                          <div className="absolute right-1 top-1 z-20 flex items-center justify-center rounded-full bg-yellow-800 p-1 opacity-100 transition-opacity not-dark:bg-yellow-300 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
                             <Tooltip>
                               <TooltipTrigger>
                                 <AlertTriangle className="h-4 w-4" />
@@ -812,7 +882,7 @@ export function POSSystem() {
                       {config?.alerta_estoque_pdv &&
                         product.status_estoque ===
                           Estoque_status.SEM_ESTOQUE && (
-                          <div className="absolute z-20 top-1 right-1 flex p-1 items-center justify-center rounded-full bg-purple-800 not-dark:bg-purple-300">
+                          <div className="absolute right-1 top-1 z-20 flex items-center justify-center rounded-full bg-purple-800 p-1 opacity-100 transition-opacity not-dark:bg-purple-300 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
                             <Tooltip>
                               <TooltipTrigger>
                                 <CircleOff className="h-4 w-4" />
@@ -840,10 +910,10 @@ export function POSSystem() {
                       <Button
                         onClick={() => addToCart(product)}
                         disabled={
-                          product.estoque && product.estoque <= 0 ? true : false
+                          (product.estoque ?? 0) <= 0
                         }
                         size="sm"
-                        className={`bg-primary hover:cursor-pointer hover:bg-primary/90 text-primary-foreground h-8 px-2 disabled:opacity-50 ${product.estoque ? "hover:cursor-pointer" : "hover:cursor-not-allowed"}`}
+                        className="h-8 bg-primary px-2 text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Plus className="h-4 w-4" />
                       </Button>
@@ -852,11 +922,78 @@ export function POSSystem() {
                 </Card>
               ))}
             </div>
+            <nav
+              className="flex flex-col items-center justify-between gap-3 rounded-lg border bg-card p-3 sm:flex-row"
+              aria-label="Paginação dos produtos"
+            >
+              <p className="text-sm text-muted-foreground">
+                Página {productsPage} de {productsTotalPages} · {productsTotal} produtos
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-1">
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  aria-label="Primeira página"
+                  disabled={productsPage <= 1 || loadingProductsPage}
+                  onClick={() => void fetchProdutos(1)}
+                >
+                  <ChevronsLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  aria-label="Página anterior"
+                  disabled={productsPage <= 1 || loadingProductsPage}
+                  onClick={() => void fetchProdutos(productsPage - 1)}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+
+                {visibleProductPages.map((page) => (
+                  <Button
+                    key={page}
+                    type="button"
+                    size="icon"
+                    variant={page === productsPage ? "default" : "outline"}
+                    aria-label={`Ir para a página ${page}`}
+                    aria-current={page === productsPage ? "page" : undefined}
+                    disabled={loadingProductsPage}
+                    onClick={() => void fetchProdutos(page)}
+                  >
+                    {page}
+                  </Button>
+                ))}
+
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  aria-label="Próxima página"
+                  disabled={productsPage >= productsTotalPages || loadingProductsPage}
+                  onClick={() => void fetchProdutos(productsPage + 1)}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  aria-label="Última página"
+                  disabled={productsPage >= productsTotalPages || loadingProductsPage}
+                  onClick={() => void fetchProdutos(productsTotalPages)}
+                >
+                  <ChevronsRight className="h-4 w-4" />
+                </Button>
+                {loadingProductsPage && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
+              </div>
+            </nav>
           </div>
 
           {/* Cart Section */}
           <div className="lg:col-span-1">
-            <Card className="bg-card border-border h-fit sticky top-4">
+            <Card className="h-fit border-border bg-card lg:sticky lg:top-4">
               <CardHeader className="border-b border-border">
                 <CardTitle className="flex flex-col items-center gap-2 text-foreground">
                   <div className="flex flex-row justify-between w-full items-center gap-2">

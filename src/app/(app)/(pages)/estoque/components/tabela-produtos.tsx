@@ -55,7 +55,7 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 
-import { Estoque_status, Pagination, Produto } from "../types";
+import { Estoque_status, Pagination, Produto, ProductListFilters } from "../types";
 import { DialogProduto } from "./dialog-produto/dialog-produto";
 import AlertaExcluir from "./alerta-excluir";
 import axios, { isAxiosError } from "axios";
@@ -73,6 +73,7 @@ import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import EntradaDialog from "./dialog-entrada/dialog-entrada-unica";
 import EntradaFiscalDialog from "./dialog-entrada/dialog-entrada-fiscal";
 import { DialogEntradaGeral } from "./dialog-entrada-geral/dialog-entrada-geral";
+import { ProdutoFiltrosSheet } from "./produto-filtros-sheet";
 
 interface TabelaProdutosProps {
   isLoading: boolean;
@@ -84,9 +85,12 @@ interface TabelaProdutosProps {
     limit?: number,
     search?: string,
     status?: Estoque_status,
+    filters?: ProductListFilters,
   ) => void;
   fetchStatusCounts: () => void;
   status: Estoque_status;
+  filters: ProductListFilters;
+  setFilters: (filters: ProductListFilters) => void;
 
   selectedProductId?: number | undefined;
   setSelectedProductId?: (value: number | undefined) => void;
@@ -142,6 +146,8 @@ export default function TabelaProdutos({
   handleGetProducts,
   fetchStatusCounts,
   status,
+  filters,
+  setFilters,
   selectedProductId,
   setSelectedProductId,
   isOpen,
@@ -175,6 +181,12 @@ export default function TabelaProdutos({
 
   const [entradaFiscalOpen, setEntradaFiscalOpen] = useState(false);
   const [entradaGeralOpen, setEntradaGeralOpen] = useState(false);
+  const filteredHandleGetProducts = (
+    pageNumber?: number,
+    limit?: number,
+    searchValue?: string,
+    statusValue?: Estoque_status,
+  ) => handleGetProducts(pageNumber, limit, searchValue, statusValue, filters);
 
   const abrirNovoProduto = () => {
     if (!canCreate) return;
@@ -232,7 +244,7 @@ export default function TabelaProdutos({
       const response = await axios.delete(`/api/products/${id}`, {});
       if (response.status === 204) {
         toast.success("Produto deletado!");
-        handleGetProducts(pagination.page, pagination.limit, search, status);
+        handleGetProducts(pagination.page, pagination.limit, search, status, filters);
         fetchStatusCounts();
       } else {
         toast.warning(`Status inesperado: ${response.status}`);
@@ -258,7 +270,7 @@ export default function TabelaProdutos({
   return (
     <Card>
       <CardHeader className="border-b-2 pb-4">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center">
           <div>
             <CardTitle>Lista de Produtos</CardTitle>
             <CardDescription>
@@ -269,6 +281,7 @@ export default function TabelaProdutos({
                     pagination.limit,
                     search,
                     status,
+                    filters,
                   );
                   fetchStatusCounts();
                 }}
@@ -283,7 +296,8 @@ export default function TabelaProdutos({
             </CardDescription>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <ProdutoFiltrosSheet filters={filters} onApply={setFilters} />
             <BotaoExportarProdutos />
 
             <DropdownMenu>
@@ -335,13 +349,13 @@ export default function TabelaProdutos({
           isOpen={isOpen}
           setIsOpen={setIsOpen}
           onAfterSaveProduct={() =>
-            handleGetProducts(pagination.page, pagination.limit, search, status)
+            handleGetProducts(pagination.page, pagination.limit, search, status, filters)
           }
         />
 
         {/* ✅ Entrada Fiscal (1 instância) */}
         <EntradaFiscalDialog
-          handleGetProducts={handleGetProducts}
+          handleGetProducts={filteredHandleGetProducts}
           isOpen={entradaFiscalOpen}
           setIsOpen={setEntradaFiscalOpen}
         />
@@ -355,6 +369,7 @@ export default function TabelaProdutos({
                 pagination.limit,
                 search,
                 status,
+                filters,
               );
             } else {
               setEntradaGeralOpen(true);
@@ -566,7 +581,7 @@ export default function TabelaProdutos({
               size="sm"
               className="hover:cursor-pointer"
               onClick={() =>
-                handleGetProducts(1, pagination.limit, search, status)
+                handleGetProducts(1, pagination.limit, search, status, filters)
               }
               disabled={pagination.page === 1}
             >
@@ -582,6 +597,7 @@ export default function TabelaProdutos({
                   pagination.limit,
                   search,
                   status,
+                  filters,
                 )
               }
               disabled={pagination.page === 1}
@@ -601,6 +617,7 @@ export default function TabelaProdutos({
                   pagination.limit,
                   search,
                   status,
+                  filters,
                 )
               }
               disabled={
@@ -620,6 +637,7 @@ export default function TabelaProdutos({
                   pagination.limit,
                   search,
                   status,
+                  filters,
                 )
               }
               disabled={
@@ -648,7 +666,7 @@ export default function TabelaProdutos({
         {/* ✅ 1 ÚNICO dialog de Entrada */}
         {entradaProduto && (
           <EntradaDialog
-            handleGetProducts={handleGetProducts}
+            handleGetProducts={filteredHandleGetProducts}
             status={status}
             search={search}
             isOpen={entradaOpen}

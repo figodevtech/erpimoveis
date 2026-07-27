@@ -13,7 +13,7 @@ import { TabImagensCreate } from "./tabs/tab-imagens-create";
 import type { ProdutoImagemPendente } from "./tabs/produto-imagens-gallery";
 import { TabEtiquetas } from "./tabs/tab-etiquetas";
 import { useUnidadesMedida } from "./hooks/use-unidades-medida";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Unidade_medida } from "../../types";
 import { useGruposProduto } from "./hooks/use-grupo-produtos";
 import type { LoteSelectItem } from "@/app/(app)/components/loteSelect";
@@ -24,13 +24,15 @@ interface ConteudoCadastroProdutoProps {
   newProduct: Produto;
   setNewProduct: (value: Produto) => void;
   handleSearchFornecedor?: () => void;
-  onAfterSaveProduct?: () => void;
+  onAfterSaveProduct?: () => void | Promise<void>;
   isDesktop?: boolean;
 }
 
 const initialNewProduct: Produto = {
   id: 0,
   precovenda: 0,
+  estoque: 0,
+  estoqueminimo: 0,
   status_estoque: Estoque_status.OK,
   unidade: Unidade_medida.UN,
   fornecedor: "DESCONHECIDO",
@@ -60,22 +62,25 @@ export default function CadastroProduto({
   const tabTheme =
     " group h-8 rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:text-foreground data-[state=active]:bg-primary dark:data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm";
 
-  const handleChange = (field: keyof Produto, value: any) => {
-    setNewProduct({ ...newProduct, [field]: value });
-  };
+  const handleChange = useCallback(
+    (field: keyof Produto, value: any) => {
+      setNewProduct({ ...newProduct, [field]: value });
+    },
+    [newProduct, setNewProduct],
+  );
 
   useEffect(() => {
     // se não tiver unidade definida ainda, tenta setar uma ativa
     if (!newProduct.unidade && unidades.length > 0) {
       handleChange("unidade", unidades[0].sigla as Unidade_medida);
     }
-  }, [unidades]);
+  }, [handleChange, newProduct.unidade, unidades]);
   useEffect(() => {
     // se não tiver grupo definido ainda, tenta setar uma ativa
     if (!newProduct.grupo_produto_id && grupos.length > 0) {
       handleChange("grupo_produto_id", grupos[0].id);
     }
-  }, [grupos]);
+  }, [grupos, handleChange, newProduct.grupo_produto_id]);
 
   const handlePickImages = (files: File[]) => {
     if (files.length === 0) return;
@@ -144,19 +149,8 @@ export default function CadastroProduto({
       });
 
       if (response.status === 201) {
-        toast.success("Sucesso!", {
-          description: "Produto cadastrado.",
-          duration: 2000,
-        });
-
         const produtoId = response.data.data.id as number;
-
-        if (response.data.warning) {
-          toast.warning("Cadastro concluído com ressalvas", {
-            description: response.data.warning,
-            duration: 3500,
-          });
-        }
+        let falhaNoEnvioDasImagens = false;
 
         // envia imagens se selecionadas
         if (imagensPendentes.length > 0) {
@@ -183,11 +177,7 @@ export default function CadastroProduto({
             }
           } catch (err) {
             console.error("Erro ao enviar imagens:", err);
-            toast.error("Erro", {
-              description:
-                "Produto criado, mas não foi possível enviar as imagens.",
-              duration: 2500,
-            });
+            falhaNoEnvioDasImagens = true;
           }
         }
 
@@ -200,14 +190,31 @@ export default function CadastroProduto({
           limparImagensSelecionadas();
           setLotePendente(null);
           setCurrentTab("Geral");
-          onAfterSaveProduct?.();
+          await onAfterSaveProduct?.();
         } else {
           setSelectedProductId?.(produtoId);
           handleSearchFornecedor?.();
 
           limparImagensSelecionadas();
           setLotePendente(null);
-          onAfterSaveProduct?.();
+          await onAfterSaveProduct?.();
+        }
+
+        if (falhaNoEnvioDasImagens) {
+          toast.error("Cadastro concluído com erro", {
+            description: "Produto criado, mas não foi possível enviar todas as imagens.",
+            duration: 3500,
+          });
+        } else if (response.data.warning) {
+          toast.warning("Cadastro concluído com ressalvas", {
+            description: response.data.warning,
+            duration: 3500,
+          });
+        } else {
+          toast.success("Sucesso!", {
+            description: "Produto cadastrado com sucesso.",
+            duration: 2000,
+          });
         }
       }
     } catch (error) {

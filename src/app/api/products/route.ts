@@ -4,10 +4,46 @@ export const runtime = 'nodejs';
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireEstoqueAccess, requireEstoqueCreate } from "@/app/api/_authz/perms";
+import { getProductSearchTokens, matchesProductSearch } from "@/lib/product-search";
+import { registrarEntradaConfirmada } from "@/services/estoque/entradaService";
 
 /** Status de estoque (para filtros do GET) */
 type Status = 'OK' | 'CRITICO' | 'BAIXO' | 'SEM_ESTOQUE';
 const STATUS_SET = new Set<Status>(['OK', 'CRITICO', 'BAIXO', 'SEM_ESTOQUE']);
+const CONSERVACAO_SET = new Set(['NOVO', 'USADO', 'RECONDICIONADO']);
+
+type ProductQueryFilters = {
+  grupoId: number | null;
+  conservacao: string;
+  unidade: string;
+  fabricante: string;
+  local: string;
+  exibirPdv: boolean | null;
+  estoqueMin: number | null;
+  estoqueMax: number | null;
+  precoMin: number | null;
+  precoMax: number | null;
+};
+
+function finiteNumber(value: string | null) {
+  if (value == null || value.trim() === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function applyProductFilters(query: any, filters: ProductQueryFilters) {
+  if (filters.grupoId) query = query.eq('grupo_produto_id', filters.grupoId);
+  if (filters.conservacao) query = query.eq('conservacao', filters.conservacao);
+  if (filters.unidade) query = query.eq('unidade', filters.unidade);
+  if (filters.fabricante) query = query.ilike('fabricante', `%${filters.fabricante}%`);
+  if (filters.local) query = query.ilike('local', `%${filters.local}%`);
+  if (filters.exibirPdv != null) query = query.eq('exibirPdv', filters.exibirPdv);
+  if (filters.estoqueMin != null) query = query.gte('estoque', filters.estoqueMin);
+  if (filters.estoqueMax != null) query = query.lte('estoque', filters.estoqueMax);
+  if (filters.precoMin != null) query = query.gte('precovenda', filters.precoMin);
+  if (filters.precoMax != null) query = query.lte('precovenda', filters.precoMax);
+  return query;
+}
 
 /** Campos graváveis em produto */
 const WRITABLE_FIELDS = new Set([
@@ -72,6 +108,15 @@ function toPositiveInt(v: unknown) {
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
+const PERCENTAGE_FIELDS = new Set([
+  'aliquotaicms',
+  'aliquota_pis',
+  'aliquota_cofins',
+  'aliquota_ibs_uf',
+  'aliquota_ibs_municipio',
+  'aliquota_cbs',
+]);
+
 function precoMedioCompraValido(value: unknown) {
   const numero = Number(value);
   return Number.isFinite(numero) && numero > 0;
@@ -112,13 +157,23 @@ function sanitizeProdutoPayload(body: any, { strict }: { strict: boolean }) {
       case 'aliquota_ibs_uf':
       case 'aliquota_ibs_municipio':
       case 'aliquota_cbs': {
-        out[key] = toNumberOrNull(body[key]);
+        const number = toNumberOrNull(body[key]);
+        if (number != null && number < 0) {
+          throw new Error(`${key}: o valor não pode ser negativo.`);
+        }
+        if (number != null && PERCENTAGE_FIELDS.has(key) && number > 100) {
+          throw new Error(`${key}: o percentual deve estar entre 0 e 100.`);
+        }
+        out[key] = number;
         break;
       }
       case 'estoque':
       case 'estoqueminimo': {
         const n = toNumberOrNull(body[key]);
-        out[key] = n == null ? null : Math.trunc(n);
+        if (n != null && (!Number.isInteger(n) || n < 0)) {
+          throw new Error(`${key}: informe um número inteiro maior ou igual a zero.`);
+        }
+        out[key] = n;
         break;
       }
       default: {
@@ -161,6 +216,66 @@ export async function GET(req: Request) {
     const statusFilter = STATUS_SET.has(statusParam as Status)
       ? (statusParam as Status)
       : null;
+    const grupoId = toPositiveInt(searchParams.get('grupoId'));
+    const conservacaoParam = (searchParams.get('conservacao') ?? '').toUpperCase();
+    const exibirPdvParam = searchParams.get('exibirPdv');
+    const productFilters: ProductQueryFilters = {
+      grupoId,
+      conservacao: CONSERVACAO_SET.has(conservacaoParam) ? conservacaoParam : '',
+      unidade: (searchParams.get('unidade') ?? '').trim(),
+      fabricante: (searchParams.get('fabricante') ?? '').trim(),
+      local: (searchParams.get('local') ?? '').trim(),
+      exibirPdv: exibirPdvParam === 'true' ? true : exibirPdvParam === 'false' ? false : null,
+      estoqueMin: finiteNumber(searchParams.get('estoqueMin')),
+      estoqueMax: finiteNumber(searchParams.get('estoqueMax')),
+      precoMin: finiteNumber(searchParams.get('precoMin')),
+      precoMax: finiteNumber(searchParams.get('precoMax')),
+    };
+
+    if (q) {
+      const searchTokens = getProductSearchTokens(q);
+      const batchSize = 1000;
+      const searchableProducts: Record<string, unknown>[] = [];
+
+      for (let batchFrom = 0; ; batchFrom += batchSize) {
+        let searchQuery = supabaseAdmin
+          .from('produto')
+          .select(PRODUTO_FIELDS)
+          .order('id', { ascending: false })
+          .range(batchFrom, batchFrom + batchSize - 1);
+
+        if (statusFilter) {
+          searchQuery = searchQuery.eq('status_estoque', statusFilter);
+        }
+        searchQuery = applyProductFilters(searchQuery, productFilters);
+
+        const { data: batch, error: batchError } = await searchQuery;
+        if (batchError) throw batchError;
+        searchableProducts.push(...((batch ?? []) as Record<string, unknown>[]));
+        if ((batch?.length ?? 0) < batchSize) break;
+      }
+
+      const matchedProducts = searchableProducts.filter((product) =>
+        matchesProductSearch(product, searchTokens),
+      );
+      const total = matchedProducts.length;
+      const from = (page - 1) * limit;
+      const items = matchedProducts.slice(from, from + limit);
+
+      return NextResponse.json({
+        data: items,
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages: Math.max(1, Math.ceil(total / limit)),
+          pageCount: items.length,
+          hasPrevPage: page > 1,
+          hasNextPage: page * limit < total,
+        },
+        filters: { search: q },
+      });
+    }
 
     const from = (page - 1) * limit;
     const to = from + limit - 1;
@@ -185,6 +300,7 @@ export async function GET(req: Request) {
     if (statusFilter) {
       query = query.eq('status_estoque', statusFilter);
     }
+    query = applyProductFilters(query, productFilters);
 
     const { data, error, count } = await query;
     if (error) throw error;
@@ -224,8 +340,6 @@ export async function POST(req: Request) {
   try {
     await requireEstoqueCreate();
     const body = (await req.json()) as any;
-    console.log(body);
-
     // Produto pode vir em body.newProduct ou direto no body
     const json =
       body?.newProduct && typeof body.newProduct === "object"
@@ -276,6 +390,10 @@ export async function POST(req: Request) {
       );
     }
 
+    const estoqueInicial = Number(payload.estoque ?? 0);
+    // O saldo deve nascer de uma entrada auditável, nunca diretamente do INSERT.
+    payload.estoque = 0;
+
     // Deixe validações de ENUMs/constraints a cargo do banco (unidade, grupo, etc.)
     const { data, error } = await supabaseAdmin
       .from("produto")
@@ -299,6 +417,39 @@ export async function POST(req: Request) {
 
     const warnings: string[] = [];
 
+    if (estoqueInicial > 0) {
+      try {
+        await registrarEntradaConfirmada(
+          {
+            produto_id: data.id,
+            quantidade: estoqueInicial,
+            valor_unitario_compra:
+              ultimoValorDeCompra ?? toNumberOrNull(payload.precocompra) ?? 0,
+            fornecedorId: fornecedorId ?? null,
+            entradaTipo: "COMPRA_FORNECEDOR",
+            fiscal: false,
+          },
+          "AJUSTE_RAPIDO",
+        );
+      } catch (entradaError) {
+        const { error: rollbackError } = await supabaseAdmin
+          .from("produto")
+          .delete()
+          .eq("id", data.id);
+        if (rollbackError) {
+          console.error(
+            "[POST /products] Falha ao remover produto após erro na entrada inicial:",
+            rollbackError,
+          );
+        }
+        throw new Error(
+          `Não foi possível registrar o estoque inicial: ${
+            entradaError instanceof Error ? entradaError.message : "erro desconhecido"
+          }`,
+        );
+      }
+    }
+
     if (loteId) {
       const { error: loteError } = await supabaseAdmin
         .from("lote_pecas")
@@ -316,11 +467,11 @@ export async function POST(req: Request) {
         fornecedorid: fornecedorId,
         produtoid: data.id,
         codigofornecedor: String(codigoFornecedor),
-        // se não vier ultimoValorDeCompra, usamos o precovenda do produto como base
+        // Sem o último custo informado, usamos apenas o preço médio de compra.
         ultimovalordecompra:
           ultimoValorDeCompra != null
             ? ultimoValorDeCompra
-            : toNumberOrNull(payload.precovenda),
+            : toNumberOrNull(payload.precocompra),
       };
 
       const { error: relError } = await supabaseAdmin
@@ -339,7 +490,7 @@ export async function POST(req: Request) {
     // 201 Created
     return NextResponse.json(
       {
-        data,
+        data: { ...data, estoque: estoqueInicial },
         id: data.id,
         warning: warnings.length > 0 ? `Produto criado, porém ${warnings.join(" ")}` : undefined,
       },
@@ -349,7 +500,9 @@ export async function POST(req: Request) {
     const msg =
       e?.message ??
       "Erro ao criar produto. Verifique os campos obrigatórios e os tipos.";
-    const isBadReq =
+    const validationError = ["informe", "nao pode", "não pode", "percentual", "estoque inicial"]
+      .some((term) => msg.toLowerCase().includes(term));
+    const isBadReq = validationError ||
       msg.includes("Campos obrigatórios ausentes") ||
       msg.toLowerCase().includes("obrigatório");
     return NextResponse.json({ error: msg }, { status: isBadReq ? 400 : 500 });

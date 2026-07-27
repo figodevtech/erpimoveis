@@ -162,3 +162,16 @@ export interface Pagination {
   totalPages: number;
   pageCount?: number;
 }
+
+export interface ProductListFilters {
+  grupoId: string;
+  conservacao: string;
+  unidade: string;
+  fabricante: string;
+  local: string;
+  exibirPdv: string;
+  estoqueMin: string;
+  estoqueMax: string;
+  precoMin: string;
+  precoMax: string;
+}
