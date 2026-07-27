@@ -28,7 +28,7 @@ export function DialogShell({
   fixedHeight?: boolean;
 }) {
   const fixedHeightClass = fixedHeight
-    ? "h-[100dvh] max-h-[100dvh] sm:h-[85vh] sm:max-h-[85vh] supports-[height:100svh]:sm:h-[85svh] supports-[height:100svh]:sm:max-h-[85svh]"
+    ? "h-[100dvh] max-h-[100dvh]"
     : "";
 
   return (
@@ -36,9 +36,7 @@ export function DialogShell({
       <DialogContent
         className={
           mobileFull
-            ? `h-svh w-[100dvw] max-w-[100dvw] min-w-0 overflow-hidden rounded-none p-0 sm:w-[95vw] sm:max-w-[95vw] sm:rounded-lg md:max-w-3xl ${
-                fixedHeight ? "sm:h-svh sm:max-h-[850px]" : "sm:h-auto sm:max-h-[85vh]"
-              } ${maxW}`
+            ? `h-[100dvh] max-h-[100dvh] w-[100dvw] max-w-[100dvw] min-w-0 overflow-hidden rounded-none p-0 sm:w-[95vw] sm:max-w-[95vw] sm:rounded-lg md:max-w-3xl ${maxW}`
             : `p-0 w-[96vw] sm:max-w-[95vw] md:max-w-3xl ${fixedHeightClass} ${maxW}`
         }
         onInteractOutside={(e) => e.preventDefault()}
@@ -46,9 +44,9 @@ export function DialogShell({
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <div
-          className={`grid w-full ${
+          className={`grid min-h-0 w-full overflow-hidden ${
             mobileFull || fixedHeight
-              ? `h-full max-h-svh ${fixedHeight ? "sm:max-h-[850px]" : "sm:max-h-[85vh]"}`
+              ? "h-full max-h-full"
               : "max-h-[85vh]"
           } ${loading ? "grid-rows-[1fr]" : "grid-rows-[auto_1fr_auto]"}`}
         >
@@ -78,11 +76,17 @@ export function DialogShell({
               </div>
             </div>
           ) : null}
-          <div className={loading ? "overflow-y-auto" : "overflow-y-auto px-4 py-4 sm:px-6 sm:py-6"}>
+          <div
+            className={
+              loading
+                ? "min-h-0 overflow-y-auto overscroll-contain"
+                : "min-h-0 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-6"
+            }
+          >
             {children}
           </div>
           {!loading ? (
-            <div className="flex items-center justify-end gap-2 overflow-x-auto border-t px-4 py-3 sm:px-6">
+            <div className="z-10 flex shrink-0 items-center justify-end gap-2 overflow-x-auto border-t bg-background px-4 py-3 sm:px-6">
               {footer}
             </div>
           ) : null}

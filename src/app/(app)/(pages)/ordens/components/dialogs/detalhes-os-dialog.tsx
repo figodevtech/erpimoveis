@@ -932,8 +932,8 @@ export function OSDetalhesDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="
-          flex h-[100dvh] w-[100dvw] max-w-[100dvw] flex-col rounded-none
-          sm:h-svh sm:max-h-[850px] sm:w-[95vw] sm:rounded-lg
+          flex h-[100dvh] max-h-[100dvh] w-[100dvw] max-w-[100dvw] flex-col rounded-none
+          sm:w-[95vw] sm:rounded-lg
           md:max-w-[1100px]
           overflow-hidden
           !gap-0 p-0
@@ -1142,7 +1142,7 @@ export function OSDetalhesDialog({
 
                 <TabsContent value="itens" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-4 sm:px-6 sm:py-5">
               {mostrarAlertaAntesDeIniciar && (
-                <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-100 flex items-start gap-2">
+                <div className="rounded-lg border border-amber-500/40 bg-amber-800 dark:bg-amber-500/10  px-4 py-3 text-xs text-amber-100 flex items-start gap-2">
                   <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-amber-300" />
                   <div>
                     <div className="font-medium text-amber-100">Defina o responsável pelos serviços antes de iniciar a OS.</div>
