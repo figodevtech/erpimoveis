@@ -108,6 +108,15 @@ function toPositiveInt(v: unknown) {
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
+const PERCENTAGE_FIELDS = new Set([
+  'aliquotaicms',
+  'aliquota_pis',
+  'aliquota_cofins',
+  'aliquota_ibs_uf',
+  'aliquota_ibs_municipio',
+  'aliquota_cbs',
+]);
+
 function precoMedioCompraValido(value: unknown) {
   const numero = Number(value);
   return Number.isFinite(numero) && numero > 0;
@@ -380,6 +389,10 @@ export async function POST(req: Request) {
         { status: 400 },
       );
     }
+
+    const estoqueInicial = Number(payload.estoque ?? 0);
+    // O saldo deve nascer de uma entrada auditável, nunca diretamente do INSERT.
+    payload.estoque = 0;
 
     // Deixe validações de ENUMs/constraints a cargo do banco (unidade, grupo, etc.)
     const { data, error } = await supabaseAdmin

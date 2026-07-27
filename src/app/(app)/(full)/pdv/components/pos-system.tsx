@@ -319,6 +319,16 @@ export function POSSystem() {
     }
   };
 
+  const updatePrice = (productId: number, price: number) => {
+    if (!Number.isFinite(price) || price < 0) return;
+
+    setCart(
+      cart.map((item) =>
+        item.id === productId ? { ...item, precovenda: price } : item,
+      ),
+    );
+  };
+
   const subtotal = cart.reduce(
     (sum, item) => sum + item.precovenda * item.quantity,
     0,
