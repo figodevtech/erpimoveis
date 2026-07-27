@@ -29,6 +29,7 @@ import { formatDate } from "@/utils/formatDate";
 import VendasFinancialDialog from "./vendasFinancialDialog/vendasFinancialDialog";
 import { EmissaoNotaDialog } from "../../../ordens/components/dialogs/emissao-nota-dialog/emissao-nota-dialog";
 import { useConfig } from "../../../config-context";
+import { Badge } from "@/components/ui/badge";
 import {
   PaymentListFilters,
   PaymentsFilterSheet,
@@ -198,7 +199,22 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
                     <TableCell>{v.cliente.nomerazaosocial}</TableCell>
                     <TableCell>{formatDate(v.datavenda)}</TableCell>
                     <TableCell>{formatarEmReal(v.valortotal)}</TableCell>
-                    <TableCell>{v.status}</TableCell>
+                    <TableCell>
+                      {Number(v.valortotal ?? 0) > 0 ? (
+                        (v.transacoes?.reduce((total, transaction) => total + Number(transaction?.valor ?? 0), 0) ?? 0) <
+                        Number(v.valortotal) ? (
+                          <Badge variant="secondary" className="font-bold text-amber-400">
+                            Pagamento
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="font-bold text-green-400">
+                            Faturado
+                          </Badge>
+                        )
+                      ) : (
+                        "Venda sem valor"
+                      )}
+                    </TableCell>
 
                     <TableCell className="flex justify-end">
                       <DropdownMenu>

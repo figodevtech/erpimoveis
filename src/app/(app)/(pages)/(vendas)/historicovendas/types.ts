@@ -1,5 +1,6 @@
 import { Customer } from "../../clientes/types";
 import { Produto } from "../../estoque/types";
+import { Transaction } from "../../(financeiro)/fluxodecaixa/types";
 
 export interface StatusMetrics {
   totalValor: number;
@@ -91,6 +92,7 @@ export interface VendaComItens {
   observacoes?: string | null;
   observacoes_fiscais?: string | null;
   itens: VendaProdutoItem[];
+  transacoes?: Transaction[] | null;
 }
 
 export interface Pagination {

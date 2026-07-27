@@ -97,6 +97,10 @@ const VENDA_SELECT = `
   observacoes_fiscais,
   forma_pagamento,
   sub_total,
+  transacoes:transacao!transacao_vendaid_fkey (
+    id,
+    valor
+  ),
   itens:vendaproduto (
     id,
     produtoid,

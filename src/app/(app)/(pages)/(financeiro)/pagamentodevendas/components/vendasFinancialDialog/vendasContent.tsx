@@ -292,7 +292,7 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
   // ====== RENDER
   if (isLoadingOs) {
     return (
-      <DialogContent className="h-dvh w-[100svw] max-w-[100svw] p-0 overflow-hidden rounded-none sm:max-w-[1100px] sm:max-h-[850px] sm:w-[95vw] sm:rounded-2xl">
+      <DialogContent className="h-dvh w-[100svw] max-w-[100svw] overflow-hidden rounded-none p-0 sm:h-[calc(100dvh-2rem)] sm:max-h-none sm:w-[95vw] sm:max-w-[1100px] sm:rounded-2xl">
         <DialogHeader className="hidden">
           <DialogTitle></DialogTitle>
         </DialogHeader>
@@ -307,7 +307,7 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
   if (!venda) return null;
 
   return (
-    <DialogContent className="h-svh w-[100svw] max-w-[100svw] p-0 overflow-hidden rounded-none sm:max-w-[1100px] sm:max-h-[850px] sm:w-[95vw] sm:rounded-2xl">
+    <DialogContent className="h-dvh w-[100svw] max-w-[100svw] overflow-hidden rounded-none p-0 sm:h-[calc(100dvh-2rem)] sm:max-h-none sm:w-[95vw] sm:max-w-[1100px] sm:rounded-2xl">
       <div className="flex h-full min-h-0 min-w-0 flex-col">
         <DialogHeader className="shrink-0 px-6 py-4 border-b">
           <DialogTitle>
@@ -329,7 +329,7 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
           />
         </div>
 
-        <div className="h-full min-h-0 overflow-y-auto overflow-x-hidden min-w-0 dark:bg-muted-foreground/5 px-6 py-4 space-y-2">
+        <div className="min-h-0 min-w-0 flex-1 space-y-2 overflow-y-auto overflow-x-hidden px-6 py-4 dark:bg-muted-foreground/5">
           <Tabs defaultValue="detalhes" className="space-y-3">
             <div className="pb-1">
               <TabsList className="grid h-auto w-full grid-cols-5 gap-1.5 rounded-2xl border bg-muted/40 p-1 backdrop-blur-sm">
@@ -387,6 +387,15 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
                   <p className="mt-1 truncate text-sm font-medium">{venda.criador?.nome || venda.created_by || "-"}</p>
                   <p className="text-xs text-muted-foreground">Responsável pela venda</p>
                 </div>
+              </div>
+
+              <div className="rounded-lg border bg-card p-4">
+                <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                  Descrição interna
+                </span>
+                <p className="mt-1 whitespace-pre-wrap break-words text-sm">
+                  {venda.observacoes?.trim() || "Nenhuma descrição interna informada."}
+                </p>
               </div>
 
               <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -739,11 +748,11 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
           </Tabs>
         </div>
 
-        <DialogFooter className="px-6 py-4 border-t">
-          <div className="flex w-full flex-col justify-start gap-2.5 text-xs bg-card p-4">
+        <DialogFooter className="shrink-0 border-t bg-background">
+          <div className="flex w-full flex-col justify-start gap-1 text-xs bg-card p-4">
             <span className="text-sm font-medium">Resumo:</span>
             <Separator />
-            <div className="grid w-full grid-cols-[max-content_minmax(24px,1fr)_max-content] items-center gap-2">
+            <div className="grid w-full grid-cols-[max-content_minmax(24px,1fr)_max-content] items-center">
               <span className="text-nowrap">Subtotal:</span>
               <div className="h-full w-full border-b border-dashed"></div>
               <h1 className="text-left tabular-nums">
