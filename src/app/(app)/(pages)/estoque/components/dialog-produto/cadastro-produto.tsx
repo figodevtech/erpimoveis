@@ -33,6 +33,7 @@ const initialNewProduct: Produto = {
   precovenda: 0,
   estoque: 0,
   estoqueminimo: 0,
+  exibirPdv: true,
   status_estoque: Estoque_status.OK,
   unidade: Unidade_medida.UN,
   fornecedor: "DESCONHECIDO",
