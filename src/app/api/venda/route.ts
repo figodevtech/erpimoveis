@@ -33,8 +33,8 @@ const STATUS_SET = new Set<Status>([
 type VendaItemInput = {
   produtoId: number;
   quantidade: number;
-  subTotal: number;
-  valorTotal: number;
+  subTotal?: number;
+  valorTotal?: number;
   valorDesconto?: number | null;
   tipoDesconto?: string | null;
 };
@@ -48,8 +48,8 @@ type VendaPostBody = {
   descontoTipo?: string | null; // enum_tipo_desconto_venda
   descontoValor?: number | null;
   categoriaVendaId?: number | null;
-  subTotal: number;
-  valorTotal: number;
+  subTotal?: number;
+  valorTotal?: number;
   dataVenda?: string | null; // opcional, ISO string. Se não vier, usa default do banco (now()).
   itens: VendaItemInput[];
 };
@@ -433,7 +433,6 @@ export async function POST(req: Request) {
       body.vendedor = session.user.id;
     }
 
-    console.log("Criando venda com body:", body);
     // Validação básica no backend
     if (
       !body ||
@@ -441,15 +440,13 @@ export async function POST(req: Request) {
       !body.clienteId ||
       !body.created_by ||
       !body.status ||
-      body.subTotal == null ||
-      body.valorTotal == null ||
       !Array.isArray(body.itens) ||
       body.itens.length === 0
     ) {
       return NextResponse.json(
         {
           error:
-            "Campos obrigatórios: clienteId, created_by, status, subTotal, valorTotal, itens[].",
+            "Campos obrigatórios: clienteId, created_by, status, itens[].",
         },
         { status: 400 }
       );
@@ -457,7 +454,11 @@ export async function POST(req: Request) {
 
     // Cada item precisa ter produtoId e quantidade > 0
     for (const item of body.itens) {
-      if (!item.produtoId || !item.quantidade || item.quantidade <= 0) {
+      if (
+        !Number.isInteger(Number(item.produtoId)) ||
+        !Number.isInteger(Number(item.quantidade)) ||
+        Number(item.quantidade) <= 0
+      ) {
         return NextResponse.json(
           {
             error: "Cada item deve possuir produtoId e quantidade > 0.",
@@ -466,6 +467,72 @@ export async function POST(req: Request) {
         );
       }
     }
+
+    // Nunca confie em preços ou totais enviados pelo navegador. Além de evitar
+    // manipulação da requisição, isto mantém venda e itens contabilmente coerentes.
+    const quantitiesByProduct = new Map<number, number>();
+    for (const item of body.itens) {
+      const productId = Number(item.produtoId);
+      quantitiesByProduct.set(
+        productId,
+        (quantitiesByProduct.get(productId) ?? 0) + Number(item.quantidade),
+      );
+    }
+
+    const requestedProductIds = Array.from(quantitiesByProduct.keys());
+    const { data: products, error: productsError } = await supabaseAdmin
+      .from("produto")
+      .select("id, precovenda")
+      .in("id", requestedProductIds);
+
+    if (productsError) throw productsError;
+
+    const priceByProduct = new Map(
+      (products ?? []).map((product) => [
+        Number(product.id),
+        Number(product.precovenda),
+      ]),
+    );
+    const unavailableIds = requestedProductIds.filter((id) => {
+      const price = priceByProduct.get(id);
+      return price === undefined || !Number.isFinite(price) || price < 0;
+    });
+
+    if (unavailableIds.length > 0) {
+      return NextResponse.json(
+        { error: "Um ou mais produtos não existem ou estão sem preço de venda." },
+        { status: 400 },
+      );
+    }
+
+    const roundMoney = (value: number) => Math.round(value * 100) / 100;
+    const normalizedItems: VendaItemInput[] = requestedProductIds.map((productId) => {
+      const quantity = quantitiesByProduct.get(productId)!;
+      const itemTotal = roundMoney(priceByProduct.get(productId)! * quantity);
+      return {
+        produtoId: productId,
+        quantidade: quantity,
+        subTotal: itemTotal,
+        valorTotal: itemTotal,
+        valorDesconto: 0,
+        tipoDesconto: null,
+      };
+    });
+    const serverSubTotal = roundMoney(
+      normalizedItems.reduce((sum, item) => sum + (item.subTotal ?? 0), 0),
+    );
+    const requestedDiscount = Number(body.descontoValor ?? 0);
+    const serverDiscount = roundMoney(
+      Math.min(
+        serverSubTotal,
+        Number.isFinite(requestedDiscount) ? Math.max(0, requestedDiscount) : 0,
+      ),
+    );
+
+    body.itens = normalizedItems;
+    body.subTotal = serverSubTotal;
+    body.descontoValor = serverDiscount > 0 ? serverDiscount : null;
+    body.valorTotal = roundMoney(serverSubTotal - serverDiscount);
 
     // Chama função RPC no Postgres (tudo transacional lá)
     const { data: vendaId, error: rpcError } = await supabaseAdmin.rpc(

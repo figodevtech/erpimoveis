@@ -26,6 +26,8 @@ interface DialogProdutoProps {
 const initialNewProduct: Produto = {
   id: 0,
   precovenda: 0,
+  estoque: 0,
+  estoqueminimo: 0,
   status_estoque: Estoque_status.OK,
   unidade: Unidade_medida.UN,
   fornecedor: "DESCONHECIDO",

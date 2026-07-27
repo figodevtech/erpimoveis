@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Produto, Pagination, Estoque_status } from "./types";
+import { Produto, Pagination, Estoque_status, ProductListFilters } from "./types";
 import axios from "axios";
 import useContadorStatus from "./hooks/contador-status";
 import Cards from "./components/cards";
 import FiltroPesquisa from "./components/filtro-pesquisa";
 import TabelaProdutos from "./components/tabela-produtos";
+import { EMPTY_PRODUCT_FILTERS } from "./components/produto-filtros-sheet";
 
 export default function EstoquePage() {
   const [status, setStatus] = useState<Estoque_status>(Estoque_status.TODOS);
@@ -29,12 +30,14 @@ export default function EstoquePage() {
     totalPages: 0,
   });
   const [search, setSearch] = useState("");
+  const [productFilters, setProductFilters] = useState<ProductListFilters>(EMPTY_PRODUCT_FILTERS);
 
   const handleGetProducts = async (
     pageNumber?: number,
     limit?: number,
     searchText?: string,
-    statusValue?: Estoque_status
+    statusValue?: Estoque_status,
+    filters?: ProductListFilters,
   ) => {
     setIsLoading(true);
     try {
@@ -44,6 +47,16 @@ export default function EstoquePage() {
           limit: pagination.limit,
           search: searchText || undefined,
           status: statusValue || "TODOS",
+          grupoId: filters?.grupoId || undefined,
+          conservacao: filters?.conservacao || undefined,
+          unidade: filters?.unidade || undefined,
+          fabricante: filters?.fabricante || undefined,
+          local: filters?.local || undefined,
+          exibirPdv: filters?.exibirPdv || undefined,
+          estoqueMin: filters?.estoqueMin || undefined,
+          estoqueMax: filters?.estoqueMax || undefined,
+          precoMin: filters?.precoMin || undefined,
+          precoMax: filters?.precoMax || undefined,
         },
       });
       if (response.status === 200) {
@@ -59,14 +72,14 @@ export default function EstoquePage() {
   };
 
   useEffect(() => {
-    handleGetProducts(1, pagination.limit, search, status);
+    handleGetProducts(1, pagination.limit, search, status, productFilters);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    handleGetProducts(1, pagination.limit, search, status);
+    handleGetProducts(1, pagination.limit, search, status, productFilters);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, status]);
+  }, [search, status, productFilters]);
 
   // ✅ Mantém o duplo clique abrindo o diálogo de edição
   useEffect(() => {
@@ -97,6 +110,8 @@ export default function EstoquePage() {
         pagination={pagination}
         search={search}
         status={status}
+        filters={productFilters}
+        setFilters={setProductFilters}
         handleGetProducts={handleGetProducts}
         fetchStatusCounts={fetchStatusCounts}
         // dados
