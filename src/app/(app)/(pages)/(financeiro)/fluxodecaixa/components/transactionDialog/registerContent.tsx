@@ -142,6 +142,7 @@ interface RegisterContentProps {
   setOpen?: (value: boolean) => void;
   isDesktop?: boolean;
   internalCompanyExpense?: boolean;
+  lockValue?: boolean;
 }
 
 export default function RegisterContent({
@@ -157,6 +158,7 @@ export default function RegisterContent({
   setOpen,
   isDesktop,
   internalCompanyExpense = false,
+  lockValue = false,
 }: RegisterContentProps) {
   const [isCustomerSelectOpen, setIsCustomerSelectOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -789,6 +791,7 @@ export default function RegisterContent({
                   <ValueInput
                     price={newTransaction.valor || 0}
                     setPrice={(v) => handleChange("valor", v)}
+                    disabled={lockValue}
                   ></ValueInput>
                   {isChecked && (
                     <>

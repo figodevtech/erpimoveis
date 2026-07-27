@@ -119,6 +119,8 @@ export function OrcamentoDialog({
       titleSuffix={`OS #${numero}`}
       description={[clienteNome, veiculoStr].filter(Boolean).join(" • ")}
       loading={carregandoDados}
+      maxW="md:max-w-[1100px]"
+      mobileFull
       fixedHeight
       footer={
         <div className="flex w-full flex-col items-end justify-between gap-3 sm:flex-row sm:items-center">

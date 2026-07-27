@@ -127,7 +127,7 @@ export function TagInput({
         onKeyDown={handleKeyDown}
         onPaste={handlePaste}
         placeholder={tags.length === 0 ? placeholder : ""}
-        className="h-7 min-w-[120px] flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+        className="h-7 min-w-[120px] flex-1 bg-transparent text-lg md:text-sm outline-none placeholder:text-muted-foreground"
       />
     </div>
   )

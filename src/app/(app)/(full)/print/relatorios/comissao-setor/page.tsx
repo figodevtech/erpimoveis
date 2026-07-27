@@ -17,7 +17,7 @@ type PageProps = {
 
 export async function generateMetadata(): Promise<Metadata> {
   return {
-    title: "Relatório de Comissão por Setor (Impressão)",
+    title: "Relatório de Comissão por Setor",
   };
 }
 
@@ -55,7 +55,7 @@ export default async function PrintComissaoSetorPage({ searchParams }: PageProps
   const setorQuery = params.setor?.trim() || "";
 
   // 1. Buscar a OS baseada na data + filtro de concluída
-  let osQueryDb = supabaseAdmin
+  const osQueryDb = supabaseAdmin
     .from("ordemservico")
     .select("id, status, datasaida, createdat, execucao_inicio_em, execucao_fim_em")
     .eq("status", "CONCLUIDO");
@@ -186,14 +186,14 @@ export default async function PrintComissaoSetorPage({ searchParams }: PageProps
     totalComissao: number;
   };
 
-  let mapGrpSetor = new Map<string, SetorResult>();
+  const mapGrpSetor = new Map<string, SetorResult>();
 
-  let idSemSetor = "SEM_SETOR";
+  const idSemSetor = "SEM_SETOR";
 
   for (const row of relRealizadores as any[]) {
     const uId = String(row.usuarioid);
     const usuarioInfo = mapUsuarios.get(uId);
-    let sId = usuarioInfo?.setorid ? String(usuarioInfo.setorid) : idSemSetor;
+    const sId = usuarioInfo?.setorid ? String(usuarioInfo.setorid) : idSemSetor;
 
     // Se houver um filtro por setor ativo, ignoramos quem não pertence a esse setor
     if (setorQuery && setorQuery !== "all" && sId !== setorQuery) {
@@ -248,7 +248,7 @@ export default async function PrintComissaoSetorPage({ searchParams }: PageProps
   setoresExibicao.sort((a, b) => a.nome.localeCompare(b.nome));
   setoresExibicao.forEach(s => s.realizadores.sort((a, b) => a.nome.localeCompare(b.nome)));
 
-  let totalGeral = setoresExibicao.reduce((acc, s) => acc + s.totalComissao, 0);
+  const totalGeral = setoresExibicao.reduce((acc, s) => acc + s.totalComissao, 0);
 
   return (
     <div className="bg-neutral-200 text-black min-h-screen py-10 print:py-0 print:bg-white flex flex-col items-center">

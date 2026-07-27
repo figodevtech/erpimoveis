@@ -107,6 +107,7 @@ export interface Transaction {
   ordemservicoid?: number | null
   vendaid?: number | null
   pendente?: boolean
+  evento_financeiro_id?: number | null
 }
 
 export interface NewTransaction {
@@ -132,6 +133,7 @@ export interface NewTransaction {
   nomepagador?: string;
   cpfcnpjpagador?: string;
   pendente?: boolean
+  evento_financeiro_id?: number | null
 }
 
 export interface Pagination {

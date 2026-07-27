@@ -11,7 +11,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import ValueInput from "@/components/ui/value-input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -561,12 +561,9 @@ export default function OsStonePaymentDialog({
 
             <div className="space-y-2">
               <Label>Valor a receber (R$)</Label>
-              <Input
-                type="text"
-                inputMode="decimal"
-                value={valor}
-                onChange={(e) => setValor(e.target.value)}
-                placeholder="Ex: 250,00"
+              <ValueInput
+                value={parseValorParaNumero(valor)}
+                onValueChange={(value) => setValor(value.toFixed(2).replace(".", ","))}
                 disabled={!!pagamentoId && !statusEhFinal}
               />
               <p className="text-xs text-muted-foreground">

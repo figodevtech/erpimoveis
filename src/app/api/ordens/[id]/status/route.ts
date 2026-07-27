@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { requireOSEdit } from "@/app/api/_authz/perms";
 import {
   buscarModoBaixaEstoqueOS,
   consumirEstoqueOS,
@@ -30,6 +31,7 @@ type ParamsId = { id: string };
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<ParamsId> }) {
   try {
+    await requireOSEdit();
     const { id } = await params;
     const osId = Number(id);
 
@@ -89,6 +91,26 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
     }
 
     if (status === "EM_ANDAMENTO") {
+      const { data: servicos, error: servicosError } = await supabaseAdmin
+        .from("osservico")
+        .select("servicoid")
+        .eq("ordemservicoid", osId);
+      if (servicosError) throw servicosError;
+
+      const { data: realizadores, error: realizadoresError } = await supabaseAdmin
+        .from("osservico_realizador")
+        .select("servicoid")
+        .eq("ordemservicoid", osId);
+      if (realizadoresError) throw realizadoresError;
+      const servicosComRealizador = new Set((realizadores ?? []).map((item: any) => Number(item.servicoid)));
+      const semRealizador = (servicos ?? []).filter((item: any) => !servicosComRealizador.has(Number(item.servicoid)));
+      if (semRealizador.length > 0) {
+        return NextResponse.json(
+          { error: "Defina os realizadores de todos os serviços antes de iniciar a OS." },
+          { status: 409 },
+        );
+      }
+
       const modoBaixa = await buscarModoBaixaEstoqueOS();
       if (modoBaixa === "EXECUCAO") {
         const baixa = await consumirEstoqueOS(osId);

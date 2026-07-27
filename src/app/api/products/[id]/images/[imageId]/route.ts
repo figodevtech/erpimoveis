@@ -34,6 +34,10 @@ export async function PATCH(req: NextRequest, context: { params: Promise<Params>
     if (body?.principal !== true) {
       return NextResponse.json({ error: "Envie { principal: true }" }, { status: 400 });
     }
+    const expectedImgUrl = body?.expectedImgUrl ?? null;
+    if (expectedImgUrl !== null && typeof expectedImgUrl !== "string") {
+      return NextResponse.json({ error: "Imagem principal original invalida." }, { status: 400 });
+    }
 
     const { data: img, error } = await supabaseAdmin
       .from("produto_imagem")
@@ -46,17 +50,30 @@ export async function PATCH(req: NextRequest, context: { params: Promise<Params>
       return NextResponse.json({ error: "Imagem não encontrada." }, { status: 404 });
     }
 
-    const { error: updErr } = await supabaseAdmin
+    let updateQuery = supabaseAdmin
       .from("produto")
       .update({ imgUrl: img.url, updatedat: new Date().toISOString() })
       .eq("id", produtoId);
+    updateQuery = expectedImgUrl === null
+      ? updateQuery.is("imgUrl", null)
+      : updateQuery.eq("imgUrl", expectedImgUrl);
+
+    const { data: updated, error: updErr } = await updateQuery
+      .select('"imgUrl", updatedat')
+      .maybeSingle();
 
     if (updErr) {
       console.error("[PATCH image principal] update produto error:", updErr);
       return NextResponse.json({ error: updErr.message }, { status: 500 });
     }
+    if (!updated) {
+      return NextResponse.json(
+        { error: "A imagem principal foi alterada por outra pessoa. Recarregue as imagens." },
+        { status: 409 },
+      );
+    }
 
-    return NextResponse.json({ ok: true }, { status: 200 });
+    return NextResponse.json({ ok: true, product: updated }, { status: 200 });
   } catch (e: any) {
     console.error("[PATCH image principal] exception:", e);
     return NextResponse.json({ error: e?.message ?? "Erro ao definir imagem principal" }, { status: 500 });
@@ -68,6 +85,11 @@ export async function DELETE(_req: NextRequest, context: { params: Promise<Param
   try {
     await requireEstoqueDelete();
     const { produtoId, imgId } = await parseParams(context);
+    const body = await _req.json().catch(() => ({}));
+    const expectedImgUrl = body?.expectedImgUrl ?? null;
+    if (expectedImgUrl !== null && typeof expectedImgUrl !== "string") {
+      return NextResponse.json({ error: "Imagem principal original invalida." }, { status: 400 });
+    }
 
     const { data: img, error } = await supabaseAdmin
       .from("produto_imagem")
@@ -78,6 +100,20 @@ export async function DELETE(_req: NextRequest, context: { params: Promise<Param
 
     if (error || !img) {
       return NextResponse.json({ error: "Imagem não encontrada." }, { status: 404 });
+    }
+
+    const { data: productBefore, error: productBeforeError } = await supabaseAdmin
+      .from("produto")
+      .select('id, "imgUrl", updatedat')
+      .eq("id", produtoId)
+      .maybeSingle();
+    if (productBeforeError) throw productBeforeError;
+    if (!productBefore) return NextResponse.json({ error: "Produto nao encontrado." }, { status: 404 });
+    if (productBefore.imgUrl === img.url && productBefore.imgUrl !== expectedImgUrl) {
+      return NextResponse.json(
+        { error: "A imagem principal foi alterada por outra pessoa. Recarregue as imagens." },
+        { status: 409 },
+      );
     }
 
     // remove do storage
@@ -95,13 +131,7 @@ export async function DELETE(_req: NextRequest, context: { params: Promise<Param
     }
 
     // se a imagem removida era a capa, aponta pra próxima ou null
-    const { data: prod, error: prodErr } = await supabaseAdmin
-      .from("produto")
-      .select('id, "imgUrl"')
-      .eq("id", produtoId)
-      .single();
-
-    if (!prodErr && prod?.imgUrl === img.url) {
+    if (productBefore.imgUrl === img.url) {
       const { data: nextImg } = await supabaseAdmin
         .from("produto_imagem")
         .select("url")
@@ -113,10 +143,18 @@ export async function DELETE(_req: NextRequest, context: { params: Promise<Param
       await supabaseAdmin
         .from("produto")
         .update({ imgUrl: nextImg?.url ?? null, updatedat: new Date().toISOString() })
-        .eq("id", produtoId);
+        .eq("id", produtoId)
+        .eq("imgUrl", img.url);
     }
 
-    return NextResponse.json({ ok: true }, { status: 200 });
+    const { data: product, error: productError } = await supabaseAdmin
+      .from("produto")
+      .select('"imgUrl", updatedat')
+      .eq("id", produtoId)
+      .single();
+    if (productError) throw productError;
+
+    return NextResponse.json({ ok: true, product }, { status: 200 });
   } catch (e: any) {
     console.error("[DELETE image] exception:", e);
     return NextResponse.json({ error: e?.message ?? "Erro ao remover imagem" }, { status: 500 });

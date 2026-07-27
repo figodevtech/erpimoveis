@@ -3,6 +3,12 @@ import { toast as sonnerToast, type ExternalToast } from "sonner";
 
 const DEFAULT_ERROR = "Não foi possível concluir a operação. Tente novamente.";
 const MAX_MESSAGE_LENGTH = 260;
+const TOAST_DURATION = {
+  success: 3000,
+  error: 4000,
+  warning: 4500,
+  info: 4000,
+} as const;
 
 const TECHNICAL_ERROR_PATTERN = new RegExp(
   [
@@ -143,11 +149,66 @@ function showError(message: Parameters<typeof sonnerToast.error>[0], data?: Exte
     console.error("Detalhe técnico do erro exibido ao usuário:", technicalDetail);
   }
 
-  return sonnerToast.error(errorTitle(message), data ? { ...data, description: safeDescription(data.description) } : data);
+  return sonnerToast.error(errorTitle(message), {
+    duration: TOAST_DURATION.error,
+    ...data,
+    description: safeDescription(data?.description),
+  });
+}
+
+function showSuccess(message: Parameters<typeof sonnerToast.success>[0], data?: ExternalToast) {
+  return sonnerToast.success(message, { duration: TOAST_DURATION.success, ...data });
+}
+
+function showWarning(message: Parameters<typeof sonnerToast.warning>[0], data?: ExternalToast) {
+  return sonnerToast.warning(message, {
+    duration: TOAST_DURATION.warning,
+    ...data,
+    description: safeDescription(data?.description),
+  });
+}
+
+function showInfo(message: Parameters<typeof sonnerToast.info>[0], data?: ExternalToast) {
+  return sonnerToast.info(message, { duration: TOAST_DURATION.info, ...data });
+}
+
+function showLoading(message: Parameters<typeof sonnerToast.loading>[0], data?: ExternalToast) {
+  return sonnerToast.loading(message, { duration: Infinity, ...data });
 }
 
 export const toast = Object.assign(
   (message: Parameters<typeof sonnerToast>[0], data?: Parameters<typeof sonnerToast>[1]) => sonnerToast(message, data),
   sonnerToast,
-  { error: showError },
+  {
+    error: showError,
+    success: showSuccess,
+    warning: showWarning,
+    info: showInfo,
+    loading: showLoading,
+  },
 ) as typeof sonnerToast;
+
+type AsyncToastMessages<T> = {
+  loading: ReactNode;
+  success: ReactNode | ((result: T) => ReactNode);
+  error?: ReactNode | ((error: unknown) => ReactNode);
+};
+
+export async function withToast<T>(
+  operation: Promise<T> | (() => Promise<T>),
+  messages: AsyncToastMessages<T>,
+): Promise<T> {
+  const id = toast.loading(messages.loading);
+  try {
+    const result = await (typeof operation === "function" ? operation() : operation);
+    const message = typeof messages.success === "function" ? messages.success(result) : messages.success;
+    toast.success(message, { id });
+    return result;
+  } catch (error) {
+    const message = typeof messages.error === "function"
+      ? messages.error(error)
+      : messages.error ?? error;
+    toast.error(message as Parameters<typeof toast.error>[0], { id });
+    throw error;
+  }
+}

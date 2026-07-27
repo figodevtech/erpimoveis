@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
+import ValueInput from "@/components/ui/value-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ChevronDown, ExternalLink, FileText, Loader, Loader2, Package, Paperclip, Percent, ReceiptText, Trash2Icon } from "lucide-react";
 import DeleteAlert from "./deleteAlert";
@@ -503,21 +504,20 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
                       {descontoTipo === "PORCENTAGEM" ? "Percentual (%)" : "Valor"}
                     </span>
                     <div className="relative">
+                      {descontoTipo === "PORCENTAGEM" ? (
                       <Input
                         type="number"
                         min={0}
-                        max={descontoTipo === "PORCENTAGEM" ? 100 : undefined}
+                        max={100}
                         step="0.01"
                         value={desconto > 0 ? desconto : ""}
                         disabled={!descontoTipo}
                         onChange={(event) => setDesconto(Number(event.target.value || 0))}
-                        className={descontoTipo === "PORCENTAGEM" ? "pr-8" : descontoTipo === "FIXO" ? "pl-9" : undefined}
+                        className="pr-8"
                       />
-                      {descontoTipo === "FIXO" ? (
-                        <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-xs text-muted-foreground">
-                          R$
-                        </span>
-                      ) : null}
+                      ) : (
+                        <ValueInput value={desconto} onValueChange={setDesconto} disabled={!descontoTipo} />
+                      )}
                       {descontoTipo === "PORCENTAGEM" ? (
                         <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-muted-foreground">
                           %

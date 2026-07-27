@@ -38,7 +38,7 @@ export async function GET(req: Request) {
     console.log(`[Focus Register] Iniciando registro em ${empresa.ambiente} para ${callbackUrl}`);
 
     // 3. Registrar hooks para NFe e NFSe
-    const events = ["nfe", "nfse"];
+    const events = ["nfe", "nfse", "nfsen"];
     const results = [];
 
     for (const event of events) {

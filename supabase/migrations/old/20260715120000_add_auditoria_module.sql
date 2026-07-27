@@ -16,19 +16,16 @@ create table if not exists public.auditoria_evento (
   fonte text not null default 'evento' check (fonte in ('evento', 'legado')),
   transacao_id bigint not null default txid_current()
 );
-
 alter table public.auditoria_evento
   add column if not exists modulo text;
 alter table public.auditoria_evento
   add column if not exists fonte text not null default 'evento';
-
 alter table public.usuario add column if not exists created_by uuid references public.usuario(id) on delete set null;
 alter table public.usuario add column if not exists updated_by uuid references public.usuario(id) on delete set null;
 alter table public.perfil add column if not exists created_by uuid references public.usuario(id) on delete set null;
 alter table public.perfil add column if not exists updated_by uuid references public.usuario(id) on delete set null;
 alter table public.perfilpermissao add column if not exists created_by uuid references public.usuario(id) on delete set null;
 alter table public.perfilpermissao add column if not exists updated_by uuid references public.usuario(id) on delete set null;
-
 create index if not exists auditoria_evento_ocorrido_em_idx
   on public.auditoria_evento (ocorrido_em desc);
 create index if not exists auditoria_evento_tabela_ocorrido_idx
@@ -40,10 +37,8 @@ create index if not exists auditoria_evento_usuario_ocorrido_idx
   where usuario_id is not null;
 create index if not exists auditoria_evento_operacao_ocorrido_idx
   on public.auditoria_evento (operacao, ocorrido_em desc);
-
 alter table public.auditoria_evento enable row level security;
 revoke all on table public.auditoria_evento from anon, authenticated;
-
 create or replace function public.auditoria_try_uuid(valor text)
 returns uuid
 language plpgsql
@@ -58,7 +53,6 @@ exception when invalid_text_representation then
   return null;
 end;
 $$;
-
 -- Propaga o administrador que criou o usuario pelo metadata enviado ao Auth.
 create or replace function public.handle_new_auth_user()
 returns trigger
@@ -93,7 +87,6 @@ begin
   return new;
 end;
 $$;
-
 create or replace function public.auditoria_json_seguro(valor jsonb)
 returns jsonb
 language plpgsql
@@ -133,7 +126,6 @@ begin
   return valor;
 end;
 $$;
-
 create or replace function public.auditoria_modulo_tabela(nome_tabela text)
 returns text
 language sql
@@ -155,14 +147,11 @@ as $$
     else 'outros'
   end;
 $$;
-
 update public.auditoria_evento
 set modulo = public.auditoria_modulo_tabela(tabela)
 where modulo is null;
-
 alter table public.auditoria_evento
   alter column modulo set not null;
-
 create or replace function public.registrar_auditoria()
 returns trigger
 language plpgsql
@@ -288,7 +277,6 @@ exception when others then
   return new;
 end;
 $$;
-
 create or replace function public.atualizar_permissoes_perfil_auditado(
   p_perfilid integer,
   p_permissoes_ids integer[],
@@ -318,12 +306,10 @@ begin
   on conflict (perfilid, permissaoid) do nothing;
 end;
 $$;
-
 revoke all on function public.atualizar_permissoes_perfil_auditado(integer, integer[], uuid)
   from public, anon, authenticated;
 grant execute on function public.atualizar_permissoes_perfil_auditado(integer, integer[], uuid)
   to service_role;
-
 -- Carga inicial: representa o estado de cadastros anteriores a auditoria.
 -- Esses eventos sao explicitamente marcados como legado e nao fingem ser um
 -- historico completo de alteracoes.
@@ -344,7 +330,6 @@ where not exists (
   select 1 from public.auditoria_evento a
   where a.fonte = 'legado' and a.tabela = 'ordemservico' and a.registro_id = o.id::text
 );
-
 insert into public.auditoria_evento (
   ocorrido_em, operacao, modulo, tabela, registro_id, usuario_id,
   dados_novos, campos_alterados, origem, fonte
@@ -358,7 +343,6 @@ where not exists (
   select 1 from public.auditoria_evento a
   where a.fonte = 'legado' and a.tabela = 'produto' and a.registro_id = p.id::text
 );
-
 insert into public.auditoria_evento (
   ocorrido_em, operacao, modulo, tabela, registro_id, usuario_id,
   dados_novos, campos_alterados, origem, fonte
@@ -372,7 +356,6 @@ where not exists (
   select 1 from public.auditoria_evento a
   where a.fonte = 'legado' and a.tabela = 'cliente' and a.registro_id = c.id::text
 );
-
 insert into public.auditoria_evento (
   ocorrido_em, operacao, modulo, tabela, registro_id, usuario_id,
   dados_novos, campos_alterados, origem, fonte
@@ -386,7 +369,6 @@ where not exists (
   select 1 from public.auditoria_evento a
   where a.fonte = 'legado' and a.tabela = 'venda' and a.registro_id = v.id::text
 );
-
 insert into public.auditoria_evento (
   ocorrido_em, operacao, modulo, tabela, registro_id, usuario_id,
   dados_novos, campos_alterados, origem, fonte
@@ -400,7 +382,6 @@ where not exists (
   select 1 from public.auditoria_evento a
   where a.fonte = 'legado' and a.tabela = 'usuario' and a.registro_id = u.id::text
 );
-
 insert into public.auditoria_evento (
   ocorrido_em, operacao, modulo, tabela, registro_id, usuario_id,
   dados_novos, campos_alterados, origem, fonte
@@ -416,7 +397,6 @@ where not exists (
   where a.fonte = 'legado' and a.tabela = 'perfilpermissao'
     and a.registro_id = concat_ws(':', pp.perfilid, pp.permissaoid)
 );
-
 create or replace function public.habilitar_auditoria_tabela(nome_tabela regclass)
 returns void
 language plpgsql
@@ -445,9 +425,7 @@ begin
   );
 end;
 $$;
-
 revoke all on function public.habilitar_auditoria_tabela(regclass) from public, anon, authenticated;
-
 -- Habilita nas tabelas existentes. Logs tecnicos, filas e tabelas de sessao ficam fora
 -- para evitar ruido e crescimento desnecessario.
 do $$
@@ -467,6 +445,5 @@ begin
   end loop;
 end;
 $$;
-
 comment on table public.auditoria_evento is
   'Historico imutavel de criacoes, alteracoes e exclusoes nas tabelas de negocio.';

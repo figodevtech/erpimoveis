@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import axios, { isAxiosError } from "axios";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import type { ProdutoImagemPendente } from "../../estoque/components/dialog-produto/tabs/produto-imagens-gallery";
 
 export type VeiculoImagem = {

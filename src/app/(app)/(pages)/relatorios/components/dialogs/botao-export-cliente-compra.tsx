@@ -40,11 +40,17 @@ function getFilenameFromDisposition(disposition?: string) {
 }
 
 type BotaoExportHistoricoComprasProps = {
-  clienteId?: number; // passe aqui
+  clienteId?: number;
+  dateFrom?: string;
+  dateTo?: string;
+  disabled?: boolean;
 };
 
 export function BotaoExportHistoricoCompras({
   clienteId,
+  dateFrom,
+  dateTo,
+  disabled = false,
 }: BotaoExportHistoricoComprasProps) {
   const [loading, setLoading] = useState(false);
 
@@ -60,8 +66,8 @@ export function BotaoExportHistoricoCompras({
         q: "",
         status: "",
         clienteId, // <- vindo por props
-        dateFrom: undefined,
-        dateTo: undefined,
+        dateFrom,
+        dateTo,
         chunk: 1000,
       };
 
@@ -93,9 +99,7 @@ export function BotaoExportHistoricoCompras({
       URL.revokeObjectURL(href);
     } catch (err: any) {
       console.error(err);
-      alert(
-        err?.response?.data?.error ?? "Falha ao exportar histórico de compras."
-      );
+      toast.error(err?.response?.data?.error ?? "Falha ao exportar histórico de compras.");
     } finally {
       setLoading(false);
     }
@@ -105,12 +109,12 @@ export function BotaoExportHistoricoCompras({
     <Button
       type="button"
       onClick={handleExport}
-      disabled={loading}
-      variant={"secondary"}
+      disabled={loading || disabled}
+      variant="default"
       className="hover:cursor-pointer"
     >
       {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download/>}{" "}
-      {loading ? "Exportando..." : "Exportar"}
+      {loading ? "Exportando..." : "Exportar Excel"}
     </Button>
   );
 }

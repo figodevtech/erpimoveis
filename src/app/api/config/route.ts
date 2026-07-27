@@ -13,8 +13,10 @@ const supabase = createClient(
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
 
-const CONFIG_SELECT_BASE =
+const CONFIG_SELECT_BASE_LEGADO =
   "id, aviso_pagamento, checklist_obrigatorio, alerta_estoque_pdv, habilitar_emissao_nfe, emissao_nf_no_modulo_ordens, emissao_nf_no_modulo_vendas, emissao_nf_ordens_nao_pagas, emissao_nf_vendas_nao_pagas, modo_baixa_estoque_os, created_at, habilitar_drawers";
+
+const CONFIG_SELECT_BASE = `${CONFIG_SELECT_BASE_LEGADO}, produto_preco_medio_compra_obrigatorio`;
 
 const CONFIG_SELECT_BASE_SEM_MODO_BAIXA =
   "id, aviso_pagamento, checklist_obrigatorio, alerta_estoque_pdv, habilitar_emissao_nfe, emissao_nf_no_modulo_ordens, emissao_nf_no_modulo_vendas, emissao_nf_ordens_nao_pagas, emissao_nf_vendas_nao_pagas, created_at, habilitar_drawers";
@@ -26,6 +28,7 @@ const CONFIG_SELECT_IMPRESSAO =
   "impressao_cor_primaria, impressao_cor_secundaria";
 
 const CONFIG_SELECT_SEM_IMPRESSAO = `${CONFIG_SELECT_BASE}, ${CONFIG_SELECT_AGENDAMENTO}`;
+const CONFIG_SELECT_COMPLETO_LEGADO = `${CONFIG_SELECT_BASE_LEGADO}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
 const CONFIG_SELECT_SEM_MODO_BAIXA = `${CONFIG_SELECT_BASE_SEM_MODO_BAIXA}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
 const CONFIG_SELECT_COMPLETO = `${CONFIG_SELECT_BASE}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
 
@@ -84,6 +87,7 @@ function comPadroesAgendamento(config: any) {
     impressao_cor_primaria: corHexValida(config.impressao_cor_primaria) ?? "#2563eb",
     impressao_cor_secundaria: corHexValida(config.impressao_cor_secundaria) ?? "#0891b2",
     modo_baixa_estoque_os: modoBaixaEstoqueOSValido(config.modo_baixa_estoque_os) ?? "ORCAMENTO",
+    produto_preco_medio_compra_obrigatorio: config.produto_preco_medio_compra_obrigatorio === true,
   };
 }
 
@@ -98,6 +102,16 @@ async function buscarConfigAtual() {
 
   if (!error) return comPadroesAgendamento(data);
   if (!colunaNaoExiste(error)) throw error;
+
+  const semPrecoMedioObrigatorio = await supabase
+    .from("config_geral")
+    .select(CONFIG_SELECT_COMPLETO_LEGADO)
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!semPrecoMedioObrigatorio.error) return comPadroesAgendamento(semPrecoMedioObrigatorio.data);
+  if (!colunaNaoExiste(semPrecoMedioObrigatorio.error)) throw semPrecoMedioObrigatorio.error;
 
   const semModoBaixa = await supabase
     .from("config_geral")
@@ -142,6 +156,16 @@ async function criarConfigPadraoSeNaoExistir() {
 
   if (!error) return comPadroesAgendamento(data);
   if (!colunaNaoExiste(error)) throw error;
+
+  const semPrecoMedioObrigatorio = await supabase
+    .from("config_geral")
+    .select(CONFIG_SELECT_COMPLETO_LEGADO)
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!semPrecoMedioObrigatorio.error) return comPadroesAgendamento(semPrecoMedioObrigatorio.data);
+  if (!colunaNaoExiste(semPrecoMedioObrigatorio.error)) throw semPrecoMedioObrigatorio.error;
 
   const semModoBaixa = await supabase
     .from("config_geral")
@@ -198,6 +222,7 @@ export async function PUT(request: Request) {
       "emissao_nf_no_modulo_vendas",
       "emissao_nf_ordens_nao_pagas",
       "emissao_nf_vendas_nao_pagas",
+      "produto_preco_medio_compra_obrigatorio",
     ];
 
     const patch: any = {};
@@ -275,7 +300,7 @@ export async function PUT(request: Request) {
       console.error("Supabase update error:", error);
       if (colunaNaoExiste(error)) {
         return respostaJSON(
-          { error: "As configurações de agendamento ainda não foram aplicadas no banco. Rode as migrations do Supabase." },
+          { error: "As configurações mais recentes ainda não foram aplicadas no banco. Rode as migrations do Supabase." },
           409
         );
       }

@@ -43,7 +43,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     // Busca Notas Fiscais de Serviço vinculadas a esta OS para verificar o status
     const { data: notas } = await supabaseAdmin
       .from("nfse")
-      .select("id, referencia, status, erros")
+      .select("id, referencia, status, erros, modelo_emissao")
       .eq("ordemservicoid", osId)
       .order("id", { ascending: false });
 
@@ -57,6 +57,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         notaFiscalStatus: notaGerada ? notaGerada.status : null,
         notaFiscalId: notaGerada ? notaGerada.id : null,
         notaFiscalErros: notaGerada ? notaGerada.erros : null,
+        notaFiscalModelo: notaGerada ? notaGerada.modelo_emissao : null,
       };
     });
 

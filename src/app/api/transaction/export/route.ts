@@ -16,7 +16,7 @@ const FORTALEZA_OFFSET = "-03:00";
  *           cliente_id, banco_id, created_at, updated_at
  */
 const TRANSACAO_FIELDS =
-  'id, descricao, valor, "valorLiquido", data, ordemservicoid, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, banco_id, created_at, updated_at';
+  'id, descricao, valor, "valorLiquido", nomepagador, cpfcnpjpagador, pendente, data, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, banco_id, created_at, updated_at';
 
 /** bancoconta: id, titulo, ... , created_at, updated_at */
 const BANCO_FIELDS = "id, titulo, created_at, updated_at";
@@ -76,6 +76,7 @@ export async function GET(req: Request) {
     const categoriaId = toIntFilter(searchParams.get("categoriaId"));
 
     const ordemservicoid = toIntFilter(searchParams.get("ordemservicoid"));
+    const vendaid = toIntFilter(searchParams.get("vendaid"));
     const metodo = (searchParams.get("metodo") ?? searchParams.get("metodopagamento") ?? "")
       .trim()
       .slice(0, 100);
@@ -84,6 +85,15 @@ export async function GET(req: Request) {
     const planoContaId = toIntFilter(searchParams.get("planoContaId"));
     const centroCustoId = toIntFilter(searchParams.get("centroCustoId"));
     const clienteId = toIntFilter(searchParams.get("clienteId"));
+    const pendenteParam = searchParams.get("pendente");
+    const pendente = pendenteParam === "true" ? true : pendenteParam === "false" ? false : null;
+    const nomePagador = normalizeQ(searchParams.get("nomePagador") ?? "");
+    const documentoPagador = String(searchParams.get("documentoPagador") ?? "").replace(/\D/g, "").slice(0, 20);
+    const valorMinRaw = searchParams.get("valorMin");
+    const valorMaxRaw = searchParams.get("valorMax");
+    const valorMin = valorMinRaw ? Number(valorMinRaw) : null;
+    const valorMax = valorMaxRaw ? Number(valorMaxRaw) : null;
+    const vinculo = String(searchParams.get("vinculo") ?? "").trim().toUpperCase();
 
     const dateFrom = searchParams.get("dateFrom");
     const dateTo = searchParams.get("dateTo");
@@ -106,8 +116,13 @@ export async function GET(req: Request) {
       "Valor (R$)",
       "Valor Líquido (R$)",
       "Data (Fortaleza)",
+      "Situação",
       "Ordem Serviço",
+      "Venda",
+      "Evento financeiro",
       "Cliente ID",
+      "Pagador",
+      "Documento do pagador",
       "Banco ID",
       "Banco Título",
       "Criado em",
@@ -129,8 +144,13 @@ export async function GET(req: Request) {
       { wch: 14 }, // Valor
       { wch: 16 }, // Valor Líquido
       { wch: 22 }, // Data (Fortaleza)
+      { wch: 14 }, // Situação
       { wch: 14 }, // OS
+      { wch: 12 }, // Venda
+      { wch: 18 }, // Evento
       { wch: 12 }, // Cliente ID
+      { wch: 28 }, // Pagador
+      { wch: 22 }, // Documento
       { wch: 14 }, // Banco ID (bigint)
       { wch: 28 }, // Banco Título
       { wch: 20 }, // Criado em
@@ -153,6 +173,7 @@ export async function GET(req: Request) {
 
       if (q) query = query.ilike("descricao", `%${q}%`);
       if (ordemservicoid != null) query = query.eq("ordemservicoid", ordemservicoid);
+      if (vendaid != null) query = query.eq("vendaid", vendaid);
       if (tipo) query = query.eq("tipo", tipo);
       if (categoria) query = query.eq("categoria", categoria);
       if (categoriaId != null) query = query.eq("categoria_id", categoriaId);
@@ -161,6 +182,17 @@ export async function GET(req: Request) {
       if (planoContaId != null) query = query.eq("plano_de_conta_id", planoContaId);
       if (centroCustoId != null) query = query.eq("centro_custo_id", centroCustoId);
       if (clienteId != null) query = query.eq("cliente_id", clienteId);
+      if (pendente !== null) query = query.eq("pendente", pendente);
+      if (nomePagador) query = query.ilike("nomepagador", `%${nomePagador}%`);
+      if (documentoPagador) query = query.ilike("cpfcnpjpagador", `%${documentoPagador}%`);
+      if (valorMin != null && Number.isFinite(valorMin) && valorMin >= 0) query = query.gte("valor", valorMin);
+      if (valorMax != null && Number.isFinite(valorMax) && valorMax >= 0) query = query.lte("valor", valorMax);
+      if (vinculo === "OS") query = query.not("ordemservicoid", "is", null);
+      if (vinculo === "VENDA") query = query.not("vendaid", "is", null);
+      if (vinculo === "EVENTO") query = query.not("evento_financeiro_id", "is", null);
+      if (vinculo === "AVULSO") {
+        query = query.is("ordemservicoid", null).is("vendaid", null).is("evento_financeiro_id", null);
+      }
 
       if (dateFrom) query = query.gte("data", localDayStartToUtcIso(dateFrom));
       if (dateTo) query = query.lt("data", localNextDayStartToUtcIso(dateTo));
@@ -188,8 +220,13 @@ export async function GET(req: Request) {
         t.valor ?? null,
         t["valorLiquido"] ?? null, // <-- no schema é "valorLiquido"
         formatFortaleza(t.data ?? null),
+        t.pendente ? "Pendente" : "Realizada",
         t.ordemservicoid ?? "",
+        t.vendaid ?? "",
+        t.evento_financeiro_id ?? "",
         t.cliente_id ?? "",
+        t.nomepagador ?? "",
+        t.cpfcnpjpagador ?? "",
         t.banco_id ?? "",
         t?.banco?.titulo ?? "",
         formatFortaleza(t.created_at ?? null),

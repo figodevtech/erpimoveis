@@ -26,6 +26,7 @@ interface TransactionDialogProps {
   initialMetodoPagamento?: Metodo_pagamento;
   initialTransaction?: Partial<NewTransaction>;
   internalCompanyExpense?: boolean;
+  lockValue?: boolean;
 }
 export default function TransactionDialog({
   children,
@@ -39,6 +40,7 @@ export default function TransactionDialog({
   initialMetodoPagamento,
   initialTransaction,
   internalCompanyExpense = false,
+  lockValue = false,
 }: TransactionDialogProps) {
   const [newTransaction, setNewTransaction] = useState<NewTransaction>({});
   const [selectedCustomer, setSelectedCustomer] = useState<
@@ -118,6 +120,7 @@ export default function TransactionDialog({
             setOpen={setOpen}
             isDesktop={true}
             internalCompanyExpense={internalCompanyExpense}
+            lockValue={lockValue}
           />
         )}
       </Dialog>
@@ -193,6 +196,7 @@ export default function TransactionDialog({
           setOpen={setOpen}
           isDesktop={false}
           internalCompanyExpense={internalCompanyExpense}
+          lockValue={lockValue}
         />
       )}
     </Drawer>

@@ -52,6 +52,7 @@ type BotaoExportProdutoVendasProps = {
   variant?: "default" | "secondary" | "destructive" | "outline" | "ghost" | "link";
   className?: string;
   children?: React.ReactNode;
+  disabled?: boolean;
 };
 
 export function BotaoExportProdutoVendas({
@@ -65,6 +66,7 @@ export function BotaoExportProdutoVendas({
   variant = "secondary",
   className = "hover:cursor-pointer",
   children,
+  disabled = false,
 }: BotaoExportProdutoVendasProps) {
   const [loading, setLoading] = useState(false);
 
@@ -128,7 +130,7 @@ export function BotaoExportProdutoVendas({
     <Button
       type="button"
       onClick={handleExport}
-      disabled={loading}
+      disabled={loading || disabled}
       variant={variant}
       className={className}
     >

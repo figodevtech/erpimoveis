@@ -136,9 +136,27 @@ WHERE ei.quantidade > 0
   AND ei.quantidade = trunc(ei.quantidade)
 ON CONFLICT (entrada_item_id, tipo) DO NOTHING;
 
-UPDATE public.entrada
-SET status = 'CONFIRMADA'::public.enum_status_entrada
-WHERE status = 'RASCUNHO'::public.enum_status_entrada;
+-- Algumas bases antigas nunca tiveram o valor RASCUNHO no enum. O comando
+-- dinâmico evita tentar converter um literal inexistente nessas instalações.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_enum e ON e.enumtypid = t.oid
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'public'
+      AND t.typname = 'enum_status_entrada'
+      AND e.enumlabel = 'RASCUNHO'
+  ) THEN
+    EXECUTE $sql$
+      UPDATE public.entrada
+      SET status = 'CONFIRMADA'
+      WHERE status::text = 'RASCUNHO'
+    $sql$;
+  END IF;
+END;
+$$;
 
 ALTER TABLE public.entrada ALTER COLUMN status DROP DEFAULT;
 ALTER TYPE public.enum_status_entrada RENAME TO enum_status_entrada_legacy;

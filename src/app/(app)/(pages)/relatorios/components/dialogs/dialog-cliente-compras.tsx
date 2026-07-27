@@ -1,81 +1,55 @@
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  DialogFooter,
-  DialogHeader,
-  DialogTrigger,
-  DialogDescription,
-  DialogClose,
-} from "@/components/ui/dialog";
-import { FileText, Search} from "lucide-react";
-import { Label } from "@/components/ui/label";
+"use client";
+
 import { useState } from "react";
+import { Search, ShoppingBag, X } from "lucide-react";
 
 import CustomerSelect from "@/app/(app)/components/customerSelect";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import type { Customer } from "../../../clientes/types";
+import { ReportFiltersPanel, ReportPeriod, ReportTrigger, isInvalidPeriod } from "../report-ui";
+import { SpreadsheetPdfButton } from "../spreadsheet-pdf-button";
 import { BotaoExportHistoricoCompras } from "./botao-export-cliente-compra";
-import { Customer } from "../../../clientes/types";
 
 export default function DialogClienteCompras() {
- 
-  const [selectedCliente, setSelectedCliente] = useState<Customer  | undefined>(undefined)
-  const [openCliente, setOpenCliente]= useState(false)
+  const [customer, setCustomer] = useState<Customer>();
+  const [customerSelectOpen, setCustomerSelectOpen] = useState(false);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const invalid = isInvalidPeriod(dateFrom, dateTo);
+  const reportParams = new URLSearchParams();
+  if (customer?.id) reportParams.set("clienteId", String(customer.id));
+  if (dateFrom) reportParams.set("dateFrom", dateFrom);
+  if (dateTo) reportParams.set("dateTo", dateTo);
 
   return (
     <Dialog>
       <DialogTrigger asChild>
-       <Button
-            variant="outline"
-            className="h-auto hover:cursor-pointer flex-col items-start justify-start gap-2 p-4 text-left hover:bg-accent hover:text-accent-foreground bg-transparent"
-          >
-            <div className="flex w-full items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                <FileText />
-              </div>
-              <span className="flex-1 font-medium">Hstórico de compras</span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Compras realizadas por cliente
-            </p>
-          </Button>
+        <ReportTrigger icon={<ShoppingBag className="h-4 w-4" />} title="Histórico de compras" description="Vendas e valores registrados para um cliente" tone="bg-violet-500/10 text-violet-600" />
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Exportar Compras</DialogTitle>
-          <DialogDescription>
-            Selecione dados para gerar o relatório
-          </DialogDescription>
+          <DialogTitle>Histórico de compras do cliente</DialogTitle>
+          <DialogDescription>Selecione o cliente e o período que deseja incluir na planilha.</DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-6 bg-muted/50 p-4 rounded-2xl">
-          <div className="flex flex-row gap-2 justify-between items-center">
-            <Label>Cliente:</Label>
-            <span className="text-[10px] truncate font-sans max-w-[300px]">
-
-            {selectedCliente && selectedCliente.nomerazaosocial}
-            </span>
-            <CustomerSelect
-            open={openCliente}
-            setOpen={setOpenCliente}
-
-            OnSelect={(c)=>setSelectedCliente(c)}
-            />
-                <div onClick={()=>setOpenCliente(true)} className="p-1.5 rounded-full bg-muted hover:cursor-pointer">
-
-                    <Search className="w-3 h-3"/>
-                </div>
+        <ReportFiltersPanel>
+          <div className="space-y-2">
+            <Label>Cliente</Label>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" className="min-w-0 flex-1 justify-start font-normal" onClick={() => setCustomerSelectOpen(true)}>
+                <Search className="mr-2 h-4 w-4" /><span className="truncate">{customer?.nomerazaosocial ?? "Selecionar cliente"}</span>
+              </Button>
+              {customer && <Button type="button" variant="outline" size="icon" aria-label="Limpar cliente" onClick={() => setCustomer(undefined)}><X className="h-4 w-4" /></Button>}
+            </div>
+            <CustomerSelect open={customerSelectOpen} setOpen={setCustomerSelectOpen} OnSelect={(selected) => { setCustomer(selected); setCustomerSelectOpen(false); }} />
           </div>
-          
-          
-        </div>
-        <DialogFooter className="flex flex-row items-center">
-            <BotaoExportHistoricoCompras
-              clienteId={selectedCliente?.id}
-            />
-          
-          <DialogClose asChild>
-            <Button className="hover:cursor-pointer">Cancelar</Button>
-          </DialogClose>
+          <ReportPeriod dateFrom={dateFrom} dateTo={dateTo} onDateFromChange={setDateFrom} onDateToChange={setDateTo} />
+        </ReportFiltersPanel>
+        <DialogFooter>
+          <DialogClose asChild><Button type="button" variant="outline">Cancelar</Button></DialogClose>
+          <SpreadsheetPdfButton endpoint={`/api/venda/export/cliente?${reportParams.toString()}`} title="Histórico de compras" disabled={!customer?.id || invalid} />
+          <BotaoExportHistoricoCompras clienteId={customer?.id} dateFrom={dateFrom} dateTo={dateTo} disabled={!customer?.id || invalid} />
         </DialogFooter>
       </DialogContent>
     </Dialog>

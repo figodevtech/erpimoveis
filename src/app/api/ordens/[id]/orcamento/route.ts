@@ -158,6 +158,18 @@ export async function PUT(
       return NextResponse.json({ error: "ID inválido" }, { status: 400 });
     }
 
+    const { data: osAtual, error: osAtualError } = await supabase
+      .from("ordemservico")
+      .select("id, status")
+      .eq("id", osId)
+      .maybeSingle();
+    if (osAtualError) throw osAtualError;
+    if (!osAtual) return NextResponse.json({ error: "OS não encontrada." }, { status: 404 });
+    const statusAtual = String(osAtual.status || "");
+    if (["CONCLUIDO", "SEM_COBRANCA", "CANCELADO"].includes(statusAtual)) {
+      return NextResponse.json({ error: "O orçamento não pode ser alterado após a finalização da OS." }, { status: 409 });
+    }
+
     const body = await req.json().catch(() => ({}));
     const produtosBody: Array<{
       produtoid: Num;
@@ -493,6 +505,14 @@ export async function PUT(
       })
       .eq("id", osId);
     if (updOS.error) throw updOS.error;
+
+    if (["ORCAMENTO_APROVADO", "EM_ANDAMENTO", "PAGAMENTO"].includes(statusAtual)) {
+      const { error: reconciliacaoError } = await supabase.rpc("reconciliar_eventos_financeiros_os", {
+        p_ordemservicoid: osId,
+        p_incluir_comissoes: ["EM_ANDAMENTO", "PAGAMENTO"].includes(statusAtual),
+      });
+      if (reconciliacaoError) throw reconciliacaoError;
+    }
 
     return NextResponse.json({ ok: true, totalGeral });
   } catch (err: any) {

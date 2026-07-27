@@ -4,9 +4,11 @@ import type React from "react";
 
 import { Card } from "@/components/ui/card";
 import {
-  DollarSign,
+  BadgeDollarSign,
+  ChartNoAxesCombined,
   Package,
   Users,
+  Wrench,
 } from "lucide-react";
 import DialogFluxo from "./dialogs/dialog-fluxo";
 import DialogDespesaCategoria from "./dialogs/dialog-despesa-categoria";
@@ -20,6 +22,7 @@ import DialogComissaoRealizador from "./dialogs/dialog-comissao-realizador";
 import DialogVendasUsuario from "./dialogs/dialog-vendas-usuario";
 import DialogComissaoSetor from "./dialogs/dialog-comissao-setor";
 import DialogVendasSetor from "./dialogs/dialog-vendas-setor";
+import { DialogRelatorioOrdens } from "./dialogs/dialog-relatorio-ordens";
 
 export function ReportsGrid() {
 
@@ -27,17 +30,17 @@ export function ReportsGrid() {
 
   return (
     <div className="space-y-8">
-      <Card className="p-6">
+      <Card className="p-4 sm:p-6">
         <div className="mb-6 flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <DollarSign />
+            <BadgeDollarSign />
           </div>
           <div>
             <h2 className="text-xl font-semibold text-card-foreground">
               Financeiro
             </h2>
             <p className="text-sm text-muted-foreground">
-              Relatórios de finanças e contabilidade
+              Movimentações, receitas, despesas e classificações
             </p>
           </div>
         </div>
@@ -51,12 +54,30 @@ export function ReportsGrid() {
         </div>
       </Card>
 
-      {/* Vendas */}
-
-      <Card className="p-6">
+      <Card className="p-4 sm:p-6">
         <div className="mb-6 flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <DollarSign />
+            <Wrench />
+          </div>
+          <div>
+            <h2 className="text-xl font-semibold text-card-foreground">Ordens de serviço</h2>
+            <p className="text-sm text-muted-foreground">
+              Acompanhamento operacional e resultado econômico das ordens
+            </p>
+          </div>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <DialogRelatorioOrdens mode="simples" />
+          <DialogRelatorioOrdens mode="financeiro" />
+        </div>
+      </Card>
+
+      {/* Vendas */}
+
+      <Card className="p-4 sm:p-6">
+        <div className="mb-6 flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <ChartNoAxesCombined />
           </div>
           <div>
             <h2 className="text-xl font-semibold text-card-foreground">
@@ -73,7 +94,7 @@ export function ReportsGrid() {
         </div>
       </Card>
 
-      <Card className="p-6">
+      <Card className="p-4 sm:p-6">
         <div className="mb-6 flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <Users />
@@ -98,7 +119,7 @@ export function ReportsGrid() {
 
       {/* Estoque */}
 
-      <Card className="p-6">
+      <Card className="p-4 sm:p-6">
         <div className="mb-6 flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <Package />
@@ -122,7 +143,7 @@ export function ReportsGrid() {
 
       {/* Clientes */}
 
-      <Card className="p-6">
+      <Card className="p-4 sm:p-6">
         <div className="mb-6 flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <Users />

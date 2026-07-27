@@ -224,12 +224,22 @@ export async function POST(req: NextRequest, context: { params: Promise<Params> 
       const { error: updErr } = await supabaseAdmin
         .from("produto")
         .update({ imgUrl: saved[0].url, updatedat: new Date().toISOString() })
-        .eq("id", produtoId);
+        .eq("id", produtoId)
+        .is("imgUrl", null);
 
       if (updErr) console.error("[POST images] update product imgUrl error:", updErr);
     }
 
-    return NextResponse.json({ imagens: saved ?? [] }, { status: 200 });
+    const { data: product, error: productError } = await supabaseAdmin
+      .from("produto")
+      .select('"imgUrl", updatedat')
+      .eq("id", produtoId)
+      .single();
+    if (productError) {
+      console.error("[POST images] reload product error:", productError);
+    }
+
+    return NextResponse.json({ imagens: saved ?? [], product: product ?? undefined }, { status: 200 });
   } catch (e: any) {
     console.error("[POST images] exception:", e);
     return NextResponse.json({ error: String(e?.message ?? "Erro ao enviar imagens") }, { status: 500 });

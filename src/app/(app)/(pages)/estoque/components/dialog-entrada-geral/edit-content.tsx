@@ -27,6 +27,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import ValueInput from "@/components/ui/value-input";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { Loader2, Search } from "lucide-react";
 
@@ -729,13 +730,10 @@ export default function EditContent({ selectedEntradaId, onSaved }: EditContentP
 
                       <div className="space-y-1.5">
                         <Label>Preço venda (snapshot)</Label>
-                        <Input
+                        <ValueInput
                           disabled
-                          type="number"
-                          min={0}
-                          step={0.01}
                           value={item.precovenda}
-                          onChange={(e) => updateItem(index, "precovenda", n(e.target.value))}
+                          onValueChange={(value) => updateItem(index, "precovenda", value)}
                         />
                         <p className="text-[11px] text-muted-foreground">
                           Isso grava em <b>entradaitens.precovenda</b> (não altera o produto).

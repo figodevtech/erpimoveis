@@ -7,7 +7,6 @@ CREATE TABLE IF NOT EXISTS "public"."categoriavenda" (
     "updatedat" timestamp without time zone DEFAULT now(),
     CONSTRAINT "categoriavenda_pkey" PRIMARY KEY ("id")
 );
-
 DO $$
 BEGIN
     IF NOT EXISTS (
@@ -19,18 +18,14 @@ BEGIN
             ADD CONSTRAINT "categoriavenda_nome_key" UNIQUE ("nome");
     END IF;
 END $$;
-
 GRANT ALL ON TABLE "public"."categoriavenda" TO "anon";
 GRANT ALL ON TABLE "public"."categoriavenda" TO "authenticated";
 GRANT ALL ON TABLE "public"."categoriavenda" TO "service_role";
-
 GRANT ALL ON SEQUENCE "public"."categoriavenda_id_seq" TO "anon";
 GRANT ALL ON SEQUENCE "public"."categoriavenda_id_seq" TO "authenticated";
 GRANT ALL ON SEQUENCE "public"."categoriavenda_id_seq" TO "service_role";
-
 ALTER TABLE "public"."venda"
     ADD COLUMN IF NOT EXISTS "categoriavendaid" integer;
-
 DO $$
 BEGIN
     IF NOT EXISTS (

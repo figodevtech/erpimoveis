@@ -29,6 +29,7 @@ const DEFAULT_CONFIG: Config = {
   impressao_cor_primaria: "#2563eb",
   impressao_cor_secundaria: "#0891b2",
   modo_baixa_estoque_os: "ORCAMENTO",
+  produto_preco_medio_compra_obrigatorio: false,
   created_at: "",
 };
 

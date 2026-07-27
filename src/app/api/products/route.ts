@@ -108,14 +108,26 @@ function toPositiveInt(v: unknown) {
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
-const PERCENTAGE_FIELDS = new Set([
-  'aliquotaicms',
-  'aliquota_pis',
-  'aliquota_cofins',
-  'aliquota_ibs_uf',
-  'aliquota_ibs_municipio',
-  'aliquota_cbs',
-]);
+function precoMedioCompraValido(value: unknown) {
+  const numero = Number(value);
+  return Number.isFinite(numero) && numero > 0;
+}
+
+async function exigePrecoMedioCompra() {
+  const { data, error } = await supabaseAdmin
+    .from("config_geral")
+    .select("produto_preco_medio_compra_obrigatorio")
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    if ((error as any).code === "42703") return false;
+    throw error;
+  }
+
+  return data?.produto_preco_medio_compra_obrigatorio === true;
+}
 
 /** Saneia e valida payload de produto */
 function sanitizeProdutoPayload(body: any, { strict }: { strict: boolean }) {
@@ -361,9 +373,13 @@ export async function POST(req: Request) {
     }
 
     const payload = sanitizeProdutoPayload(json, { strict: true });
-    const estoqueInicial = Number(payload.estoque ?? 0);
-    // O saldo deve nascer de uma entrada auditável, nunca diretamente do INSERT.
-    payload.estoque = 0;
+
+    if ((await exigePrecoMedioCompra()) && !precoMedioCompraValido(payload.precocompra)) {
+      return NextResponse.json(
+        { error: "Informe um valor médio de compra maior que zero." },
+        { status: 400 },
+      );
+    }
 
     // Deixe validações de ENUMs/constraints a cargo do banco (unidade, grupo, etc.)
     const { data, error } = await supabaseAdmin

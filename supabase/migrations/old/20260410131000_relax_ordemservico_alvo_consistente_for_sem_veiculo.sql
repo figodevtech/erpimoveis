@@ -1,6 +1,5 @@
 alter table public.ordemservico
 drop constraint if exists ordemservico_alvo_consistente;
-
 alter table public.ordemservico
 add constraint ordemservico_alvo_consistente
 check (

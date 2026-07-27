@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Unidade_medida } from "../../types";
 import { useGruposProduto } from "./hooks/use-grupo-produtos";
 import type { LoteSelectItem } from "@/app/(app)/components/loteSelect";
+import { useConfig } from "../../../config-context";
 
 interface ConteudoCadastroProdutoProps {
   setSelectedProductId?: (value: number | undefined) => void;
@@ -55,6 +56,8 @@ export default function CadastroProduto({
   const [lotePendente, setLotePendente] = useState<LoteSelectItem | null>(null);
   const { unidades, loadingUnidades, errorUnidades } = useUnidadesMedida();
   const { grupos } = useGruposProduto();
+  const config = useConfig();
+  const precoMedioCompraObrigatorio = config?.produto_preco_medio_compra_obrigatorio === true;
 
   const tabTheme =
     " group h-8 rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:text-foreground data-[state=active]:bg-primary dark:data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm";
@@ -126,6 +129,14 @@ export default function CadastroProduto({
   }, []);
 
   const cadastrarProduto = async (registerAgain?: boolean) => {
+    if (precoMedioCompraObrigatorio && !(Number(newProduct.precocompra) > 0)) {
+      setCurrentTab("Geral");
+      toast.error("Valor médio de compra obrigatório", {
+        description: "Informe um valor médio de compra maior que zero.",
+      });
+      return;
+    }
+
     setSalvando(true);
 
     const payload = { ...newProduct } as any;
@@ -284,6 +295,7 @@ export default function CadastroProduto({
         errorUnidades={errorUnidades}
         lotePendente={lotePendente}
         onLotePendenteChange={setLotePendente}
+        precoMedioCompraObrigatorio={precoMedioCompraObrigatorio}
       />
 
       <TabFiscal produto={newProduct} onChange={handleChange} />

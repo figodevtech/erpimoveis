@@ -25,6 +25,7 @@ import { Loader2, Search, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { Input } from "@/components/ui/input";
+import ValueInput from "@/components/ui/value-input";
 export const TIPOS_ENTRADA = [
   { value: "COMPRA_FORNECEDOR", label: "Compra fornecedor" },
   { value: "COMPRA_PF", label: "Compra PF" },
@@ -657,14 +658,9 @@ export default function RegisterContent({
 
                       <div className="space-y-1.5">
                         <Label>Valor unitário de compra</Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          step={0.01}
+                        <ValueInput
                           value={item.precovenda}
-                          onChange={(e) =>
-                            updateItem(index, "precovenda", n(e.target.value))
-                          }
+                          onValueChange={(value) => updateItem(index, "precovenda", value)}
                         />
                         <p className="text-[11px] text-muted-foreground">
                           Este valor será salvo como o último valor de compra do produto.

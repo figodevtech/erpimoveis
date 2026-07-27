@@ -2,6 +2,7 @@ export type NFSeEmitirParams = {
   referencia: string;
   natureza_operacao?: number | string;
   optante_simples_nacional?: boolean;
+  regime_tributario_simples_nacional?: 1 | 2 | 3;
   regime_especial_tributacao?: number | string;
   prestador: {
     cnpj: string;
@@ -13,6 +14,7 @@ export type NFSeEmitirParams = {
     cnpj?: string;
     razao_social: string;
     email?: string;
+    telefone?: string;
     endereco?: {
       logradouro?: string;
       numero?: string;
@@ -34,9 +36,38 @@ export type NFSeEmitirParams = {
   };
 };
 
+export type NFSeNacionalEmitirParams = {
+  referencia: string;
+  data_competencia: string;
+  codigo_municipio_emissora: number;
+  cnpj_prestador: string;
+  inscricao_municipal_prestador?: string;
+  codigo_opcao_simples_nacional: 2;
+  regime_especial_tributacao: 0;
+  cpf_tomador?: string;
+  cnpj_tomador?: string;
+  razao_social_tomador: string;
+  codigo_municipio_tomador?: number;
+  cep_tomador?: string;
+  logradouro_tomador?: string;
+  numero_tomador?: string;
+  complemento_tomador?: string;
+  bairro_tomador?: string;
+  email_tomador?: string;
+  codigo_municipio_prestacao: string;
+  codigo_tributacao_nacional_iss: string;
+  descricao_servico: string;
+  valor_servico: number;
+  tributacao_iss: 1;
+  tipo_retencao_iss: 1;
+  percentual_aliquota_relativa_municipio?: number;
+  indicador_total_tributacao: "0";
+};
+
 export class NFSeService {
   private apiUrl: string;
   private token: string;
+  private ambiente: "PRODUCAO" | "HOMOLOGACAO" = "HOMOLOGACAO";
 
   constructor() {
     this.token = "";
@@ -47,12 +78,13 @@ export class NFSeService {
    * Configura o ambiente (Homologação ou Produção) baseado na coluna ambiente da tabela empresa.
    * Chamado antes de qualquer emissão ou consulta.
    */
-  configurarAmbiente(ambiente: "PRODUCAO" | "HOMOLOGACAO" | string) {
+  configurarAmbiente(ambiente: "PRODUCAO" | "HOMOLOGACAO" | string, tokenConfigurado?: string | null) {
+    this.ambiente = ambiente === "PRODUCAO" ? "PRODUCAO" : "HOMOLOGACAO";
     if (ambiente === "PRODUCAO") {
-      this.token = process.env.FOCUS_NFE_API_TOKEN || "";
+      this.token = process.env.FOCUS_NFE_API_TOKEN || tokenConfigurado?.trim() || "";
       this.apiUrl = "https://api.focusnfe.com.br";
     } else {
-      this.token = process.env.FOCUS_NFE_API_TOKEN_HOMOLOGACAO || "";
+      this.token = process.env.FOCUS_NFE_API_TOKEN_HOMOLOGACAO || tokenConfigurado?.trim() || "";
       this.apiUrl = "https://homologacao.focusnfe.com.br";
     }
 
@@ -66,8 +98,15 @@ export class NFSeService {
     return `Basic ${Buffer.from(this.token + ":").toString("base64")}`;
   }
 
+  private assertToken() {
+    if (!this.token) {
+      const variavel = this.ambiente === "PRODUCAO" ? "FOCUS_NFE_API_TOKEN" : "FOCUS_NFE_API_TOKEN_HOMOLOGACAO";
+      throw new Error(`Token da Focus NFe não configurado para ${this.ambiente}. Cadastre o token da NFS-e nas configurações fiscais ou defina ${variavel}.`);
+    }
+  }
+
   async emitir(params: NFSeEmitirParams) {
-    if (!this.token) throw new Error("FOCUS_NFE_API_TOKEN não configurado.");
+    this.assertToken();
 
     const url = `${this.apiUrl}/v2/nfse?ref=${params.referencia}`;
 
@@ -84,6 +123,9 @@ export class NFSeService {
 
     if (params.natureza_operacao !== undefined) payload.natureza_operacao = params.natureza_operacao;
     if (params.optante_simples_nacional !== undefined) payload.optante_simples_nacional = params.optante_simples_nacional;
+    if (params.regime_tributario_simples_nacional !== undefined) {
+      payload.regime_tributario_simples_nacional = params.regime_tributario_simples_nacional;
+    }
     if (params.regime_especial_tributacao !== undefined) payload.regime_especial_tributacao = params.regime_especial_tributacao;
 
     const res = await fetch(url, {
@@ -120,10 +162,27 @@ export class NFSeService {
     };
   }
 
-  async consultar(referencia: string) {
-    if (!this.token) throw new Error("FOCUS_NFE_API_TOKEN não configurado.");
+  async emitirNacional(params: NFSeNacionalEmitirParams) {
+    this.assertToken();
+    const { referencia, ...dados } = params;
+    const payload = { data_emissao: `${formatDateTimeForFocus(new Date())}-03:00`, ...dados };
+    const res = await fetch(`${this.apiUrl}/v2/nfsen?ref=${encodeURIComponent(referencia)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: this.getAuthHeader() },
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok) {
+      const erros = json?.erros || (json ? [json] : []);
+      return { ok: false, message: json?.mensagem || json?.codigo || `Erro ${res.status} ao emitir NFS-e Nacional`, erros };
+    }
+    return { ok: true, status: json?.status || "processando_autorizacao", referencia: json?.ref || referencia };
+  }
 
-    const url = `${this.apiUrl}/v2/nfse/${referencia}`;
+  async consultar(referencia: string, modelo: "MUNICIPAL" | "NACIONAL" = "MUNICIPAL") {
+    this.assertToken();
+
+    const url = `${this.apiUrl}/v2/${modelo === "NACIONAL" ? "nfsen" : "nfse"}/${referencia}`;
 
     const res = await fetch(url, {
       method: "GET",
@@ -147,16 +206,16 @@ export class NFSeService {
       status: json?.status,
       numero: json?.numero,
       codigo_verificacao: json?.codigo_verificacao,
-      url: json?.url,
+      url: json?.url || json?.url_pdf || json?.url_danfse || json?.caminho_danfse,
       caminho_xml_nota_fiscal: json?.caminho_xml_nota_fiscal,
       erros: json?.erros,
     };
   }
 
-  async cancelar(referencia: string, justificativa?: string) {
-    if (!this.token) throw new Error("FOCUS_NFE_API_TOKEN não configurado.");
+  async cancelar(referencia: string, justificativa?: string, modelo: "MUNICIPAL" | "NACIONAL" = "MUNICIPAL") {
+    this.assertToken();
 
-    const url = `${this.apiUrl}/v2/nfse/${referencia}`;
+    const url = `${this.apiUrl}/v2/${modelo === "NACIONAL" ? "nfsen" : "nfse"}/${referencia}`;
 
     const options: RequestInit = {
       method: "DELETE",
@@ -192,7 +251,7 @@ export class NFSeService {
   }
 
   async configurarEmpresa(empresa: any, certificadoBase64?: string, senhaCertificado?: string) {
-    if (!this.token) throw new Error("FOCUS_NFE_API_TOKEN não configurado.");
+    this.assertToken();
 
     const cnpj = empresa.cnpj?.replace(/\D/g, "");
     if (!cnpj) throw new Error("CNPJ é obrigatório para configurar empresa.");
@@ -309,6 +368,94 @@ export class NFSeService {
         codigo_cnae: (empresa.cnae?.replace(/\D/g, "") || "4520001").padEnd(9, "0"),
         valor_servicos: val,
       },
+    };
+  }
+
+  mapearOSParaFocusCabedelo(os: any, empresa: any, itemServico: any): NFSeEmitirParams {
+    const cliente = os.cliente;
+    const servico = itemServico.servico;
+    const documento = String(cliente.cpfcnpj || "").replace(/\D/g, "");
+    const quantidade = Number(itemServico.quantidade || 1);
+    const valor = quantidade * Number(itemServico.precounitario || 0);
+    const cnae = String(servico?.cnae || empresa.cnae || "").replace(/\D/g, "");
+    const itemLista = String(servico?.itemlistaservico || "14.01").trim();
+
+    if (!cnae) throw new Error("Informe o CNAE do serviço ou da empresa para emitir NFS-e em Cabedelo.");
+    if (!itemLista) throw new Error("Informe o item da lista de serviço para emitir NFS-e em Cabedelo.");
+
+    return {
+      referencia: `OS_${os.id}_SRV_${itemServico.servicoid}_${Date.now()}`,
+      natureza_operacao: 1,
+      optante_simples_nacional: String(empresa.regimetributario) === "1",
+      regime_tributario_simples_nacional: String(empresa.regimetributario) === "1" ? 1 : undefined,
+      regime_especial_tributacao: String(empresa.regimetributario) === "1" ? 6 : undefined,
+      prestador: {
+        cnpj: String(empresa.cnpj || "").replace(/\D/g, ""),
+        inscricao_municipal: String(empresa.inscricaomunicipal || "").replace(/\D/g, ""),
+        codigo_municipio: "2503209",
+      },
+      tomador: {
+        cpf: documento.length <= 11 ? documento : undefined,
+        cnpj: documento.length > 11 ? documento : undefined,
+        razao_social: cliente.nomerazaosocial || "Consumidor Final",
+        email: cliente.email || undefined,
+        telefone: String(cliente.telefone || "").replace(/\D/g, "") || undefined,
+        endereco: {
+          logradouro: String(cliente.endereco || "").substring(0, 100),
+          numero: cliente.endereconumero || "S/N",
+          complemento: String(cliente.enderecocomplemento || "").substring(0, 100) || undefined,
+          bairro: String(cliente.bairro || "").substring(0, 60),
+          codigo_municipio: cliente.codigomunicipio || "2503209",
+          uf: cliente.estado || "PB",
+          cep: String(cliente.cep || "").replace(/\D/g, "").substring(0, 8),
+        },
+      },
+      servico: {
+        aliquota: Number(servico?.aliquotaiss || 3),
+        discriminacao: `${quantidade}x ${servico?.descricao || "Serviço"} - OS #${os.id}`,
+        iss_retido: false,
+        item_lista_servico: itemLista,
+        codigo_cnae: cnae,
+        valor_servicos: valor,
+      },
+    };
+  }
+
+  mapearOSParaFocusNacional(os: any, empresa: any, itemServico: any): NFSeNacionalEmitirParams {
+    const cliente = os.cliente;
+    const servico = itemServico.servico;
+    const documento = String(cliente.cpfcnpj || "").replace(/\D/g, "");
+    const itemLista = String(servico?.itemlistaservico || "14.01").replace(/\D/g, "");
+    const codigoTributacao = itemLista.length === 6 ? itemLista : `${itemLista.padStart(4, "0")}01`;
+    const quantidade = Number(itemServico.quantidade || 1);
+    const valor = quantidade * Number(itemServico.precounitario || 0);
+    const hoje = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo" }).format(new Date());
+    return {
+      referencia: `OS_${os.id}_SRV_${itemServico.servicoid}_${Date.now()}`,
+      data_competencia: hoje,
+      codigo_municipio_emissora: Number(empresa.codigomunicipio || 2507507),
+      cnpj_prestador: String(empresa.cnpj || "").replace(/\D/g, ""),
+      inscricao_municipal_prestador: String(empresa.inscricaomunicipal || "").replace(/\D/g, "") || undefined,
+      codigo_opcao_simples_nacional: 2,
+      regime_especial_tributacao: 0,
+      cpf_tomador: documento.length <= 11 ? documento : undefined,
+      cnpj_tomador: documento.length > 11 ? documento : undefined,
+      razao_social_tomador: cliente.nomerazaosocial || "Consumidor Final",
+      codigo_municipio_tomador: Number(cliente.codigomunicipio || empresa.codigomunicipio || 2507507),
+      cep_tomador: String(cliente.cep || "").replace(/\D/g, "") || undefined,
+      logradouro_tomador: cliente.endereco || undefined,
+      numero_tomador: cliente.endereconumero || undefined,
+      complemento_tomador: cliente.enderecocomplemento || undefined,
+      bairro_tomador: cliente.bairro || undefined,
+      email_tomador: cliente.email || undefined,
+      codigo_municipio_prestacao: String(empresa.codigomunicipio || 2507507),
+      codigo_tributacao_nacional_iss: codigoTributacao,
+      descricao_servico: `${quantidade}x ${servico?.descricao || "Serviço"} - OS #${os.id}`,
+      valor_servico: valor,
+      tributacao_iss: 1,
+      tipo_retencao_iss: 1,
+      percentual_aliquota_relativa_municipio: Number(servico?.aliquotaiss || 0) || undefined,
+      indicador_total_tributacao: "0",
     };
   }
 }

@@ -30,6 +30,8 @@ import {
 } from "@/components/ui/select";
 import { CalendarIcon, Loader2, Printer, FileSpreadsheet, Store } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "@/lib/toast";
+import { SpreadsheetPdfButton } from "../spreadsheet-pdf-button";
 
 type Setor = {
   id: number;
@@ -54,6 +56,11 @@ export default function DialogVendasSetor() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [isExporting, setIsExporting] = useState(false);
+  const invalidPeriod = Boolean(dateFrom && dateTo && dateFrom > dateTo);
+  const pdfParams = new URLSearchParams();
+  if (selectedSetorId !== "all") pdfParams.set("setor", selectedSetorId);
+  if (dateFrom) pdfParams.set("inicio", dateFrom);
+  if (dateTo) pdfParams.set("fim", dateTo);
 
   const setThisMonth = () => {
     const now = new Date();
@@ -124,7 +131,7 @@ export default function DialogVendasSetor() {
       document.body.removeChild(tempLink);
       window.URL.revokeObjectURL(url);
     } catch (error: any) {
-      alert(error.message || "Erro na solicitação de exportação.");
+      toast.error(error.message || "Erro na solicitação de exportação.");
     } finally {
       setIsExporting(false);
     }
@@ -156,7 +163,7 @@ export default function DialogVendasSetor() {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-6 rounded-2xl bg-muted/50 p-4">
+        <div className="flex flex-col gap-6 rounded-2xl bg-card p-4">
           <div className="space-y-2">
             <Label>Setor</Label>
             <Select value={selectedSetorId} onValueChange={setSelectedSetorId}>
@@ -250,6 +257,7 @@ export default function DialogVendasSetor() {
         </div>
 
         <DialogFooter className="flex flex-row items-center gap-2 justify-end w-full">
+          <SpreadsheetPdfButton endpoint={`/api/users/export/vendas-setor?${pdfParams.toString()}`} title="Vendas por setor" disabled={isExporting || invalidPeriod} />
           <Button 
             type="button" 
             variant="outline" 

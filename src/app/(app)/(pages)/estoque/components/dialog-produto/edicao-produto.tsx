@@ -2,7 +2,7 @@
 
 import { TabsTrigger } from "@/components/ui/tabs";
 import { Upload, Package, Store, Image as ImageIcon, FileText, Boxes, ShoppingCart, ClipboardList, ArrowRightLeft, Tag } from "lucide-react";
-import axios from "axios";
+import axios, { isAxiosError } from "axios";
 import { toast } from "@/lib/toast";
 import { Produto } from "../../types";
 import { ProductDialogLayout } from "./tabs/dialog-layout";
@@ -20,11 +20,47 @@ import { useProdutoImagens } from "./hooks/use-produto-imagens";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useGruposProduto } from "./hooks/use-grupo-produtos";
+import { useConfig } from "../../../config-context";
 
 interface EdicaoProdutoProps {
   productId: number;
   onAfterSaveProduct?: () => void;
   isDesktop?: boolean;
+}
+
+const EDITABLE_PRODUCT_FIELDS: (keyof Produto)[] = [
+  "descricao", "precovenda", "precocompra", "ultimovalordecompra", "estoqueminimo",
+  "ncm", "cfop", "origem_mercadoria", "unidade", "cest", "csosn", "cst", "aliquotaicms",
+  "cst_pis", "aliquota_pis", "modo_pis", "aliquota_por_unidade_pis", "cst_cofins",
+  "aliquota_cofins", "modo_cofins", "aliquota_por_unidade_cofins", "rtc_habilitado",
+  "cst_ibscbs", "cclass_trib", "aliquota_ibs_uf", "aliquota_ibs_municipio", "aliquota_cbs",
+  "codigobarras", "etiqueta", "local", "referencia", "titulo", "fabricante",
+  "grupo_produto_id", "exibirPdv", "tituloMarketplace", "descricaoMarketplace", "conservacao",
+];
+
+// Campos que formam uma regra conjunta precisam ser comparados e salvos como
+// uma unidade. Os demais campos usam concorrência independente por input.
+const CONSISTENCY_GROUPS: (keyof Produto)[][] = [
+  ["origem_mercadoria", "ncm", "cfop", "cest", "csosn", "cst", "aliquotaicms"],
+  ["cst_pis", "modo_pis", "aliquota_pis", "aliquota_por_unidade_pis"],
+  ["cst_cofins", "modo_cofins", "aliquota_cofins", "aliquota_por_unidade_cofins"],
+  ["rtc_habilitado", "cst_ibscbs", "cclass_trib", "aliquota_ibs_uf", "aliquota_ibs_municipio", "aliquota_cbs"],
+  ["grupo_produto_id", "conservacao"],
+  ["tituloMarketplace", "descricaoMarketplace"],
+];
+
+function fieldsToSave(current: Produto, original: Produto) {
+  const dirtyFields = new Set(
+    EDITABLE_PRODUCT_FIELDS.filter((field) => !Object.is(current[field], original[field])),
+  );
+
+  for (const group of CONSISTENCY_GROUPS) {
+    if (group.some((field) => dirtyFields.has(field))) {
+      group.forEach((field) => dirtyFields.add(field));
+    }
+  }
+
+  return [...dirtyFields];
 }
 
 export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop = true }: EdicaoProdutoProps) {
@@ -35,11 +71,11 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
   const [currentTab, setCurrentTab] = useState<string>("Geral")
 
   const reqIdRef = useRef(0);
-  const latestProductIdRef = useRef(productId);
+  const originalProductRef = useRef<Produto | undefined>(undefined);
   const { unidades, loadingUnidades, errorUnidades } = useUnidadesMedida();
   const { grupos } = useGruposProduto();
-
-  latestProductIdRef.current = productId;
+  const config = useConfig();
+  const precoMedioCompraObrigatorio = config?.produto_preco_medio_compra_obrigatorio === true;
 
   const handleGetProduct = async (id: number) => {
     const myId = ++reqIdRef.current;
@@ -54,6 +90,7 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
 
       if (response.status === 200) {
         setSelectedProduct(response.data.data);
+        originalProductRef.current = response.data.data;
       } else {
         setLoadError("Não foi possível carregar o produto.");
       }
@@ -69,28 +106,73 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
     setSelectedProduct((p) => (p ? ({ ...p, [field]: value } as any) : p));
   };
 
-  const handleRefreshProductSilently = async (id: number) => {
+  const handleRefreshOperationalFields = async (id: number) => {
     try {
       const response = await axios.get(`/api/products/${id}`);
-      if (latestProductIdRef.current !== id) return;
+      if (response.status !== 200) return;
 
-      if (response.status === 200) {
-        setSelectedProduct(response.data.data);
+      const fresh = response.data.data as Produto;
+      const patch: Partial<Produto> = {
+        estoque: fresh.estoque,
+        status_estoque: fresh.status_estoque,
+        ultimovalordecompra: fresh.ultimovalordecompra,
+        updatedat: fresh.updatedat,
+      };
+      setSelectedProduct((current) => current ? { ...current, ...patch } : current);
+      if (originalProductRef.current) {
+        originalProductRef.current = { ...originalProductRef.current, ...patch };
       }
     } catch (error) {
-      console.error("Erro ao atualizar produto silenciosamente:", error);
+      console.error("Erro ao atualizar dados operacionais do produto:", error);
     }
   };
 
   const handleUpdateProduct = async () => {
     if (!selectedProduct) return;
 
+    const originalProduct = originalProductRef.current;
+    if (!originalProduct?.updatedat) {
+      toast.error("Produto desatualizado", {
+        description: "Recarregue o produto antes de salvar.",
+      });
+      return;
+    }
+
+    if (precoMedioCompraObrigatorio && !(Number(selectedProduct.precocompra) > 0)) {
+      setCurrentTab("Geral");
+      toast.error("Valor médio de compra obrigatório", {
+        description: "Informe um valor médio de compra maior que zero.",
+      });
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      const response = await axios.put("/api/products/" + productId, selectedProduct);
+      const changedFields = fieldsToSave(selectedProduct, originalProduct);
+      const changes = Object.fromEntries(
+        changedFields.map((field) => [
+          field,
+          {
+            // JSON remove propriedades com undefined. Null preserva tanto a
+            // comparação quanto a intenção de limpar um campo opcional.
+            original: originalProduct[field] ?? null,
+            value: selectedProduct[field] ?? null,
+          },
+        ]),
+      );
+
+      if (Object.keys(changes).length === 0) {
+        toast.info("Nenhuma alteração para salvar.");
+        return;
+      }
+
+      const response = await axios.patch("/api/products/" + productId, {
+        changes,
+      });
       if (response.status === 200) {
         const { data } = response;
         setSelectedProduct(data.data);
+        originalProductRef.current = data.data;
         if (imagensHook.ordemAlterada && imagensHook.imagensPendentes.length === 0) {
           await imagensHook.salvarOrdem();
         }
@@ -100,7 +182,15 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
       }
     } catch (error) {
       console.log("Erro ao atualizar produto:", error);
-      toast.error("Erro", { description: "Não foi possível salvar o produto.", duration: 2500 });
+      const conflict = isAxiosError(error) && error.response?.status === 409;
+      toast.error("Erro", {
+        description: conflict
+          ? "Um dos campos alterados foi modificado por outra pessoa. Feche e abra o cadastro novamente antes de salvar."
+          : isAxiosError(error)
+          ? error.response?.data?.error ?? "Não foi possível salvar o produto."
+          : "Não foi possível salvar o produto.",
+        duration: 2500,
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -108,8 +198,12 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
 
   const imagensHook = useProdutoImagens({
     productId,
-    onAfterChangeCapa: async () => {
-      await handleRefreshProductSilently(productId);
+    currentCoverUrl: selectedProduct?.imgUrl ?? null,
+    onAfterChangeCapa: async (patch) => {
+      setSelectedProduct((current) => current ? { ...current, ...patch } : current);
+      if (originalProductRef.current) {
+        originalProductRef.current = { ...originalProductRef.current, ...patch };
+      }
     },
   });
 
@@ -214,6 +308,7 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
               errorUnidades={errorUnidades}
               showDates
               onLoteVinculoAlterado={onAfterSaveProduct}
+              precoMedioCompraObrigatorio={precoMedioCompraObrigatorio}
             />
 
             <TabMarketplace produto={selectedProduct} onChange={handleChange} />
@@ -245,7 +340,7 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
             <TabFluxo
               produto={selectedProduct}
               onAfterChange={async () => {
-                await handleRefreshProductSilently(productId);
+                await handleRefreshOperationalFields(productId);
                 onAfterSaveProduct?.();
               }}
             />

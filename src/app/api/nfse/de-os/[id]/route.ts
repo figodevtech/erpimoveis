@@ -75,7 +75,25 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       );
     }
 
-    if (!empresa.inscricaomunicipal) {
+    const { data: nfseConfig } = await supabaseAdmin
+      .from("nfse_config")
+      .select("token")
+      .eq("empresa_id", empresa.id)
+      .maybeSingle();
+
+    const isMei = String(empresa.regimetributario) === "4";
+    const codigoMunicipioEmpresa = String(empresa.codigomunicipio || "").replace(/\D/g, "");
+    const isJoaoPessoa = codigoMunicipioEmpresa === "2507507";
+    const isCabedelo = codigoMunicipioEmpresa === "2503209";
+
+    if (!isMei && !isJoaoPessoa && !isCabedelo) {
+      return NextResponse.json(
+        { ok: false, message: `A emissão municipal ainda não está configurada para o município IBGE ${codigoMunicipioEmpresa || "não informado"}.` },
+        { status: 400 },
+      );
+    }
+
+    if (!isMei && !empresa.inscricaomunicipal) {
       return NextResponse.json(
         { 
           ok: false, 
@@ -122,11 +140,18 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     // 3. Prepare parameters using Service Mapper
     const nfseService = new NFSeService();
-    nfseService.configurarAmbiente(empresa.ambiente);
-    const emitirParams = nfseService.mapearOSParaFocus(os, empresa, itemServico);
+    nfseService.configurarAmbiente(empresa.ambiente, nfseConfig?.token);
+    const modeloEmissao = isMei ? "NACIONAL" : isCabedelo ? "MUNICIPAL_CABEDELO" : "MUNICIPAL_JOAO_PESSOA";
+    const emitirParams = isMei
+      ? nfseService.mapearOSParaFocusNacional(os, empresa, itemServico)
+      : isCabedelo
+        ? nfseService.mapearOSParaFocusCabedelo(os, empresa, itemServico)
+      : nfseService.mapearOSParaFocus(os, empresa, itemServico);
 
-    // 4. Send to Focus API
-    const result = await nfseService.emitir(emitirParams);
+    // 4. MEI (CRT 4) usa NFS-e Nacional; demais regimes mantêm João Pessoa municipal.
+    const result = isMei
+      ? await nfseService.emitirNacional(emitirParams as any)
+      : await nfseService.emitir(emitirParams as any);
 
 
     console.info("[POST /api/nfse/de-os] Focus retorno", {
@@ -141,18 +166,38 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       clienteid: os.cliente.id,
       empresaid: empresa.id,
       referencia: emitirParams.referencia,
-      status: result.ok ? result.status : "REJEITADA",
+      status: result.ok
+        ? ({ autorizado: "AUTORIZADA", processando_autorizacao: "PROCESSANDO", erro_autorizacao: "REJEITADA", cancelado: "CANCELADA" } as Record<string, string>)[String(result.status)] || String(result.status || "PROCESSANDO").toUpperCase()
+        : "REJEITADA",
       erros: result.ok ? null : result.erros,
-      valor_total: emitirParams.servico.valor_servicos,
+      valor_total: isMei ? (emitirParams as any).valor_servico : (emitirParams as any).servico.valor_servicos,
+      modelo_emissao: modeloEmissao,
     };
 
 
-    const { error: insertError } = await supabaseAdmin
+    let { error: insertError } = await supabaseAdmin
       .from("nfse")
       .insert([insercao]);
 
+    // Compatibilidade temporária com bases que ainda não receberam a migration
+    // de modelo_emissao. A nota municipal continua consultável pelo endpoint legado.
+    if (insertError?.message?.includes("modelo_emissao")) {
+      const insercaoLegada: Record<string, unknown> = { ...insercao };
+      delete insercaoLegada.modelo_emissao;
+      const retry = await supabaseAdmin.from("nfse").insert([insercaoLegada]);
+      insertError = retry.error;
+    }
+
     if (insertError) {
       console.error("[POST /api/nfse/de-os] Erro ao gravar NFS-e no banco", insertError);
+      return NextResponse.json(
+        {
+          ok: false,
+          message: "A NFS-e foi recebida pela Focus, mas não foi possível registrá-la no sistema. Não emita novamente antes de consultar a referência.",
+          referencia: result.referencia || emitirParams.referencia,
+        },
+        { status: 500 },
+      );
     }
 
     if (!result.ok) {
@@ -163,15 +208,16 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
 
     return NextResponse.json(
-      { ok: true, message: "NFS-e enviada para processamento.", referencia: result.referencia },
+      { ok: true, message: "NFS-e enviada para processamento.", referencia: result.referencia || emitirParams.referencia },
       { status: 200 }
     );
 
   } catch (e: any) {
     console.error("[POST /api/nfse/de-os] Exception", e);
+    const configuracaoAusente = String(e?.message || "").includes("Token da Focus NFe não configurado");
     return NextResponse.json(
-      { ok: false, message: "Erro inesperado ao emitir NFS-e." },
-      { status: 500 }
+      { ok: false, message: configuracaoAusente ? e.message : "Erro inesperado ao emitir NFS-e." },
+      { status: configuracaoAusente ? 400 : 500 }
     );
   }
 }

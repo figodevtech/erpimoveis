@@ -36,7 +36,9 @@ export function DialogShell({
       <DialogContent
         className={
           mobileFull
-            ? `h-svh w-[100dvw] max-w-[100dvw] min-w-0 overflow-hidden rounded-none p-0 sm:h-auto sm:max-h-[85vh] sm:w-[95vw] sm:max-w-[95vw] sm:rounded-lg md:max-w-3xl ${maxW}`
+            ? `h-svh w-[100dvw] max-w-[100dvw] min-w-0 overflow-hidden rounded-none p-0 sm:w-[95vw] sm:max-w-[95vw] sm:rounded-lg md:max-w-3xl ${
+                fixedHeight ? "sm:h-svh sm:max-h-[850px]" : "sm:h-auto sm:max-h-[85vh]"
+              } ${maxW}`
             : `p-0 w-[96vw] sm:max-w-[95vw] md:max-w-3xl ${fixedHeightClass} ${maxW}`
         }
         onInteractOutside={(e) => e.preventDefault()}
@@ -45,7 +47,9 @@ export function DialogShell({
       >
         <div
           className={`grid w-full ${
-            mobileFull || fixedHeight ? "h-full max-h-svh sm:max-h-[85vh]" : "max-h-[85vh]"
+            mobileFull || fixedHeight
+              ? `h-full max-h-svh ${fixedHeight ? "sm:max-h-[850px]" : "sm:max-h-[85vh]"}`
+              : "max-h-[85vh]"
           } ${loading ? "grid-rows-[1fr]" : "grid-rows-[auto_1fr_auto]"}`}
         >
           {loading ? (

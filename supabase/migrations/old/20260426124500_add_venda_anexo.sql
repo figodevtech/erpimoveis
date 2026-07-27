@@ -10,7 +10,6 @@ CREATE TABLE IF NOT EXISTS "public"."vendaanexo" (
     "createdat" timestamp without time zone DEFAULT now(),
     CONSTRAINT "vendaanexo_pkey" PRIMARY KEY ("id")
 );
-
 DO $$
 BEGIN
     IF NOT EXISTS (
@@ -25,17 +24,13 @@ BEGIN
             ON DELETE CASCADE;
     END IF;
 END $$;
-
 CREATE INDEX IF NOT EXISTS "vendaanexo_vendaid_idx"
     ON "public"."vendaanexo" USING "btree" ("vendaid");
-
 CREATE UNIQUE INDEX IF NOT EXISTS "vendaanexo_path_uq"
     ON "public"."vendaanexo" USING "btree" ("path");
-
 GRANT ALL ON TABLE "public"."vendaanexo" TO "anon";
 GRANT ALL ON TABLE "public"."vendaanexo" TO "authenticated";
 GRANT ALL ON TABLE "public"."vendaanexo" TO "service_role";
-
 GRANT ALL ON SEQUENCE "public"."vendaanexo_id_seq" TO "anon";
 GRANT ALL ON SEQUENCE "public"."vendaanexo_id_seq" TO "authenticated";
 GRANT ALL ON SEQUENCE "public"."vendaanexo_id_seq" TO "service_role";

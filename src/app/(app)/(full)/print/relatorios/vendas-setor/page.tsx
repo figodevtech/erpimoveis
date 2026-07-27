@@ -55,7 +55,7 @@ export default async function PrintVendasSetorPage({ searchParams }: PageProps) 
   const setorQuery = params.setor?.trim() || "";
 
   // 1. Buscar a Venda baseada na data + status (PAGO ou FINALIZADA)
-  let vendaQueryDb = supabaseAdmin
+  const vendaQueryDb = supabaseAdmin
     .from("venda")
     .select(`
       id, 
@@ -132,8 +132,8 @@ export default async function PrintVendasSetorPage({ searchParams }: PageProps) 
     totalComissao: number;
   };
 
-  let mapGrpSetor = new Map<string, SetorResult>();
-  let idSemSetor = "SEM_SETOR";
+  const mapGrpSetor = new Map<string, SetorResult>();
+  const idSemSetor = "SEM_SETOR";
 
   for (const venda of filteredVendas) {
     const vinfo = venda.vendedor as any;
@@ -197,8 +197,8 @@ export default async function PrintVendasSetorPage({ searchParams }: PageProps) 
   setoresExibicao.sort((a, b) => a.nome.localeCompare(b.nome));
   setoresExibicao.forEach(s => s.vendedores.sort((a, b) => a.nome.localeCompare(b.nome)));
 
-  let totalGeral = setoresExibicao.reduce((acc, s) => acc + s.totalVenda, 0);
-  let totalGeralComissao = setoresExibicao.reduce((acc, s) => acc + s.totalComissao, 0);
+  const totalGeral = setoresExibicao.reduce((acc, s) => acc + s.totalVenda, 0);
+  const totalGeralComissao = setoresExibicao.reduce((acc, s) => acc + s.totalComissao, 0);
 
   return (
     <div className="bg-neutral-200 text-black min-h-screen py-10 print:py-0 print:bg-white flex flex-col items-center">

@@ -1,9 +1,7 @@
 alter table public.usuario
 add column if not exists comissao_venda_percent numeric(5,2);
-
 alter table public.venda
 add column if not exists comissao_venda_percent_aplicada numeric(5,2);
-
 create or replace function public.fn_criar_venda_com_itens(p_venda jsonb)
 returns integer
 language plpgsql
