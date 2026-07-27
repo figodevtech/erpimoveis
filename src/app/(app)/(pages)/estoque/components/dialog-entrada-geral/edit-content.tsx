@@ -34,7 +34,7 @@ import { Loader2, Search } from "lucide-react";
 export const TIPOS_ENTRADA = [
   { value: "COMPRA_FORNECEDOR", label: "Compra fornecedor" },
   { value: "COMPRA_PF", label: "Compra PF" },
-  { value: "DEVOLUCAO", label: "Devolução" },
+  { value: "DEVOLUCAO", label: "Devolução / retorno" },
 ] as const;
 
 export type EntradaTipo = (typeof TIPOS_ENTRADA)[number]["value"];

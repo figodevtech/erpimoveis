@@ -499,6 +499,7 @@ export function POSSystem() {
       itens: cart.map((item) => ({
         produtoId: item.id,
         quantidade: item.quantity,
+        precoUnitario: item.precovenda,
         subTotal: item.precovenda * item.quantity,
         valorTotal: item.precovenda * item.quantity,
         valorDesconto: 0,
@@ -569,6 +570,7 @@ export function POSSystem() {
       itens: cart.map((item) => ({
         produtoId: item.id,
         quantidade: item.quantity,
+        precoUnitario: item.precovenda,
         subTotal: item.precovenda * item.quantity,
         valorTotal: item.precovenda * item.quantity,
         valorDesconto: 0,
