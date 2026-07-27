@@ -24,7 +24,11 @@ export function DialogEntradaGeral({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      {selectedEntradaId ? <EditContent selectedEntradaId={selectedEntradaId} /> : <RegisterContent onOpenChange={onOpenChange} />}
+      {selectedEntradaId ? (
+        <EditContent selectedEntradaId={selectedEntradaId} />
+      ) : (
+        <RegisterContent open={open} onOpenChange={onOpenChange} />
+      )}
     </Dialog>
   );
 }

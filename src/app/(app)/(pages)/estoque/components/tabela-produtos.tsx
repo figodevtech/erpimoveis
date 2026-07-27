@@ -207,7 +207,7 @@ export default function TabelaProdutos({
 
   // ✅ guard do id
   const abrirEntrada = (p: Produto) => {
-    if (!canEdit) return;
+    if (!canCreate) return;
     if (!p.id) {
       toast.error("Produto sem ID válido para entrada.");
       return;
@@ -319,7 +319,7 @@ export default function TabelaProdutos({
                   </DropdownMenuItem>
                 ) : null}
 
-                {canEdit ? (
+                {canCreate ? (
                   <DropdownMenuItem
                     onClick={() => setEntradaGeralOpen(true)}
                     className="cursor-pointer"
@@ -328,7 +328,7 @@ export default function TabelaProdutos({
                     Entrada
                   </DropdownMenuItem>
                 ) : null}
-                {canEdit ? (
+                {canCreate ? (
                   <DropdownMenuItem
                     onClick={() => setEntradaFiscalOpen(true)}
                     className="cursor-pointer"
@@ -526,7 +526,7 @@ export default function TabelaProdutos({
 
                       {/* ✅ DropdownMenuItem no lugar de Button */}
                       <DropdownMenuContent align="center">
-                        {canEdit ? (
+                        {canCreate ? (
                           <DropdownMenuItem
                             disabled={!canAct}
                             onClick={() => abrirEdicaoProduto(id)}

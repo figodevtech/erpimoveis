@@ -543,7 +543,7 @@ export function OrdemEditForm({
         <>
           {/* Cliente */}
           <Card className="border-border">
-            <CardHeader className="pb-3">
+            <CardHeader className="">
               <div className="flex items-center gap-2">
                 <User2 className="h-5 w-5 text-primary" />
                 <CardTitle className="text-base sm:text-lg">
@@ -680,7 +680,7 @@ export function OrdemEditForm({
 
           {/* Definição da OS */}
           <Card className="border-border">
-            <CardHeader className="pb-3">
+            <CardHeader className="">
               <div className="flex items-center gap-2">
                 <Building2 className="h-5 w-5 text-primary" />
                 <CardTitle className="text-base sm:text-lg">

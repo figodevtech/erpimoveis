@@ -7,6 +7,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
 import { requireVendasAccess, requireVendasCreate } from "@/app/api/_authz/perms";
 import { syncPendingMercadoLivreStock } from "@/lib/integrations/mercadolivre-stock-sync";
+import { buscarModoBaixaEstoqueOS } from "@/lib/ordens/estoque-os";
 
 type Status =
   | "ORCAMENTO"
@@ -33,6 +34,7 @@ const STATUS_SET = new Set<Status>([
 type VendaItemInput = {
   produtoId: number;
   quantidade: number;
+  precoUnitario?: number;
   subTotal?: number;
   valorTotal?: number;
   valorDesconto?: number | null;
@@ -52,6 +54,7 @@ type VendaPostBody = {
   valorTotal?: number;
   dataVenda?: string | null; // opcional, ISO string. Se não vier, usa default do banco (now()).
   itens: VendaItemInput[];
+  baixarEstoque?: boolean;
 };
 
 const VENDA_SELECT = `
@@ -94,6 +97,10 @@ const VENDA_SELECT = `
   observacoes_fiscais,
   forma_pagamento,
   sub_total,
+  transacoes:transacao!transacao_vendaid_fkey (
+    id,
+    valor
+  ),
   itens:vendaproduto (
     id,
     produtoid,
@@ -471,8 +478,27 @@ export async function POST(req: Request) {
     // Nunca confie em preços ou totais enviados pelo navegador. Além de evitar
     // manipulação da requisição, isto mantém venda e itens contabilmente coerentes.
     const quantitiesByProduct = new Map<number, number>();
+    const requestedPriceByProduct = new Map<number, number>();
     for (const item of body.itens) {
       const productId = Number(item.produtoId);
+      const hasRequestedPrice = item.precoUnitario !== undefined && item.precoUnitario !== null;
+      if (hasRequestedPrice) {
+        const requestedPrice = Number(item.precoUnitario);
+        if (!Number.isFinite(requestedPrice) || requestedPrice <= 0) {
+          return NextResponse.json(
+            { error: `Informe um preço unitário maior que zero para o produto ${productId}.` },
+            { status: 400 },
+          );
+        }
+        const previousPrice = requestedPriceByProduct.get(productId);
+        if (previousPrice !== undefined && Math.abs(previousPrice - requestedPrice) > 0.001) {
+          return NextResponse.json(
+            { error: `O produto ${productId} foi informado com preços unitários diferentes.` },
+            { status: 400 },
+          );
+        }
+        requestedPriceByProduct.set(productId, requestedPrice);
+      }
       quantitiesByProduct.set(
         productId,
         (quantitiesByProduct.get(productId) ?? 0) + Number(item.quantidade),
@@ -493,14 +519,22 @@ export async function POST(req: Request) {
         Number(product.precovenda),
       ]),
     );
-    const unavailableIds = requestedProductIds.filter((id) => {
-      const price = priceByProduct.get(id);
-      return price === undefined || !Number.isFinite(price) || price < 0;
-    });
+    const unavailableIds = requestedProductIds.filter((id) => !priceByProduct.has(id));
 
     if (unavailableIds.length > 0) {
       return NextResponse.json(
-        { error: "Um ou mais produtos não existem ou estão sem preço de venda." },
+        { error: "Um ou mais produtos não existem." },
+        { status: 400 },
+      );
+    }
+
+    const invalidPriceIds = requestedProductIds.filter((id) => {
+      const price = requestedPriceByProduct.get(id) ?? priceByProduct.get(id);
+      return price === undefined || !Number.isFinite(price) || price <= 0;
+    });
+    if (invalidPriceIds.length > 0) {
+      return NextResponse.json(
+        { error: "Informe um preço de venda maior que zero para todos os produtos." },
         { status: 400 },
       );
     }
@@ -508,10 +542,12 @@ export async function POST(req: Request) {
     const roundMoney = (value: number) => Math.round(value * 100) / 100;
     const normalizedItems: VendaItemInput[] = requestedProductIds.map((productId) => {
       const quantity = quantitiesByProduct.get(productId)!;
-      const itemTotal = roundMoney(priceByProduct.get(productId)! * quantity);
+      const unitPrice = requestedPriceByProduct.get(productId) ?? priceByProduct.get(productId)!;
+      const itemTotal = roundMoney(unitPrice * quantity);
       return {
         produtoId: productId,
         quantidade: quantity,
+        precoUnitario: roundMoney(unitPrice),
         subTotal: itemTotal,
         valorTotal: itemTotal,
         valorDesconto: 0,
@@ -533,6 +569,8 @@ export async function POST(req: Request) {
     body.subTotal = serverSubTotal;
     body.descontoValor = serverDiscount > 0 ? serverDiscount : null;
     body.valorTotal = roundMoney(serverSubTotal - serverDiscount);
+    const modoBaixa = await buscarModoBaixaEstoqueOS();
+    body.baixarEstoque = body.status !== "ORCAMENTO" || modoBaixa === "ORCAMENTO";
 
     // Chama função RPC no Postgres (tudo transacional lá)
     const { data: vendaId, error: rpcError } = await supabaseAdmin.rpc(

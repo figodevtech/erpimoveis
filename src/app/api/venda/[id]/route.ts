@@ -260,6 +260,34 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       );
     }
 
+    if (String(body.status ?? "").toUpperCase() === "PAGAMENTO") {
+      const atual = await supabaseAdmin
+        .from("venda")
+        .select("status")
+        .eq("id", vendaId)
+        .maybeSingle();
+      if (atual.error) throw atual.error;
+      if (!atual.data) return NextResponse.json({ error: "Venda não encontrada." }, { status: 404 });
+
+      if (String(atual.data.status).toUpperCase() === "ORCAMENTO") {
+        const aprovacao = await supabaseAdmin.rpc("fn_aprovar_orcamento_venda", {
+          p_venda_id: vendaId,
+          p_forma_pagamento: body.formaPagamento ?? null,
+        });
+        if (aprovacao.error) {
+          const message = aprovacao.error.message || "Não foi possível aprovar o orçamento.";
+          const statusCode = /estoque|orçamento|orcamento/i.test(message) ? 409 : 500;
+          return NextResponse.json({ error: message }, { status: statusCode });
+        }
+        if (usuarioInternoId) {
+          await supabaseAdmin.from("venda").update({ updated_by: usuarioInternoId }).eq("id", vendaId);
+        }
+        const refreshed = await supabaseAdmin.from("venda").select(VENDA_SELECT).eq("id", vendaId).single();
+        if (refreshed.error) throw refreshed.error;
+        return NextResponse.json({ message: "Orçamento aprovado com sucesso.", data: refreshed.data });
+      }
+    }
+
     const {
       clienteId,
       status,
@@ -486,6 +514,14 @@ export async function DELETE(_req: NextRequest, ctx: ParamsCtx) {
 
     const vendaId = parsed.id as number;
 
+    const { data: vendaBaseEstorno, error: vendaBaseEstornoError } = await supabaseAdmin
+      .from("venda")
+      .select("status")
+      .eq("id", vendaId)
+      .maybeSingle();
+    if (vendaBaseEstornoError) throw vendaBaseEstornoError;
+    if (!vendaBaseEstorno) return NextResponse.json({ error: "Venda não encontrada." }, { status: 404 });
+
     // 1) Bloqueia exclusão se já existe NF-e vinculada à venda que NÃO esteja em RASCUNHO
     const { data: nfesBloqueantes, error: nfeError } = await supabaseAdmin
       .from("nfe")
@@ -533,10 +569,22 @@ export async function DELETE(_req: NextRequest, ctx: ParamsCtx) {
       );
     }
 
-    // Agrupar quantidade por produto
-    const qtyPorProduto = new Map<number, number>();
+    const { data: baixasRegistradas, error: baixasError } = await supabaseAdmin
+      .from("vendaproduto_baixa")
+      .select("produtoid, quantidade")
+      .eq("venda_id", vendaId);
+    if (baixasError) throw baixasError;
 
-    for (const row of itensVenda ?? []) {
+    // A baixa registrada é a fonte oficial. Para vendas legadas sem rastreamento,
+    // os itens só são usados como fallback quando não se trata de um orçamento.
+    const qtyPorProduto = new Map<number, number>();
+    const origemEstorno = (baixasRegistradas?.length ?? 0) > 0
+      ? baixasRegistradas
+      : String(vendaBaseEstorno.status).toUpperCase() === "ORCAMENTO"
+        ? []
+        : itensVenda;
+
+    for (const row of origemEstorno ?? []) {
       const produtoId = Number((row as any).produtoid);
       const qtd = toInt((row as any).quantidade);
 

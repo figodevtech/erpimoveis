@@ -115,9 +115,9 @@ export default function FornecedorSelect({
             <DialogTitle>Selecione um Fornecedor</DialogTitle>
             <DialogDescription></DialogDescription>
           </DialogHeader>
-          <div className="h-full min-h-0 overflow-auto dark:bg-muted-foreground/5 px-6 py-10 space-y-2">
-            <div className="flex flex-row items-center gap-2">
-              <div className="relative w-full">
+          <div className="h-full min-h-0 min-w-0 overflow-auto dark:bg-muted-foreground/5 px-4 py-6 sm:px-6 sm:py-10 space-y-2">
+            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="relative min-w-0 flex-1">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   onChange={(e) => setSearch(e.target.value)}
@@ -157,12 +157,12 @@ export default function FornecedorSelect({
                 } `}
               ></div>
             </div>
-            <Table className="text-xs mt-6">
+            <Table className="mt-6 w-full table-fixed text-xs">
               <TableHeader>
                 <TableRow>
-                  <TableCell>ID</TableCell>
+                  <TableCell className="w-14">ID</TableCell>
                   <TableCell>NOME</TableCell>
-                  <TableCell>CPF/CNPJ</TableCell>
+                  <TableCell className="w-32">CPF/CNPJ</TableCell>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -180,9 +180,13 @@ export default function FornecedorSelect({
                     }}
                     key={f.id}
                   >
-                    <TableCell>{f.id}</TableCell>
-                    <TableCell>{f.nomerazaosocial}</TableCell>
-                    <TableCell>{f.cpfcnpj}</TableCell>
+                    <TableCell className="w-14">{f.id}</TableCell>
+                    <TableCell className="max-w-0 truncate" title={f.nomerazaosocial}>
+                      {f.nomerazaosocial}
+                    </TableCell>
+                    <TableCell className="w-32 truncate" title={f.cpfcnpj}>
+                      {f.cpfcnpj}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

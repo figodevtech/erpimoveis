@@ -34,6 +34,7 @@ import {
   Package,
   AlertTriangle,
   Search,
+  Send,
   X,
 } from "lucide-react";
 
@@ -68,6 +69,14 @@ import { Label } from "@/components/ui/label";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 
 const MAX_ALVO_CHARS = 48;
+
+function getWhatsAppUrl(telefone?: string | null) {
+  const digits = String(telefone ?? "").replace(/\D/g, "");
+  if (!digits) return null;
+
+  const numero = digits.startsWith("55") ? digits : `55${digits}`;
+  return `https://wa.me/${numero}`;
+}
 
 type EstoqueInsuficienteItem = {
   id: number;
@@ -814,6 +823,7 @@ export function OrdensTabela({
                 {sortedRows.map((r) => {
                     const st = safeStatus(r.status) as StatusOS;
                     const clienteNome = r.cliente?.nome ?? "—";
+                    const whatsappUrl = getWhatsAppUrl(r.cliente?.telefone);
 
                     const clienteFull = clienteNome || "—";
                     const clienteShort =
@@ -846,21 +856,37 @@ export function OrdensTabela({
                             <span className="text-[11px]">{r.setor?.nome ?? "-"}</span>
                           </div>
 
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <div className="truncate font-medium text-[15px]">{clienteShort}</div>
-                            </TooltipTrigger>
-                            {clienteFull.length > MAX_CLIENTE_CHARS && (
-                              <TooltipContent>
-                                <p className="max-w-xs break-words">{clienteFull}</p>
-                              </TooltipContent>
-                            )}
-                          </Tooltip>
+                          <div className="flex min-w-0 items-center gap-2">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div className="truncate font-medium text-[13px]">{clienteShort}</div>
+                              </TooltipTrigger>
+                              {clienteFull.length > MAX_CLIENTE_CHARS && (
+                                <TooltipContent>
+                                  <p className="max-w-xs break-words">{clienteFull}</p>
+                                </TooltipContent>
+                              )}
+                            </Tooltip>
+
+                            {whatsappUrl ? (
+                              <a
+                                href={whatsappUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex w-max shrink-0 items-center justify-center gap-1 rounded-md bg-primary px-2 py-0.5 text-[10px] text-primary-foreground"
+                                aria-label={`Abrir WhatsApp de ${clienteFull}`}
+                                title="Abrir WhatsApp"
+                              >
+                                WhatsApp
+                                <Send className="h-2.5 w-2.5" />
+                              </a>
+                            ) : null}
+                          </div>
 
                           {alvoStr && (
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <div className="mt-0.5 flex items-center gap-1 text-sm text-muted-foreground">
+                                <div className="mt-0.5 flex items-center gap-1  text-muted-foreground">
                                   {isPeca ? <Package className="h-3 w-3 shrink-0" /> : <Car className="h-3 w-3 shrink-0" />}
                                   <span className="truncate">{alvoShort}</span>
                                 </div>
@@ -877,7 +903,7 @@ export function OrdensTabela({
                         <TableCell className="max-w-[380px]">
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <div className="whitespace-normal break-words line-clamp-2 text-sm">{descFull}</div>
+                              <div className="whitespace-normal break-words line-clamp-2">{descFull}</div>
                             </TooltipTrigger>
                             <TooltipContent className="max-w-sm">
                               <p className="whitespace-pre-wrap break-words">{descFull}</p>
