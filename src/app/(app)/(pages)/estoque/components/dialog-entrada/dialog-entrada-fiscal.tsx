@@ -725,10 +725,12 @@ export default function DialogEntradaFiscal({
                               newProductData={{
                                 titulo: item.descricao,
                                 referencia: item.codigo,
-                                ncm: item.ncm.toString(),
-                                cfop: item.cfop.toString(),
-                                precovenda: item.valorUnitario,
-                                estoque: 0,
+                                 ncm: item.ncm.toString(),
+                                 cfop: item.cfop.toString(),
+                                 precovenda: item.valorUnitario,
+                                 precocompra: item.valorUnitario,
+                                 ultimovalordecompra: item.valorUnitario,
+                                 estoque: 0,
                                 fornecedorid: parsed.fornecedorReferenteId || undefined,
                                 codigofornecedor: item.codigo,
                               }}

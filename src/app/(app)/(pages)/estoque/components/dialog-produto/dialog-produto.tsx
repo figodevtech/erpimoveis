@@ -62,7 +62,7 @@ export function DialogProduto({
           setOpen(nextOpen);
 
           if (newProductData && nextOpen) {
-            setNewProduct({ ...newProductData });
+            setNewProduct({ ...initialNewProduct, ...newProductData });
           }
 
           if (!nextOpen) {
@@ -107,7 +107,7 @@ export function DialogProduto({
         setOpen(nextOpen);
 
         if (newProductData && nextOpen) {
-          setNewProduct({ ...newProductData });
+          setNewProduct({ ...initialNewProduct, ...newProductData });
         }
 
         if (!nextOpen) {
