@@ -61,6 +61,21 @@ export interface entrada {
   created_at: Date;
 }
 
+export interface SaidaEstoqueItem {
+  id: number;
+  quantidade: number;
+  saldo_anterior: number;
+  saldo_resultante: number;
+  created_at: Date;
+  saida: {
+    id: number;
+    motivo: string;
+    observacao?: string | null;
+    status: "CONFIRMADA" | "CANCELADA";
+    created_at: Date;
+  };
+}
+
 export interface Vendaproduto {
   id: number;
   created_at: Date;
@@ -148,6 +163,7 @@ export interface Produto {
   tituloMarketplace?: string;
   descricaoMarketplace?: string;
   entradas?: entrada[];
+  saidas?: SaidaEstoqueItem[];
   vendasdoproduto?: Vendaproduto[];
   ordensdoproduto?: OSProduto[];
   fornecedorid?: number;

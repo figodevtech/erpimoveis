@@ -29,6 +29,7 @@ export function TabEtiquetas({ produto, onChange }: Props) {
               label="Etiqueta do produto"
               value={produto.etiqueta ?? ""}
               placeholder="Ex: PRD-000123"
+              uppercase
               onChange={(value) => onChange("etiqueta", value)}
             />
 

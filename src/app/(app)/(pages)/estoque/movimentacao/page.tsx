@@ -117,6 +117,7 @@ export default function MovimentacaoPage() {
               label="Etiqueta/codigo do produto"
               value={codigoProduto}
               placeholder="Leia o QR, codigo de barras ou digite"
+              uppercase
               onChange={setCodigoProduto}
             />
 

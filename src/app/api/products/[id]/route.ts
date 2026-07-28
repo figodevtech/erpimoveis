@@ -28,6 +28,7 @@ const PRODUTO_FIELDS = `
 const GET_PRODUTO_FIELDS = `
   ${PRODUTO_FIELDS},
   entrada: entradaitens (id, quantidade, created_at, entradainfo: entrada(id, tipo, status, origem, fiscal, fornecedorid, fornecedor: fornecedor(id, nomerazaosocial, cpfcnpj))),
+  saidas: estoque_saida_item (id, quantidade, saldo_anterior, saldo_resultante, created_at, saida: estoque_saida(id, motivo, observacao, status, created_at)),
   vendasdoproduto: vendaproduto (
   id, venda_id, produtoid, sub_total, valor_total, valor_desconto, tipo_desconto, quantidade, venda (id, valortotal, status, datavenda, desconto_valor, sub_total, cliente: cliente(nomerazaosocial))
   ),

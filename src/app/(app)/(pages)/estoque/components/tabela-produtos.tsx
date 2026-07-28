@@ -35,6 +35,7 @@ import {
   FileText,
   MoreHorizontal,
   PackagePlus,
+  PackageMinus,
   BadgeCheck,
   ShieldCheck,
   ShieldX,
@@ -71,6 +72,7 @@ import {
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 
 import EntradaDialog from "./dialog-entrada/dialog-entrada-unica";
+import SaidaDialog from "./dialog-saida/dialog-saida-unica";
 import EntradaFiscalDialog from "./dialog-entrada/dialog-entrada-fiscal";
 import { DialogEntradaGeral } from "./dialog-entrada-geral/dialog-entrada-geral";
 import { ProdutoFiltrosSheet } from "./produto-filtros-sheet";
@@ -178,6 +180,12 @@ export default function TabelaProdutos({
     titulo: string;
     estoque: number;
   } | null>(null);
+  const [saidaOpen, setSaidaOpen] = useState(false);
+  const [saidaProduto, setSaidaProduto] = useState<{
+    id: number;
+    titulo: string;
+    estoque: number;
+  } | null>(null);
 
   const [entradaFiscalOpen, setEntradaFiscalOpen] = useState(false);
   const [entradaGeralOpen, setEntradaGeralOpen] = useState(false);
@@ -218,6 +226,20 @@ export default function TabelaProdutos({
       estoque: p.estoque ?? 0,
     });
     setEntradaOpen(true);
+  };
+
+  const abrirSaida = (p: Produto) => {
+    if (!canEdit) return;
+    if (!p.id) {
+      toast.error("Produto sem ID válido para saída.");
+      return;
+    }
+    setSaidaProduto({
+      id: p.id,
+      titulo: p.titulo || "",
+      estoque: p.estoque ?? 0,
+    });
+    setSaidaOpen(true);
   };
 
   // ✅ aceita id opcional e faz guard
@@ -546,6 +568,16 @@ export default function TabelaProdutos({
                           </DropdownMenuItem>
                         ) : null}
 
+                        {canEdit ? (
+                          <DropdownMenuItem
+                            disabled={!canAct || (p.estoque ?? 0) <= 0}
+                            onClick={() => abrirSaida(p)}
+                          >
+                            <PackageMinus className="mr-2 h-4 w-4" />
+                            Saída
+                          </DropdownMenuItem>
+                        ) : null}
+
                         {canDelete ? (
                           <DropdownMenuItem
                             disabled={!canAct || isDeleting}
@@ -677,6 +709,23 @@ export default function TabelaProdutos({
             currentQuantity={entradaProduto.estoque}
             productDescription={entradaProduto.titulo}
             productId={entradaProduto.id}
+          />
+        )}
+
+        {saidaProduto && (
+          <SaidaDialog
+            isOpen={saidaOpen}
+            setIsOpen={(value) => {
+              setSaidaOpen(value);
+              if (!value) setSaidaProduto(null);
+            }}
+            productId={saidaProduto.id}
+            productDescription={saidaProduto.titulo}
+            currentQuantity={saidaProduto.estoque}
+            onSuccess={async () => {
+              filteredHandleGetProducts(pagination.page, pagination.limit, search, status);
+              fetchStatusCounts();
+            }}
           />
         )}
 
