@@ -244,7 +244,7 @@ export default function PainelFinanceiro() {
         ))}
       </section>
 
-      <main className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+      <main className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
         <Coluna
           titulo="Aguardando pagamento"
           subtitulo="Todas as cobranças com saldo em aberto"
