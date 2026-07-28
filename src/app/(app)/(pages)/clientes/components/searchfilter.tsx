@@ -1,6 +1,5 @@
 import { Input } from "@/components/ui/input";
-import { SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Select } from "@radix-ui/react-select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Status } from "../types";
