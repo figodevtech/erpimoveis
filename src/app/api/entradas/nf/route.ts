@@ -1,9 +1,83 @@
 // app/api/entradas/nf/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { XMLParser } from "fast-xml-parser";
+import { requireEstoqueCreate } from "@/app/api/_authz/perms";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+
+export const runtime = "nodejs";
+
+async function salvarXmlRecebidoManual(xml: string, parsed: any, raw: any) {
+  const chave = String(parsed.chaveAcesso ?? "").replace(/\D/g, "");
+  if (chave.length !== 44) throw new Error("Não foi possível identificar a chave de acesso do XML.");
+
+  const { data: empresa, error: empresaError } = await supabaseAdmin
+    .from("empresa")
+    .select("id")
+    .order("id", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (empresaError) throw empresaError;
+  if (!empresa?.id) throw new Error("Cadastre a empresa antes de importar uma NF-e.");
+
+  const { data: existente, error: existenteError } = await supabaseAdmin
+    .from("fiscal_dfe_documento")
+    .select("id, nsu")
+    .eq("empresa_id", empresa.id)
+    .eq("chave_acesso", chave)
+    .or("schema.like.resNFe%,schema.like.procNFe%")
+    .order("id", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (existenteError) throw existenteError;
+
+  const protocolo = raw?.nfeProc?.protNFe?.infProt ?? {};
+  const documento = {
+    schema: "procNFe_manual_v4.00",
+    tipo_documento: "PROC_NFE",
+    chave_acesso: chave,
+    data_emissao: parsed.dataEmissao,
+    emitente_nome: parsed.emitente?.nome,
+    emitente_cnpj: String(parsed.emitente?.cnpj ?? "").replace(/\D/g, "") || null,
+    valor_total: parsed.totais?.valorNota,
+    status: protocolo.cStat ? String(protocolo.cStat) : null,
+    xml,
+    resumo: {
+      origem: "IMPORTACAO_MANUAL",
+      xmlCompleto: true,
+      numeroNota: parsed.numeroNota,
+      serie: parsed.serie,
+      protocolo: protocolo.nProt ? String(protocolo.nProt) : null,
+    },
+    updatedat: new Date().toISOString(),
+  };
+
+  if (existente?.id) {
+    const { data, error } = await supabaseAdmin
+      .from("fiscal_dfe_documento")
+      .update(documento)
+      .eq("id", existente.id)
+      .select("id")
+      .single();
+    if (error) throw error;
+    return Number(data.id);
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("fiscal_dfe_documento")
+    .insert({
+      ...documento,
+      empresa_id: empresa.id,
+      nsu: `MANUAL:${chave}`,
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return Number(data.id);
+}
 
 export async function POST(req: NextRequest) {
   try {
+    await requireEstoqueCreate();
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
 
@@ -12,6 +86,9 @@ export async function POST(req: NextRequest) {
         { error: "Nenhum arquivo enviado" },
         { status: 400 }
       );
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      return NextResponse.json({ error: "O XML não pode ultrapassar 10 MB." }, { status: 400 });
     }
 
     // Lê o conteúdo do arquivo
@@ -134,12 +211,19 @@ export async function POST(req: NextRequest) {
         }),
     };
 
-    return NextResponse.json({ raw: json, parsed: result });
+    const documentoFiscalRecebidoId = await salvarXmlRecebidoManual(xml, result, json);
+
+    return NextResponse.json({
+      raw: json,
+      parsed: { ...result, documentoFiscalRecebidoId },
+    });
   } catch (err: any) {
     console.error(err);
+    const informedStatus = Number(err?.statusCode);
+    const status = informedStatus === 401 || informedStatus === 403 ? informedStatus : 500;
     return NextResponse.json(
       { error: "Erro ao processar a nota", detail: err?.message },
-      { status: 500 }
+      { status }
     );
   }
 }
