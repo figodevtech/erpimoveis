@@ -63,6 +63,10 @@ function shorten(text: string) {
 }
 
 function knownErrorMessage(text: string) {
+  const unidadeEnum = text.match(/invalid input value for enum\s+(?:[\w]+\.)?["']?unidade_medida["']?:\s*["']([^"']*)["']/i);
+  if (unidadeEnum) {
+    return `Unidade de medida do produto: o valor "${unidadeEnum[1]}" não é aceito. Revise a unidade nos itens da entrada fiscal.`;
+  }
   if (/\b429\b|rate[ _-]?limit(?:ed)?|too many requests/i.test(text)) {
     return "O serviço recebeu muitas solicitações em pouco tempo. Aguarde alguns instantes e tente novamente.";
   }

@@ -15,7 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import axios from "axios";
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 
 import {
@@ -25,7 +25,6 @@ import {
   ChevronsRight,
   Loader,
   Plus,
-  Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,7 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
+import { SelectSearchInput } from "./select-search-input";
 import { Servico } from "@/types/servico";
 import { Pagination } from "../(pages)/estoque/types";
 import ServicoDialog from "../(pages)/configuracoes/tipos/components/servicoDialog/servico-dialog";
@@ -81,6 +80,9 @@ export default function ServiceSelect({
   });
   const [serviceItems, setServiceItems] = useState<Servico[] | []>([]);
   const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const requestSequence = useRef(0);
+  const requestController = useRef<AbortController | null>(null);
   const [form, setForm] = useState<ServicoForm>(emptyForm);
 
   const [openServico, setOpenServico] = useState(false);
@@ -90,39 +92,52 @@ export default function ServiceSelect({
     limit?: number,
     searchText?: string
   ) => {
+    const requestId = ++requestSequence.current;
+    requestController.current?.abort();
+    const controller = new AbortController();
+    requestController.current = controller;
     setIsLoading(true);
     try {
       const response = await axios.get("/api/servicos/buscar", {
+        signal: controller.signal,
         params: {
           page: pageNumber || 1,
-          limit: pagination.limit,
+          limit: limit || pagination.limit,
           search: searchText || undefined,
         },
       });
-      console.log(response);
-      if (response.status === 200) {
+      if (response.status === 200 && requestId === requestSequence.current) {
         const { data } = response;
         setServiceItems(data.servicos);
         setPagination(data.pagination);
-        console.log("Serviços carregados:", data.data);
       }
     } catch (error) {
-      console.log("Erro ao buscar Serviços:", error);
+      if (!axios.isCancel(error) && requestId === requestSequence.current) console.log("Erro ao buscar Serviços:", error);
     } finally {
-      setIsLoading(false);
+      if (requestId === requestSequence.current) setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    handleGetServices();
-  }, []);
+    requestSequence.current += 1;
+    requestController.current?.abort();
+    const timer = window.setTimeout(() => setSearch(searchInput.trim()), 450);
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
   useEffect(() => {
-    handleGetServices(pagination.page, pagination.limit, search);
-  }, [pagination.limit, pagination.page]);
+    if (open) void handleGetServices(1, pagination.limit, search);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, search]);
+  useEffect(() => () => requestController.current?.abort(), []);
 
-  useEffect(() => {
-    handleGetServices(1, pagination.limit, search);
-  }, [search]);
+  const executarBusca = () => {
+    const term = searchInput.trim();
+    if (term === search) void handleGetServices(1, pagination.limit, term); else setSearch(term);
+  };
+  const limparBusca = () => {
+    setSearchInput("");
+    if (search === "") void handleGetServices(1, pagination.limit, ""); else setSearch("");
+  };
 
   function openNovo() {
     setForm(emptyForm);
@@ -136,6 +151,7 @@ export default function ServiceSelect({
           setOpen(nextOpen);
         }
         if (!nextOpen) {
+          setSearchInput("");
           setSearch("");
         }
       }}
@@ -150,14 +166,7 @@ export default function ServiceSelect({
           </DialogHeader>
           <div className="h-full min-h-0 overflow-auto dark:bg-muted-foreground/5 px-6 py-10 space-y-2">
             <div className="flex flex-row items-center gap-2">
-              <div className="relative w-full">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Buscar por nome, email ou telefone..."
-                  className="pl-10"
-                />
-              </div>
+              <SelectSearchInput value={searchInput} onValueChange={setSearchInput} onSearch={executarBusca} onClear={limparBusca} placeholder="Buscar por código ou descrição..." />
               {canCreateService && (
                 <>
                   <Button

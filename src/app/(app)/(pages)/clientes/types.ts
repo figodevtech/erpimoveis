@@ -45,7 +45,7 @@ export interface Customer {
   status: ClientStatus
   veiculos: Veiculo[]
   ordens: Ordem[]
-  rank: Cliente_rank
+  rank?: Cliente_rank | null
 }
 
 export interface Pagination {

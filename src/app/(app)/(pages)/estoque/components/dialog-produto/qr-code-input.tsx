@@ -14,6 +14,7 @@ type Props = {
   placeholder?: string;
   loading?: boolean;
   loadingLabel?: string;
+  uppercase?: boolean;
   onChange: (value: string) => void;
 };
 
@@ -23,7 +24,16 @@ function normalizeQrValue(value: string) {
   return trimmed;
 }
 
-export function QrCodeInput({ id, label, value, placeholder, loading = false, loadingLabel, onChange }: Props) {
+export function QrCodeInput({
+  id,
+  label,
+  value,
+  placeholder,
+  loading = false,
+  loadingLabel,
+  uppercase = false,
+  onChange,
+}: Props) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -104,7 +114,8 @@ export function QrCodeInput({ id, label, value, placeholder, loading = false, lo
           }
 
           if (rawValue) {
-            onChange(normalizeQrValue(rawValue));
+            const normalized = normalizeQrValue(rawValue);
+            onChange(uppercase ? normalized.toUpperCase() : normalized);
             setOpen(false);
             return;
           }
@@ -127,7 +138,7 @@ export function QrCodeInput({ id, label, value, placeholder, loading = false, lo
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     };
-  }, [onChange, open]);
+  }, [onChange, open, uppercase]);
 
   return (
     <div className="space-y-2">
@@ -139,7 +150,7 @@ export function QrCodeInput({ id, label, value, placeholder, loading = false, lo
             value={value ?? ""}
             placeholder={placeholder}
             className={loading ? "pr-10" : undefined}
-            onChange={(event) => onChange(event.target.value)}
+            onChange={(event) => onChange(uppercase ? event.target.value.toUpperCase() : event.target.value)}
           />
           {loading ? (
             <Loader2

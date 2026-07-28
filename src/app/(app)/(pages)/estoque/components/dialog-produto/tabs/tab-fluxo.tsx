@@ -24,6 +24,29 @@ import { toast } from "@/lib/toast";
 
 export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfterChange?: () => void | Promise<void> }) {
   const entradas = (produto as any).entrada ?? [];
+  const saidas = (produto as any).saidas ?? [];
+  const movimentacoes = [
+    ...entradas.map((item: any) => ({
+      id: item.entradainfo?.id ?? item.id,
+      key: `entrada-${item.id}`,
+      tipo: "ENTRADA" as const,
+      data: item.created_at,
+      descricao: item.entradainfo?.fornecedor?.nomerazaosocial || "Entrada sem fornecedor",
+      status: item.entradainfo?.status,
+      quantidade: item.quantidade,
+      entrada: item.entradainfo,
+    })),
+    ...saidas.map((item: any) => ({
+      id: item.saida?.id ?? item.id,
+      key: `saida-${item.id}`,
+      tipo: "SAIDA" as const,
+      data: item.saida?.created_at ?? item.created_at,
+      descricao: String(item.saida?.motivo ?? "SAIDA").replace(/_/g, " "),
+      status: item.saida?.status,
+      quantidade: item.quantidade,
+      entrada: null,
+    })),
+  ].sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
   const [nfeDialogEntradaId, setNfeDialogEntradaId] = useState<number | null>(null);
   const [entradaParaCancelar, setEntradaParaCancelar] = useState<number | null>(null);
   const [cancelando, setCancelando] = useState(false);
@@ -97,16 +120,16 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
             <div className="flex items-center gap-2">
               <ArrowRightLeft className="h-4 w-4 text-muted-foreground" />
               <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                Movimentações de Entrada
+                Movimentações do Estoque
               </h3>
             </div>
             <p className="text-xs text-muted-foreground">
-              Histórico de entradas deste produto no estoque.
+              Histórico de entradas e saídas deste produto.
             </p>
           </div>
           <div className="flex items-center gap-2 rounded-md bg-background px-3 py-1.5 border shadow-sm">
             <span className="text-xs font-medium text-muted-foreground">Total:</span>
-            <span className="text-sm font-bold">{entradas.length}</span>
+            <span className="text-sm font-bold">{movimentacoes.length}</span>
           </div>
         </div>
 
@@ -116,7 +139,8 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
               <TableRow>
                 <TableHead className="w-[80px]">ID</TableHead>
                 <TableHead>Data</TableHead>
-                <TableHead>Fornecedor</TableHead>
+                <TableHead>Tipo</TableHead>
+                <TableHead>Origem / Motivo</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Quantidade</TableHead>
                 <TableHead className="w-[50px]"></TableHead>
@@ -124,22 +148,30 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
             </TableHeader>
 
             <TableBody>
-              {entradas.length > 0 ? (
-                entradas.map((e: any) => {
-                  const entradaInfo = e.entradainfo || {};
-                  const fornecedorNome = entradaInfo.fornecedor?.nomerazaosocial || "Não informado";
+              {movimentacoes.length > 0 ? (
+                movimentacoes.map((movimento) => {
+                  const entradaInfo = movimento.entrada || {};
                   
                   return (
-                    <TableRow key={e.id} className="hover:bg-muted/50 transition-colors">
+                    <TableRow key={movimento.key} className="hover:bg-muted/50 transition-colors">
                       <TableCell className="font-medium text-muted-foreground">
-                        #{entradaInfo.id ?? e.id}
+                        #{movimento.id}
                       </TableCell>
-                      <TableCell>{formatDate(e.created_at)}</TableCell>
-                      <TableCell className="max-w-[200px] truncate" title={fornecedorNome}>{fornecedorNome}</TableCell>
-                      <TableCell>{getStatusBadge(entradaInfo.status)}</TableCell>
-                      <TableCell className="text-right font-bold text-green-600 dark:text-green-500">+ {e.quantidade}</TableCell>
+                      <TableCell>{formatDate(movimento.data)}</TableCell>
                       <TableCell>
-                        <DropdownMenu>
+                        <Badge variant="outline" className={movimento.tipo === "ENTRADA" ? "text-emerald-700 border-emerald-500/20" : "text-red-700 border-red-500/20"}>
+                          {movimento.tipo === "ENTRADA" ? "Entrada" : "Saída"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="max-w-[200px] truncate capitalize" title={movimento.descricao}>
+                        {movimento.descricao.toLowerCase()}
+                      </TableCell>
+                      <TableCell>{getStatusBadge(movimento.status)}</TableCell>
+                      <TableCell className={`text-right font-bold ${movimento.tipo === "ENTRADA" ? "text-green-600 dark:text-green-500" : "text-red-600 dark:text-red-500"}`}>
+                        {movimento.tipo === "ENTRADA" ? "+" : "-"} {movimento.quantidade}
+                      </TableCell>
+                      <TableCell>
+                        {movimento.tipo === "ENTRADA" ? <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" className="h-8 w-8 p-0 cursor-pointer rounded-full">
                               <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -160,14 +192,14 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
                               Cancelar Entrada
                             </Button> : null}
                           </DropdownMenuContent>
-                        </DropdownMenu>
+                        </DropdownMenu> : null}
                       </TableCell>
                     </TableRow>
                   );
                 })
               ) : (
                 <TableRow>
-                  <TableCell className="text-center h-24 text-muted-foreground" colSpan={6}>
+                  <TableCell className="text-center h-24 text-muted-foreground" colSpan={7}>
                     <div className="flex flex-col items-center justify-center gap-2">
                       <ArrowRightLeft className="h-8 w-8 opacity-20" />
                       <p>Produto não possui histórico de movimentação no estoque</p>

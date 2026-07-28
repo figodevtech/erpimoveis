@@ -134,7 +134,7 @@ const data = {
           perm: PERMS.ESTOQUE,
         },
         {
-          title: "Registrar Etiqueta",
+          title: "Consulta Etiqueta",
           url: "/estoque/registrar-etiqueta",
           icon: ScanLine,
           perm: PERMS.ESTOQUE,

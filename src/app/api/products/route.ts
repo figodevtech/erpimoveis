@@ -211,6 +211,31 @@ export async function GET(req: Request) {
     const limit = Math.min(Math.max(Number(limitRaw), 1), 100);
 
     const q = (searchParams.get('search') ?? searchParams.get('q') ?? '').trim();
+    const exactEtiqueta = (searchParams.get('exactEtiqueta') ?? '').trim();
+
+    if (exactEtiqueta) {
+      const { data, error } = await supabaseAdmin
+        .from('produto')
+        .select(PRODUTO_FIELDS)
+        .eq('etiqueta', exactEtiqueta)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      return NextResponse.json({
+        data: data ? [data] : [],
+        pagination: {
+          total: data ? 1 : 0,
+          page: 1,
+          limit: 1,
+          totalPages: 1,
+          pageCount: data ? 1 : 0,
+          hasPrevPage: false,
+          hasNextPage: false,
+        },
+        filters: { exactEtiqueta },
+      });
+    }
 
     const statusParam = (searchParams.get('status') ?? 'TODOS').toUpperCase();
     const statusFilter = STATUS_SET.has(statusParam as Status)

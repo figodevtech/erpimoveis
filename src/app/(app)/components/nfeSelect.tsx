@@ -17,7 +17,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { SelectSearchInput } from "./select-search-input";
 import {
   Select,
   SelectContent,
@@ -34,9 +34,8 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Loader,
-  Search,
 } from "lucide-react";
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import type { NF } from "../(pages)/estoque/components/dialog-entrada/types";
 
 interface NfeItem {
@@ -84,11 +83,19 @@ export default function NfeSelect({ children, OnSelect, setOpen, open }: NfeSele
   const [pagination, setPagination] = useState<Pagination>(initialPagination);
   const [nfeItems, setNfeItems] = useState<NfeItem[]>([]);
   const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const requestSequence = useRef(0);
+  const requestController = useRef<AbortController | null>(null);
 
   const handleGetNfes = async (pageNumber = 1, limit = pagination.limit, searchText = search) => {
+    const requestId = ++requestSequence.current;
+    requestController.current?.abort();
+    const controller = new AbortController();
+    requestController.current = controller;
     setIsLoading(true);
     try {
       const response = await axios.get("/api/fiscal/notas-recebidas", {
+        signal: controller.signal,
         params: {
           page: pageNumber,
           limit,
@@ -96,20 +103,19 @@ export default function NfeSelect({ children, OnSelect, setOpen, open }: NfeSele
         },
       });
 
-      const items = response.data.data ?? [];
-      setNfeItems(items);
-      setPagination({
-        ...(response.data.pagination ?? initialPagination),
-        pageCount: items.length,
-      });
+      if (requestId === requestSequence.current) {
+        const items = response.data.data ?? [];
+        setNfeItems(items);
+        setPagination({ ...(response.data.pagination ?? initialPagination), pageCount: items.length });
+      }
     } catch (error) {
-      toast.error("Erro ao buscar notas fiscais", {
+      if (!axios.isCancel(error) && requestId === requestSequence.current) toast.error("Erro ao buscar notas fiscais", {
         description: isAxiosError(error)
           ? error.response?.data?.detail ?? error.response?.data?.error ?? error.message
           : "Não foi possível listar as notas fiscais de terceiros.",
       });
     } finally {
-      setIsLoading(false);
+      if (requestId === requestSequence.current) setIsLoading(false);
     }
   };
 
@@ -135,6 +141,7 @@ export default function NfeSelect({ children, OnSelect, setOpen, open }: NfeSele
         documentoFiscalRecebidoId: nota.id,
       });
       setOpen?.(false);
+      setSearchInput("");
       setSearch("");
     } catch (error) {
       toast.error("Erro ao selecionar nota fiscal", {
@@ -148,24 +155,31 @@ export default function NfeSelect({ children, OnSelect, setOpen, open }: NfeSele
   };
 
   useEffect(() => {
+    requestSequence.current += 1;
+    requestController.current?.abort();
+    const timeout = window.setTimeout(() => setSearch(searchInput.trim()), 450);
+    return () => window.clearTimeout(timeout);
+  }, [searchInput]);
+  useEffect(() => {
     if (open) void handleGetNfes(1, pagination.limit, search);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, search]);
+  useEffect(() => () => requestController.current?.abort(), []);
 
-  useEffect(() => {
-    if (!open) return;
-    const timeout = window.setTimeout(() => {
-      void handleGetNfes(1, pagination.limit, search);
-    }, 250);
-    return () => window.clearTimeout(timeout);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search]);
+  const executarBusca = () => {
+    const term = searchInput.trim();
+    if (term === search) void handleGetNfes(1, pagination.limit, term); else setSearch(term);
+  };
+  const limparBusca = () => {
+    setSearchInput("");
+    if (search === "") void handleGetNfes(1, pagination.limit, ""); else setSearch("");
+  };
 
   return (
     <Dialog
       onOpenChange={(nextOpen) => {
         setOpen?.(nextOpen);
-        if (!nextOpen) setSearch("");
+        if (!nextOpen) { setSearchInput(""); setSearch(""); }
       }}
       open={open}
     >
@@ -178,15 +192,7 @@ export default function NfeSelect({ children, OnSelect, setOpen, open }: NfeSele
           </DialogHeader>
           <div className="h-full min-h-0 overflow-auto dark:bg-muted-foreground/5 px-6 py-10 space-y-2">
             <div className="flex flex-row items-center gap-2">
-              <div className="relative w-full">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Buscar por nota, chave ou emitente..."
-                  className="pl-10"
-                />
-              </div>
+              <SelectSearchInput value={searchInput} onValueChange={setSearchInput} onSearch={executarBusca} onClear={limparBusca} placeholder="Buscar por nota, chave ou emitente..." />
             </div>
 
             <div className={`${isLoading && " opacity-100"} transition-all opacity-0 h-0.5 bg-slate-400 w-full overflow-hidden absolute left-0 right-0 top-0`}>

@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useCallback, useEffect, useState } from "react";
+import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import axios from "axios";
 import {
   ChevronLeftIcon,
@@ -9,7 +9,6 @@ import {
   ChevronsRight,
   Loader,
   Plus,
-  Search,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -22,7 +21,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { SelectSearchInput } from "./select-search-input";
 import {
   Select,
   SelectContent,
@@ -66,6 +65,9 @@ export default function VehicleSelect({
   });
   const [vehicleItems, setVehicleItems] = useState<Veiculo[]>([]);
   const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const requestSequence = useRef(0);
+  const requestController = useRef<AbortController | null>(null);
   const [openVeiculo, setOpenVeiculo] = useState(false);
 
   const handleGetVehicles = useCallback(async (
@@ -73,9 +75,14 @@ export default function VehicleSelect({
     limit?: number,
     searchText?: string,
   ) => {
+    const requestId = ++requestSequence.current;
+    requestController.current?.abort();
+    const controller = new AbortController();
+    requestController.current = controller;
     setIsLoading(true);
     try {
       const response = await axios.get("/api/veiculos", {
+        signal: controller.signal,
         params: {
           page: pageNumber || 1,
           limit: limit || pagination.limit,
@@ -84,31 +91,39 @@ export default function VehicleSelect({
         },
       });
 
-      if (response.status === 200) {
+      if (response.status === 200 && requestId === requestSequence.current) {
         const { data } = response;
         setVehicleItems(Array.isArray(data.data) ? data.data : []);
         setPagination(data.pagination);
       }
-    } catch {
-      setVehicleItems([]);
+    } catch (error) {
+      if (!axios.isCancel(error) && requestId === requestSequence.current) setVehicleItems([]);
     } finally {
-      setIsLoading(false);
+      if (requestId === requestSequence.current) setIsLoading(false);
     }
   }, [clienteId, pagination.limit]);
 
   useEffect(() => {
-    if (!open) return;
-    const timeout = setTimeout(() => {
-      handleGetVehicles(pagination.page, pagination.limit, search);
-    }, 250);
-    return () => clearTimeout(timeout);
-  }, [
-    handleGetVehicles,
-    open,
-    pagination.limit,
-    pagination.page,
-    search,
-  ]);
+    requestSequence.current += 1;
+    requestController.current?.abort();
+    const timeout = window.setTimeout(() => setSearch(searchInput.trim()), 450);
+    return () => window.clearTimeout(timeout);
+  }, [searchInput]);
+
+  useEffect(() => {
+    if (open) void handleGetVehicles(1, pagination.limit, search);
+  }, [handleGetVehicles, open, pagination.limit, search]);
+
+  useEffect(() => () => requestController.current?.abort(), []);
+
+  const executarBusca = () => {
+    const term = searchInput.trim();
+    if (term === search) void handleGetVehicles(1, pagination.limit, term); else setSearch(term);
+  };
+  const limparBusca = () => {
+    setSearchInput("");
+    if (search === "") void handleGetVehicles(1, pagination.limit, ""); else setSearch("");
+  };
 
   return (
     <Dialog
@@ -118,6 +133,7 @@ export default function VehicleSelect({
         }
 
         if (!nextOpen) {
+          setSearchInput("");
           setSearch("");
         }
       }}
@@ -132,18 +148,7 @@ export default function VehicleSelect({
           </DialogHeader>
           <div className="h-full min-h-0 overflow-auto dark:bg-muted-foreground/5 px-6 py-10 space-y-2">
             <div className="flex flex-row items-center gap-2">
-              <div className="relative w-full">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  onChange={(e) => {
-                    setSearch(e.target.value);
-                    setPagination((current) => ({ ...current, page: 1 }));
-                  }}
-                  placeholder="Buscar por placa, modelo, marca ou chassi..."
-                  className="pl-10"
-                  value={search}
-                />
-              </div>
+              <SelectSearchInput value={searchInput} onValueChange={setSearchInput} onSearch={executarBusca} onClear={limparBusca} placeholder="Buscar por placa, modelo, marca ou chassi..." />
               <Button
                 onClick={() => setOpenVeiculo(true)}
                 variant={"outline"}

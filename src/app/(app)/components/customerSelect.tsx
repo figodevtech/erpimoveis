@@ -15,7 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import axios from "axios";
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { Customer, Pagination } from "../(pages)/clientes/types";
 import {
   ChevronLeftIcon,
@@ -25,6 +25,7 @@ import {
   Loader,
   Plus,
   Search,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -58,39 +59,70 @@ export default function CustomerSelect({
   });
   const [customerItems, setCustomerItems] = useState<Customer[] | []>([]);
   const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
   const [openCustomer, setOpenCustomer] = useState(false);
+  const requestSequence = useRef(0);
+  const requestController = useRef<AbortController | null>(null);
   const handleGetCustomers = async (
     pageNumber?: number,
     limit?: number,
     search?: string,
   ) => {
+    const requestId = ++requestSequence.current;
+    requestController.current?.abort();
+    const controller = new AbortController();
+    requestController.current = controller;
     setIsLoading(true);
     try {
       const response = await axios.get("/api/customers/com-veiculos", {
+        signal: controller.signal,
         params: {
           page: pageNumber || 1,
-          limit: pagination.limit,
+          limit: limit || pagination.limit,
           search: search || undefined,
           status: "TODOS",
         },
       });
-      if (response.status === 200) {
+      if (response.status === 200 && requestId === requestSequence.current) {
         const { data } = response;
         setCustomerItems(data.data);
         setPagination(data.pagination);
       }
-    } catch {
+    } catch (error) {
+      if (!axios.isCancel(error) && requestId === requestSequence.current) {
+        console.error("Erro ao buscar clientes:", error);
+      }
     } finally {
-      setIsLoading(false);
+      if (requestId === requestSequence.current) setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    handleGetCustomers();
-  }, []);
+    requestSequence.current += 1;
+    requestController.current?.abort();
+    const timer = window.setTimeout(() => setSearch(searchInput.trim()), 450);
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
+
   useEffect(() => {
-    handleGetCustomers(pagination.page, pagination.limit, search);
-  }, [search, pagination.limit, pagination.page]);
+    void handleGetCustomers(1, pagination.limit, search);
+    // A busca automatica depende somente do termo aplicado.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
+
+  useEffect(() => () => requestController.current?.abort(), []);
+
+  const executarBusca = () => {
+    const term = searchInput.trim();
+    if (term === search) void handleGetCustomers(1, pagination.limit, term);
+    else setSearch(term);
+  };
+
+  const limparBusca = () => {
+    setSearchInput("");
+    if (search === "") void handleGetCustomers(1, pagination.limit, "");
+    else setSearch("");
+  };
 
   return (
     <Dialog
@@ -100,6 +132,7 @@ export default function CustomerSelect({
         }
 
         if (!nextOpen) {
+          setSearchInput("");
           setSearch("");
         }
       }}
@@ -115,12 +148,42 @@ export default function CustomerSelect({
           <div className="h-full min-h-0 overflow-auto dark:bg-muted-foreground/5 px-6 py-10 space-y-2">
             <div className="flex flex-row items-center gap-2">
               <div className="relative w-full">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute left-1 top-1/2 z-10 h-8 w-8 -translate-y-1/2"
+                  onClick={executarBusca}
+                  aria-label="Pesquisar clientes"
+                  title="Pesquisar"
+                >
+                  <Search className="h-4 w-4 text-muted-foreground" />
+                </Button>
                 <Input
-                  onChange={(e) => setSearch(e.target.value)}
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      executarBusca();
+                    }
+                  }}
                   placeholder="Buscar por nome, email ou telefone..."
-                  className="pl-10"
+                  className="pl-10 pr-10"
                 />
+                {searchInput ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2"
+                    onClick={limparBusca}
+                    aria-label="Limpar busca"
+                    title="Limpar busca"
+                  >
+                    <X className="h-4 w-4 text-muted-foreground" />
+                  </Button>
+                ) : null}
               </div>
               <Button
                 onClick={() => setOpenCustomer(true)}
@@ -170,6 +233,7 @@ export default function CustomerSelect({
                       }
                       if (setOpen) {
                         setOpen(false);
+                        setSearchInput("");
                         setSearch("");
                       }
                     }}

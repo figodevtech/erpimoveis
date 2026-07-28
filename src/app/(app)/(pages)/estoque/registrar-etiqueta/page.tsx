@@ -1,28 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import axios from "axios";
-import { CheckCircle2, ChevronLeft, ChevronRight, LinkIcon, Loader2 } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ChevronRight, LinkIcon, PackageSearch } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { QrCodeInput } from "../components/dialog-produto/qr-code-input";
+import { DialogProduto } from "../components/dialog-produto/dialog-produto";
 import { ProdutoIdentificadoCard } from "../components/produto-identificado-card";
-import { ProdutoSearchPicker } from "../components/produto-search-picker";
+import ProductSelect from "@/app/(app)/components/productSelect";
 import type { Produto } from "../types";
 
 type Step = 1 | 2 | 3 | 4;
-
-function findExactProduct(items: Produto[], code: string) {
-  const normalized = code.trim().toLowerCase();
-  return (
-    items.find(
-      (item) =>
-        String(item.codigobarras ?? "").trim().toLowerCase() === normalized ||
-        String(item.id ?? "").trim().toLowerCase() === normalized ||
-        String(item.etiqueta ?? "").trim().toLowerCase() === normalized
-    ) ?? null
-  );
-}
 
 function findProductByEtiqueta(items: Produto[], etiqueta: string) {
   const normalized = etiqueta.trim().toLowerCase();
@@ -35,38 +24,43 @@ export default function RegistrarEtiquetaPage() {
   const [etiquetaVinculada, setEtiquetaVinculada] = useState<Produto | null>(null);
   const [etiquetaError, setEtiquetaError] = useState<string | null>(null);
   const [checandoEtiqueta, setChecandoEtiqueta] = useState(false);
-  const [codigoProduto, setCodigoProduto] = useState("");
+  const [etiquetaDisponivel, setEtiquetaDisponivel] = useState(false);
   const [produto, setProduto] = useState<Produto | null>(null);
-  const [produtoError, setProdutoError] = useState<string | null>(null);
-  const [buscandoProduto, setBuscandoProduto] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [productSelectOpen, setProductSelectOpen] = useState(false);
+  const verificacaoIdRef = useRef(0);
 
   const verificarEtiqueta = async (value: string) => {
     const q = value.trim();
+    const verificacaoId = ++verificacaoIdRef.current;
     setEtiquetaError(null);
     setEtiquetaVinculada(null);
+    setEtiquetaDisponivel(false);
 
-    if (!q) return null;
+    if (!q) return "empty" as const;
 
     setChecandoEtiqueta(true);
     try {
-      const res = await axios.get("/api/products", { params: { search: q, limit: 10 } });
+      const res = await axios.get("/api/products", { params: { exactEtiqueta: q } });
       const items: Produto[] = res.data?.data ?? [];
       const match = findProductByEtiqueta(items, q);
+      if (verificacaoId !== verificacaoIdRef.current) return "stale" as const;
 
       if (match) {
         setEtiquetaVinculada(match);
-        setEtiquetaError("Esta etiqueta ja esta vinculada a um produto.");
-        return match;
+        return "linked" as const;
       }
 
-      return null;
+      setEtiquetaDisponivel(true);
+      return "available" as const;
     } catch (err: any) {
+      if (verificacaoId !== verificacaoIdRef.current) return "stale" as const;
       const message = err?.response?.data?.error ?? "Nao foi possivel verificar a etiqueta.";
       setEtiquetaError(message);
-      return null;
+      return "error" as const;
     } finally {
-      setChecandoEtiqueta(false);
+      if (verificacaoId === verificacaoIdRef.current) setChecandoEtiqueta(false);
     }
   };
 
@@ -74,64 +68,38 @@ export default function RegistrarEtiquetaPage() {
     const q = etiqueta.trim();
 
     if (!q) {
+      verificacaoIdRef.current += 1;
       setEtiquetaVinculada(null);
       setEtiquetaError(null);
       setChecandoEtiqueta(false);
+      setEtiquetaDisponivel(false);
       return;
     }
 
-    let active = true;
     const timeout = window.setTimeout(async () => {
       await verificarEtiqueta(q);
-      if (!active) return;
     }, 350);
 
     return () => {
-      active = false;
       window.clearTimeout(timeout);
     };
   }, [etiqueta]);
 
-  useEffect(() => {
-    const q = codigoProduto.trim();
-    setProdutoError(null);
-
-    if (!q) {
-      setProduto(null);
-      return;
-    }
-
-    let active = true;
-    const timeout = window.setTimeout(async () => {
-      setBuscandoProduto(true);
-      try {
-        const res = await axios.get("/api/products", { params: { search: q, limit: 10 } });
-        const items: Produto[] = res.data?.data ?? [];
-        const match = findExactProduct(items, q);
-
-        if (!active) return;
-
-        if (!match) {
-          setProduto(null);
-          setProdutoError("Produto nao encontrado para este codigo.");
-          return;
-        }
-
-        setProduto(match);
-      } catch (err: any) {
-        if (!active) return;
-        setProduto(null);
-        setProdutoError(err?.response?.data?.error ?? "Nao foi possivel buscar o produto.");
-      } finally {
-        if (active) setBuscandoProduto(false);
+  const atualizarProdutoConsultado = async () => {
+    if (!etiquetaVinculada?.id) return;
+    try {
+      const response = await axios.get(`/api/products/${etiquetaVinculada.id}`);
+      const atualizado = response.data?.data as Produto;
+      if (String(atualizado.etiqueta ?? "").trim().toLowerCase() === etiqueta.trim().toLowerCase()) {
+        setEtiquetaVinculada(atualizado);
+      } else {
+        setEtiquetaVinculada(null);
+        setEtiquetaDisponivel(true);
       }
-    }, 250);
-
-    return () => {
-      active = false;
-      window.clearTimeout(timeout);
-    };
-  }, [codigoProduto]);
+    } catch {
+      await verificarEtiqueta(etiqueta);
+    }
+  };
 
   const confirmar = async () => {
     if (!produto?.id || !etiqueta.trim()) return;
@@ -165,20 +133,15 @@ export default function RegistrarEtiquetaPage() {
     const q = etiqueta.trim();
     if (!q) return;
 
-    const match = await verificarEtiqueta(q);
-    if (match) {
-      toast.error("Etiqueta ja vinculada a um produto");
-      return;
-    }
-
-    setStep(2);
+    const status = await verificarEtiqueta(q);
+    if (status === "available") setStep(2);
   };
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
-        <h1 className="text-xl font-semibold">Registrar Etiqueta</h1>
-        <p className="text-sm text-muted-foreground">Vincule uma etiqueta impressa a um produto.</p>
+        <h1 className="text-xl font-semibold">Registro/Consulta de Etiqueta</h1>
+        <p className="text-sm text-muted-foreground">Consulte uma etiqueta ou vincule-a a um produto.</p>
       </div>
 
       <div className="rounded-lg border bg-card p-4">
@@ -201,15 +164,21 @@ export default function RegistrarEtiquetaPage() {
               placeholder="Ex: PRD-000123"
               loading={checandoEtiqueta}
               loadingLabel="Verificando etiqueta"
+              uppercase
               onChange={setEtiqueta}
             />
 
             {etiquetaError ? <p className="text-sm text-destructive">{etiquetaError}</p> : null}
-            {etiquetaVinculada ? <ProdutoIdentificadoCard produto={etiquetaVinculada} /> : null}
+            {etiquetaDisponivel && !checandoEtiqueta ? (
+              <p className="text-sm text-emerald-600">Etiqueta disponível para vínculo.</p>
+            ) : null}
+            {etiquetaVinculada ? (
+              <ProdutoIdentificadoCard produto={etiquetaVinculada} onEdit={() => setEditOpen(true)} />
+            ) : null}
 
             <Button
               className="w-full gap-2"
-              disabled={!etiqueta.trim() || checandoEtiqueta || !!etiquetaVinculada}
+              disabled={!etiqueta.trim() || checandoEtiqueta || !etiquetaDisponivel || !!etiquetaVinculada}
               onClick={avancarParaProduto}
             >
               Proximo
@@ -220,32 +189,26 @@ export default function RegistrarEtiquetaPage() {
 
         {step === 2 && (
           <div className="space-y-4">
-            <QrCodeInput
-              id="codigo-produto"
-              label="Codigo do produto ou codigo de barras"
-              value={codigoProduto}
-              placeholder="Digite ou leia o codigo do produto"
-              onChange={setCodigoProduto}
-            />
+            <div>
+              <h2 className="font-medium">Selecione um produto</h2>
+              <p className="text-sm text-muted-foreground">Pesquise e escolha um produto cadastrado no sistema.</p>
+            </div>
+            <ProductSelect
+              open={productSelectOpen}
+              setOpen={setProductSelectOpen}
+              OnSelect={(item) => setProduto(item)}
+            >
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full justify-start gap-2 font-normal"
+              >
+                <PackageSearch className="h-4 w-4" />
+                {produto ? produto.titulo || `Produto #${produto.id}` : "Selecionar produto"}
+              </Button>
+            </ProductSelect>
 
-            {buscandoProduto ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Buscando produto...
-              </div>
-            ) : null}
-
-            {produtoError ? <p className="text-sm text-destructive">{produtoError}</p> : null}
             {produto ? <ProdutoIdentificadoCard produto={produto} /> : null}
-
-            <ProdutoSearchPicker
-              selected={produto}
-              onSelect={(item) => {
-                setProduto(item);
-                setProdutoError(null);
-              }}
-              showSelected={false}
-            />
 
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1 gap-2" onClick={() => setStep(1)}>
@@ -296,9 +259,7 @@ export default function RegistrarEtiquetaPage() {
                 setEtiqueta("");
                 setEtiquetaVinculada(null);
                 setEtiquetaError(null);
-                setCodigoProduto("");
                 setProduto(null);
-                setProdutoError(null);
               }}
             >
               Registrar outra etiqueta
@@ -306,6 +267,15 @@ export default function RegistrarEtiquetaPage() {
           </div>
         )}
       </div>
+
+      {etiquetaVinculada?.id ? (
+        <DialogProduto
+          productId={etiquetaVinculada.id}
+          isOpen={editOpen}
+          setIsOpen={setEditOpen}
+          onAfterSaveProduct={() => void atualizarProdutoConsultado()}
+        />
+      ) : null}
     </div>
   );
 }

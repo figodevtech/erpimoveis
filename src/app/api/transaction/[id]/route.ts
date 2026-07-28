@@ -330,7 +330,10 @@ export async function GET(_: Request, ctx: Params) {
     return NextResponse.json({ data });
   } catch (e: any) {
     const msg = e?.message ?? "Erro ao buscar transação.";
-    const status = msg.includes("ID inválido") ? 400 : 500;
+    const authStatus = Number(e?.statusCode);
+    const status = authStatus === 401 || authStatus === 403
+      ? authStatus
+      : msg.includes("ID inválido") ? 400 : 500;
     return NextResponse.json({ error: msg }, { status });
   }
 }
@@ -421,8 +424,10 @@ export async function PATCH(req: NextRequest, ctx: Params) {
     return NextResponse.json({ data, id: data.id });
   } catch (e: any) {
     const msg = e?.message ?? "Erro ao atualizar transação.";
-    const status =
-      msg.includes("ID inválido") || msg.includes("não pode ser vazio")
+    const authStatus = Number(e?.statusCode);
+    const status = authStatus === 401 || authStatus === 403
+      ? authStatus
+      : msg.includes("ID inválido") || msg.includes("não pode ser vazio")
         ? 400
         : 500;
     return NextResponse.json({ error: msg }, { status });
@@ -489,10 +494,12 @@ export async function PUT(req: NextRequest, ctx: Params) {
     return NextResponse.json({ data, id: data.id });
   } catch (e: any) {
     const msg = e?.message ?? "Erro ao atualizar transação.";
-    const status =
-      msg.includes("ID inválido") ||
-      msg.includes("Campos obrigatórios") ||
-      msg.includes("pendente inválido")
+    const authStatus = Number(e?.statusCode);
+    const status = authStatus === 401 || authStatus === 403
+      ? authStatus
+      : msg.includes("ID inválido") ||
+        msg.includes("Campos obrigatórios") ||
+        msg.includes("pendente inválido")
         ? 400
         : 500;
     return NextResponse.json({ error: msg }, { status });
@@ -546,7 +553,10 @@ export async function DELETE(_: Request, ctx: Params) {
     return new NextResponse(null, { status: 204 });
   } catch (e: any) {
     const msg = e?.message ?? "Erro ao deletar transação.";
-    const status = msg.includes("ID inválido") ? 400 : 500;
+    const authStatus = Number(e?.statusCode);
+    const status = authStatus === 401 || authStatus === 403
+      ? authStatus
+      : msg.includes("ID inválido") ? 400 : 500;
     return NextResponse.json({ error: msg }, { status });
   }
 }
