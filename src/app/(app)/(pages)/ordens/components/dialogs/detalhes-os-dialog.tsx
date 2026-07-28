@@ -502,6 +502,12 @@ export function OSDetalhesDialog({
   const [produtoDialogOpen, setProdutoDialogOpen] = useState(false);
   const [baixaDialogOpen, setBaixaDialogOpen] = useState(false);
   const [despesaParaBaixa, setDespesaParaBaixa] = useState<Transaction | null>(null);
+  const [eventoParaLancamento, setEventoParaLancamento] = useState<{
+    id: number;
+    tipo: "ENTRADA" | "SAIDA";
+    descricao: string;
+    valor: number;
+  } | null>(null);
   const [anexos, setAnexos] = useState<OsAnexo[]>([]);
   const [loadingAnexos, setLoadingAnexos] = useState(false);
   const [uploadingAnexo, setUploadingAnexo] = useState(false);
@@ -1544,24 +1550,14 @@ export function OSDetalhesDialog({
                                     </DropdownMenuItem>
                                   ) : null}
                                   {lancamento.podeGerarTransacao && lancamento.status === "ATIVO" ? (
-                                    <TransactionDialog
-                                      osId={data.os.id}
-                                      handleGetTransactions={() => void recarregarDetalhes()}
-                                      internalCompanyExpense={lancamento.tipo === "SAIDA"}
-                                      lockValue
-                                      initialTransaction={{
-                                        evento_financeiro_id: lancamento.id,
-                                        tipo: lancamento.tipo === "ENTRADA" ? Tipo_transacao.RECEITA : Tipo_transacao.DESPESA,
-                                        descricao: lancamento.descricao,
-                                        valor: lancamento.valor,
-                                        valorLiquido: lancamento.valor,
-                                        pendente: true,
-                                        parcelas: 1,
-                                        data: new Date(),
-                                      }}
-                                    >
-                                      <DropdownMenuItem>Lançar no financeiro</DropdownMenuItem>
-                                    </TransactionDialog>
+                                    <DropdownMenuItem onSelect={() => setEventoParaLancamento({
+                                      id: lancamento.id,
+                                      tipo: lancamento.tipo,
+                                      descricao: lancamento.descricao,
+                                      valor: lancamento.valor,
+                                    })}>
+                                      Lançar no financeiro
+                                    </DropdownMenuItem>
                                   ) : null}
                                 </DropdownMenuContent>
                               </DropdownMenu>
@@ -1573,6 +1569,30 @@ export function OSDetalhesDialog({
                       <p className="p-6 text-center text-sm text-muted-foreground">Nenhum lançamento disponível para esta OS.</p>
                     )}
                   </div>
+
+                  {eventoParaLancamento ? (
+                    <TransactionDialog
+                      key={eventoParaLancamento.id}
+                      open
+                      setOpen={(nextOpen) => {
+                        if (!nextOpen) setEventoParaLancamento(null);
+                      }}
+                      osId={data.os.id}
+                      handleGetTransactions={() => void recarregarDetalhes()}
+                      internalCompanyExpense={eventoParaLancamento.tipo === "SAIDA"}
+                      lockValue
+                      initialTransaction={{
+                        evento_financeiro_id: eventoParaLancamento.id,
+                        tipo: eventoParaLancamento.tipo === "ENTRADA" ? Tipo_transacao.RECEITA : Tipo_transacao.DESPESA,
+                        descricao: eventoParaLancamento.descricao,
+                        valor: eventoParaLancamento.valor,
+                        valorLiquido: eventoParaLancamento.valor,
+                        pendente: true,
+                        parcelas: 1,
+                        data: new Date(),
+                      }}
+                    />
+                  ) : null}
 
                   <DialogProduto
                     productId={produtoDialogId}

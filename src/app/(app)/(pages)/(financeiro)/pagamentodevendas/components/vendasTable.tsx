@@ -30,6 +30,7 @@ import VendasFinancialDialog from "./vendasFinancialDialog/vendasFinancialDialog
 import { EmissaoNotaDialog } from "../../../ordens/components/dialogs/emissao-nota-dialog/emissao-nota-dialog";
 import { useConfig } from "../../../config-context";
 import { Badge } from "@/components/ui/badge";
+import { calculateFinancialTotal } from "@/lib/financial-surcharge";
 import {
   PaymentListFilters,
   PaymentsFilterSheet,
@@ -190,6 +191,11 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
                 // IDs estáveis por linha para o menu
                 const triggerId = `os-row-${v.id}-menu-btn`;
                 const menuId = `os-row-${v.id}-menu`;
+                const totalFinanceiro = calculateFinancialTotal(
+                  v.valortotal,
+                  v.acrescimo_financeiro_tipo,
+                  v.acrescimo_financeiro_valor,
+                );
 
                 return (
                   <TableRow key={v.id} className="hover:cursor-pointer">
@@ -198,11 +204,11 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
                     <TableCell>{v.notaNumero ?? "-"}</TableCell>
                     <TableCell>{v.cliente.nomerazaosocial}</TableCell>
                     <TableCell>{formatDate(v.datavenda)}</TableCell>
-                    <TableCell>{formatarEmReal(v.valortotal)}</TableCell>
+                    <TableCell>{formatarEmReal(totalFinanceiro)}</TableCell>
                     <TableCell>
-                      {Number(v.valortotal ?? 0) > 0 ? (
+                      {totalFinanceiro > 0 ? (
                         (v.transacoes?.reduce((total, transaction) => total + Number(transaction?.valor ?? 0), 0) ?? 0) <
-                        Number(v.valortotal) ? (
+                        totalFinanceiro ? (
                           <Badge variant="secondary" className="font-bold text-amber-400">
                             Pagamento
                           </Badge>

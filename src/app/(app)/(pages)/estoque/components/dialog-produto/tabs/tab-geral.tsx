@@ -136,7 +136,9 @@ export function TabGeral({
             <Input
               id="titulo"
               value={produto.titulo || ""}
-              onChange={(e) => onChange("titulo", e.target.value)}
+              onChange={(e) =>
+                onChange("titulo", e.target.value.toLocaleUpperCase("pt-BR"))
+              }
               placeholder={mode === "edit" ? "Nome comercial / vitrine" : "Título interno"}
               maxLength={LIMITE_TITULO}
             />

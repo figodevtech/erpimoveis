@@ -54,6 +54,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
           "subtotal",
           "desconto_tipo",
           "desconto",
+          "acrescimo_financeiro_tipo",
+          "acrescimo_financeiro_valor",
           "observacoes",
           "observacoes_fiscais",
           "motivo_cancelamento",
@@ -89,6 +91,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       subtotal?: number | null;
       desconto_tipo?: string | null;
       desconto?: number | null;
+      acrescimo_financeiro_tipo?: string | null;
+      acrescimo_financeiro_valor?: number | null;
       observacoes: string | null;
       observacoes_fiscais: string | null;
       createdat: string | null;
@@ -552,6 +556,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       subtotal: osRow.subtotal ?? osRow.orcamentototal,
       desconto_tipo: osRow.desconto_tipo ?? null,
       desconto: osRow.desconto ?? 0,
+      acrescimo_financeiro_tipo: osRow.acrescimo_financeiro_tipo ?? null,
+      acrescimo_financeiro_valor: osRow.acrescimo_financeiro_valor ?? 0,
       descricao: osRow.descricao ?? null,
       observacoes: osRow.observacoes ?? null,
       observacoes_fiscais: osRow.observacoes_fiscais ?? null,

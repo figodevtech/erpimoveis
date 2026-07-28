@@ -6,6 +6,10 @@ export const revalidate = 0;
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { buscarModoBaixaEstoqueOS } from "@/lib/ordens/estoque-os";
+import {
+  calculateFinancialTotal,
+  sanitizeFinancialSurchargeType,
+} from "@/lib/financial-surcharge";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -41,6 +45,13 @@ function calcularTotalComDesconto(base: number, tipo: TipoDesconto, desconto: nu
   return arredondarMoeda(Math.max(0, toNum(base) - calcularDescontoAplicado(base, tipo, desconto)));
 }
 
+function limitarDesconto(base: number, tipo: TipoDesconto, desconto: number) {
+  const valor = Math.max(0, toNum(desconto));
+  if (tipo === "PORCENTAGEM") return Math.min(valor, 100);
+  if (tipo === "FIXO") return Math.min(valor, Math.max(0, toNum(base)));
+  return 0;
+}
+
 /* =========================================================
  * GET — itens do orçamento (produtos + serviços)
  * ========================================================= */
@@ -58,7 +69,7 @@ export async function GET(
     // Produtos com descrição
     const { data: osRow, error: osErr } = await supabase
       .from("ordemservico")
-      .select("subtotal, desconto_tipo, desconto")
+      .select("subtotal, desconto_tipo, desconto, acrescimo_financeiro_tipo, acrescimo_financeiro_valor")
       .eq("id", osId)
       .maybeSingle();
 
@@ -126,6 +137,8 @@ export async function GET(
         subtotal: toNum((osRow as any)?.subtotal ?? 0),
         descontoTipo: (osRow as any)?.desconto_tipo ?? null,
         desconto: toNum((osRow as any)?.desconto ?? 0),
+        acrescimoFinanceiroTipo: (osRow as any)?.acrescimo_financeiro_tipo ?? null,
+        acrescimoFinanceiroValor: toNum((osRow as any)?.acrescimo_financeiro_valor ?? 0),
       },
       { headers: { "Cache-Control": "no-store" } }
     );
@@ -190,19 +203,36 @@ export async function PUT(
       desconto?: Num;
     }> = Array.isArray(body?.servicos) ? body.servicos : [];
     const descontoTipo = sanitizeTipoDesconto(body?.descontoTipo);
-    const desconto = Math.max(0, toNum(body?.desconto ?? 0));
+    const descontoSolicitado = Math.max(0, toNum(body?.desconto ?? 0));
+    const acrescimoFinanceiroTipo = sanitizeFinancialSurchargeType(body?.acrescimoFinanceiroTipo);
+    const acrescimoFinanceiroValor = Math.max(0, toNum(body?.acrescimoFinanceiroValor ?? 0));
+    if (body?.acrescimoFinanceiroTipo != null && !acrescimoFinanceiroTipo) {
+      return NextResponse.json({ error: "Tipo de acréscimo financeiro inválido." }, { status: 400 });
+    }
+    if (acrescimoFinanceiroTipo === "PORCENTAGEM" && acrescimoFinanceiroValor > 100) {
+      return NextResponse.json({ error: "O acréscimo percentual deve estar entre 0 e 100." }, { status: 400 });
+    }
 
     const modoBaixaEstoqueOS = await buscarModoBaixaEstoqueOS();
 
     // Normaliza (não aceitaremos números negativos)
     const desejados = produtosBody
-      .map((p) => ({
-        produtoid: toNum(p.produtoid),
-        quantidade: Math.max(0, toNum(p.quantidade)),
-        precounitario: toNum(p.precounitario),
-        descontoTipo: sanitizeTipoDesconto(p.descontoTipo),
-        desconto: Math.max(0, toNum(p.desconto ?? 0)),
-      }))
+      .map((p) => {
+        const quantidade = Math.max(0, toNum(p.quantidade));
+        const precounitario = Math.max(0, toNum(p.precounitario));
+        const descontoTipo = sanitizeTipoDesconto(p.descontoTipo);
+        return {
+          produtoid: toNum(p.produtoid),
+          quantidade,
+          precounitario,
+          descontoTipo,
+          desconto: limitarDesconto(
+            quantidade * precounitario,
+            descontoTipo,
+            toNum(p.desconto ?? 0),
+          ),
+        };
+      })
       .map((p) => ({
         ...p,
         subtotal: calcularTotalComDesconto(p.quantidade * p.precounitario, p.descontoTipo, p.desconto),
@@ -422,7 +452,11 @@ export async function PUT(
           const quantidade = Math.max(0, toNum(s.quantidade) || 1);
           const precounitario = toNum(s.precounitario ?? 0);
           const itemDescontoTipo = sanitizeTipoDesconto(s.descontoTipo);
-          const itemDesconto = Math.max(0, toNum(s.desconto ?? 0));
+          const itemDesconto = limitarDesconto(
+            quantidade * precounitario,
+            itemDescontoTipo,
+            toNum(s.desconto ?? 0),
+          );
 
           return {
             ordemservicoid: osId,
@@ -471,22 +505,34 @@ export async function PUT(
       return acc + calcularTotalComDesconto(
         bruto,
         sanitizeTipoDesconto(s.descontoTipo),
-        Math.max(0, toNum(s.desconto ?? 0))
+        limitarDesconto(
+          bruto,
+          sanitizeTipoDesconto(s.descontoTipo),
+          toNum(s.desconto ?? 0),
+        )
       );
     }, 0);
     const subtotal = arredondarMoeda(totalProdutos + totalServicos);
+    const desconto = limitarDesconto(subtotal, descontoTipo, descontoSolicitado);
     const totalGeral = calcularTotalComDesconto(subtotal, descontoTipo, desconto);
 
     const { data: transacoes, error: transacoesErr } = await supabase
       .from("transacao")
       .select("valor")
       .eq("ordemservicoid", osId)
-      .eq("tipo", "RECEITA");
+      .eq("tipo", "RECEITA")
+      .is("evento_financeiro_id", null)
+      .eq("is_deleted", false);
 
     if (transacoesErr) throw transacoesErr;
 
     const totalPago = (transacoes ?? []).reduce((acc: number, row: any) => acc + toNum(row.valor), 0);
-    if (totalGeral < totalPago) {
+    const totalFinanceiro = calculateFinancialTotal(
+      totalGeral,
+      acrescimoFinanceiroTipo,
+      acrescimoFinanceiroValor,
+    );
+    if (totalFinanceiro < totalPago) {
       return NextResponse.json(
         {
           error: `O total com desconto nÃ£o pode ficar menor que o total jÃ¡ pago (${totalPago.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}).`,
@@ -502,6 +548,8 @@ export async function PUT(
         desconto_tipo: descontoTipo,
         desconto,
         orcamentototal: totalGeral,
+        acrescimo_financeiro_tipo: acrescimoFinanceiroTipo,
+        acrescimo_financeiro_valor: acrescimoFinanceiroTipo ? acrescimoFinanceiroValor : 0,
       })
       .eq("id", osId);
     if (updOS.error) throw updOS.error;

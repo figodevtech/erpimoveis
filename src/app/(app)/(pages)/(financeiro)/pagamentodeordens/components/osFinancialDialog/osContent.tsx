@@ -17,6 +17,7 @@ import { ChevronDown, ExternalLink, FileText, Loader, Loader2, Package, Papercli
 import DeleteAlert from "./deleteAlert";
 import { toast } from "@/lib/toast";
 import { formatDate } from "@/utils/formatDate";
+import { calculateFinancialSurcharge, calculateFinancialTotal } from "@/lib/financial-surcharge";
 
 interface OsContentProps {
   osId: number;
@@ -126,6 +127,17 @@ const calcularDescontoAplicado = (base: number, tipo?: "FIXO" | "PORCENTAGEM" | 
 const calcularTotalComDesconto = (base: number, tipo?: "FIXO" | "PORCENTAGEM" | null, desconto?: number | null) =>
   arredondarMoeda(Math.max(0, toNum(base) - calcularDescontoAplicado(base, tipo, desconto)));
 
+const limitarDesconto = (
+  base: number,
+  tipo: "FIXO" | "PORCENTAGEM" | null | undefined,
+  valor: number,
+) => {
+  const seguro = Math.max(0, toNum(valor));
+  if (tipo === "PORCENTAGEM") return Math.min(seguro, 100);
+  if (tipo === "FIXO") return Math.min(seguro, Math.max(0, toNum(base)));
+  return 0;
+};
+
 const tabTriggerClass =
   "group h-8 rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary dark:data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm";
 
@@ -147,6 +159,8 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
   const [isLoadingAnexos, setIsLoadingAnexos] = useState(false);
   const [descontoTipo, setDescontoTipo] = useState<"FIXO" | "PORCENTAGEM" | null>(null);
   const [desconto, setDesconto] = useState(0);
+  const [acrescimoTipo, setAcrescimoTipo] = useState<"FIXO" | "PORCENTAGEM" | null>(null);
+  const [acrescimo, setAcrescimo] = useState(0);
   const [isSavingDiscount, setIsSavingDiscount] = useState(false);
   const [, setIsDeleting] = useState(false);
   const [isAlertOpen, setIsAlertOpen] = useState(false);
@@ -154,10 +168,19 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
 
   const totalPago = transactions?.reduce((acc, t) => acc + Number(t?.valor ?? 0), 0) ?? 0;
   const subtotalItens = [...itensProduto, ...itensServico].reduce((acc, item) => acc + toNum(item.subtotal), 0);
+  const subtotalBrutoItens = [...itensProduto, ...itensServico].reduce(
+    (acc, item) => acc + toNum(item.quantidade) * toNum(item.precounitario),
+    0,
+  );
   const subtotalOrdem = subtotalItens > 0 ? subtotalItens : ordem?.subtotal ?? ordem?.orcamentototal ?? 0;
+  const subtotalBrutoOrdem = subtotalBrutoItens > 0 ? subtotalBrutoItens : subtotalOrdem;
+  const descontoItensAplicado = Math.max(0, arredondarMoeda(subtotalBrutoOrdem - subtotalOrdem));
   const descontoAplicado = calcularDescontoAplicado(subtotalOrdem, descontoTipo, desconto);
+  const descontoTotalAplicado = arredondarMoeda(descontoItensAplicado + descontoAplicado);
   const totalComDesconto = calcularTotalComDesconto(subtotalOrdem, descontoTipo, desconto);
-  const saldoDevedor = totalComDesconto - totalPago;
+  const acrescimoAplicado = calculateFinancialSurcharge(totalComDesconto, acrescimoTipo, acrescimo);
+  const totalFinanceiro = calculateFinancialTotal(totalComDesconto, acrescimoTipo, acrescimo);
+  const saldoDevedor = Math.max(0, totalFinanceiro - totalPago);
   const alvoDescricao =
     ordem?.alvo_tipo === "PECA"
       ? ordem?.peca?.titulo || ordem?.peca?.descricao || "Peça"
@@ -183,6 +206,8 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
         setItensServico(response.data.itensServico ?? []);
         setDescontoTipo(response.data.os?.desconto_tipo ?? null);
         setDesconto(toNum(response.data.os?.desconto ?? 0));
+        setAcrescimoTipo(response.data.os?.acrescimo_financeiro_tipo ?? null);
+        setAcrescimo(toNum(response.data.os?.acrescimo_financeiro_valor ?? 0));
       }
     } catch {
       toast.error("Não foi possível carregar a OS");
@@ -202,6 +227,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
           page: pageNumber || 1,
           limit: pagination.limit,
           ordemservicoid: targetId,
+          excluirEventosFinanceiros: true,
         },
       });
       if (response.status === 200) {
@@ -254,6 +280,8 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
       setAnexos([]);
       setDescontoTipo(null);
       setDesconto(0);
+      setAcrescimoTipo(null);
+      setAcrescimo(0);
       setHasLoadedOnce(false);
     }
   }, [IsOpen]);
@@ -302,7 +330,11 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
     setItensProduto((prev) => {
       const next = [...prev];
       const item = { ...next[index], ...patch };
-      item.desconto = toNum(item.desconto ?? 0);
+      item.desconto = limitarDesconto(
+        item.quantidade * item.precounitario,
+        item.descontoTipo,
+        toNum(item.desconto ?? 0),
+      );
       item.subtotal = calcularTotalComDesconto(item.quantidade * item.precounitario, item.descontoTipo, item.desconto);
       next[index] = item;
       return next;
@@ -313,7 +345,11 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
     setItensServico((prev) => {
       const next = [...prev];
       const item = { ...next[index], ...patch };
-      item.desconto = toNum(item.desconto ?? 0);
+      item.desconto = limitarDesconto(
+        item.quantidade * item.precounitario,
+        item.descontoTipo,
+        toNum(item.desconto ?? 0),
+      );
       item.subtotal = calcularTotalComDesconto(item.quantidade * item.precounitario, item.descontoTipo, item.desconto);
       next[index] = item;
       return next;
@@ -342,16 +378,18 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
         })),
         descontoTipo,
         desconto,
+        acrescimoFinanceiroTipo: acrescimoTipo,
+        acrescimoFinanceiroValor: acrescimoTipo ? Math.max(0, acrescimo) : 0,
       });
-      toast.success("Desconto salvo.");
+      toast.success("Descontos e acréscimos salvos.");
       await handleGetOrdem(ordem.id, { silent: true });
     } catch (error) {
       if (isAxiosError(error)) {
-        toast.error("Erro ao salvar desconto", {
+        toast.error("Erro ao salvar descontos e acréscimos", {
           description: error.response?.data?.error || "Tente novamente.",
         });
       } else {
-        toast.error("Erro ao salvar desconto");
+        toast.error("Erro ao salvar descontos e acréscimos");
       }
     } finally {
       setIsSavingDiscount(false);
@@ -361,7 +399,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
   // ====== RENDER
   if (isLoadingOs) {
     return (
-      <DialogContent className="h-dvh w-[100svw] max-w-[100svw] p-0 overflow-hidden rounded-none sm:max-w-[1100px] sm:max-h-[850px] sm:w-[95vw] sm:rounded-2xl">
+      <DialogContent className="h-dvh w-[100svw] max-w-[100svw] overflow-hidden rounded-none p-0 sm:h-[calc(100dvh-2rem)] sm:max-h-none sm:w-[95vw] sm:max-w-[1100px] sm:rounded-2xl">
         <DialogHeader className="hidden">
           <DialogTitle></DialogTitle>
         </DialogHeader>
@@ -375,7 +413,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
 
   if (!ordem && !hasLoadedOnce) {
     return (
-      <DialogContent className="h-dvh w-[100svw] max-w-[100svw] p-0 overflow-hidden rounded-none sm:max-w-[1100px] sm:max-h-[850px] sm:w-[95vw] sm:rounded-2xl">
+      <DialogContent className="h-dvh w-[100svw] max-w-[100svw] overflow-hidden rounded-none p-0 sm:h-[calc(100dvh-2rem)] sm:max-h-none sm:w-[95vw] sm:max-w-[1100px] sm:rounded-2xl">
         <DialogHeader className="hidden">
           <DialogTitle></DialogTitle>
         </DialogHeader>
@@ -389,7 +427,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
 
   if (!ordem) {
     return (
-      <DialogContent className="h-dvh w-[100svw] max-w-[100svw] p-0 overflow-hidden rounded-none sm:max-w-[1100px] sm:max-h-[850px] sm:w-[95vw] sm:rounded-2xl">
+      <DialogContent className="h-dvh w-[100svw] max-w-[100svw] overflow-hidden rounded-none p-0 sm:h-[calc(100dvh-2rem)] sm:max-h-none sm:w-[95vw] sm:max-w-[1100px] sm:rounded-2xl">
         <div className="flex h-full min-h-0 flex-col justify-center items-center">
           <div className="max-w-sm space-y-3 text-center">
             <p className="text-sm font-medium">Não foi possível carregar a OS.</p>
@@ -403,7 +441,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
   }
 
   return (
-    <DialogContent className="h-svh w-[100svw] max-w-[100svw] p-0 overflow-hidden rounded-none sm:max-w-[1100px] sm:max-h-[850px] sm:w-[95vw] sm:rounded-2xl">
+    <DialogContent className="h-dvh w-[100svw] max-w-[100svw] overflow-hidden rounded-none p-0 sm:h-[calc(100dvh-2rem)] sm:max-h-none sm:w-[95vw] sm:max-w-[1100px] sm:rounded-2xl">
       <div className="flex h-full min-h-0 min-w-0 flex-col">
         <DialogHeader className="shrink-0 px-6 py-4 border-b">
           <DialogTitle>
@@ -425,7 +463,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
           />
         </div>
 
-        <div className="h-full min-h-0 overflow-y-auto overflow-x-hidden min-w-0 dark:bg-muted-foreground/5 px-6 py-4 space-y-2">
+        <div className="min-h-0 min-w-0 flex-1 space-y-2 overflow-y-auto overflow-x-hidden px-6 py-4 dark:bg-muted-foreground/5">
           <Tabs defaultValue="detalhes" className="space-y-3">
             <div className="pb-1">
               <TabsList className="grid h-auto w-full grid-cols-5 gap-1.5 rounded-2xl border bg-muted/40 p-1 backdrop-blur-sm">
@@ -444,7 +482,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                 <TabsTrigger value="descontos" className={tabTriggerClass}>
                   <span className="flex items-center gap-2">
                     <Percent className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
-                    Descontos
+                    Descontos e Acréscimos
                   </span>
                 </TabsTrigger>
                 <TabsTrigger value="anexos" className={tabTriggerClass}>
@@ -492,7 +530,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
 
                 <div className="rounded-lg border bg-card p-4">
                   <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Cobrança</span>
-                  <p className="mt-1 text-sm font-medium">{formatarEmReal(totalComDesconto)}</p>
+                  <p className="mt-1 text-sm font-medium">{formatarEmReal(totalFinanceiro)}</p>
                   <p className="text-xs text-muted-foreground">Aberto: {formatarEmReal(saldoDevedor)}</p>
                 </div>
               </div>
@@ -522,7 +560,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
               <div className="rounded-lg border bg-card p-4">
                 <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_200px_150px_auto] lg:items-end">
                   <div>
-                    <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Desconto total</span>
+                    <span className="text-[11px] uppercase tracking-wide text-bold">Desconto total</span>
                     <p className="mt-1 text-sm text-muted-foreground">
                       Aplicado depois dos descontos individuais.
                     </p>
@@ -532,8 +570,9 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                     <Select
                       value={descontoTipo ?? "NONE"}
                       onValueChange={(value) => {
-                        setDescontoTipo(value === "NONE" ? null : (value as "FIXO" | "PORCENTAGEM"));
-                        if (value === "NONE") setDesconto(0);
+                        const nextType = value === "NONE" ? null : (value as "FIXO" | "PORCENTAGEM");
+                        setDescontoTipo(nextType);
+                        setDesconto((current) => limitarDesconto(subtotalOrdem, nextType, current));
                       }}
                     >
                       <SelectTrigger>
@@ -550,7 +589,48 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                     <span className="text-xs text-muted-foreground">
                       {descontoTipo === "PORCENTAGEM" ? "Percentual (%)" : "Valor"}
                     </span>
-                    <CampoValorDesconto tipo={descontoTipo} valor={desconto} onChange={setDesconto} />
+                    <CampoValorDesconto
+                      tipo={descontoTipo}
+                      valor={desconto}
+                      onChange={(value) => setDesconto(limitarDesconto(subtotalOrdem, descontoTipo, value))}
+                    />
+                  </div>
+                  <Button type="button" onClick={handleSaveDiscounts} disabled={isSavingDiscount || ordem.status === "CONCLUIDO"}>
+                    {isSavingDiscount ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="rounded-lg border bg-card p-4">
+                <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_200px_150px_auto] lg:items-end">
+                  <div>
+                    <span className="text-[11px] uppercase tracking-wide text-bold">Acréscimo financeiro</span>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Incide somente sobre a cobrança, sem alterar orçamento, itens ou fiscal.
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-xs text-muted-foreground">Tipo</span>
+                    <Select
+                      value={acrescimoTipo ?? "NONE"}
+                      onValueChange={(value) => {
+                        setAcrescimoTipo(value === "NONE" ? null : (value as "FIXO" | "PORCENTAGEM"));
+                        if (value === "NONE") setAcrescimo(0);
+                      }}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Sem acréscimo" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="NONE">Sem acréscimo</SelectItem>
+                        <SelectItem value="FIXO">Fixo</SelectItem>
+                        <SelectItem value="PORCENTAGEM">Porcentagem</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-xs text-muted-foreground">
+                      {acrescimoTipo === "PORCENTAGEM" ? "Percentual (%)" : "Valor"}
+                    </span>
+                    <CampoValorDesconto tipo={acrescimoTipo} valor={acrescimo} onChange={setAcrescimo} />
                   </div>
                   <Button type="button" onClick={handleSaveDiscounts} disabled={isSavingDiscount || ordem.status === "CONCLUIDO"}>
                     {isSavingDiscount ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
@@ -647,15 +727,15 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
               <div className="rounded-lg border bg-card p-4">
                 <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Produtos da cobrança</span>
                 {itensProduto.length > 0 ? (
-                  <div className="mt-2 space-y-2">
+                  <div className="mt-2 space-y-1 ">
                     {itensProduto.map((item, index) => (
                       <div
                         key={`${item.produtoid}-${index}`}
-                        className="flex items-start justify-between gap-3 text-sm"
+                        className="flex items-start justify-between gap-3 text-xs bg-muted/10 rounded-md p-2 border"
                       >
                         <div className="min-w-0">
-                          <p className="font-medium line-clamp-2">
-                            {item.produto?.titulo || item.produto?.descricao || `Produto #${item.produtoid}`}
+                          <p className="font-semibold line-clamp-2">
+                            {item.produto?.titulo?.toUpperCase()  || `Produto #${item.produtoid}`}
                           </p>
                           <p className="text-xs text-muted-foreground">
                             {item.quantidade} x {formatarEmReal(item.precounitario)}
@@ -677,13 +757,13 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                     {itensServico.map((item, index) => (
                       <div
                         key={`${item.servicoid}-${index}`}
-                        className="flex items-start justify-between gap-3 text-sm"
+                        className="flex items-start justify-between gap-3 text-xs bg-muted/10 rounded-md p-2 border"
                       >
                         <div className="min-w-0">
-                          <p className="font-medium line-clamp-2">
-                            {item.servico?.descricao || item.servico?.codigo || `Serviço #${item.servicoid}`}
+                          <p className="font-semibold line-clamp-2">
+                            {item.servico?.descricao?.toUpperCase() || `Serviço #${item.servicoid}`}
                           </p>
-                          <p className="text-xs text-muted-foreground">
+                          <p className="text-muted-foreground">
                             {item.quantidade} x {formatarEmReal(item.precounitario)}
                           </p>
                         </div>
@@ -869,8 +949,8 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
           </Tabs>
         </div>
 
-        <DialogFooter className="px-6 py-4 border-t">
-          <div className="flex w-full flex-col justify-start gap-2.5 text-xs rounded-lg border bg-card p-4">
+        <DialogFooter className="shrink-0 border-t bg-background">
+          <div className="flex w-full flex-col justify-start gap-1 text-xs bg-card p-4">
             <span className="text-sm font-medium">Resumo:</span>
             <Separator />
             <div className="grid w-full grid-cols-[max-content_minmax(24px,1fr)_max-content] items-center gap-2">
@@ -879,7 +959,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
               <h1 className="text-left tabular-nums">
                 <span className="inline-grid grid-cols-[0.75rem_auto]">
                   <span></span>
-                  <span>{formatarEmReal(subtotalOrdem)}</span>
+                  <span>{formatarEmReal(subtotalBrutoOrdem)}</span>
                 </span>
               </h1>
             </div>
@@ -889,7 +969,17 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
               <h1 className="text-left tabular-nums">
                 <span className="inline-grid grid-cols-[0.75rem_auto]">
                   <span>-</span>
-                  <span>{formatarEmReal(descontoAplicado)}</span>
+                  <span>{formatarEmReal(descontoTotalAplicado)}</span>
+                </span>
+              </h1>
+            </div>
+            <div className="grid w-full grid-cols-[max-content_minmax(24px,1fr)_max-content] items-center gap-2">
+              <span className="text-nowrap">Acréscimo financeiro:</span>
+              <div className="h-full w-full border-b border-dashed"></div>
+              <h1 className="text-left tabular-nums">
+                <span className="inline-grid grid-cols-[0.75rem_auto]">
+                  <span>+</span>
+                  <span>{formatarEmReal(acrescimoAplicado)}</span>
                 </span>
               </h1>
             </div>
@@ -899,7 +989,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
               <h1 className="text-left tabular-nums">
                 <span className="inline-grid grid-cols-[0.75rem_auto]">
                   <span></span>
-                  <span>{formatarEmReal(totalComDesconto)}</span>
+                  <span className="font-bold text-primary">{formatarEmReal(totalFinanceiro)}</span>
                 </span>
               </h1>
             </div>
@@ -916,7 +1006,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
             <div className="grid w-full grid-cols-[max-content_minmax(24px,1fr)_max-content] items-center gap-2">
               <span className="text-nowrap">Saldo Devedor:</span>
               <div className="h-full w-full border-b border-dashed"></div>
-              <h1 className="text-left font-bold tabular-nums text-gray-400">
+              <h1 className="text-left font-bold tabular-nums text-red-400">
                 <span className="inline-grid grid-cols-[0.75rem_auto]">
                   <span></span>
                   <span>{formatarEmReal(saldoDevedor)}</span>

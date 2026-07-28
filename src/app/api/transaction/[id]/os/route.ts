@@ -4,6 +4,7 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireFinanceiroDelete } from "@/app/api/_authz/perms";
+import { calculateFinancialTotal } from "@/lib/financial-surcharge";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -24,8 +25,8 @@ async function parseId(ctx: Params) {
 }
 
 // Ajuste se seus literais do enum forem diferentes
-const STATUS_CONCLUIDO = "FINALIZADA";
-const STATUS_CONCLUIDA = "FINALIZADA"; // caso exista no seu enum
+const STATUS_CONCLUIDO = "CONCLUIDO";
+const STATUS_CONCLUIDA = "FINALIZADA"; // compatibilidade com registros legados
 const STATUS_PAGAMENTO = "PAGAMENTO";
 
 /* ========================= DELETE ========================= */
@@ -37,7 +38,7 @@ export async function DELETE(_: Request, ctx: Params) {
     // 1) Buscar a transação para obter OS ou VENDA e tipo
     const { data: tx, error: txErr } = await supabaseAdmin
       .from("transacao")
-      .select("id, ordemservicoid, tipo, vendaid")
+      .select("id, ordemservicoid, tipo, vendaid, evento_financeiro_id")
       .eq("id", id)
       .maybeSingle();
 
@@ -76,16 +77,22 @@ export async function DELETE(_: Request, ctx: Params) {
     }
 
     // 3) Se era RECEITA vinculada a OS, revalidar status da OS após a exclusão
-    if (osId && isReceita) {
+    if (osId && isReceita && tx.evento_financeiro_id == null) {
       // 3.1 Orçamento e status atuais
       const { data: os, error: osErr } = await supabaseAdmin
         .from("ordemservico")
-        .select("id, orcamentototal, status")
+        .select("id, orcamentototal, status, acrescimo_financeiro_tipo, acrescimo_financeiro_valor")
         .eq("id", osId)
         .maybeSingle();
 
       if (!osErr && os && os.orcamentototal != null) {
-        const orcCents = toCents(os.orcamentototal);
+        const orcCents = toCents(
+          calculateFinancialTotal(
+            os.orcamentototal,
+            os.acrescimo_financeiro_tipo,
+            os.acrescimo_financeiro_valor,
+          ),
+        );
 
         if (orcCents > 0) {
           // 3.2 Soma das RECEITAS restantes
@@ -93,7 +100,9 @@ export async function DELETE(_: Request, ctx: Params) {
             .from("transacao")
             .select("valor")
             .eq("ordemservicoid", osId)
-            .eq("tipo", "RECEITA");
+            .eq("tipo", "RECEITA")
+            .is("evento_financeiro_id", null)
+            .eq("is_deleted", false);
 
           if (!recErr) {
             const somaCents =
@@ -135,12 +144,18 @@ export async function DELETE(_: Request, ctx: Params) {
       // 3.1 Orçamento e status atuais
       const { data: venda, error: osErr } = await supabaseAdmin
         .from("venda")
-        .select("id, valortotal, status")
+        .select("id, valortotal, status, acrescimo_financeiro_tipo, acrescimo_financeiro_valor")
         .eq("id", vendaId)
         .maybeSingle();
 
       if (!osErr && venda && venda.valortotal != null) {
-        const orcCents = toCents(venda.valortotal);
+        const orcCents = toCents(
+          calculateFinancialTotal(
+            venda.valortotal,
+            venda.acrescimo_financeiro_tipo,
+            venda.acrescimo_financeiro_valor,
+          ),
+        );
 
         if (orcCents > 0) {
           // 3.2 Soma das RECEITAS restantes

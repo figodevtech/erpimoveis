@@ -22,6 +22,7 @@ import {
   getVendaAnexoCategoriaLabel,
   type VendaAnexoCategoria,
 } from "@/lib/venda-anexo-categorias";
+import { calculateFinancialSurcharge, calculateFinancialTotal } from "@/lib/financial-surcharge";
 
 interface VendasContentProps {
   vendaId: number;
@@ -70,6 +71,13 @@ const calcularDescontoAplicado = (base: number, tipo: TipoDesconto, desconto: nu
 const calcularTotalComDesconto = (base: number, tipo: TipoDesconto, desconto: number) =>
   arredondarMoeda(Math.max(0, toNum(base) - calcularDescontoAplicado(base, tipo, desconto)));
 
+const limitarDesconto = (base: number, tipo: TipoDesconto, valor: number) => {
+  const seguro = Math.max(0, toNum(valor));
+  if (tipo === "PORCENTAGEM") return Math.min(seguro, 100);
+  if (tipo === "FIXO") return Math.min(seguro, Math.max(0, toNum(base)));
+  return 0;
+};
+
 // Ajuste conforme a sua estrutura real
 
 export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
@@ -87,15 +95,24 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
   const [isLoadingAnexos, setIsLoadingAnexos] = useState(false);
   const [descontoTipo, setDescontoTipo] = useState<TipoDesconto>(null);
   const [desconto, setDesconto] = useState(0);
+  const [acrescimoTipo, setAcrescimoTipo] = useState<TipoDesconto>(null);
+  const [acrescimo, setAcrescimo] = useState(0);
   const [isSavingDiscount, setIsSavingDiscount] = useState(false);
   const [, setIsDeleting] = useState(false);
   const [isAlertOpen, setIsAlertOpen] = useState(false);
   const [open, setOpen] = useState(false);
   const totalPago = transactions?.reduce((acc, t) => acc + Number(t?.valor ?? 0), 0) ?? 0;
   const subtotalVenda = toNum(venda?.sub_total ?? venda?.valortotal ?? 0);
-  const descontoAplicado = calcularDescontoAplicado(subtotalVenda, descontoTipo, desconto);
-  const totalComDesconto = calcularTotalComDesconto(subtotalVenda, descontoTipo, desconto);
-  const saldoDevedor = totalComDesconto - totalPago;
+  const descontoItensAplicado = arredondarMoeda(
+    venda?.itens?.reduce((total, item) => total + Math.max(0, toNum(item.valor_desconto)), 0) ?? 0,
+  );
+  const baseDescontoGeral = Math.max(0, arredondarMoeda(subtotalVenda - descontoItensAplicado));
+  const descontoAplicado = calcularDescontoAplicado(baseDescontoGeral, descontoTipo, desconto);
+  const descontoTotalAplicado = arredondarMoeda(descontoItensAplicado + descontoAplicado);
+  const totalComDesconto = calcularTotalComDesconto(baseDescontoGeral, descontoTipo, desconto);
+  const acrescimoAplicado = calculateFinancialSurcharge(totalComDesconto, acrescimoTipo, acrescimo);
+  const totalFinanceiro = calculateFinancialTotal(totalComDesconto, acrescimoTipo, acrescimo);
+  const saldoDevedor = Math.max(0, totalFinanceiro - totalPago);
   const initialMetodoPagamento = (() => {
     const value = String(venda?.forma_pagamento ?? "").toUpperCase();
     return Object.values(Metodo_pagamento).includes(value as Metodo_pagamento)
@@ -150,6 +167,8 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
             : null,
         );
         setDesconto(toNum(nextVenda.desconto_valor ?? 0));
+        setAcrescimoTipo(nextVenda.acrescimo_financeiro_tipo ?? null);
+        setAcrescimo(toNum(nextVenda.acrescimo_financeiro_valor ?? 0));
       }
     } catch {
       toast.error("Não foi possível carregar a Venda");
@@ -218,6 +237,8 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
       setAnexos([]);
       setDescontoTipo(null);
       setDesconto(0);
+      setAcrescimoTipo(null);
+      setAcrescimo(0);
     }
   }, [IsOpen]);
 
@@ -253,7 +274,7 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
 
   const handleSaveDiscounts = async () => {
     if (!venda?.id) return;
-    if (totalComDesconto < totalPago) {
+    if (totalFinanceiro < totalPago) {
       toast.error("O total com desconto não pode ficar menor que o total já pago.");
       return;
     }
@@ -265,16 +286,18 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
         descontoValor: descontoTipo ? Math.max(0, desconto) : 0,
         subTotal: subtotalVenda,
         valorTotal: totalComDesconto,
+        acrescimoFinanceiroTipo: acrescimoTipo,
+        acrescimoFinanceiroValor: acrescimoTipo ? Math.max(0, acrescimo) : 0,
       });
-      toast.success("Desconto salvo.");
+      toast.success("Descontos e acréscimos salvos.");
       await handleGetVenda(venda.id, { silent: true });
     } catch (error) {
       if (isAxiosError(error)) {
-        toast.error("Erro ao salvar desconto", {
+        toast.error("Erro ao salvar descontos e acréscimos", {
           description: error.response?.data?.error || "Tente novamente.",
         });
       } else {
-        toast.error("Erro ao salvar desconto");
+        toast.error("Erro ao salvar descontos e acréscimos");
       }
     } finally {
       setIsSavingDiscount(false);
@@ -348,7 +371,7 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
                 <TabsTrigger value="descontos" className={tabTriggerClass}>
                   <span className="flex items-center gap-2">
                     <Percent className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
-                    Descontos
+                    Descontos e Acréscimos
                   </span>
                 </TabsTrigger>
                 <TabsTrigger value="anexos" className={tabTriggerClass}>
@@ -401,10 +424,10 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
               <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
                 <div className="rounded-lg border bg-card p-4">
                   <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Cobrança</span>
-                  <p className="mt-1 text-sm font-medium">{formatarEmReal(totalComDesconto)}</p>
+                  <p className="mt-1 text-sm font-medium">{formatarEmReal(totalFinanceiro)}</p>
                   <p className="text-xs text-muted-foreground">Aberto: {formatarEmReal(saldoDevedor)}</p>
                 </div>
-                <div className="rounded-lg border bg-card p-4">
+                {/* <div className="rounded-lg border bg-card p-4">
                   <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Itens</span>
                   {venda.itens?.length ? (
                     <div className="mt-2 space-y-2">
@@ -429,17 +452,15 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
                   ) : (
                     <p className="mt-1 text-sm text-muted-foreground">Nenhum item informado.</p>
                   )}
-                </div>
-              </div>
+                </div> */}
 
-              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                <div className="rounded-lg border bg-card p-4">
+                {/* <div className="rounded-lg border bg-card p-4">
                   <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Desconto</span>
                   <p className="mt-1 text-sm font-medium">
                     {descontoTipo ? `${descontoTipo} - ${descontoTipo === "PORCENTAGEM" ? `${desconto}%` : formatarEmReal(desconto)}` : "-"}
                   </p>
-                  <p className="text-xs text-muted-foreground">Aplicado: {formatarEmReal(descontoAplicado)}</p>
-                </div>
+                  <p className="text-xs text-muted-foreground">Aplicado: {formatarEmReal(descontoTotalAplicado)}</p>
+                </div> */}
                 <div className="rounded-lg border bg-card p-4">
                   <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Anexos</span>
                   <p className="mt-1 text-sm font-medium">{anexos.length} arquivo(s)</p>
@@ -453,13 +474,14 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
                   <Badge variant="outline">{paymentMethods.length}</Badge>
                 </div>
                 {paymentMethods.length > 0 ? (
-                  <div className="divide-y rounded-md border">
+                  <div className="flex flex-row flex-wrap gap-1 p-1">
                     {paymentMethods.map((item, index) => (
-                      <div key={`${item.method}-${index}`} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                      <div key={`${item.method}-${index}`} className="flex items-center justify-between gap-3 px-3 py-2 text-sm w-min border rounded-xl">
                         <span className="truncate font-medium">{item.method}</span>
                         <span className="shrink-0 text-muted-foreground">{item.amount ?? "Valor não informado"}</span>
                       </div>
                     ))}
+
                   </div>
                 ) : (
                   <div className="rounded-md border border-dashed px-3 py-5 text-center text-sm text-muted-foreground">
@@ -494,8 +516,9 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
                     <Select
                       value={descontoTipo ?? "NONE"}
                       onValueChange={(value) => {
-                        setDescontoTipo(value === "NONE" ? null : (value as Exclude<TipoDesconto, null>));
-                        if (value === "NONE") setDesconto(0);
+                        const nextType = value === "NONE" ? null : (value as Exclude<TipoDesconto, null>);
+                        setDescontoTipo(nextType);
+                        setDesconto((current) => limitarDesconto(baseDescontoGeral, nextType, current));
                       }}
                     >
                       <SelectTrigger>
@@ -521,11 +544,17 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
                         step="0.01"
                         value={desconto > 0 ? desconto : ""}
                         disabled={!descontoTipo}
-                        onChange={(event) => setDesconto(Number(event.target.value || 0))}
+                        onChange={(event) =>
+                          setDesconto(limitarDesconto(baseDescontoGeral, descontoTipo, Number(event.target.value || 0)))
+                        }
                         className="pr-8"
                       />
                       ) : (
-                        <ValueInput value={desconto} onValueChange={setDesconto} disabled={!descontoTipo} />
+                        <ValueInput
+                          value={desconto}
+                          onValueChange={(value) => setDesconto(limitarDesconto(baseDescontoGeral, descontoTipo, value))}
+                          disabled={!descontoTipo}
+                        />
                       )}
                       {descontoTipo === "PORCENTAGEM" ? (
                         <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-muted-foreground">
@@ -540,18 +569,77 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="rounded-lg border bg-card p-4">
+                <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_200px_150px_auto] lg:items-end">
+                  <div>
+                    <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Acréscimo financeiro</span>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Incide somente sobre a cobrança, sem alterar a venda ou o fiscal.
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-xs text-muted-foreground">Tipo</span>
+                    <Select
+                      value={acrescimoTipo ?? "NONE"}
+                      onValueChange={(value) => {
+                        setAcrescimoTipo(value === "NONE" ? null : (value as Exclude<TipoDesconto, null>));
+                        if (value === "NONE") setAcrescimo(0);
+                      }}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Sem acréscimo" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="NONE">Sem acréscimo</SelectItem>
+                        <SelectItem value="FIXO">Fixo</SelectItem>
+                        <SelectItem value="PORCENTAGEM">Porcentagem</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-xs text-muted-foreground">
+                      {acrescimoTipo === "PORCENTAGEM" ? "Percentual (%)" : "Valor"}
+                    </span>
+                    <div className="relative">
+                      {acrescimoTipo === "PORCENTAGEM" ? (
+                        <Input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step="0.01"
+                          value={acrescimo > 0 ? acrescimo : ""}
+                          disabled={!acrescimoTipo}
+                          onChange={(event) => setAcrescimo(Number(event.target.value || 0))}
+                          className="pr-8"
+                        />
+                      ) : (
+                        <ValueInput value={acrescimo} onValueChange={setAcrescimo} disabled={!acrescimoTipo} />
+                      )}
+                      {acrescimoTipo === "PORCENTAGEM" ? (
+                        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-muted-foreground">%</span>
+                      ) : null}
+                    </div>
+                  </div>
+                  <Button type="button" onClick={handleSaveDiscounts} disabled={isSavingDiscount || venda.status === "FINALIZADA"}>
+                    {isSavingDiscount ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
                 <div className="rounded-lg border bg-card p-4">
                   <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Subtotal</span>
                   <p className="mt-1 text-sm font-medium">{formatarEmReal(subtotalVenda)}</p>
                 </div>
                 <div className="rounded-lg border bg-card p-4">
                   <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Desconto aplicado</span>
-                  <p className="mt-1 text-sm font-medium">- {formatarEmReal(descontoAplicado)}</p>
+                  <p className="mt-1 text-sm font-medium">- {formatarEmReal(descontoTotalAplicado)}</p>
                 </div>
                 <div className="rounded-lg border bg-card p-4">
-                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Total</span>
-                  <p className="mt-1 text-sm font-medium">{formatarEmReal(totalComDesconto)}</p>
+                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Acréscimo aplicado</span>
+                  <p className="mt-1 text-sm font-medium">+ {formatarEmReal(acrescimoAplicado)}</p>
+                </div>
+                <div className="rounded-lg border bg-card p-4">
+                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Total financeiro</span>
+                  <p className="mt-1 text-sm font-medium">{formatarEmReal(totalFinanceiro)}</p>
                 </div>
               </div>
             </TabsContent>
@@ -768,7 +856,17 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
               <h1 className="text-left tabular-nums">
                 <span className="inline-grid grid-cols-[0.75rem_auto]">
                   <span>-</span>
-                  <span>{formatarEmReal(descontoAplicado)}</span>
+                  <span>{formatarEmReal(descontoTotalAplicado)}</span>
+                </span>
+              </h1>
+            </div>
+            <div className="grid w-full grid-cols-[max-content_minmax(24px,1fr)_max-content] items-center gap-2">
+              <span className="text-nowrap">Acréscimo financeiro:</span>
+              <div className="h-full w-full border-b border-dashed"></div>
+              <h1 className="text-left tabular-nums">
+                <span className="inline-grid grid-cols-[0.75rem_auto]">
+                  <span>+</span>
+                  <span>{formatarEmReal(acrescimoAplicado)}</span>
                 </span>
               </h1>
             </div>
@@ -778,7 +876,7 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
               <h1 className="text-left tabular-nums">
                 <span className="inline-grid grid-cols-[0.75rem_auto]">
                   <span></span>
-                  <span>{formatarEmReal(totalComDesconto)}</span>
+                  <span className="font-bold text-primary">{formatarEmReal(totalFinanceiro)}</span>
                 </span>
               </h1>
             </div>
@@ -795,7 +893,7 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
             <div className="grid w-full grid-cols-[max-content_minmax(24px,1fr)_max-content] items-center gap-2">
               <span className="text-nowrap">Saldo Devedor:</span>
               <div className="h-full w-full border-b border-dashed"></div>
-              <h1 className="text-left font-bold tabular-nums text-gray-400">
+              <h1 className="text-left font-bold tabular-nums text-red-400">
                 <span className="inline-grid grid-cols-[0.75rem_auto]">
                   <span></span>
                   <span>{formatarEmReal(saldoDevedor)}</span>

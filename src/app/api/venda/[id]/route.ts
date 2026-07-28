@@ -8,6 +8,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
 import { requireVendasAccess, requireVendasDelete, requireVendasEdit } from "@/app/api/_authz/perms";
 import { syncPendingMercadoLivreStock } from "@/lib/integrations/mercadolivre-stock-sync";
+import { calculateFinancialTotal, sanitizeFinancialSurchargeType } from "@/lib/financial-surcharge";
 
 type Status =
   | "ORCAMENTO"
@@ -79,6 +80,8 @@ const VENDA_SELECT = `
   editor:updated_by ( id, nome ),
   desconto_tipo,
   desconto_valor,
+  acrescimo_financeiro_tipo,
+  acrescimo_financeiro_valor,
   observacoes,
   observacoes_fiscais,
   forma_pagamento,
@@ -126,6 +129,8 @@ type VendaPatchBody = {
   danfeUrl?: string | null;
   descontoTipo?: string | null;
   descontoValor?: number | null;
+  acrescimoFinanceiroTipo?: string | null;
+  acrescimoFinanceiroValor?: number | null;
   formaPagamento?: string | null;
   subTotal?: number;
   valorTotal?: number;
@@ -298,6 +303,8 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       danfeUrl,
       descontoTipo,
       descontoValor,
+      acrescimoFinanceiroTipo,
+      acrescimoFinanceiroValor,
       formaPagamento,
       subTotal,
       valorTotal,
@@ -318,6 +325,8 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       danfeUrl === undefined &&
       descontoTipo === undefined &&
       descontoValor === undefined &&
+      acrescimoFinanceiroTipo === undefined &&
+      acrescimoFinanceiroValor === undefined &&
       formaPagamento === undefined &&
       subTotal === undefined &&
       valorTotal === undefined &&
@@ -434,11 +443,58 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       updatePayload.status = upperStatus;
     }
 
-    if (descontoTipo !== undefined) updatePayload.desconto_tipo = descontoTipo;
-    if (descontoValor !== undefined) updatePayload.desconto_valor = descontoValor;
+    if (descontoTipo !== undefined) {
+      if (descontoTipo !== null && descontoTipo !== "FIXO" && descontoTipo !== "PORCENTAGEM") {
+        return NextResponse.json({ error: "Tipo de desconto inválido." }, { status: 400 });
+      }
+      updatePayload.desconto_tipo = descontoTipo;
+    }
+    if (descontoValor !== undefined) {
+      const normalizedDiscount = Number(descontoValor ?? 0);
+      if (!Number.isFinite(normalizedDiscount) || normalizedDiscount < 0) {
+        return NextResponse.json({ error: "Valor do desconto inválido." }, { status: 400 });
+      }
+      if (descontoTipo === "PORCENTAGEM" && normalizedDiscount > 100) {
+        return NextResponse.json({ error: "O desconto percentual deve estar entre 0 e 100." }, { status: 400 });
+      }
+      if (descontoTipo === "FIXO" && subTotal !== undefined && normalizedDiscount > Number(subTotal)) {
+        return NextResponse.json({ error: "O desconto não pode ultrapassar o subtotal." }, { status: 400 });
+      }
+      updatePayload.desconto_valor = normalizedDiscount;
+    }
+    if (acrescimoFinanceiroTipo !== undefined) {
+      const normalizedType = sanitizeFinancialSurchargeType(acrescimoFinanceiroTipo);
+      if (acrescimoFinanceiroTipo != null && !normalizedType) {
+        return NextResponse.json({ error: "Tipo de acréscimo financeiro inválido." }, { status: 400 });
+      }
+      updatePayload.acrescimo_financeiro_tipo = normalizedType;
+    }
+    if (acrescimoFinanceiroValor !== undefined) {
+      const normalizedValue = Number(acrescimoFinanceiroValor ?? 0);
+      if (!Number.isFinite(normalizedValue) || normalizedValue < 0) {
+        return NextResponse.json({ error: "Valor do acréscimo financeiro inválido." }, { status: 400 });
+      }
+      const effectiveType = sanitizeFinancialSurchargeType(
+        acrescimoFinanceiroTipo === undefined ? updatePayload.acrescimo_financeiro_tipo : acrescimoFinanceiroTipo,
+      );
+      if (effectiveType === "PORCENTAGEM" && normalizedValue > 100) {
+        return NextResponse.json({ error: "O acréscimo percentual deve estar entre 0 e 100." }, { status: 400 });
+      }
+      updatePayload.acrescimo_financeiro_valor = normalizedValue;
+    }
     if (formaPagamento !== undefined) updatePayload.forma_pagamento = formaPagamento;
-    if (subTotal !== undefined) updatePayload.sub_total = subTotal;
-    if (valorTotal !== undefined) updatePayload.valortotal = valorTotal;
+    if (subTotal !== undefined) {
+      if (!Number.isFinite(Number(subTotal)) || Number(subTotal) < 0) {
+        return NextResponse.json({ error: "Subtotal inválido." }, { status: 400 });
+      }
+      updatePayload.sub_total = subTotal;
+    }
+    if (valorTotal !== undefined) {
+      if (!Number.isFinite(Number(valorTotal)) || Number(valorTotal) < 0) {
+        return NextResponse.json({ error: "O total da venda não pode ser negativo." }, { status: 400 });
+      }
+      updatePayload.valortotal = valorTotal;
+    }
     if (dataVenda !== undefined) updatePayload.datavenda = dataVenda;
     if (observacoes !== undefined) updatePayload.observacoes = observacoes;
     if (observacoesFiscais !== undefined) updatePayload.observacoes_fiscais = observacoesFiscais;
@@ -452,6 +508,61 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
           return NextResponse.json({ error: "categoriaVendaId inválido." }, { status: 400 });
         }
         updatePayload.categoriavendaid = Math.trunc(idCategoriaVenda);
+      }
+    }
+
+    if (
+      valorTotal !== undefined ||
+      acrescimoFinanceiroTipo !== undefined ||
+      acrescimoFinanceiroValor !== undefined
+    ) {
+      const [{ data: vendaAtual, error: vendaAtualError }, { data: pagamentos, error: pagamentosError }] =
+        await Promise.all([
+          supabaseAdmin
+            .from("venda")
+            .select("valortotal, acrescimo_financeiro_tipo, acrescimo_financeiro_valor")
+            .eq("id", vendaId)
+            .single(),
+          supabaseAdmin
+            .from("transacao")
+            .select("valor")
+            .eq("vendaid", vendaId)
+            .eq("tipo", "RECEITA")
+            .eq("is_deleted", false),
+        ]);
+      if (vendaAtualError) throw vendaAtualError;
+      if (pagamentosError) throw pagamentosError;
+
+      const effectiveSurchargeType = sanitizeFinancialSurchargeType(
+        acrescimoFinanceiroTipo === undefined
+          ? vendaAtual.acrescimo_financeiro_tipo
+          : acrescimoFinanceiroTipo,
+      );
+      const effectiveSurchargeValue = Number(
+        acrescimoFinanceiroValor === undefined
+          ? vendaAtual.acrescimo_financeiro_valor
+          : acrescimoFinanceiroValor,
+      );
+      if (effectiveSurchargeType === "PORCENTAGEM" && effectiveSurchargeValue > 100) {
+        return NextResponse.json(
+          { error: "O acréscimo percentual deve estar entre 0 e 100." },
+          { status: 400 },
+        );
+      }
+      const totalFinanceiro = calculateFinancialTotal(
+        valorTotal === undefined ? vendaAtual.valortotal : valorTotal,
+        effectiveSurchargeType,
+        effectiveSurchargeValue,
+      );
+      const totalPago = (pagamentos ?? []).reduce(
+        (sum, pagamento) => sum + Number(pagamento.valor ?? 0),
+        0,
+      );
+      if (totalFinanceiro < totalPago) {
+        return NextResponse.json(
+          { error: "O total financeiro não pode ficar menor que o total já pago." },
+          { status: 409 },
+        );
       }
     }
 

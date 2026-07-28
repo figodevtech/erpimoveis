@@ -42,7 +42,36 @@ export default function TransactionDialog({
   internalCompanyExpense = false,
   lockValue = false,
 }: TransactionDialogProps) {
-  const [newTransaction, setNewTransaction] = useState<NewTransaction>({});
+  const [newTransaction, setNewTransaction] = useState<NewTransaction>(() => {
+    if (osId) {
+      return {
+        ordemservicoid: osId,
+        tipo: Tipo_transacao.RECEITA,
+        categoria: "ORDEM DE SERVIÇO",
+        descricao: `Pagamento da OS #${osId}`,
+        valor: 0,
+        valorLiquido: 0,
+        parcelas: 1,
+        ...initialTransaction,
+      };
+    }
+
+    if (vendaId) {
+      return {
+        vendaid: vendaId,
+        tipo: Tipo_transacao.RECEITA,
+        categoria: "VENDA",
+        descricao: `Pagamento da Venda #${vendaId}`,
+        valor: 0,
+        valorLiquido: 0,
+        metodopagamento: initialMetodoPagamento,
+        parcelas: 1,
+        ...initialTransaction,
+      };
+    }
+
+    return {};
+  });
   const [selectedCustomer, setSelectedCustomer] = useState<
     TransactionCustomer | undefined
   >(undefined);
@@ -98,7 +127,7 @@ export default function TransactionDialog({
           setSelectedCustomer(undefined);
         }}
       >
-        <DialogTrigger asChild>{children}</DialogTrigger>
+        {children ? <DialogTrigger asChild>{children}</DialogTrigger> : null}
         {selectedTransactionId ? (
           <EditContent
             selectedTransactionId={selectedTransactionId}
@@ -174,7 +203,7 @@ export default function TransactionDialog({
         setSelectedCustomer(undefined);
       }}
     >
-      <DialogTrigger asChild>{children}</DialogTrigger>
+      {children ? <DialogTrigger asChild>{children}</DialogTrigger> : null}
       {selectedTransactionId ? (
         <EditContent
           selectedTransactionId={selectedTransactionId}

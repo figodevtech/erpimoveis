@@ -108,7 +108,13 @@ export default function RegisterContent({
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
 
   const handleInputChange = (field: keyof NewCustomer, value: string) => {
-    setNewCustomer({ ...newCustomer, [field]: value });
+    setNewCustomer({
+      ...newCustomer,
+      [field]:
+        field === "nomerazaosocial"
+          ? value.toLocaleUpperCase("pt-BR")
+          : value,
+    });
   };
 
   const handleGetCep = async () => {
@@ -160,7 +166,7 @@ export default function RegisterContent({
         const juridica = response.data;
         setNewCustomer({
           ...newCustomer,
-          nomerazaosocial: juridica.razao_social,
+          nomerazaosocial: String(juridica.razao_social ?? "").toLocaleUpperCase("pt-BR"),
           cep: juridica.estabelecimento.cep,
           email: juridica.estabelecimento.email,
           endereconumero: juridica.estabelecimento.numero,
