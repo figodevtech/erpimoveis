@@ -418,8 +418,10 @@ export async function salvarNFeDeOrigem(
       codigo: sourceItem.codigo,
       descricao: sourceItem.descricao,
       unidade: item.unidade || sourceItem.unidade,
-      quantidade: sourceItem.quantidade,
-      valorUnitario: sourceItem.valorUnitario,
+      // Em OS e venda, quantidade e valor podem ser ajustados exclusivamente
+      // para a NF-e. Entradas continuam usando os valores registrados na origem.
+      quantidade: tipo === "ENTRADA" ? sourceItem.quantidade : item.quantidade,
+      valorUnitario: tipo === "ENTRADA" ? sourceItem.valorUnitario : item.valorUnitario,
     } satisfies NFeAvulsaItemInput];
   });
 
