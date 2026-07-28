@@ -35,6 +35,7 @@ import {
   Repeat2,
   FileClock,
   CreditCard,
+  MonitorCheck,
 } from "lucide-react";
 
 import { NavMain } from "./components/nav-main";
@@ -200,6 +201,12 @@ const data = {
           title: "Pagamento de Vendas",
           url: "/pagamentodevendas",
           icon: Handbag,
+          perm: PERMS.FINANCEIRO,
+        },
+        {
+          title: "Acompanhamento",
+          url: "/acompanhamento-financeiro",
+          icon: MonitorCheck,
           perm: PERMS.FINANCEIRO,
         },
       ],

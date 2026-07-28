@@ -1,5 +1,6 @@
 import { mercadoLivreApiGet, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
 import { syncMercadoLivreShipmentForVenda } from "@/lib/integrations/mercadolivre-shipping";
+import { applyMercadoLivrePriceToErp } from "@/lib/integrations/mercadolivre-price-sync";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function syncMercadoLivreProductLinks(providedLinks?: any[]) {
@@ -7,7 +8,7 @@ export async function syncMercadoLivreProductLinks(providedLinks?: any[]) {
   if (!links) {
     const result = await supabaseAdmin
       .from("mercadolivre_product_link")
-      .select("id, empresa_id, produto_id, ml_item_id, ml_variation_id, title, permalink, status, user_product_id, family_id, family_name, domain_id, catalog_product_id, user_product_enabled, item_tags, visits_total, sold_quantity, available_quantity, listing_type_id, item_condition, health, catalog_listing, stop_time, metrics_updated_at, updated_at")
+      .select("id, empresa_id, produto_id, ml_item_id, ml_variation_id, title, permalink, status, user_product_id, family_id, family_name, domain_id, catalog_product_id, user_product_enabled, item_tags, visits_total, sold_quantity, available_quantity, listing_type_id, item_condition, health, catalog_listing, stop_time, metrics_updated_at, updated_at, raw_item, produto:produto(precovenda)")
       .order("updated_at", { ascending: true })
       .limit(100);
     if (result.error) throw result.error;
@@ -41,6 +42,23 @@ export async function syncMercadoLivreProductLinks(providedLinks?: any[]) {
         const userProduct = item?.user_product_id && (!link.family_id || link.user_product_id !== item.user_product_id)
           ? await mercadoLivreApiGet<any>(accessToken, `/user-products/${encodeURIComponent(String(item.user_product_id))}`).catch(() => null)
           : null;
+        const produto = Array.isArray(link.produto) ? link.produto[0] : link.produto;
+        const erpPrice = Number(produto?.precovenda);
+        const mercadoLivrePrice = Number(item?.price);
+        if (
+          Number.isFinite(erpPrice) &&
+          Number.isFinite(mercadoLivrePrice) &&
+          mercadoLivrePrice > 0 &&
+          Math.abs(erpPrice - mercadoLivrePrice) >= 0.01
+        ) {
+          const previousMlPrice = Number(link.raw_item?.price);
+          await applyMercadoLivrePriceToErp({
+            productLinkId: Number(link.id),
+            price: mercadoLivrePrice,
+            source: "CRON_RECONCILIACAO",
+            mlPriceBefore: Number.isFinite(previousMlPrice) ? previousMlPrice : null,
+          });
+        }
         const synchronized = {
           ...link,
           status: item?.status ?? link.status,

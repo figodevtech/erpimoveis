@@ -1,5 +1,9 @@
 import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
 import { mercadoLivreApiGet, mercadoLivreApiPut } from "@/lib/integrations/mercadolivre";
+import {
+  finishMercadoLivrePriceSyncLog,
+  startMercadoLivrePriceSyncLog,
+} from "@/lib/integrations/mercadolivre-price-sync";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 type ReservedStockSync = {
@@ -25,15 +29,60 @@ export async function syncPendingMercadoLivreStock(params?: { productIds?: numbe
   return results;
 }
 
-async function processStockSync(job: ReservedStockSync) {
-  try {
-    const { data: link, error: linkError } = await supabaseAdmin
+export async function enqueueMercadoLivreProductSync(productId: number) {
+  if (!Number.isInteger(productId) || productId <= 0) return 0;
+
+  const [{ data: product, error: productError }, { data: links, error: linksError }] = await Promise.all([
+    supabaseAdmin.from("produto").select("id, estoque").eq("id", productId).maybeSingle(),
+    supabaseAdmin
       .from("mercadolivre_product_link")
-      .select("id, empresa_id, produto_id, ml_item_id, ml_variation_id, status")
-      .eq("id", job.product_link_id)
-      .eq("empresa_id", job.empresa_id)
-      .single();
+      .select("id, empresa_id")
+      .eq("produto_id", productId),
+  ]);
+  if (productError) throw productError;
+  if (linksError) throw linksError;
+  if (!product || !links?.length) return 0;
+
+  const { error } = await supabaseAdmin
+    .from("mercadolivre_stock_sync_queue")
+    .upsert(
+      links.map((link) => ({
+        empresa_id: Number(link.empresa_id),
+        product_link_id: Number(link.id),
+        produto_id: productId,
+        desired_quantity: Math.max(Math.trunc(Number(product.estoque) || 0), 0),
+        status: "PENDENTE",
+        attempts: 0,
+        next_retry_at: null,
+        locked_at: null,
+        last_error: null,
+        processed_at: null,
+        updated_at: new Date().toISOString(),
+      })),
+      { onConflict: "product_link_id" },
+    );
+  if (error) throw error;
+  return links.length;
+}
+
+async function processStockSync(job: ReservedStockSync) {
+  let priceLogId: number | null = null;
+  try {
+    const [{ data: link, error: linkError }, { data: product, error: productError }] = await Promise.all([
+      supabaseAdmin
+        .from("mercadolivre_product_link")
+        .select("id, empresa_id, produto_id, ml_item_id, ml_variation_id, status, raw_item")
+        .eq("id", job.product_link_id)
+        .eq("empresa_id", job.empresa_id)
+        .single(),
+      supabaseAdmin
+        .from("produto")
+        .select("id, precovenda")
+        .eq("id", job.produto_id)
+        .single(),
+    ]);
     if (linkError) throw linkError;
+    if (productError) throw productError;
 
     if (["closed", "deleted"].includes(String(link.status ?? "").toLowerCase())) {
       await completeJob(job, "IGNORADA", null);
@@ -42,9 +91,22 @@ async function processStockSync(job: ReservedStockSync) {
 
     const account = await getValidMercadoLivreAccount(job.empresa_id);
     const quantity = Math.max(Math.trunc(Number(job.desired_quantity) || 0), 0);
+    const price = Number(product.precovenda);
+    if (!Number.isFinite(price) || price <= 0) {
+      throw new Error("O preço de venda do produto precisa ser maior que zero para sincronizar com o Mercado Livre.");
+    }
+    const previousMlPrice = Number(link.raw_item?.price);
+    priceLogId = await startMercadoLivrePriceSyncLog({
+      empresaId: job.empresa_id,
+      productLinkId: Number(link.id),
+      produtoId: job.produto_id,
+      itemId: String(link.ml_item_id),
+      erpPrice: price,
+      mlPriceBefore: Number.isFinite(previousMlPrice) ? previousMlPrice : null,
+    });
     const payload = link.ml_variation_id
-      ? { variations: [{ id: Number(link.ml_variation_id), available_quantity: quantity }] }
-      : { available_quantity: quantity };
+      ? { price, variations: [{ id: Number(link.ml_variation_id), available_quantity: quantity }] }
+      : { price, available_quantity: quantity };
 
     await mercadoLivreApiPut<any>(account.access_token, `/items/${encodeURIComponent(String(link.ml_item_id))}`, payload);
     const item = await mercadoLivreApiGet<any>(account.access_token, `/items/${encodeURIComponent(String(link.ml_item_id))}`);
@@ -53,6 +115,15 @@ async function processStockSync(job: ReservedStockSync) {
       throw new Error(
         `O Mercado Livre não confirmou o estoque solicitado. ERP: ${quantity}; Mercado Livre: ${confirmedQuantity}. ` +
           "Verifique se o anúncio utiliza estoque Full ou multiorigem.",
+      );
+    }
+
+    const confirmedPrice = Number(item?.price);
+    if (!Number.isFinite(confirmedPrice) || Math.abs(confirmedPrice - price) >= 0.01) {
+      throw new Error(
+        `O Mercado Livre não confirmou o preço solicitado. ERP: ${price.toFixed(2)}; Mercado Livre: ${
+          Number.isFinite(confirmedPrice) ? confirmedPrice.toFixed(2) : "não informado"
+        }.`,
       );
     }
 
@@ -67,10 +138,17 @@ async function processStockSync(job: ReservedStockSync) {
       .eq("id", link.id);
     if (updateLinkError) throw updateLinkError;
     await completeJob(job, "PROCESSADA", null);
-    return { produtoId: job.produto_id, itemId: link.ml_item_id, quantity, ok: true };
+    await finishMercadoLivrePriceSyncLog(priceLogId, {
+      ok: true,
+      mlPriceAfter: confirmedPrice,
+      message: "Preço e estoque confirmados pelo Mercado Livre.",
+      details: { quantity },
+    });
+    return { produtoId: job.produto_id, itemId: link.ml_item_id, quantity, price, ok: true };
   } catch (error: any) {
     const message = String(error?.message ?? "Falha ao sincronizar estoque com o Mercado Livre.");
     await failJob(job, message);
+    await finishMercadoLivrePriceSyncLog(priceLogId, { ok: false, message });
     return { produtoId: job.produto_id, ok: false, error: message };
   }
 }
