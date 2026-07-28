@@ -37,6 +37,7 @@ import { useCentrosCusto } from "../../hooks/use-centros-custo";
 import { PlanoContaCombobox } from "../plano-conta-combobox";
 import { SearchCombobox } from "../search-combobox";
 import { toast } from "@/lib/toast";
+import formatarEmReal from "@/utils/formatarEmReal";
 import {
   DrawerClose,
   DrawerContent,
@@ -51,6 +52,9 @@ interface EditContentProps {
   selectedCustomer: TransactionCustomer | undefined;
   setSelectedCustomer: (value: TransactionCustomer | undefined) => void;
   isDesktop: boolean;
+  editable: boolean;
+  handleGetTransactions?: (pageNumber?: number) => void;
+  setOpen?: (value: boolean) => void;
 }
 
 type TransactionForm = Omit<Transaction, "data"> & { data?: Date };
@@ -101,12 +105,16 @@ function toDateFromApi(value: unknown): Date | undefined {
 export default function EditContent({
   selectedTransactionId,
   isDesktop,
+  editable,
+  handleGetTransactions,
+  setOpen,
 }: EditContentProps) {
   const [isLoadingTransaction, setIsLoadingTransaction] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState<
     TransactionForm | undefined
   >(undefined);
   const [isLoadingBanks, setIsLoadingBanks] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [banks, setBanks] = useState<Banco[]>([]);
   const { categorias, loadingCategorias, errorCategorias } =
     useCategoriasTransacao();
@@ -161,6 +169,45 @@ export default function EditContent({
 
   const isLoading =
     isLoadingTransaction || isLoadingBanks || loadingCategorias || loadingCentrosCusto;
+
+  const handleSave = async () => {
+    if (!editable || !selectedTransaction) return;
+    if (!selectedTransaction.descricao?.trim() || !selectedTransaction.valor || !selectedTransaction.data) {
+      toast.error("Preencha descrição, valor e data.");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await axios.patch(`/api/transaction/${selectedTransaction.id}`, {
+        descricao: selectedTransaction.descricao,
+        data: selectedTransaction.data,
+        tipo: selectedTransaction.tipo,
+        metodopagamento: selectedTransaction.metodopagamento || null,
+        categoria: selectedTransaction.categoria || null,
+        categoria_id: selectedTransaction.categoria_id ?? null,
+        plano_de_conta: selectedTransaction.plano_de_conta ?? null,
+        plano_de_conta_id: selectedTransaction.plano_de_conta_id ?? null,
+        centro_custo: selectedTransaction.centro_custo ?? null,
+        centro_custo_id: selectedTransaction.centro_custo_id ?? null,
+        banco_id: selectedTransaction.banco_id ?? null,
+        nomepagador: selectedTransaction.nomepagador || null,
+        cpfcnpjpagador: selectedTransaction.cpfcnpjpagador || null,
+        pendente: selectedTransaction.pendente ?? false,
+      }, {
+        headers: { "X-Transaction-Edit": "true" },
+      });
+      toast.success("Transação atualizada.");
+      handleGetTransactions?.();
+      setOpen?.(false);
+    } catch (error: any) {
+      toast.error("Erro ao atualizar transação", {
+        description: error?.response?.data?.error ?? error?.message,
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const Content = isDesktop ? DialogContent : DrawerContent;
   const Header = isDesktop ? DialogHeader : DrawerHeader;
@@ -219,6 +266,11 @@ export default function EditContent({
     );
   }
 
+  const valorBruto = Number(selectedTransaction.valor ?? 0);
+  const valorLiquido = Number(selectedTransaction.valorLiquido ?? selectedTransaction.valor ?? 0);
+  const taxaRecebimento = Math.max(0, valorBruto - valorLiquido);
+  const possuiTaxa = Math.round(valorBruto * 100) !== Math.round(valorLiquido * 100);
+
   return (
     <Content
       className={
@@ -233,7 +285,7 @@ export default function EditContent({
       <div className="flex h-full min-h-0 flex-col">
         <Header className="shrink-0 border-b-1 px-6 py-4">
           <Title>Transacao #{selectedTransaction.id}</Title>
-          <Description>Visualize os dados da transacao</Description>
+          <Description>{editable ? "Altere os dados da transação" : "Visualize os dados da transação"}</Description>
         </Header>
 
         <div className="h-full min-h-0 overflow-hidden p-0">
@@ -246,7 +298,7 @@ export default function EditContent({
                   Tipo <span className="text-red-500">*</span>
                 </Label>
                 <Select
-                  disabled
+                  disabled={!editable}
                   value={selectedTransaction.tipo}
                   onValueChange={(v) => handleChange("tipo", v)}
                 >
@@ -266,7 +318,7 @@ export default function EditContent({
               <div className="space-y-2 w-full">
                 <Label htmlFor="metodopagamento">Metodo de pagamento</Label>
                 <Select
-                  disabled
+                  disabled={!editable}
                   value={selectedTransaction.metodopagamento || ""}
                   onValueChange={(v) => handleChange("metodopagamento", v)}
                 >
@@ -288,7 +340,7 @@ export default function EditContent({
                 <div className="flex items-center gap-2">
                   <Switch
                     className="hover:cursor-default"
-                    disabled
+                    disabled={!editable}
                     checked={selectedTransaction.pendente || false}
                     onCheckedChange={(checked) =>
                       setSelectedTransaction({
@@ -328,19 +380,38 @@ export default function EditContent({
 
               <div className="space-y-2 w-full">
                 <Label htmlFor="valor">
-                  Valor <span className="text-red-500">*</span>
+                  {possuiTaxa ? "Valor bruto" : "Valor"} <span className="text-red-500">*</span>
                 </Label>
                 <ValueInput
                   disabled
                   price={selectedTransaction.valor || 0}
-                  setPrice={(v) => handleChange("valor", v)}
+                  setPrice={() => undefined}
                 />
+                {possuiTaxa ? (
+                  <div className="mt-3 space-y-3 rounded-lg border bg-muted/30 p-3">
+                    <div className="flex items-center justify-between gap-3 text-xs">
+                      <span className="text-muted-foreground">Taxa de recebimento</span>
+                      <span className="font-medium text-destructive">- {formatarEmReal(taxaRecebimento)}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3 text-xs">
+                      <span className="text-muted-foreground">Valor bruto</span>
+                      <span className="font-medium">{formatarEmReal(valorBruto)}</span>
+                    </div>
+                    <div className="space-y-2 border-t pt-3">
+                      <Label>Valor líquido recebido</Label>
+                      <ValueInput disabled price={valorLiquido} setPrice={() => undefined} />
+                    </div>
+                  </div>
+                ) : null}
+                <p className="text-xs text-muted-foreground">
+                  O valor da transação não pode ser alterado.
+                </p>
               </div>
 
               <div className="space-y-2 w-full">
                 <Label htmlFor="banco">Banco</Label>
                 <SearchCombobox
-                  disabled
+                  disabled={!editable}
                   loading={isLoadingBanks}
                   value={selectedTransaction.banco_id?.toString() || ""}
                   onValueChange={(value) => {
@@ -376,10 +447,17 @@ export default function EditContent({
               <div className="space-y-2 w-full">
                 <Label htmlFor="categoria">Categoria</Label>
                 <SearchCombobox
-                  disabled
+                  disabled={!editable}
                   loading={loadingCategorias}
                   value={selectedTransaction.categoria}
-                  onValueChange={(value) => handleChange("categoria", value)}
+                  onValueChange={(value) => {
+                    const categoria = categorias.find((item) => item.nome === value);
+                    setSelectedTransaction((current) => current ? {
+                      ...current,
+                      categoria: value,
+                      categoria_id: categoria?.id ?? null,
+                    } : current);
+                  }}
                   placeholder={errorCategorias ? "Erro ao carregar" : "Selecione"}
                   searchPlaceholder="Pesquisar categoria..."
                   emptyMessage="Nenhuma categoria encontrada."
@@ -394,7 +472,7 @@ export default function EditContent({
               <div className="space-y-2 w-full">
                 <Label htmlFor="plano-de-conta">Plano de Conta</Label>
                 <PlanoContaCombobox
-                  disabled
+                  disabled={!editable}
                   loading={loadingPlanos}
                   groups={gruposPlanosDeConta}
                   value={selectedTransaction.plano_de_conta_id?.toString() || ""}
@@ -416,7 +494,7 @@ export default function EditContent({
               <div className="space-y-2 w-full">
                 <Label htmlFor="centro-custo">Centro de custo</Label>
                 <SearchCombobox
-                  disabled
+                  disabled={!editable}
                   loading={loadingCentrosCusto}
                   value={selectedTransaction.centro_custo_id?.toString() || ""}
                   onValueChange={(value) => {
@@ -443,7 +521,7 @@ export default function EditContent({
                   Descrição <span className="text-red-500">*</span>
                 </Label>
                 <Input
-                  disabled
+                  disabled={!editable}
                   id="descricao"
                   value={selectedTransaction.descricao || ""}
                   onChange={(e) => handleChange("descricao", e.target.value)}
@@ -455,7 +533,7 @@ export default function EditContent({
               <div className="space-y-2 w-full sm:col-span-3">
                 <Label htmlFor="data">Data do vencimento</Label>
                 <DatePicker
-                  disabled
+                  disabled={!editable}
                   value={toDateInputString(selectedTransaction.data)}
                   className="w-full sm:max-w-xs"
                   min={selectedTransaction.pendente ? toDateInputString(new Date()) : undefined}
@@ -517,7 +595,7 @@ export default function EditContent({
                   Nome do pagador <span className="text-red-500">*</span>
                 </Label>
                 <Input
-                  disabled
+                  disabled={!editable}
                   id="nomepagador"
                   value={selectedTransaction.nomepagador || ""}
                   onChange={(e) => handleChange("nomepagador", e.target.value)}
@@ -557,6 +635,11 @@ export default function EditContent({
                 Cancelar
               </Button>
             </Close>
+            {editable ? (
+              <Button onClick={() => void handleSave()} disabled={isSaving}>
+                {isSaving ? "Salvando..." : "Salvar alterações"}
+              </Button>
+            ) : null}
           </div>
         </Footer>
       </div>

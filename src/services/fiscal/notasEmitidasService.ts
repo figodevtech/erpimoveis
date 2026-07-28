@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { matchesFiscalNoteSearch } from "@/lib/fiscal-search";
 
 export type FiscalViewMode = "TODAS" | "EMITIDAS_POR_NOS" | "EMITIDAS_TERCEIROS";
 
@@ -167,7 +168,6 @@ function mapNotaFiscal(row: any): NotaFiscalListItem {
 }
 
 function applyFilters(query: any, params: NotaFiscalListParams) {
-  const search = normalizeText(params.search);
   const dateFrom = normalizeText(params.dateFrom);
   const dateTo = normalizeText(params.dateTo);
   const status = normalizeText(params.status);
@@ -195,26 +195,6 @@ function applyFilters(query: any, params: NotaFiscalListParams) {
 
   if (modelo) {
     query = query.eq("modelo", modelo);
-  }
-
-  if (search) {
-    const onlyDigits = search.replace(/\D/g, "");
-    if (onlyDigits) {
-      const clauses = [
-        `chave_acesso.ilike.%${onlyDigits}%`,
-        `protocolo.ilike.%${onlyDigits}%`,
-      ];
-      const numeric = Number(onlyDigits);
-      if (Number.isFinite(numeric) && onlyDigits.length <= 9) {
-        clauses.push(`numero.eq.${numeric}`);
-      }
-      if (Number.isFinite(numeric) && onlyDigits.length <= 3) {
-        clauses.push(`serie.eq.${numeric}`);
-      }
-      query = query.or(clauses.join(","));
-    } else {
-      query = query.or(`chave_acesso.ilike.%${search}%,protocolo.ilike.%${search}%`);
-    }
   }
 
   return query;
@@ -280,25 +260,7 @@ export async function listarNotasEmitidas(params: NotaFiscalListParams) {
   const page = clampInt(params.page, 1, 1, 10_000);
   const limit = clampInt(params.limit, 20, 1, 100);
   const from = (page - 1) * limit;
-  const to = from + limit - 1;
-
   const baseQuery = applyFilters(
-    supabaseAdmin
-      .from("nfe")
-      .select(SELECT_NOTAS, { count: "exact" })
-      .order("dataemissao", { ascending: false, nullsFirst: false })
-      .order("id", { ascending: false })
-      .range(from, to),
-    params,
-  );
-
-  const { data, error, count } = await baseQuery;
-
-  if (error) {
-    throw error;
-  }
-
-  const kpiQuery = applyFilters(
     supabaseAdmin
       .from("nfe")
       .select(SELECT_NOTAS)
@@ -307,23 +269,25 @@ export async function listarNotasEmitidas(params: NotaFiscalListParams) {
     params,
   );
 
-  const { data: kpiData, error: kpiError } = await kpiQuery;
+  const { data, error } = await baseQuery;
 
-  if (kpiError) {
-    throw kpiError;
+  if (error) {
+    throw error;
   }
 
-  const notas = (data ?? []).map(mapNotaFiscal);
-  const kpiRows = (kpiData ?? []).map(mapNotaFiscal);
+  const kpiRows = (data ?? [])
+    .map(mapNotaFiscal)
+    .filter((nota: NotaFiscalListItem) => matchesFiscalNoteSearch(nota, params.search));
+  const notas = kpiRows.slice(from, from + limit);
 
   return {
     data: notas,
     kpis: buildKpis(kpiRows),
     pagination: {
-      total: count ?? 0,
+      total: kpiRows.length,
       page,
       limit,
-      totalPages: Math.ceil((count ?? 0) / limit),
+      totalPages: Math.ceil(kpiRows.length / limit),
     },
   };
 }

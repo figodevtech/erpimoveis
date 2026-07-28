@@ -29,6 +29,7 @@ import { useEffect, useState } from "react";
 import { EmissaoNotaDialog } from "../../../ordens/components/dialogs/emissao-nota-dialog/emissao-nota-dialog";
 import { useConfig } from "../../../config-context";
 import { Badge } from "@/components/ui/badge";
+import { calculateFinancialTotal } from "@/lib/financial-surcharge";
 import {
   PaymentListFilters,
   PaymentsFilterSheet,
@@ -193,6 +194,18 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
                 // IDs estáveis por linha para o menu
                 const triggerId = `os-row-${o.id}-menu-btn`;
                 const menuId = `os-row-${o.id}-menu`;
+                const totalFinanceiro = calculateFinancialTotal(
+                  o.orcamentototal,
+                  o.acrescimo_financeiro_tipo,
+                  o.acrescimo_financeiro_valor,
+                );
+                const totalPago = o.transacoes
+                  ?.filter((transacao) =>
+                    transacao.tipo === "RECEITA" &&
+                    transacao.evento_financeiro_id == null &&
+                    transacao.is_deleted !== true
+                  )
+                  .reduce((acc, transacao) => acc + Number(transacao.valor ?? 0), 0) ?? 0;
 
                 return (
                   <TableRow key={o.id} className="hover:cursor-pointer">
@@ -203,13 +216,12 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
                     <TableCell>{o.cliente?.nome}</TableCell>
                     <TableCell>{o.setor?.nome}</TableCell>
                     <TableCell className=" text-blue-300 not-dark:text-blue-700 font-bold">
-                      {formatarEmReal(o.transacoes?.reduce((acc, t) => acc + Number(t?.valor ?? 0), 0) ?? 0)}
+                      {formatarEmReal(totalPago)}
                     </TableCell>
-                    <TableCell>{formatarEmReal(o.orcamentototal || 0)}</TableCell>
+                    <TableCell>{formatarEmReal(totalFinanceiro)}</TableCell>
                     <TableCell className="text-center">
-                      {o.orcamentototal ? (
-                        (o.transacoes?.reduce((acc, t) => acc + Number(t?.valor ?? 0), 0) || 0) <
-                          (o.orcamentototal || 0) ? (
+                      {totalFinanceiro ? (
+                        totalPago < totalFinanceiro ? (
                           <Badge variant="secondary" className="font-bold text-amber-400">Pagamento</Badge>
                         ) : (
                           <Badge variant="secondary" className="font-bold text-green-400">Faturado</Badge>

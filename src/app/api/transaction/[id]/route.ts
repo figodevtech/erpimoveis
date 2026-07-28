@@ -4,8 +4,81 @@ export const runtime = "nodejs";
 import { NextResponse, NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireFinanceiroDelete, requireFinanceiroEdit, requireFinanceirosAccess } from "@/app/api/_authz/perms";
+import { calculateFinancialTotal } from "@/lib/financial-surcharge";
 
 type Params = { params: Promise<{ id: string }> };
+
+function toCents(value: unknown) {
+  const number = Number(String(value ?? 0).replace(",", "."));
+  return Number.isFinite(number) ? Math.round(number * 100) : 0;
+}
+
+async function revalidarStatusOrdem(osId: number) {
+  const { data: ordem, error } = await supabaseAdmin
+    .from("ordemservico")
+    .select("id, orcamentototal, status, acrescimo_financeiro_tipo, acrescimo_financeiro_valor")
+    .eq("id", osId)
+    .maybeSingle();
+  if (error || !ordem) throw error ?? new Error("OS não encontrada.");
+
+  const { data: pagamentos, error: pagamentosError } = await supabaseAdmin
+    .from("transacao")
+    .select("valor")
+    .eq("ordemservicoid", osId)
+    .eq("tipo", "RECEITA")
+    .is("evento_financeiro_id", null)
+    .eq("is_deleted", false);
+  if (pagamentosError) throw pagamentosError;
+
+  const totalDevido = toCents(calculateFinancialTotal(
+    ordem.orcamentototal,
+    ordem.acrescimo_financeiro_tipo,
+    ordem.acrescimo_financeiro_valor,
+  ));
+  const totalPago = (pagamentos ?? []).reduce((total, pagamento) => total + toCents(pagamento.valor), 0);
+  const status = String(ordem.status ?? "").toUpperCase();
+
+  if (["CONCLUIDO", "FINALIZADA"].includes(status) && totalPago < totalDevido) {
+    const { error: updateError } = await supabaseAdmin
+      .from("ordemservico")
+      .update({ status: "PAGAMENTO", updatedat: new Date().toISOString() })
+      .eq("id", osId);
+    if (updateError) throw updateError;
+  }
+}
+
+async function revalidarStatusVenda(vendaId: number) {
+  const { data: venda, error } = await supabaseAdmin
+    .from("venda")
+    .select("id, valortotal, status, acrescimo_financeiro_tipo, acrescimo_financeiro_valor")
+    .eq("id", vendaId)
+    .maybeSingle();
+  if (error || !venda) throw error ?? new Error("Venda não encontrada.");
+
+  const { data: pagamentos, error: pagamentosError } = await supabaseAdmin
+    .from("transacao")
+    .select("valor")
+    .eq("vendaid", vendaId)
+    .eq("tipo", "RECEITA")
+    .eq("is_deleted", false);
+  if (pagamentosError) throw pagamentosError;
+
+  const totalDevido = toCents(calculateFinancialTotal(
+    venda.valortotal,
+    venda.acrescimo_financeiro_tipo,
+    venda.acrescimo_financeiro_valor,
+  ));
+  const totalPago = (pagamentos ?? []).reduce((total, pagamento) => total + toCents(pagamento.valor), 0);
+  const status = String(venda.status ?? "").toUpperCase();
+
+  if (["CONCLUIDO", "FINALIZADA"].includes(status) && totalPago < totalDevido) {
+    const { error: updateError } = await supabaseAdmin
+      .from("venda")
+      .update({ status: "PAGAMENTO", updatedat: new Date().toISOString() })
+      .eq("id", vendaId);
+    if (updateError) throw updateError;
+  }
+}
 
 const TRANSACAO_FIELDS = `
   id, descricao, valor, data, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id,
@@ -264,11 +337,35 @@ export async function GET(_: Request, ctx: Params) {
 
 /* ========================= PATCH ========================= */
 
+async function validarEdicaoConfigurada(req: NextRequest) {
+  if (req.headers.get("x-transaction-edit") !== "true") return null;
+
+  const { data: config, error } = await supabaseAdmin
+    .from("config_geral")
+    .select("habilitar_edicao_transacoes")
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    return NextResponse.json({ error: "A configuração de edição de transações ainda não foi aplicada." }, { status: 409 });
+  }
+  if (config?.habilitar_edicao_transacoes !== true) {
+    return NextResponse.json({ error: "A edição de transações está desativada nas configurações gerais." }, { status: 403 });
+  }
+  return null;
+}
+
 export async function PATCH(req: NextRequest, ctx: Params) {
   try {
     await requireFinanceiroEdit();
+    const edicaoBloqueada = await validarEdicaoConfigurada(req);
+    if (edicaoBloqueada) return edicaoBloqueada;
     const id = await parseId(ctx);
     const body = await req.json().catch(() => ({}));
+    if (req.headers.get("x-transaction-edit") === "true" && (body.valor !== undefined || body.valorLiquido !== undefined)) {
+      return NextResponse.json({ error: "O valor da transação não pode ser editado." }, { status: 400 });
+    }
     const payload = sanitizePayload(body, { strict: false });
 
     if (Object.keys(payload).length === 1 && "updated_at" in payload) {
@@ -337,8 +434,13 @@ export async function PATCH(req: NextRequest, ctx: Params) {
 export async function PUT(req: NextRequest, ctx: Params) {
   try {
     await requireFinanceiroEdit();
+    const edicaoBloqueada = await validarEdicaoConfigurada(req);
+    if (edicaoBloqueada) return edicaoBloqueada;
     const id = await parseId(ctx);
     const body = await req.json().catch(() => ({}));
+    if (req.headers.get("x-transaction-edit") === "true" && (body.valor !== undefined || body.valorLiquido !== undefined)) {
+      return NextResponse.json({ error: "O valor da transação não pode ser editado." }, { status: 400 });
+    }
     const payload = sanitizePayload(body, { strict: true });
 
     const { data, error } = await supabaseAdmin
@@ -404,6 +506,16 @@ export async function DELETE(_: Request, ctx: Params) {
     await requireFinanceiroDelete();
     const id = await parseId(ctx);
 
+    const { data: transaction, error: transactionError } = await supabaseAdmin
+      .from("transacao")
+      .select("id, tipo, ordemservicoid, vendaid, evento_financeiro_id")
+      .eq("id", id)
+      .maybeSingle();
+    if (transactionError) throw transactionError;
+    if (!transaction) {
+      return NextResponse.json({ error: "Transação não encontrada." }, { status: 404 });
+    }
+
     const { data, error } = await supabaseAdmin
       .from("transacao")
       .delete()
@@ -417,6 +529,18 @@ export async function DELETE(_: Request, ctx: Params) {
         { error: "Transação não encontrada." },
         { status: 404 }
       );
+    }
+
+    const isPagamento = String(transaction.tipo ?? "").toUpperCase() === "RECEITA" &&
+      transaction.evento_financeiro_id == null;
+
+    if (isPagamento) {
+      if (transaction.ordemservicoid != null) {
+        await revalidarStatusOrdem(Number(transaction.ordemservicoid));
+      }
+      if (transaction.vendaid != null) {
+        await revalidarStatusVenda(Number(transaction.vendaid));
+      }
     }
 
     return new NextResponse(null, { status: 204 });

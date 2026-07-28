@@ -65,8 +65,8 @@ interface VendasDataTableProps {
     searchText?: string,
     status?: vendaStatus | "TODOS",
     filters?: PaymentListFilters,
-  ) => void;
-  fetchStatusCounts: () => void;
+  ) => Promise<void>;
+  fetchStatusCounts: () => Promise<void>;
   status: vendaStatus | "TODOS";
 
   // âœ… para ediÃ§Ã£o via duplo clique (controlado no pai)
@@ -257,6 +257,13 @@ export default function VendasDataTable({
     try {
       const response = await axios.delete(`/api/venda/${id}`);
       if (response.status === 200) {
+        const pageAfterDelete = vendas.length === 1 && pagination.page > 1 ? pagination.page - 1 : pagination.page;
+
+        setIsAlertOpen(false);
+        await Promise.all([
+          handleGetVendas(pageAfterDelete, pagination.limit, search, status, filters),
+          fetchStatusCounts(),
+        ]);
         toast.success("Venda deletada");
       }
     } catch (error) {

@@ -156,7 +156,7 @@ export default function ConcluidoAlert({
           </DialogDescription>
         </DialogHeader>
 
-        <section className="rounded-xl border bg-muted/30 p-4" aria-label="Resumo da transação">
+        <section className="rounded-xl border bg-card p-4" aria-label="Resumo da transação">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -188,7 +188,7 @@ export default function ConcluidoAlert({
           </div>
         </section>
 
-        <div className="grid min-w-0 gap-4 sm:grid-cols-2">
+        <div className="grid min-w-0 gap-4 sm:grid-cols-2 p-4 rounded-xl bg-card border">
           <div className="min-w-0 space-y-2">
             <Label>
               Banco / conta <span className="text-destructive">*</span>

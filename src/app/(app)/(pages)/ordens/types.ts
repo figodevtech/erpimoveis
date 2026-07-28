@@ -61,6 +61,8 @@ export type Ordem = {
   subtotal?: number | null;
   desconto_tipo?: "FIXO" | "PORCENTAGEM" | null;
   desconto?: number | null;
+  acrescimo_financeiro_tipo?: "FIXO" | "PORCENTAGEM" | null;
+  acrescimo_financeiro_valor?: number | null;
   transacoes: Transaction[] | null
   is_deleted?: boolean
   created_at?: Date

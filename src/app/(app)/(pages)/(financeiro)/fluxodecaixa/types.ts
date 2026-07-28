@@ -108,6 +108,7 @@ export interface Transaction {
   vendaid?: number | null
   pendente?: boolean
   evento_financeiro_id?: number | null
+  is_deleted?: boolean
 }
 
 export interface NewTransaction {

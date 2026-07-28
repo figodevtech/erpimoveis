@@ -37,6 +37,7 @@ import {
   MoreHorizontal,
   Eye,
   Plus,
+  Pencil,
   Trash2Icon,
 } from "lucide-react";
 import formatarEmReal from "@/utils/formatarEmReal";
@@ -47,7 +48,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import DeleteAlert from "./deleteAlert";
+import { TransactionDeleteAlert } from "../../components/transaction-delete-alert";
 import { toast } from "@/lib/toast";
 import axios, { isAxiosError } from "axios";
 import {
@@ -61,6 +62,7 @@ import { ExportTransactionsButton } from "./ExportTransactionsButton";
 import ConcluidoAlert from "./concluidoAlert";
 import SearchFilter from "./searchFilter";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
+import { useConfig } from "@/app/(app)/(pages)/config-context";
 
 type FluxoViewMode = "TODAS" | "A_RECEBER" | "A_PAGAR";
 
@@ -118,11 +120,11 @@ export default function FinancialTable({
   dateFrom,
 }: FinancialTableProps) {
   const { data: session } = useSession();
+  const config = useConfig();
   const [selectedTransactionId, setSelectedTransactionId] = useState<
     number | undefined
   >(undefined);
   const [isOpen, setIsOpen] = useState(false);
-  const [isAlertOpen, setIsAlertOpen] = useState(false);
   const [selectedTransactionForPago, setSelectedTransactionForPago] =
     useState<Transaction | null>(null);
   const [isPagoDialogOpen, setIsPagoDialogOpen] = useState(false);
@@ -178,7 +180,6 @@ export default function FinancialTable({
       }
     } finally {
       setIsDeleting(false);
-      setIsAlertOpen(false);
     }
   };
 
@@ -293,6 +294,11 @@ export default function FinancialTable({
                   setOpen={setIsOpen}
                   selectedTransactionId={selectedTransactionId}
                   setSelectedTransactionId={setSelectedTransactionId}
+                  editable={canEdit && config?.habilitar_edicao_transacoes === true}
+                  handleGetTransactions={() => {
+                    handleGetTransactions(pagination.page, pagination.limit, search, dateFrom, dateTo, tipo, pendenteFilter);
+                    handleGetStatusCounter();
+                  }}
                 >
                   <Button
                     size="sm"
@@ -436,15 +442,27 @@ export default function FinancialTable({
                         aria-labelledby={triggerId}
                         align="center"
                       >
-                        <DropdownMenuItem
-                          onClick={() => {
-                            setSelectedTransactionId(t.id);
-                            setIsOpen(true);
-                          }}
-                        >
-                          <Eye className="mr-2 h-4 w-4" />
-                          Visualizar
-                        </DropdownMenuItem>
+                        {canEdit && config?.habilitar_edicao_transacoes ? (
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setSelectedTransactionId(t.id);
+                              setIsOpen(true);
+                            }}
+                          >
+                            <Pencil className="mr-2 h-4 w-4" />
+                            Editar
+                          </DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setSelectedTransactionId(t.id);
+                              setIsOpen(true);
+                            }}
+                          >
+                            <Eye className="mr-2 h-4 w-4" />
+                            Visualizar
+                          </DropdownMenuItem>
+                        )}
 
                         {canEdit && t.pendente && (
                           <DropdownMenuItem
@@ -459,12 +477,7 @@ export default function FinancialTable({
                         )}
 
                         {canDelete ? (
-                          <DeleteAlert
-                            handleDeleteTransaction={handleDeleteTransaction}
-                            isAlertOpen={isAlertOpen}
-                            setIsAlertOpen={setIsAlertOpen}
-                            idToDelete={t.id}
-                          >
+                          <TransactionDeleteAlert transactionId={t.id} onDelete={handleDeleteTransaction}>
                             <DropdownMenuItem
                               onSelect={(e) => e.preventDefault()}
                               variant="destructive"
@@ -472,7 +485,7 @@ export default function FinancialTable({
                               <Trash2Icon className="mr-2 h-4 w-4" />
                               Excluir
                             </DropdownMenuItem>
-                          </DeleteAlert>
+                          </TransactionDeleteAlert>
                         ) : null}
                       </DropdownMenuContent>
                     </DropdownMenu>

@@ -30,6 +30,7 @@ const DEFAULT_CONFIG: Config = {
   impressao_cor_secundaria: "#0891b2",
   modo_baixa_estoque_os: "ORCAMENTO",
   produto_preco_medio_compra_obrigatorio: false,
+  habilitar_edicao_transacoes: false,
   created_at: "",
 };
 
@@ -105,6 +106,18 @@ export default function ShellLayout({ children }: { children: ReactNode }) {
     }
 
     void handleGetConfig(false);
+  }, []);
+
+  useEffect(() => {
+    const handleConfigUpdated = (event: Event) => {
+      const nextConfig = (event as CustomEvent<Config>).detail;
+      if (!nextConfig) return;
+      writeCachedConfig(nextConfig);
+      setConfig(nextConfig);
+    };
+
+    window.addEventListener("erpoficina:config-updated", handleConfigUpdated);
+    return () => window.removeEventListener("erpoficina:config-updated", handleConfigUpdated);
   }, []);
 
   if (loadingConfigs) {

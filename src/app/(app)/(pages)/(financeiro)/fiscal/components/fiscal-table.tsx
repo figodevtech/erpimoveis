@@ -558,8 +558,8 @@ export default function FiscalTable({
                   <div className="space-y-3">
                     <p className="text-xs font-medium text-muted-foreground">Busca</p>
                     <div className="space-y-1">
-                      <p className="text-[11px] text-muted-foreground">Nota fiscal ou chave de acesso</p>
-                      <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar nota/chave" className="h-9 w-full" />
+                      <p className="text-[11px] text-muted-foreground">Nota, chave, pessoa, documento ou protocolo</p>
+                      <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar informações da nota" className="h-9 w-full" />
                     </div>
                   </div>
                   <div className="space-y-3">

@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireFinanceiroCreate, requireFinanceirosAccess } from "@/app/api/_authz/perms";
+import { calculateFinancialTotal } from "@/lib/financial-surcharge";
 
 /** Campos graváveis em transacao */
 const WRITABLE_FIELDS = new Set([
@@ -375,13 +376,13 @@ export async function POST(req: Request) {
       );
     }
 
-    if (payload?.ordemservicoid != null && isReceita) {
+    if (payload?.ordemservicoid != null && payload?.evento_financeiro_id == null && isReceita) {
       osId = Number(payload.ordemservicoid);
 
       // 1) Busca orcamentototal da OS
       const { data: os, error: osErr } = await supabaseAdmin
         .from("ordemservico")
-        .select("id, orcamentototal, status")
+        .select("id, orcamentototal, status, acrescimo_financeiro_tipo, acrescimo_financeiro_valor")
         .eq("id", osId)
         .maybeSingle();
 
@@ -392,7 +393,13 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Ordem de serviço não encontrada." }, { status: 404 });
       }
 
-      orcCents = moneyToCents(os.orcamentototal as any);
+      orcCents = moneyToCents(
+        calculateFinancialTotal(
+          os.orcamentototal,
+          os.acrescimo_financeiro_tipo,
+          os.acrescimo_financeiro_valor,
+        ),
+      );
       if (orcCents == null || orcCents <= 0) {
         return NextResponse.json({ error: "A OS não possui orçamento válido para validação." }, { status: 409 });
       }
@@ -413,6 +420,7 @@ export async function POST(req: Request) {
         .select("valor")
         .eq("ordemservicoid", osId)
         .eq("tipo", "RECEITA")
+        .is("evento_financeiro_id", null)
         .eq("is_deleted", false);
 
       if (txErr) {
@@ -443,7 +451,7 @@ export async function POST(req: Request) {
 
       const { data: venda, error: osErr } = await supabaseAdmin
         .from("venda")
-        .select("id, valortotal, status")
+        .select("id, valortotal, status, acrescimo_financeiro_tipo, acrescimo_financeiro_valor")
         .eq("id", vendaId)
         .maybeSingle();
 
@@ -454,7 +462,13 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Venda não encontrada." }, { status: 404 });
       }
 
-      orcCents = moneyToCents(venda.valortotal as any);
+      orcCents = moneyToCents(
+        calculateFinancialTotal(
+          venda.valortotal,
+          venda.acrescimo_financeiro_tipo,
+          venda.acrescimo_financeiro_valor,
+        ),
+      );
       if (orcCents == null || orcCents <= 0) {
         return NextResponse.json({ error: "A Venda não possui orçamento válido para validação." }, { status: 409 });
       }

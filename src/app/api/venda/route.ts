@@ -93,10 +93,16 @@ const VENDA_SELECT = `
   danfe_url,
   desconto_tipo,
   desconto_valor,
+  acrescimo_financeiro_tipo,
+  acrescimo_financeiro_valor,
   observacoes,
   observacoes_fiscais,
   forma_pagamento,
   sub_total,
+  transacoes:transacao!transacao_vendaid_fkey (
+    id,
+    valor
+  ),
   itens:vendaproduto (
     id,
     produtoid,

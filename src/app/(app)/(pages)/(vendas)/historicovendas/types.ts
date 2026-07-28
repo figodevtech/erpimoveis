@@ -1,5 +1,6 @@
 import { Customer } from "../../clientes/types";
 import { Produto } from "../../estoque/types";
+import { Transaction } from "../../(financeiro)/fluxodecaixa/types";
 
 export interface StatusMetrics {
   totalValor: number;
@@ -86,11 +87,14 @@ export interface VendaComItens {
   comissao_venda_percent_aplicada?: number | null;
   desconto_tipo: string | null;
   desconto_valor: number;
+  acrescimo_financeiro_tipo?: "FIXO" | "PORCENTAGEM" | null;
+  acrescimo_financeiro_valor?: number | null;
   forma_pagamento?: string | null;
   sub_total: number;
   observacoes?: string | null;
   observacoes_fiscais?: string | null;
   itens: VendaProdutoItem[];
+  transacoes?: Transaction[] | null;
 }
 
 export interface Pagination {

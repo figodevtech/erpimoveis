@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireFinanceiroCreate, requireFinanceirosAccess } from "@/app/api/_authz/perms";
+import { calculateFinancialTotal } from "@/lib/financial-surcharge";
 
 const WRITABLE_FIELDS = new Set([
   "ordemservicoid",
@@ -30,7 +31,7 @@ const WRITABLE_FIELDS = new Set([
 const FORTALEZA_OFFSET = "-03:00";
 
 const TRANSACAO_FIELDS =
-  "id, descricao, valor, valorLiquido, nomepagador, cpfcnpjpagador, pendente, data, ordemservicoid, vendaid, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, banco_id, created_at, updated_at";
+  "id, descricao, valor, valorLiquido, nomepagador, cpfcnpjpagador, pendente, data, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, banco_id, created_at, updated_at";
 
 const BANCO_FIELDS =
   "id, titulo, tipo, agencia, contanumero, proprietario, valorinicial, empresa_id, created_at, updated_at";
@@ -196,6 +197,7 @@ export async function GET(req: Request) {
     const centroCustoId = toNumberOrNull(searchParams.get("centroCustoId"));
     const clienteId = toNumberOrNull(searchParams.get("clienteId"));
     const pendenteBool = parseBooleanParam(searchParams.get("pendente"));
+    const excluirEventosFinanceiros = parseBooleanParam(searchParams.get("excluirEventosFinanceiros"));
     const dateFrom = searchParams.get("dateFrom");
     const dateTo = searchParams.get("dateTo");
 
@@ -221,6 +223,7 @@ export async function GET(req: Request) {
 
     if (search) query = query.ilike("descricao", `%${search}%`);
     if (ordemservicoid) query = query.eq("ordemservicoid", ordemservicoid);
+    if (excluirEventosFinanceiros === true) query = query.is("evento_financeiro_id", null);
     if (vendaid) query = query.eq("vendaid", vendaid);
     if (tipo) query = query.eq("tipo", tipo);
     if (categoria) query = query.eq("categoria", categoria);
@@ -337,7 +340,7 @@ export async function POST(req: Request) {
 
       const { data: venda, error: vendaErr } = await supabaseAdmin
         .from("venda")
-        .select("id, valortotal, status")
+        .select("id, valortotal, status, acrescimo_financeiro_tipo, acrescimo_financeiro_valor")
         .eq("id", vendaId)
         .maybeSingle();
 
@@ -349,7 +352,13 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Venda não encontrada." }, { status: 404 });
       }
 
-      vendaTotalCents = moneyToCents(venda.valortotal as any);
+      vendaTotalCents = moneyToCents(
+        calculateFinancialTotal(
+          venda.valortotal,
+          venda.acrescimo_financeiro_tipo,
+          venda.acrescimo_financeiro_valor,
+        ),
+      );
       if (vendaTotalCents == null || vendaTotalCents <= 0) {
         return NextResponse.json({ error: "A venda não possui valor válido para validação." }, { status: 409 });
       }

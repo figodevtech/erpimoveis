@@ -15,16 +15,13 @@ import {
 
 const LABEL_SIZES = {
   "50x30": { label: "50 x 30 mm", widthMm: 50, heightMm: 30 },
+  "60x30": { label: "60 x 30 mm", widthMm: 60, heightMm: 30 },
   "60x40": { label: "60 x 40 mm", widthMm: 60, heightMm: 40 },
   "80x40": { label: "80 x 40 mm", widthMm: 80, heightMm: 40 },
   "100x50": { label: "100 x 50 mm", widthMm: 100, heightMm: 50 },
 };
 
 type LabelSizeKey = keyof typeof LABEL_SIZES;
-
-function padNumber(value: number, digits: number) {
-  return String(value).padStart(digits, "0");
-}
 
 const ETIQUETAS_PRINT_STORAGE_PREFIX = "erpoficina:etiquetas-print:";
 
@@ -45,12 +42,11 @@ export default function EtiquetasPage() {
 
     const start = Math.max(0, Math.trunc(startRaw));
     const end = Math.max(start, Math.trunc(endRaw));
-    const digits = Math.max(2, String(end).length);
     const size = Math.min(end - start + 1, 500);
 
     return Array.from({ length: size }, (_, index) => {
       const n = start + index;
-      return cleanPrefix ? `${cleanPrefix}-${padNumber(n, digits)}` : padNumber(n, digits);
+      return `${cleanPrefix}-${n}`;
     });
   }, [fim, inicio, prefixo]);
 
@@ -85,7 +81,7 @@ export default function EtiquetasPage() {
             <Input
               id="prefixo"
               value={prefixo}
-              onChange={(e) => setPrefixo(e.target.value)}
+              onChange={(e) => setPrefixo(e.target.value.toUpperCase())}
               placeholder="CX"
               className="border-x-0 border-t-0 rounded-none px-0 shadow-none focus-visible:ring-0"
             />
