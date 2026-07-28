@@ -1,14 +1,13 @@
 import type { NextConfig } from "next";
 const withPWA = require("@ducanh2912/next-pwa").default({
   dest: "public",
-  // O gerador atual produz chunks inconsistentes no Next 15 em builds maiores.
-  // Reative explicitamente somente após atualizar/validar o plugin.
-  disable: process.env.ENABLE_PWA !== "1",
+  disable: process.env.NODE_ENV === "development",
   register: true,
   skipWaiting: true,
 });
 
 const nextConfig: NextConfig = {
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   eslint: {
     ignoreDuringBuilds: true,
   },
