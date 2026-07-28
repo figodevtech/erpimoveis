@@ -217,7 +217,7 @@ type ListingPerformanceDetails = {
     score?: number | null;
     level?: string | null;
     calculatedAt?: string | null;
-    actions: Array<{ id: string; title: string; status: string; message?: string }>;
+    actions: Array<{ id: string; title: string; status: string; message?: string; link?: string | null }>;
   };
   permissions: {
     title: boolean;
@@ -234,8 +234,12 @@ type ListingPerformanceDetails = {
     visits: number;
     orders: number;
     units: number;
+    revenue: number;
+    averageTicket: number;
     conversionRate: number;
-    daily: Array<{ date: string; visits: number; orders: number; units: number }>;
+    previous: { visits: number; orders: number; units: number; revenue: number; conversionRate: number };
+    deltas: { visits: number; orders: number; units: number; revenue: number };
+    daily: Array<{ date: string; visits: number; orders: number; units: number; revenue: number }>;
   };
 };
 
@@ -560,6 +564,11 @@ type UserProductFamilyMember = {
 
 function formatCurrency(value: unknown) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value ?? 0));
+}
+
+function formatSignedPercent(value: unknown) {
+  const number = Number(value ?? 0);
+  return `${number > 0 ? "+" : ""}${number.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
 }
 
 function sellerLevelLabel(value: string) {
@@ -1701,6 +1710,15 @@ export default function MarketplacePage() {
   const [editCategoryAttributes, setEditCategoryAttributes] = useState<MlCategoryAttribute[]>([]);
   const [editFamilyMembers, setEditFamilyMembers] = useState<UserProductFamilyMember[]>([]);
   const [editInitialAttributes, setEditInitialAttributes] = useState<Record<string, string>>({});
+  const [editInitialForm, setEditInitialForm] = useState<ListingEditForm | null>(null);
+  const [editCapabilities, setEditCapabilities] = useState({
+    title: true,
+    price: true,
+    stock: true,
+    pictures: true,
+    description: true,
+    familyName: true,
+  });
 
   const activeAccount = accounts[0] ?? null;
   const requiresReconnect = Boolean(activeAccount?.needs_reconnect);
@@ -2782,15 +2800,15 @@ export default function MarketplacePage() {
       dynamicAttributes: {},
     };
 
-    setEditForm({
-      ...fallbackForm,
-    });
+    setEditForm({ ...fallbackForm });
+    setEditInitialForm({ ...fallbackForm });
     setEditingProductImageUrls(Array.from(new Set((product.imageUrls?.length ? product.imageUrls : product.imgUrl ? [product.imgUrl] : []).filter(Boolean))));
     setEditShippingModes([]);
     setEditLogisticOptions([]);
     setEditCategoryAttributes([]);
     setEditFamilyMembers([]);
     setEditInitialAttributes({});
+    setEditCapabilities({ title: !fallbackForm.userProductEnabled, price: true, stock: true, pictures: true, description: true, familyName: true });
     setEditDialogOpen(true);
 
     setLoadingEditListing(true);
@@ -2802,7 +2820,7 @@ export default function MarketplacePage() {
       const categoryId = String(item.categoryId ?? "");
       const shippingMode = String(item.shippingMode || fallbackForm.shippingMode);
       const dynamicAttributes = item.dynamicAttributes && typeof item.dynamicAttributes === "object" ? item.dynamicAttributes : {};
-      setEditForm({
+      const loadedForm: ListingEditForm = {
         ...fallbackForm,
         categoryId,
         listingTypeId: String(item.listingTypeId ?? ""),
@@ -2825,8 +2843,11 @@ export default function MarketplacePage() {
         lengthCm: item.lengthCm || "",
         weightGrams: item.weightGrams || "",
         dynamicAttributes,
-      });
+      };
+      setEditForm(loadedForm);
+      setEditInitialForm(loadedForm);
       setEditInitialAttributes(dynamicAttributes);
+      setEditCapabilities((current) => ({ ...current, ...(item.capabilities ?? {}) }));
       setEditFamilyMembers(
         (Array.isArray(item.familyMembers) ? item.familyMembers : []).map((member: any) => ({
           id: String(member?.id ?? ""),
@@ -2895,37 +2916,81 @@ export default function MarketplacePage() {
         const unitKey = `${attribute.id}__unit`;
         changedAttributes[unitKey] = editForm.dynamicAttributes[unitKey] || attribute.defaultUnit || attribute.allowedUnits[0]?.id || "";
       }
+      const initial = editInitialForm;
+      const changes: Record<string, unknown> = {};
+      const addTextChange = (key: keyof ListingEditForm, value: string) => {
+        if (!initial || String(initial[key] ?? "").trim() !== value.trim()) changes[key] = value;
+      };
+      addTextChange("title", editForm.title);
+      addTextChange("familyName", editForm.familyName);
+      addTextChange("description", editForm.description);
+      addTextChange("pictureUrl", editForm.pictureUrl);
+      addTextChange("warranty", editForm.warranty);
+      addTextChange("warrantyTime", editForm.warrantyTime);
+      addTextChange("shippingMode", editForm.shippingMode === "me2" ? "me2" : "");
+      addTextChange("logisticType", editForm.logisticType);
+
+      const price = parseCurrencyInput(editForm.price);
+      if (!initial || Math.abs(price - parseCurrencyInput(initial.price)) >= 0.01) changes.price = price;
+      const availableQuantity = Number(editForm.availableQuantity);
+      if (!initial || availableQuantity !== Number(initial.availableQuantity)) changes.availableQuantity = availableQuantity;
+      if (!initial || editForm.freeShipping !== initial.freeShipping) changes.freeShipping = editForm.freeShipping;
+      if (!initial || editForm.localPickup !== initial.localPickup) changes.localPickup = false;
+
+      for (const key of ["widthCm", "heightCm", "lengthCm"] as const) {
+        const value = Number(editForm[key].replace(",", "."));
+        const initialValue = Number(initial?.[key]?.replace(",", "."));
+        if (!initial || value !== initialValue) changes[key] = value;
+      }
+      const weightGrams = Number(editForm.weightGrams);
+      if (!initial || weightGrams !== Number(initial.weightGrams)) changes.weightGrams = weightGrams;
+      if (["warranty", "warrantyTime"].some((key) => key in changes)) {
+        changes.warranty = editForm.warranty;
+        changes.warrantyTime = editForm.warrantyTime;
+      }
+      if (
+        ["shippingMode", "logisticType", "freeShipping", "localPickup", "widthCm", "heightCm", "lengthCm", "weightGrams"]
+          .some((key) => key in changes)
+      ) {
+        changes.shippingMode = editForm.shippingMode === "me2" ? "me2" : "";
+        changes.logisticType = editForm.logisticType;
+        changes.freeShipping = editForm.freeShipping;
+        changes.localPickup = false;
+        changes.widthCm = Number(editForm.widthCm.replace(",", "."));
+        changes.heightCm = Number(editForm.heightCm.replace(",", "."));
+        changes.lengthCm = Number(editForm.lengthCm.replace(",", "."));
+        changes.weightGrams = Number(editForm.weightGrams);
+      }
+      if (Object.keys(changedAttributes).length) {
+        changes.attributes = changedAttributes;
+        changes.attributeDefinitions = editCategoryAttributes;
+      }
+      if (!Object.keys(changes).length) {
+        toast.info("Nenhuma alteração para enviar.");
+        return;
+      }
       const response = await fetch(`/api/integracoes/mercadolivre/items/${encodeURIComponent(editForm.itemId)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "update_listing",
-          title: editForm.title,
-          familyName: editForm.familyName,
-          userProductEnabled: editForm.userProductEnabled,
-          price: parseCurrencyInput(editForm.price),
-          availableQuantity: Number(editForm.availableQuantity),
-          description: editForm.description,
-          pictureUrl: editForm.pictureUrl,
-          warranty: editForm.warranty,
-          warrantyTime: editForm.warrantyTime,
-          shippingMode: editForm.shippingMode === "me2" ? "me2" : "",
-          logisticType: editForm.logisticType,
-          freeShipping: editForm.freeShipping,
-          localPickup: false,
-          widthCm: Number(editForm.widthCm.replace(",", ".")),
-          heightCm: Number(editForm.heightCm.replace(",", ".")),
-          lengthCm: Number(editForm.lengthCm.replace(",", ".")),
-          weightGrams: Number(editForm.weightGrams),
-          attributes: changedAttributes,
-          attributeDefinitions: editCategoryAttributes,
+          changes,
         }),
       });
       const json = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(json?.error || "Falha ao editar anúncio.");
 
-      toast.success("Anúncio atualizado.");
-      setEditDialogOpen(false);
+      const divergent = Array.isArray(json?.confirmations)
+        ? json.confirmations.filter((result: any) => result?.status === "DIVERGENTE")
+        : [];
+      if (divergent.length) {
+        toast.warning("O Mercado Livre aplicou apenas parte das alterações.", {
+          description: `Não foi possível confirmar: ${divergent.map((result: any) => result.field).join(", ")}.`,
+        });
+      } else {
+        toast.success("Alterações confirmadas pelo Mercado Livre.");
+        setEditDialogOpen(false);
+      }
       await loadProducts();
     } catch (e: any) {
       toast.error("Erro ao editar anúncio", { description: marketplaceErrorMessage(e) });
@@ -5648,6 +5713,15 @@ export default function MarketplacePage() {
               Atualize os dados principais do anúncio publicado e sincronize com o Mercado Livre.
             </DialogDescription>
           </DialogHeader>
+          {(!editCapabilities.price || !editCapabilities.stock || !editCapabilities.title || !editCapabilities.pictures) && (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+              Alguns campos estão bloqueados pelas regras do Mercado Livre:
+              {!editCapabilities.price && " preço com automação ativa;"}
+              {!editCapabilities.stock && " estoque administrado pela logística Full/multiorigem;"}
+              {!editCapabilities.title && " título controlado pelo catálogo/família;"}
+              {!editCapabilities.pictures && " imagens controladas pelo catálogo;"}
+            </div>
+          )}
           <div className="min-h-0 flex-1 overflow-y-auto pr-2">
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2 md:col-span-2">
@@ -5655,7 +5729,7 @@ export default function MarketplacePage() {
                 <Input
                   value={editForm.title}
                   onChange={(event) => updateEditForm("title", event.target.value)}
-                  disabled={editingListing || loadingEditListing || editForm.userProductEnabled}
+                  disabled={editingListing || loadingEditListing || !editCapabilities.title}
                   maxLength={60}
                   className={listingFieldClass}
                 />
@@ -5688,7 +5762,7 @@ export default function MarketplacePage() {
                   <ValueInput
                     value={parseCurrencyInput(editForm.price)}
                     onValueChange={(value) => updateEditForm("price", formatCurrencyInputFromNumber(value))}
-                    disabled={editingListing || loadingEditListing}
+                    disabled={editingListing || loadingEditListing || !editCapabilities.familyName}
                     className={listingFieldClass}
                   />
                 </div>
@@ -5700,7 +5774,7 @@ export default function MarketplacePage() {
                   min="0"
                   value={editForm.availableQuantity}
                   onChange={(event) => updateEditForm("availableQuantity", event.target.value)}
-                  disabled={editingListing || loadingEditListing}
+                    disabled={editingListing || loadingEditListing || !editCapabilities.price}
                   className={listingFieldClass}
                 />
               </div>
@@ -5712,7 +5786,7 @@ export default function MarketplacePage() {
                     updateEditForm("warranty", value === "none" ? "" : value);
                     if (value === "Sem garantia") updateEditForm("warrantyTime", "");
                   }}
-                  disabled={editingListing || loadingEditListing}
+                  disabled={editingListing || loadingEditListing || !editCapabilities.stock}
                 >
                   <SelectTrigger className={listingSelectClass}>
                     <SelectValue />
@@ -5929,7 +6003,7 @@ export default function MarketplacePage() {
               <Textarea
                 value={editForm.description}
                 onChange={(event) => updateEditForm("description", event.target.value)}
-                disabled={editingListing || loadingEditListing}
+                disabled={editingListing || loadingEditListing || !editCapabilities.description}
                 className={`min-h-32 ${listingFieldClass}`}
               />
             </div>
@@ -5941,7 +6015,7 @@ export default function MarketplacePage() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled={editingListing || loadingEditListing || editingProductImageUrls.length === 0}
+                  disabled={editingListing || loadingEditListing || !editCapabilities.pictures || editingProductImageUrls.length === 0}
                   onClick={() => {
                     const merged = Array.from(new Set([...parsePictureUrls(editForm.pictureUrl), ...editingProductImageUrls]));
                     setEditForm((current) => ({ ...current, pictureUrl: merged.join("\n") }));
@@ -5956,7 +6030,7 @@ export default function MarketplacePage() {
                 value={editForm.pictureUrl}
                 onChange={(event) => updateEditForm("pictureUrl", event.target.value)}
                 placeholder="Uma URL por linha"
-                disabled={editingListing || loadingEditListing}
+                disabled={editingListing || loadingEditListing || !editCapabilities.pictures}
                 className={`min-h-24 ${listingFieldClass}`}
               />
             </div>
@@ -6008,13 +6082,14 @@ export default function MarketplacePage() {
                   )}
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
                   {[
                     ["Visualizações", listingPerformance.period.visits.toLocaleString("pt-BR")],
                     ["Pedidos", listingPerformance.period.orders.toLocaleString("pt-BR")],
                     ["Unidades", listingPerformance.period.units.toLocaleString("pt-BR")],
+                    ["Faturamento", formatCurrency(listingPerformance.period.revenue)],
+                    ["Ticket médio", formatCurrency(listingPerformance.period.averageTicket)],
                     ["Conversão", `${listingPerformance.period.conversionRate.toLocaleString("pt-BR")} %`],
-                    ["Imagens", listingPerformance.picturesCount.toLocaleString("pt-BR")],
                   ].map(([label, value]) => (
                     <div key={label} className="rounded-md border bg-muted/15 px-3 py-3">
                       <p className="text-xs text-muted-foreground">{label}</p>
@@ -6022,6 +6097,11 @@ export default function MarketplacePage() {
                     </div>
                   ))}
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Comparado aos 30 dias anteriores: visitas {formatSignedPercent(listingPerformance.period.deltas.visits)},
+                  {" "}pedidos {formatSignedPercent(listingPerformance.period.deltas.orders)},
+                  {" "}faturamento {formatSignedPercent(listingPerformance.period.deltas.revenue)}.
+                </p>
 
                 <section className="space-y-3">
                   <div>
@@ -6067,6 +6147,11 @@ export default function MarketplacePage() {
                           <div>
                             <p className="text-sm font-medium">{marketplaceTextLabel(action.title)}</p>
                             {action.message && <p className="mt-0.5 text-xs text-muted-foreground">{marketplaceTextLabel(action.message)}</p>}
+                            {action.link && (
+                              <a className="mt-1 inline-flex text-xs text-primary hover:underline" href={action.link} target="_blank" rel="noreferrer">
+                                Ver orientação do Mercado Livre
+                              </a>
+                            )}
                           </div>
                         </div>
                       ))}

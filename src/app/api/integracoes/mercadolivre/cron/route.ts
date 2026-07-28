@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
     const [shipments, stock, metrics, invoices] = await Promise.all([
       syncRecentMercadoLivreShipments(15),
       syncPendingMercadoLivreStock({ limit: 50 }),
-      syncMercadoLivreListingMetricsHistory({ days: 30, limit: 10 }),
+      syncMercadoLivreListingMetricsHistory({ days: 60, limit: 10 }),
       syncRecentMercadoLivreInvoices(15),
     ]);
     const created = orders.filter((item) => item.created).length;

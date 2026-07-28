@@ -1,6 +1,6 @@
 import { mercadoLivreApiGet, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
 import { syncMercadoLivreShipmentForVenda } from "@/lib/integrations/mercadolivre-shipping";
-import { applyMercadoLivrePriceToErp } from "@/lib/integrations/mercadolivre-price-sync";
+import { applyMercadoLivrePriceToErp, getMercadoLivrePriceState } from "@/lib/integrations/mercadolivre-price-sync";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function syncMercadoLivreProductLinks(providedLinks?: any[]) {
@@ -44,11 +44,11 @@ export async function syncMercadoLivreProductLinks(providedLinks?: any[]) {
           : null;
         const produto = Array.isArray(link.produto) ? link.produto[0] : link.produto;
         const erpPrice = Number(produto?.precovenda);
-        const mercadoLivrePrice = Number(item?.price);
+        const priceState = await getMercadoLivrePriceState(accessToken, String(link.ml_item_id), item);
+        const mercadoLivrePrice = priceState.standardPrice;
         if (
           Number.isFinite(erpPrice) &&
-          Number.isFinite(mercadoLivrePrice) &&
-          mercadoLivrePrice > 0 &&
+          mercadoLivrePrice != null &&
           Math.abs(erpPrice - mercadoLivrePrice) >= 0.01
         ) {
           const previousMlPrice = Number(link.raw_item?.price);
@@ -104,7 +104,7 @@ export async function syncMercadoLivreProductLinks(providedLinks?: any[]) {
             catalog_listing: synchronized.catalog_listing,
             stop_time: synchronized.stop_time,
             metrics_updated_at: synchronized.metrics_updated_at,
-            raw_item: userProduct ? { ...item, _erp_user_product: userProduct } : item ?? {},
+            raw_item: { ...(item ?? {}), ...(userProduct ? { _erp_user_product: userProduct } : {}), _erp_price_state: priceState },
             updated_at: synchronized.updated_at,
           })
           .eq("id", link.id);

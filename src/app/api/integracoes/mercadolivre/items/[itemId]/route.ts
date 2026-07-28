@@ -10,6 +10,7 @@ import {
 import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
 import { uploadMercadoLivrePictures } from "@/lib/integrations/mercadolivre-pictures";
 import { validateMercadoLivreShippingSelection } from "@/lib/integrations/mercadolivre-shipping-preferences";
+import { getMercadoLivrePriceState } from "@/lib/integrations/mercadolivre-price-sync";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +30,7 @@ export async function GET(_req: NextRequest, ctx: ParamsCtx) {
       mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}`),
       mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}/description`).catch(() => null),
     ]);
+    const priceState = await getMercadoLivrePriceState(accessToken, itemId, item);
     const userProduct = item?.user_product_id
       ? await mercadoLivreApiGet<any>(accessToken, `/user-products/${encodeURIComponent(String(item.user_product_id))}`).catch(() => null)
       : null;
@@ -39,7 +41,14 @@ export async function GET(_req: NextRequest, ctx: ParamsCtx) {
           `/sites/${encodeURIComponent(account.site_id || "MLB")}/user-products-families/${encodeURIComponent(String(userProduct.family_id))}`,
         ).catch(() => null)
       : null;
-    const normalized = normalizeItemForEdit(item, description, userProduct, family, link);
+    const normalized = {
+      ...normalizeItemForEdit(item, description, userProduct, family, link),
+      price: priceState.standardPrice ?? Number(item?.price ?? 0),
+      salePrice: priceState.salePrice,
+      regularPrice: priceState.regularPrice,
+      pricing: priceState,
+      capabilities: getEditCapabilities(item, priceState.automationActive),
+    };
 
     await supabaseAdmin
       .from("mercadolivre_product_link")
@@ -67,37 +76,79 @@ export async function GET(_req: NextRequest, ctx: ParamsCtx) {
 }
 
 export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
+  let editLogId: number | null = null;
   try {
     await requireVendasEdit();
     const empresaId = await requireEmpresaId();
     const { itemId } = await ctx.params;
     const body = await req.json().catch(() => ({}));
     const action = String(body?.action ?? "").toLowerCase();
+    const effectiveBody =
+      action === "update_listing" && body?.changes && typeof body.changes === "object"
+        ? body.changes
+        : body;
 
     const link = await getLink(itemId, empresaId);
     const account = await getValidMercadoLivreAccount(link.empresa_id);
     const accessToken = account.access_token;
+    if (action === "update_listing") {
+      const { data: editLog } = await supabaseAdmin
+        .from("mercadolivre_listing_edit_log")
+        .insert({
+          empresa_id: link.empresa_id,
+          product_link_id: link.id,
+          produto_id: link.produto_id,
+          ml_item_id: itemId.toUpperCase(),
+          status: "PROCESSANDO",
+          requested_changes: effectiveBody,
+        })
+        .select("id")
+        .maybeSingle();
+      editLogId = editLog?.id ? Number(editLog.id) : null;
+    }
 
     let payload: Record<string, unknown>;
+    let currentItemBefore: any = null;
     if (action === "pause") payload = { status: "paused" };
     else if (action === "activate") payload = { status: "active" };
     else if (action === "close") payload = { status: "closed" };
     else if (action === "update_listing") {
       const currentItem = await mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}`);
-      const shippingMode = String(body?.shippingMode ?? "").trim();
+      currentItemBefore = currentItem;
+      const priceState = await getMercadoLivrePriceState(accessToken, itemId, currentItem);
+      const capabilities = getEditCapabilities(currentItem, priceState.automationActive);
+      if (effectiveBody?.price !== undefined && !capabilities.price) {
+        throw fieldRestriction(
+          "price",
+          "O preço deste anúncio é controlado pela automação do Mercado Livre. Desative a automação no Mercado Livre antes de alterar o preço pelo ERP.",
+        );
+      }
+      if (effectiveBody?.title !== undefined && !capabilities.title) {
+        throw fieldRestriction("title", "O título é controlado pelo catálogo/família do Mercado Livre e não pode ser alterado neste anúncio.");
+      }
+      if (effectiveBody?.availableQuantity !== undefined && !capabilities.stock) {
+        throw fieldRestriction(
+          "availableQuantity",
+          "O estoque deste anúncio é administrado pela logística do Mercado Livre (Full/multiorigem) e não pode ser alterado diretamente pelo ERP.",
+        );
+      }
+      if (effectiveBody?.pictureUrl !== undefined && !capabilities.pictures) {
+        throw fieldRestriction("images", "As imagens deste anúncio são controladas pelo catálogo do Mercado Livre.");
+      }
+      const shippingMode = String(effectiveBody?.shippingMode ?? "").trim();
       if (shippingMode === "me2") {
         const categoryId = String(currentItem?.category_id ?? "").trim();
         if (!categoryId) throw new Error("O anúncio não possui categoria para validar o Mercado Envios.");
-        await validateMercadoLivreShippingSelection(account, categoryId, shippingMode, String(body?.logisticType ?? ""));
+        await validateMercadoLivreShippingSelection(account, categoryId, shippingMode, String(effectiveBody?.logisticType ?? ""));
       }
       const userProductEnabled = Boolean(currentItem?.family_name || currentItem?.user_product_id);
-      payload = buildListingUpdatePayload(body, userProductEnabled);
-      if (body?.pictureUrl !== undefined) {
-        const pictureSources = parsePictureUrls(String(body.pictureUrl ?? ""));
+      payload = buildListingUpdatePayload(effectiveBody, userProductEnabled);
+      if (effectiveBody?.pictureUrl !== undefined) {
+        const pictureSources = parsePictureUrls(String(effectiveBody.pictureUrl ?? ""));
         if (!pictureSources.length) throw imageFieldError("Informe ao menos uma imagem pública válida para o anúncio.");
         payload.pictures = await uploadMercadoLivrePictures(accessToken, pictureSources);
       }
-      const familyName = String(body?.familyName ?? "").replace(/\s+/g, " ").trim();
+      const familyName = String(effectiveBody?.familyName ?? "").replace(/\s+/g, " ").trim();
       if (userProductEnabled && familyName && familyName !== String(currentItem?.family_name ?? "").trim()) {
         await mercadoLivreApiPut(accessToken, `/items/${encodeURIComponent(itemId)}/family_name`, { family_name: familyName });
       }
@@ -118,11 +169,13 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       return NextResponse.json({ error: "Acao invalida." }, { status: 400 });
     }
 
-    const updatedItem = await mercadoLivreApiPut<any>(accessToken, `/items/${encodeURIComponent(itemId)}`, payload);
+    const updatedItem = Object.keys(payload).length
+      ? await mercadoLivreApiPut<any>(accessToken, `/items/${encodeURIComponent(itemId)}`, payload)
+      : currentItemBefore;
 
-    const description = String(body?.description ?? "").trim();
-    if (action === "update_listing" && description) {
-      await mercadoLivreApiPut(accessToken, `/items/${encodeURIComponent(itemId)}/description`, {
+    const description = String(effectiveBody?.description ?? "").trim();
+    if (action === "update_listing" && effectiveBody?.description !== undefined) {
+      await mercadoLivreApiPut(accessToken, `/items/${encodeURIComponent(itemId)}/description?api_version=2`, {
         plain_text: description,
       }).catch(async () => {
         await mercadoLivreApiPost(accessToken, `/items/${encodeURIComponent(itemId)}/description`, {
@@ -132,6 +185,18 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
     }
 
     const item = await mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}`).catch(() => updatedItem);
+    const confirmedDescription =
+      action === "update_listing" && effectiveBody?.description !== undefined
+        ? await mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}/description`).catch(() => null)
+        : null;
+    const confirmedPriceState =
+      action === "update_listing" && effectiveBody?.price !== undefined
+        ? await getMercadoLivrePriceState(accessToken, itemId, item)
+        : null;
+    const confirmations =
+      action === "update_listing"
+        ? buildEditConfirmations(effectiveBody, item, confirmedDescription, confirmedPriceState)
+        : [];
     const userProduct = item?.user_product_id
       ? await mercadoLivreApiGet<any>(accessToken, `/user-products/${encodeURIComponent(String(item.user_product_id))}`).catch(() => null)
       : null;
@@ -149,16 +214,42 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
         catalog_product_id: item?.catalog_product_id ?? userProduct?.catalog_product_id ?? null,
         user_product_enabled: Boolean(item?.family_name || item?.user_product_id),
         item_tags: Array.isArray(item?.tags) ? item.tags : [],
-        ...(action === "update_listing" ? packageDimensionSnapshot(body) : {}),
+        ...(action === "update_listing" ? packageDimensionSnapshot(effectiveBody) : {}),
         raw_item: userProduct ? { ...item, _erp_user_product: userProduct } : item ?? {},
         updated_at: new Date().toISOString(),
       })
       .eq("id", link.id);
 
     if (updateError) throw updateError;
-    return NextResponse.json({ data: item, status: item?.status ?? null });
+    if (editLogId) {
+      await supabaseAdmin
+        .from("mercadolivre_listing_edit_log")
+        .update({
+          status: confirmations.some((result) => result.status === "DIVERGENTE") ? "PARCIAL" : "SUCESSO",
+          confirmed_changes: Object.fromEntries(confirmations.map((result) => [result.field, result.actual])),
+          warnings: Array.isArray(updatedItem?.warnings) ? updatedItem.warnings : [],
+          completed_at: new Date().toISOString(),
+        })
+        .eq("id", editLogId);
+    }
+    return NextResponse.json({
+      data: item,
+      status: item?.status ?? null,
+      confirmations,
+      warnings: Array.isArray(updatedItem?.warnings) ? updatedItem.warnings : [],
+    });
   } catch (e: any) {
     console.error("PATCH /api/integracoes/mercadolivre/items/[itemId]", e);
+    if (editLogId) {
+      await supabaseAdmin
+        .from("mercadolivre_listing_edit_log")
+        .update({
+          status: "ERRO",
+          error: String(e?.message ?? "Falha ao atualizar anúncio.").slice(0, 2000),
+          completed_at: new Date().toISOString(),
+        })
+        .eq("id", editLogId);
+    }
     return NextResponse.json(
       {
         error: e?.message || "Falha ao atualizar anúncio Mercado Livre.",
@@ -341,11 +432,59 @@ function buildListingUpdatePayload(body: any, userProductEnabled: boolean) {
   for (const attribute of packageAttributes) attributesById.set(attribute.id, attribute);
   if (attributesById.size) payload.attributes = Array.from(attributesById.values());
 
-  if (Object.keys(payload).length === 0) {
-    throw new Error("Informe ao menos um campo para atualizar.");
-  }
-
   return payload;
+}
+
+function getEditCapabilities(item: any, automationActive: boolean) {
+  const catalogControlled = Boolean(item?.catalog_listing || item?.catalog_product_id);
+  const familyControlled = Boolean(item?.family_name || item?.user_product_id);
+  return {
+    price: !automationActive,
+    stock: !hasWarehouseManagedStock(item),
+    title: !catalogControlled && !familyControlled,
+    pictures: !catalogControlled,
+    description: true,
+    familyName: familyControlled,
+  };
+}
+
+function hasWarehouseManagedStock(item: any) {
+  const tags = Array.isArray(item?.tags) ? item.tags.map((tag: unknown) => String(tag).toLowerCase()) : [];
+  return tags.includes("warehouse_management") || tags.includes("meli_facility");
+}
+
+function fieldRestriction(field: string, message: string) {
+  const error = new Error(message);
+  (error as any).status = 422;
+  (error as any).fieldErrors = { [field]: message };
+  return error;
+}
+
+function buildEditConfirmations(changes: any, item: any, description: any, priceState: any) {
+  const results: Array<{ field: string; status: "CONFIRMADO" | "DIVERGENTE"; requested: unknown; actual: unknown }> = [];
+  const compare = (field: string, actual: unknown, requested = changes[field]) => {
+    const same =
+      typeof requested === "number"
+        ? Math.abs(Number(actual) - requested) < 0.01
+        : String(actual ?? "").trim() === String(requested ?? "").trim();
+    results.push({ field, status: same ? "CONFIRMADO" : "DIVERGENTE", requested, actual });
+  };
+  if (changes.title !== undefined) compare("title", item?.title);
+  if (changes.price !== undefined) compare("price", priceState?.standardPrice);
+  if (changes.availableQuantity !== undefined) compare("availableQuantity", item?.available_quantity);
+  if (changes.description !== undefined) compare("description", description?.plain_text ?? description?.text ?? "");
+  if (changes.familyName !== undefined) compare("familyName", item?.family_name);
+  if (changes.freeShipping !== undefined) {
+    const requested = Boolean(changes.freeShipping);
+    const actual = Boolean(item?.shipping?.free_shipping);
+    results.push({ field: "freeShipping", status: requested === actual ? "CONFIRMADO" : "DIVERGENTE", requested, actual });
+  }
+  if (changes.pictureUrl !== undefined) {
+    const requested = parsePictureUrls(String(changes.pictureUrl)).length;
+    const actual = Array.isArray(item?.pictures) ? item.pictures.length : 0;
+    results.push({ field: "images", status: requested === actual ? "CONFIRMADO" : "DIVERGENTE", requested, actual });
+  }
+  return results;
 }
 
 function buildPackageAttributes(params: {
