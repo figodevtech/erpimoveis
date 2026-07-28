@@ -1,6 +1,6 @@
 "use client";
 import axios from "axios";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Customer, Pagination, Status } from "./types";
 import useStatusCounter from "./hooks/status-counter";
 
@@ -30,6 +30,9 @@ export default function ClientesPage() {
   });
   const [status, setStatus] = useState<Status>(Status.TODOS);
   const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const requestSequence = useRef(0);
+  const requestController = useRef<AbortController | null>(null);
 
   // Mantemos apenas o setter, já que o antigo Header (controlado) saiu
   const [selectedCustomerId, setSelectedCustomerId] = useState<number | undefined>(undefined);
@@ -42,32 +45,47 @@ export default function ClientesPage() {
     search?: string,
     status?: Status
   ) => {
+    const requestId = ++requestSequence.current;
+    requestController.current?.abort();
+    const controller = new AbortController();
+    requestController.current = controller;
     setIsLoading(true);
     try {
       const response = await axios.get("/api/customers", {
+        signal: controller.signal,
         params: {
           page: pageNumber || 1,
-          limit: pagination.limit,
+          limit: limit || pagination.limit,
           search: search || undefined,
           status: status || "TODOS",
         },
       });
-      if (response.status === 200) {
+      if (response.status === 200 && requestId === requestSequence.current) {
         const { data } = response;
         setCustomerItems(data.data);
         setPagination(data.pagination);
       }
     } catch (error) {
-      console.log("Erro ao buscar clientes:", error);
+      if (!axios.isCancel(error) && requestId === requestSequence.current) {
+        console.log("Erro ao buscar clientes:", error);
+      }
     } finally {
-      setIsLoading(false);
+      if (requestId === requestSequence.current) setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    handleGetCustomers();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    requestSequence.current += 1;
+    requestController.current?.abort();
+
+    const timer = window.setTimeout(() => {
+      setSearch(searchInput.trim());
+    }, 450);
+
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => () => requestController.current?.abort(), []);
 
   useEffect(() => {
     if (selectedCustomerId) {
@@ -91,8 +109,18 @@ export default function ClientesPage() {
       />
 
       <SearchFilter
-        search={search}
-        setSearch={setSearch}
+        search={searchInput}
+        setSearch={setSearchInput}
+        onSearch={() => {
+          const term = searchInput.trim();
+          if (term === search) void handleGetCustomers(1, pagination.limit, term, status);
+          else setSearch(term);
+        }}
+        onClear={() => {
+          setSearchInput("");
+          if (search === "") void handleGetCustomers(1, pagination.limit, "", status);
+          else setSearch("");
+        }}
         setStatus={setStatus}
         status={status}
       />

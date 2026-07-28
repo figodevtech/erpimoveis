@@ -35,7 +35,7 @@ import { useSession } from "next-auth/react";
 import axios, { isAxiosError } from "axios";
 import { toast } from "@/lib/toast";
 import { ExportCustomersButton } from "./ExportCustomersButton";
-import { formatCpfCnpj } from "./customerDialogRegister/utils";
+import { formatCpfCnpj, getRankEmoji } from "./customerDialogRegister/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 
@@ -187,8 +187,13 @@ export default function CustomersDataTable({
                   <div>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <div className="max-w-[220px] truncate font-medium">
-                          {truncate(customer.nomerazaosocial, 28)}
+                        <div className="flex max-w-[220px] items-center gap-1.5 font-medium">
+                          <span className="truncate">{truncate(customer.nomerazaosocial, 28)}</span>
+                          {customer.rank ? (
+                            <span className="shrink-0" aria-label={`Classificação: ${customer.rank}`}>
+                              {getRankEmoji(customer.rank)}
+                            </span>
+                          ) : null}
                         </div>
                       </TooltipTrigger>
                       <TooltipContent>{customer.nomerazaosocial}</TooltipContent>

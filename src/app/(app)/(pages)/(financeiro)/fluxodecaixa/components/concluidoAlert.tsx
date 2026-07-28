@@ -5,6 +5,7 @@ import axios, { isAxiosError } from "axios";
 import { CheckCircle2, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   Dialog,
   DialogContent,
@@ -53,6 +54,7 @@ export default function ConcluidoAlert({
   const [selectedMetodo, setSelectedMetodo] = useState<Metodo_pagamento | "">("");
   const [selectedPlanoId, setSelectedPlanoId] = useState("");
   const [selectedCentroCustoId, setSelectedCentroCustoId] = useState("");
+  const [dataPagamento, setDataPagamento] = useState("");
 
   const { gruposPlanosDeConta, loadingPlanos } = usePlanosDeConta();
   const { centrosCusto, loadingCentrosCusto, errorCentrosCusto } = useCentrosCusto();
@@ -64,6 +66,14 @@ export default function ConcluidoAlert({
     setSelectedMetodo(transaction.metodopagamento || "");
     setSelectedPlanoId(transaction.plano_de_conta_id ? String(transaction.plano_de_conta_id) : "");
     setSelectedCentroCustoId(transaction.centro_custo_id ? String(transaction.centro_custo_id) : "");
+    setDataPagamento(
+      new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Sao_Paulo",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date()),
+    );
   }, [isAlertOpen, transaction]);
 
   useEffect(() => {
@@ -109,15 +119,20 @@ export default function ConcluidoAlert({
       return;
     }
 
+    if (!dataPagamento) {
+      toast.error("Selecione a data efetiva do pagamento.");
+      return;
+    }
+
     try {
       setIsSubmitting(true);
 
-      await axios.patch(`/api/transaction/${transaction.id}`, {
-        pendente: false,
-        banco_id: Number(selectedBankId),
-        metodopagamento: selectedMetodo,
-        plano_de_conta_id: selectedPlanoId ? Number(selectedPlanoId) : null,
-        centro_custo_id: selectedCentroCustoId ? Number(selectedCentroCustoId) : null,
+      await axios.post(`/api/transaction/${transaction.id}/baixar`, {
+        dataPagamento,
+        bancoId: Number(selectedBankId),
+        metodoPagamento: selectedMetodo,
+        planoContaId: selectedPlanoId ? Number(selectedPlanoId) : null,
+        centroCustoId: selectedCentroCustoId ? Number(selectedCentroCustoId) : null,
       });
 
       toast.success("Transação concluída com sucesso!");
@@ -189,6 +204,21 @@ export default function ConcluidoAlert({
         </section>
 
         <div className="grid min-w-0 gap-4 sm:grid-cols-2 p-4 rounded-xl bg-card border">
+          <div className="min-w-0 space-y-2 sm:col-span-2">
+            <Label>
+              Data do pagamento <span className="text-destructive">*</span>
+            </Label>
+            <DatePicker
+              value={dataPagamento}
+              onChange={setDataPagamento}
+              disabled={isSubmitting}
+              placeholder="Selecione a data efetiva"
+            />
+            <p className="text-xs text-muted-foreground">
+              Esta data será usada no fluxo de caixa. O vencimento original será preservado no histórico.
+            </p>
+          </div>
+
           <div className="min-w-0 space-y-2">
             <Label>
               Banco / conta <span className="text-destructive">*</span>
@@ -286,7 +316,7 @@ export default function ConcluidoAlert({
             type="button"
             className="w-full sm:w-auto"
             onClick={handleConfirmarPagamento}
-            disabled={isSubmitting || isLoadingBanks || !!bankLoadError}
+            disabled={isSubmitting || isLoadingBanks || !!bankLoadError || !dataPagamento}
           >
             {isSubmitting ? (
               <>

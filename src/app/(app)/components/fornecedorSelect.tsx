@@ -15,7 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import axios from "axios";
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 
 import {
   ChevronLeftIcon,
@@ -24,7 +24,6 @@ import {
   ChevronsRight,
   Loader,
   Plus,
-  Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,7 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
+import { SelectSearchInput } from "./select-search-input";
 import { Fornecedor, Pagination } from "../(pages)/estoque/types";
 import FornecedorDialog from "../(pages)/configuracoes/tipos/components/fornecedorDialog";
 
@@ -59,6 +58,9 @@ export default function FornecedorSelect({
   });
   const [fornecedorItems, setFornecedorItems] = useState<Fornecedor[] | []>([]);
   const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const requestSequence = useRef(0);
+  const requestController = useRef<AbortController | null>(null);
   const [openFornecedor, setOpenFornecedor] = useState(false);
 
   const handleGetFornecedores = async (
@@ -66,33 +68,51 @@ export default function FornecedorSelect({
     limit?: number,
     searchText?: string,
   ) => {
+    const requestId = ++requestSequence.current;
+    requestController.current?.abort();
+    const controller = new AbortController();
+    requestController.current = controller;
     setIsLoading(true);
     try {
       const response = await axios.get("/api/tipos/fornecedores", {
+        signal: controller.signal,
         params: {
           page: pageNumber || 1,
-          limit: pagination.limit,
+          limit: limit || pagination.limit,
           search: searchText || undefined,
         },
       });
-      if (response.status === 200) {
+      if (response.status === 200 && requestId === requestSequence.current) {
         setFornecedorItems(response.data.items);
         setPagination(response.data.pagination);
       }
     } catch (error) {
-      console.log(error);
+      if (!axios.isCancel(error) && requestId === requestSequence.current) console.log(error);
     } finally {
-      setIsLoading(false);
+      if (requestId === requestSequence.current) setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    handleGetFornecedores();
-  }, []);
-
+    requestSequence.current += 1;
+    requestController.current?.abort();
+    const timer = window.setTimeout(() => setSearch(searchInput.trim()), 450);
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
   useEffect(() => {
-    handleGetFornecedores(pagination.page, pagination.limit, search);
-  }, [search, pagination.limit, pagination.page]);
+    if (open) void handleGetFornecedores(1, pagination.limit, search);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, search]);
+  useEffect(() => () => requestController.current?.abort(), []);
+
+  const executarBusca = () => {
+    const term = searchInput.trim();
+    if (term === search) void handleGetFornecedores(1, pagination.limit, term); else setSearch(term);
+  };
+  const limparBusca = () => {
+    setSearchInput("");
+    if (search === "") void handleGetFornecedores(1, pagination.limit, ""); else setSearch("");
+  };
 
   return (
     <Dialog
@@ -103,6 +123,7 @@ export default function FornecedorSelect({
         }
         
         if (!nextOpen) {
+          setSearchInput("");
           setSearch("");
         }
       }}
@@ -117,14 +138,7 @@ export default function FornecedorSelect({
           </DialogHeader>
           <div className="h-full min-h-0 min-w-0 overflow-auto dark:bg-muted-foreground/5 px-4 py-6 sm:px-6 sm:py-10 space-y-2">
             <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
-              <div className="relative min-w-0 flex-1">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Buscar por nome, email ou telefone..."
-                  className="pl-10"
-                />
-              </div>
+              <div className="min-w-0 flex-1"><SelectSearchInput value={searchInput} onValueChange={setSearchInput} onSearch={executarBusca} onClear={limparBusca} placeholder="Buscar por nome, documento ou contato..." /></div>
               <Button
                 onClick={() => setOpenFornecedor(true)}
                 variant={"outline"}

@@ -9,7 +9,6 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Loader2,
-  Search,
 } from "lucide-react";
 import { toast } from "@/lib/toast";
 
@@ -24,7 +23,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { SelectSearchInput } from "./select-search-input";
 import {
   Table,
   TableBody,
@@ -87,48 +86,72 @@ export default function LoteSelect({
   const [items, setItems] = React.useState<LoteSelectItem[]>([]);
   const [pagination, setPagination] = React.useState(PAGINATION_INITIAL);
   const [search, setSearch] = React.useState("");
+  const [searchInput, setSearchInput] = React.useState("");
+  const requestSequence = React.useRef(0);
+  const requestController = React.useRef<AbortController | null>(null);
 
   const carregarLotes = React.useCallback(
     async (page = 1, searchText = search) => {
+      const requestId = ++requestSequence.current;
+      requestController.current?.abort();
+      const controller = new AbortController();
+      requestController.current = controller;
       setIsLoading(true);
       try {
         const response = await axios.get<{
           data: LoteSelectItem[];
           pagination: Pagination;
         }>("/api/products/lotes/select", {
+          signal: controller.signal,
           params: {
             page,
             limit: pagination.limit,
             search: searchText || undefined,
           },
         });
-        setItems(response.data.data ?? []);
-        setPagination(response.data.pagination ?? PAGINATION_INITIAL);
+        if (requestId === requestSequence.current) {
+          setItems(response.data.data ?? []);
+          setPagination(response.data.pagination ?? PAGINATION_INITIAL);
+        }
       } catch (error) {
-        if (isAxiosError(error)) {
+        if (!axios.isCancel(error) && requestId === requestSequence.current && isAxiosError(error)) {
           toast.error("Erro ao carregar lotes", {
             description: error.response?.data?.error ?? error.message,
           });
         }
       } finally {
-        setIsLoading(false);
+        if (requestId === requestSequence.current) setIsLoading(false);
       }
     },
     [pagination.limit, search],
   );
 
   React.useEffect(() => {
-    if (!open) return;
-    const timeout = window.setTimeout(() => void carregarLotes(1, search), 250);
+    requestSequence.current += 1;
+    requestController.current?.abort();
+    const timeout = window.setTimeout(() => setSearch(searchInput.trim()), 450);
     return () => window.clearTimeout(timeout);
+  }, [searchInput]);
+  React.useEffect(() => {
+    if (open) void carregarLotes(1, search);
   }, [carregarLotes, open, search]);
+  React.useEffect(() => () => requestController.current?.abort(), []);
+
+  const executarBusca = () => {
+    const term = searchInput.trim();
+    if (term === search) void carregarLotes(1, term); else setSearch(term);
+  };
+  const limparBusca = () => {
+    setSearchInput("");
+    if (search === "") void carregarLotes(1, ""); else setSearch("");
+  };
 
   return (
     <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
         setOpen(nextOpen);
-        if (!nextOpen) setSearch("");
+        if (!nextOpen) { setSearchInput(""); setSearch(""); }
       }}
     >
       {children ? <DialogTrigger asChild>{children}</DialogTrigger> : null}
@@ -142,15 +165,7 @@ export default function LoteSelect({
           </DialogHeader>
 
           <div className="relative flex min-h-0 flex-1 flex-col gap-4 px-4 py-4 sm:px-6">
-            <div className="relative shrink-0">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Buscar por placa, marca, modelo ou versão..."
-                className="pl-9"
-              />
-            </div>
+            <div className="shrink-0"><SelectSearchInput value={searchInput} onValueChange={setSearchInput} onSearch={executarBusca} onClear={limparBusca} placeholder="Buscar por placa, marca, modelo ou versão..." /></div>
 
             {isLoading ? (
               <div className="absolute inset-x-0 top-0 h-0.5 overflow-hidden bg-muted">

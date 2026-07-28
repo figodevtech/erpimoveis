@@ -6,6 +6,7 @@ import Link from "next/link";
 import axios, { isAxiosError } from "axios";
 import {
   Calendar,
+  Copy,
   ChevronLeftIcon,
   ChevronRightIcon,
   ChevronsLeft,
@@ -194,6 +195,14 @@ export default function FiscalTable({
   onSyncTerceiros,
   isSyncing,
 }: FiscalTableProps) {
+  const copiarChave = async (chave: string) => {
+    try {
+      await navigator.clipboard.writeText(chave);
+      toast.success("Chave da nota copiada.");
+    } catch {
+      toast.error("Não foi possível copiar a chave da nota.");
+    }
+  };
   const router = useRouter();
   const limitUid = React.useId();
   const limitListboxId = `${limitUid}-fiscal-limit-listbox`;
@@ -701,8 +710,23 @@ export default function FiscalTable({
                     </div>
                   </TableCell>
 
-                  <TableCell className="hidden max-w-[260px] truncate font-mono text-[11px] xl:table-cell">
-                    {nota.chave_acesso || "-"}
+                  <TableCell className="hidden max-w-[260px] xl:table-cell">
+                    {nota.chave_acesso ? (
+                      <div className="flex min-w-0 items-center gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 shrink-0"
+                          aria-label="Copiar chave da nota"
+                          title="Copiar chave"
+                          onClick={() => void copiarChave(nota.chave_acesso)}
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                        </Button>
+                        <span className="truncate font-mono text-[11px]">{nota.chave_acesso}</span>
+                      </div>
+                    ) : "-"}
                   </TableCell>
 
                   <TableCell className="hidden md:table-cell">

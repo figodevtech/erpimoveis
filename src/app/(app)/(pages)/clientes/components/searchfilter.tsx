@@ -1,26 +1,59 @@
 import { Input } from "@/components/ui/input";
 import { SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Select } from "@radix-ui/react-select";
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Status } from "../types";
 
 interface SearchFilterProps {
     search: string
     setSearch: (value: string)=> void
+    onSearch: () => void
+    onClear: () => void
     setStatus: (value: Status) => void
     status: Status
 
 }
-export default function SearchFilter ({setSearch, setStatus, status}: SearchFilterProps) {
+export default function SearchFilter ({search, setSearch, onSearch, onClear, setStatus, status}: SearchFilterProps) {
     return(
           <div className="flex gap-6 flex-col md:flex-row">
             <div className="relative w-full">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute left-1 top-1/2 z-10 h-8 w-8 -translate-y-1/2"
+                onClick={onSearch}
+                aria-label="Pesquisar clientes"
+                title="Pesquisar"
+              >
+                <Search className="h-4 w-4 text-muted-foreground" />
+              </Button>
               <Input
+                value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    onSearch();
+                  }
+                }}
                 placeholder="Buscar por nome, email ou telefone..."
-                className="pl-10"
+                className="pl-10 pr-10"
               />
+              {search ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2"
+                  onClick={onClear}
+                  aria-label="Limpar busca"
+                  title="Limpar busca"
+                >
+                  <X className="h-4 w-4 text-muted-foreground" />
+                </Button>
+              ) : null}
             </div>
             <Select
               value={status}
