@@ -2,6 +2,7 @@ import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-acc
 import { mercadoLivreApiGet, mercadoLivreApiPut } from "@/lib/integrations/mercadolivre";
 import {
   finishMercadoLivrePriceSyncLog,
+  getMercadoLivrePriceState,
   startMercadoLivrePriceSyncLog,
 } from "@/lib/integrations/mercadolivre-price-sync";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -92,21 +93,25 @@ async function processStockSync(job: ReservedStockSync) {
     const account = await getValidMercadoLivreAccount(job.empresa_id);
     const quantity = Math.max(Math.trunc(Number(job.desired_quantity) || 0), 0);
     const price = Number(product.precovenda);
-    if (!Number.isFinite(price) || price <= 0) {
-      throw new Error("O preço de venda do produto precisa ser maior que zero para sincronizar com o Mercado Livre.");
+    const itemBefore = await mercadoLivreApiGet<any>(
+      account.access_token,
+      `/items/${encodeURIComponent(String(link.ml_item_id))}`,
+    );
+    const priceBefore = await getMercadoLivrePriceState(account.access_token, String(link.ml_item_id), itemBefore);
+    const canSyncPrice = !priceBefore.automationActive && Number.isFinite(price) && price > 0;
+    if (canSyncPrice) {
+      priceLogId = await startMercadoLivrePriceSyncLog({
+        empresaId: job.empresa_id,
+        productLinkId: Number(link.id),
+        produtoId: job.produto_id,
+        itemId: String(link.ml_item_id),
+        erpPrice: price,
+        mlPriceBefore: priceBefore.standardPrice,
+      });
     }
-    const previousMlPrice = Number(link.raw_item?.price);
-    priceLogId = await startMercadoLivrePriceSyncLog({
-      empresaId: job.empresa_id,
-      productLinkId: Number(link.id),
-      produtoId: job.produto_id,
-      itemId: String(link.ml_item_id),
-      erpPrice: price,
-      mlPriceBefore: Number.isFinite(previousMlPrice) ? previousMlPrice : null,
-    });
     const payload = link.ml_variation_id
-      ? { price, variations: [{ id: Number(link.ml_variation_id), available_quantity: quantity }] }
-      : { price, available_quantity: quantity };
+      ? { ...(canSyncPrice ? { price } : {}), variations: [{ id: Number(link.ml_variation_id), available_quantity: quantity }] }
+      : { ...(canSyncPrice ? { price } : {}), available_quantity: quantity };
 
     await mercadoLivreApiPut<any>(account.access_token, `/items/${encodeURIComponent(String(link.ml_item_id))}`, payload);
     const item = await mercadoLivreApiGet<any>(account.access_token, `/items/${encodeURIComponent(String(link.ml_item_id))}`);
@@ -118,11 +123,12 @@ async function processStockSync(job: ReservedStockSync) {
       );
     }
 
-    const confirmedPrice = Number(item?.price);
-    if (!Number.isFinite(confirmedPrice) || Math.abs(confirmedPrice - price) >= 0.01) {
+    const priceAfter = await getMercadoLivrePriceState(account.access_token, String(link.ml_item_id), item);
+    const confirmedPrice = priceAfter.standardPrice;
+    if (canSyncPrice && (confirmedPrice == null || Math.abs(confirmedPrice - price) >= 0.01)) {
       throw new Error(
         `O Mercado Livre não confirmou o preço solicitado. ERP: ${price.toFixed(2)}; Mercado Livre: ${
-          Number.isFinite(confirmedPrice) ? confirmedPrice.toFixed(2) : "não informado"
+          confirmedPrice != null ? confirmedPrice.toFixed(2) : "não informado"
         }.`,
       );
     }
@@ -132,7 +138,7 @@ async function processStockSync(job: ReservedStockSync) {
       .update({
         status: item?.status ?? link.status,
         available_quantity: quantity,
-        raw_item: item ?? {},
+        raw_item: { ...(item ?? {}), _erp_price_state: priceAfter },
         updated_at: new Date().toISOString(),
       })
       .eq("id", link.id);
@@ -141,10 +147,24 @@ async function processStockSync(job: ReservedStockSync) {
     await finishMercadoLivrePriceSyncLog(priceLogId, {
       ok: true,
       mlPriceAfter: confirmedPrice,
-      message: "Preço e estoque confirmados pelo Mercado Livre.",
-      details: { quantity },
+      message: priceBefore.automationActive
+        ? "Estoque confirmado. O preço foi mantido porque este anúncio usa automação de preços do Mercado Livre."
+        : canSyncPrice
+          ? "Preço e estoque confirmados pelo Mercado Livre."
+          : "Estoque confirmado. O preço não foi enviado porque o valor do ERP é inválido.",
+      details: { quantity, priceAutomationActive: priceBefore.automationActive },
     });
-    return { produtoId: job.produto_id, itemId: link.ml_item_id, quantity, price, ok: true };
+    return {
+      produtoId: job.produto_id,
+      itemId: link.ml_item_id,
+      quantity,
+      price: canSyncPrice ? price : confirmedPrice,
+      priceSkipped: priceBefore.automationActive,
+      message: priceBefore.automationActive
+        ? "Estoque atualizado; preço controlado pela automação do Mercado Livre."
+        : undefined,
+      ok: true,
+    };
   } catch (error: any) {
     const message = String(error?.message ?? "Falha ao sincronizar estoque com o Mercado Livre.");
     await failJob(job, message);

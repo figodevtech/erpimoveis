@@ -2,7 +2,7 @@ import { createHash } from "crypto";
 import { getMercadoLivreOrder, mercadoLivreApiGet, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
 import { importMercadoLivreOrder } from "@/lib/integrations/mercadolivre-orders";
 import { syncMercadoLivreShipmentForVenda } from "@/lib/integrations/mercadolivre-shipping";
-import { applyMercadoLivrePriceToErp } from "@/lib/integrations/mercadolivre-price-sync";
+import { applyMercadoLivrePriceToErp, getMercadoLivrePriceState } from "@/lib/integrations/mercadolivre-price-sync";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 const MERCADO_PAGO_API_BASE_URL = "https://api.mercadopago.com";
@@ -325,14 +325,15 @@ async function processItem(
     .eq("ml_item_id", itemId);
   if (linksError) throw linksError;
 
-  const mercadoLivrePrice = Number(item?.price);
-  if (Number.isFinite(mercadoLivrePrice) && mercadoLivrePrice > 0) {
+  const priceState = await getMercadoLivrePriceState(accessToken, itemId, item);
+  const mercadoLivrePrice = priceState.standardPrice;
+  if (mercadoLivrePrice != null) {
     for (const link of links ?? []) {
       const produto = Array.isArray((link as any).produto) ? (link as any).produto[0] : (link as any).produto;
       const erpPrice = Number(produto?.precovenda);
       if (Number.isFinite(erpPrice) && Math.abs(erpPrice - mercadoLivrePrice) < 0.01) continue;
 
-      const previousMlPrice = Number((link as any).raw_item?.price);
+      const previousMlPrice = Number((link as any).raw_item?._erp_price_state?.standardPrice ?? (link as any).raw_item?.price);
       await applyMercadoLivrePriceToErp({
         productLinkId: Number(link.id),
         price: mercadoLivrePrice,
@@ -356,7 +357,7 @@ async function processItem(
       catalog_product_id: item?.catalog_product_id ?? userProduct?.catalog_product_id ?? null,
       user_product_enabled: Boolean(item?.family_name || item?.user_product_id),
       item_tags: Array.isArray(item?.tags) ? item.tags : [],
-      raw_item: userProduct ? { ...item, _erp_user_product: userProduct } : item ?? {},
+      raw_item: { ...(item ?? {}), ...(userProduct ? { _erp_user_product: userProduct } : {}), _erp_price_state: priceState },
       updated_at: new Date().toISOString(),
     })
     .eq("empresa_id", account.empresa_id)
