@@ -23,6 +23,74 @@ const real = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL"
 const STORAGE_SETOR = "acompanhamento-financeiro:setor";
 const STORAGE_ORIGEM = "acompanhamento-financeiro:origem";
 
+function useDoorbellChime() {
+  return useCallback(async () => {
+    try {
+      const AudioContextClass: typeof AudioContext =
+        (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) return;
+
+      const context = new AudioContextClass();
+      try {
+        await context.resume();
+      } catch {}
+
+      const master = context.createGain();
+      master.gain.value = 0.9;
+      master.connect(context.destination);
+
+      const delay = context.createDelay(1.5);
+      delay.delayTime.value = 0.22;
+      const feedback = context.createGain();
+      feedback.gain.value = 0.23;
+      const wet = context.createGain();
+      wet.gain.value = 0.16;
+      delay.connect(feedback);
+      feedback.connect(delay);
+      delay.connect(wet);
+      wet.connect(master);
+
+      const dry = context.createGain();
+      dry.gain.value = 1;
+      dry.connect(master);
+
+      function bell(start: number, frequency: number, duration: number, peak: number, glide: number, partial: number) {
+        const gain = context.createGain();
+        gain.gain.value = 0.0001;
+        gain.connect(dry);
+        gain.connect(delay);
+
+        const primary = context.createOscillator();
+        primary.type = "sine";
+        primary.frequency.setValueAtTime(frequency, start);
+
+        const secondary = context.createOscillator();
+        secondary.type = "triangle";
+        secondary.frequency.setValueAtTime(frequency * 2, start);
+        const secondaryGain = context.createGain();
+        secondaryGain.gain.value = partial;
+        primary.connect(gain);
+        secondary.connect(secondaryGain);
+        secondaryGain.connect(gain);
+
+        gain.gain.exponentialRampToValueAtTime(peak, start + 0.04);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+        primary.frequency.exponentialRampToValueAtTime(frequency * glide, start + duration * 0.8);
+        secondary.frequency.exponentialRampToValueAtTime(frequency * 2 * glide, start + duration * 0.8);
+        primary.start(start);
+        secondary.start(start);
+        primary.stop(start + duration + 0.05);
+        secondary.stop(start + duration + 0.05);
+      }
+
+      const now = context.currentTime + 0.02;
+      bell(now, 1560, 0.55, 0.55, 0.92, 0.28);
+      bell(now + 0.28, 880, 1.15, 0.6, 0.88, 0.32);
+      window.setTimeout(() => void context.close().catch(() => undefined), 2000);
+    } catch {}
+  }, []);
+}
+
 function Coluna({
   titulo,
   subtitulo,
@@ -84,6 +152,7 @@ export default function PainelFinanceiro() {
   const [refreshing, setRefreshing] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const inFlight = useRef(false);
+  const doorbell = useDoorbellChime();
 
   useEffect(() => {
     try {
@@ -124,14 +193,18 @@ export default function PainelFinanceiro() {
     const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     if (!url || !key) return;
     const client = createClient(url, key, { realtime: { params: { eventsPerSecond: 5 } } });
+    const handleRealtimeChange = () => {
+      void doorbell();
+      void carregar();
+    };
     const channel = client
       .channel("acompanhamento-financeiro")
-      .on("postgres_changes", { event: "*", schema: "public", table: "transacao" }, () => void carregar())
-      .on("postgres_changes", { event: "*", schema: "public", table: "ordemservico" }, () => void carregar())
-      .on("postgres_changes", { event: "*", schema: "public", table: "venda" }, () => void carregar())
+      .on("postgres_changes", { event: "*", schema: "public", table: "transacao" }, handleRealtimeChange)
+      .on("postgres_changes", { event: "*", schema: "public", table: "ordemservico" }, handleRealtimeChange)
+      .on("postgres_changes", { event: "*", schema: "public", table: "venda" }, handleRealtimeChange)
       .subscribe();
     return () => { void client.removeChannel(channel); };
-  }, [carregar]);
+  }, [carregar, doorbell]);
 
   const nomeSetor = useMemo(
     () => setor === "all" ? "Todos os setores" : setores.find((item) => String(item.id) === setor)?.nome || "Setor",
