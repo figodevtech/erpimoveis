@@ -24,6 +24,34 @@ function text(value: unknown) {
   return normalized || null;
 }
 
+const UNIDADES_ESTOQUE = new Set(["UN", "JGO", "KIT", "PAR", "CX", "PCT"]);
+const ALIASES_UNIDADE: Record<string, string> = {
+  PC: "UN",
+  PCA: "UN",
+  PECA: "UN",
+  UND: "UN",
+  UNID: "UN",
+  UNIDADE: "UN",
+  JG: "JGO",
+  JOGO: "JGO",
+  CAIXA: "CX",
+  PACOTE: "PCT",
+};
+
+export function normalizarUnidadeMedidaEntrada(value: unknown) {
+  const original = String(value ?? "")
+    .trim()
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Z0-9]/g, "");
+  if (!original) return null;
+  const normalizada = ALIASES_UNIDADE[original] ?? original;
+  // Uma unidade externa desconhecida não deve chegar ao cast do enum.
+  // Nesse caso, a função do banco utiliza a unidade já cadastrada no produto.
+  return UNIDADES_ESTOQUE.has(normalizada) ? normalizada : null;
+}
+
 function digits(value: unknown) {
   return String(value ?? "").replace(/\D/g, "");
 }
@@ -60,7 +88,7 @@ export async function registrarEntradaConfirmada(body: any, origem: OrigemEntrad
     valor_desconto: nonNegative(item.valor_desconto ?? item.valorDesconto ?? 0, `Desconto do produto ${index + 1}`),
     valor_frete: nonNegative(item.valor_frete ?? item.valorFrete ?? 0, `Frete do produto ${index + 1}`),
     outras_despesas: nonNegative(item.outras_despesas ?? item.outrasDespesas ?? 0, `Outras despesas do produto ${index + 1}`),
-    unidade: text(item.unidade),
+    unidade: normalizarUnidadeMedidaEntrada(item.unidade),
     ncm: text(item.ncm),
     cest: text(item.cest),
     csosn: text(item.csosn),
@@ -160,10 +188,30 @@ export async function registrarEntradaConfirmada(body: any, origem: OrigemEntrad
 }
 
 export function entradaErrorResponse(error: any) {
-  const message = error?.message ?? "Não foi possível registrar a entrada.";
+  const technicalMessage = String(error?.message ?? "").trim();
+  const enumError = technicalMessage.match(
+    /invalid input value for enum\s+(?:[\w]+\.)?["']?([\w]+)["']?:\s*["']([^"']*)["']/i,
+  );
+
+  let message = technicalMessage || "Não foi possível registrar a entrada.";
+  if (enumError) {
+    const [, enumName, rejectedValue] = enumError;
+    const fieldByEnum: Record<string, string> = {
+      unidade_medida: "Unidade de medida do produto",
+      enum_status_entrada: "Status da entrada",
+      enum_tipo_entrada: "Tipo da entrada",
+    };
+    const field = fieldByEnum[enumName.toLowerCase()] ?? "Campo da entrada";
+    message = `${field}: o valor "${rejectedValue}" não é aceito. Revise esse campo nos itens da entrada fiscal e tente novamente.`;
+  } else if (/violates check constraint/i.test(technicalMessage)) {
+    message = "Um item da entrada possui quantidade ou valor inválido. Revise os produtos informados e tente novamente.";
+  } else if (/invalid input syntax for type numeric/i.test(technicalMessage)) {
+    message = "Um item da entrada possui um valor numérico inválido. Revise quantidade, custo, desconto, frete e despesas.";
+  }
+
   if (Number.isInteger(error?.statusCode)) return { message, status: Number(error.statusCode) };
   const conflict = error?.code === "23505";
   const notFound = error?.code === "P0002";
-  const invalid = error?.code === "22023" || /inválid|informe|exige|difere|obrigat/i.test(message);
+  const invalid = Boolean(enumError) || error?.code === "22P02" || error?.code === "22023" || /inválid|informe|exige|difere|obrigat/i.test(message);
   return { message, status: conflict ? 409 : notFound ? 404 : invalid ? 400 : 500 };
 }
