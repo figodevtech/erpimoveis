@@ -174,6 +174,22 @@ type MlNotification = {
   raw_payload?: Record<string, unknown> | null;
 };
 
+type MarketplacePriceSyncLog = {
+  id: number;
+  produto_id?: number | null;
+  ml_item_id: string;
+  direction: "ERP_PARA_ML" | "ML_PARA_ERP";
+  source: string;
+  status: "PROCESSANDO" | "SUCESSO" | "SEM_ALTERACAO" | "ERRO";
+  erp_price_before?: number | null;
+  erp_price_after?: number | null;
+  ml_price_before?: number | null;
+  ml_price_after?: number | null;
+  message?: string | null;
+  created_at: string;
+  completed_at?: string | null;
+};
+
 type MarketplaceSyncRun = {
   id: number;
   job_name: string;
@@ -466,18 +482,6 @@ type MlCategoryAttribute = {
   hint?: string | null;
   groupName?: string | null;
   role?: "parent" | "child" | "variation" | "standard";
-};
-
-type SimilarProduct = {
-  id?: string;
-  title?: string;
-  price: number;
-  currencyId: string;
-  availableQuantity?: number | null;
-  thumbnail?: string | null;
-  permalink?: string | null;
-  condition?: string | null;
-  categoryId?: string | null;
 };
 
 type ListingForm = {
@@ -797,7 +801,7 @@ function statusBadge(status?: string | null) {
   const value = String(status ?? "sem_status").toUpperCase();
   const label = statusLabel(value);
   const className =
-    value === "ACTIVE" || value === "PAID" || value === "APPROVED" || value === "SHIPPED" || value === "DELIVERED" || value === "CONCLUIDO"
+    value === "ACTIVE" || value === "PAID" || value === "APPROVED" || value === "SHIPPED" || value === "DELIVERED" || value === "CONCLUIDO" || value === "SUCESSO" || value === "SEM_ALTERACAO"
       ? "bg-emerald-600 text-white"
       : value === "READY_TO_SHIP" || value === "HANDLING"
         ? "bg-blue-600 text-white"
@@ -940,6 +944,8 @@ function statusLabel(value: string) {
     IMPORTADA: "Importada",
     IGNORADA: "Ignorada",
     ERRO: "Erro",
+    SUCESSO: "Sucesso",
+    SEM_ALTERACAO: "Sem alteração",
     NOT_SPECIFIED: "Não especificado",
     CUSTOM: "Envio personalizado",
     ME2: "Mercado Envios",
@@ -1543,6 +1549,7 @@ export default function MarketplacePage() {
   const [notifications, setNotifications] = useState<MlNotification[]>([]);
   const [selectedNotification, setSelectedNotification] = useState<MlNotification | null>(null);
   const [syncRuns, setSyncRuns] = useState<MarketplaceSyncRun[]>([]);
+  const [priceSyncLogs, setPriceSyncLogs] = useState<MarketplacePriceSyncLog[]>([]);
   const [diagnostics, setDiagnostics] = useState<MarketplaceDiagnostics>({ status: "warning", checkedAt: null, checks: [] });
   const [claims, setClaims] = useState<MlClaim[]>([]);
   const [questions, setQuestions] = useState<MlQuestion[]>([]);
@@ -1626,9 +1633,6 @@ export default function MarketplacePage() {
   });
   const [shippingQuote, setShippingQuote] = useState<ShippingQuote | null>(null);
   const [loadingShippingQuote, setLoadingShippingQuote] = useState(false);
-  const [similarProducts, setSimilarProducts] = useState<SimilarProduct[]>([]);
-  const [loadingSimilarProducts, setLoadingSimilarProducts] = useState(false);
-  const [similarProductsUnavailable, setSimilarProductsUnavailable] = useState(false);
   const [previewImageIndex, setPreviewImageIndex] = useState(0);
   const [listingForm, setListingForm] = useState<ListingForm>({
     produtoId: "",
@@ -1934,6 +1938,7 @@ export default function MarketplacePage() {
       setSelectedOrderDetails((current) => (current ? nextOrders.find((order) => order.id === current.id) ?? current : null));
       setNotifications(json.notifications ?? []);
       setSyncRuns(json.syncRuns ?? []);
+      setPriceSyncLogs(json.priceSyncLogs ?? []);
       setDiagnostics(json.diagnostics ?? { status: "warning", checkedAt: null, checks: [] });
       setPerformance({ ...EMPTY_PERFORMANCE, ...(json.performance ?? {}) });
       setStockSync({ pending: 0, failed: 0, lastError: null, updatedAt: null, ...(json.stockSync ?? {}) });
@@ -2133,48 +2138,6 @@ export default function MarketplacePage() {
     } finally {
       setLoadingAttributes(false);
     }
-  }
-
-  async function searchSimilarProducts() {
-    const q = listingForm.title.trim();
-    if (q.length < 3) {
-      toast.error("Informe um título para pesquisar semelhantes.");
-      return;
-    }
-
-    setLoadingSimilarProducts(true);
-    try {
-      const params = new URLSearchParams({ q, limit: "8" });
-      if (listingForm.categoryId) params.set("categoryId", listingForm.categoryId);
-      const response = await fetch(`/api/integracoes/mercadolivre/similar-products?${params.toString()}`, {
-        cache: "no-store",
-      });
-      const json = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(json?.error || "Falha ao pesquisar semelhantes.");
-      setSimilarProducts(json.data ?? []);
-      setSimilarProductsUnavailable(Boolean(json.unavailable));
-      if (json.unavailable) return;
-      if (!json.data?.length) toast.message("Nenhum anúncio semelhante encontrado.");
-    } catch (e: any) {
-      toast.error("Erro ao pesquisar semelhantes", { description: marketplaceErrorMessage(e) });
-    } finally {
-      setLoadingSimilarProducts(false);
-    }
-  }
-
-  function applySimilarProduct(product: SimilarProduct) {
-    setListingForm((current) => ({
-      ...current,
-      title: product.title || current.title,
-      price: formatCurrencyInputFromNumber(product.price),
-      categoryId: product.categoryId || current.categoryId,
-      condition: product.condition === "new" || product.condition === "used" || product.condition === "not_specified" ? product.condition : current.condition,
-    }));
-
-    if (product.categoryId && product.categoryId !== listingForm.categoryId) {
-      loadCategoryAttributes(product.categoryId);
-    }
-    toast.success("Dados do anúncio semelhante aplicados.");
   }
 
   async function loadProducts(searchText = search) {
@@ -2770,8 +2733,6 @@ export default function MarketplacePage() {
     setCategoryParent(null);
     setCategoryStack([]);
     setCategoryAttributes([]);
-    setSimilarProducts([]);
-    setSimilarProductsUnavailable(false);
     setPreviewImageIndex(0);
     setShippingEligibility({ loaded: false, categoryModes: [], userModes: [], logisticOptions: [], me2Restricted: false, me2Restrictions: [], userShippingOption: null, defaultDimensions: null, error: null });
     setShippingQuote(null);
@@ -4460,7 +4421,7 @@ export default function MarketplacePage() {
                 </div>
                 <div className="text-right text-xs text-muted-foreground">
                   <div>{notifications.length} evento(s) consultados</div>
-                  <div>{stockSync.pending} atualização(ões) de estoque na fila</div>
+                  <div>{stockSync.pending} atualização(ões) de preço/estoque na fila</div>
                 </div>
               </div>
 
@@ -4481,6 +4442,63 @@ export default function MarketplacePage() {
                     </div>
                   </div>
                 ))}
+              </div>
+
+              <div className="border-b py-4">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-medium">Sincronização de preços</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Alterações enviadas pelo ERP e recebidas do Mercado Livre.
+                    </p>
+                  </div>
+                  <Badge variant="outline">{priceSyncLogs.length} registro(s)</Badge>
+                </div>
+                <div className="max-h-[360px] overflow-auto rounded-md border">
+                  <Table className="min-w-[960px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Data</TableHead>
+                        <TableHead>Direção</TableHead>
+                        <TableHead>Produto</TableHead>
+                        <TableHead>Anúncio</TableHead>
+                        <TableHead>Preço anterior</TableHead>
+                        <TableHead>Preço final</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Detalhe</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {priceSyncLogs.map((log) => {
+                        const previousPrice = log.direction === "ERP_PARA_ML" ? log.ml_price_before : log.erp_price_before;
+                        const finalPrice = log.direction === "ERP_PARA_ML" ? log.ml_price_after : log.erp_price_after;
+                        return (
+                          <TableRow key={log.id}>
+                            <TableCell className="whitespace-nowrap">{formatDate(log.created_at)}</TableCell>
+                            <TableCell className="whitespace-nowrap text-xs font-medium">
+                              {log.direction === "ERP_PARA_ML" ? "ERP → Mercado Livre" : "Mercado Livre → ERP"}
+                            </TableCell>
+                            <TableCell>{log.produto_id ? `#${log.produto_id}` : "-"}</TableCell>
+                            <TableCell className="font-mono text-xs">{log.ml_item_id}</TableCell>
+                            <TableCell>{previousPrice != null ? formatCurrency(Number(previousPrice)) : "-"}</TableCell>
+                            <TableCell>{finalPrice != null ? formatCurrency(Number(finalPrice)) : "-"}</TableCell>
+                            <TableCell>{statusBadge(log.status)}</TableCell>
+                            <TableCell className="max-w-[320px] truncate text-xs text-muted-foreground" title={log.message || log.source}>
+                              {log.message || log.source}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                      {!loadingDashboard && priceSyncLogs.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={8} className="h-20 text-center text-muted-foreground">
+                            Nenhuma sincronização de preço registrada.
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
               </div>
 
               <div className="py-4">
@@ -4735,9 +4753,6 @@ export default function MarketplacePage() {
                 </TabsTrigger>
                 <TabsTrigger value="categoria" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
                   Categoria e venda
-                </TabsTrigger>
-                <TabsTrigger value="semelhantes" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-                  Semelhantes
                 </TabsTrigger>
                 <TabsTrigger value="atributos" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
                   Atributos
@@ -5139,77 +5154,6 @@ export default function MarketplacePage() {
                     </Select>
                   </div>
                 </div>
-              </TabsContent>
-
-              <TabsContent value="semelhantes" className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto pr-2">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                  <div className="flex-1 space-y-2">
-                    <Label>Pesquisar por título</Label>
-                    <Input
-                      value={listingForm.title}
-                      onChange={(event) => updateListingForm("title", event.target.value)}
-                      disabled={creatingListing || loadingSimilarProducts}
-                      className={listingFieldClass}
-                    />
-                  </div>
-                  <Button type="button" onClick={searchSimilarProducts} disabled={loadingSimilarProducts || listingForm.title.trim().length < 3}>
-                    {loadingSimilarProducts ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                    Pesquisar
-                  </Button>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {similarProducts.map((product) => (
-                    <div key={product.id ?? product.permalink} className="overflow-hidden rounded-md border bg-background">
-                      <div className="flex gap-3 p-3">
-                        <div className="h-20 w-20 shrink-0 overflow-hidden rounded-md border bg-muted">
-                          {product.thumbnail ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={product.thumbnail} alt={product.title || "Anúncio semelhante"} className="h-full w-full object-cover" />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-                              <ImageIcon className="h-5 w-5" />
-                            </div>
-                          )}
-                        </div>
-                        <div className="min-w-0 flex-1 space-y-2">
-                          <div className="line-clamp-2 text-sm font-medium">{product.title || "Sem título"}</div>
-                          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                            <span className="font-semibold text-foreground">{formatCurrency(product.price)}</span>
-                            {product.condition && <span>{product.condition === "new" ? "Novo" : product.condition === "used" ? "Usado" : "Não especificado"}</span>}
-                            {product.categoryId && <span className="font-mono">{product.categoryId}</span>}
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            <Button type="button" size="sm" variant="outline" className="h-8 bg-transparent" onClick={() => applySimilarProduct(product)}>
-                              Usar dados
-                            </Button>
-                            {product.permalink && (
-                              <Button asChild type="button" size="sm" variant="ghost" className="h-8">
-                                <a href={product.permalink} target="_blank" rel="noreferrer">
-                                  <ExternalLink className="h-4 w-4" />
-                                  Abrir
-                                </a>
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {similarProductsUnavailable && (
-                  <div className="rounded-md border border-yellow-500/30 bg-yellow-500/10 px-3 py-3 text-sm text-yellow-700 dark:text-yellow-300">
-                    O Mercado Livre bloqueou a busca de anúncios semelhantes para esta aplicação/conta. Ainda é possível
-                    criar o anúncio preenchendo categoria, atributos, preço e imagens manualmente.
-                  </div>
-                )}
-
-                {!loadingSimilarProducts && !similarProductsUnavailable && similarProducts.length === 0 && (
-                  <div className="rounded-md border bg-muted/30 px-3 py-3 text-sm text-muted-foreground">
-                    Pesquise anúncios semelhantes para comparar título, preço, condição e categoria antes de publicar.
-                  </div>
-                )}
               </TabsContent>
 
               <TabsContent value="atributos" className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto pr-2">

@@ -30,6 +30,7 @@ export async function GET() {
       { data: listingTotals, error: listingTotalsError },
       { data: stockQueue, error: stockQueueError },
       { data: syncRuns, error: syncRunsError },
+      { data: priceSyncLogs, error: priceSyncLogsError },
       { data: operationalOrders, error: operationalOrdersError },
     ] =
       await Promise.all([
@@ -81,6 +82,12 @@ export async function GET() {
           .select("id, job_name, trigger_source, status, summary, error, started_at, completed_at, duration_ms")
           .order("started_at", { ascending: false })
           .limit(20),
+        supabaseAdmin
+          .from("mercadolivre_price_sync_log")
+          .select("id, produto_id, ml_item_id, direction, source, status, erp_price_before, erp_price_after, ml_price_before, ml_price_after, message, created_at, completed_at")
+          .eq("empresa_id", empresaId)
+          .order("created_at", { ascending: false })
+          .limit(100),
         accountIds.length
           ? supabaseAdmin
               .from("mercadolivre_order")
@@ -99,6 +106,7 @@ export async function GET() {
     if (listingTotalsError) throw listingTotalsError;
     if (stockQueueError) throw stockQueueError;
     if (syncRunsError) throw syncRunsError;
+    if (priceSyncLogsError) throw priceSyncLogsError;
     if (operationalOrdersError) throw operationalOrdersError;
 
     const stockSync = buildStockSyncSummary(stockQueue ?? []);
@@ -119,6 +127,7 @@ export async function GET() {
       orders: orders ?? [],
       notifications: notifications ?? [],
       syncRuns: syncRuns ?? [],
+      priceSyncLogs: priceSyncLogs ?? [],
       diagnostics,
       performance: buildPerformance(dailyMetrics ?? [], performanceOrders ?? [], listingTotals ?? []),
       stockSync,
@@ -266,8 +275,8 @@ function buildDiagnostics(params: {
     : { id: "webhooks", label: "Webhooks", status: "ok", message: notificationPending.length ? `${notificationPending.length} evento(s) em processamento.` : "Nenhuma falha recente nos eventos.", updatedAt: params.notifications[0]?.created_at });
 
   checks.push(params.stockSync.failed > 0
-    ? { id: "stock", label: "Sincronização de estoque", status: "error", message: `${params.stockSync.failed} produto(s) com falha.`, updatedAt: params.stockSync.updatedAt }
-    : { id: "stock", label: "Sincronização de estoque", status: params.stockSync.pending > 20 ? "warning" : "ok", message: params.stockSync.pending ? `${params.stockSync.pending} atualização(ões) na fila.` : "Estoque sem pendências.", updatedAt: params.stockSync.updatedAt });
+    ? { id: "stock", label: "Sincronização de preço e estoque", status: "error", message: `${params.stockSync.failed} produto(s) com falha.`, updatedAt: params.stockSync.updatedAt }
+    : { id: "stock", label: "Sincronização de preço e estoque", status: params.stockSync.pending > 20 ? "warning" : "ok", message: params.stockSync.pending ? `${params.stockSync.pending} atualização(ões) na fila.` : "Preços e estoques sem pendências.", updatedAt: params.stockSync.updatedAt });
 
   const importErrors = params.orders.filter((order) => order.import_error || String(order.import_status).toUpperCase() === "ERRO").length;
   const invoiceErrors = params.orders.filter((order) => order.invoice_error || String(order.invoice_status).toUpperCase() === "ERRO").length;

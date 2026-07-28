@@ -2,6 +2,7 @@ import { createHash } from "crypto";
 import { getMercadoLivreOrder, mercadoLivreApiGet, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
 import { importMercadoLivreOrder } from "@/lib/integrations/mercadolivre-orders";
 import { syncMercadoLivreShipmentForVenda } from "@/lib/integrations/mercadolivre-shipping";
+import { applyMercadoLivrePriceToErp } from "@/lib/integrations/mercadolivre-price-sync";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 const MERCADO_PAGO_API_BASE_URL = "https://api.mercadopago.com";
@@ -196,7 +197,7 @@ async function processNotification(notificationId: number, attempts: number) {
     } else if (topic === "shipments") {
       await processShipment(account, accessToken, resource);
     } else if (topic === "items" || topic === "items_prices") {
-      await processItem(account, accessToken, resource);
+      await processItem(account, accessToken, resource, notificationId, topic);
     } else if (topic === "user-products-families") {
       await processUserProductFamily(account, accessToken, resource);
     } else if (topic === "stock-locations") {
@@ -304,13 +305,44 @@ async function processShipment(account: Account, accessToken: string, resource: 
   await syncMercadoLivreShipmentForVenda(Number(storedOrder.venda_id));
 }
 
-async function processItem(account: Account, accessToken: string, resource: string) {
+async function processItem(
+  account: Account,
+  accessToken: string,
+  resource: string,
+  notificationId: number,
+  topic: string,
+) {
   const itemId = extractItemId(resource);
   if (!itemId) throw new Error("Notificação de anúncio sem item_id.");
   const item = await mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}`);
   const userProduct = item?.user_product_id
     ? await mercadoLivreApiGet<any>(accessToken, `/user-products/${encodeURIComponent(String(item.user_product_id))}`).catch(() => null)
     : null;
+  const { data: links, error: linksError } = await supabaseAdmin
+    .from("mercadolivre_product_link")
+    .select("id, produto_id, raw_item, produto:produto(precovenda)")
+    .eq("empresa_id", account.empresa_id)
+    .eq("ml_item_id", itemId);
+  if (linksError) throw linksError;
+
+  const mercadoLivrePrice = Number(item?.price);
+  if (Number.isFinite(mercadoLivrePrice) && mercadoLivrePrice > 0) {
+    for (const link of links ?? []) {
+      const produto = Array.isArray((link as any).produto) ? (link as any).produto[0] : (link as any).produto;
+      const erpPrice = Number(produto?.precovenda);
+      if (Number.isFinite(erpPrice) && Math.abs(erpPrice - mercadoLivrePrice) < 0.01) continue;
+
+      const previousMlPrice = Number((link as any).raw_item?.price);
+      await applyMercadoLivrePriceToErp({
+        productLinkId: Number(link.id),
+        price: mercadoLivrePrice,
+        source: topic.toUpperCase(),
+        notificationId,
+        mlPriceBefore: Number.isFinite(previousMlPrice) ? previousMlPrice : null,
+      });
+    }
+  }
+
   const { error } = await supabaseAdmin
     .from("mercadolivre_product_link")
     .update({
