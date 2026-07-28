@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ChevronDown, ExternalLink, FileText, Loader, Loader2, Package, Paperclip, Percent, ReceiptText, Trash2Icon } from "lucide-react";
-import DeleteAlert from "./deleteAlert";
+import { TransactionDeleteAlert } from "../../../components/transaction-delete-alert";
 import { toast } from "@/lib/toast";
 import { formatDate } from "@/utils/formatDate";
 import { calculateFinancialSurcharge, calculateFinancialTotal } from "@/lib/financial-surcharge";
@@ -163,7 +163,6 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
   const [acrescimo, setAcrescimo] = useState(0);
   const [isSavingDiscount, setIsSavingDiscount] = useState(false);
   const [, setIsDeleting] = useState(false);
-  const [isAlertOpen, setIsAlertOpen] = useState(false);
   const [open, setOpen] = useState(false);
 
   const totalPago = transactions?.reduce((acc, t) => acc + Number(t?.valor ?? 0), 0) ?? 0;
@@ -227,6 +226,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
           page: pageNumber || 1,
           limit: pagination.limit,
           ordemservicoid: targetId,
+          tipo: "RECEITA",
           excluirEventosFinanceiros: true,
         },
       });
@@ -312,7 +312,6 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
       }
     } finally {
       setIsDeleting(false);
-      setIsAlertOpen(false);
     }
   };
 
@@ -917,13 +916,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent className="space-y-1 w-40" align="end">
-                            <DeleteAlert
-                              statusOs={ordem.status}
-                              handleDeleteTransaction={handleDeleteTransaction}
-                              isAlertOpen={isAlertOpen}
-                              setIsAlertOpen={setIsAlertOpen}
-                              idToDelete={t.id}
-                            >
+                            <TransactionDeleteAlert transactionId={t.id} onDelete={handleDeleteTransaction}>
                               <Button
                                 variant="default"
                                 className="size-full flex justify-start gap-5 px-0 rounded-sm py-2 hover:cursor-pointer bg-red-500/20 hover:bg-red-500 group hover:text-white transition-all"
@@ -931,7 +924,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                                 <Trash2Icon className="-ml-1 -mr-1 h-4 w-4" />
                                 <span>Excluir</span>
                               </Button>
-                            </DeleteAlert>
+                            </TransactionDeleteAlert>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>

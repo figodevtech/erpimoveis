@@ -110,6 +110,7 @@ export default function ConfigGeralPage() {
       impressao_cor_secundaria: "#0891b2",
       modo_baixa_estoque_os: "ORCAMENTO",
       produto_preco_medio_compra_obrigatorio: false,
+      habilitar_edicao_transacoes: false,
     },
   });
 
@@ -126,6 +127,7 @@ export default function ConfigGeralPage() {
       const mercadoLivreData = await mercadoLivreResponse.json().catch(() => ({}));
       if (response.ok && data.config) {
         reset(data.config);
+        window.dispatchEvent(new CustomEvent("erpoficina:config-updated", { detail: data.config }));
       } else {
         toast.error("Erro ao carregar configurações");
       }
@@ -610,6 +612,21 @@ export default function ConfigGeralPage() {
                 <Switch
                   checked={watch("alerta_estoque_pdv")}
                   onCheckedChange={(v) => setValue("alerta_estoque_pdv", v)}
+                />
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-col space-y-1">
+                  <Label>Habilitar edição de transações</Label>
+                  <span className="text-xs text-muted-foreground">
+                    Permite alterar transações já cadastradas no fluxo de caixa.
+                  </span>
+                </div>
+                <Switch
+                  checked={watch("habilitar_edicao_transacoes")}
+                  onCheckedChange={(value) =>
+                    setValue("habilitar_edicao_transacoes", value, { shouldDirty: true })
+                  }
                 />
               </div>
             </CardContent>

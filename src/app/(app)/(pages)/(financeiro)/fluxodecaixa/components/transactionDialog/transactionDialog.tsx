@@ -27,6 +27,7 @@ interface TransactionDialogProps {
   initialTransaction?: Partial<NewTransaction>;
   internalCompanyExpense?: boolean;
   lockValue?: boolean;
+  editable?: boolean;
 }
 export default function TransactionDialog({
   children,
@@ -41,6 +42,7 @@ export default function TransactionDialog({
   initialTransaction,
   internalCompanyExpense = false,
   lockValue = false,
+  editable = false,
 }: TransactionDialogProps) {
   const [newTransaction, setNewTransaction] = useState<NewTransaction>(() => {
     if (osId) {
@@ -134,6 +136,9 @@ export default function TransactionDialog({
             selectedCustomer={selectedCustomer}
             setSelectedCustomer={setSelectedCustomer}
             isDesktop={true}
+            editable={editable}
+            handleGetTransactions={handleGetTransactions}
+            setOpen={setOpen}
           />
         ) : (
           <RegisterContent
@@ -210,6 +215,9 @@ export default function TransactionDialog({
           selectedCustomer={selectedCustomer}
           setSelectedCustomer={setSelectedCustomer}
           isDesktop={false}
+          editable={editable}
+          handleGetTransactions={handleGetTransactions}
+          setOpen={setOpen}
         />
       ) : (
         <RegisterContent

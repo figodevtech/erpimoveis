@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import ValueInput from "@/components/ui/value-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ChevronDown, ExternalLink, FileText, Loader, Loader2, Package, Paperclip, Percent, ReceiptText, Trash2Icon } from "lucide-react";
-import DeleteAlert from "./deleteAlert";
+import { TransactionDeleteAlert } from "../../../components/transaction-delete-alert";
 import { toast } from "@/lib/toast";
 import { formatDate } from "@/utils/formatDate";
 import { VendaComItens } from "@/app/(app)/(pages)/(vendas)/historicovendas/types";
@@ -99,7 +99,6 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
   const [acrescimo, setAcrescimo] = useState(0);
   const [isSavingDiscount, setIsSavingDiscount] = useState(false);
   const [, setIsDeleting] = useState(false);
-  const [isAlertOpen, setIsAlertOpen] = useState(false);
   const [open, setOpen] = useState(false);
   const totalPago = transactions?.reduce((acc, t) => acc + Number(t?.valor ?? 0), 0) ?? 0;
   const subtotalVenda = toNum(venda?.sub_total ?? venda?.valortotal ?? 0);
@@ -268,7 +267,6 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
       }
     } finally {
       setIsDeleting(false);
-      setIsAlertOpen(false);
     }
   };
 
@@ -804,13 +802,7 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent className="space-y-1 w-40" align="end">
-                                <DeleteAlert
-                                  statusVenda={venda.status}
-                                  handleDeleteTransaction={handleDeleteTransaction}
-                                  isAlertOpen={isAlertOpen}
-                                  setIsAlertOpen={setIsAlertOpen}
-                                  idToDelete={t.id}
-                                >
+                                <TransactionDeleteAlert transactionId={t.id} onDelete={handleDeleteTransaction}>
                                   <Button
                                     variant="default"
                                     className="size-full flex justify-start gap-5 px-0 rounded-sm py-2 hover:cursor-pointer bg-red-500/20 hover:bg-red-500 group hover:text-white transition-all"
@@ -818,7 +810,7 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
                                     <Trash2Icon className="-ml-1 -mr-1 h-4 w-4" />
                                     <span>Excluir</span>
                                   </Button>
-                                </DeleteAlert>
+                                </TransactionDeleteAlert>
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </TableCell>

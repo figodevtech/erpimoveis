@@ -4,33 +4,14 @@ export const runtime = 'nodejs';
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireVendasAccess } from '@/app/api/_authz/perms';
+import { getProductSearchTokens, matchesProductSearch } from '@/lib/product-search';
 
 /** Status de estoque (para filtros do GET) */
 type Status = 'OK' | 'CRITICO' | 'BAIXO' | 'SEM_ESTOQUE';
 const STATUS_SET = new Set<Status>(['OK', 'CRITICO', 'BAIXO', 'SEM_ESTOQUE']);
 
-const normalizeSearchText = (value: unknown) =>
-  String(value ?? '')
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
-    .toLocaleLowerCase('pt-BR');
-
-const SEARCH_STOP_WORDS = new Set([
-  'a', 'as', 'o', 'os', 'de', 'da', 'das', 'do', 'dos', 'e', 'em', 'na',
-  'nas', 'no', 'nos', 'para', 'por', 'com', 'um', 'uma', 'uns', 'umas',
-]);
-
-const getSearchTokens = (value: string) => {
-  const normalized = normalizeSearchText(value);
-  const meaningfulTokens = normalized
-    .split(/[^a-z0-9]+/)
-    .filter((token) => token && !SEARCH_STOP_WORDS.has(token));
-
   // Uma pesquisa formada somente por conectivos (por exemplo, "de") ainda
   // deve funcionar literalmente em vez de retornar todo o catálogo.
-  return meaningfulTokens.length > 0 ? meaningfulTokens : [normalized];
-};
-
 const toPdvProduct = (product: any) => ({
   id: product.id,
   titulo: product.titulo,
@@ -76,7 +57,7 @@ export async function GET(req: Request) {
     // produtos habilitados em blocos, normalizamos todos os campos escalares e
     // só então paginamos. Assim `oleo` encontra `óleo` sem perder a contagem.
     if (q) {
-      const searchTokens = getSearchTokens(q);
+      const searchTokens = getProductSearchTokens(q);
       const batchSize = 1000;
       const searchableProducts: any[] = [];
 
@@ -101,19 +82,9 @@ export async function GET(req: Request) {
         if ((batch?.length ?? 0) < batchSize) break;
       }
 
-      const matchedProducts = searchableProducts.filter((product) => {
-        const scalarValues = Object.entries(product)
-          .filter(([, value]) => value === null || typeof value !== 'object')
-          .map(([, value]) => value);
-        const groupValues = product.grupo
-          ? [product.grupo.nome, product.grupo.descricao]
-          : [];
-        const searchableText = [...scalarValues, ...groupValues]
-          .map(normalizeSearchText)
-          .join(' ');
-
-        return searchTokens.every((token) => searchableText.includes(token));
-      });
+      const matchedProducts = searchableProducts.filter((product) =>
+        matchesProductSearch(product, searchTokens),
+      );
       const total = matchedProducts.length;
       const pageFrom = (page - 1) * limit;
       const items = matchedProducts

@@ -2,6 +2,7 @@ import https from "https";
 import { XMLParser } from "fast-xml-parser";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { matchesFiscalNoteSearch } from "@/lib/fiscal-search";
 import { carregarCertificadoA1 } from "@/lib/nfe/certificado";
 import { assinarEventoNFeXml } from "@/lib/nfe/assinaturaEvento";
 import { traduzStatusNfe } from "@/lib/nfe/statusNfe";
@@ -1069,7 +1070,6 @@ function mapDocumento(row: any) {
 }
 
 function applyDfeRecebidasFilters(query: any, params: ListDfeParams) {
-  const search = normalizeText(params.search);
   const status = normalizeText(params.status).toUpperCase();
   const modelo = normalizeText(params.modelo).toUpperCase();
 
@@ -1097,12 +1097,6 @@ function applyDfeRecebidasFilters(query: any, params: ListDfeParams) {
     } else {
       query = query.eq("tipo_documento", modelo);
     }
-  }
-
-  if (search) {
-    query = query.or(
-      `chave_acesso.ilike.%${search}%,emitente_nome.ilike.%${search}%,emitente_cnpj.ilike.%${onlyDigits(search)}%,nsu.ilike.%${search}%`,
-    );
   }
 
   return query;
@@ -1207,19 +1201,20 @@ export async function listarDfeRecebidas(params: ListDfeParams = {}) {
 
   const { data, error } = await query;
   if (error) throw error;
-  const dedupedRows = ordenarPorDataEmissaoDesc(preferirXmlCompletoPorChave(data ?? []));
-  const paginatedRows = dedupedRows.slice(from, from + limit);
-  const rows = paginatedRows.map(mapDocumento);
-  const kpiRows = dedupedRows.map(mapDocumento);
+  const mappedRows = ordenarPorDataEmissaoDesc(preferirXmlCompletoPorChave(data ?? []))
+    .map(mapDocumento)
+    .filter((nota) => matchesFiscalNoteSearch(nota, params.search));
+  const rows = mappedRows.slice(from, from + limit);
+  const kpiRows = mappedRows;
 
   return {
     data: rows,
     kpis: buildDfeRecebidasKpis(kpiRows),
     pagination: {
-      total: dedupedRows.length,
+      total: mappedRows.length,
       page,
       limit,
-      totalPages: Math.ceil(dedupedRows.length / limit),
+      totalPages: Math.ceil(mappedRows.length / limit),
     },
   };
 }
