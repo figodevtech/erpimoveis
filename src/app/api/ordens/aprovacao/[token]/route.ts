@@ -106,7 +106,7 @@ async function carregarPorToken(token: string): Promise<Bundle | null> {
   if (serv.error) throw serv.error;
 
   const produtos: LinhaProduto[] = (prod.data ?? []).map((row: any) => ({
-    descricao: row.produto?.descricao ?? row.produto?.titulo ?? "Produto",
+    descricao: row.produto?.titulo || row.produto?.descricao || "Produto",
     quantidade: Number(row.quantidade) || 0,
     precounitario: Number(row.precounitario) || 0,
     subtotal: Number(row.subtotal) || 0,
