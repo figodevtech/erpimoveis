@@ -1122,7 +1122,7 @@ export function OrdensTabela({
                 Esta ação mudará o status da OS <b>#{confirmRow?.id}</b> para <b>PAGAMENTO</b>.
               </AlertDialogDescription>
             </AlertDialogHeader>
-            <div className="space-y-4 py-2">
+            <div className="space-y-4 p-4 bg-card rounded-2xl border">
               <div
                 className={
                   confirmFormaPagamento === "CREDITO" ||
