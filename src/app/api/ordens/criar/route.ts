@@ -6,7 +6,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireOSCreate } from "@/app/api/_authz/perms";
 
 type DBChecklistStatus = "OK" | "ALERTA" | "FALHA";
-type DBAlvo = "VEICULO" | "PECA";
+type DBAlvo = "VEICULO" | "PECA" | "EQUIPAMENTO";
 type DBPrioridade = "BAIXA" | "NORMAL" | "ALTA";
 type DBStatusOS = "AGUARDANDO_CHECKLIST" | "ORCAMENTO";
 
@@ -14,6 +14,13 @@ type PecaPayload = {
   nome: string;
   descricao?: string | null;
   lacre?: string | null;
+};
+
+type EquipamentoPayload = {
+  nome?: string | null;
+  ano?: number | null;
+  patrimonio?: string | null;
+  horimetro?: number | null;
 };
 
 type Payload = {
@@ -28,6 +35,7 @@ type Payload = {
   cliente?: { id?: number | null } | null;
   alvo?: {
     tipo: DBAlvo;
+    equipamento?: EquipamentoPayload;
     veiculo?: {
       placa?: string | null;
       modelo?: string | null;
@@ -120,6 +128,10 @@ export async function POST(req: NextRequest) {
     let alvo_tipo: DBAlvo = "VEICULO";
     let veiculoid: number | null = payload?.veiculoid ? Number(payload.veiculoid) : null;
     let pecaid: number | null = null;
+    let equipamentoNome: string | null = null;
+    let equipamentoPatrimonio: string | null = null;
+    let equipamentoAno: number | null = null;
+    let equipamentoHorimetro: number | null = null;
     const alvo = payload?.alvo;
 
     if (!alvo) {
@@ -169,6 +181,7 @@ export async function POST(req: NextRequest) {
       }
 
       pecaid = null;
+      equipamentoNome = null;
     } else if (alvo.tipo === "PECA") {
       alvo_tipo = "PECA";
 
@@ -229,6 +242,40 @@ export async function POST(req: NextRequest) {
         },
         { status: 201 }
       );
+    } else if (alvo.tipo === "EQUIPAMENTO") {
+      alvo_tipo = "EQUIPAMENTO";
+      veiculoid = null;
+      pecaid = null;
+      const equipamento = alvo.equipamento;
+      equipamentoNome = String(equipamento?.nome ?? "").trim();
+      equipamentoPatrimonio = String(equipamento?.patrimonio ?? "").trim() || null;
+      equipamentoAno =
+        equipamento?.ano === null || equipamento?.ano === undefined
+          ? null
+          : Number(equipamento.ano);
+      equipamentoHorimetro =
+        equipamento?.horimetro === null || equipamento?.horimetro === undefined
+          ? null
+          : Number(equipamento.horimetro);
+
+      if (!equipamentoNome) {
+        return NextResponse.json(
+          { error: "Informe o nome da máquina ou equipamento." },
+          { status: 400 },
+        );
+      }
+      if (
+        equipamentoAno !== null &&
+        (!Number.isInteger(equipamentoAno) || equipamentoAno < 1900 || equipamentoAno > 3000)
+      ) {
+        return NextResponse.json({ error: "Ano do equipamento inválido." }, { status: 400 });
+      }
+      if (
+        equipamentoHorimetro !== null &&
+        (!Number.isFinite(equipamentoHorimetro) || equipamentoHorimetro < 0)
+      ) {
+        return NextResponse.json({ error: "Horímetro inválido." }, { status: 400 });
+      }
     } else {
       return NextResponse.json({ error: "alvo.tipo inválido" }, { status: 400 });
     }
@@ -239,6 +286,10 @@ export async function POST(req: NextRequest) {
         clienteid,
         veiculoid,
         pecaid,
+        equipamento_nome: equipamentoNome,
+        equipamento_patrimonio: equipamentoPatrimonio,
+        equipamento_ano: equipamentoAno,
+        equipamento_horimetro: equipamentoHorimetro,
         alvo_tipo,
         usuariocriadorid,
         setorid,

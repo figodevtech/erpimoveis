@@ -42,7 +42,7 @@ export type RowBase = {
   prioridade?: "ALTA" | "NORMAL" | "BAIXA" | null;
   cliente?: { nome?: string | null; telefone?: string | null } | null;
   veiculo?: { placa?: string | null; modelo?: string | null; marca?: string | null } | null;
-  alvo_tipo?: "VEICULO" | "PECA" | null;
+  alvo_tipo?: "VEICULO" | "PECA" | "EQUIPAMENTO" | null;
   setor?: { nome?: string | null } | null;
 };
 

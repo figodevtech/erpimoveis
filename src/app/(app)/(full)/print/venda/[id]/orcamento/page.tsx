@@ -102,6 +102,7 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
       createdat,
       desconto_tipo,
       desconto_valor,
+      valor_frete,
       sub_total,
       observacoes,
       valortotal,
@@ -452,6 +453,10 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
                 <span className="v">{fmtMoney(venda.desconto_valor)}</span>
               </div>
               <div className="kv">
+                <span className="k">Frete</span>
+                <span className="v">{fmtMoney(venda.valor_frete)}</span>
+              </div>
+              <div className="kv">
                 <span className="k">Total final</span>
                 <span className="v">{fmtMoney(venda.valortotal)}</span>
               </div>
@@ -511,6 +516,10 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
               <div className="linha-total">
                 <span>Desconto aplicado</span>
                 <span>- {fmtMoney(venda.desconto_valor)}</span>
+              </div>
+              <div className="linha-total">
+                <span>Frete</span>
+                <span>+ {fmtMoney(venda.valor_frete)}</span>
               </div>
               <div className="linha-total-final">
                 <span className="total-label">Total</span>

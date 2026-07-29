@@ -19,6 +19,7 @@ const VEICULO_FIELDS = `
 
 const ORDEM_FIELDS = `
   id, clienteid, descricao, status, prioridade, alvo_tipo,
+  equipamento_nome, equipamento_patrimonio, equipamento_ano, equipamento_horimetro,
   dataentrada, createdat, orcamentototal,
   peca:peca ( id, titulo, descricao, lacre ),
   veiculo:veiculo ( id, placa, modelo, marca ),

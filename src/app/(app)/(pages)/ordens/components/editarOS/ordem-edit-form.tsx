@@ -74,7 +74,7 @@ export type OrdemEditFormProps = {
   onClose?: () => void;
 };
 
-type AlvoTipo = "VEICULO" | "PECA";
+type AlvoTipo = "VEICULO" | "PECA" | "EQUIPAMENTO";
 
 function resolvePecaNome(src: any): string {
   return src?.titulo ?? src?.nome ?? src?.peca?.titulo ?? src?.peca?.nome ?? "";
@@ -152,6 +152,10 @@ export function OrdemEditForm({
   const [pNome, setPNome] = useState("");
   const [pDesc, setPDesc] = useState("");
   const [pLacre, setPLacre] = useState("");
+  const [eNome, setENome] = useState("");
+  const [eAno, setEAno] = useState("");
+  const [ePatrimonio, setEPatrimonio] = useState("");
+  const [eHorimetro, setEHorimetro] = useState("");
 
   const [initialLoading, setInitialLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -307,10 +311,18 @@ export function OrdemEditForm({
                 ? String(os.veiculo.kmatual)
                 : "",
           );
-        } else {
+        } else if (alvo === "PECA") {
           setPNome(resolvePecaNome(j?.peca ?? os?.peca));
           setPDesc(resolvePecaDescricao(j?.peca ?? os?.peca));
           setPLacre(resolvePecaLacre(j?.peca ?? os?.peca));
+          setVeiculoSelecionadoId(null);
+          setVeiculoSelecionadoItem(null);
+        } else {
+          const equipamento = j?.equipamento ?? os?.equipamento ?? null;
+          setENome(equipamento?.nome ?? "");
+          setEAno(equipamento?.ano != null ? String(equipamento.ano) : "");
+          setEPatrimonio(equipamento?.patrimonio ?? "");
+          setEHorimetro(equipamento?.horimetro != null ? String(equipamento.horimetro) : "");
           setVeiculoSelecionadoId(null);
           setVeiculoSelecionadoItem(null);
         }
@@ -376,6 +388,8 @@ export function OrdemEditForm({
         return "Informe Modelo ou Placa do veículo, ou vincule um veículo existente.";
     } else if (alvoTipo === "PECA" && !pNome.trim()) {
       return "Informe o nome da peça.";
+    } else if (alvoTipo === "EQUIPAMENTO" && !eNome.trim()) {
+      return "Informe o nome da máquina/equipamento.";
     }
     return null;
   }
@@ -420,7 +434,7 @@ export function OrdemEditForm({
         veiculoid: veiculoSelecionadoId ?? null,
         veiculo: veiculoPayload,
       };
-    } else {
+    } else if (alvoTipo === "PECA") {
       base.veiculoid = null;
       base.alvo = {
         tipo: "PECA",
@@ -428,6 +442,17 @@ export function OrdemEditForm({
           nome: pNome.trim(),
           descricao: pDesc?.trim() || null,
           lacre: pLacre?.trim() || null,
+        },
+      };
+    } else {
+      base.veiculoid = null;
+      base.alvo = {
+        tipo: "EQUIPAMENTO",
+        equipamento: {
+          nome: eNome.trim(),
+          ano: eAno ? Number(eAno) : null,
+          patrimonio: ePatrimonio.trim() || null,
+          horimetro: eHorimetro ? Number(eHorimetro) : null,
         },
       };
     }
@@ -499,6 +524,10 @@ export function OrdemEditForm({
     pNome,
     pDesc,
     pLacre,
+    eNome,
+    eAno,
+    ePatrimonio,
+    eHorimetro,
   ]);
 
   if (!osId)
@@ -763,6 +792,10 @@ export function OrdemEditForm({
                     <RadioGroupItem id="alvo-peca" value="PECA" />
                     <span>Peça</span>
                   </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <RadioGroupItem id="alvo-equipamento" value="EQUIPAMENTO" />
+                    <span>Máquina/Equipamento</span>
+                  </label>
                 </RadioGroup>
 
                 {alvoTipo === "VEICULO" ? (
@@ -830,7 +863,7 @@ export function OrdemEditForm({
                       </div>
                     )}
                   </div>
-                ) : (
+                ) : alvoTipo === "PECA" ? (
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="space-y-1.5">
                       <Label>Nome da peça</Label>
@@ -870,6 +903,25 @@ export function OrdemEditForm({
                       <div className="text-right text-xs text-muted-foreground">
                         {pDesc.length}/120
                       </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+                    <div className="space-y-1.5">
+                      <Label>Nome da máquina/equipamento *</Label>
+                      <Input value={eNome} onChange={(event) => setENome(event.target.value)} disabled={saving} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Patrimônio</Label>
+                      <Input value={ePatrimonio} onChange={(event) => setEPatrimonio(event.target.value)} disabled={saving} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Ano</Label>
+                      <Input type="number" value={eAno} onChange={(event) => setEAno(event.target.value)} disabled={saving} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Horímetro</Label>
+                      <Input type="number" min="0" step="0.1" value={eHorimetro} onChange={(event) => setEHorimetro(event.target.value)} disabled={saving} />
                     </div>
                   </div>
                 )}

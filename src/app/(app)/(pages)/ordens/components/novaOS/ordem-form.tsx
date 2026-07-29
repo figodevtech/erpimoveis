@@ -62,7 +62,7 @@ export type FormularioNovaOSProps = {
   onSavingChange?: (saving: boolean) => void;
 };
 
-type AlvoTipo = "VEICULO" | "PECA";
+type AlvoTipo = "VEICULO" | "PECA" | "EQUIPAMENTO";
 const MAX_PECA_NOME = 60;
 const MAX_PECA_DESC = 120;
 
@@ -132,6 +132,10 @@ export function FormularioNovaOS({
   const [pDesc, setPDesc] = useState("");
   const [pLacre, setPLacre] = useState("");
   const [pecas, setPecas] = useState<PecaItem[]>([]);
+  const [eNome, setENome] = useState("");
+  const [eAno, setEAno] = useState("");
+  const [ePatrimonio, setEPatrimonio] = useState("");
+  const [eHorimetro, setEHorimetro] = useState("");
 
   const veiculoVinculado = veiculoSelecionadoId !== null;
 
@@ -263,6 +267,10 @@ export function FormularioNovaOS({
     pDesc,
     pLacre,
     pecas,
+    eNome,
+    eAno,
+    ePatrimonio,
+    eHorimetro,
   ]);
 
   const validateAll = (): string | null => {
@@ -280,8 +288,10 @@ export function FormularioNovaOS({
           return "Já existe um veículo com essa placa para este cliente. Selecione-o na lista em vez de cadastrar outro.";
         }
       }
-    } else {
+    } else if (alvoTipo === "PECA") {
       if (pecasParaSalvar().length === 0) return "Informe ao menos uma peça.";
+    } else if (!eNome.trim()) {
+      return "Informe o nome da máquina/equipamento.";
     }
 
     return null;
@@ -316,14 +326,24 @@ export function FormularioNovaOS({
                     kmatual: vKm ? Number(vKm) : null,
                   },
                 }
-            : {
-                tipo: "PECA",
-                pecas: pecasPayload.map((item) => ({
-                  nome: item.nome,
-                  descricao: item.descricao,
-                  lacre: item.lacre,
-                })),
-              },
+            : alvoTipo === "PECA"
+              ? {
+                  tipo: "PECA",
+                  pecas: pecasPayload.map((item) => ({
+                    nome: item.nome,
+                    descricao: item.descricao,
+                    lacre: item.lacre,
+                  })),
+                }
+              : {
+                  tipo: "EQUIPAMENTO",
+                  equipamento: {
+                    nome: eNome.trim(),
+                    patrimonio: ePatrimonio.trim() || null,
+                    ano: eAno ? Number(eAno) : null,
+                    horimetro: eHorimetro ? Number(eHorimetro) : null,
+                  },
+                },
       };
 
       const r = await fetch("/api/ordens/criar", {
@@ -567,6 +587,10 @@ export function FormularioNovaOS({
                   <RadioGroupItem id="alvo-peca" value="PECA" />
                   <span>Peça</span>
                 </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <RadioGroupItem id="alvo-equipamento" value="EQUIPAMENTO" />
+                  <span>Máquina/Equipamento</span>
+                </label>
               </RadioGroup>
 
               {alvoTipo === "VEICULO" ? (
@@ -634,7 +658,7 @@ export function FormularioNovaOS({
                     </div>
                   )}
                 </div>
-              ) : (
+              ) : alvoTipo === "PECA" ? (
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-start">
                     <div className="space-y-1.5">
@@ -773,6 +797,25 @@ export function FormularioNovaOS({
                         salvamento, mesmo sem clicar em adicionar.
                       </p>
                     )}
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+                  <div className="space-y-1.5">
+                    <Label>Nome da máquina/equipamento *</Label>
+                    <Input value={eNome} onChange={(event) => setENome(event.target.value)} placeholder="Ex.: Retroescavadeira" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Patrimônio</Label>
+                    <Input value={ePatrimonio} onChange={(event) => setEPatrimonio(event.target.value)} placeholder="Ex.: MAQ-001" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Ano</Label>
+                    <Input type="number" value={eAno} onChange={(event) => setEAno(event.target.value)} placeholder="2022" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Horímetro</Label>
+                    <Input type="number" min="0" step="0.1" value={eHorimetro} onChange={(event) => setEHorimetro(event.target.value)} placeholder="Horas de uso" />
                   </div>
                 </div>
               )}

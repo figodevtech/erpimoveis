@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog,
@@ -36,6 +37,7 @@ import {
   Search,
   Send,
   X,
+  Wrench,
 } from "lucide-react";
 
 import { toast } from "@/lib/toast";
@@ -67,6 +69,10 @@ import { OrdensFilterSheet } from "./ordens-filtros";
 import { EmissaoNotaDialog } from "./dialogs/emissao-nota-dialog/emissao-nota-dialog";
 import { Label } from "@/components/ui/label";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
+import {
+  PAYMENT_METHOD_OPTIONS,
+  type PaymentMethodOption,
+} from "@/lib/payment-methods";
 
 const MAX_ALVO_CHARS = 48;
 
@@ -120,7 +126,7 @@ export function OrdensTabela({
   const [filtroAberto, setFiltroAberto] = useState(false);
   const [prioFiltro, setPrioFiltro] = useState<PrioFiltro>("TODAS");
   const [setorFiltro, setSetorFiltro] = useState<string>("TODOS");
-  const [alvoFiltro, setAlvoFiltro] = useState<"TODOS" | "VEICULO" | "PECA">("TODOS");
+  const [alvoFiltro, setAlvoFiltro] = useState<"TODOS" | "VEICULO" | "PECA" | "EQUIPAMENTO">("TODOS");
   const [dataInicio, setDataInicioState] = useState<Date | undefined>();
   const [dataFim, setDataFimState] = useState<Date | undefined>();
   const [setoresApiOptions, setSetoresApiOptions] = useState<Array<{ value: string; label: string }>>([]);
@@ -313,6 +319,12 @@ export function OrdensTabela({
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmRow, setConfirmRow] = useState<OrdemComDatas | null>(null);
+  const [confirmFormaPagamento, setConfirmFormaPagamento] = useState<
+    PaymentMethodOption | "NAO_INFORMAR"
+  >("NAO_INFORMAR");
+  const [confirmParcelasPagamento, setConfirmParcelasPagamento] = useState(1);
+  const [confirmDescricaoFinanceiro, setConfirmDescricaoFinanceiro] = useState("");
+  const [confirmGarantia, setConfirmGarantia] = useState("");
 
   const [payOpen, setPayOpen] = useState(false);
   const [payRow, setPayRow] = useState<OrdemComDatas | null>(null);
@@ -365,7 +377,16 @@ export function OrdensTabela({
     }
   };
 
-  async function setStatus(id: number, status: StatusOS) {
+  async function setStatus(
+    id: number,
+    status: StatusOS,
+    extras?: {
+      formaPagamento?: PaymentMethodOption | null;
+      parcelasPagamento?: number | null;
+      descricaoFinanceiro?: string | null;
+      garantia?: string | null;
+    },
+  ): Promise<boolean> {
     const loadingToastId =
       status === "EM_ANDAMENTO"
         ? toast.loading("Preparando atribuição de realizadores...", {
@@ -402,7 +423,7 @@ export function OrdensTabela({
             id: loadingToastId ?? undefined,
             duration: 4000,
           });
-          return;
+          return false;
         }
 
         closeLoading();
@@ -414,7 +435,7 @@ export function OrdensTabela({
           id: loadingToastId ?? undefined,
           duration: 4000,
         });
-        return;
+        return false;
       }
     }
 
@@ -422,7 +443,7 @@ export function OrdensTabela({
       const r = await fetch(`/api/ordens/${id}/status`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, ...extras }),
       });
 
       if (!r.ok) {
@@ -439,18 +460,20 @@ export function OrdensTabela({
               solicitado: Number(item.solicitado ?? 0),
             })),
           });
-          return;
+          return false;
         }
         toast.error(j?.error || "Falha ao atualizar status");
-        return;
+        return false;
       }
 
       closeLoading();
       window.dispatchEvent(new CustomEvent("os:refresh"));
       toast.success("Status atualizado");
+      return true;
     } catch (e: any) {
       closeLoading();
       toast.error(e?.message || "Falha ao atualizar status");
+      return false;
     }
   }
 
@@ -476,8 +499,19 @@ export function OrdensTabela({
       if (!os?.cliente?.id && !j?.cliente?.id) {
         return fail("Selecione um cliente antes de enviar a OS para aprovação.");
       }
-      if (!os?.veiculo?.id && !j?.veiculo?.id) {
+
+      const alvoTipo = String(os?.alvo_tipo ?? row.alvo_tipo ?? "VEICULO").toUpperCase();
+      if (alvoTipo === "VEICULO" && !os?.veiculo?.id && !j?.veiculo?.id) {
         return fail("Selecione um veículo antes de enviar a OS para aprovação.");
+      }
+      if (alvoTipo === "PECA" && !os?.peca?.id && !j?.peca?.id) {
+        return fail("Selecione uma peça antes de enviar a OS para aprovação.");
+      }
+      if (
+        alvoTipo === "EQUIPAMENTO" &&
+        !String(os?.equipamento?.nome ?? os?.equipamento_nome ?? "").trim()
+      ) {
+        return fail("Informe a máquina/equipamento antes de enviar a OS para aprovação.");
       }
 
       const itensServico = Array.isArray(j?.itensServico) ? j.itensServico : [];
@@ -617,8 +651,13 @@ export function OrdensTabela({
       }
 
       const isPeca = isPecaRow(row);
+      const isEquipamento =
+        (row as any).alvo_tipo === "EQUIPAMENTO" ||
+        (row as any).alvoTipo === "EQUIPAMENTO" ||
+        Boolean((row as any).equipamento);
       if (alvoFiltro === "PECA" && !isPeca) return false;
-      if (alvoFiltro === "VEICULO" && isPeca) return false;
+      if (alvoFiltro === "EQUIPAMENTO" && !isEquipamento) return false;
+      if (alvoFiltro === "VEICULO" && (isPeca || isEquipamento)) return false;
 
       const entradaStr = (row as any).dataEntrada ?? (row as any).dataentrada ?? row.dataEntrada;
 
@@ -834,11 +873,25 @@ export function OrdensTabela({
                       : "";
 
                     const isPeca = (r as any).alvo_tipo === "PECA" || (r as any).alvoTipo === "PECA";
+                    const isEquipamento =
+                      (r as any).alvo_tipo === "EQUIPAMENTO" ||
+                      (r as any).alvoTipo === "EQUIPAMENTO";
                     const pecaTitulo = (r as any)?.peca?.titulo as string | undefined;
                     const pecaDesc = (r as any)?.peca?.descricao as string | undefined;
                     const pecaStr = isPeca ? pecaTitulo || pecaDesc || "Peça" : "";
+                    const equipamento = (r as any)?.equipamento;
+                    const equipamentoStr = isEquipamento
+                      ? [
+                          equipamento?.nome,
+                          equipamento?.patrimonio
+                            ? `Patrimônio ${equipamento.patrimonio}`
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" — ") || "Equipamento"
+                      : "";
 
-                    const alvoStr = isPeca ? pecaStr : veiculoStr;
+                    const alvoStr = isPeca ? pecaStr : isEquipamento ? equipamentoStr : veiculoStr;
                     const alvoFull = alvoStr || "";
                     const alvoShort =
                       alvoFull.length > MAX_ALVO_CHARS ? `${alvoFull.slice(0, MAX_ALVO_CHARS - 1)}…` : alvoFull;
@@ -887,7 +940,13 @@ export function OrdensTabela({
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <div className="mt-0.5 flex items-center gap-1  text-muted-foreground">
-                                  {isPeca ? <Package className="h-3 w-3 shrink-0" /> : <Car className="h-3 w-3 shrink-0" />}
+                                  {isPeca ? (
+                                    <Package className="h-3 w-3 shrink-0" />
+                                  ) : isEquipamento ? (
+                                    <Wrench className="h-3 w-3 shrink-0" />
+                                  ) : (
+                                    <Car className="h-3 w-3 shrink-0" />
+                                  )}
                                   <span className="truncate">{alvoShort}</span>
                                 </div>
                               </TooltipTrigger>
@@ -1040,7 +1099,19 @@ export function OrdensTabela({
         />
 
         {/* Confirmar envio ao financeiro */}
-        <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialog
+          open={confirmOpen}
+          onOpenChange={(open) => {
+            setConfirmOpen(open);
+            if (!open) {
+              setConfirmRow(null);
+              setConfirmFormaPagamento("NAO_INFORMAR");
+              setConfirmParcelasPagamento(1);
+              setConfirmDescricaoFinanceiro("");
+              setConfirmGarantia("");
+            }
+          }}
+        >
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle className="flex items-center gap-2">
@@ -1051,14 +1122,115 @@ export function OrdensTabela({
                 Esta ação mudará o status da OS <b>#{confirmRow?.id}</b> para <b>PAGAMENTO</b>.
               </AlertDialogDescription>
             </AlertDialogHeader>
+            <div className="space-y-4 p-4 bg-card rounded-2xl border">
+              <div
+                className={
+                  confirmFormaPagamento === "CREDITO" ||
+                  confirmFormaPagamento === "BOLETO"
+                    ? "grid gap-4 sm:grid-cols-[minmax(0,1fr)_112px]"
+                    : ""
+                }
+              >
+                <div className="space-y-2">
+                  <Label>Forma de pagamento</Label>
+                  <Select
+                    value={confirmFormaPagamento}
+                    onValueChange={(value) => {
+                      setConfirmFormaPagamento(
+                        value as PaymentMethodOption | "NAO_INFORMAR",
+                      );
+                      if (value !== "CREDITO" && value !== "BOLETO") {
+                        setConfirmParcelasPagamento(1);
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Selecione a forma de pagamento" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="NAO_INFORMAR">Não informar</SelectItem>
+                      {PAYMENT_METHOD_OPTIONS.map((method) => (
+                        <SelectItem key={method.value} value={method.value}>
+                          {method.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {(confirmFormaPagamento === "CREDITO" ||
+                  confirmFormaPagamento === "BOLETO") && (
+                  <div className="space-y-2">
+                    <Label>Parcelas</Label>
+                    <Select
+                      value={String(confirmParcelasPagamento)}
+                      onValueChange={(value) =>
+                        setConfirmParcelasPagamento(Number(value))
+                      }
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Parcelas" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from({ length: 12 }, (_, index) => index + 1).map(
+                          (parcelas) => (
+                            <SelectItem key={parcelas} value={String(parcelas)}>
+                              {parcelas}x
+                            </SelectItem>
+                          ),
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label>Descrição para o financeiro</Label>
+                <Textarea
+                  value={confirmDescricaoFinanceiro}
+                  onChange={(event) =>
+                    setConfirmDescricaoFinanceiro(event.target.value)
+                  }
+                  placeholder="Ex.: cobrar entrada, vencimento combinado ou outras orientações"
+                  rows={3}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Garantia</Label>
+                <Input
+                  value={confirmGarantia}
+                  maxLength={500}
+                  onChange={(event) => setConfirmGarantia(event.target.value)}
+                  placeholder="Ex.: 90 dias para peças e serviços"
+                />
+                <p className="text-right text-xs text-muted-foreground">
+                  {confirmGarantia.length}/500
+                </p>
+              </div>
+            </div>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancelar</AlertDialogCancel>
               <AlertDialogAction
-                onClick={async () => {
+                onClick={async (event) => {
+                  event.preventDefault();
                   if (!confirmRow) return;
-                  await setStatus(confirmRow.id, "PAGAMENTO");
-                  setConfirmOpen(false);
-                  setConfirmRow(null);
+                  const updated = await setStatus(confirmRow.id, "PAGAMENTO", {
+                    formaPagamento:
+                      confirmFormaPagamento === "NAO_INFORMAR"
+                        ? null
+                        : confirmFormaPagamento,
+                    parcelasPagamento:
+                      confirmFormaPagamento === "CREDITO" ||
+                      confirmFormaPagamento === "BOLETO"
+                        ? confirmParcelasPagamento
+                        : null,
+                    descricaoFinanceiro:
+                      confirmDescricaoFinanceiro.trim() || null,
+                    garantia: confirmGarantia.trim() || null,
+                  });
+                  if (updated) setConfirmOpen(false);
                 }}
               >
                 Enviar p/ pagamento

@@ -22,6 +22,7 @@ Calculator,
 Car,
 CheckSquare,
 Copy,
+CreditCard,
 Download,
 ExternalLink,
 FileText,
@@ -68,11 +69,17 @@ CommandList,
 import { Popover,PopoverContent,PopoverTrigger } from "@/components/ui/popover";
 
 import { carregarDetalhesOS,listarUsuariosAtivos,type UsuarioAtivo } from "../../lib/api";
+import {
+  arredondarMoeda,
+  calcularDescontoAplicado,
+  calcularTotalComDesconto,
+} from "../orcamento/util";
 import ConcluidoAlert from "../../../(financeiro)/fluxodecaixa/components/concluidoAlert";
 import TransactionDialog from "../../../(financeiro)/fluxodecaixa/components/transactionDialog/transactionDialog";
 import ValueInput from "../../../(financeiro)/fluxodecaixa/components/transactionDialog/valueInput";
 import { DialogProduto } from "../../../estoque/components/dialog-produto/dialog-produto";
 import { Tipo_transacao, type Transaction } from "../../../(financeiro)/fluxodecaixa/types";
+import { PAYMENT_METHOD_OPTIONS } from "@/lib/payment-methods";
 
 const PUBLIC_APPROVAL_BASE = "/aprovacao";
 function approvalUrlFromToken(token: string) {
@@ -111,6 +118,13 @@ function fmtMoney(v: number | null | undefined) {
   });
 }
 
+function fmtPercent(value: number | null | undefined) {
+  return Number(value ?? 0).toLocaleString("pt-BR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+}
+
 function fmtFileSize(value?: number | null) {
   const size = Number(value ?? 0);
   if (!Number.isFinite(size) || size <= 0) return "";
@@ -136,9 +150,17 @@ function fileNameFromUrl(url: string) {
 
 type OS = {
   id: number;
+  orcamentototal?: number | null;
+  subtotal?: number | null;
+  desconto_tipo?: "FIXO" | "PORCENTAGEM" | null;
+  desconto?: number | null;
   descricao?: string | null;
   observacoes?: string | null;
   observacoes_fiscais?: string | null;
+  forma_pagamento?: string | null;
+  parcelas_pagamento?: number | null;
+  descricao_financeiro?: string | null;
+  garantia?: string | null;
   status?: string | null;
   statusaprovacao?: string | null;
   prioridade?: "ALTA" | "NORMAL" | "BAIXA" | null;
@@ -150,8 +172,14 @@ type OS = {
   setor?: { id: number; nome: string } | null;
   cliente?: { id: number; nomerazaosocial: string } | null;
   veiculo?: { id: number; placa?: string | null; modelo?: string | null; marca?: string | null } | null;
-  alvo_tipo?: "VEICULO" | "PECA" | null;
+  alvo_tipo?: "VEICULO" | "PECA" | "EQUIPAMENTO" | null;
   peca?: { id: number; titulo: string; lacre?: string | null; descricao?: string | null } | null;
+  equipamento?: {
+    nome: string;
+    patrimonio?: string | null;
+    ano?: number | null;
+    horimetro?: number | null;
+  } | null;
 };
 
 type ItemProduto = {
@@ -160,6 +188,8 @@ type ItemProduto = {
   quantidade: number;
   precounitario: number;
   subtotal: number;
+  descontoTipo?: "FIXO" | "PORCENTAGEM" | null;
+  desconto?: number | null;
   custoUnitarioAplicado?: number | null;
   custoEstimado?: boolean;
   produto?: {
@@ -184,6 +214,8 @@ type ItemServico = {
   quantidade: number;
   precounitario: number;
   subtotal: number;
+  descontoTipo?: "FIXO" | "PORCENTAGEM" | null;
+  desconto?: number | null;
   servico?: { id: number; codigo?: string | null; descricao?: string | null; precohora?: number | null } | null;
 
   realizadores?: RealizadorLite[] | null;
@@ -635,7 +667,22 @@ export function OSDetalhesDialog({
     () => (data?.itensServico || []).reduce((acc, it) => acc + Number(it.subtotal || 0), 0),
     [data?.itensServico]
   );
-  const totalGeral = useMemo(() => totalProdutos + totalServicos, [totalProdutos, totalServicos]);
+  const subtotalOS = useMemo(
+    () => arredondarMoeda(totalProdutos + totalServicos),
+    [totalProdutos, totalServicos]
+  );
+  const descontoGeralAplicado = useMemo(
+    () => calcularDescontoAplicado(subtotalOS, data?.os?.desconto_tipo, data?.os?.desconto),
+    [data?.os?.desconto, data?.os?.desconto_tipo, subtotalOS]
+  );
+  const totalGeral = useMemo(
+    () => {
+      const totalSalvo = Number(data?.os?.orcamentototal);
+      if (data?.os?.orcamentototal != null && Number.isFinite(totalSalvo)) return totalSalvo;
+      return calcularTotalComDesconto(subtotalOS, data?.os?.desconto_tipo, data?.os?.desconto);
+    },
+    [data?.os?.desconto, data?.os?.desconto_tipo, data?.os?.orcamentototal, subtotalOS]
+  );
 
   const fluxoOs = useMemo(() => {
     const lancamentos = (data?.eventosFinanceiros ?? [])
@@ -1070,8 +1117,14 @@ export function OSDetalhesDialog({
 
                 <div className="rounded-lg border bg-card p-4">
                   <div className="flex items-center gap-2 mb-1.5">
-                    {data.os.alvo_tipo === "PECA" ? <Wrench className="h-4 w-4 text-primary" /> : <Car className="h-4 w-4 text-primary" />}
-                    <span className="text-sm font-medium">{data.os.alvo_tipo === "PECA" ? "Peça" : "Veículo"}</span>
+                    {data.os.alvo_tipo === "VEICULO" ? <Car className="h-4 w-4 text-primary" /> : <Wrench className="h-4 w-4 text-primary" />}
+                    <span className="text-sm font-medium">
+                      {data.os.alvo_tipo === "PECA"
+                        ? "Peça"
+                        : data.os.alvo_tipo === "EQUIPAMENTO"
+                          ? "Máquina/Equipamento"
+                          : "Veículo"}
+                    </span>
                   </div>
                   {data.os.alvo_tipo === "PECA" ? (
                     <div className="text-sm space-y-1">
@@ -1083,6 +1136,19 @@ export function OSDetalhesDialog({
                         <div className="text-xs text-muted-foreground whitespace-pre-wrap">
                           {data.os.peca.descricao}
                         </div>
+                      ) : null}
+                    </div>
+                  ) : data.os.alvo_tipo === "EQUIPAMENTO" ? (
+                    <div className="space-y-1 text-sm">
+                      <div className="font-medium">{data.os.equipamento?.nome ?? "Equipamento"}</div>
+                      {data.os.equipamento?.patrimonio ? (
+                        <div className="text-xs text-muted-foreground">Patrimônio: {data.os.equipamento.patrimonio}</div>
+                      ) : null}
+                      {data.os.equipamento?.ano != null ? (
+                        <div className="text-xs text-muted-foreground">Ano: {data.os.equipamento.ano}</div>
+                      ) : null}
+                      {data.os.equipamento?.horimetro != null ? (
+                        <div className="text-xs text-muted-foreground">Horímetro: {data.os.equipamento.horimetro} h</div>
                       ) : null}
                     </div>
                   ) : (
@@ -1100,6 +1166,41 @@ export function OSDetalhesDialog({
                     <span className="text-sm font-medium">Status de Aprovação</span>
                   </div>
                   <div className="text-sm">{data.os.statusaprovacao ?? "—"}</div>
+                </div>
+
+                <div className="rounded-lg border bg-card p-4">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <CreditCard className="h-4 w-4 text-primary" />
+                    <span className="text-sm font-medium">Forma de pagamento prevista</span>
+                  </div>
+                  <div className="text-sm">
+                    {PAYMENT_METHOD_OPTIONS.find(
+                      (method) => method.value === data.os.forma_pagamento,
+                    )?.label ?? "Não informada"}
+                    {data.os.parcelas_pagamento
+                      ? ` em ${data.os.parcelas_pagamento}x`
+                      : ""}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border bg-card p-4">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <FileText className="h-4 w-4 text-primary" />
+                    <span className="text-sm font-medium">Descrição para o financeiro</span>
+                  </div>
+                  <div className="text-sm whitespace-pre-wrap">
+                    {data.os.descricao_financeiro || "Não informada"}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border bg-card p-4">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <CheckSquare className="h-4 w-4 text-primary" />
+                    <span className="text-sm font-medium">Garantia</span>
+                  </div>
+                  <div className="text-sm whitespace-pre-wrap">
+                    {data.os.garantia || "Não informada"}
+                  </div>
                 </div>
               </section>
 
@@ -1173,19 +1274,35 @@ export function OSDetalhesDialog({
                     <div className="text-sm text-muted-foreground">—</div>
                   ) : (
                     <ul className="space-y-2 text-sm">
-                      {data.itensProduto.map((it, idx) => (
-                        <li key={`${it.ordemservicoid}-${it.produtoid}-${idx}`} className="flex flex-col gap-1 rounded-md border bg-muted/20 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
-                          <div className="min-w-0">
-                            <div className="font-medium truncate">
-                              {it.produto?.titulo || it.produto?.descricao || it.produto?.codigo ||  `Produto #${it.produtoid}`}
+                      {data.itensProduto.map((it, idx) => {
+                        const descontoAplicado = calcularDescontoAplicado(
+                          Number(it.quantidade || 0) * Number(it.precounitario || 0),
+                          it.descontoTipo,
+                          it.desconto
+                        );
+
+                        return (
+                          <li key={`${it.ordemservicoid}-${it.produtoid}-${idx}`} className="flex flex-col gap-1 rounded-md border bg-muted/20 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+                            <div className="min-w-0">
+                              <div className="font-medium truncate">
+                                {it.produto?.titulo || it.produto?.descricao || it.produto?.codigo ||  `Produto #${it.produtoid}`}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {it.quantidade} × {fmtMoney(it.precounitario)}
+                              </div>
+                              {descontoAplicado > 0 ? (
+                                <div className="mt-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                                  Desconto: - {fmtMoney(descontoAplicado)}
+                                  {it.descontoTipo === "PORCENTAGEM"
+                                    ? ` (${fmtPercent(it.desconto)}%)`
+                                    : ""}
+                                </div>
+                              ) : null}
                             </div>
-                            <div className="text-xs text-muted-foreground">
-                              {it.quantidade} × {fmtMoney(it.precounitario)}
-                            </div>
-                          </div>
-                          <div className="shrink-0 font-medium sm:text-right">{fmtMoney(it.subtotal)}</div>
-                        </li>
-                      ))}
+                            <div className="shrink-0 font-medium sm:text-right">{fmtMoney(it.subtotal)}</div>
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </div>
@@ -1209,6 +1326,11 @@ export function OSDetalhesDialog({
                         const isSaving = savingResponsavelKey === `${it.ordemservicoid}-${it.servicoid}`;
                         const selectedIds = getIdsFromItem(it);
                         const estaSemResponsavel = selectedIds.length === 0;
+                        const descontoAplicado = calcularDescontoAplicado(
+                          Number(it.quantidade || 0) * Number(it.precounitario || 0),
+                          it.descontoTipo,
+                          it.desconto
+                        );
 
                         return (
                           <li key={rowKey} className="flex flex-col gap-2 rounded-md border bg-muted/20 px-3 py-2">
@@ -1220,6 +1342,14 @@ export function OSDetalhesDialog({
                                 <div className="text-xs text-muted-foreground">
                                   {it.quantidade} × {fmtMoney(it.precounitario)}
                                 </div>
+                                {descontoAplicado > 0 ? (
+                                  <div className="mt-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                                    Desconto: - {fmtMoney(descontoAplicado)}
+                                    {it.descontoTipo === "PORCENTAGEM"
+                                      ? ` (${fmtPercent(it.desconto)}%)`
+                                      : ""}
+                                  </div>
+                                ) : null}
                               </div>
                               <div className="shrink-0 font-medium sm:text-right">{fmtMoney(it.subtotal)}</div>
                             </div>
@@ -1259,11 +1389,40 @@ export function OSDetalhesDialog({
                 </div>
 
                 <div className="rounded-lg border bg-card p-4 lg:col-span-2">
-                  <div className="flex items-center gap-2 mb-1.5">
+                  <div className="mb-3 flex items-center gap-2">
                     <Calculator className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium">Total geral</span>
+                    <span className="text-sm font-medium">Resumo financeiro</span>
                   </div>
-                  <div className="text-lg font-semibold">{fmtMoney(totalGeral)}</div>
+                  <div className="space-y-1.5 text-sm">
+                    <div className="flex items-center justify-between gap-4 text-muted-foreground">
+                      <span>Produtos</span>
+                      <span className="tabular-nums">{fmtMoney(totalProdutos)}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-4 text-muted-foreground">
+                      <span>Serviços</span>
+                      <span className="tabular-nums">{fmtMoney(totalServicos)}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-4 text-muted-foreground">
+                      <span>Subtotal</span>
+                      <span className="tabular-nums">{fmtMoney(subtotalOS)}</span>
+                    </div>
+                    {descontoGeralAplicado > 0 ? (
+                      <div className="flex items-center justify-between gap-4 font-medium text-emerald-600 dark:text-emerald-400">
+                        <span>
+                          Desconto geral
+                          {data.os.desconto_tipo === "PORCENTAGEM"
+                            ? ` (${fmtPercent(data.os.desconto)}%)`
+                            : ""}
+                        </span>
+                        <span className="tabular-nums">- {fmtMoney(descontoGeralAplicado)}</span>
+                      </div>
+                    ) : null}
+                    <Separator />
+                    <div className="flex items-center justify-between gap-4 pt-1">
+                      <span className="font-medium">Total geral</span>
+                      <span className="text-lg font-semibold tabular-nums">{fmtMoney(totalGeral)}</span>
+                    </div>
+                  </div>
                 </div>
               </section>
 

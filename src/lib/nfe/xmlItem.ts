@@ -48,6 +48,9 @@ export function buildDetXml(item: NFeItem, crt: string | number): string {
   partes.push(`<qCom>${qCom}</qCom>`);
   partes.push(`<vUnCom>${vUnCom}</vUnCom>`);
   partes.push(`<vProd>${vProd}</vProd>`);
+  if (Number(item.valorFrete ?? 0) > 0) {
+    partes.push(`<vFrete>${formatNumber(Number(item.valorFrete), 2)}</vFrete>`);
+  }
   partes.push(`<cEANTrib>${cEANTrib}</cEANTrib>`);
   partes.push(`<uTrib>${escapeXml(item.unidade)}</uTrib>`);
   partes.push(`<qTrib>${qCom}</qTrib>`);

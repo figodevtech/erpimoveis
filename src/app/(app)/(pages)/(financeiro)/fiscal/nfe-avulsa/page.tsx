@@ -693,6 +693,7 @@ function mapServerDraftToPayload(value: any): { draft: DraftPayload; document: N
             unidade: String(item.unidade ?? "UN"),
             quantidade: stringifyNumber(item.quantidade, "1"),
             valorUnitario: stringifyNumber(item.valor_unitario, "0"),
+            valorFrete: stringifyNumber(item.valor_frete ?? item.tributacao_snapshot?.valorFrete, "0"),
             orig: String(item.tributacao_snapshot?.orig ?? ""),
             csosn: String(item.csosn ?? ""),
             cst: String(item.cst ?? ""),

@@ -12,6 +12,7 @@ import { ObservacoesToggle } from "../../../components/ObservacoesToggle";
 import { PrintShareMenu } from "../../../components/PrintShareMenu";
 import { fetchPrimeiroLogoEmpresa } from "@/lib/empresa-logo";
 import { fetchPrintColors } from "@/lib/print-config";
+import { PAYMENT_METHOD_OPTIONS } from "@/lib/payment-methods";
 
 export const runtime = "nodejs";
 
@@ -20,6 +21,8 @@ type PageProps = {
 };
 
 const EMPTY = "-";
+
+type TipoDesconto = "FIXO" | "PORCENTAGEM" | null;
 
 /* ========= HELPERS DE FORMATAÇÃO ========= */
 
@@ -30,6 +33,39 @@ function fmtMoney(v: number | string | null | undefined) {
   return n.toLocaleString("pt-BR", {
     style: "currency",
     currency: "BRL",
+  });
+}
+
+function toNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function roundMoney(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+function getTipoDesconto(value: unknown): TipoDesconto {
+  return value === "FIXO" || value === "PORCENTAGEM" ? value : null;
+}
+
+function calcularDescontoAplicado(base: number, tipoValue: unknown, descontoValue: unknown) {
+  const tipo = getTipoDesconto(tipoValue);
+  const baseSegura = Math.max(0, toNumber(base));
+  const desconto = Math.max(0, toNumber(descontoValue));
+
+  if (!tipo || baseSegura <= 0 || desconto <= 0) return 0;
+  if (tipo === "PORCENTAGEM") {
+    return roundMoney(baseSegura * (Math.min(desconto, 100) / 100));
+  }
+
+  return roundMoney(Math.min(desconto, baseSegura));
+}
+
+function fmtPercent(value: unknown) {
+  return toNumber(value).toLocaleString("pt-BR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
   });
 }
 
@@ -143,12 +179,19 @@ export default async function OSFullPage({ params }: PageProps) {
   const printColors = await fetchPrintColors();
 
   const totalProdutos =
-    os.produtos?.reduce((acc: number, p: any) => acc + Number(p.subtotal), 0) ||
+    os.produtos?.reduce((acc: number, p: any) => acc + toNumber(p.subtotal), 0) ||
     0;
   const totalServicos =
-    os.servicos?.reduce((acc: number, s: any) => acc + Number(s.subtotal), 0) ||
+    os.servicos?.reduce((acc: number, s: any) => acc + toNumber(s.subtotal), 0) ||
     0;
-  const totalGeral = totalProdutos + totalServicos;
+  const subtotalOS = roundMoney(totalProdutos + totalServicos);
+  const descontoGeralTipo = getTipoDesconto(os.desconto_tipo);
+  const descontoGeralAplicado = calcularDescontoAplicado(
+    subtotalOS,
+    descontoGeralTipo,
+    os.desconto
+  );
+  const totalGeral = roundMoney(Math.max(0, subtotalOS - descontoGeralAplicado));
 
   const empresaNome =
     empresa?.nomefantasia || empresa?.razaosocial || "Oficina Mecânica";
@@ -186,29 +229,61 @@ export default async function OSFullPage({ params }: PageProps) {
 
   const veiculoNome = joinParts([os.veiculo?.marca, os.veiculo?.modelo], " ");
   const veiculoPlaca = os.veiculo?.placa_formatada || os.veiculo?.placa;
-  const alvoTipo = os.alvo_tipo === "PECA" ? "Peça" : "Veículo";
+  const alvoTipo =
+    os.alvo_tipo === "PECA"
+      ? "Peça"
+      : os.alvo_tipo === "EQUIPAMENTO"
+        ? "Máquina/Equipamento"
+        : "Veículo";
 
   const itens: Array<{
     tipo: "SERVIÇO" | "PEÇA";
     descricao: string;
+    subdescricao?: string | null;
     qtd: number;
     unitario: number | string | null | undefined;
+    descontoTipo: TipoDesconto;
+    desconto: number;
+    descontoAplicado: number;
     subtotal: number | string | null | undefined;
   }> = [
-    ...(os.servicos ?? []).map((s: any) => ({
-      tipo: "SERVIÇO" as const,
-      descricao: s.servico?.descricao || "Serviço",
-      qtd: Number(s.quantidade ?? 1),
-      unitario: s.precounitario,
-      subtotal: s.subtotal,
-    })),
-    ...(os.produtos ?? []).map((p: any) => ({
-      tipo: "PEÇA" as const,
-      descricao: p.produto?.titulo || p.produto?.descricao || "Peça",
-      qtd: Number(p.quantidade ?? 1),
-      unitario: p.precounitario,
-      subtotal: p.subtotal,
-    })),
+    ...(os.servicos ?? []).map((s: any) => {
+      const descricao = String(s.servico?.descricao || "Serviço").trim();
+      const subdescricao = String(s.descricao ?? "").trim();
+      const qtd = Number(s.quantidade ?? 1);
+      const unitario = toNumber(s.precounitario);
+      const descontoTipo = getTipoDesconto(s.desconto_tipo);
+      const desconto = toNumber(s.desconto);
+      return {
+        tipo: "SERVIÇO" as const,
+        descricao,
+        subdescricao: subdescricao && subdescricao.toLocaleLowerCase("pt-BR") !== descricao.toLocaleLowerCase("pt-BR")
+          ? subdescricao
+          : null,
+        qtd,
+        unitario: s.precounitario,
+        descontoTipo,
+        desconto,
+        descontoAplicado: calcularDescontoAplicado(qtd * unitario, descontoTipo, desconto),
+        subtotal: s.subtotal,
+      };
+    }),
+    ...(os.produtos ?? []).map((p: any) => {
+      const qtd = Number(p.quantidade ?? 1);
+      const unitario = toNumber(p.precounitario);
+      const descontoTipo = getTipoDesconto(p.desconto_tipo);
+      const desconto = toNumber(p.desconto);
+      return {
+        tipo: "PEÇA" as const,
+        descricao: p.produto?.titulo || p.produto?.descricao || "Peça",
+        qtd,
+        unitario: p.precounitario,
+        descontoTipo,
+        desconto,
+        descontoAplicado: calcularDescontoAplicado(qtd * unitario, descontoTipo, desconto),
+        subtotal: p.subtotal,
+      };
+    }),
   ];
 
   const metaOS = [
@@ -225,6 +300,15 @@ export default async function OSFullPage({ params }: PageProps) {
     { k: "Entrada", v: fmtDate(os.dataentrada) },
     { k: "Saída", v: fmtDate(os.datasaida) },
     { k: "Alvo", v: alvoTipo },
+    {
+      k: "Forma de pagamento",
+      v:
+        `${
+          PAYMENT_METHOD_OPTIONS.find(
+            (method) => method.value === os.forma_pagamento,
+          )?.label ?? "Não informada"
+        }${os.parcelas_pagamento ? ` em ${os.parcelas_pagamento}x` : ""}`,
+    },
   ];
 
   return (
@@ -635,6 +719,8 @@ export default async function OSFullPage({ params }: PageProps) {
 
   .col-qtd{ width:50px; text-align:center; font-weight:700; }
   .col-unit{ width:90px; text-align:right; font-weight:600; }
+  .col-desconto{ width:100px; text-align:right; font-weight:600; }
+  .desconto-percentual{ color: var(--muted); font-size:8px; margin-top:2px; }
   .col-sub{ width:100px; text-align:right; font-weight:700; color: var(--brand-primary); }
 
   .rodape{
@@ -859,18 +945,40 @@ export default async function OSFullPage({ params }: PageProps) {
 
               <div className="cartao cartao-destaque col-span-2">
                 <div className="titulo-secao">
-                  {alvoTipo === "Peça" ? (
+                  {alvoTipo !== "Veículo" ? (
                     <Cog className="w-4 h-4" />
                   ) : (
                     <Car className="w-4 h-4" />
                   )}
-                  {alvoTipo === "Peça" ? "Peça / Componente" : "Veículo"}
+                  {alvoTipo === "Peça" ? "Peça / Componente" : alvoTipo}
                 </div>
                 {alvoTipo === "Peça" ? (
                   <div className="h2">
                     {fmtText(
                       os.peca?.titulo?.toUpperCase?.() ?? os.peca?.titulo
                     )}
+                  </div>
+                ) : alvoTipo === "Máquina/Equipamento" ? (
+                  <div>
+                    <div className="h2">{fmtText(os.equipamento_nome)}</div>
+                    <div style={{ marginTop: 8 }}>
+                      <div className="kv">
+                        <span className="k">Patrimônio</span>
+                        <span className="v">{fmtText(os.equipamento_patrimonio)}</span>
+                      </div>
+                      <div className="kv">
+                        <span className="k">Ano</span>
+                        <span className="v">{fmtText(os.equipamento_ano)}</span>
+                      </div>
+                      <div className="kv">
+                        <span className="k">Horímetro</span>
+                        <span className="v">
+                          {os.equipamento_horimetro != null
+                            ? `${os.equipamento_horimetro} h`
+                            : "—"}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 ) : (
                   <>
@@ -924,6 +1032,7 @@ export default async function OSFullPage({ params }: PageProps) {
                       <th>Descrição</th>
                       <th className="col-qtd">Qtd</th>
                       <th className="col-unit">Unit.</th>
+                      <th className="col-desconto">Desconto</th>
                       <th className="col-unit">Subtotal</th>
                     </tr>
                   </thead>
@@ -942,9 +1051,30 @@ export default async function OSFullPage({ params }: PageProps) {
                             {item.tipo}
                           </span>
                         </td>
-                        <td>{item.descricao}</td>
+                        <td>
+                          <div>{item.descricao}</div>
+                          {item.subdescricao ? (
+                            <div className="mt-1 text-[9px] leading-snug text-slate-500">
+                              {item.subdescricao}
+                            </div>
+                          ) : null}
+                        </td>
                         <td className="col-qtd">{item.qtd}</td>
                         <td className="col-unit">{fmtMoney(item.unitario)}</td>
+                        <td className="col-desconto">
+                          {item.descontoAplicado > 0 ? (
+                            <>
+                              <div>- {fmtMoney(item.descontoAplicado)}</div>
+                              {item.descontoTipo === "PORCENTAGEM" ? (
+                                <div className="desconto-percentual">
+                                  {fmtPercent(item.desconto)}%
+                                </div>
+                              ) : null}
+                            </>
+                          ) : (
+                            EMPTY
+                          )}
+                        </td>
                         <td className="col-sub">{fmtMoney(item.subtotal)}</td>
                       </tr>
                     ))}
@@ -962,6 +1092,14 @@ export default async function OSFullPage({ params }: PageProps) {
                     <div className="obs-texto text-sm font-bold clamp-3">
                       {os.observacoes || os.defeitorelatado || EMPTY}
                     </div>{" "}
+                  </div>
+                )}
+                {os.garantia && (
+                  <div className="observacoes-box os-observacoes">
+                    <div className="obs-titulo">Garantia:</div>
+                    <div className="obs-texto text-sm font-bold clamp-3">
+                      {os.garantia}
+                    </div>
                   </div>
                 )}
                 <div className="assinaturas">
@@ -983,6 +1121,24 @@ export default async function OSFullPage({ params }: PageProps) {
                   <span className="label">Serviços</span>
                   <span className="valor">{fmtMoney(totalServicos)}</span>
                 </div>
+
+                {descontoGeralAplicado > 0 ? (
+                  <>
+                    <div className="linha-total">
+                      <span className="label">Subtotal</span>
+                      <span className="valor">{fmtMoney(subtotalOS)}</span>
+                    </div>
+                    <div className="linha-total">
+                      <span className="label">
+                        Desconto geral
+                        {descontoGeralTipo === "PORCENTAGEM"
+                          ? ` (${fmtPercent(os.desconto)}%)`
+                          : ""}
+                      </span>
+                      <span className="valor">- {fmtMoney(descontoGeralAplicado)}</span>
+                    </div>
+                  </>
+                ) : null}
 
                 <div className="linha-total-final">
                   <span className="total-label">Total</span>

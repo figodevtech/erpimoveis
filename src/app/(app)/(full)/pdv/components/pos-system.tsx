@@ -77,6 +77,10 @@ import { useGruposProduto } from "@/app/(app)/(pages)/estoque/components/dialog-
 import { useRouter } from "next/navigation";
 import { useConfig } from "@/app/(app)/(pages)/config-context";
 import { formatCurrencyBRL } from "@/app/(app)/(pages)/dashboard/components/dashboard-ordemservico/lib/format";
+import {
+  PAYMENT_METHOD_OPTIONS,
+  type PaymentMethodOption,
+} from "@/lib/payment-methods";
 
 interface CartItem {
   id: number;
@@ -88,14 +92,7 @@ interface CartItem {
 }
 
 type DiscountType = "FIXO" | "PORCENTAGEM";
-type PaymentMethod =
-  | "CREDITO"
-  | "DEBITO"
-  | "DINHEIRO"
-  | "PIX"
-  | "BOLETO"
-  | "NAO_INFORMAR";
-type PaymentMethodOption = Exclude<PaymentMethod, "NAO_INFORMAR">;
+type PaymentMethod = PaymentMethodOption | "NAO_INFORMAR";
 type PaymentAmounts = Partial<Record<PaymentMethodOption, string>>;
 type CategoriaVenda = {
   id: number;
@@ -103,17 +100,6 @@ type CategoriaVenda = {
   descricao?: string | null;
   ativo?: boolean | null;
 };
-
-const PAYMENT_METHOD_OPTIONS: Array<{
-  value: PaymentMethodOption;
-  label: string;
-}> = [
-  { value: "CREDITO", label: "Crédito" },
-  { value: "DEBITO", label: "Débito" },
-  { value: "DINHEIRO", label: "Dinheiro" },
-  { value: "PIX", label: "Pix" },
-  { value: "BOLETO", label: "Boleto" },
-];
 
 const moneyToCents = (value: number) => Math.round((Number.isFinite(value) ? value : 0) * 100);
 
@@ -160,6 +146,8 @@ export function POSSystem() {
   >(undefined);
   const [discount, setDiscount] = useState(0);
   const [discountType, setDiscountType] = useState<DiscountType | null>(null);
+  const [hasFreight, setHasFreight] = useState(false);
+  const [freight, setFreight] = useState(0);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>(
     ["NAO_INFORMAR"]
   );
@@ -343,7 +331,8 @@ export function POSSystem() {
           subtotal * (Math.min(normalizedDiscountInput, 100) / 100),
         )
       : Math.min(subtotal, normalizedDiscountInput);
-  const total = Math.max(0, subtotal - discountAmount);
+  const freightAmount = hasFreight && Number.isFinite(freight) ? Math.max(0, freight) : 0;
+  const total = Math.max(0, subtotal - discountAmount + freightAmount);
   const hasPaymentMethodSelected = paymentMethods.some(
     (method) => method !== "NAO_INFORMAR"
   );
@@ -493,6 +482,7 @@ export function POSSystem() {
       descontoValor: discountAmount > 0 ? discountAmount : null,
       categoriaVendaId: selectedSaleCategoryId,
       subTotal: subtotal,
+      valorFrete: freightAmount,
       valorTotal: total,
       formaPagamento: null,
       dataVenda: null,
@@ -514,6 +504,8 @@ export function POSSystem() {
       setCart([]);
       setDiscount(0);
       setDiscountType(null);
+      setHasFreight(false);
+      setFreight(0);
       setSelectedSaleCategoryId(null);
       setPaymentMethods(["NAO_INFORMAR"]);
       setPaymentAmounts({});
@@ -563,6 +555,7 @@ export function POSSystem() {
       descontoValor: discountAmount > 0 ? discountAmount : null,
       categoriaVendaId: selectedSaleCategoryId,
       subTotal: subtotal,
+      valorFrete: freightAmount,
       valorTotal: total,
       formaPagamento:
         buildFormaPagamento(),
@@ -585,6 +578,8 @@ export function POSSystem() {
       setCart([]);
       setDiscount(0);
       setDiscountType(null);
+      setHasFreight(false);
+      setFreight(0);
       setSelectedSaleCategoryId(null);
       setPaymentMethods(["NAO_INFORMAR"]);
       setPaymentAmounts({});
@@ -1211,6 +1206,32 @@ export function POSSystem() {
                           )}
                         </div>
                       </div>
+                      <div className="rounded-md border border-border p-3">
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            id="incluir-frete-venda"
+                            checked={hasFreight}
+                            onCheckedChange={(checked) => {
+                              const enabled = checked === true;
+                              setHasFreight(enabled);
+                              if (!enabled) setFreight(0);
+                            }}
+                          />
+                          <label htmlFor="incluir-frete-venda" className="text-sm font-medium leading-none">
+                            Incluir frete na venda
+                          </label>
+                        </div>
+                        {hasFreight ? (
+                          <div className="mt-3 space-y-1">
+                            <span className="text-xs text-muted-foreground">Valor do frete</span>
+                            <ValueInput
+                              value={freight}
+                              onValueChange={setFreight}
+                              aria-label="Valor do frete"
+                            />
+                          </div>
+                        ) : null}
+                      </div>
                       <div className="flex justify-between text-sm text-muted-foreground">
                         <span>Subtotal:</span>
                         <span>{formatCurrencyBRL(subtotal)}</span>
@@ -1235,6 +1256,13 @@ export function POSSystem() {
                           </span>
                         </div>
                       )}
+
+                      {hasFreight ? (
+                        <div className="flex justify-between text-sm text-muted-foreground">
+                          <span>Frete:</span>
+                          <span>+ {formatCurrencyBRL(freightAmount)}</span>
+                        </div>
+                      ) : null}
 
                       <div className="flex justify-between text-sm text-muted-foreground"></div>
                       <div className="flex justify-between text-lg font-bold text-primary-foreground bg-primary p-2 rounded">

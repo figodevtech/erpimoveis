@@ -14,7 +14,7 @@ const supabase = createClient(
 );
 
 type Prioridade = "BAIXA" | "NORMAL" | "ALTA";
-type AlvoTipo = "VEICULO" | "PECA";
+type AlvoTipo = "VEICULO" | "PECA" | "EQUIPAMENTO";
 type CkStatus = "OK" | "ALERTA" | "FALHA";
 
 const toNum = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
@@ -58,6 +58,10 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
           "acrescimo_financeiro_valor",
           "observacoes",
           "observacoes_fiscais",
+          "forma_pagamento",
+          "parcelas_pagamento",
+          "descricao_financeiro",
+          "garantia",
           "motivo_cancelamento",
           "motivo_sem_cobranca",
           "createdat",
@@ -66,6 +70,10 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
           "prioridade",
           "alvo_tipo",
           "pecaid",
+          "equipamento_nome",
+          "equipamento_patrimonio",
+          "equipamento_ano",
+          "equipamento_horimetro",
           "motivo_cancelamento",
           "execucao_inicio_em"
         ].join(",")
@@ -95,12 +103,20 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       acrescimo_financeiro_valor?: number | null;
       observacoes: string | null;
       observacoes_fiscais: string | null;
+      forma_pagamento: string | null;
+      parcelas_pagamento: number | null;
+      descricao_financeiro: string | null;
+      garantia: string | null;
       createdat: string | null;
       updatedat: string | null;
       checklist_modelo_id: number | null;
       prioridade: Prioridade | null;
       alvo_tipo: AlvoTipo | null;
       pecaid: number | null;
+      equipamento_nome: string | null;
+      equipamento_patrimonio: string | null;
+      equipamento_ano: number | null;
+      equipamento_horimetro: number | null;
       motivo_cancelamento?: string | null;
       motivo_sem_cobranca?: string | null;
     };
@@ -237,6 +253,16 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         };
       }
     }
+
+    const equipamento =
+      osRow.alvo_tipo === "EQUIPAMENTO" && osRow.equipamento_nome
+        ? {
+            nome: osRow.equipamento_nome,
+            patrimonio: osRow.equipamento_patrimonio,
+            ano: osRow.equipamento_ano,
+            horimetro: osRow.equipamento_horimetro,
+          }
+        : null;
 
     // Checklist + imagens (+ usuário que respondeu)
     const ck_res = await supabase
@@ -561,6 +587,10 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       descricao: osRow.descricao ?? null,
       observacoes: osRow.observacoes ?? null,
       observacoes_fiscais: osRow.observacoes_fiscais ?? null,
+      forma_pagamento: osRow.forma_pagamento ?? null,
+      parcelas_pagamento: osRow.parcelas_pagamento ?? null,
+      descricao_financeiro: osRow.descricao_financeiro ?? null,
+      garantia: osRow.garantia ?? null,
       motivocancelamento: (osRow as any).motivo_cancelamento ?? null,
       motivosemcobranca: (osRow as any).motivo_sem_cobranca ?? null,
       status: osRow.status ?? null,
@@ -574,6 +604,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       cliente,
       veiculo,
       peca,
+      equipamento,
     };
 
     const orcamento = {
@@ -649,9 +680,11 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string 
     const alvo_tipoStr = pickStr("alvo_tipo", "alvoTipo") ?? (body?.alvo?.tipo != null ? String(body.alvo.tipo) : undefined);
     const alvo_tipo = ((): AlvoTipo | undefined => {
       const up = (alvo_tipoStr || "").toUpperCase();
-      return up === "VEICULO" || up === "PECA" ? (up as AlvoTipo) : undefined;
+      return up === "VEICULO" || up === "PECA" || up === "EQUIPAMENTO"
+        ? (up as AlvoTipo)
+        : undefined;
     })();
-    const pecaid = pickNum("pecaid", "pecaId");
+    let pecaid = pickNum("pecaid", "pecaId");
     const veiculoid =
       body?.veiculoid === null || body?.veiculoId === null || body?.alvo?.veiculoid === null
         ? null
@@ -699,6 +732,78 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string 
       }
     }
 
+    const alvoEquipamento =
+      body?.alvo?.tipo === "EQUIPAMENTO" ? body?.alvo?.equipamento ?? null : null;
+    const equipamentoNome =
+      alvo_tipo === "EQUIPAMENTO"
+        ? String(alvoEquipamento?.nome ?? "").trim()
+        : null;
+    const equipamentoPatrimonio =
+      alvo_tipo === "EQUIPAMENTO"
+        ? String(alvoEquipamento?.patrimonio ?? "").trim() || null
+        : null;
+    const equipamentoAno =
+      alvo_tipo === "EQUIPAMENTO" &&
+      alvoEquipamento?.ano !== null &&
+      alvoEquipamento?.ano !== undefined
+        ? Number(alvoEquipamento.ano)
+        : null;
+    const equipamentoHorimetro =
+      alvo_tipo === "EQUIPAMENTO" &&
+      alvoEquipamento?.horimetro !== null &&
+      alvoEquipamento?.horimetro !== undefined
+        ? Number(alvoEquipamento.horimetro)
+        : null;
+
+    if (alvo_tipo === "EQUIPAMENTO") {
+      if (!equipamentoNome) {
+        return NextResponse.json({ error: "Informe o nome do equipamento." }, { status: 400 });
+      }
+      if (
+        equipamentoAno !== null &&
+        (!Number.isInteger(equipamentoAno) || equipamentoAno < 1900 || equipamentoAno > 3000)
+      ) {
+        return NextResponse.json({ error: "Ano do equipamento inválido." }, { status: 400 });
+      }
+      if (
+        equipamentoHorimetro !== null &&
+        (!Number.isFinite(equipamentoHorimetro) || equipamentoHorimetro < 0)
+      ) {
+        return NextResponse.json({ error: "Horímetro inválido." }, { status: 400 });
+      }
+    }
+
+    if (alvo_tipo === "PECA" && pecaid == null) {
+      const atual = await supabase
+        .from("ordemservico")
+        .select("pecaid")
+        .eq("id", osId)
+        .maybeSingle();
+      if (atual.error) throw atual.error;
+      pecaid = atual.data?.pecaid ?? null;
+
+      if (pecaid == null) {
+        const alvoPecaNovo = body?.alvo?.peca ?? null;
+        const nome = String(alvoPecaNovo?.nome ?? "").trim();
+        if (!nome) {
+          return NextResponse.json({ error: "Informe o nome da peça." }, { status: 400 });
+        }
+        const novaPeca = await supabase
+          .from("peca")
+          .insert({
+            clienteid: clienteid ?? null,
+            veiculoid: null,
+            titulo: nome,
+            descricao: String(alvoPecaNovo?.descricao ?? "").trim() || null,
+            lacre: String(alvoPecaNovo?.lacre ?? "").trim() || null,
+          })
+          .select("id")
+          .single();
+        if (novaPeca.error) throw novaPeca.error;
+        pecaid = Number(novaPeca.data.id);
+      }
+    }
+
     const patch: Record<string, unknown> = {};
     if (clienteid !== undefined) patch.clienteid = clienteid;
     if (setorid !== undefined) patch.setorid = setorid;
@@ -709,8 +814,28 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string 
     if (alvo_tipo !== undefined) patch.alvo_tipo = alvo_tipo;
     if (pecaid !== undefined) patch.pecaid = pecaid;
     if (veiculoid !== undefined) patch.veiculoid = veiculoid;
-    if (alvo_tipo === "VEICULO") patch.pecaid = null;
-    if (alvo_tipo === "PECA") patch.veiculoid = null;
+    if (alvo_tipo === "VEICULO") {
+      patch.pecaid = null;
+      patch.equipamento_nome = null;
+      patch.equipamento_patrimonio = null;
+      patch.equipamento_ano = null;
+      patch.equipamento_horimetro = null;
+    }
+    if (alvo_tipo === "PECA") {
+      patch.veiculoid = null;
+      patch.equipamento_nome = null;
+      patch.equipamento_patrimonio = null;
+      patch.equipamento_ano = null;
+      patch.equipamento_horimetro = null;
+    }
+    if (alvo_tipo === "EQUIPAMENTO") {
+      patch.veiculoid = null;
+      patch.pecaid = null;
+      patch.equipamento_nome = equipamentoNome;
+      patch.equipamento_patrimonio = equipamentoPatrimonio;
+      patch.equipamento_ano = equipamentoAno;
+      patch.equipamento_horimetro = equipamentoHorimetro;
+    }
 
     if (Object.keys(patch).length) {
       const upd_res = await supabase.from("ordemservico").update(patch).eq("id", osId);
