@@ -286,8 +286,12 @@ export async function POST(req: Request) {
     if (error) {
       // 23505 = unique_violation (ex.: se você criar UNIQUE em codigobarras)
       if ((error as any).code === "23505") {
+        const databaseMessage = String((error as any).message ?? "");
+        const message = /item de uso e consumo com esta etiqueta|produto com esta etiqueta/i.test(databaseMessage)
+          ? databaseMessage
+          : "Violação de unicidade (já cadastrado).";
         return NextResponse.json(
-          { error: "Violação de unicidade (já cadastrado)." },
+          { error: message },
           { status: 409 }
         );
       }

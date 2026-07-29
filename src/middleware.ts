@@ -110,6 +110,18 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
   { prefix: "/veiculos", perm: PERMS.VEICULOS },
 ];
 
+const ROUTE_ANY_PERMS: Array<{ prefix: string; perms: Permission[] }> = [
+  {
+    prefix: "/api/etiquetas",
+    perms: [
+      PERMS.ESTOQUE, PERMS.ESTOQUE_CRIAR, PERMS.ESTOQUE_EDITAR,
+      PERMS.USOCONSUMO, PERMS.USOCONSUMO_CRIAR, PERMS.USOCONSUMO_EDITAR,
+    ],
+  },
+  { prefix: "/etiquetas", perms: [PERMS.ESTOQUE, PERMS.USOCONSUMO] },
+  { prefix: "/print/etiquetas", perms: [PERMS.ESTOQUE, PERMS.USOCONSUMO] },
+];
+
 const API_ACTION_PERMS: Array<{
   prefix: string;
   read: Permission;
@@ -136,6 +148,12 @@ const API_ACTION_PERMS: Array<{
 
 function matchRule(pathname: string) {
   return ROUTE_PERMS.find(
+    (r) => pathname === r.prefix || pathname.startsWith(r.prefix + "/"),
+  );
+}
+
+function matchAnyRule(pathname: string) {
+  return ROUTE_ANY_PERMS.find(
     (r) => pathname === r.prefix || pathname.startsWith(r.prefix + "/"),
   );
 }
@@ -397,6 +415,25 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
       const fallbackPath = getDefaultRouteForPerms((user as any)?.permissoes);
       const targetPath = fallbackPath !== pathname ? fallbackPath : "/nao-autorizado";
 
+      return NextResponse.redirect(new URL(targetPath, nextUrl), {
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+  }
+
+  const anyRule = matchAnyRule(pathname);
+  if (anyRule) {
+    const ok = anyRule.perms.some((perm) => hasPermFromSession(user, perm));
+    if (!ok) {
+      if (isApi) {
+        return NextResponse.json(
+          { error: "FORBIDDEN" },
+          { status: 403, headers: { "Cache-Control": "no-store" } },
+        );
+      }
+
+      const fallbackPath = getDefaultRouteForPerms((user as any)?.permissoes);
+      const targetPath = fallbackPath !== pathname ? fallbackPath : "/nao-autorizado";
       return NextResponse.redirect(new URL(targetPath, nextUrl), {
         headers: { "Cache-Control": "no-store" },
       });

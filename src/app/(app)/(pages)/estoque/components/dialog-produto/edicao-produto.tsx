@@ -182,12 +182,15 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
       }
     } catch (error) {
       console.log("Erro ao atualizar produto:", error);
-      const conflict = isAxiosError(error) && error.response?.status === 409;
+      const apiMessage = isAxiosError(error) ? String(error.response?.data?.error ?? "") : "";
+      const concurrencyConflict = isAxiosError(error)
+        && error.response?.status === 409
+        && /alterado por outro|recarregue/i.test(apiMessage);
       toast.error("Erro", {
-        description: conflict
+        description: concurrencyConflict
           ? "Um dos campos alterados foi modificado por outra pessoa. Feche e abra o cadastro novamente antes de salvar."
           : isAxiosError(error)
-          ? error.response?.data?.error ?? "Não foi possível salvar o produto."
+          ? apiMessage || "Não foi possível salvar o produto."
           : "Não foi possível salvar o produto.",
         duration: 2500,
       });

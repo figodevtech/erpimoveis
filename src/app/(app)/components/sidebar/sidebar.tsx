@@ -36,6 +36,7 @@ import {
   FileClock,
   CreditCard,
   MonitorCheck,
+  ChartNoAxesColumnIncreasing,
 } from "lucide-react";
 
 import { NavMain } from "./components/nav-main";
@@ -123,7 +124,7 @@ const data = {
         },
         {
           title: "Etiquetas",
-          url: "/estoque/etiquetas",
+          url: "/etiquetas?origem=produto",
           icon: Tags,
           perm: PERMS.ESTOQUE,
         },
@@ -135,7 +136,7 @@ const data = {
         },
         {
           title: "Consulta Etiqueta",
-          url: "/estoque/registrar-etiqueta",
+          url: "/etiquetas/registrar?origem=produto",
           icon: ScanLine,
           perm: PERMS.ESTOQUE,
         },
@@ -155,7 +156,7 @@ const data = {
         },
         {
           title: "Etiquetas",
-          url: "/usoconsumo/etiquetas",
+          url: "/etiquetas?origem=usoconsumo",
           icon: Tags,
           perm: PERMS.USOCONSUMO,
         },
@@ -167,8 +168,14 @@ const data = {
         },
         {
           title: "Consulta Etiqueta",
-          url: "/usoconsumo/registrar-etiqueta",
+          url: "/etiquetas/registrar?origem=usoconsumo",
           icon: ScanLine,
+          perm: PERMS.USOCONSUMO,
+        },
+        {
+          title: "Relatórios",
+          url: "/usoconsumo/relatorios",
+          icon: ChartNoAxesColumnIncreasing,
           perm: PERMS.USOCONSUMO,
         },
       ],

@@ -24,6 +24,7 @@ import { TagInput } from "../../estoque/components/dialog-produto/tag-input";
 import { ItemImagesTab } from "./item-images-tab";
 import { useItemImages } from "./use-item-images";
 import { ItemMovementsTab, type UsoConsumoEntradaMovimento, type UsoConsumoSaidaMovimento } from "./item-movements-tab";
+import { crossInventoryLabelMessage, lookupInventoryLabel } from "@/lib/inventory-labels";
 
 type Detail = UsoConsumoItem & {
   entradas?: UsoConsumoEntradaMovimento[];
@@ -166,6 +167,22 @@ function ItemDialogContent({ item, grupos, onOpenChange, onSaved, onGroupsChange
       setCurrentTab("Geral");
       toast.error("Informe o título do item.");
       return;
+    }
+
+    const etiqueta = String(form.etiqueta ?? "").trim();
+    if (etiqueta) {
+      try {
+        const lookup = await lookupInventoryLabel(etiqueta);
+        const conflict = crossInventoryLabelMessage("USOCONSUMO", lookup);
+        if (conflict) {
+          setCurrentTab("Etiquetas");
+          toast.error("Etiqueta já utilizada", { description: conflict });
+          return;
+        }
+      } catch (error) {
+        toast.error("Não foi possível validar a etiqueta", { description: errorText(error) });
+        return;
+      }
     }
 
     setSaving(true);

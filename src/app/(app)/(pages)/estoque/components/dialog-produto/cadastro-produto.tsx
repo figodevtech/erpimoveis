@@ -18,6 +18,7 @@ import { Unidade_medida } from "../../types";
 import { useGruposProduto } from "./hooks/use-grupo-produtos";
 import type { LoteSelectItem } from "@/app/(app)/components/loteSelect";
 import { useConfig } from "../../../config-context";
+import { crossInventoryLabelMessage, lookupInventoryLabel } from "@/lib/inventory-labels";
 
 interface ConteudoCadastroProdutoProps {
   setSelectedProductId?: (value: number | undefined) => void;
@@ -136,6 +137,24 @@ export default function CadastroProduto({
         description: "Informe um valor médio de compra maior que zero.",
       });
       return;
+    }
+
+    const etiqueta = String(newProduct.etiqueta ?? "").trim();
+    if (etiqueta) {
+      try {
+        const lookup = await lookupInventoryLabel(etiqueta);
+        const conflict = crossInventoryLabelMessage("PRODUTO", lookup);
+        if (conflict) {
+          setCurrentTab("Etiquetas");
+          toast.error("Etiqueta já utilizada", { description: conflict });
+          return;
+        }
+      } catch (error) {
+        toast.error("Não foi possível validar a etiqueta", {
+          description: error instanceof Error ? error.message : "Tente novamente.",
+        });
+        return;
+      }
     }
 
     setSalvando(true);

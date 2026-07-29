@@ -101,7 +101,7 @@ function EtiquetasPrintContent() {
       <div className="flex min-h-screen flex-col items-center justify-center gap-3 p-6 text-center">
         <p className="text-lg font-semibold">Etiquetas não encontradas.</p>
         <Button asChild variant="outline">
-          <Link href="/estoque/etiquetas">Voltar</Link>
+          <Link href="/etiquetas">Voltar</Link>
         </Button>
       </div>
     );
@@ -198,7 +198,7 @@ function EtiquetasPrintContent() {
         </div>
         <div className="flex gap-2">
           <Button asChild size="sm" variant="outline">
-            <Link href="/estoque/etiquetas">
+            <Link href="/etiquetas">
               <Power className="h-3 w-3" />
               Sair
             </Link>

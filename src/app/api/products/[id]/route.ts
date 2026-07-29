@@ -162,7 +162,13 @@ async function updateProduto(
 
   if (error) {
     if ((error as any).code === "23505") {
-      throw new HttpError("Violação de unicidade (já cadastrado).", 409);
+      const databaseMessage = String((error as any).message ?? "");
+      throw new HttpError(
+        /item de uso e consumo com esta etiqueta|produto com esta etiqueta/i.test(databaseMessage)
+          ? databaseMessage
+          : "Violação de unicidade (já cadastrado).",
+        409,
+      );
     }
     throw error;
   }
