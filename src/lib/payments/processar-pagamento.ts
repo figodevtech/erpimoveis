@@ -1,13 +1,6 @@
 // src/lib/pagamentos/processar-pagamento.ts
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { fecharPedidoPos } from "./pagarme-connect";
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-export const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
 
 // Literal já usado nas suas rotas de transação
 const TIPO_TRANSACAO_RECEITA = "RECEITA";

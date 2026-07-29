@@ -323,7 +323,9 @@ export async function POST(
         statusaprovacao: desiredAprov,
         status: desiredOS,
       })
-      .eq("id", ordemservicoid);
+      .eq("id", ordemservicoid)
+      .setHeader("x-audit-actor-type", "cliente")
+      .setHeader("x-audit-actor-name", "Cliente via link de aprovação");
 
     if (upd.error) throw upd.error;
 
@@ -338,7 +340,9 @@ export async function POST(
         aprovador_usuario_id: null,
       })
       .eq("id", tokenRow.id)
-      .is("usado_em", null);
+      .is("usado_em", null)
+      .setHeader("x-audit-actor-type", "cliente")
+      .setHeader("x-audit-actor-name", "Cliente via link de aprovação");
 
     if (mark.error) throw mark.error;
 

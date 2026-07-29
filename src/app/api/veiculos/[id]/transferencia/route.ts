@@ -1,14 +1,8 @@
 // app/api/veiculos/[id]/transferencia/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
 import { requireVeiculosEdit } from "@/app/api/_authz/perms";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false, autoRefreshToken: false } }
-);
 
 type Body = {
   novoDonoId: number; // cliente.id

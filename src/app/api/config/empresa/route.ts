@@ -1,14 +1,8 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!, // server
-  { auth: { persistSession: false, autoRefreshToken: false } }
-);
 
 function normalizarRegimeTributario(valor: unknown): "1" | "2" | "3" | "4" {
   const regime = String(valor || "1").trim();
