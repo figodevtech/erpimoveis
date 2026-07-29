@@ -180,9 +180,28 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
   const acrescimoAplicado = calculateFinancialSurcharge(totalComDesconto, acrescimoTipo, acrescimo);
   const totalFinanceiro = calculateFinancialTotal(totalComDesconto, acrescimoTipo, acrescimo);
   const saldoDevedor = Math.max(0, totalFinanceiro - totalPago);
+  const alvoLabel =
+    ordem?.alvo_tipo === "PECA"
+      ? "Peça"
+      : ordem?.alvo_tipo === "EQUIPAMENTO"
+        ? "Máquina/Equipamento"
+        : "Veículo";
   const alvoDescricao =
     ordem?.alvo_tipo === "PECA"
       ? ordem?.peca?.titulo || ordem?.peca?.descricao || "Peça"
+      : ordem?.alvo_tipo === "EQUIPAMENTO"
+        ? [
+            ordem?.equipamento?.nome,
+            ordem?.equipamento?.patrimonio
+              ? `Patrimônio ${ordem.equipamento.patrimonio}`
+              : null,
+            ordem?.equipamento?.ano ? `Ano ${ordem.equipamento.ano}` : null,
+            ordem?.equipamento?.horimetro != null
+              ? `Horímetro ${ordem.equipamento.horimetro}h`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" — ") || "Equipamento não informado"
       : ordem?.veiculo
         ? `${ordem.veiculo.marca ?? ""} ${ordem.veiculo.modelo ?? ""} ${ordem.veiculo.placa ? `- ${ordem.veiculo.placa}` : ""}`.trim()
         : "Não vinculado";
@@ -523,7 +542,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
               <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
                 <div className="rounded-lg border bg-card p-4">
                   <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Alvo</span>
-                  <p className="mt-1 text-sm font-medium">{ordem.alvo_tipo === "PECA" ? "Peça" : "Veículo"}</p>
+                  <p className="mt-1 text-sm font-medium">{alvoLabel}</p>
                   <p className="text-xs text-muted-foreground line-clamp-2">{alvoDescricao}</p>
                 </div>
 
@@ -531,6 +550,35 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                   <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Cobrança</span>
                   <p className="mt-1 text-sm font-medium">{formatarEmReal(totalFinanceiro)}</p>
                   <p className="text-xs text-muted-foreground">Aberto: {formatarEmReal(saldoDevedor)}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                <div className="rounded-lg border bg-card p-4">
+                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    Pagamento previsto
+                  </span>
+                  <p className="mt-1 text-sm font-medium">
+                    {ordem.forma_pagamento || "Não informado"}
+                    {ordem.parcelas_pagamento
+                      ? ` em ${ordem.parcelas_pagamento}x`
+                      : ""}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-card p-4">
+                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    Descrição para o financeiro
+                  </span>
+                  <p className="mt-1 text-sm whitespace-pre-wrap">
+                    {ordem.descricao_financeiro || "Não informada"}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-card p-4">
+                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    Garantia
+                  </span>
+                  <p className="mt-1 text-sm whitespace-pre-wrap">
+                    {ordem.garantia || "Não informada"}
+                  </p>
                 </div>
               </div>
           {ordem.descricao || ordem.observacoes || ordem.observacoes_fiscais ? (

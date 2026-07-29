@@ -40,6 +40,13 @@ export type Peca = {
   lacre?: string | null;
 }
 
+export type Equipamento = {
+  nome: string;
+  patrimonio?: string | null;
+  ano?: number | null;
+  horimetro?: number | null;
+};
+
 export type Ordem = {
   id: number;
   numero?: string;
@@ -53,9 +60,14 @@ export type Ordem = {
   descricao?: string | null;
   observacoes?: string | null;
   observacoes_fiscais?: string | null;
+  forma_pagamento?: string | null;
+  parcelas_pagamento?: number | null;
+  descricao_financeiro?: string | null;
+  garantia?: string | null;
   cliente?: Cliente | null;
   veiculo?: Veiculo | null;
   peca?: Peca | null
+  equipamento?: Equipamento | null;
   checklistTemplateId?: string | null;
   orcamentototal:number;
   subtotal?: number | null;
@@ -66,7 +78,7 @@ export type Ordem = {
   transacoes: Transaction[] | null
   is_deleted?: boolean
   created_at?: Date
-  alvo_tipo?: "VEICULO" | "PECA" | null
+  alvo_tipo?: "VEICULO" | "PECA" | "EQUIPAMENTO" | null
 };
 
 export type OrcamentoTotais = {

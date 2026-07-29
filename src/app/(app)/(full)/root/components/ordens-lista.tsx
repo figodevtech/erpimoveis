@@ -259,7 +259,7 @@ export function OrdensList({
                   </TableCell>
                   <TableCell className="hidden md:flex max-w-70 flex-row items-center gap-2">
                     <div>
-                      {ordem.alvo_tipo === "PECA" ? (
+                      {ordem.alvo_tipo !== "VEICULO" ? (
                         <Box className="w-4 h-4" />
                       ) : (
                         <Car className="w-4 h-4" />
@@ -269,6 +269,7 @@ export function OrdensList({
                       <p className="">
                         {ordem.veiculo?.placa ||
                           ordem.peca?.titulo.toUpperCase() ||
+                          ordem.equipamento?.nome ||
                           "-"}
                       </p>
                       <p className="whitespace-pre-wrap break-words text-[10px] text-muted-foreground">
@@ -276,6 +277,17 @@ export function OrdensList({
                           `${ordem.veiculo.marca} ${ordem.veiculo.modelo}`}
                         {ordem.peca &&
                           `${ordem.peca.descricao?.toUpperCase() || ""}`}
+                        {ordem.equipamento &&
+                          [
+                            ordem.equipamento.patrimonio
+                              ? `Patrimônio ${ordem.equipamento.patrimonio}`
+                              : null,
+                            ordem.equipamento.horimetro != null
+                              ? `${ordem.equipamento.horimetro} h`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" • ")}
                       </p>
                     </div>
                   </TableCell>

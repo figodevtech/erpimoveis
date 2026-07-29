@@ -22,6 +22,7 @@ Calculator,
 Car,
 CheckSquare,
 Copy,
+CreditCard,
 Download,
 ExternalLink,
 FileText,
@@ -73,6 +74,7 @@ import TransactionDialog from "../../../(financeiro)/fluxodecaixa/components/tra
 import ValueInput from "../../../(financeiro)/fluxodecaixa/components/transactionDialog/valueInput";
 import { DialogProduto } from "../../../estoque/components/dialog-produto/dialog-produto";
 import { Tipo_transacao, type Transaction } from "../../../(financeiro)/fluxodecaixa/types";
+import { PAYMENT_METHOD_OPTIONS } from "@/lib/payment-methods";
 
 const PUBLIC_APPROVAL_BASE = "/aprovacao";
 function approvalUrlFromToken(token: string) {
@@ -139,6 +141,10 @@ type OS = {
   descricao?: string | null;
   observacoes?: string | null;
   observacoes_fiscais?: string | null;
+  forma_pagamento?: string | null;
+  parcelas_pagamento?: number | null;
+  descricao_financeiro?: string | null;
+  garantia?: string | null;
   status?: string | null;
   statusaprovacao?: string | null;
   prioridade?: "ALTA" | "NORMAL" | "BAIXA" | null;
@@ -150,8 +156,14 @@ type OS = {
   setor?: { id: number; nome: string } | null;
   cliente?: { id: number; nomerazaosocial: string } | null;
   veiculo?: { id: number; placa?: string | null; modelo?: string | null; marca?: string | null } | null;
-  alvo_tipo?: "VEICULO" | "PECA" | null;
+  alvo_tipo?: "VEICULO" | "PECA" | "EQUIPAMENTO" | null;
   peca?: { id: number; titulo: string; lacre?: string | null; descricao?: string | null } | null;
+  equipamento?: {
+    nome: string;
+    patrimonio?: string | null;
+    ano?: number | null;
+    horimetro?: number | null;
+  } | null;
 };
 
 type ItemProduto = {
@@ -1070,8 +1082,14 @@ export function OSDetalhesDialog({
 
                 <div className="rounded-lg border bg-card p-4">
                   <div className="flex items-center gap-2 mb-1.5">
-                    {data.os.alvo_tipo === "PECA" ? <Wrench className="h-4 w-4 text-primary" /> : <Car className="h-4 w-4 text-primary" />}
-                    <span className="text-sm font-medium">{data.os.alvo_tipo === "PECA" ? "Peça" : "Veículo"}</span>
+                    {data.os.alvo_tipo === "VEICULO" ? <Car className="h-4 w-4 text-primary" /> : <Wrench className="h-4 w-4 text-primary" />}
+                    <span className="text-sm font-medium">
+                      {data.os.alvo_tipo === "PECA"
+                        ? "Peça"
+                        : data.os.alvo_tipo === "EQUIPAMENTO"
+                          ? "Máquina/Equipamento"
+                          : "Veículo"}
+                    </span>
                   </div>
                   {data.os.alvo_tipo === "PECA" ? (
                     <div className="text-sm space-y-1">
@@ -1083,6 +1101,19 @@ export function OSDetalhesDialog({
                         <div className="text-xs text-muted-foreground whitespace-pre-wrap">
                           {data.os.peca.descricao}
                         </div>
+                      ) : null}
+                    </div>
+                  ) : data.os.alvo_tipo === "EQUIPAMENTO" ? (
+                    <div className="space-y-1 text-sm">
+                      <div className="font-medium">{data.os.equipamento?.nome ?? "Equipamento"}</div>
+                      {data.os.equipamento?.patrimonio ? (
+                        <div className="text-xs text-muted-foreground">Patrimônio: {data.os.equipamento.patrimonio}</div>
+                      ) : null}
+                      {data.os.equipamento?.ano != null ? (
+                        <div className="text-xs text-muted-foreground">Ano: {data.os.equipamento.ano}</div>
+                      ) : null}
+                      {data.os.equipamento?.horimetro != null ? (
+                        <div className="text-xs text-muted-foreground">Horímetro: {data.os.equipamento.horimetro} h</div>
                       ) : null}
                     </div>
                   ) : (
@@ -1100,6 +1131,41 @@ export function OSDetalhesDialog({
                     <span className="text-sm font-medium">Status de Aprovação</span>
                   </div>
                   <div className="text-sm">{data.os.statusaprovacao ?? "—"}</div>
+                </div>
+
+                <div className="rounded-lg border bg-card p-4">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <CreditCard className="h-4 w-4 text-primary" />
+                    <span className="text-sm font-medium">Forma de pagamento prevista</span>
+                  </div>
+                  <div className="text-sm">
+                    {PAYMENT_METHOD_OPTIONS.find(
+                      (method) => method.value === data.os.forma_pagamento,
+                    )?.label ?? "Não informada"}
+                    {data.os.parcelas_pagamento
+                      ? ` em ${data.os.parcelas_pagamento}x`
+                      : ""}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border bg-card p-4">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <FileText className="h-4 w-4 text-primary" />
+                    <span className="text-sm font-medium">Descrição para o financeiro</span>
+                  </div>
+                  <div className="text-sm whitespace-pre-wrap">
+                    {data.os.descricao_financeiro || "Não informada"}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border bg-card p-4">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <CheckSquare className="h-4 w-4 text-primary" />
+                    <span className="text-sm font-medium">Garantia</span>
+                  </div>
+                  <div className="text-sm whitespace-pre-wrap">
+                    {data.os.garantia || "Não informada"}
+                  </div>
                 </div>
               </section>
 

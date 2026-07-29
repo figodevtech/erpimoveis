@@ -12,6 +12,7 @@ import { ObservacoesToggle } from "../../../components/ObservacoesToggle";
 import { PrintShareMenu } from "../../../components/PrintShareMenu";
 import { fetchPrimeiroLogoEmpresa } from "@/lib/empresa-logo";
 import { fetchPrintColors } from "@/lib/print-config";
+import { PAYMENT_METHOD_OPTIONS } from "@/lib/payment-methods";
 
 export const runtime = "nodejs";
 
@@ -186,7 +187,12 @@ export default async function OSFullPage({ params }: PageProps) {
 
   const veiculoNome = joinParts([os.veiculo?.marca, os.veiculo?.modelo], " ");
   const veiculoPlaca = os.veiculo?.placa_formatada || os.veiculo?.placa;
-  const alvoTipo = os.alvo_tipo === "PECA" ? "Peça" : "Veículo";
+  const alvoTipo =
+    os.alvo_tipo === "PECA"
+      ? "Peça"
+      : os.alvo_tipo === "EQUIPAMENTO"
+        ? "Máquina/Equipamento"
+        : "Veículo";
 
   const itens: Array<{
     tipo: "SERVIÇO" | "PEÇA";
@@ -225,6 +231,15 @@ export default async function OSFullPage({ params }: PageProps) {
     { k: "Entrada", v: fmtDate(os.dataentrada) },
     { k: "Saída", v: fmtDate(os.datasaida) },
     { k: "Alvo", v: alvoTipo },
+    {
+      k: "Forma de pagamento",
+      v:
+        `${
+          PAYMENT_METHOD_OPTIONS.find(
+            (method) => method.value === os.forma_pagamento,
+          )?.label ?? "Não informada"
+        }${os.parcelas_pagamento ? ` em ${os.parcelas_pagamento}x` : ""}`,
+    },
   ];
 
   return (
@@ -859,18 +874,40 @@ export default async function OSFullPage({ params }: PageProps) {
 
               <div className="cartao cartao-destaque col-span-2">
                 <div className="titulo-secao">
-                  {alvoTipo === "Peça" ? (
+                  {alvoTipo !== "Veículo" ? (
                     <Cog className="w-4 h-4" />
                   ) : (
                     <Car className="w-4 h-4" />
                   )}
-                  {alvoTipo === "Peça" ? "Peça / Componente" : "Veículo"}
+                  {alvoTipo === "Peça" ? "Peça / Componente" : alvoTipo}
                 </div>
                 {alvoTipo === "Peça" ? (
                   <div className="h2">
                     {fmtText(
                       os.peca?.titulo?.toUpperCase?.() ?? os.peca?.titulo
                     )}
+                  </div>
+                ) : alvoTipo === "Máquina/Equipamento" ? (
+                  <div>
+                    <div className="h2">{fmtText(os.equipamento_nome)}</div>
+                    <div style={{ marginTop: 8 }}>
+                      <div className="kv">
+                        <span className="k">Patrimônio</span>
+                        <span className="v">{fmtText(os.equipamento_patrimonio)}</span>
+                      </div>
+                      <div className="kv">
+                        <span className="k">Ano</span>
+                        <span className="v">{fmtText(os.equipamento_ano)}</span>
+                      </div>
+                      <div className="kv">
+                        <span className="k">Horímetro</span>
+                        <span className="v">
+                          {os.equipamento_horimetro != null
+                            ? `${os.equipamento_horimetro} h`
+                            : "—"}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 ) : (
                   <>
@@ -962,6 +999,14 @@ export default async function OSFullPage({ params }: PageProps) {
                     <div className="obs-texto text-sm font-bold clamp-3">
                       {os.observacoes || os.defeitorelatado || EMPTY}
                     </div>{" "}
+                  </div>
+                )}
+                {os.garantia && (
+                  <div className="observacoes-box os-observacoes">
+                    <div className="obs-titulo">Garantia:</div>
+                    <div className="obs-texto text-sm font-bold clamp-3">
+                      {os.garantia}
+                    </div>
                   </div>
                 )}
                 <div className="assinaturas">

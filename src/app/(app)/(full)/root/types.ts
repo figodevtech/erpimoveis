@@ -39,6 +39,13 @@ export type Peca = {
 
 }
 
+export type Equipamento = {
+  nome: string;
+  patrimonio?: string | null;
+  ano?: number | null;
+  horimetro?: number | null;
+};
+
 export type OrdemRoot = {
   id: number;
   numero?: string;
@@ -51,12 +58,13 @@ export type OrdemRoot = {
   cliente?: Cliente | null;
   veiculo?: Veiculo | null;
   peca?: Peca | null
+  equipamento?: Equipamento | null;
   checklistTemplateId?: string | null;
   orcamentototal:number;
   transacoes: Transaction[] | null
   is_deleted?: boolean
   createdAt?: Date
-  alvo_tipo?: "VEICULO" | "PECA" | null
+  alvo_tipo?: "VEICULO" | "PECA" | "EQUIPAMENTO" | null
   execucao_inicio_em?: Date | null
   execucao_fim_em?: Date | null
 };

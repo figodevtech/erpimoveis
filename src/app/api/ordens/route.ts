@@ -7,7 +7,7 @@ import { StatusOS } from "@/app/(app)/(pages)/ordens/types";
 import { requireOSAccess } from "@/app/api/_authz/perms";
 
 type Prioridade = "ALTA" | "NORMAL" | "BAIXA" | null;
-type AlvoTipo = "VEICULO" | "PECA" | null;
+type AlvoTipo = "VEICULO" | "PECA" | "EQUIPAMENTO" | null;
 
 function parseStatuses(param?: string | null): StatusOS[] {
   if (!param) return [];
@@ -60,6 +60,10 @@ export async function GET(req: Request) {
         dataentrada,
         datasaida,
         alvo_tipo,
+        equipamento_nome,
+        equipamento_patrimonio,
+        equipamento_ano,
+        equipamento_horimetro,
 
         cliente:clienteid (
           id,
@@ -194,6 +198,8 @@ export async function GET(req: Request) {
       // - algum embed "de filtro" não é null (porque passou no filtro acima)
       const topOr: string[] = [
         `descricao.ilike.${like}`,
+        `equipamento_nome.ilike.${like}`,
+        `equipamento_patrimonio.ilike.${like}`,
         `cFilter.not.is.null`,
         `vFilter.not.is.null`,
         `pFilter.not.is.null`,
@@ -248,6 +254,15 @@ export async function GET(req: Request) {
             id: r.peca.id as number,
             titulo: r.peca.titulo as string,
             descricao: (r.peca.descricao as string | null) ?? null,
+          }
+        : null,
+
+      equipamento: r.alvo_tipo === "EQUIPAMENTO" && r.equipamento_nome
+        ? {
+            nome: r.equipamento_nome as string,
+            patrimonio: (r.equipamento_patrimonio as string | null) ?? null,
+            ano: (r.equipamento_ano as number | null) ?? null,
+            horimetro: (r.equipamento_horimetro as number | null) ?? null,
           }
         : null,
 

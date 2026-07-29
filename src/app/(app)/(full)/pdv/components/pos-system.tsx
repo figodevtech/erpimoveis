@@ -77,6 +77,10 @@ import { useGruposProduto } from "@/app/(app)/(pages)/estoque/components/dialog-
 import { useRouter } from "next/navigation";
 import { useConfig } from "@/app/(app)/(pages)/config-context";
 import { formatCurrencyBRL } from "@/app/(app)/(pages)/dashboard/components/dashboard-ordemservico/lib/format";
+import {
+  PAYMENT_METHOD_OPTIONS,
+  type PaymentMethodOption,
+} from "@/lib/payment-methods";
 
 interface CartItem {
   id: number;
@@ -88,14 +92,7 @@ interface CartItem {
 }
 
 type DiscountType = "FIXO" | "PORCENTAGEM";
-type PaymentMethod =
-  | "CREDITO"
-  | "DEBITO"
-  | "DINHEIRO"
-  | "PIX"
-  | "BOLETO"
-  | "NAO_INFORMAR";
-type PaymentMethodOption = Exclude<PaymentMethod, "NAO_INFORMAR">;
+type PaymentMethod = PaymentMethodOption | "NAO_INFORMAR";
 type PaymentAmounts = Partial<Record<PaymentMethodOption, string>>;
 type CategoriaVenda = {
   id: number;
@@ -103,17 +100,6 @@ type CategoriaVenda = {
   descricao?: string | null;
   ativo?: boolean | null;
 };
-
-const PAYMENT_METHOD_OPTIONS: Array<{
-  value: PaymentMethodOption;
-  label: string;
-}> = [
-  { value: "CREDITO", label: "Crédito" },
-  { value: "DEBITO", label: "Débito" },
-  { value: "DINHEIRO", label: "Dinheiro" },
-  { value: "PIX", label: "Pix" },
-  { value: "BOLETO", label: "Boleto" },
-];
 
 const moneyToCents = (value: number) => Math.round((Number.isFinite(value) ? value : 0) * 100);
 

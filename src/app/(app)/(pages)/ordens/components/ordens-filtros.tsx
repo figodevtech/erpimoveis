@@ -51,8 +51,8 @@ type FilterSheetProps = {
   setorFiltro: string;
   setSetorFiltro: (v: string) => void;
   setores: Array<{ value: string; label: string }>;
-  alvoFiltro: "TODOS" | "VEICULO" | "PECA";
-  setAlvoFiltro: (v: "TODOS" | "VEICULO" | "PECA") => void;
+  alvoFiltro: "TODOS" | "VEICULO" | "PECA" | "EQUIPAMENTO";
+  setAlvoFiltro: (v: "TODOS" | "VEICULO" | "PECA" | "EQUIPAMENTO") => void;
   dataInicio?: Date;
   dataFim?: Date;
   onSetInicio: (d?: Date) => void;
@@ -204,7 +204,7 @@ export function OrdensFilterSheet({
             <Select
               value={alvoFiltro}
               onValueChange={(v) =>
-                setAlvoFiltro(v as "TODOS" | "VEICULO" | "PECA")
+                setAlvoFiltro(v as "TODOS" | "VEICULO" | "PECA" | "EQUIPAMENTO")
               }
             >
               <SelectTrigger className="w-full">
@@ -214,6 +214,7 @@ export function OrdensFilterSheet({
                 <SelectItem value="TODOS">Todos</SelectItem>
                 <SelectItem value="VEICULO">Veículo</SelectItem>
                 <SelectItem value="PECA">Peça</SelectItem>
+                <SelectItem value="EQUIPAMENTO">Máquina/Equipamento</SelectItem>
               </SelectContent>
             </Select>
           </div>

@@ -1110,11 +1110,20 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                             const alvoDescricao =
                               ordem.alvo_tipo === "PECA"
                                 ? ordem.peca?.titulo || ordem.peca?.descricao || "Peça não informada"
-                                : ordem.veiculo
-                                  ? `${ordem.veiculo.marca ?? ""} ${ordem.veiculo.modelo ?? ""}`.trim() ||
-                                  ordem.veiculo.modelo ||
-                                  "Veículo vinculado"
-                                  : "Veículo não informado";
+                                : ordem.alvo_tipo === "EQUIPAMENTO"
+                                  ? [
+                                      ordem.equipamento_nome,
+                                      ordem.equipamento_patrimonio
+                                        ? `Patrimônio ${ordem.equipamento_patrimonio}`
+                                        : null,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(" ") || "Equipamento"
+                                  : ordem.veiculo
+                                    ? `${ordem.veiculo.marca ?? ""} ${ordem.veiculo.modelo ?? ""}`.trim() ||
+                                      ordem.veiculo.modelo ||
+                                      "Veículo vinculado"
+                                    : "Veículo não informado";
 
                             return (
                               <Fragment key={ordem.id}>
@@ -1129,7 +1138,13 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                                     </span>
                                   </TableCell>
                                   <TableCell>{formatDate(dataOrdem)}</TableCell>
-                                  <TableCell>{ordem.alvo_tipo === "PECA" ? "Peça" : "Veículo"}</TableCell>
+                                  <TableCell>
+                                    {ordem.alvo_tipo === "PECA"
+                                      ? "Peça"
+                                      : ordem.alvo_tipo === "EQUIPAMENTO"
+                                        ? "Máquina/Equipamento"
+                                        : "Veículo"}
+                                  </TableCell>
                                   <TableCell className="max-w-[180px]">
                                     <div className="flex flex-col gap-1">
                                       <span className="truncate" title={alvoDescricao}>
@@ -1140,6 +1155,11 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                                       ) : null}
                                       {ordem.alvo_tipo !== "PECA" && ordem.veiculo?.placa ? (
                                         <span className="text-[11px] text-muted-foreground">Placa: {ordem.veiculo.placa}</span>
+                                      ) : null}
+                                      {ordem.alvo_tipo === "EQUIPAMENTO" && ordem.equipamento_patrimonio ? (
+                                        <span className="text-[11px] text-muted-foreground">
+                                          Patrimônio: {ordem.equipamento_patrimonio}
+                                        </span>
                                       ) : null}
                                     </div>
                                   </TableCell>

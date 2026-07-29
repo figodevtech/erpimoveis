@@ -20,11 +20,16 @@ type DBStatusOS =
   | "CANCELADO";
 
 type DBAprovacao = "PENDENTE" | "APROVADA" | "REPROVADA";
+type FormaPagamento = "CREDITO" | "DEBITO" | "DINHEIRO" | "PIX" | "BOLETO";
 
 type Body = {
   status: DBStatusOS;
   semCobranca?: boolean;
   motivoSemCobranca?: string | null;
+  formaPagamento?: FormaPagamento | null;
+  parcelasPagamento?: number | null;
+  descricaoFinanceiro?: string | null;
+  garantia?: string | null;
 };
 
 type ParamsId = { id: string };
@@ -43,16 +48,57 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
     const status = body.status;
     const semCobranca = Boolean(body.semCobranca);
     const motivoSemCobranca = (body.motivoSemCobranca ?? "").trim() || null;
+    const formaPagamento = body.formaPagamento ?? null;
+    const parcelasPagamento =
+      body.parcelasPagamento === null || body.parcelasPagamento === undefined
+        ? null
+        : Number(body.parcelasPagamento);
+    const descricaoFinanceiro = (body.descricaoFinanceiro ?? "").trim() || null;
+    const garantia = (body.garantia ?? "").trim() || null;
 
     if (!status) {
       return NextResponse.json({ error: "Status é obrigatório." }, { status: 400 });
+    }
+
+    if (
+      formaPagamento !== null &&
+      !["CREDITO", "DEBITO", "DINHEIRO", "PIX", "BOLETO"].includes(formaPagamento)
+    ) {
+      return NextResponse.json({ error: "Forma de pagamento inválida." }, { status: 400 });
+    }
+    if (garantia && garantia.length > 500) {
+      return NextResponse.json(
+        { error: "A informação de garantia deve ter no máximo 500 caracteres." },
+        { status: 400 },
+      );
+    }
+    if (
+      parcelasPagamento !== null &&
+      (!Number.isInteger(parcelasPagamento) ||
+        parcelasPagamento < 1 ||
+        parcelasPagamento > 12)
+    ) {
+      return NextResponse.json(
+        { error: "A quantidade de parcelas deve estar entre 1 e 12." },
+        { status: 400 },
+      );
+    }
+    if (
+      parcelasPagamento !== null &&
+      formaPagamento !== "CREDITO" &&
+      formaPagamento !== "BOLETO"
+    ) {
+      return NextResponse.json(
+        { error: "Parcelamento disponível apenas para Crédito ou Boleto." },
+        { status: 400 },
+      );
     }
 
     // define statusaprovacao em função do novo status
     if (status === "APROVACAO_ORCAMENTO") {
       const osRes = await supabaseAdmin
         .from("ordemservico")
-        .select("id, clienteid, veiculoid")
+        .select("id, clienteid, alvo_tipo, veiculoid, pecaid, equipamento_nome")
         .eq("id", osId)
         .maybeSingle();
 
@@ -66,9 +112,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
           { status: 400 }
         );
       }
-      if (osRes.data.veiculoid == null) {
+      const alvoValido =
+        (osRes.data.alvo_tipo === "VEICULO" && osRes.data.veiculoid != null) ||
+        (osRes.data.alvo_tipo === "PECA" && osRes.data.pecaid != null) ||
+        (osRes.data.alvo_tipo === "EQUIPAMENTO" && Boolean(osRes.data.equipamento_nome?.trim()));
+      if (!alvoValido) {
         return NextResponse.json(
-          { error: "Selecione um veículo antes de enviar a OS para aprovação." },
+          { error: "Selecione o veículo, peça ou equipamento antes de enviar a OS para aprovação." },
           { status: 400 }
         );
       }
@@ -85,6 +135,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
     }
 
     const updateData: any = { status };
+
+    if (status === "PAGAMENTO") {
+      updateData.forma_pagamento = formaPagamento;
+      updateData.parcelas_pagamento = parcelasPagamento;
+      updateData.descricao_financeiro = descricaoFinanceiro;
+      updateData.garantia = garantia;
+    }
 
     if (statusaprovacao !== null) {
       updateData.statusaprovacao = statusaprovacao;
@@ -169,7 +226,18 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
       }
     }
 
-    return NextResponse.json({ ok: true, status, statusaprovacao }, { status: 200 });
+    return NextResponse.json(
+      {
+        ok: true,
+        status,
+        statusaprovacao,
+        formaPagamento,
+        parcelasPagamento,
+        descricaoFinanceiro,
+        garantia,
+      },
+      { status: 200 },
+    );
   } catch (err: any) {
     console.error("PUT /api/ordens/[id]/status", err);
     return NextResponse.json({ error: err?.message || "Falha ao atualizar status" }, { status: 500 });

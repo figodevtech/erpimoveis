@@ -41,7 +41,17 @@ function formatDate(value: unknown) {
 function targetLabel(os: any) {
   if (os.veiculo) return [os.veiculo.placa, os.veiculo.marca, os.veiculo.modelo].filter(Boolean).join(" · ");
   if (os.peca) return os.peca.titulo || os.peca.descricao || `Peça #${os.peca.id}`;
-  return "Sem veículo/peça";
+  if (os.equipamento_nome) {
+    return [
+      os.equipamento_nome,
+      os.equipamento_patrimonio,
+      os.equipamento_ano,
+      os.equipamento_horimetro != null ? `${os.equipamento_horimetro} h` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+  return "Sem alvo informado";
 }
 
 function makeWorkbook(headers: string[], rows: unknown[][], widths: number[]) {
@@ -71,6 +81,7 @@ export async function GET(request: Request) {
         .from("ordemservico")
         .select(`
           id, descricao, status, prioridade, dataentrada, datasaida, orcamentototal,
+          equipamento_nome, equipamento_patrimonio, equipamento_ano, equipamento_horimetro,
           cliente:clienteid(id, nomerazaosocial, cpfcnpj),
           veiculo:veiculoid(id, placa, marca, modelo),
           peca:pecaid(id, titulo, descricao),
@@ -113,7 +124,7 @@ export async function GET(request: Request) {
         Number(os.orcamentototal ?? 0),
       ]);
       const buffer = makeWorkbook(
-        ["OS", "Entrada", "Saída", "Status", "Prioridade", "Cliente", "CPF/CNPJ", "Veículo / Peça", "Setor", "Responsável", "Descrição", "Orçamento (R$)"],
+        ["OS", "Entrada", "Saída", "Status", "Prioridade", "Cliente", "CPF/CNPJ", "Alvo atendido", "Setor", "Responsável", "Descrição", "Orçamento (R$)"],
         rows,
         [9, 20, 20, 24, 12, 35, 20, 35, 22, 26, 45, 18],
       );
@@ -184,7 +195,7 @@ export async function GET(request: Request) {
       ];
     });
     const buffer = makeWorkbook(
-      ["OS", "Status da OS", "Cliente", "Veículo / Peça", "Evento", "Data do evento", "Origem", "Natureza", "Descrição", "Detalhe", "Valor (R$)", "Status do evento", "Transação", "Quantidade snapshot", "Valor unitário snapshot", "Percentual snapshot", "Base snapshot", "Receitas da OS", "Despesas da OS", "Resultado da OS"],
+      ["OS", "Status da OS", "Cliente", "Alvo atendido", "Evento", "Data do evento", "Origem", "Natureza", "Descrição", "Detalhe", "Valor (R$)", "Status do evento", "Transação", "Quantidade snapshot", "Valor unitário snapshot", "Percentual snapshot", "Base snapshot", "Receitas da OS", "Despesas da OS", "Resultado da OS"],
       rows,
       [9, 22, 32, 32, 10, 20, 14, 12, 42, 32, 16, 18, 12, 18, 22, 20, 18, 18, 18, 18],
     );
