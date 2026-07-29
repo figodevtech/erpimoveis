@@ -1,12 +1,6 @@
 // app/api/veiculos/cliente/[clienteId]/route.ts
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false, autoRefreshToken: false } }
-);
+import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 
 export const revalidate = 0;
 

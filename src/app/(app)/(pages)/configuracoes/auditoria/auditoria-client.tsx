@@ -44,10 +44,11 @@ type Evento = {
   tabela: string;
   registro_id: string | null;
   usuario_id: string | null;
+  ator_nome: string | null;
   dados_anteriores: Record<string, unknown> | null;
   dados_novos: Record<string, unknown> | null;
   campos_alterados: string[];
-  origem: "usuario" | "sistema";
+  origem: "usuario" | "sistema" | "cliente";
   fonte: "evento" | "legado";
   usuario: Usuario | Usuario[] | null;
 };
@@ -72,7 +73,7 @@ const FILTROS_INICIAIS: Filtros = {
   operacao: "todas",
   modulo: "todos",
   tabela: "todas",
-  usuarioId: "todos",
+  usuarioId: "usuarios",
   busca: "",
   inicio: "",
   fim: "",
@@ -166,6 +167,7 @@ function nomeUsuario(evento: Evento) {
   const usuario = Array.isArray(evento.usuario) ? evento.usuario[0] : evento.usuario;
   return usuario?.nome
     || usuario?.email
+    || evento.ator_nome
     || (evento.usuario_id ? "Usuário removido" : evento.fonte === "legado" ? "Não identificado" : "Sistema");
 }
 
@@ -520,8 +522,11 @@ function FiltrosAuditoria({
             <Select value={filtros.usuarioId} onValueChange={(valor) => alterar("usuarioId", valor)}>
               <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="todos">Todos</SelectItem>
-                <SelectItem value="sistema">Sistema</SelectItem>
+                <SelectItem value="usuarios">Ações de usuários</SelectItem>
+                <SelectItem value="usuarios_sistema">Usuários + Sistema</SelectItem>
+                <SelectItem value="todos">Todos os responsáveis</SelectItem>
+                <SelectItem value="sistema">Somente Sistema</SelectItem>
+                <SelectItem value="cliente">Somente cliente via link</SelectItem>
                 {usuarios.map((usuario) => (
                   <SelectItem key={usuario.id} value={usuario.id}>{usuario.nome || usuario.email || usuario.id}</SelectItem>
                 ))}

@@ -134,7 +134,7 @@ export async function GET(request: NextRequest) {
     let query = supabaseAdmin
       .from("auditoria_evento")
       .select(
-        "id, ocorrido_em, operacao, modulo, tabela, registro_id, usuario_id, dados_anteriores, dados_novos, campos_alterados, origem, fonte, usuario:usuario_id ( id, nome, email )",
+        "id, ocorrido_em, operacao, modulo, tabela, registro_id, usuario_id, ator_nome, dados_anteriores, dados_novos, campos_alterados, origem, fonte, usuario:usuario_id ( id, nome, email )",
         { count: "exact" },
       )
       .order("ocorrido_em", { ascending: false });
@@ -150,7 +150,10 @@ export async function GET(request: NextRequest) {
     if (operacao && OPERACOES.has(operacao)) query = query.eq("operacao", operacao);
     if (modulo) query = query.eq("modulo", modulo);
     if (tabela) query = query.eq("tabela", tabela);
-    if (usuarioId === "sistema") query = query.is("usuario_id", null);
+    if (usuarioId === "usuarios") query = query.eq("origem", "usuario");
+    else if (usuarioId === "usuarios_sistema") query = query.in("origem", ["usuario", "sistema"]);
+    else if (usuarioId === "sistema") query = query.eq("origem", "sistema");
+    else if (usuarioId === "cliente") query = query.eq("origem", "cliente");
     else if (usuarioId) query = query.eq("usuario_id", usuarioId);
     if (busca) query = query.ilike("registro_id", `%${busca}%`);
     if (inicioData) query = query.gte("ocorrido_em", `${inicioData}T00:00:00-03:00`);
