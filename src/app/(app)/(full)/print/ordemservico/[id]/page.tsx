@@ -21,6 +21,8 @@ type PageProps = {
 
 const EMPTY = "-";
 
+type TipoDesconto = "FIXO" | "PORCENTAGEM" | null;
+
 /* ========= HELPERS DE FORMATAÇÃO ========= */
 
 function fmtMoney(v: number | string | null | undefined) {
@@ -30,6 +32,39 @@ function fmtMoney(v: number | string | null | undefined) {
   return n.toLocaleString("pt-BR", {
     style: "currency",
     currency: "BRL",
+  });
+}
+
+function toNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function roundMoney(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+function getTipoDesconto(value: unknown): TipoDesconto {
+  return value === "FIXO" || value === "PORCENTAGEM" ? value : null;
+}
+
+function calcularDescontoAplicado(base: number, tipoValue: unknown, descontoValue: unknown) {
+  const tipo = getTipoDesconto(tipoValue);
+  const baseSegura = Math.max(0, toNumber(base));
+  const desconto = Math.max(0, toNumber(descontoValue));
+
+  if (!tipo || baseSegura <= 0 || desconto <= 0) return 0;
+  if (tipo === "PORCENTAGEM") {
+    return roundMoney(baseSegura * (Math.min(desconto, 100) / 100));
+  }
+
+  return roundMoney(Math.min(desconto, baseSegura));
+}
+
+function fmtPercent(value: unknown) {
+  return toNumber(value).toLocaleString("pt-BR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
   });
 }
 
@@ -143,12 +178,19 @@ export default async function OSFullPage({ params }: PageProps) {
   const printColors = await fetchPrintColors();
 
   const totalProdutos =
-    os.produtos?.reduce((acc: number, p: any) => acc + Number(p.subtotal), 0) ||
+    os.produtos?.reduce((acc: number, p: any) => acc + toNumber(p.subtotal), 0) ||
     0;
   const totalServicos =
-    os.servicos?.reduce((acc: number, s: any) => acc + Number(s.subtotal), 0) ||
+    os.servicos?.reduce((acc: number, s: any) => acc + toNumber(s.subtotal), 0) ||
     0;
-  const totalGeral = totalProdutos + totalServicos;
+  const subtotalOS = roundMoney(totalProdutos + totalServicos);
+  const descontoGeralTipo = getTipoDesconto(os.desconto_tipo);
+  const descontoGeralAplicado = calcularDescontoAplicado(
+    subtotalOS,
+    descontoGeralTipo,
+    os.desconto
+  );
+  const totalGeral = roundMoney(Math.max(0, subtotalOS - descontoGeralAplicado));
 
   const empresaNome =
     empresa?.nomefantasia || empresa?.razaosocial || "Oficina Mecânica";
@@ -194,29 +236,48 @@ export default async function OSFullPage({ params }: PageProps) {
     subdescricao?: string | null;
     qtd: number;
     unitario: number | string | null | undefined;
+    descontoTipo: TipoDesconto;
+    desconto: number;
+    descontoAplicado: number;
     subtotal: number | string | null | undefined;
   }> = [
     ...(os.servicos ?? []).map((s: any) => {
       const descricao = String(s.servico?.descricao || "Serviço").trim();
       const subdescricao = String(s.descricao ?? "").trim();
+      const qtd = Number(s.quantidade ?? 1);
+      const unitario = toNumber(s.precounitario);
+      const descontoTipo = getTipoDesconto(s.desconto_tipo);
+      const desconto = toNumber(s.desconto);
       return {
         tipo: "SERVIÇO" as const,
         descricao,
         subdescricao: subdescricao && subdescricao.toLocaleLowerCase("pt-BR") !== descricao.toLocaleLowerCase("pt-BR")
           ? subdescricao
           : null,
-        qtd: Number(s.quantidade ?? 1),
+        qtd,
         unitario: s.precounitario,
+        descontoTipo,
+        desconto,
+        descontoAplicado: calcularDescontoAplicado(qtd * unitario, descontoTipo, desconto),
         subtotal: s.subtotal,
       };
     }),
-    ...(os.produtos ?? []).map((p: any) => ({
-      tipo: "PEÇA" as const,
-      descricao: p.produto?.titulo || p.produto?.descricao || "Peça",
-      qtd: Number(p.quantidade ?? 1),
-      unitario: p.precounitario,
-      subtotal: p.subtotal,
-    })),
+    ...(os.produtos ?? []).map((p: any) => {
+      const qtd = Number(p.quantidade ?? 1);
+      const unitario = toNumber(p.precounitario);
+      const descontoTipo = getTipoDesconto(p.desconto_tipo);
+      const desconto = toNumber(p.desconto);
+      return {
+        tipo: "PEÇA" as const,
+        descricao: p.produto?.titulo || p.produto?.descricao || "Peça",
+        qtd,
+        unitario: p.precounitario,
+        descontoTipo,
+        desconto,
+        descontoAplicado: calcularDescontoAplicado(qtd * unitario, descontoTipo, desconto),
+        subtotal: p.subtotal,
+      };
+    }),
   ];
 
   const metaOS = [
@@ -643,6 +704,8 @@ export default async function OSFullPage({ params }: PageProps) {
 
   .col-qtd{ width:50px; text-align:center; font-weight:700; }
   .col-unit{ width:90px; text-align:right; font-weight:600; }
+  .col-desconto{ width:100px; text-align:right; font-weight:600; }
+  .desconto-percentual{ color: var(--muted); font-size:8px; margin-top:2px; }
   .col-sub{ width:100px; text-align:right; font-weight:700; color: var(--brand-primary); }
 
   .rodape{
@@ -932,6 +995,7 @@ export default async function OSFullPage({ params }: PageProps) {
                       <th>Descrição</th>
                       <th className="col-qtd">Qtd</th>
                       <th className="col-unit">Unit.</th>
+                      <th className="col-desconto">Desconto</th>
                       <th className="col-unit">Subtotal</th>
                     </tr>
                   </thead>
@@ -960,6 +1024,20 @@ export default async function OSFullPage({ params }: PageProps) {
                         </td>
                         <td className="col-qtd">{item.qtd}</td>
                         <td className="col-unit">{fmtMoney(item.unitario)}</td>
+                        <td className="col-desconto">
+                          {item.descontoAplicado > 0 ? (
+                            <>
+                              <div>- {fmtMoney(item.descontoAplicado)}</div>
+                              {item.descontoTipo === "PORCENTAGEM" ? (
+                                <div className="desconto-percentual">
+                                  {fmtPercent(item.desconto)}%
+                                </div>
+                              ) : null}
+                            </>
+                          ) : (
+                            EMPTY
+                          )}
+                        </td>
                         <td className="col-sub">{fmtMoney(item.subtotal)}</td>
                       </tr>
                     ))}
@@ -998,6 +1076,24 @@ export default async function OSFullPage({ params }: PageProps) {
                   <span className="label">Serviços</span>
                   <span className="valor">{fmtMoney(totalServicos)}</span>
                 </div>
+
+                {descontoGeralAplicado > 0 ? (
+                  <>
+                    <div className="linha-total">
+                      <span className="label">Subtotal</span>
+                      <span className="valor">{fmtMoney(subtotalOS)}</span>
+                    </div>
+                    <div className="linha-total">
+                      <span className="label">
+                        Desconto geral
+                        {descontoGeralTipo === "PORCENTAGEM"
+                          ? ` (${fmtPercent(os.desconto)}%)`
+                          : ""}
+                      </span>
+                      <span className="valor">- {fmtMoney(descontoGeralAplicado)}</span>
+                    </div>
+                  </>
+                ) : null}
 
                 <div className="linha-total-final">
                   <span className="total-label">Total</span>
