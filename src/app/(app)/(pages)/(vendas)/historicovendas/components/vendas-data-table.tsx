@@ -608,7 +608,15 @@ export default function VendasDataTable({
 
         <EmissaoNotaDialog onOpenChange={setOpenEmissao} open={openEmissao} vendaId={emissaoId} />
       </CardContent>
-      <VendaDetailsDialog vendaId={selectedVendaId} onOpenChange={setOpenDetails} open={openDetails} />
+      <VendaDetailsDialog
+        vendaId={selectedVendaId}
+        onOpenChange={setOpenDetails}
+        open={openDetails}
+        onSaved={() => {
+          handleGetVendas(pagination.page, pagination.limit, search, status, filters);
+          fetchStatusCounts();
+        }}
+      />
       <PedidoOnlineDialog
         vendaId={onlineVendaId}
         open={openOnline}

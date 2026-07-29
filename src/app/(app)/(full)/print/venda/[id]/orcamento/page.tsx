@@ -25,6 +25,23 @@ function fmtMoney(v: number | string | null | undefined) {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+function roundMoney(value: number) {
+  return Math.round((Number.isFinite(value) ? value : 0) * 100) / 100;
+}
+
+function itemDiscountApplied(item: {
+  sub_total?: number | string | null;
+  valor_desconto?: number | string | null;
+  tipo_desconto?: string | null;
+}) {
+  const subtotal = Math.max(0, Number(item.sub_total ?? 0));
+  const discount = Math.max(0, Number(item.valor_desconto ?? 0));
+  if (item.tipo_desconto === "PORCENTAGEM") {
+    return roundMoney(subtotal * (Math.min(discount, 100) / 100));
+  }
+  return item.tipo_desconto === "FIXO" ? Math.min(subtotal, roundMoney(discount)) : 0;
+}
+
 function fmtDateTime(v?: string | null) {
   if (!v) return EMPTY;
   const d = new Date(v);
@@ -125,6 +142,8 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
         quantidade,
         sub_total,
         valor_total,
+        tipo_desconto,
+        valor_desconto,
         produto:produtoid (
           id,
           titulo,
@@ -185,6 +204,15 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
     ],
     " • ",
   );
+  const itemDiscountTotal = roundMoney(
+    (venda.itens ?? []).reduce((total, item) => total + itemDiscountApplied(item), 0),
+  );
+  const generalDiscountBase = Math.max(0, Number(venda.sub_total ?? 0) - itemDiscountTotal);
+  const generalDiscountApplied = venda.desconto_tipo === "PORCENTAGEM"
+    ? roundMoney(generalDiscountBase * (Math.min(Math.max(Number(venda.desconto_valor ?? 0), 0), 100) / 100))
+    : venda.desconto_tipo === "FIXO"
+      ? Math.min(generalDiscountBase, Math.max(0, Number(venda.desconto_valor ?? 0)))
+      : 0;
 
   return (
     <div className="os-print-root">
@@ -403,8 +431,8 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
               <div className="valor">{venda.desconto_tipo || EMPTY}</div>
             </div>
             <div className="meta-badge">
-              <div className="label">Desconto</div>
-              <div className="valor">{fmtMoney(venda.desconto_valor)}</div>
+              <div className="label">Desconto geral</div>
+              <div className="valor">{fmtMoney(generalDiscountApplied)}</div>
             </div>
           </div>
 
@@ -449,8 +477,12 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
                 <span className="v">{fmtMoney(venda.sub_total)}</span>
               </div>
               <div className="kv">
-                <span className="k">Desconto</span>
-                <span className="v">{fmtMoney(venda.desconto_valor)}</span>
+                <span className="k">Desc. itens</span>
+                <span className="v">{fmtMoney(itemDiscountTotal)}</span>
+              </div>
+              <div className="kv">
+                <span className="k">Desc. geral</span>
+                <span className="v">{fmtMoney(generalDiscountApplied)}</span>
               </div>
               <div className="kv">
                 <span className="k">Frete</span>
@@ -472,7 +504,8 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
                   <th>Grupo</th>
                   <th className="col-qtd">Qtd</th>
                   <th className="col-unit">Unit.</th>
-                  <th className="col-sub">Subtotal</th>
+                  <th className="col-sub">Desc.</th>
+                  <th className="col-sub">Total</th>
                 </tr>
               </thead>
               <tbody>
@@ -488,7 +521,8 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
                           Math.max(Number(item.quantidade || 1), 1),
                       )}
                     </td>
-                    <td className="col-sub">{fmtMoney(item.sub_total)}</td>
+                    <td className="col-sub">{fmtMoney(itemDiscountApplied(item))}</td>
+                    <td className="col-sub">{fmtMoney(item.valor_total)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -514,8 +548,12 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
                 <span>{fmtMoney(venda.sub_total)}</span>
               </div>
               <div className="linha-total">
-                <span>Desconto aplicado</span>
-                <span>- {fmtMoney(venda.desconto_valor)}</span>
+                <span>Desconto dos itens</span>
+                <span>- {fmtMoney(itemDiscountTotal)}</span>
+              </div>
+              <div className="linha-total">
+                <span>Desconto geral</span>
+                <span>- {fmtMoney(generalDiscountApplied)}</span>
               </div>
               <div className="linha-total">
                 <span>Frete</span>

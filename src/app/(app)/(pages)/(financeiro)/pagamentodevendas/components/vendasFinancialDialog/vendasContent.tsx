@@ -109,8 +109,10 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
   const descontoAplicado = calcularDescontoAplicado(baseDescontoGeral, descontoTipo, desconto);
   const descontoTotalAplicado = arredondarMoeda(descontoItensAplicado + descontoAplicado);
   const totalComDesconto = calcularTotalComDesconto(baseDescontoGeral, descontoTipo, desconto);
-  const acrescimoAplicado = calculateFinancialSurcharge(totalComDesconto, acrescimoTipo, acrescimo);
-  const totalFinanceiro = calculateFinancialTotal(totalComDesconto, acrescimoTipo, acrescimo);
+  const valorFrete = Math.max(0, toNum(venda?.valor_frete));
+  const totalComercial = arredondarMoeda(totalComDesconto + valorFrete);
+  const acrescimoAplicado = calculateFinancialSurcharge(totalComercial, acrescimoTipo, acrescimo);
+  const totalFinanceiro = calculateFinancialTotal(totalComercial, acrescimoTipo, acrescimo);
   const saldoDevedor = Math.max(0, totalFinanceiro - totalPago);
   const initialMetodoPagamento = (() => {
     const value = String(venda?.forma_pagamento ?? "").toUpperCase();
@@ -283,7 +285,8 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
         descontoTipo,
         descontoValor: descontoTipo ? Math.max(0, desconto) : 0,
         subTotal: subtotalVenda,
-        valorTotal: totalComDesconto,
+        valorTotal: totalComercial,
+        valorFrete,
         acrescimoFinanceiroTipo: acrescimoTipo,
         acrescimoFinanceiroValor: acrescimoTipo ? Math.max(0, acrescimo) : 0,
       });
@@ -622,7 +625,7 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
                 <div className="rounded-lg border bg-card p-4">
                   <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Subtotal</span>
                   <p className="mt-1 text-sm font-medium">{formatarEmReal(subtotalVenda)}</p>
@@ -630,6 +633,10 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
                 <div className="rounded-lg border bg-card p-4">
                   <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Desconto aplicado</span>
                   <p className="mt-1 text-sm font-medium">- {formatarEmReal(descontoTotalAplicado)}</p>
+                </div>
+                <div className="rounded-lg border bg-card p-4">
+                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Frete</span>
+                  <p className="mt-1 text-sm font-medium">+ {formatarEmReal(valorFrete)}</p>
                 </div>
                 <div className="rounded-lg border bg-card p-4">
                   <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Acréscimo aplicado</span>
@@ -849,6 +856,16 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
                 <span className="inline-grid grid-cols-[0.75rem_auto]">
                   <span>-</span>
                   <span>{formatarEmReal(descontoTotalAplicado)}</span>
+                </span>
+              </h1>
+            </div>
+            <div className="grid w-full grid-cols-[max-content_minmax(24px,1fr)_max-content] items-center gap-2">
+              <span className="text-nowrap">Frete:</span>
+              <div className="h-full w-full border-b border-dashed"></div>
+              <h1 className="text-left tabular-nums">
+                <span className="inline-grid grid-cols-[0.75rem_auto]">
+                  <span>+</span>
+                  <span>{formatarEmReal(valorFrete)}</span>
                 </span>
               </h1>
             </div>

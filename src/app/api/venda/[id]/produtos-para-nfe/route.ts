@@ -210,7 +210,9 @@ export async function GET(
 
         quantidade,
         precoUnitario,
-        subtotal: toNumber(row.sub_total || row.valor_total),
+        // O desconto do item já está refletido no preço unitário líquido enviado
+        // à NF-e; o subtotal precisa usar a mesma base para não exibir o bruto.
+        subtotal: valorTotal,
 
         ncm: p?.ncm ?? null,
         cfop: p?.cfop ?? null,

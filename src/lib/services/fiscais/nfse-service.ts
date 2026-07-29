@@ -32,8 +32,18 @@ export type NFSeEmitirParams = {
     item_lista_servico: string;
     codigo_tributario_municipio?: string;
     codigo_cnae?: string;
+    codigo_nbs?: string;
     valor_servicos: number;
   };
+};
+
+export type NFSeCodigosFiscais = {
+  item_lista_servico?: string;
+  codigo_cnae?: string;
+  codigo_tributario_municipio?: string;
+  codigo_tributacao_nacional_iss?: string;
+  codigo_nbs?: string;
+  aliquota_iss?: number;
 };
 
 export type NFSeNacionalEmitirParams = {
@@ -56,6 +66,8 @@ export type NFSeNacionalEmitirParams = {
   email_tomador?: string;
   codigo_municipio_prestacao: string;
   codigo_tributacao_nacional_iss: string;
+  codigo_tributacao_municipal_iss?: string;
+  codigo_nbs?: string;
   descricao_servico: string;
   valor_servico: number;
   tributacao_iss: 1;
@@ -324,7 +336,12 @@ export class NFSeService {
    * Mapeia os dados do sistema para o formato esperado pela Focus NFe.
    * Centraliza as regras de negócio de João Pessoa e sanitização.
    */
-  mapearOSParaFocus(os: any, empresa: any, itemServico: any): NFSeEmitirParams {
+  mapearOSParaFocus(
+    os: any,
+    empresa: any,
+    itemServico: any,
+    codigosFiscais: NFSeCodigosFiscais,
+  ): NFSeEmitirParams {
     const cliente = os.cliente;
     const servico = itemServico.servico;
 
@@ -361,24 +378,31 @@ export class NFSeService {
         },
       },
       servico: {
-        aliquota: servico?.aliquota || 3,
+        aliquota: Number(codigosFiscais.aliquota_iss),
         discriminacao: `${q}x ${servico?.descricao || "Serviço"} - OS #${os.id}`,
         iss_retido: false,
-        item_lista_servico: "14.01", // Padrão oficina mecânica João Pessoa
-        codigo_cnae: (empresa.cnae?.replace(/\D/g, "") || "4520001").padEnd(9, "0"),
+        item_lista_servico: String(codigosFiscais.item_lista_servico || "").trim(),
+        codigo_tributario_municipio: codigosFiscais.codigo_tributario_municipio || undefined,
+        codigo_cnae: String(codigosFiscais.codigo_cnae || "").replace(/\D/g, ""),
+        codigo_nbs: codigosFiscais.codigo_nbs || undefined,
         valor_servicos: val,
       },
     };
   }
 
-  mapearOSParaFocusCabedelo(os: any, empresa: any, itemServico: any): NFSeEmitirParams {
+  mapearOSParaFocusCabedelo(
+    os: any,
+    empresa: any,
+    itemServico: any,
+    codigosFiscais: NFSeCodigosFiscais,
+  ): NFSeEmitirParams {
     const cliente = os.cliente;
     const servico = itemServico.servico;
     const documento = String(cliente.cpfcnpj || "").replace(/\D/g, "");
     const quantidade = Number(itemServico.quantidade || 1);
     const valor = quantidade * Number(itemServico.precounitario || 0);
-    const cnae = String(servico?.cnae || empresa.cnae || "").replace(/\D/g, "");
-    const itemLista = String(servico?.itemlistaservico || "14.01").trim();
+    const cnae = String(codigosFiscais.codigo_cnae || "").replace(/\D/g, "");
+    const itemLista = String(codigosFiscais.item_lista_servico || "").trim();
 
     if (!cnae) throw new Error("Informe o CNAE do serviço ou da empresa para emitir NFS-e em Cabedelo.");
     if (!itemLista) throw new Error("Informe o item da lista de serviço para emitir NFS-e em Cabedelo.");
@@ -411,22 +435,27 @@ export class NFSeService {
         },
       },
       servico: {
-        aliquota: Number(servico?.aliquotaiss || 3),
+        aliquota: Number(codigosFiscais.aliquota_iss),
         discriminacao: `${quantidade}x ${servico?.descricao || "Serviço"} - OS #${os.id}`,
         iss_retido: false,
         item_lista_servico: itemLista,
+        codigo_tributario_municipio: codigosFiscais.codigo_tributario_municipio || undefined,
         codigo_cnae: cnae,
+        codigo_nbs: codigosFiscais.codigo_nbs || undefined,
         valor_servicos: valor,
       },
     };
   }
 
-  mapearOSParaFocusNacional(os: any, empresa: any, itemServico: any): NFSeNacionalEmitirParams {
+  mapearOSParaFocusNacional(
+    os: any,
+    empresa: any,
+    itemServico: any,
+    codigosFiscais: NFSeCodigosFiscais,
+  ): NFSeNacionalEmitirParams {
     const cliente = os.cliente;
     const servico = itemServico.servico;
     const documento = String(cliente.cpfcnpj || "").replace(/\D/g, "");
-    const itemLista = String(servico?.itemlistaservico || "14.01").replace(/\D/g, "");
-    const codigoTributacao = itemLista.length === 6 ? itemLista : `${itemLista.padStart(4, "0")}01`;
     const quantidade = Number(itemServico.quantidade || 1);
     const valor = quantidade * Number(itemServico.precounitario || 0);
     const hoje = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo" }).format(new Date());
@@ -449,12 +478,16 @@ export class NFSeService {
       bairro_tomador: cliente.bairro || undefined,
       email_tomador: cliente.email || undefined,
       codigo_municipio_prestacao: String(empresa.codigomunicipio || 2507507),
-      codigo_tributacao_nacional_iss: codigoTributacao,
+      codigo_tributacao_nacional_iss: String(codigosFiscais.codigo_tributacao_nacional_iss || "").replace(/\D/g, ""),
+      codigo_tributacao_municipal_iss: codigosFiscais.codigo_tributario_municipio || undefined,
+      codigo_nbs: codigosFiscais.codigo_nbs
+        ? String(codigosFiscais.codigo_nbs).replace(/\D/g, "")
+        : undefined,
       descricao_servico: `${quantidade}x ${servico?.descricao || "Serviço"} - OS #${os.id}`,
       valor_servico: valor,
       tributacao_iss: 1,
       tipo_retencao_iss: 1,
-      percentual_aliquota_relativa_municipio: Number(servico?.aliquotaiss || 0) || undefined,
+      percentual_aliquota_relativa_municipio: codigosFiscais.aliquota_iss,
       indicador_total_tributacao: "0",
     };
   }

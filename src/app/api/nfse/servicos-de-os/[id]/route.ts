@@ -47,6 +47,19 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       .eq("ordemservicoid", osId)
       .order("id", { ascending: false });
 
+    const { data: empresa } = await supabaseAdmin
+      .from("empresa")
+      .select("codigomunicipio, regimetributario")
+      .limit(1)
+      .maybeSingle();
+
+    const codigoMunicipio = String(empresa?.codigomunicipio || "").replace(/\D/g, "");
+    const modeloEmissao = String(empresa?.regimetributario) === "4"
+      ? "NACIONAL"
+      : codigoMunicipio === "2503209"
+        ? "MUNICIPAL_CABEDELO"
+        : "MUNICIPAL_JOAO_PESSOA";
+
     // Mescla os dados
     const servicosMapeados = os.osservico.map((item: any) => {
       const refPattern = `OS_${os.id}_SRV_${item.servicoid}_`;
@@ -61,7 +74,12 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       };
     });
 
-    return NextResponse.json({ ok: true, servicos: servicosMapeados });
+    return NextResponse.json({
+      ok: true,
+      servicos: servicosMapeados,
+      modeloEmissao,
+      codigoMunicipio,
+    });
   } catch (e: any) {
     console.error("[GET /api/nfse/servicos-de-os]", e);
     return NextResponse.json({ ok: false, message: "Erro inesperado." }, { status: 500 });

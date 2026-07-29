@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { NFSeService } from "@/lib/services/fiscais/nfse-service";
+import { NFSeService, type NFSeCodigosFiscais } from "@/lib/services/fiscais/nfse-service";
 
 export const runtime = "nodejs";
 
@@ -93,6 +93,17 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       );
     }
 
+    const validacaoCodigos = validarCodigosFiscais(
+      reqBody.codigosFiscais,
+      isMei ? "NACIONAL" : isCabedelo ? "MUNICIPAL_CABEDELO" : "MUNICIPAL_JOAO_PESSOA",
+    );
+    if (!validacaoCodigos.ok) {
+      return NextResponse.json(
+        { ok: false, message: validacaoCodigos.message },
+        { status: 400 },
+      );
+    }
+
     if (!isMei && !empresa.inscricaomunicipal) {
       return NextResponse.json(
         { 
@@ -143,10 +154,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     nfseService.configurarAmbiente(empresa.ambiente, nfseConfig?.token);
     const modeloEmissao = isMei ? "NACIONAL" : isCabedelo ? "MUNICIPAL_CABEDELO" : "MUNICIPAL_JOAO_PESSOA";
     const emitirParams = isMei
-      ? nfseService.mapearOSParaFocusNacional(os, empresa, itemServico)
+      ? nfseService.mapearOSParaFocusNacional(os, empresa, itemServico, validacaoCodigos.codigos)
       : isCabedelo
-        ? nfseService.mapearOSParaFocusCabedelo(os, empresa, itemServico)
-      : nfseService.mapearOSParaFocus(os, empresa, itemServico);
+        ? nfseService.mapearOSParaFocusCabedelo(os, empresa, itemServico, validacaoCodigos.codigos)
+      : nfseService.mapearOSParaFocus(os, empresa, itemServico, validacaoCodigos.codigos);
 
     // 4. MEI (CRT 4) usa NFS-e Nacional; demais regimes mantêm João Pessoa municipal.
     const result = isMei
@@ -220,4 +231,71 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       { status: configuracaoAusente ? 400 : 500 }
     );
   }
+}
+
+type ModeloEmissao = "NACIONAL" | "MUNICIPAL_CABEDELO" | "MUNICIPAL_JOAO_PESSOA";
+
+function validarCodigosFiscais(
+  raw: unknown,
+  modelo: ModeloEmissao,
+): { ok: true; codigos: NFSeCodigosFiscais } | { ok: false; message: string } {
+  const input = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const texto = (value: unknown) => String(value ?? "").trim();
+  const digitos = (value: unknown) => texto(value).replace(/\D/g, "");
+
+  const itemListaServico = texto(input.item_lista_servico);
+  const codigoCnae = digitos(input.codigo_cnae);
+  const codigoTributarioMunicipio = texto(input.codigo_tributario_municipio);
+  const codigoTributacaoNacional = digitos(input.codigo_tributacao_nacional_iss);
+  const codigoNbs = texto(input.codigo_nbs);
+  const codigoNbsDigitos = digitos(input.codigo_nbs);
+  const aliquotaInformada = input.aliquota_iss !== "" && input.aliquota_iss !== null && input.aliquota_iss !== undefined;
+  const aliquotaIss = aliquotaInformada ? Number(input.aliquota_iss) : undefined;
+
+  if (modelo === "NACIONAL") {
+    if (codigoTributacaoNacional.length !== 6) {
+      return { ok: false, message: "Informe o Código de Tributação Nacional do ISS com 6 dígitos." };
+    }
+  } else {
+    const itemListaDigitos = itemListaServico.replace(/\D/g, "");
+    if (itemListaDigitos.length < 4 || itemListaDigitos.length > 6) {
+      return { ok: false, message: "Informe um Item da Lista de Serviço válido, por exemplo 14.01." };
+    }
+
+    const tamanhoCnaeValido = modelo === "MUNICIPAL_JOAO_PESSOA"
+      ? codigoCnae.length === 9
+      : codigoCnae.length >= 7 && codigoCnae.length <= 9;
+    if (!tamanhoCnaeValido) {
+      return {
+        ok: false,
+        message: modelo === "MUNICIPAL_JOAO_PESSOA"
+          ? "Informe a variação do CNAE com 9 dígitos exigida por João Pessoa."
+          : "Informe um CNAE com 7 a 9 dígitos.",
+      };
+    }
+
+    if (aliquotaIss === undefined || !Number.isFinite(aliquotaIss) || aliquotaIss < 0 || aliquotaIss > 100) {
+      return { ok: false, message: "Informe uma alíquota de ISS válida entre 0 e 100%." };
+    }
+  }
+
+  if (codigoNbs && codigoNbsDigitos.length !== 9) {
+    return { ok: false, message: "Quando informado, o Código NBS deve possuir 9 dígitos." };
+  }
+
+  if (aliquotaIss !== undefined && (!Number.isFinite(aliquotaIss) || aliquotaIss < 0 || aliquotaIss > 100)) {
+    return { ok: false, message: "Informe uma alíquota de ISS válida entre 0 e 100%." };
+  }
+
+  return {
+    ok: true,
+    codigos: {
+      item_lista_servico: itemListaServico || undefined,
+      codigo_cnae: codigoCnae || undefined,
+      codigo_tributario_municipio: codigoTributarioMunicipio || undefined,
+      codigo_tributacao_nacional_iss: codigoTributacaoNacional || undefined,
+      codigo_nbs: codigoNbs || undefined,
+      aliquota_iss: aliquotaIss,
+    },
+  };
 }

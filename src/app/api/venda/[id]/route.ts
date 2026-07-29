@@ -130,6 +130,7 @@ type VendaPatchBody = {
   danfeUrl?: string | null;
   descontoTipo?: string | null;
   descontoValor?: number | null;
+  valorFrete?: number | null;
   acrescimoFinanceiroTipo?: string | null;
   acrescimoFinanceiroValor?: number | null;
   formaPagamento?: string | null;
@@ -140,6 +141,15 @@ type VendaPatchBody = {
   observacoesFiscais?: string | null;
   vendedor?: string | null;
   categoriaVendaId?: number | null;
+  itens?: Array<{
+    produtoId?: number;
+    quantidade?: number;
+    precoUnitario?: number;
+    valorDesconto?: number | null;
+    tipoDesconto?: string | null;
+    subTotal?: number;
+    valorTotal?: number;
+  }>;
 };
 
 type ParamsCtx = { params: Promise<{ id: string }> };
@@ -304,6 +314,7 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       danfeUrl,
       descontoTipo,
       descontoValor,
+      valorFrete,
       acrescimoFinanceiroTipo,
       acrescimoFinanceiroValor,
       formaPagamento,
@@ -314,6 +325,7 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       observacoesFiscais,
       vendedor,
       categoriaVendaId,
+      itens,
     } = body;
 
     if (
@@ -326,6 +338,7 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       danfeUrl === undefined &&
       descontoTipo === undefined &&
       descontoValor === undefined &&
+      valorFrete === undefined &&
       acrescimoFinanceiroTipo === undefined &&
       acrescimoFinanceiroValor === undefined &&
       formaPagamento === undefined &&
@@ -335,7 +348,8 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       observacoes === undefined &&
       observacoesFiscais === undefined &&
       vendedor === undefined &&
-      categoriaVendaId === undefined
+      categoriaVendaId === undefined &&
+      itens === undefined
     ) {
       return NextResponse.json(
         {
@@ -347,6 +361,142 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
     }
 
     const updatePayload: any = {};
+    const roundSaleMoney = (value: number) => Math.round(value * 100) / 100;
+    let normalizedItems: Array<{
+      produtoId: number;
+      quantidade: number;
+      precoUnitario: number;
+      subTotal: number;
+      valorTotal: number;
+      valorDesconto: number;
+      tipoDesconto: "FIXO" | "PORCENTAGEM" | null;
+    }> | null = null;
+    let resolvedSubTotal = subTotal;
+    let resolvedValorTotal = valorTotal;
+    let resolvedDescontoTipo = descontoTipo;
+    let resolvedDescontoValor = descontoValor;
+    let resolvedValorFrete = valorFrete;
+
+    if (itens !== undefined) {
+      if (!Array.isArray(itens) || itens.length === 0) {
+        return NextResponse.json(
+          { error: "A venda deve possuir ao menos um produto." },
+          { status: 400 },
+        );
+      }
+
+      const productIds = itens.map((item) => Number(item.produtoId));
+      if (
+        productIds.some((id) => !Number.isInteger(id) || id <= 0) ||
+        new Set(productIds).size !== productIds.length
+      ) {
+        return NextResponse.json(
+          { error: "Os produtos da venda são inválidos ou estão duplicados." },
+          { status: 400 },
+        );
+      }
+
+      const [{ data: currentSale, error: currentSaleError }, { data: products, error: productsError }] =
+        await Promise.all([
+          supabaseAdmin
+            .from("venda")
+            .select("desconto_tipo, desconto_valor, valor_frete")
+            .eq("id", vendaId)
+            .maybeSingle(),
+          supabaseAdmin.from("produto").select("id, precovenda").in("id", productIds),
+        ]);
+
+      if (currentSaleError) throw currentSaleError;
+      if (productsError) throw productsError;
+      if (!currentSale) {
+        return NextResponse.json({ error: "Venda não encontrada." }, { status: 404 });
+      }
+
+      const priceByProduct = new Map(
+        (products ?? []).map((product) => [Number(product.id), Number(product.precovenda)]),
+      );
+      if (priceByProduct.size !== productIds.length) {
+        return NextResponse.json({ error: "Um ou mais produtos não existem." }, { status: 400 });
+      }
+
+      normalizedItems = [];
+      let itemDiscountTotal = 0;
+
+      for (const item of itens) {
+        const produtoId = Number(item.produtoId);
+        const quantidade = Number(item.quantidade);
+        const precoUnitario = Number(item.precoUnitario ?? priceByProduct.get(produtoId));
+        const tipoDescontoItem =
+          item.tipoDesconto === "FIXO" || item.tipoDesconto === "PORCENTAGEM"
+            ? item.tipoDesconto
+            : null;
+        const valorDescontoItem = tipoDescontoItem ? Number(item.valorDesconto ?? 0) : 0;
+
+        if (!Number.isInteger(quantidade) || quantidade <= 0) {
+          return NextResponse.json(
+            { error: `Informe uma quantidade válida para o produto ${produtoId}.` },
+            { status: 400 },
+          );
+        }
+        if (!Number.isFinite(precoUnitario) || precoUnitario <= 0) {
+          return NextResponse.json(
+            { error: `Informe um preço unitário maior que zero para o produto ${produtoId}.` },
+            { status: 400 },
+          );
+        }
+        if (!Number.isFinite(valorDescontoItem) || valorDescontoItem < 0) {
+          return NextResponse.json(
+            { error: `O desconto do produto ${produtoId} é inválido.` },
+            { status: 400 },
+          );
+        }
+
+        const itemSubTotal = roundSaleMoney(precoUnitario * quantidade);
+        const itemDiscountApplied = tipoDescontoItem === "PORCENTAGEM"
+          ? roundSaleMoney(itemSubTotal * (Math.min(valorDescontoItem, 100) / 100))
+          : Math.min(itemSubTotal, roundSaleMoney(valorDescontoItem));
+        if (tipoDescontoItem === "PORCENTAGEM" && valorDescontoItem > 100) {
+          return NextResponse.json(
+            { error: `O desconto percentual do produto ${produtoId} não pode ultrapassar 100%.` },
+            { status: 400 },
+          );
+        }
+
+        itemDiscountTotal += itemDiscountApplied;
+        normalizedItems.push({
+          produtoId,
+          quantidade,
+          precoUnitario: roundSaleMoney(precoUnitario),
+          subTotal: itemSubTotal,
+          valorTotal: roundSaleMoney(itemSubTotal - itemDiscountApplied),
+          valorDesconto: roundSaleMoney(valorDescontoItem),
+          tipoDesconto: tipoDescontoItem,
+        });
+      }
+
+      resolvedSubTotal = roundSaleMoney(
+        normalizedItems.reduce((sum, item) => sum + item.subTotal, 0),
+      );
+      resolvedDescontoTipo = descontoTipo === undefined
+        ? currentSale.desconto_tipo
+        : descontoTipo;
+      resolvedDescontoValor = descontoValor === undefined
+        ? Number(currentSale.desconto_valor ?? 0)
+        : Number(descontoValor ?? 0);
+      resolvedValorFrete = valorFrete === undefined
+        ? Number(currentSale.valor_frete ?? 0)
+        : Number(valorFrete ?? 0);
+
+      const baseGeneralDiscount = Math.max(0, resolvedSubTotal - roundSaleMoney(itemDiscountTotal));
+      const generalDiscount = resolvedDescontoTipo === "PORCENTAGEM"
+        ? roundSaleMoney(baseGeneralDiscount * (Math.min(Number(resolvedDescontoValor ?? 0), 100) / 100))
+        : resolvedDescontoTipo === "FIXO"
+          ? Math.min(baseGeneralDiscount, roundSaleMoney(Number(resolvedDescontoValor ?? 0)))
+          : 0;
+      resolvedValorTotal = roundSaleMoney(
+        baseGeneralDiscount - generalDiscount + Number(resolvedValorFrete ?? 0),
+      );
+    }
 
     const wantsDeliveryFields =
       statusEntrega !== undefined ||
@@ -444,24 +594,40 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       updatePayload.status = upperStatus;
     }
 
-    if (descontoTipo !== undefined) {
-      if (descontoTipo !== null && descontoTipo !== "FIXO" && descontoTipo !== "PORCENTAGEM") {
+    if (descontoTipo !== undefined || normalizedItems) {
+      if (
+        resolvedDescontoTipo !== null &&
+        resolvedDescontoTipo !== undefined &&
+        resolvedDescontoTipo !== "FIXO" &&
+        resolvedDescontoTipo !== "PORCENTAGEM"
+      ) {
         return NextResponse.json({ error: "Tipo de desconto inválido." }, { status: 400 });
       }
-      updatePayload.desconto_tipo = descontoTipo;
+      updatePayload.desconto_tipo = resolvedDescontoTipo ?? null;
     }
-    if (descontoValor !== undefined) {
-      const normalizedDiscount = Number(descontoValor ?? 0);
+    if (descontoValor !== undefined || normalizedItems) {
+      const normalizedDiscount = Number(resolvedDescontoValor ?? 0);
       if (!Number.isFinite(normalizedDiscount) || normalizedDiscount < 0) {
         return NextResponse.json({ error: "Valor do desconto inválido." }, { status: 400 });
       }
-      if (descontoTipo === "PORCENTAGEM" && normalizedDiscount > 100) {
+      if (resolvedDescontoTipo === "PORCENTAGEM" && normalizedDiscount > 100) {
         return NextResponse.json({ error: "O desconto percentual deve estar entre 0 e 100." }, { status: 400 });
       }
-      if (descontoTipo === "FIXO" && subTotal !== undefined && normalizedDiscount > Number(subTotal)) {
+      if (
+        resolvedDescontoTipo === "FIXO" &&
+        resolvedSubTotal !== undefined &&
+        normalizedDiscount > Number(resolvedSubTotal)
+      ) {
         return NextResponse.json({ error: "O desconto não pode ultrapassar o subtotal." }, { status: 400 });
       }
       updatePayload.desconto_valor = normalizedDiscount;
+    }
+    if (valorFrete !== undefined || normalizedItems) {
+      const normalizedFreight = Number(resolvedValorFrete ?? 0);
+      if (!Number.isFinite(normalizedFreight) || normalizedFreight < 0) {
+        return NextResponse.json({ error: "O valor do frete não pode ser negativo." }, { status: 400 });
+      }
+      updatePayload.valor_frete = roundSaleMoney(normalizedFreight);
     }
     if (acrescimoFinanceiroTipo !== undefined) {
       const normalizedType = sanitizeFinancialSurchargeType(acrescimoFinanceiroTipo);
@@ -484,17 +650,17 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       updatePayload.acrescimo_financeiro_valor = normalizedValue;
     }
     if (formaPagamento !== undefined) updatePayload.forma_pagamento = formaPagamento;
-    if (subTotal !== undefined) {
-      if (!Number.isFinite(Number(subTotal)) || Number(subTotal) < 0) {
+    if (subTotal !== undefined || normalizedItems) {
+      if (!Number.isFinite(Number(resolvedSubTotal)) || Number(resolvedSubTotal) < 0) {
         return NextResponse.json({ error: "Subtotal inválido." }, { status: 400 });
       }
-      updatePayload.sub_total = subTotal;
+      updatePayload.sub_total = resolvedSubTotal;
     }
-    if (valorTotal !== undefined) {
-      if (!Number.isFinite(Number(valorTotal)) || Number(valorTotal) < 0) {
+    if (valorTotal !== undefined || normalizedItems) {
+      if (!Number.isFinite(Number(resolvedValorTotal)) || Number(resolvedValorTotal) < 0) {
         return NextResponse.json({ error: "O total da venda não pode ser negativo." }, { status: 400 });
       }
-      updatePayload.valortotal = valorTotal;
+      updatePayload.valortotal = resolvedValorTotal;
     }
     if (dataVenda !== undefined) updatePayload.datavenda = dataVenda;
     if (observacoes !== undefined) updatePayload.observacoes = observacoes;
@@ -514,6 +680,7 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
 
     if (
       valorTotal !== undefined ||
+      normalizedItems !== null ||
       acrescimoFinanceiroTipo !== undefined ||
       acrescimoFinanceiroValor !== undefined
     ) {
@@ -551,7 +718,7 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
         );
       }
       const totalFinanceiro = calculateFinancialTotal(
-        valorTotal === undefined ? vendaAtual.valortotal : valorTotal,
+        resolvedValorTotal === undefined ? vendaAtual.valortotal : resolvedValorTotal,
         effectiveSurchargeType,
         effectiveSurchargeValue,
       );
@@ -565,6 +732,36 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
           { status: 409 },
         );
       }
+    }
+
+    if (normalizedItems) {
+      const { error: editItemsError } = await supabaseAdmin.rpc(
+        "fn_editar_venda_com_itens",
+        {
+          p_venda_id: vendaId,
+          p_itens: normalizedItems,
+          p_sub_total: Number(resolvedSubTotal ?? 0),
+          p_valor_total: Number(resolvedValorTotal ?? 0),
+          p_desconto_tipo: resolvedDescontoTipo ?? null,
+          p_desconto_valor: Number(resolvedDescontoValor ?? 0),
+          p_valor_frete: Number(resolvedValorFrete ?? 0),
+          p_updated_by: usuarioInternoId,
+        },
+      );
+
+      if (editItemsError) {
+        const message = editItemsError.message || "Não foi possível atualizar os itens da venda.";
+        const statusCode = /estoque|itens|produto|nf-e|paga|finalizada|cancelada/i.test(message)
+          ? 409
+          : 500;
+        return NextResponse.json({ error: message }, { status: statusCode });
+      }
+
+      delete updatePayload.sub_total;
+      delete updatePayload.valortotal;
+      delete updatePayload.desconto_tipo;
+      delete updatePayload.desconto_valor;
+      delete updatePayload.valor_frete;
     }
 
     updatePayload.updatedat = new Date().toISOString();
@@ -584,6 +781,16 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
 
     if (!data) {
       return NextResponse.json({ error: "Venda não encontrada." }, { status: 404 });
+    }
+
+    if (normalizedItems) {
+      const productIds = normalizedItems.map((item) => item.produtoId);
+      await syncPendingMercadoLivreStock({
+        productIds,
+        limit: productIds.length || 1,
+      }).catch((syncError) => {
+        console.warn("Venda editada; sincronização imediata do estoque Mercado Livre ficou pendente.", syncError);
+      });
     }
 
     return NextResponse.json({

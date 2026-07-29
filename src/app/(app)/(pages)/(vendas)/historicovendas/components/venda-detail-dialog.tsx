@@ -19,6 +19,8 @@ import {
   Upload,
   ExternalLink,
   Trash2,
+  Plus,
+  Minus,
 } from "lucide-react"
 import { toast } from "@/lib/toast"
 import type { VendaCanal, VendaStatusEntrega, vendaStatus } from "../types"
@@ -49,8 +51,14 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import ValueInput from "@/components/ui/value-input"
 import CustomerSelect from "@/app/(app)/components/customerSelect"
+import ProductSelect from "@/app/(app)/components/productSelect"
 import type { Customer } from "@/app/(app)/(pages)/clientes/types"
+import type { Produto as EstoqueProduto } from "@/app/(app)/(pages)/estoque/types"
+import { PAYMENT_METHOD_OPTIONS } from "@/lib/payment-methods"
+import { calculateFinancialSurcharge, calculateFinancialTotal } from "@/lib/financial-surcharge"
 import {
   VENDA_ANEXO_CATEGORIAS,
   getVendaAnexoCategoriaLabel,
@@ -154,6 +162,9 @@ interface Venda {
   desconto_tipo: string | null
   desconto_valor: number
   valor_frete: number
+  acrescimo_financeiro_tipo: "FIXO" | "PORCENTAGEM" | null
+  acrescimo_financeiro_valor: number
+  forma_pagamento?: string | null
   sub_total: number
   observacoes?: string | null
   observacoes_fiscais?: string | null
@@ -164,6 +175,7 @@ interface VendaDetailsDialogProps {
   vendaId: number | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  onSaved?: () => void
 }
 
 const statusColors: Record<vendaStatus, string> = {
@@ -199,12 +211,63 @@ const TAB_ITEMS = [
   { value: "Anexos", label: "Anexos", icon: Paperclip },
 ] as const
 
-export function VendaDetailsDialog({ vendaId, open, onOpenChange }: VendaDetailsDialogProps) {
+const roundMoney = (value: number) => Math.round((Number.isFinite(value) ? value : 0) * 100) / 100
+
+function itemUnitPrice(item: VendaProduto) {
+  return roundMoney(Number(item.sub_total ?? 0) / Math.max(Number(item.quantidade ?? 1), 1))
+}
+
+function itemDiscountApplied(item: VendaProduto) {
+  const gross = Math.max(0, Number(item.sub_total ?? 0))
+  const raw = Math.max(0, Number(item.valor_desconto ?? 0))
+  return item.tipo_desconto === "PORCENTAGEM"
+    ? roundMoney(gross * (Math.min(raw, 100) / 100))
+    : item.tipo_desconto === "FIXO"
+      ? Math.min(gross, roundMoney(raw))
+      : 0
+}
+
+function recalculateItem(
+  item: VendaProduto,
+  changes: { quantidade?: number; precoUnitario?: number; desconto?: number; descontoTipo?: string | null },
+) {
+  const quantidade = Math.max(1, Math.trunc(changes.quantidade ?? item.quantidade ?? 1))
+  const precoUnitario = Math.max(0, changes.precoUnitario ?? itemUnitPrice(item))
+  const tipoDesconto = changes.descontoTipo === undefined ? item.tipo_desconto : changes.descontoTipo
+  const desconto = Math.max(0, changes.desconto ?? item.valor_desconto ?? 0)
+  const subTotal = roundMoney(precoUnitario * quantidade)
+  const descontoAplicado = tipoDesconto === "PORCENTAGEM"
+    ? roundMoney(subTotal * (Math.min(desconto, 100) / 100))
+    : tipoDesconto === "FIXO"
+      ? Math.min(subTotal, roundMoney(desconto))
+      : 0
+
+  return {
+    ...item,
+    quantidade,
+    sub_total: subTotal,
+    valor_desconto: tipoDesconto ? desconto : 0,
+    tipo_desconto: tipoDesconto,
+    valor_total: roundMoney(subTotal - descontoAplicado),
+  }
+}
+
+function toDateTimeLocal(value?: string | null) {
+  if (!value) return ""
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+  const offset = date.getTimezoneOffset() * 60_000
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16)
+}
+
+export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: VendaDetailsDialogProps) {
   const [venda, setVenda] = useState<Venda | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [itemsDirty, setItemsDirty] = useState(false)
   const [openCustomerSelect, setOpenCustomerSelect] = useState(false)
+  const [openProductSelect, setOpenProductSelect] = useState(false)
   const [currentTab, setCurrentTab] = useState<string>("Geral")
   const [users, setUsers] = useState<Array<{ id: string; nome: string | null; email?: string }>>([])
   const [loadingUsers, setLoadingUsers] = useState(false)
@@ -218,6 +281,34 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange }: VendaDetails
     useState<VendaAnexoCategoria>("COMPROVANTE_PAGAMENTO")
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const isDesktop = useMediaQuery("(min-width: 768px)")
+  const itemEditingLocked = venda
+    ? ["PAGO", "FINALIZADA", "CANCELADA", "CANCELADO"].includes(String(venda.status).toUpperCase())
+    : true
+  const itemsSubTotal = roundMoney(
+    venda?.itens.reduce((sum, item) => sum + Math.max(0, Number(item.sub_total ?? 0)), 0) ?? 0,
+  )
+  const itemsDiscount = roundMoney(
+    venda?.itens.reduce((sum, item) => sum + itemDiscountApplied(item), 0) ?? 0,
+  )
+  const generalDiscountBase = Math.max(0, roundMoney(itemsSubTotal - itemsDiscount))
+  const generalDiscount = venda?.desconto_tipo === "PORCENTAGEM"
+    ? roundMoney(generalDiscountBase * (Math.min(Math.max(Number(venda.desconto_valor ?? 0), 0), 100) / 100))
+    : venda?.desconto_tipo === "FIXO"
+      ? Math.min(generalDiscountBase, Math.max(0, Number(venda.desconto_valor ?? 0)))
+      : 0
+  const commercialTotal = roundMoney(
+    generalDiscountBase - generalDiscount + Math.max(0, Number(venda?.valor_frete ?? 0)),
+  )
+  const financialSurcharge = calculateFinancialSurcharge(
+    commercialTotal,
+    venda?.acrescimo_financeiro_tipo,
+    venda?.acrescimo_financeiro_valor,
+  )
+  const financialTotal = calculateFinancialTotal(
+    commercialTotal,
+    venda?.acrescimo_financeiro_tipo,
+    venda?.acrescimo_financeiro_valor,
+  )
 
   useEffect(() => {
     const loadUsers = async () => {
@@ -279,6 +370,7 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange }: VendaDetails
 
       const result = await response.json()
       setVenda(result.data)
+      setItemsDirty(false)
     } catch (err) {
       console.error("[debug] Erro ao buscar venda:", err)
       setError(err instanceof Error ? err.message : "Erro ao carregar dados da venda")
@@ -331,11 +423,21 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange }: VendaDetails
       setVenda(null)
       setAnexos([])
       setCurrentTab("Geral")
+      setItemsDirty(false)
     }
   }, [open, vendaId, fetchVenda, fetchAnexos])
 
   const handleUpdateVenda = async () => {
     if (!venda || !vendaId) return
+
+    if (!venda.itens.length) {
+      toast.error("A venda deve possuir ao menos um produto.")
+      return
+    }
+    if (venda.itens.some((item) => item.quantidade <= 0 || itemUnitPrice(item) <= 0)) {
+      toast.error("Revise as quantidades e os preços dos produtos.")
+      return
+    }
 
     setIsSubmitting(true)
 
@@ -351,6 +453,30 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange }: VendaDetails
           observacoesFiscais: venda.observacoes_fiscais,
           vendedor: venda.vendedor,
           categoriaVendaId: venda.categoriavendaid ?? null,
+          dataVenda: venda.datavenda,
+          formaPagamento: venda.forma_pagamento?.trim() || null,
+          descontoTipo: venda.desconto_tipo,
+          descontoValor: venda.desconto_tipo ? Math.max(0, Number(venda.desconto_valor ?? 0)) : 0,
+          valorFrete: Math.max(0, Number(venda.valor_frete ?? 0)),
+          acrescimoFinanceiroTipo: venda.acrescimo_financeiro_tipo,
+          acrescimoFinanceiroValor: venda.acrescimo_financeiro_tipo
+            ? Math.max(0, Number(venda.acrescimo_financeiro_valor ?? 0))
+            : 0,
+          subTotal: itemsSubTotal,
+          valorTotal: commercialTotal,
+          ...(itemEditingLocked || !itemsDirty
+            ? {}
+            : {
+                itens: venda.itens.map((item) => ({
+                  produtoId: item.produtoid,
+                  quantidade: item.quantidade,
+                  precoUnitario: itemUnitPrice(item),
+                  valorDesconto: item.tipo_desconto ? Math.max(0, Number(item.valor_desconto ?? 0)) : 0,
+                  tipoDesconto: item.tipo_desconto,
+                  subTotal: item.sub_total,
+                  valorTotal: item.valor_total,
+                })),
+              }),
         }),
       })
 
@@ -362,6 +488,7 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange }: VendaDetails
       toast.success("Sucesso!", { description: "Venda atualizada com sucesso.", duration: 2000 })
       setVenda(null)
       await fetchVenda()
+      onSaved?.()
     } catch (err) {
       console.error("Erro ao atualizar venda:", err)
       toast.error("Erro", { description: err instanceof Error ? err.message : "Erro ao atualizar venda", duration: 2500 })
@@ -372,6 +499,63 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange }: VendaDetails
 
   const handleChange = (field: keyof Venda, value: any) => {
     setVenda((prev) => (prev ? { ...prev, [field]: value } : null))
+  }
+
+  const updateSaleItem = (
+    itemId: number,
+    changes: { quantidade?: number; precoUnitario?: number; desconto?: number; descontoTipo?: string | null },
+  ) => {
+    setItemsDirty(true)
+    setVenda((prev) => prev
+      ? {
+          ...prev,
+          itens: prev.itens.map((item) => item.id === itemId ? recalculateItem(item, changes) : item),
+        }
+      : prev)
+  }
+
+  const addProduct = (product: EstoqueProduto) => {
+    if (!product.id || !product.precovenda || product.precovenda <= 0) {
+      toast.error("O produto selecionado não possui preço de venda válido.")
+      return
+    }
+    const productId = product.id
+    const productPrice = product.precovenda
+    setItemsDirty(true)
+
+    setVenda((prev) => {
+      if (!prev) return prev
+      const existing = prev.itens.find((item) => item.produtoid === productId)
+      if (existing) {
+        return {
+          ...prev,
+          itens: prev.itens.map((item) => item.id === existing.id
+            ? recalculateItem(item, { quantidade: item.quantidade + 1 })
+            : item),
+        }
+      }
+
+      const now = new Date().toISOString()
+      const item: VendaProduto = {
+        id: -Date.now(),
+        created_at: now,
+        updated_at: now,
+        venda_id: prev.id,
+        produtoid: productId,
+        produto: product as unknown as Produto,
+        sub_total: roundMoney(productPrice),
+        valor_total: roundMoney(productPrice),
+        valor_desconto: 0,
+        tipo_desconto: null,
+        quantidade: 1,
+      }
+      return { ...prev, itens: [...prev.itens, item] }
+    })
+  }
+
+  const removeSaleItem = (itemId: number) => {
+    setItemsDirty(true)
+    setVenda((prev) => prev ? { ...prev, itens: prev.itens.filter((item) => item.id !== itemId) } : prev)
   }
 
   const handleCustomerSelect = (customer: Customer) => {
@@ -472,12 +656,6 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange }: VendaDetails
       minute: "2-digit",
     }).format(new Date(date))
   }
-
-  const formatQuantity = (qty: number) =>
-    new Intl.NumberFormat("pt-BR", {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2,
-    }).format(qty)
 
   const formatFileSize = (value?: number | null) => {
     if (!value) return "Tamanho nÃ£o informado"
@@ -614,7 +792,16 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange }: VendaDetails
                             </div>
                             <div className="flex-1 space-y-1">
                               <p className="text-xs font-medium text-muted-foreground">Data da Venda</p>
-                              <p className="text-sm font-semibold">{formatDate(venda.datavenda)}</p>
+                              <Input
+                                type="datetime-local"
+                                value={toDateTimeLocal(venda.datavenda)}
+                                onChange={(event) =>
+                                  handleChange(
+                                    "datavenda",
+                                    event.target.value ? new Date(event.target.value).toISOString() : null,
+                                  )
+                                }
+                              />
                             </div>
                           </div>
                         </div>
@@ -783,54 +970,225 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange }: VendaDetails
                       </TabsContent>
 
                       <TabsContent value="Financeiro" className="m-0 space-y-6">
+                        <div className="grid gap-4 rounded-lg border bg-card p-4 md:grid-cols-2">
+                          <div className="space-y-2 md:col-span-2">
+                            <p className="text-xs font-medium text-muted-foreground">Forma de pagamento</p>
+                            <Input
+                              list="venda-payment-methods"
+                              value={venda.forma_pagamento ?? ""}
+                              onChange={(event) => handleChange("forma_pagamento", event.target.value)}
+                              placeholder="Ex.: PIX ou CREDITO: R$ 100,00, PIX: R$ 50,00"
+                            />
+                            <datalist id="venda-payment-methods">
+                              {PAYMENT_METHOD_OPTIONS.map((method) => (
+                                <option key={method.value} value={method.value}>{method.label}</option>
+                              ))}
+                            </datalist>
+                          </div>
+
+                          <div className="space-y-2">
+                            <p className="text-xs font-medium text-muted-foreground">Tipo de desconto geral</p>
+                            <Select
+                              value={venda.desconto_tipo ?? "NONE"}
+                              onValueChange={(value) => {
+                                handleChange("desconto_tipo", value === "NONE" ? null : value)
+                                if (value === "NONE") handleChange("desconto_valor", 0)
+                              }}
+                            >
+                              <SelectTrigger><SelectValue placeholder="Sem desconto" /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="NONE">Sem desconto</SelectItem>
+                                <SelectItem value="FIXO">Fixo</SelectItem>
+                                <SelectItem value="PORCENTAGEM">Porcentagem</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <p className="text-xs font-medium text-muted-foreground">
+                              {venda.desconto_tipo === "PORCENTAGEM" ? "Desconto (%)" : "Valor do desconto"}
+                            </p>
+                            {venda.desconto_tipo === "PORCENTAGEM" ? (
+                              <Input
+                                type="number"
+                                min={0}
+                                max={100}
+                                step="0.01"
+                                disabled={!venda.desconto_tipo}
+                                value={venda.desconto_valor || ""}
+                                onChange={(event) => handleChange("desconto_valor", Math.min(100, Number(event.target.value || 0)))}
+                              />
+                            ) : (
+                              <ValueInput
+                                value={venda.desconto_valor}
+                                disabled={!venda.desconto_tipo}
+                                onValueChange={(value) => handleChange("desconto_valor", Math.min(generalDiscountBase, value))}
+                              />
+                            )}
+                          </div>
+
+                          <div className="space-y-2">
+                            <p className="text-xs font-medium text-muted-foreground">Frete</p>
+                            <ValueInput
+                              value={venda.valor_frete}
+                              onValueChange={(value) => handleChange("valor_frete", value)}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <p className="text-xs font-medium text-muted-foreground">Tipo de acréscimo financeiro</p>
+                            <Select
+                              value={venda.acrescimo_financeiro_tipo ?? "NONE"}
+                              onValueChange={(value) => {
+                                handleChange("acrescimo_financeiro_tipo", value === "NONE" ? null : value)
+                                if (value === "NONE") handleChange("acrescimo_financeiro_valor", 0)
+                              }}
+                            >
+                              <SelectTrigger><SelectValue placeholder="Sem acréscimo" /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="NONE">Sem acréscimo</SelectItem>
+                                <SelectItem value="FIXO">Fixo</SelectItem>
+                                <SelectItem value="PORCENTAGEM">Porcentagem</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <p className="text-xs font-medium text-muted-foreground">
+                              {venda.acrescimo_financeiro_tipo === "PORCENTAGEM" ? "Acréscimo (%)" : "Valor do acréscimo"}
+                            </p>
+                            {venda.acrescimo_financeiro_tipo === "PORCENTAGEM" ? (
+                              <Input
+                                type="number"
+                                min={0}
+                                max={100}
+                                step="0.01"
+                                disabled={!venda.acrescimo_financeiro_tipo}
+                                value={venda.acrescimo_financeiro_valor || ""}
+                                onChange={(event) => handleChange("acrescimo_financeiro_valor", Math.min(100, Number(event.target.value || 0)))}
+                              />
+                            ) : (
+                              <ValueInput
+                                value={venda.acrescimo_financeiro_valor}
+                                disabled={!venda.acrescimo_financeiro_tipo}
+                                onValueChange={(value) => handleChange("acrescimo_financeiro_valor", value)}
+                              />
+                            )}
+                          </div>
+                        </div>
+
                         <div className="space-y-3 rounded-lg border bg-card p-4">
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="text-muted-foreground">Subtotal</span>
-                            <span className="font-medium">{formatCurrency(venda.sub_total)}</span>
-                          </div>
-                          {venda.desconto_valor > 0 && (
-                            <div className="flex items-center justify-between text-sm text-emerald-600 dark:text-emerald-400">
-                              <span>Desconto</span>
-                              <span className="font-medium">-{formatCurrency(venda.desconto_valor)}</span>
-                            </div>
-                          )}
-                          {venda.valor_frete > 0 && (
-                            <div className="flex items-center justify-between text-sm text-muted-foreground">
-                              <span>Frete</span>
-                              <span className="font-medium">+{formatCurrency(venda.valor_frete)}</span>
-                            </div>
-                          )}
+                          <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Produtos</span><span>{formatCurrency(itemsSubTotal)}</span></div>
+                          <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Descontos dos itens</span><span>-{formatCurrency(itemsDiscount)}</span></div>
+                          <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Desconto geral</span><span>-{formatCurrency(generalDiscount)}</span></div>
+                          <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Frete</span><span>+{formatCurrency(venda.valor_frete)}</span></div>
+                          <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Acréscimo financeiro</span><span>+{formatCurrency(financialSurcharge)}</span></div>
                           <Separator className="my-2" />
-                          <div className="flex items-center justify-between">
-                            <span className="text-base font-semibold">Valor Total</span>
-                            <span className="text-xl font-bold text-primary">
-                              {formatCurrency(venda.valortotal)}
-                            </span>
-                          </div>
+                          <div className="flex items-center justify-between"><span className="text-base font-semibold">Total financeiro</span><span className="text-xl font-bold text-primary">{formatCurrency(financialTotal)}</span></div>
                         </div>
                       </TabsContent>
 
                       <TabsContent value="Produtos" className="m-0 space-y-6">
+                        <div className="flex flex-col gap-3 rounded-lg border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="text-sm font-semibold">Produtos da venda</p>
+                            <p className="text-xs text-muted-foreground">
+                              {itemEditingLocked
+                                ? "Os itens ficam bloqueados quando a venda está paga, finalizada ou cancelada."
+                                : "Altere produto, quantidade, preço e desconto. O estoque será reconciliado ao salvar."}
+                            </p>
+                          </div>
+                          {!itemEditingLocked ? (
+                            <ProductSelect open={openProductSelect} setOpen={setOpenProductSelect} OnSelect={addProduct}>
+                              <Button type="button" variant="outline"><Plus className="mr-2 h-4 w-4" />Adicionar produto</Button>
+                            </ProductSelect>
+                          ) : null}
+                        </div>
+
                         <div className="space-y-3">
                           {venda.itens.map((item) => (
                             <div key={item.id} className="rounded-lg border bg-card p-4">
                               <div className="flex items-start justify-between gap-4">
-                                <div className="flex-1">
+                                <div className="min-w-0 flex-1">
                                   <p className="font-semibold leading-tight">{item.produto.titulo}</p>
-                                  <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                                    <span>
-                                      {formatQuantity(item.quantidade)} {item.produto.unidade}
-                                    </span>
-                                    <span>-</span>
-                                    <span>{formatCurrency(item.valor_total / item.quantidade)} / unid.</span>
+                                  <p className="mt-1 text-xs text-muted-foreground">Produto #{item.produtoid} · {item.produto.unidade}</p>
+                                </div>
+                                {!itemEditingLocked ? (
+                                  <Button
+                                    type="button"
+                                    size="icon"
+                                    variant="ghost"
+                                    className="text-destructive hover:text-destructive"
+                                    onClick={() => removeSaleItem(item.id)}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                ) : <p className="font-bold">{formatCurrency(item.valor_total)}</p>}
+                              </div>
+
+                              {!itemEditingLocked ? (
+                                <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                                  <div className="space-y-1">
+                                    <p className="text-xs text-muted-foreground">Quantidade</p>
+                                    <div className="flex items-center gap-1">
+                                      <Button type="button" size="icon" variant="outline" onClick={() => updateSaleItem(item.id, { quantidade: Math.max(1, item.quantidade - 1) })}><Minus className="h-3.5 w-3.5" /></Button>
+                                      <Input
+                                        type="number"
+                                        min={1}
+                                        step={1}
+                                        value={item.quantidade}
+                                        onChange={(event) => updateSaleItem(item.id, { quantidade: Number(event.target.value || 1) })}
+                                        className="text-center"
+                                      />
+                                      <Button type="button" size="icon" variant="outline" onClick={() => updateSaleItem(item.id, { quantidade: item.quantidade + 1 })}><Plus className="h-3.5 w-3.5" /></Button>
+                                    </div>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <p className="text-xs text-muted-foreground">Preço unitário</p>
+                                    <ValueInput value={itemUnitPrice(item)} onValueChange={(value) => updateSaleItem(item.id, { precoUnitario: value })} />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <p className="text-xs text-muted-foreground">Tipo de desconto</p>
+                                    <Select
+                                      value={item.tipo_desconto ?? "NONE"}
+                                      onValueChange={(value) => updateSaleItem(item.id, { descontoTipo: value === "NONE" ? null : value, desconto: value === "NONE" ? 0 : item.valor_desconto })}
+                                    >
+                                      <SelectTrigger><SelectValue placeholder="Sem desconto" /></SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="NONE">Sem desconto</SelectItem>
+                                        <SelectItem value="FIXO">Fixo</SelectItem>
+                                        <SelectItem value="PORCENTAGEM">Porcentagem</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <p className="text-xs text-muted-foreground">Desconto</p>
+                                    {item.tipo_desconto === "PORCENTAGEM" ? (
+                                      <Input
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        step="0.01"
+                                        value={item.valor_desconto || ""}
+                                        onChange={(event) => updateSaleItem(item.id, { desconto: Math.min(100, Number(event.target.value || 0)) })}
+                                      />
+                                    ) : (
+                                      <ValueInput
+                                        value={item.valor_desconto}
+                                        disabled={!item.tipo_desconto}
+                                        onValueChange={(value) => updateSaleItem(item.id, { desconto: Math.min(item.sub_total, value) })}
+                                      />
+                                    )}
                                   </div>
                                 </div>
-                                <div className="text-right">
-                                  <p className="font-bold">{formatCurrency(item.valor_total)}</p>
-                                </div>
+                              ) : null}
+
+                              <div className="mt-3 flex justify-end gap-4 border-t pt-3 text-sm">
+                                <span className="text-muted-foreground">Subtotal: {formatCurrency(item.sub_total)}</span>
+                                <span className="font-semibold">Total: {formatCurrency(item.valor_total)}</span>
                               </div>
                             </div>
                           ))}
+                          {!venda.itens.length ? (
+                            <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">Nenhum produto adicionado.</div>
+                          ) : null}
                         </div>
                       </TabsContent>
 
