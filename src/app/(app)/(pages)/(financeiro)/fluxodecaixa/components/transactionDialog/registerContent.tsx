@@ -177,9 +177,14 @@ export default function RegisterContent({
     useCategoriasTransacao();
   const { gruposPlanosDeConta, loadingPlanos } = usePlanosDeConta();
   const { centrosCusto, loadingCentrosCusto, errorCentrosCusto } = useCentrosCusto();
-  const canManageParcelas =
-    newTransaction.metodopagamento === Metodo_pagamento.BOLETO &&
-    !!newTransaction.pendente;
+  const metodoPermiteParcelas =
+    newTransaction.metodopagamento === Metodo_pagamento.BOLETO ||
+    newTransaction.metodopagamento === Metodo_pagamento.CREDITO;
+  const canManageParcelas = metodoPermiteParcelas && !!newTransaction.pendente;
+  const nomeMetodoParcelado =
+    newTransaction.metodopagamento === Metodo_pagamento.CREDITO
+      ? "crédito"
+      : "boleto";
   const canUseMesmoCliente = Boolean(osId || vendaId) && !internalCompanyExpense;
 
   const handleChange = (
@@ -989,11 +994,10 @@ export default function RegisterContent({
                     className="w-full"
                   />
                 </div>
-                {newTransaction.metodopagamento === Metodo_pagamento.BOLETO &&
-                  !newTransaction.pendente && (
+                {metodoPermiteParcelas && !newTransaction.pendente && (
                     <div className="w-full sm:col-span-3 rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">
                       Ative `Lançamento futuro` para habilitar o parcelamento do
-                      boleto.
+                      {" "}{nomeMetodoParcelado}.
                     </div>
                   )}
                 {canManageParcelas && (
@@ -1001,7 +1005,7 @@ export default function RegisterContent({
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <p className="text-sm font-medium">
-                          Parcelas do boleto
+                          Parcelas do {nomeMetodoParcelado}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           Adicione parcelas como na entrada fiscal.
