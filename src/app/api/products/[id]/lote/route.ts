@@ -87,7 +87,7 @@ export async function PUT(request: Request, ctx: Ctx) {
 
     const [{ data: produto, error: produtoError }, { data: lote, error: loteError }] =
       await Promise.all([
-        supabaseAdmin.from("produto").select("id").eq("id", produtoId).maybeSingle(),
+        supabaseAdmin.from("produto").select("id").eq("id", produtoId).eq("is_deleted", false).maybeSingle(),
         supabaseAdmin.from("lotes").select("id").eq("id", loteId).maybeSingle(),
       ]);
 

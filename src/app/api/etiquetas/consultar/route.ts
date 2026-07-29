@@ -54,8 +54,8 @@ export async function GET(req: NextRequest) {
     const [canSeeProducts, canSeeUse, productLabels, productBarcodes, useLabels, useBarcodes] = await Promise.all([
       hasPerm(PERMS.ESTOQUE),
       hasPerm(PERMS.USOCONSUMO),
-      supabaseAdmin.from("produto").select(PRODUCT_FIELDS).ilike("etiqueta", labelPattern).limit(5),
-      supabaseAdmin.from("produto").select(PRODUCT_FIELDS).ilike("codigobarras", labelPattern).limit(5),
+      supabaseAdmin.from("produto").select(PRODUCT_FIELDS).eq("is_deleted", false).ilike("etiqueta", labelPattern).limit(5),
+      supabaseAdmin.from("produto").select(PRODUCT_FIELDS).eq("is_deleted", false).ilike("codigobarras", labelPattern).limit(5),
       supabaseAdmin.from("usoconsumo_item").select(USE_FIELDS).ilike("etiqueta", labelPattern).limit(5),
       supabaseAdmin.from("usoconsumo_item").select(USE_FIELDS).ilike("codigobarras", labelPattern).limit(5),
     ]);

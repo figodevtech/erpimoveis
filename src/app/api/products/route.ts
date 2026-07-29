@@ -218,6 +218,7 @@ export async function GET(req: Request) {
         .from('produto')
         .select(PRODUTO_FIELDS)
         .eq('etiqueta', exactEtiqueta)
+        .eq('is_deleted', false)
         .maybeSingle();
 
       if (error) throw error;
@@ -266,6 +267,7 @@ export async function GET(req: Request) {
         let searchQuery = supabaseAdmin
           .from('produto')
           .select(PRODUTO_FIELDS)
+          .eq('is_deleted', false)
           .order('id', { ascending: false })
           .range(batchFrom, batchFrom + batchSize - 1);
 
@@ -313,6 +315,7 @@ export async function GET(req: Request) {
         `,
         { count: 'exact' }
       )
+      .eq('is_deleted', false)
       .order('id', { ascending: false })
       .range(from, to);
 

@@ -152,7 +152,11 @@ async function updateProduto(
   expectedUpdatedAt: string | null,
   expectedFields: ExpectedField[] = [],
 ) {
-  let query = supabaseAdmin.from("produto").update(payload).eq("id", id);
+  let query = supabaseAdmin
+    .from("produto")
+    .update(payload)
+    .eq("id", id)
+    .eq("is_deleted", false);
   if (expectedUpdatedAt) query = query.eq("updatedat", expectedUpdatedAt);
   for (const { field, original } of expectedFields) {
     query = original == null ? query.is(field, null) : query.eq(field, original);
@@ -177,12 +181,12 @@ async function updateProduto(
 
   const { data: existente, error: lookupError } = await supabaseAdmin
     .from("produto")
-    .select("id")
+    .select("id, is_deleted")
     .eq("id", id)
     .maybeSingle();
 
   if (lookupError) throw lookupError;
-  if (!existente) throw new HttpError("Produto não encontrado.", 404);
+  if (!existente || existente.is_deleted) throw new HttpError("Produto não encontrado.", 404);
 
   throw new HttpError(
     "Este produto foi alterado por outro usuário. Recarregue os dados antes de salvar.",
@@ -369,6 +373,7 @@ export async function GET(_req: NextRequest, context: { params: Promise<Params> 
       .from("produto")
       .select(GET_PRODUTO_FIELDS)
       .eq("id", id)
+      .eq("is_deleted", false)
       .single();
 
     if (error) {
@@ -459,8 +464,15 @@ export async function DELETE(_req: NextRequest, context: { params: Promise<Param
 
     const { data, error } = await supabaseAdmin
       .from("produto")
-      .delete()
+      .update({
+        is_deleted: true,
+        deleted_at: new Date().toISOString(),
+        etiqueta: null,
+        exibirPdv: false,
+        updatedat: new Date().toISOString(),
+      })
       .eq("id", id)
+      .eq("is_deleted", false)
       .select("id");
 
     if (error) throw error;
@@ -473,7 +485,15 @@ export async function DELETE(_req: NextRequest, context: { params: Promise<Param
     return new NextResponse(null, { status: 204 });
   } catch (e: any) {
     const msg = e?.message ?? "Erro ao deletar produto.";
-    const status = msg.includes("ID inválido") ? 400 : 500;
-    return NextResponse.json({ error: msg }, { status });
+    const status = e instanceof HttpError
+      ? e.status
+      : msg.includes("ID inválido")
+        ? 400
+        : 500;
+    return NextResponse.json({
+      error: status === 500
+        ? "Não foi possível excluir o produto. Tente novamente."
+        : msg,
+    }, { status });
   }
 }

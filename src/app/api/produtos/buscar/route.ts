@@ -20,6 +20,7 @@ export async function GET(request: Request) {
         "id, descricao, precovenda, estoque, codigobarras, referencia, titulo",
         { count: "exact" }
       )
+      .eq("is_deleted", false)
       .range(from, to)
       .order("descricao", { ascending: true });
 

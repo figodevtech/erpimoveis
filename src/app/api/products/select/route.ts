@@ -185,7 +185,7 @@ export async function GET(req: Request) {
   `,
   { count: "exact" }
 )
-
+      .eq('is_deleted', false)
       .order('id', { ascending: false })
       .range(from, to);
 

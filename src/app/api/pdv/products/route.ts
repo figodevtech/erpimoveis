@@ -65,6 +65,7 @@ export async function GET(req: Request) {
         let searchQuery = supabaseAdmin
           .from('produto')
           .select('*, grupo:produtogrupo(id, nome, descricao, ativo)')
+          .eq('is_deleted', false)
           .eq('exibirPdv', true)
           .order('id', { ascending: false })
           .range(from, from + batchSize - 1);
@@ -112,6 +113,7 @@ export async function GET(req: Request) {
         `,
         { count: 'exact' }
       )
+      .eq('is_deleted', false)
       .order('id', { ascending: false });
 
     if (q) {

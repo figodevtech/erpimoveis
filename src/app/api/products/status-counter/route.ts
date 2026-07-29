@@ -11,11 +11,13 @@ export async function GET() {
     const listPromise = supabaseAdmin
       .from('produto')
       .select('status_estoque')
+      .eq('is_deleted', false)
       .returns<ProductRow[]>();
 
     const totalPromise = supabaseAdmin
       .from('produto')
-      .select('*', { count: 'exact', head: true });
+      .select('*', { count: 'exact', head: true })
+      .eq('is_deleted', false);
 
     const [{ data, error }, { count, error: countError }] = await Promise.all([
       listPromise,

@@ -110,6 +110,7 @@ export async function GET(req: Request) {
       let query = supabaseAdmin
         .from("produto")
         .select(EXPORT_FIELDS, { count: "exact" })
+        .eq("is_deleted", false)
         .order("id", { ascending: true });
 
       if (q) {

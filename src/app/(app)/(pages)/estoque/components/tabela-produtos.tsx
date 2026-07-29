@@ -258,14 +258,14 @@ export default function TabelaProdutos({
     toast(
       <div className="flex gap-2 items-center flex-nowrap">
         <Loader className=" animate-spin w-4" />
-        <span className="text-nowrap">Deletando produto...</span>
+        <span className="text-nowrap">Excluindo produto...</span>
       </div>,
     );
 
     try {
       const response = await axios.delete(`/api/products/${id}`, {});
       if (response.status === 204) {
-        toast.success("Produto deletado!");
+        toast.success("Produto excluído!");
         handleGetProducts(pagination.page, pagination.limit, search, status, filters);
         fetchStatusCounts();
       } else {
@@ -273,7 +273,9 @@ export default function TabelaProdutos({
       }
     } catch (error) {
       if (isAxiosError(error)) {
-        toast.error("Error", { description: error.response?.data.error });
+        toast.error("Não foi possível excluir o produto", {
+          description: error.response?.data?.error ?? "Tente novamente.",
+        });
       }
     } finally {
       setIsDeleting(false);
