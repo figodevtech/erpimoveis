@@ -64,6 +64,7 @@ type SourceItem = {
   unidade: string;
   quantidade: number;
   valorUnitario: number;
+  valorFrete?: number;
 };
 
 type LoadedSource = {
@@ -93,6 +94,21 @@ function onlyDigits(value: unknown) {
 function toNumber(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
+}
+
+function distributeMoney(total: number, values: number[]) {
+  const totalCents = Math.max(0, Math.round(total * 100));
+  const weightsTotal = values.reduce((sum, value) => sum + Math.max(0, value), 0);
+  let remaining = totalCents;
+  return values.map((value, index) => {
+    const cents = index === values.length - 1
+      ? remaining
+      : weightsTotal > 0
+        ? Math.floor(totalCents * Math.max(0, value) / weightsTotal)
+        : 0;
+    remaining -= cents;
+    return cents / 100;
+  });
 }
 
 function clienteToDraft(cliente: ClienteRow): NFeAvulsaDraftInput["destinatario"] {
@@ -247,7 +263,7 @@ async function loadOs(osId: number): Promise<LoadedSource> {
 async function loadVenda(vendaId: number): Promise<LoadedSource> {
   const { data: venda, error: vendaError } = await supabaseAdmin
     .from("venda")
-    .select("id, clienteid, observacoes_fiscais, canal")
+    .select("id, clienteid, observacoes_fiscais, canal, valor_frete")
     .eq("id", vendaId)
     .maybeSingle();
   if (vendaError) throw vendaError;
@@ -267,6 +283,12 @@ async function loadVenda(vendaId: number): Promise<LoadedSource> {
   if (error) throw error;
 
   const cliente = await getCliente(Number(venda.clienteid));
+  const rows = data ?? [];
+  const freight = Math.max(0, toNumber(venda.valor_frete));
+  const freightByItem = distributeMoney(
+    freight,
+    rows.map((row: any) => toNumber(row.valor_total)),
+  );
   return {
     clienteId: Number(venda.clienteid),
     fornecedorId: null,
@@ -278,8 +300,8 @@ async function loadVenda(vendaId: number): Promise<LoadedSource> {
     destinatario: clienteToDraft(cliente),
     consumidorFinal: true,
     indicadorPresenca: mapSalesChannelToPresence(venda.canal),
-    transporte: { modFrete: "9" },
-    itens: (data ?? []).map((row: any) => {
+    transporte: { modFrete: freight > 0 ? "0" : "9" },
+    itens: rows.map((row: any, index: number) => {
       const produto = normalizeRelation<ProdutoFiscalRow>(row.produto);
       const quantidade = toNumber(row.quantidade);
       const valorTotal = toNumber(row.valor_total);
@@ -291,6 +313,7 @@ async function loadVenda(vendaId: number): Promise<LoadedSource> {
         unidade: String(produto?.unidade || "UN"),
         quantidade,
         valorUnitario: quantidade > 0 ? valorTotal / quantidade : valorTotal,
+        valorFrete: freightByItem[index] ?? 0,
       };
     }),
   };
@@ -422,6 +445,7 @@ export async function salvarNFeDeOrigem(
       // para a NF-e. Entradas continuam usando os valores registrados na origem.
       quantidade: tipo === "ENTRADA" ? sourceItem.quantidade : item.quantidade,
       valorUnitario: tipo === "ENTRADA" ? sourceItem.valorUnitario : item.valorUnitario,
+      valorFrete: tipo === "VENDA" ? sourceItem.valorFrete ?? 0 : item.valorFrete,
     } satisfies NFeAvulsaItemInput];
   });
 
@@ -454,13 +478,18 @@ export async function salvarNFeDeOrigem(
     (total, item) => total + toNumber(item.quantidade) * toNumber(item.valorUnitario),
     0,
   );
+  const totalFrete = itens.reduce(
+    (total, item) => total + Math.max(0, toNumber(item.valorFrete)),
+    0,
+  );
+  const totalNota = totalProdutos + totalFrete;
   const pagamentos = tipo === "ENTRADA"
     ? [{ meio: "90", valor: 0, tipoIntegracao: "2" }]
     : (requestedFiscalConfig?.pagamentos ?? []).map((pagamento) => ({
         ...pagamento,
         meio: String(pagamento.meio ?? ""),
         valor: requestedFiscalConfig?.pagamentos?.length === 1
-          ? Number(totalProdutos.toFixed(2))
+          ? Number(totalNota.toFixed(2))
           : Number(toNumber(pagamento.valor).toFixed(2)),
         tipoIntegracao: "2",
       }));
@@ -500,12 +529,12 @@ export async function salvarNFeDeOrigem(
   });
   if (
     pagamentos.length > 1 &&
-    Math.abs(pagamentos.reduce((total, pagamento) => total + toNumber(pagamento.valor), 0) - totalProdutos) > 0.01
+    Math.abs(pagamentos.reduce((total, pagamento) => total + toNumber(pagamento.valor), 0) - totalNota) > 0.01
   ) {
     errors.push({
       step: "payment",
       field: "pagamentos",
-      message: "A soma dos métodos de pagamento deve ser igual ao total dos produtos selecionados.",
+      message: "A soma dos métodos de pagamento deve ser igual ao total da NF-e, incluindo o frete.",
     });
   }
   if (!NFE_FREIGHT_OPTIONS.some((option) => option.value === modFrete)) {

@@ -80,6 +80,7 @@ const VENDA_SELECT = `
   editor:updated_by ( id, nome ),
   desconto_tipo,
   desconto_valor,
+  valor_frete,
   acrescimo_financeiro_tipo,
   acrescimo_financeiro_valor,
   observacoes,

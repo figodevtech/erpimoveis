@@ -196,6 +196,7 @@ export interface NFeItem {
   quantidade: number;
   valorUnitario: number;
   valorTotal: number;
+  valorFrete?: number;
   codigoBarras?: string | null;
   cest?: string | null;
 

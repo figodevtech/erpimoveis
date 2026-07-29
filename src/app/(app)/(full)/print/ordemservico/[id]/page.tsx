@@ -191,17 +191,25 @@ export default async function OSFullPage({ params }: PageProps) {
   const itens: Array<{
     tipo: "SERVIÇO" | "PEÇA";
     descricao: string;
+    subdescricao?: string | null;
     qtd: number;
     unitario: number | string | null | undefined;
     subtotal: number | string | null | undefined;
   }> = [
-    ...(os.servicos ?? []).map((s: any) => ({
-      tipo: "SERVIÇO" as const,
-      descricao: s.servico?.descricao || "Serviço",
-      qtd: Number(s.quantidade ?? 1),
-      unitario: s.precounitario,
-      subtotal: s.subtotal,
-    })),
+    ...(os.servicos ?? []).map((s: any) => {
+      const descricao = String(s.servico?.descricao || "Serviço").trim();
+      const subdescricao = String(s.descricao ?? "").trim();
+      return {
+        tipo: "SERVIÇO" as const,
+        descricao,
+        subdescricao: subdescricao && subdescricao.toLocaleLowerCase("pt-BR") !== descricao.toLocaleLowerCase("pt-BR")
+          ? subdescricao
+          : null,
+        qtd: Number(s.quantidade ?? 1),
+        unitario: s.precounitario,
+        subtotal: s.subtotal,
+      };
+    }),
     ...(os.produtos ?? []).map((p: any) => ({
       tipo: "PEÇA" as const,
       descricao: p.produto?.titulo || p.produto?.descricao || "Peça",
@@ -942,7 +950,14 @@ export default async function OSFullPage({ params }: PageProps) {
                             {item.tipo}
                           </span>
                         </td>
-                        <td>{item.descricao}</td>
+                        <td>
+                          <div>{item.descricao}</div>
+                          {item.subdescricao ? (
+                            <div className="mt-1 text-[9px] leading-snug text-slate-500">
+                              {item.subdescricao}
+                            </div>
+                          ) : null}
+                        </td>
                         <td className="col-qtd">{item.qtd}</td>
                         <td className="col-unit">{fmtMoney(item.unitario)}</td>
                         <td className="col-sub">{fmtMoney(item.subtotal)}</td>

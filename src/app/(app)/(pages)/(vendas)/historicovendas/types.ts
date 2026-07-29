@@ -87,6 +87,7 @@ export interface VendaComItens {
   comissao_venda_percent_aplicada?: number | null;
   desconto_tipo: string | null;
   desconto_valor: number;
+  valor_frete?: number;
   acrescimo_financeiro_tipo?: "FIXO" | "PORCENTAGEM" | null;
   acrescimo_financeiro_valor?: number | null;
   forma_pagamento?: string | null;
