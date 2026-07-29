@@ -35,6 +35,7 @@ export type NFeAvulsaItemInput = {
   unidade: string;
   quantidade: string | number;
   valorUnitario: string | number;
+  valorFrete?: string | number | null;
   orig?: string | number | null;
   csosn?: string | null;
   cst?: string | null;
@@ -232,6 +233,7 @@ function mapInputToTaxItem(item: NFeAvulsaItemInput, index: number): NFeItem {
     quantidade,
     valorUnitario,
     valorTotal,
+    valorFrete: Math.max(0, toDecimalNumber(item.valorFrete)),
     orig: cleanText(item.orig),
     cest: onlyDigits(item.cest) || null,
     csosn: cleanText(item.csosn) || null,
@@ -524,6 +526,9 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
     if (toDecimalNumber(item.valorUnitario) <= 0) {
       errors.push({ step: "products", itemIndex: index, field: "valorUnitario", message: "Valor unitário deve ser maior que zero." });
     }
+    if (toDecimalNumber(item.valorFrete) < 0) {
+      errors.push({ step: "products", itemIndex: index, field: "valorFrete", message: "Frete não pode ser negativo." });
+    }
   });
 
   const pagamentosFiscais = getPagamentosFiscais(input);
@@ -576,16 +581,21 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
       (total, item) => total + toDecimalNumber(item.quantidade) * toDecimalNumber(item.valorUnitario),
       0,
     );
+    const totalFrete = input.itens.reduce(
+      (total, item) => total + Math.max(0, toDecimalNumber(item.valorFrete)),
+      0,
+    );
+    const totalNota = totalProdutos + totalFrete;
     const totalPagamentos = pagamentosFiscais.reduce(
       (total, pagamento) => total + toDecimalNumber(pagamento.valor),
       0,
     );
     const exigePagamento = ![3, 4].includes(finalidadeToFinNFe(input.operacao.finalidade));
-    if (exigePagamento && Math.abs(totalPagamentos - totalProdutos) > 0.01) {
+    if (exigePagamento && Math.abs(totalPagamentos - totalNota) > 0.01) {
       errors.push({
         step: "payment",
         field: "pagamentos",
-        message: `A soma dos pagamentos (${totalPagamentos.toFixed(2)}) deve ser igual ao total dos produtos (${totalProdutos.toFixed(2)}).`,
+        message: `A soma dos pagamentos (${totalPagamentos.toFixed(2)}) deve ser igual ao total da NF-e (${totalNota.toFixed(2)}).`,
       });
     }
   }
@@ -794,6 +804,7 @@ function mapItemToInsert(item: NFeAvulsaItemInput, index: number, nfeId: number,
     quantidade,
     valor_unitario: valorUnitario,
     valor_total: valorTotal,
+    valor_frete: Number(taxItem.valorFrete ?? 0),
     aliquotaicms: aliquotaIcms,
     valor_bc_icms: aliquotaIcms === null ? null : valorTotal,
     valor_icms: aliquotaIcms === null ? null : Number((valorTotal * (aliquotaIcms / 100)).toFixed(2)),
@@ -1135,13 +1146,16 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
   if (itensError) throw itensError;
 
   const totalProdutos = itensInsert.reduce((sum, item) => sum + Number(item.valor_total ?? 0), 0);
+  const totalFrete = itensInsert.reduce((sum, item) => sum + Number(item.valor_frete ?? 0), 0);
+  const totalNfe = Number((totalProdutos + totalFrete).toFixed(2));
   const { error: totalError } = await supabaseAdmin.rpc("atualizar_totais_nfe", { p_nfe_id: nfeId });
   if (totalError) {
     const { error: updateTotalError } = await supabaseAdmin
       .from("nfe")
       .update({
         total_produtos: totalProdutos,
-        total_nfe: totalProdutos,
+        valor_frete: totalFrete,
+        total_nfe: totalNfe,
         updatedat: now,
       })
       .eq("id", nfeId);
@@ -1154,7 +1168,8 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
       chave_acesso: chave,
       xml_assinado: xml,
       total_produtos: totalProdutos,
-      total_nfe: totalProdutos,
+      valor_frete: totalFrete,
+      total_nfe: totalNfe,
       updatedat: now,
     })
     .eq("id", nfeId);
@@ -1167,7 +1182,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
     numero,
     serie,
     chave,
-    total: totalProdutos,
+    total: totalNfe,
     errors: [],
   };
 }

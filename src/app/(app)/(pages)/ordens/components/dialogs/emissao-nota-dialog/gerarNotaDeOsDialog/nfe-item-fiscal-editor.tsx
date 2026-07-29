@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import ValueInput from "@/components/ui/value-input";
 import {
   getRequiredPisCofinsMode,
   PIS_COFINS_CST_OPTIONS,
@@ -136,6 +137,16 @@ export function NfeItemFiscalEditor({
     ["10", "30", "70"].includes(item.cst) ||
     ["201", "202", "203"].includes(item.csosn);
 
+  const updateQuantity = (value: string) => {
+    const quantidade = Number(value);
+    const next = Number.isFinite(quantidade) ? quantidade : 0;
+    onChange({
+      quantidade: next,
+      ...(item.modoPis === "QUANTIDADE" ? { quantidadePis: value } : {}),
+      ...(item.modoCofins === "QUANTIDADE" ? { quantidadeCofins: value } : {}),
+    });
+  };
+
   const updateContributionCst = (type: "PIS" | "COFINS", cst: string) => {
     const mode = inferPisCofinsMode(cst);
     if (type === "PIS") {
@@ -232,6 +243,31 @@ export function NfeItemFiscalEditor({
                   ))}
                 </SelectContent>
               </Select>
+            </Field>
+            <Field label="Quantidade na NF-e" required className="lg:col-span-3">
+              <Input
+                type="number"
+                min="0.0001"
+                step="0.0001"
+                inputMode="decimal"
+                value={item.quantidade}
+                onChange={(event) => updateQuantity(event.target.value)}
+              />
+            </Field>
+            <Field label="Valor unitário na NF-e" required className="lg:col-span-3">
+              <ValueInput
+                value={item.valorUnitario}
+                onValueChange={(valorUnitario) => onChange({ valorUnitario })}
+              />
+            </Field>
+            <Field label="Total do item na NF-e" className="lg:col-span-3">
+              <Input
+                value={(item.quantidade * item.valorUnitario).toLocaleString("pt-BR", {
+                  style: "currency",
+                  currency: "BRL",
+                })}
+                disabled
+              />
             </Field>
             <Field label="CEST" required={needsCest} className="lg:col-span-3">
               <Input

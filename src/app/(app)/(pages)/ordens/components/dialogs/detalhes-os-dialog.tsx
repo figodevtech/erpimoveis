@@ -69,6 +69,11 @@ CommandList,
 import { Popover,PopoverContent,PopoverTrigger } from "@/components/ui/popover";
 
 import { carregarDetalhesOS,listarUsuariosAtivos,type UsuarioAtivo } from "../../lib/api";
+import {
+  arredondarMoeda,
+  calcularDescontoAplicado,
+  calcularTotalComDesconto,
+} from "../orcamento/util";
 import ConcluidoAlert from "../../../(financeiro)/fluxodecaixa/components/concluidoAlert";
 import TransactionDialog from "../../../(financeiro)/fluxodecaixa/components/transactionDialog/transactionDialog";
 import ValueInput from "../../../(financeiro)/fluxodecaixa/components/transactionDialog/valueInput";
@@ -113,6 +118,13 @@ function fmtMoney(v: number | null | undefined) {
   });
 }
 
+function fmtPercent(value: number | null | undefined) {
+  return Number(value ?? 0).toLocaleString("pt-BR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+}
+
 function fmtFileSize(value?: number | null) {
   const size = Number(value ?? 0);
   if (!Number.isFinite(size) || size <= 0) return "";
@@ -138,6 +150,10 @@ function fileNameFromUrl(url: string) {
 
 type OS = {
   id: number;
+  orcamentototal?: number | null;
+  subtotal?: number | null;
+  desconto_tipo?: "FIXO" | "PORCENTAGEM" | null;
+  desconto?: number | null;
   descricao?: string | null;
   observacoes?: string | null;
   observacoes_fiscais?: string | null;
@@ -172,6 +188,8 @@ type ItemProduto = {
   quantidade: number;
   precounitario: number;
   subtotal: number;
+  descontoTipo?: "FIXO" | "PORCENTAGEM" | null;
+  desconto?: number | null;
   custoUnitarioAplicado?: number | null;
   custoEstimado?: boolean;
   produto?: {
@@ -196,6 +214,8 @@ type ItemServico = {
   quantidade: number;
   precounitario: number;
   subtotal: number;
+  descontoTipo?: "FIXO" | "PORCENTAGEM" | null;
+  desconto?: number | null;
   servico?: { id: number; codigo?: string | null; descricao?: string | null; precohora?: number | null } | null;
 
   realizadores?: RealizadorLite[] | null;
@@ -647,7 +667,22 @@ export function OSDetalhesDialog({
     () => (data?.itensServico || []).reduce((acc, it) => acc + Number(it.subtotal || 0), 0),
     [data?.itensServico]
   );
-  const totalGeral = useMemo(() => totalProdutos + totalServicos, [totalProdutos, totalServicos]);
+  const subtotalOS = useMemo(
+    () => arredondarMoeda(totalProdutos + totalServicos),
+    [totalProdutos, totalServicos]
+  );
+  const descontoGeralAplicado = useMemo(
+    () => calcularDescontoAplicado(subtotalOS, data?.os?.desconto_tipo, data?.os?.desconto),
+    [data?.os?.desconto, data?.os?.desconto_tipo, subtotalOS]
+  );
+  const totalGeral = useMemo(
+    () => {
+      const totalSalvo = Number(data?.os?.orcamentototal);
+      if (data?.os?.orcamentototal != null && Number.isFinite(totalSalvo)) return totalSalvo;
+      return calcularTotalComDesconto(subtotalOS, data?.os?.desconto_tipo, data?.os?.desconto);
+    },
+    [data?.os?.desconto, data?.os?.desconto_tipo, data?.os?.orcamentototal, subtotalOS]
+  );
 
   const fluxoOs = useMemo(() => {
     const lancamentos = (data?.eventosFinanceiros ?? [])
@@ -1239,19 +1274,35 @@ export function OSDetalhesDialog({
                     <div className="text-sm text-muted-foreground">—</div>
                   ) : (
                     <ul className="space-y-2 text-sm">
-                      {data.itensProduto.map((it, idx) => (
-                        <li key={`${it.ordemservicoid}-${it.produtoid}-${idx}`} className="flex flex-col gap-1 rounded-md border bg-muted/20 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
-                          <div className="min-w-0">
-                            <div className="font-medium truncate">
-                              {it.produto?.titulo || it.produto?.descricao || it.produto?.codigo ||  `Produto #${it.produtoid}`}
+                      {data.itensProduto.map((it, idx) => {
+                        const descontoAplicado = calcularDescontoAplicado(
+                          Number(it.quantidade || 0) * Number(it.precounitario || 0),
+                          it.descontoTipo,
+                          it.desconto
+                        );
+
+                        return (
+                          <li key={`${it.ordemservicoid}-${it.produtoid}-${idx}`} className="flex flex-col gap-1 rounded-md border bg-muted/20 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+                            <div className="min-w-0">
+                              <div className="font-medium truncate">
+                                {it.produto?.titulo || it.produto?.descricao || it.produto?.codigo ||  `Produto #${it.produtoid}`}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {it.quantidade} × {fmtMoney(it.precounitario)}
+                              </div>
+                              {descontoAplicado > 0 ? (
+                                <div className="mt-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                                  Desconto: - {fmtMoney(descontoAplicado)}
+                                  {it.descontoTipo === "PORCENTAGEM"
+                                    ? ` (${fmtPercent(it.desconto)}%)`
+                                    : ""}
+                                </div>
+                              ) : null}
                             </div>
-                            <div className="text-xs text-muted-foreground">
-                              {it.quantidade} × {fmtMoney(it.precounitario)}
-                            </div>
-                          </div>
-                          <div className="shrink-0 font-medium sm:text-right">{fmtMoney(it.subtotal)}</div>
-                        </li>
-                      ))}
+                            <div className="shrink-0 font-medium sm:text-right">{fmtMoney(it.subtotal)}</div>
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </div>
@@ -1275,6 +1326,11 @@ export function OSDetalhesDialog({
                         const isSaving = savingResponsavelKey === `${it.ordemservicoid}-${it.servicoid}`;
                         const selectedIds = getIdsFromItem(it);
                         const estaSemResponsavel = selectedIds.length === 0;
+                        const descontoAplicado = calcularDescontoAplicado(
+                          Number(it.quantidade || 0) * Number(it.precounitario || 0),
+                          it.descontoTipo,
+                          it.desconto
+                        );
 
                         return (
                           <li key={rowKey} className="flex flex-col gap-2 rounded-md border bg-muted/20 px-3 py-2">
@@ -1286,6 +1342,14 @@ export function OSDetalhesDialog({
                                 <div className="text-xs text-muted-foreground">
                                   {it.quantidade} × {fmtMoney(it.precounitario)}
                                 </div>
+                                {descontoAplicado > 0 ? (
+                                  <div className="mt-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                                    Desconto: - {fmtMoney(descontoAplicado)}
+                                    {it.descontoTipo === "PORCENTAGEM"
+                                      ? ` (${fmtPercent(it.desconto)}%)`
+                                      : ""}
+                                  </div>
+                                ) : null}
                               </div>
                               <div className="shrink-0 font-medium sm:text-right">{fmtMoney(it.subtotal)}</div>
                             </div>
@@ -1325,11 +1389,40 @@ export function OSDetalhesDialog({
                 </div>
 
                 <div className="rounded-lg border bg-card p-4 lg:col-span-2">
-                  <div className="flex items-center gap-2 mb-1.5">
+                  <div className="mb-3 flex items-center gap-2">
                     <Calculator className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium">Total geral</span>
+                    <span className="text-sm font-medium">Resumo financeiro</span>
                   </div>
-                  <div className="text-lg font-semibold">{fmtMoney(totalGeral)}</div>
+                  <div className="space-y-1.5 text-sm">
+                    <div className="flex items-center justify-between gap-4 text-muted-foreground">
+                      <span>Produtos</span>
+                      <span className="tabular-nums">{fmtMoney(totalProdutos)}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-4 text-muted-foreground">
+                      <span>Serviços</span>
+                      <span className="tabular-nums">{fmtMoney(totalServicos)}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-4 text-muted-foreground">
+                      <span>Subtotal</span>
+                      <span className="tabular-nums">{fmtMoney(subtotalOS)}</span>
+                    </div>
+                    {descontoGeralAplicado > 0 ? (
+                      <div className="flex items-center justify-between gap-4 font-medium text-emerald-600 dark:text-emerald-400">
+                        <span>
+                          Desconto geral
+                          {data.os.desconto_tipo === "PORCENTAGEM"
+                            ? ` (${fmtPercent(data.os.desconto)}%)`
+                            : ""}
+                        </span>
+                        <span className="tabular-nums">- {fmtMoney(descontoGeralAplicado)}</span>
+                      </div>
+                    ) : null}
+                    <Separator />
+                    <div className="flex items-center justify-between gap-4 pt-1">
+                      <span className="font-medium">Total geral</span>
+                      <span className="text-lg font-semibold tabular-nums">{fmtMoney(totalGeral)}</span>
+                    </div>
+                  </div>
                 </div>
               </section>
 

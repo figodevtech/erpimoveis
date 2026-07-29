@@ -51,6 +51,7 @@ type VendaPostBody = {
   descontoValor?: number | null;
   categoriaVendaId?: number | null;
   subTotal?: number;
+  valorFrete?: number;
   valorTotal?: number;
   dataVenda?: string | null; // opcional, ISO string. Se não vier, usa default do banco (now()).
   itens: VendaItemInput[];
@@ -93,6 +94,7 @@ const VENDA_SELECT = `
   danfe_url,
   desconto_tipo,
   desconto_valor,
+  valor_frete,
   acrescimo_financeiro_tipo,
   acrescimo_financeiro_valor,
   observacoes,
@@ -566,11 +568,20 @@ export async function POST(req: Request) {
         Number.isFinite(requestedDiscount) ? Math.max(0, requestedDiscount) : 0,
       ),
     );
+    const requestedFreight = Number(body.valorFrete ?? 0);
+    if (!Number.isFinite(requestedFreight) || requestedFreight < 0) {
+      return NextResponse.json(
+        { error: "O valor do frete deve ser maior ou igual a zero." },
+        { status: 400 },
+      );
+    }
+    const serverFreight = roundMoney(requestedFreight);
 
     body.itens = normalizedItems;
     body.subTotal = serverSubTotal;
     body.descontoValor = serverDiscount > 0 ? serverDiscount : null;
-    body.valorTotal = roundMoney(serverSubTotal - serverDiscount);
+    body.valorFrete = serverFreight;
+    body.valorTotal = roundMoney(serverSubTotal - serverDiscount + serverFreight);
     const modoBaixa = await buscarModoBaixaEstoqueOS();
     body.baixarEstoque = body.status !== "ORCAMENTO" || modoBaixa === "ORCAMENTO";
 

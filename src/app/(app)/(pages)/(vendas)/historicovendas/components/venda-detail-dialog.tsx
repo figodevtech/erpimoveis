@@ -153,6 +153,7 @@ interface Venda {
   } | null
   desconto_tipo: string | null
   desconto_valor: number
+  valor_frete: number
   sub_total: number
   observacoes?: string | null
   observacoes_fiscais?: string | null
@@ -791,6 +792,12 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange }: VendaDetails
                             <div className="flex items-center justify-between text-sm text-emerald-600 dark:text-emerald-400">
                               <span>Desconto</span>
                               <span className="font-medium">-{formatCurrency(venda.desconto_valor)}</span>
+                            </div>
+                          )}
+                          {venda.valor_frete > 0 && (
+                            <div className="flex items-center justify-between text-sm text-muted-foreground">
+                              <span>Frete</span>
+                              <span className="font-medium">+{formatCurrency(venda.valor_frete)}</span>
                             </div>
                           )}
                           <Separator className="my-2" />
