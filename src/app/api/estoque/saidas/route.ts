@@ -1,7 +1,7 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireEstoqueEdit } from "@/app/api/_authz/perms";
+import { requireEstoqueAccess, requireEstoqueEdit } from "@/app/api/_authz/perms";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -16,6 +16,34 @@ const MOTIVOS = new Set([
   "AJUSTE_INVENTARIO",
   "OUTRO",
 ]);
+
+export async function GET(req: NextRequest) {
+  try {
+    await requireEstoqueAccess();
+    const page = Math.max(Number(req.nextUrl.searchParams.get("page")) || 1, 1);
+    const limit = Math.min(Math.max(Number(req.nextUrl.searchParams.get("limit")) || 20, 1), 100);
+    const from = (page - 1) * limit;
+
+    const { data, error, count } = await supabaseAdmin
+      .from("estoque_saida")
+      .select(
+        "*, itens:estoque_saida_item(*, produto:produto_id(id,titulo,referencia,unidade))",
+        { count: "exact" },
+      )
+      .order("created_at", { ascending: false })
+      .range(from, from + limit - 1);
+
+    if (error) throw error;
+    const total = count ?? 0;
+    return NextResponse.json({
+      data: data ?? [],
+      pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
+    });
+  } catch (error: any) {
+    const message = error?.message ?? "Não foi possível carregar as saídas.";
+    return NextResponse.json({ error: message }, { status: error?.statusCode ?? 500 });
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {

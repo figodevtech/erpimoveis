@@ -1,6 +1,6 @@
-import UsoConsumoClient from "./usoconsumo-client";
+import { redirect } from "next/navigation";
 
 export default function UsoConsumoPage() {
-  return <UsoConsumoClient />;
+  redirect("/estoque/uso-consumo");
 }
 

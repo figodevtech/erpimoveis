@@ -1,3 +1,5 @@
-"use client";
+import { redirect } from "next/navigation";
 
-export { default } from "../estoque/movimentacao/page";
+export default function MovimentacaoRedirect() {
+  redirect("/estoque/movimentacao");
+}

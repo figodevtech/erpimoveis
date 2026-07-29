@@ -9,6 +9,9 @@ export async function GET(req: NextRequest) {
   try {
     await requireEstoqueAccess();
     const produtoId = new URL(req.url).searchParams.get("produtoid");
+    const page = Math.max(Number(req.nextUrl.searchParams.get("page")) || 1, 1);
+    const limit = Math.min(Math.max(Number(req.nextUrl.searchParams.get("limit")) || 100, 1), 100);
+    const from = (page - 1) * limit;
     if (produtoId && (!/^\d+$/.test(produtoId) || Number(produtoId) <= 0)) {
       return NextResponse.json({ error: "Produto inválido." }, { status: 400 });
     }
@@ -16,6 +19,7 @@ export async function GET(req: NextRequest) {
     const select = `
       id, created_at, fornecedorid, fiscal, notachave, tipo, status, origem,
       numero_nota, serie_nota, data_emissao, valor_total, cancelada_at,
+      fornecedor:fornecedorid(id, nomerazaosocial, cpfcnpj),
       entradaitens${produtoId ? "!inner" : ""}(
         id, produto_id, unidade, quantidade, precovenda, valor_unitario_compra,
         valor_desconto, valor_frete, outras_despesas, valor_total,
@@ -23,11 +27,19 @@ export async function GET(req: NextRequest) {
         cst, aliquotaicms, cfop, cst_pis, aliquota_pis, cst_cofins, aliquota_cofins
       )
     `;
-    let query = supabaseAdmin.from("entrada").select(select).order("created_at", { ascending: false });
+    let query = supabaseAdmin
+      .from("entrada")
+      .select(select, { count: "exact" })
+      .order("created_at", { ascending: false })
+      .range(from, from + limit - 1);
     if (produtoId) query = query.eq("entradaitens.produto_id", Number(produtoId));
-    const { data, error } = await query;
+    const { data, error, count } = await query;
     if (error) throw error;
-    return NextResponse.json({ data });
+    const total = count ?? 0;
+    return NextResponse.json({
+      data: data ?? [],
+      pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
+    });
   } catch (error: any) {
     const parsed = entradaErrorResponse(error);
     return NextResponse.json({ error: parsed.message }, { status: parsed.status });

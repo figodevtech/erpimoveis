@@ -36,7 +36,6 @@ import {
   FileClock,
   CreditCard,
   MonitorCheck,
-  ChartNoAxesColumnIncreasing,
 } from "lucide-react";
 
 import { NavMain } from "./components/nav-main";
@@ -123,65 +122,33 @@ const data = {
           perm: PERMS.ESTOQUE,
         },
         {
-          title: "Etiquetas",
-          url: "/etiquetas?origem=produto",
-          icon: Tags,
-          perm: PERMS.ESTOQUE,
-        },
-        {
-          title: "Movimentação",
-          url: "/movimentacao",
-          icon: MapPinned,
-          perm: PERMS.ESTOQUE,
-        },
-        {
-          title: "Consulta Etiqueta",
-          url: "/etiquetas/registrar?origem=produto",
-          icon: ScanLine,
-          perm: PERMS.ESTOQUE,
-        },
-      ],
-    },
-    {
-      title: "Uso e Consumo",
-      url: "#",
-      icon: Handbag,
-      isActive: true,
-      items: [
-        {
-          title: "Itens",
-          url: "/usoconsumo",
+          title: "Uso/Consumo",
+          url: "/estoque/uso-consumo",
           icon: Handbag,
           perm: PERMS.USOCONSUMO,
         },
         {
           title: "Etiquetas",
-          url: "/etiquetas?origem=usoconsumo",
+          url: "/etiquetas",
           icon: Tags,
           perm: PERMS.USOCONSUMO,
         },
         {
           title: "Movimentação",
-          url: "/movimentacao",
+          url: "/estoque/movimentacao",
           icon: MapPinned,
           perm: PERMS.USOCONSUMO,
         },
         {
-          title: "Histórico de estoque",
-          url: "/usoconsumo/movimentacao",
-          icon: History,
-          perm: PERMS.USOCONSUMO,
-        },
-        {
           title: "Consulta Etiqueta",
-          url: "/etiquetas/registrar?origem=usoconsumo",
+          url: "/etiquetas/registrar",
           icon: ScanLine,
           perm: PERMS.USOCONSUMO,
         },
         {
-          title: "Relatórios",
-          url: "/usoconsumo/relatorios",
-          icon: ChartNoAxesColumnIncreasing,
+          title: "Histórico de estoque",
+          url: "/estoque/historico",
+          icon: History,
           perm: PERMS.USOCONSUMO,
         },
       ],
