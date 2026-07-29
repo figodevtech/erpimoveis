@@ -104,6 +104,10 @@ export async function registrarEntradaConfirmada(body: any, origem: OrigemEntrad
     aliquota_pis: item.aliquota_pis ?? null,
     cst_cofins: text(item.cst_cofins),
     aliquota_cofins: item.aliquota_cofins ?? null,
+    numero_item_fiscal: nullableId(
+      item.numero_item_fiscal ?? item.numeroItemFiscal ?? item.numeroItem,
+      `Número fiscal do produto ${index + 1}`,
+    ),
   }));
 
   const fiscal = origem === "NFE_TERCEIRO" || Boolean(body?.fiscal);
@@ -178,7 +182,10 @@ export async function registrarEntradaConfirmada(body: any, origem: OrigemEntrad
         : nonNegative(body.valorTotalDocumento, "Total do documento"),
   };
 
-  const { data, error } = await supabaseAdmin.rpc("registrar_entrada_confirmada", {
+  const rpcName = entrada.fiscal_dfe_documento_id
+    ? "registrar_entrada_comercial_apropriada"
+    : "registrar_entrada_confirmada";
+  const { data, error } = await supabaseAdmin.rpc(rpcName, {
     p_entrada: entrada,
     p_itens: itens,
     p_transacoes: transacoes,

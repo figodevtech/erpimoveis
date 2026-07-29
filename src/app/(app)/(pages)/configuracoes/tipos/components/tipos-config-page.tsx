@@ -14,6 +14,7 @@ import {
   ChevronDown,
   ShoppingBag,
   Building2,
+  Box,
 } from "lucide-react";
 import GruposProdutoSection from "./grupos-produto-section";
 import UnidadesMedidaSection from "./unidades-medida-section";
@@ -26,9 +27,11 @@ import CategoriasVendaSection from "./categorias-venda-section";
 import SetoresSection from "./setores-section";
 import CoresVeiculosSection from "./cores-veiculos-section";
 import CentrosCustoSection from "./centros-custo-section";
+import GruposUsoConsumoSection from "./grupos-usoconsumo-section";
 
 type TabId =
   | "grupos"
+  | "grupos_usoconsumo"
   | "unidades"
   | "servicos"
   | "fornecedores"
@@ -55,6 +58,12 @@ export default function TiposConfigPage() {
       icon: PackageSearch,
       title: "Grupos de Produtos",
       subtitle: "Organize por área do carro",
+    },
+    {
+      id: "grupos_usoconsumo",
+      icon: Box,
+      title: "Grupos de Uso/Consumo",
+      subtitle: "Organize materiais internos",
     },
     {
       id: "unidades",
@@ -186,6 +195,7 @@ export default function TiposConfigPage() {
         {/* Conteúdo */}
         <div className="flex-1 min-w-0">
           {activeTab === "grupos" && <GruposProdutoSection />}
+          {activeTab === "grupos_usoconsumo" && <GruposUsoConsumoSection />}
           {activeTab === "unidades" && <UnidadesMedidaSection />}
           {activeTab === "servicos" && <ServicosSection />}
           {activeTab === "fornecedores" && <FornecedoresSection />}

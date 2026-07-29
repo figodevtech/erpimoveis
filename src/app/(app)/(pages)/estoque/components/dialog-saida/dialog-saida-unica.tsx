@@ -30,6 +30,19 @@ const MOTIVOS = [
   ["OUTRO", "Outro"],
 ] as const;
 
+const MOTIVOS_USOCONSUMO = [
+  ["CONSUMO_INTERNO", "Consumo interno"],
+  ["ENTREGA_FUNCIONARIO", "Entrega a funcionário"],
+  ["MANUTENCAO_INTERNA", "Manutenção interna"],
+  ["AVARIA", "Avaria"],
+  ["PERDA", "Perda"],
+  ["FURTO", "Furto"],
+  ["VENCIMENTO", "Vencimento"],
+  ["TRANSFERENCIA", "Transferência"],
+  ["AJUSTE_INVENTARIO", "Ajuste de inventário"],
+  ["OUTRO", "Outro"],
+] as const;
+
 interface DialogSaidaProps {
   isOpen: boolean;
   setIsOpen: (value: boolean) => void;
@@ -37,6 +50,7 @@ interface DialogSaidaProps {
   productDescription: string;
   currentQuantity: number;
   onSuccess?: () => void | Promise<void>;
+  inventory?: "produto" | "usoconsumo";
 }
 
 export default function DialogSaida({
@@ -46,6 +60,7 @@ export default function DialogSaida({
   productDescription,
   currentQuantity,
   onSuccess,
+  inventory = "produto",
 }: DialogSaidaProps) {
   const [quantidade, setQuantidade] = useState(0);
   const [motivo, setMotivo] = useState("");
@@ -79,12 +94,9 @@ export default function DialogSaida({
 
     setIsSubmitting(true);
     try {
-      await axios.post("/api/estoque/saidas", {
-        produtoId: productId,
-        quantidade,
-        motivo,
-        observacao: observacao.trim() || null,
-      });
+      await axios.post(inventory === "usoconsumo" ? "/api/usoconsumo/saidas" : "/api/estoque/saidas", inventory === "usoconsumo"
+        ? { motivo, observacao: observacao.trim() || undefined, itens: [{ item_id: productId, quantidade }] }
+        : { produtoId: productId, quantidade, motivo, descricao: observacao.trim() || null });
       toast.success("Saída registrada e estoque atualizado.");
       setIsOpen(false);
       await onSuccess?.();
@@ -105,12 +117,12 @@ export default function DialogSaida({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <PackageMinus className="h-5 w-5 text-red-600" />
-            Saída de estoque
+            Saída de {inventory === "usoconsumo" ? "uso/consumo" : "estoque"}
           </DialogTitle>
           <DialogDescription>{productDescription}</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-5 py-2">
+        <div className="space-y-5 p-4 bg-card rounded-2xl border">
           <div className="grid grid-cols-2 gap-3 rounded-lg border bg-muted/30 p-4 text-sm">
             <div>
               <p className="text-muted-foreground">Estoque atual</p>
@@ -146,13 +158,13 @@ export default function DialogSaida({
             <Select value={motivo} onValueChange={setMotivo}>
               <SelectTrigger><SelectValue placeholder="Selecione o motivo" /></SelectTrigger>
               <SelectContent>
-                {MOTIVOS.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
+                {(inventory === "usoconsumo" ? MOTIVOS_USOCONSUMO : MOTIVOS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="saida-observacao">Observação {motivo === "OUTRO" ? "*" : "(opcional)"}</Label>
+            <Label htmlFor="saida-observacao">Descrição {motivo === "OUTRO" ? "*" : "(opcional)"}</Label>
             <Textarea
               id="saida-observacao"
               value={observacao}

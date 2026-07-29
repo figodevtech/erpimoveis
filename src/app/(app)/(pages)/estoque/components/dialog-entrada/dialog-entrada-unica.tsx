@@ -52,6 +52,8 @@ interface DialogEntradaProps {
   handleGetProducts?: (pageNumber?: number, limit?: number, search?: string, status?: Estoque_status) => void;
   paginantion?: Pagination;
   status?: Estoque_status;
+  inventory?: "produto" | "usoconsumo";
+  onSuccess?: () => void | Promise<void>;
 }
 
 export default function DialogEntrada({
@@ -65,6 +67,8 @@ export default function DialogEntrada({
   paginantion,
   search,
   status,
+  inventory = "produto",
+  onSuccess,
 }: DialogEntradaProps) {
   const [newQtd, setNewQtd] = useState(0);
   const [value, setValue] = useState(0);
@@ -87,7 +91,7 @@ export default function DialogEntrada({
   const { gruposPlanosDeConta, loadingPlanos } = usePlanosDeConta();
   const { centrosCusto, loadingCentrosCusto } = useCentrosCusto();
 
-  const ENTRADA_API = "/api/entradas";
+  const ENTRADA_API = inventory === "usoconsumo" ? "/api/usoconsumo/entradas" : "/api/entradas";
 
   const onCloseReset = () => {
     setNewQtd(0);
@@ -127,7 +131,7 @@ export default function DialogEntrada({
 
     try {
       if (!productId) {
-        toast.error("Produto inválido.");
+        toast.error(inventory === "usoconsumo" ? "Item inválido." : "Produto inválido.");
         return;
       }
 
@@ -177,7 +181,7 @@ export default function DialogEntrada({
 
       // Formato simples (compatível com a API ajustada):
       // cria 1 entrada (cabeçalho) + 1 entradaitens
-      const payload = {
+      const produtoPayload = {
         fornecedorid: selectedFornecedor?.id ?? null,
         produtoid: productId,
         quantidade: newQtd,
@@ -201,11 +205,56 @@ export default function DialogEntrada({
         },
       };
 
-      const response = await axios.post(ENTRADA_API, payload);
+      const now = new Date().toISOString();
+      const transacoes = !lancarFinanceiro ? [] : pagamentoFuturo
+        ? parcelas.map((parcela) => ({
+            descricao: "Compra de material de uso e consumo",
+            valor: Number(parcela.valor.toFixed(2)),
+            data: now,
+            vencimento_em: `${parcela.dataVencimento}T12:00:00`,
+            metodopagamento: null,
+            categoria: selectedCategoria,
+            categoria_id: categorias.find((categoria) => categoria.nome === selectedCategoria)?.id ?? null,
+            banco_id: null,
+            nomepagador: selectedFornecedor?.nomerazaosocial || "Fornecedor não informado",
+            cpfcnpjpagador: selectedFornecedor?.cpfcnpj || "NAO INFORMADO",
+            pendente: true,
+            plano_de_conta_id: selectedPlanoId ? Number(selectedPlanoId) : null,
+            plano_de_conta: null,
+            centro_custo_id: selectedCentroCustoId ? Number(selectedCentroCustoId) : null,
+            centro_custo: null,
+          }))
+        : [{
+            descricao: "Compra de material de uso e consumo",
+            valor: Number(totalEntrada.toFixed(2)),
+            data: now,
+            vencimento_em: now,
+            metodopagamento: selectedMetodo,
+            categoria: selectedCategoria,
+            categoria_id: categorias.find((categoria) => categoria.nome === selectedCategoria)?.id ?? null,
+            banco_id: Number(selectedBankId),
+            nomepagador: selectedFornecedor?.nomerazaosocial || "Fornecedor não informado",
+            cpfcnpjpagador: selectedFornecedor?.cpfcnpj || "NAO INFORMADO",
+            pendente: false,
+            plano_de_conta_id: selectedPlanoId ? Number(selectedPlanoId) : null,
+            plano_de_conta: null,
+            centro_custo_id: selectedCentroCustoId ? Number(selectedCentroCustoId) : null,
+            centro_custo: null,
+          }];
+      const usoConsumoPayload = {
+        fornecedor_id: selectedFornecedor?.id,
+        fiscal: false,
+        origem: "AJUSTE_RAPIDO",
+        tipo: String(selectedType),
+        itens: [{ item_id: productId, quantidade: newQtd, valor_unitario_compra: value }],
+        transacoes,
+      };
+
+      const response = await axios.post(ENTRADA_API, inventory === "usoconsumo" ? usoConsumoPayload : produtoPayload);
 
       if (response.status === 201) {
         toast.success("Sucesso!", {
-          description: "Entrada realizada.",
+            description: inventory === "usoconsumo" ? "Entrada do item realizada." : "Entrada realizada.",
           duration: 2000,
         });
 
@@ -214,6 +263,7 @@ export default function DialogEntrada({
 
         // Atualiza lista (se necessário)
         handleGetProducts?.(paginantion?.page, paginantion?.limit, search, status);
+        await onSuccess?.();
       }
     } catch (error) {
       if (isAxiosError(error)) {
@@ -394,7 +444,7 @@ export default function DialogEntrada({
         <DrawerContent className="h-[95dvh] max-h-[95dvh] overflow-hidden" onDoubleClick={(e) => e.stopPropagation()}>
           <div className="mx-auto flex h-full min-h-0 w-full max-w-sm flex-col overflow-hidden">
             <DrawerHeader className="border-b px-4 py-3">
-              <DrawerTitle>Entrada de produto</DrawerTitle>
+              <DrawerTitle>Entrada de {inventory === "usoconsumo" ? "item de uso/consumo" : "produto"}</DrawerTitle>
               <DrawerDescription className="flex flex-col gap-1 text-sm">
                 <span>{productDescription}</span>
                 <span>Em estoque: {currentQuantity}</span>
@@ -494,7 +544,7 @@ export default function DialogEntrada({
       >
         <div className="flex h-full min-h-0 flex-col">
           <DialogHeader className="shrink-0 px-6 py-4 border-b-1">
-            <DialogTitle>Entrada de produto</DialogTitle>
+            <DialogTitle>Entrada de {inventory === "usoconsumo" ? "item de uso/consumo" : "produto"}</DialogTitle>
             <DialogDescription className="flex min-w-0 flex-row items-center justify-between gap-3">
               <span className="min-w-0 truncate" title={productDescription}>{productDescription}</span>
               <span className="shrink-0">Em estoque: {currentQuantity}</span>

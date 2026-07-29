@@ -1,0 +1,2 @@
+export const USOCONSUMO_ITEM_FIELDS = "id,titulo,descricao,referencia,fabricante,grupo_id,grupo:usoconsumo_grupo(id,nome),unidade,conservacao,codigobarras,etiqueta,local,estoque,estoqueminimo,status_estoque,precocompra,ultimovalordecompra,img_url,ncm,cest,cfop_entrada,origem_mercadoria,csosn,cst,aliquotaicms,cst_pis,aliquota_pis,modo_pis,aliquota_por_unidade_pis,cst_cofins,aliquota_cofins,modo_cofins,aliquota_por_unidade_cofins,cst_ibscbs,cclass_trib,aliquota_ibs_uf,aliquota_ibs_municipio,aliquota_cbs,ativo,created_at,updated_at";
+

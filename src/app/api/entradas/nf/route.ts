@@ -1,7 +1,7 @@
 // app/api/entradas/nf/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { XMLParser } from "fast-xml-parser";
-import { requireEstoqueCreate } from "@/app/api/_authz/perms";
+import { PERMS, requireAny } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -77,7 +77,7 @@ async function salvarXmlRecebidoManual(xml: string, parsed: any, raw: any) {
 
 export async function POST(req: NextRequest) {
   try {
-    await requireEstoqueCreate();
+    await requireAny([PERMS.ESTOQUE_CRIAR, PERMS.USOCONSUMO_ENTRADA]);
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
 

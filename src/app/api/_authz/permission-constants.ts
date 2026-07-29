@@ -20,6 +20,14 @@ export const PERMS = {
   ESTOQUE_EDITAR: "estoque:editar",
   ESTOQUE_EXCLUIR: "estoque:excluir",
 
+  USOCONSUMO: "usoconsumo:visualizar",
+  USOCONSUMO_CRIAR: "usoconsumo:criar",
+  USOCONSUMO_EDITAR: "usoconsumo:editar",
+  USOCONSUMO_EXCLUIR: "usoconsumo:excluir",
+  USOCONSUMO_ENTRADA: "usoconsumo:entrada",
+  USOCONSUMO_SAIDA: "usoconsumo:saida",
+  USOCONSUMO_CANCELAR: "usoconsumo:cancelar_movimento",
+
   FINANCEIRO: "financeiro:visualizar",
   FINANCEIRO_CRIAR: "financeiro:criar",
   FINANCEIRO_EDITAR: "financeiro:editar",

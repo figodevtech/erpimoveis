@@ -41,7 +41,7 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
       key: `saida-${item.id}`,
       tipo: "SAIDA" as const,
       data: item.saida?.created_at ?? item.created_at,
-      descricao: String(item.saida?.motivo ?? "SAIDA").replace(/_/g, " "),
+      descricao: String(item.saida?.observacao || item.saida?.motivo || "SAIDA").replace(/_/g, " "),
       status: item.saida?.status,
       quantidade: item.quantidade,
       entrada: null,
@@ -140,7 +140,7 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
                 <TableHead className="w-[80px]">ID</TableHead>
                 <TableHead>Data</TableHead>
                 <TableHead>Tipo</TableHead>
-                <TableHead>Origem / Motivo</TableHead>
+                <TableHead>Origem / Descrição</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Quantidade</TableHead>
                 <TableHead className="w-[50px]"></TableHead>

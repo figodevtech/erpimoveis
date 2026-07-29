@@ -170,6 +170,29 @@ export async function requireEstoqueDelete() {
   return requirePerm(PERMS.ESTOQUE_EXCLUIR);
 }
 
+// Estoque de uso e consumo
+export async function requireUsoConsumoAccess() {
+  return requirePerm(PERMS.USOCONSUMO);
+}
+export async function requireUsoConsumoCreate() {
+  return requirePerm(PERMS.USOCONSUMO_CRIAR);
+}
+export async function requireUsoConsumoEdit() {
+  return requirePerm(PERMS.USOCONSUMO_EDITAR);
+}
+export async function requireUsoConsumoDelete() {
+  return requirePerm(PERMS.USOCONSUMO_EXCLUIR);
+}
+export async function requireUsoConsumoEntrada() {
+  return requirePerm(PERMS.USOCONSUMO_ENTRADA);
+}
+export async function requireUsoConsumoSaida() {
+  return requirePerm(PERMS.USOCONSUMO_SAIDA);
+}
+export async function requireUsoConsumoCancelar() {
+  return requirePerm(PERMS.USOCONSUMO_CANCELAR);
+}
+
 // Acompanhamento
 export async function hasAcompanhamentoAccess() {
   return hasPerm(PERMS.ACOMPANHAMENTO);

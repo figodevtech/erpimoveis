@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     const produtoId = Number(body?.produtoId);
     const quantidade = Number(body?.quantidade);
     const motivo = String(body?.motivo ?? "").trim().toUpperCase();
-    const observacao = String(body?.observacao ?? "").trim() || null;
+    const observacao = String(body?.descricao ?? body?.observacao ?? "").trim() || null;
 
     if (!Number.isInteger(produtoId) || produtoId <= 0) {
       return NextResponse.json({ error: "Produto inválido." }, { status: 400 });
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Selecione um motivo válido." }, { status: 400 });
     }
     if (motivo === "OUTRO" && !observacao) {
-      return NextResponse.json({ error: "Informe a observação para o motivo Outro." }, { status: 400 });
+      return NextResponse.json({ error: "Informe a descrição para o motivo Outro." }, { status: 400 });
     }
 
     const { data, error } = await supabaseAdmin.rpc("registrar_saida_estoque", {

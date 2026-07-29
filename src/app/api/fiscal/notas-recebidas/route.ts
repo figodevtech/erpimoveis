@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { requireFinanceirosAccess } from "@/app/api/_authz/perms";
+import { PERMS, requireAny } from "@/app/api/_authz/perms";
 import { listarDfeRecebidas } from "@/services/fiscal/dfeRecebidasService";
 
 export const runtime = "nodejs";
@@ -11,7 +11,7 @@ function getParam(req: NextRequest, key: string) {
 
 export async function GET(req: NextRequest) {
   try {
-    await requireFinanceirosAccess();
+    await requireAny([PERMS.FINANCEIRO, PERMS.ESTOQUE_CRIAR, PERMS.USOCONSUMO_ENTRADA]);
 
     const data = await listarDfeRecebidas({
       page: Number(getParam(req, "page") ?? 1),

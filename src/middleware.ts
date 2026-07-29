@@ -72,6 +72,7 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
   { prefix: "/api/agendamentos", perm: PERMS.AGENDAMENTOS },
   { prefix: "/api/products", perm: PERMS.ESTOQUE },
   { prefix: "/api/entradas", perm: PERMS.ESTOQUE },
+  { prefix: "/api/usoconsumo", perm: PERMS.USOCONSUMO },
   { prefix: "/api/veiculos", perm: PERMS.VEICULOS },
   { prefix: "/api/venda", perm: PERMS.VENDAS },
   { prefix: "/api/transaction", perm: PERMS.FINANCEIRO },
@@ -88,6 +89,7 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
   { prefix: "/ordens", perm: PERMS.ORDENS },
   { prefix: "/agendamentos", perm: PERMS.AGENDAMENTOS },
   { prefix: "/estoque", perm: PERMS.ESTOQUE },
+  { prefix: "/usoconsumo", perm: PERMS.USOCONSUMO },
   { prefix: "/relatorios", perm: PERMS.RELATORIOS },
 
   { prefix: "/configuracoes/perfis", perm: PERMS.PERMISSOES },
@@ -121,6 +123,7 @@ const API_ACTION_PERMS: Array<{
   { prefix: "/api/agendamentos", read: PERMS.AGENDAMENTOS, create: PERMS.AGENDAMENTOS_CRIAR, edit: PERMS.AGENDAMENTOS_EDITAR, delete: PERMS.AGENDAMENTOS_EXCLUIR },
   { prefix: "/api/products", read: PERMS.ESTOQUE, create: PERMS.ESTOQUE_CRIAR, edit: PERMS.ESTOQUE_EDITAR, delete: PERMS.ESTOQUE_EXCLUIR },
   { prefix: "/api/entradas", read: PERMS.ESTOQUE, create: PERMS.ESTOQUE_CRIAR, edit: PERMS.ESTOQUE_EDITAR, delete: PERMS.ESTOQUE_EXCLUIR },
+  { prefix: "/api/usoconsumo", read: PERMS.USOCONSUMO },
   { prefix: "/api/veiculos", read: PERMS.VEICULOS, create: PERMS.VEICULOS_CRIAR, edit: PERMS.VEICULOS_EDITAR, delete: PERMS.VEICULOS_EXCLUIR },
   { prefix: "/api/venda", read: PERMS.VENDAS, create: PERMS.VENDAS_CRIAR, edit: PERMS.VENDAS_EDITAR, delete: PERMS.VENDAS_EXCLUIR },
   { prefix: "/api/transaction", read: PERMS.FINANCEIRO, create: PERMS.FINANCEIRO_CRIAR, edit: PERMS.FINANCEIRO_EDITAR, delete: PERMS.FINANCEIRO_EXCLUIR },

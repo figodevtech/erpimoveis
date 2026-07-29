@@ -57,6 +57,17 @@ interface Parcela {
   valor?: number;
 }
 
+function calcularTotalItemFiscal(item: NF["itens"][number]) {
+  return (
+    Number(item.quantidade) * Number(item.valorUnitario) -
+    Number(item.valorDesconto ?? 0) +
+    Number(item.valorFrete ?? 0) +
+    Number(item.valorSeguro ?? 0) +
+    Number(item.outrasDespesas ?? 0) +
+    Number(item.valorIpi ?? 0)
+  );
+}
+
 export default function DialogEntradaFiscal({
   children,
   isOpen,
@@ -88,6 +99,8 @@ export default function DialogEntradaFiscal({
   const [isLoadingBanks, setIsLoadingBanks] = useState(false);
 
   const [banks, setBanks] = useState<Banco[]>([]);
+  const [apropriacoesCarregadasId, setApropriacoesCarregadasId] = useState<number | null>(null);
+  const [isLoadingApropriacoes, setIsLoadingApropriacoes] = useState(false);
 
   // estados controlados para banco / método / categoria
   const [selectedBankId, setSelectedBankId] = useState<string>("");
@@ -99,6 +112,10 @@ export default function DialogEntradaFiscal({
   const { gruposPlanosDeConta, loadingPlanos } = usePlanosDeConta();
   const { centrosCusto, loadingCentrosCusto } = useCentrosCusto();
   const isCarregandoNotaRecebida = Boolean(isOpen && notaFiscalRecebidaId && !parsed);
+  const itensDisponiveis = parsed?.itens.filter((item) => !item.destinoApropriado) ?? [];
+  const valorDestinadoEstoque = Number(
+    itensDisponiveis.reduce((total, item) => total + calcularTotalItemFiscal(item), 0).toFixed(2),
+  );
 
   const resetState = () => {
     setParsed(null);
@@ -114,6 +131,8 @@ export default function DialogEntradaFiscal({
     setProductSelectItemIndex(null);
     setSelectedProductId(undefined);
     setProductDialogItemIndex(null);
+    setApropriacoesCarregadasId(null);
+    setIsLoadingApropriacoes(false);
   };
 
   useEffect(() => {
@@ -161,6 +180,54 @@ export default function DialogEntradaFiscal({
       cancelled = true;
     };
   }, [isOpen, notaFiscalRecebidaId, setIsOpen]);
+
+  useEffect(() => {
+    const documentoId = parsed?.documentoFiscalRecebidoId;
+    if (!documentoId) {
+      setApropriacoesCarregadasId(null);
+      return;
+    }
+    if (apropriacoesCarregadasId === documentoId) return;
+
+    let cancelled = false;
+    setApropriacoesCarregadasId(documentoId);
+    setIsLoadingApropriacoes(true);
+
+    void axios
+      .get("/api/entradas/apropriacoes", { params: { documentoId } })
+      .then((response) => {
+        if (cancelled) return;
+        const apropriacoes = new Map<number, "PRODUTO" | "USOCONSUMO">(
+          (response.data.data ?? []).map((item: any) => [Number(item.numero_item), item.destino]),
+        );
+        setParsed((prev) => {
+          if (!prev || prev.documentoFiscalRecebidoId !== documentoId) return prev;
+          return {
+            ...prev,
+            itens: prev.itens.map((item) => ({
+              ...item,
+              destinoApropriado: apropriacoes.get(Number(item.numeroItem)),
+            })),
+          };
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setApropriacoesCarregadasId(null);
+        toast.error("Não foi possível verificar os itens já destinados.", {
+          description: isAxiosError(error)
+            ? error.response?.data?.error ?? error.message
+            : "Tente carregar a nota novamente.",
+        });
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingApropriacoes(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apropriacoesCarregadasId, parsed?.documentoFiscalRecebidoId]);
 
 
   const handleGetBanks = async () => {
@@ -215,8 +282,13 @@ export default function DialogEntradaFiscal({
       return;
     }
 
-    if (parsed.itens.some((item) => !item.produtoReferenciaId)) {
-      toast.error("Todos os itens devem estar vinculados a um produto no sistema.");
+    if (!itensDisponiveis.length) {
+      toast.error("Todos os itens desta nota já foram destinados a um estoque.");
+      return;
+    }
+
+    if (itensDisponiveis.some((item) => !item.produtoReferenciaId)) {
+      toast.error("Todos os itens disponíveis devem estar vinculados a um produto no sistema.");
       return;
     }
 
@@ -229,8 +301,8 @@ export default function DialogEntradaFiscal({
     if (isPagamentoFuturo) {
       const somaParcelas = parcelas.reduce((sum, parcela) => sum + (parcela.valor ?? 0), 0);
 
-      if (Math.abs(somaParcelas - Number(parsed.totais.valorNota)) > 0.01) {
-        toast.error("A soma das parcelas deve ser igual ao valor da nota.");
+      if (Math.abs(somaParcelas - valorDestinadoEstoque) > 0.01) {
+        toast.error("A soma das parcelas deve ser igual ao valor destinado ao estoque comercial.");
         return;
       }
 
@@ -247,13 +319,14 @@ export default function DialogEntradaFiscal({
       dataEmissao: parsed.dataEmissao ?? null,
       notaChave: parsed.chaveAcesso ?? null,
       documentoFiscalRecebidoId: parsed.documentoFiscalRecebidoId ?? null,
-      valorTotalDocumento: parsed.totais.valorNota,
+      valorTotalDocumento: valorDestinadoEstoque,
       fiscal: true,
 
       itens: parsed.itens
-        .filter((item) => item.produtoReferenciaId)
+        .filter((item) => !item.destinoApropriado && item.produtoReferenciaId)
         .map((item) => ({
           produtoId: item.produtoReferenciaId!,
+          numeroItemFiscal: Number(item.numeroItem),
           quantidade: item.quantidade,
           valorUnitario: item.valorUnitario,
           valorDesconto: item.valorDesconto ?? 0,
@@ -328,7 +401,7 @@ export default function DialogEntradaFiscal({
       const itensSnapshot = parsed.itens;
 
       for (const [index, item] of itensSnapshot.entries()) {
-        if (item.produtoReferenciaId) continue;
+        if (item.destinoApropriado || item.produtoReferenciaId) continue;
 
         console.log("Buscando produto para código do fornecedor:", item.codigo);
 
@@ -556,9 +629,14 @@ export default function DialogEntradaFiscal({
                         </div>
                       )}
                       {parsed?.totais.valorNota != null && (
-                        <p>
-                          Valor total: <span className="font-semibold">{formatarEmReal(parsed?.totais.valorNota)}</span>
-                        </p>
+                        <div className="space-y-1">
+                          <p>
+                            Valor da NF-e: <span className="font-semibold">{formatarEmReal(parsed.totais.valorNota)}</span>
+                          </p>
+                          <p>
+                            Destinado ao estoque: <span className="font-semibold">{formatarEmReal(valorDestinadoEstoque)}</span>
+                          </p>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -585,9 +663,16 @@ export default function DialogEntradaFiscal({
                         {/* Item number and description */}
                         <div className="pb-2 border-b">
                           <div className="flex flex-row justify-between items-center mb-2">
-                            <p className=" font-semibold text-muted-foreground uppercase mb-1">
-                              Item {item.numeroItem}
-                            </p>
+                            <div className="flex items-center gap-2">
+                              <p className=" font-semibold text-muted-foreground uppercase mb-1">
+                                Item {item.numeroItem}
+                              </p>
+                              {item.destinoApropriado ? (
+                                <Badge variant="secondary">
+                                  Já destinado a {item.destinoApropriado === "USOCONSUMO" ? "uso/consumo" : "produtos"}
+                                </Badge>
+                              ) : null}
+                            </div>
                             <p className=" font-bold">Total: {formatarEmReal(item.valorTotal)}</p>
                           </div>
                           <p className=" font-semibold text-muted-foreground">{item.descricao}</p>
@@ -629,7 +714,10 @@ export default function DialogEntradaFiscal({
                           </p>
                         </div>
                         <Separator />
-                        <div className="flex flex-row items-center gap-2">
+                        <div
+                          className={`flex flex-row items-center gap-2 ${item.destinoApropriado ? "pointer-events-none opacity-50" : ""}`}
+                          aria-disabled={Boolean(item.destinoApropriado)}
+                        >
                           <div className="inline-flex items-center gap-2 px-2 py-1 bg-muted rounded-md relative">
                             <span
                               className={`text-xs text-muted-foreground max-w-[300px] mr-4 ${searchingFornecedor ? "text-primary" : !item.produtoReferenciaId && "text-red-400"
@@ -876,7 +964,7 @@ export default function DialogEntradaFiscal({
 
                       {/* Totais */}
                       <div className="text-xs text-muted-foreground flex flex-row items-center justify-between">
-                        <span>Valor total: {formatarEmReal(parsed.totais.valorNota)}</span>
+                        <span>Valor destinado ao estoque: {formatarEmReal(valorDestinadoEstoque)}</span>
                         <span>
                           Soma das parcelas:{" "}
                           {formatarEmReal(parcelas.reduce((sum, parcela) => sum + (parcela.valor ?? 0), 0))}
@@ -1007,7 +1095,7 @@ export default function DialogEntradaFiscal({
               <Button
                 onClick={handleCreateEntradas}
                 className="hover:cursor-pointer"
-                disabled={isCarregandoNotaRecebida || isLoadingFornecedor || searchingFornecedor || isSubmiting}
+                disabled={isCarregandoNotaRecebida || isLoadingFornecedor || isLoadingApropriacoes || searchingFornecedor || isSubmiting || !itensDisponiveis.length}
               >
                 Registrar
               </Button>

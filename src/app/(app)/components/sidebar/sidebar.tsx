@@ -142,6 +142,38 @@ const data = {
       ],
     },
     {
+      title: "Uso e Consumo",
+      url: "#",
+      icon: Handbag,
+      isActive: true,
+      items: [
+        {
+          title: "Itens",
+          url: "/usoconsumo",
+          icon: Handbag,
+          perm: PERMS.USOCONSUMO,
+        },
+        {
+          title: "Etiquetas",
+          url: "/usoconsumo/etiquetas",
+          icon: Tags,
+          perm: PERMS.USOCONSUMO,
+        },
+        {
+          title: "Movimentação",
+          url: "/usoconsumo/movimentacao",
+          icon: MapPinned,
+          perm: PERMS.USOCONSUMO,
+        },
+        {
+          title: "Consulta Etiqueta",
+          url: "/usoconsumo/registrar-etiqueta",
+          icon: ScanLine,
+          perm: PERMS.USOCONSUMO,
+        },
+      ],
+    },
+    {
       title: "Vendas",
       url: "#",
       icon: Store,

@@ -70,6 +70,7 @@ export interface ItemNF {
   icms: Icms;
   produtoReferenciaId?: number;
   produtoReferencia?: Produto;
+  destinoApropriado?: "PRODUTO" | "USOCONSUMO";
 }
 
 export interface Icms {
