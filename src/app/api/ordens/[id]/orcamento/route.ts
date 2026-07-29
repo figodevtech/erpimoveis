@@ -93,7 +93,7 @@ export async function GET(
 
     const produtos = (prodRows ?? []).map((r: any) => ({
       produtoid: toNum(r.produtoid),
-      descricao: String(r.produto?.descricao ?? r.produto?.titulo ?? ""),
+      descricao: String(r.produto?.titulo || r.produto?.descricao || ""),
       quantidade: toNum(r.quantidade ?? 1),
       precounitario: toNum(r.precounitario ?? 0),
       subtotal: toNum(r.subtotal ?? 0),
