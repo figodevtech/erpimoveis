@@ -303,11 +303,28 @@ export default async function OSFullPage({ params }: PageProps) {
     {
       k: "Forma de pagamento",
       v:
-        `${
-          PAYMENT_METHOD_OPTIONS.find(
-            (method) => method.value === os.forma_pagamento,
-          )?.label ?? "Não informada"
-        }${os.parcelas_pagamento ? ` em ${os.parcelas_pagamento}x` : ""}`,
+        Array.isArray(os.pagamentos_previstos) && os.pagamentos_previstos.length > 0
+          ? os.pagamentos_previstos
+              .map(
+                (pagamento: {
+                  metodo: string;
+                  valor: number;
+                  parcelas?: number | null;
+                }) =>
+                  `${
+                    PAYMENT_METHOD_OPTIONS.find(
+                      (method) => method.value === pagamento.metodo,
+                    )?.label ?? pagamento.metodo
+                  }${pagamento.parcelas ? ` em ${pagamento.parcelas}x` : ""}: ${fmtMoney(
+                    pagamento.valor,
+                  )}`,
+              )
+              .join(" + ")
+          : `${
+              PAYMENT_METHOD_OPTIONS.find(
+                (method) => method.value === os.forma_pagamento,
+              )?.label ?? "Não informada"
+            }${os.parcelas_pagamento ? ` em ${os.parcelas_pagamento}x` : ""}`,
     },
   ];
 

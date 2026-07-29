@@ -79,7 +79,7 @@ import TransactionDialog from "../../../(financeiro)/fluxodecaixa/components/tra
 import ValueInput from "../../../(financeiro)/fluxodecaixa/components/transactionDialog/valueInput";
 import { DialogProduto } from "../../../estoque/components/dialog-produto/dialog-produto";
 import { Tipo_transacao, type Transaction } from "../../../(financeiro)/fluxodecaixa/types";
-import { PAYMENT_METHOD_OPTIONS } from "@/lib/payment-methods";
+import { PAYMENT_METHOD_OPTIONS, type PlannedPayment } from "@/lib/payment-methods";
 
 const PUBLIC_APPROVAL_BASE = "/aprovacao";
 function approvalUrlFromToken(token: string) {
@@ -159,6 +159,7 @@ type OS = {
   observacoes_fiscais?: string | null;
   forma_pagamento?: string | null;
   parcelas_pagamento?: number | null;
+  pagamentos_previstos?: PlannedPayment[] | null;
   descricao_financeiro?: string | null;
   garantia?: string | null;
   status?: string | null;
@@ -1173,14 +1174,29 @@ export function OSDetalhesDialog({
                     <CreditCard className="h-4 w-4 text-primary" />
                     <span className="text-sm font-medium">Forma de pagamento prevista</span>
                   </div>
-                  <div className="text-sm">
-                    {PAYMENT_METHOD_OPTIONS.find(
-                      (method) => method.value === data.os.forma_pagamento,
-                    )?.label ?? "Não informada"}
-                    {data.os.parcelas_pagamento
-                      ? ` em ${data.os.parcelas_pagamento}x`
-                      : ""}
-                  </div>
+                  {data.os.pagamentos_previstos?.length ? (
+                    <div className="space-y-1 text-sm">
+                      {data.os.pagamentos_previstos.map((pagamento) => (
+                        <div key={pagamento.metodo}>
+                          {PAYMENT_METHOD_OPTIONS.find(
+                            (method) => method.value === pagamento.metodo,
+                          )?.label ?? pagamento.metodo}
+                          {pagamento.parcelas ? ` em ${pagamento.parcelas}x` : ""}
+                          {" — "}
+                          {fmtMoney(pagamento.valor)}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-sm">
+                      {PAYMENT_METHOD_OPTIONS.find(
+                        (method) => method.value === data.os.forma_pagamento,
+                      )?.label ?? "Não informada"}
+                      {data.os.parcelas_pagamento
+                        ? ` em ${data.os.parcelas_pagamento}x`
+                        : ""}
+                    </div>
+                  )}
                 </div>
 
                 <div className="rounded-lg border bg-card p-4">

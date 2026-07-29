@@ -6,6 +6,7 @@ import {
   consumirEstoqueOS,
   mensagemEstoqueInsuficienteOS,
 } from "@/lib/ordens/estoque-os";
+import type { PlannedPayment } from "@/lib/payment-methods";
 
 type DBStatusOS =
   | "AGUARDANDO_CHECKLIST"
@@ -28,6 +29,7 @@ type Body = {
   motivoSemCobranca?: string | null;
   formaPagamento?: FormaPagamento | null;
   parcelasPagamento?: number | null;
+  pagamentosPrevistos?: PlannedPayment[];
   descricaoFinanceiro?: string | null;
   garantia?: string | null;
 };
@@ -53,6 +55,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
       body.parcelasPagamento === null || body.parcelasPagamento === undefined
         ? null
         : Number(body.parcelasPagamento);
+    const pagamentosPrevistos = Array.isArray(body.pagamentosPrevistos)
+      ? body.pagamentosPrevistos.map((pagamento) => ({
+          metodo: String(pagamento?.metodo ?? "").toUpperCase() as FormaPagamento,
+          valor: Math.round(Number(pagamento?.valor ?? 0) * 100) / 100,
+          parcelas:
+            pagamento?.parcelas === null || pagamento?.parcelas === undefined
+              ? null
+              : Number(pagamento.parcelas),
+        }))
+      : null;
     const descricaoFinanceiro = (body.descricaoFinanceiro ?? "").trim() || null;
     const garantia = (body.garantia ?? "").trim() || null;
 
@@ -82,6 +94,51 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
         { error: "A quantidade de parcelas deve estar entre 1 e 12." },
         { status: 400 },
       );
+    }
+    if (pagamentosPrevistos) {
+      const metodosValidos = new Set([
+        "CREDITO",
+        "DEBITO",
+        "DINHEIRO",
+        "PIX",
+        "BOLETO",
+      ]);
+      const metodosInformados = new Set<string>();
+
+      for (const pagamento of pagamentosPrevistos) {
+        if (
+          !metodosValidos.has(pagamento.metodo) ||
+          metodosInformados.has(pagamento.metodo)
+        ) {
+          return NextResponse.json(
+            { error: "As formas de pagamento informadas são inválidas ou estão duplicadas." },
+            { status: 400 },
+          );
+        }
+        metodosInformados.add(pagamento.metodo);
+
+        if (!Number.isFinite(pagamento.valor) || pagamento.valor <= 0) {
+          return NextResponse.json(
+            { error: "Informe um valor maior que zero para cada forma de pagamento." },
+            { status: 400 },
+          );
+        }
+
+        const aceitaParcelas =
+          pagamento.metodo === "CREDITO" || pagamento.metodo === "BOLETO";
+        if (
+          aceitaParcelas &&
+          (!Number.isInteger(pagamento.parcelas) ||
+            Number(pagamento.parcelas) < 1 ||
+            Number(pagamento.parcelas) > 12)
+        ) {
+          return NextResponse.json(
+            { error: "As parcelas de Crédito ou Boleto devem estar entre 1 e 12." },
+            { status: 400 },
+          );
+        }
+        if (!aceitaParcelas) pagamento.parcelas = null;
+      }
     }
     if (
       parcelasPagamento !== null &&
@@ -137,8 +194,42 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
     const updateData: any = { status };
 
     if (status === "PAGAMENTO") {
-      updateData.forma_pagamento = formaPagamento;
-      updateData.parcelas_pagamento = parcelasPagamento;
+      if (pagamentosPrevistos && pagamentosPrevistos.length > 0) {
+        const totalRes = await supabaseAdmin
+          .from("ordemservico")
+          .select("orcamentototal")
+          .eq("id", osId)
+          .maybeSingle();
+        if (totalRes.error) throw totalRes.error;
+        if (!totalRes.data) {
+          return NextResponse.json({ error: "OS não encontrada." }, { status: 404 });
+        }
+
+        const totalOsCents = Math.round(Number(totalRes.data.orcamentototal ?? 0) * 100);
+        const totalPagamentosCents = pagamentosPrevistos.reduce(
+          (total, pagamento) => total + Math.round(pagamento.valor * 100),
+          0,
+        );
+        if (totalPagamentosCents !== totalOsCents) {
+          return NextResponse.json(
+            { error: "A soma dos pagamentos precisa fechar o total da OS." },
+            { status: 400 },
+          );
+        }
+      }
+
+      if (pagamentosPrevistos !== null) {
+        const pagamentoUnico =
+          pagamentosPrevistos.length === 1 ? pagamentosPrevistos[0] : null;
+        updateData.pagamentos_previstos =
+          pagamentosPrevistos.length > 0 ? pagamentosPrevistos : null;
+        updateData.forma_pagamento = pagamentoUnico?.metodo ?? null;
+        updateData.parcelas_pagamento = pagamentoUnico?.parcelas ?? null;
+      } else {
+        updateData.forma_pagamento = formaPagamento;
+        updateData.parcelas_pagamento = parcelasPagamento;
+        updateData.pagamentos_previstos = null;
+      }
       updateData.descricao_financeiro = descricaoFinanceiro;
       updateData.garantia = garantia;
     }
@@ -233,6 +324,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
         statusaprovacao,
         formaPagamento,
         parcelasPagamento,
+        pagamentosPrevistos,
         descricaoFinanceiro,
         garantia,
       },

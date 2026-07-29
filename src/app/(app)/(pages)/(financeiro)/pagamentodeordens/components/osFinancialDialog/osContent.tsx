@@ -18,6 +18,7 @@ import { TransactionDeleteAlert } from "../../../components/transaction-delete-a
 import { toast } from "@/lib/toast";
 import { formatDate } from "@/utils/formatDate";
 import { calculateFinancialSurcharge, calculateFinancialTotal } from "@/lib/financial-surcharge";
+import { PAYMENT_METHOD_OPTIONS } from "@/lib/payment-methods";
 
 interface OsContentProps {
   osId: number;
@@ -557,12 +558,27 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                   <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
                     Pagamento previsto
                   </span>
-                  <p className="mt-1 text-sm font-medium">
-                    {ordem.forma_pagamento || "Não informado"}
-                    {ordem.parcelas_pagamento
-                      ? ` em ${ordem.parcelas_pagamento}x`
-                      : ""}
-                  </p>
+                  {ordem.pagamentos_previstos?.length ? (
+                    <div className="mt-1 space-y-1 text-sm font-medium">
+                      {ordem.pagamentos_previstos.map((pagamento) => (
+                        <p key={pagamento.metodo}>
+                          {PAYMENT_METHOD_OPTIONS.find(
+                            (method) => method.value === pagamento.metodo,
+                          )?.label ?? pagamento.metodo}
+                          {pagamento.parcelas ? ` em ${pagamento.parcelas}x` : ""}
+                          {" — "}
+                          {formatarEmReal(pagamento.valor)}
+                        </p>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-sm font-medium">
+                      {ordem.forma_pagamento || "Não informado"}
+                      {ordem.parcelas_pagamento
+                        ? ` em ${ordem.parcelas_pagamento}x`
+                        : ""}
+                    </p>
+                  )}
                 </div>
                 <div className="rounded-lg border bg-card p-4">
                   <span className="text-[11px] uppercase tracking-wide text-muted-foreground">

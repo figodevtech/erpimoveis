@@ -1,4 +1,5 @@
 import { Transaction } from "../(financeiro)/fluxodecaixa/types";
+import type { PlannedPayment } from "@/lib/payment-methods";
 
 export type ID = number | string;
 
@@ -62,6 +63,7 @@ export type Ordem = {
   observacoes_fiscais?: string | null;
   forma_pagamento?: string | null;
   parcelas_pagamento?: number | null;
+  pagamentos_previstos?: PlannedPayment[] | null;
   descricao_financeiro?: string | null;
   garantia?: string | null;
   cliente?: Cliente | null;

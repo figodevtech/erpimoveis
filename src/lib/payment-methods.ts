@@ -7,3 +7,9 @@ export const PAYMENT_METHOD_OPTIONS = [
 ] as const;
 
 export type PaymentMethodOption = (typeof PAYMENT_METHOD_OPTIONS)[number]["value"];
+
+export type PlannedPayment = {
+  metodo: PaymentMethodOption;
+  valor: number;
+  parcelas?: number | null;
+};
