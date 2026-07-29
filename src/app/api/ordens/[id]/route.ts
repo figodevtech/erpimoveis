@@ -60,6 +60,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
           "observacoes_fiscais",
           "forma_pagamento",
           "parcelas_pagamento",
+          "pagamentos_previstos",
           "descricao_financeiro",
           "garantia",
           "motivo_cancelamento",
@@ -105,6 +106,11 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       observacoes_fiscais: string | null;
       forma_pagamento: string | null;
       parcelas_pagamento: number | null;
+      pagamentos_previstos: Array<{
+        metodo: string;
+        valor: number;
+        parcelas?: number | null;
+      }> | null;
       descricao_financeiro: string | null;
       garantia: string | null;
       createdat: string | null;
@@ -589,6 +595,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       observacoes_fiscais: osRow.observacoes_fiscais ?? null,
       forma_pagamento: osRow.forma_pagamento ?? null,
       parcelas_pagamento: osRow.parcelas_pagamento ?? null,
+      pagamentos_previstos: Array.isArray(osRow.pagamentos_previstos)
+        ? osRow.pagamentos_previstos
+        : null,
       descricao_financeiro: osRow.descricao_financeiro ?? null,
       garantia: osRow.garantia ?? null,
       motivocancelamento: (osRow as any).motivo_cancelamento ?? null,

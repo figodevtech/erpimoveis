@@ -10,6 +10,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Command, CommandGroup, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import ValueInput from "@/components/ui/value-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog,
@@ -28,6 +32,7 @@ import {
   ChevronRight as ChevronRightIcon,
   ChevronsLeft,
   ChevronsRight,
+  ChevronsUpDown,
   Loader,
   Loader2,
   Car,
@@ -72,9 +77,19 @@ import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import {
   PAYMENT_METHOD_OPTIONS,
   type PaymentMethodOption,
+  type PlannedPayment,
 } from "@/lib/payment-methods";
 
 const MAX_ALVO_CHARS = 48;
+
+const formatCurrencyBRL = (value: number) =>
+  new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(value);
+
+const moneyToCents = (value: number) =>
+  Math.round((Number.isFinite(value) ? value : 0) * 100);
 
 function getWhatsAppUrl(telefone?: string | null) {
   const digits = String(telefone ?? "").replace(/\D/g, "");
@@ -319,12 +334,83 @@ export function OrdensTabela({
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmRow, setConfirmRow] = useState<OrdemComDatas | null>(null);
-  const [confirmFormaPagamento, setConfirmFormaPagamento] = useState<
-    PaymentMethodOption | "NAO_INFORMAR"
-  >("NAO_INFORMAR");
-  const [confirmParcelasPagamento, setConfirmParcelasPagamento] = useState(1);
+  const [confirmPaymentMethods, setConfirmPaymentMethods] = useState<
+    PaymentMethodOption[]
+  >([]);
+  const [confirmPaymentAmounts, setConfirmPaymentAmounts] = useState<
+    Partial<Record<PaymentMethodOption, number>>
+  >({});
+  const [confirmPaymentInstallments, setConfirmPaymentInstallments] = useState<
+    Partial<Record<PaymentMethodOption, number>>
+  >({});
+  const [confirmPaymentMethodsOpen, setConfirmPaymentMethodsOpen] = useState(false);
   const [confirmDescricaoFinanceiro, setConfirmDescricaoFinanceiro] = useState("");
   const [confirmGarantia, setConfirmGarantia] = useState("");
+
+  const confirmTotalCents = moneyToCents(Number(confirmRow?.orcamentototal ?? 0));
+  const confirmPaymentsTotalCents = confirmPaymentMethods.reduce(
+    (totalCents, method) =>
+      totalCents + moneyToCents(Number(confirmPaymentAmounts[method] ?? 0)),
+    0,
+  );
+  const confirmPaymentMethodsLabel =
+    confirmPaymentMethods.length === 0
+      ? "Não informar"
+      : PAYMENT_METHOD_OPTIONS.filter((method) =>
+          confirmPaymentMethods.includes(method.value),
+        )
+          .map((method) => method.label)
+          .join(", ");
+
+  const toggleConfirmPaymentMethod = (method: PaymentMethodOption) => {
+    setConfirmPaymentMethods((current) => {
+      if (current.includes(method)) {
+        setConfirmPaymentAmounts((amounts) => {
+          const next = { ...amounts };
+          delete next[method];
+          return next;
+        });
+        setConfirmPaymentInstallments((installments) => {
+          const next = { ...installments };
+          delete next[method];
+          return next;
+        });
+        return current.filter((item) => item !== method);
+      }
+
+      setConfirmPaymentAmounts((amounts) => ({
+        ...amounts,
+        [method]: current.length === 0 ? confirmTotalCents / 100 : 0,
+      }));
+      if (method === "CREDITO" || method === "BOLETO") {
+        setConfirmPaymentInstallments((installments) => ({
+          ...installments,
+          [method]: 1,
+        }));
+      }
+      return [...current, method];
+    });
+  };
+
+  const updateConfirmPaymentAmount = (
+    method: PaymentMethodOption,
+    value: number,
+  ) => {
+    const otherMethodsTotalCents = confirmPaymentMethods
+      .filter((item) => item !== method)
+      .reduce(
+        (totalCents, item) =>
+          totalCents + moneyToCents(Number(confirmPaymentAmounts[item] ?? 0)),
+        0,
+      );
+    const maxCents = Math.max(0, confirmTotalCents - otherMethodsTotalCents);
+    const nextCents = Math.min(Math.max(0, moneyToCents(value)), maxCents);
+
+    setConfirmPaymentAmounts((current) => ({
+      ...current,
+      [method]: nextCents / 100,
+    }));
+  };
 
   const [payOpen, setPayOpen] = useState(false);
   const [payRow, setPayRow] = useState<OrdemComDatas | null>(null);
@@ -383,6 +469,7 @@ export function OrdensTabela({
     extras?: {
       formaPagamento?: PaymentMethodOption | null;
       parcelasPagamento?: number | null;
+      pagamentosPrevistos?: PlannedPayment[];
       descricaoFinanceiro?: string | null;
       garantia?: string | null;
     },
@@ -1105,8 +1192,10 @@ export function OrdensTabela({
             setConfirmOpen(open);
             if (!open) {
               setConfirmRow(null);
-              setConfirmFormaPagamento("NAO_INFORMAR");
-              setConfirmParcelasPagamento(1);
+              setConfirmPaymentMethods([]);
+              setConfirmPaymentAmounts({});
+              setConfirmPaymentInstallments({});
+              setConfirmPaymentMethodsOpen(false);
               setConfirmDescricaoFinanceiro("");
               setConfirmGarantia("");
             }
@@ -1123,64 +1212,144 @@ export function OrdensTabela({
               </AlertDialogDescription>
             </AlertDialogHeader>
             <div className="space-y-4 py-2">
-              <div
-                className={
-                  confirmFormaPagamento === "CREDITO" ||
-                  confirmFormaPagamento === "BOLETO"
-                    ? "grid gap-4 sm:grid-cols-[minmax(0,1fr)_112px]"
-                    : ""
-                }
-              >
-                <div className="space-y-2">
-                  <Label>Forma de pagamento</Label>
-                  <Select
-                    value={confirmFormaPagamento}
-                    onValueChange={(value) => {
-                      setConfirmFormaPagamento(
-                        value as PaymentMethodOption | "NAO_INFORMAR",
-                      );
-                      if (value !== "CREDITO" && value !== "BOLETO") {
-                        setConfirmParcelasPagamento(1);
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Selecione a forma de pagamento" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="NAO_INFORMAR">Não informar</SelectItem>
-                      {PAYMENT_METHOD_OPTIONS.map((method) => (
-                        <SelectItem key={method.value} value={method.value}>
-                          {method.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {(confirmFormaPagamento === "CREDITO" ||
-                  confirmFormaPagamento === "BOLETO") && (
-                  <div className="space-y-2">
-                    <Label>Parcelas</Label>
-                    <Select
-                      value={String(confirmParcelasPagamento)}
-                      onValueChange={(value) =>
-                        setConfirmParcelasPagamento(Number(value))
-                      }
+              <div className="space-y-2">
+                <Label>Formas de pagamento</Label>
+                <Popover
+                  open={confirmPaymentMethodsOpen}
+                  onOpenChange={setConfirmPaymentMethodsOpen}
+                >
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full justify-between font-normal"
                     >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Parcelas" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {Array.from({ length: 12 }, (_, index) => index + 1).map(
-                          (parcelas) => (
-                            <SelectItem key={parcelas} value={String(parcelas)}>
-                              {parcelas}x
-                            </SelectItem>
-                          ),
+                      <span className="truncate">{confirmPaymentMethodsLabel}</span>
+                      <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-60" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="start"
+                    className="w-[var(--radix-popover-trigger-width)] p-0"
+                  >
+                    <Command>
+                      <CommandList>
+                        <CommandGroup>
+                          {PAYMENT_METHOD_OPTIONS.map((method) => (
+                            <CommandItem
+                              key={method.value}
+                              value={method.value}
+                              onSelect={() =>
+                                toggleConfirmPaymentMethod(method.value)
+                              }
+                              className="flex items-center gap-3"
+                            >
+                              <Checkbox
+                                checked={confirmPaymentMethods.includes(
+                                  method.value,
+                                )}
+                              />
+                              <span>{method.label}</span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+
+                {confirmPaymentMethods.length > 0 && (
+                  <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Valores por forma
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {formatCurrencyBRL(confirmPaymentsTotalCents / 100)} /{" "}
+                        {formatCurrencyBRL(confirmTotalCents / 100)}
+                      </span>
+                    </div>
+
+                    <div className="space-y-2">
+                      {confirmPaymentMethods.map((method) => {
+                        const methodLabel =
+                          PAYMENT_METHOD_OPTIONS.find(
+                            (option) => option.value === method,
+                          )?.label ?? method;
+                        const hasInstallments =
+                          method === "CREDITO" || method === "BOLETO";
+
+                        return (
+                          <div
+                            key={method}
+                            className={
+                              hasInstallments
+                                ? "grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(7rem,9rem)_90px] sm:items-end"
+                                : "grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(7rem,9rem)] sm:items-end"
+                            }
+                          >
+                            <div className="min-w-0 pb-2">
+                              <span className="truncate text-sm">{methodLabel}</span>
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Valor</Label>
+                              <ValueInput
+                                value={confirmPaymentAmounts[method] ?? 0}
+                                onValueChange={(value) =>
+                                  updateConfirmPaymentAmount(method, value)
+                                }
+                                className="h-9 text-right"
+                              />
+                            </div>
+                            {hasInstallments && (
+                              <div className="space-y-1">
+                                <Label className="text-xs">Parcelas</Label>
+                                <Select
+                                  value={String(
+                                    confirmPaymentInstallments[method] ?? 1,
+                                  )}
+                                  onValueChange={(value) =>
+                                    setConfirmPaymentInstallments((current) => ({
+                                      ...current,
+                                      [method]: Number(value),
+                                    }))
+                                  }
+                                >
+                                  <SelectTrigger className="h-9 w-full">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {Array.from(
+                                      { length: 12 },
+                                      (_, index) => index + 1,
+                                    ).map((parcelas) => (
+                                      <SelectItem
+                                        key={parcelas}
+                                        value={String(parcelas)}
+                                      >
+                                        {parcelas}x
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {confirmPaymentsTotalCents !== confirmTotalCents && (
+                      <p className="text-xs text-amber-600">
+                        Restante:{" "}
+                        {formatCurrencyBRL(
+                          Math.max(
+                            0,
+                            confirmTotalCents - confirmPaymentsTotalCents,
+                          ) / 100,
                         )}
-                      </SelectContent>
-                    </Select>
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -1216,16 +1385,43 @@ export function OrdensTabela({
                 onClick={async (event) => {
                   event.preventDefault();
                   if (!confirmRow) return;
+
+                  const pagamentosPrevistos = confirmPaymentMethods.map(
+                    (method) => ({
+                      metodo: method,
+                      valor: Number(confirmPaymentAmounts[method] ?? 0),
+                      parcelas:
+                        method === "CREDITO" || method === "BOLETO"
+                          ? Number(confirmPaymentInstallments[method] ?? 1)
+                          : null,
+                    }),
+                  );
+                  if (
+                    pagamentosPrevistos.some(
+                      (pagamento) => moneyToCents(pagamento.valor) <= 0,
+                    )
+                  ) {
+                    toast.error(
+                      "Informe um valor maior que zero para cada forma de pagamento.",
+                    );
+                    return;
+                  }
+                  if (
+                    pagamentosPrevistos.length > 0 &&
+                    confirmPaymentsTotalCents !== confirmTotalCents
+                  ) {
+                    toast.error("A soma dos pagamentos precisa fechar o total da OS.", {
+                      description: `Total informado: ${formatCurrencyBRL(
+                        confirmPaymentsTotalCents / 100,
+                      )}. Total da OS: ${formatCurrencyBRL(
+                        confirmTotalCents / 100,
+                      )}.`,
+                    });
+                    return;
+                  }
+
                   const updated = await setStatus(confirmRow.id, "PAGAMENTO", {
-                    formaPagamento:
-                      confirmFormaPagamento === "NAO_INFORMAR"
-                        ? null
-                        : confirmFormaPagamento,
-                    parcelasPagamento:
-                      confirmFormaPagamento === "CREDITO" ||
-                      confirmFormaPagamento === "BOLETO"
-                        ? confirmParcelasPagamento
-                        : null,
+                    pagamentosPrevistos,
                     descricaoFinanceiro:
                       confirmDescricaoFinanceiro.trim() || null,
                     garantia: confirmGarantia.trim() || null,
