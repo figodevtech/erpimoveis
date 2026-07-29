@@ -446,7 +446,9 @@ export function buildNFePreviewXml(
   const vICMS = soma.vICMS.toFixed(2);
   const vPIS = soma.vPIS.toFixed(2);
   const vCOFINS = soma.vCOFINS.toFixed(2);
-  const vNF = (soma.vProd + soma.vST + soma.vFCPST + soma.vIPI).toFixed(2);
+  const valorFrete = itens.reduce((total, item) => total + Number(item.valorFrete ?? 0), 0);
+  const vFrete = valorFrete.toFixed(2);
+  const vNF = (soma.vProd + valorFrete + soma.vST + soma.vFCPST + soma.vIPI).toFixed(2);
 
   const isTotXml = soma.vIS > 0
     ? `<ISTot><vIS>${soma.vIS.toFixed(2)}</vIS></ISTot>`
@@ -475,7 +477,7 @@ export function buildNFePreviewXml(
     `<vFCPST>${soma.vFCPST.toFixed(2)}</vFCPST>` +
     `<vFCPSTRet>${soma.vFCPSTRet.toFixed(2)}</vFCPSTRet>` +
     `<vProd>${vProd}</vProd>` +
-    `<vFrete>0.00</vFrete>` +
+    `<vFrete>${vFrete}</vFrete>` +
     `<vSeg>0.00</vSeg>` +
     `<vDesc>0.00</vDesc>` +
     `<vII>0.00</vII>` +

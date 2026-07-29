@@ -119,4 +119,22 @@ describe("pagamentos na NF-e", () => {
 
     assert.match(result.xml, /<tPag>17<\/tPag><vPag>10\.00<\/vPag>/);
   });
+
+  it("inclui o frete no item, nos totais e no pagamento da nota", () => {
+    const result = buildNFePreviewXml(
+      empresa,
+      5,
+      1,
+      [{ ...item, valorFrete: 12.5 }],
+      destinatario("SP"),
+      {
+        nomeMunicipioEmitente: "SAO PAULO",
+        pagamento: { tPag: "17" },
+      },
+    );
+
+    assert.match(result.xml, /<prod>.*<vFrete>12\.50<\/vFrete>.*<\/prod>/);
+    assert.match(result.xml, /<ICMSTot>.*<vFrete>12\.50<\/vFrete>.*<vNF>22\.50<\/vNF>/);
+    assert.match(result.xml, /<tPag>17<\/tPag><vPag>22\.50<\/vPag>/);
+  });
 });

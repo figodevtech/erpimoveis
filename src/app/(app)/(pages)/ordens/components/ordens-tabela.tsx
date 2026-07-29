@@ -1211,6 +1211,7 @@ export function OrdensTabela({
                 Esta ação mudará o status da OS <b>#{confirmRow?.id}</b> para <b>PAGAMENTO</b>.
               </AlertDialogDescription>
             </AlertDialogHeader>
+<<<<<<< HEAD
             <div className="space-y-4 py-2">
               <div className="space-y-2">
                 <Label>Formas de pagamento</Label>
@@ -1223,6 +1224,53 @@ export function OrdensTabela({
                       type="button"
                       variant="outline"
                       className="w-full justify-between font-normal"
+=======
+            <div className="space-y-4 p-4 bg-card rounded-2xl border">
+              <div
+                className={
+                  confirmFormaPagamento === "CREDITO" ||
+                  confirmFormaPagamento === "BOLETO"
+                    ? "grid gap-4 sm:grid-cols-[minmax(0,1fr)_112px]"
+                    : ""
+                }
+              >
+                <div className="space-y-2">
+                  <Label>Forma de pagamento</Label>
+                  <Select
+                    value={confirmFormaPagamento}
+                    onValueChange={(value) => {
+                      setConfirmFormaPagamento(
+                        value as PaymentMethodOption | "NAO_INFORMAR",
+                      );
+                      if (value !== "CREDITO" && value !== "BOLETO") {
+                        setConfirmParcelasPagamento(1);
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Selecione a forma de pagamento" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="NAO_INFORMAR">Não informar</SelectItem>
+                      {PAYMENT_METHOD_OPTIONS.map((method) => (
+                        <SelectItem key={method.value} value={method.value}>
+                          {method.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {(confirmFormaPagamento === "CREDITO" ||
+                  confirmFormaPagamento === "BOLETO") && (
+                  <div className="space-y-2">
+                    <Label>Parcelas</Label>
+                    <Select
+                      value={String(confirmParcelasPagamento)}
+                      onValueChange={(value) =>
+                        setConfirmParcelasPagamento(Number(value))
+                      }
+>>>>>>> 1804a2459038d09eda07f7a9a7da8dd9e1cf073d
                     >
                       <span className="truncate">{confirmPaymentMethodsLabel}</span>
                       <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-60" />
