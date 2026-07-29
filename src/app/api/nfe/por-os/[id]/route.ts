@@ -40,8 +40,6 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
           "total_produtos",
           "total_servicos",
           "total_nfe",
-          "xml_assinado",
-          "xml_autorizado",
           "justificativacancelamento",
           "createdat",
           "updatedat",
@@ -69,7 +67,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
         osId,
         nfes: data ?? [],
       },
-      { status: 200 }
+      { status: 200, headers: { "Cache-Control": "no-store" } }
     );
   } catch (e: any) {
     console.error("[GET /api/nfe/por-os] exception", e);

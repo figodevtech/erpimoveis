@@ -40,8 +40,8 @@ type NfeResumo = {
   total_produtos: number | null;
   total_servicos: number | null;
   total_nfe: number | null;
-  xml_assinado: string | null;
-  xml_autorizado: string | null;
+  xml_assinado?: string | null;
+  xml_autorizado?: string | null;
   justificativacancelamento: string | null;
   createdat: string | null;
   updatedat: string | null;
@@ -157,6 +157,7 @@ export function EmissaoNotaDialog({
 }) {
   const [loading, setLoading] = useState(false);
   const [nfes, setNfes] = useState<NfeResumo[] | null>(null);
+  const [avisoListagem, setAvisoListagem] = useState<string | null>(null);
   const [openGerarNfe, setOpenGerarNfe] = useState(false);
   const [openGerarNfse, setOpenGerarNfse] = useState(false);
   const [empresaFiscal, setEmpresaFiscal] = useState<EmpresaFiscal | null>(null);
@@ -234,6 +235,7 @@ export function EmissaoNotaDialog({
     if (!endpointListar) return;
 
     setLoading(true);
+    setAvisoListagem(null);
     try {
       const res = await fetch(endpointListar, {
         method: "GET",
@@ -246,17 +248,29 @@ export function EmissaoNotaDialog({
         | ListarNfeResponsePorEntrada
         | null;
 
-      if (!res.ok || !json?.ok) {
-        const msg = (json as any)?.message || `Erro ao buscar NF-e (HTTP ${res.status}).`;
-        throw new Error(msg);
-      }
-
-      let fetchedNfes = (json as any).nfes ?? [];
+      const erroNfe = !res.ok || !json?.ok
+        ? (json as any)?.message || `Erro ao buscar NF-e (HTTP ${res.status}).`
+        : null;
+      let fetchedNfes = erroNfe ? [] : (json as any).nfes ?? [];
 
       if (origem === "OS" && osId) {
         const nfseRes = await fetch(`/api/nfse/por-os/${osId}`, { signal });
         const nfseJson = await nfseRes.json().catch(() => null);
-        const mappedNfses = (nfseJson?.nfses ?? []).map((n: any) => ({
+        const erroNfse = !nfseRes.ok || !nfseJson?.ok
+          ? nfseJson?.message || `Erro ao buscar NFS-e (HTTP ${nfseRes.status}).`
+          : null;
+
+        if (erroNfe && erroNfse) {
+          throw new Error(`${erroNfe} ${erroNfse}`);
+        }
+
+        if (erroNfe) {
+          setAvisoListagem("As NF-e de produtos não puderam ser carregadas agora. A emissão e o histórico de NFS-e continuam disponíveis.");
+        } else if (erroNfse) {
+          setAvisoListagem("As NFS-e de serviços não puderam ser carregadas agora. As NF-e de produtos continuam disponíveis.");
+        }
+
+        const mappedNfses = erroNfse ? [] : (nfseJson?.nfses ?? []).map((n: any) => ({
           id: n.id,
           modelo: "NFSE",
           serie: null,
@@ -281,6 +295,8 @@ export function EmissaoNotaDialog({
         fetchedNfes = [...fetchedNfes, ...mappedNfses].sort(
           (a, b) => new Date(b.createdat || 0).getTime() - new Date(a.createdat || 0).getTime(),
         );
+      } else if (erroNfe) {
+        throw new Error(erroNfe);
       }
 
       if (!signal?.aborted) {
@@ -375,6 +391,7 @@ export function EmissaoNotaDialog({
         onOpenChange(nextOpen);
         if (!nextOpen) {
           setNfes([]);
+          setAvisoListagem(null);
         }
       }}
     >
@@ -488,6 +505,13 @@ export function EmissaoNotaDialog({
                 }`}
               ></div>
             </div>
+
+            {avisoListagem && (
+              <div className="mx-5 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{avisoListagem}</span>
+              </div>
+            )}
 
             {!origemId && (
               <div className="h-24 grid place-items-center text-sm text-muted-foreground">
