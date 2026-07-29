@@ -188,7 +188,7 @@ export function DetalhesUsuarioDialog({ open, onOpenChange, usuario }: Props) {
             <DialogTitle>Detalhes do usuário</DialogTitle>
           </DialogHeader>
 
-          <div className="h-full min-h-0 overflow-auto px-6 py-6 dark:bg-muted-foreground/5">
+          <div className="h-full min-h-0 overflow-auto px-6 py-6 bg-card rounded-2xl border">
             {!usuario || !info ? (
               <div className="text-sm text-muted-foreground">
                 Nenhum usuário selecionado.

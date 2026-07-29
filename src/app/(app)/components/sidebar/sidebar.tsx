@@ -130,7 +130,7 @@ const data = {
         },
         {
           title: "Movimentação",
-          url: "/estoque/movimentacao",
+          url: "/movimentacao",
           icon: MapPinned,
           perm: PERMS.ESTOQUE,
         },
@@ -162,8 +162,14 @@ const data = {
         },
         {
           title: "Movimentação",
-          url: "/usoconsumo/movimentacao",
+          url: "/movimentacao",
           icon: MapPinned,
+          perm: PERMS.USOCONSUMO,
+        },
+        {
+          title: "Histórico de estoque",
+          url: "/usoconsumo/movimentacao",
+          icon: History,
           perm: PERMS.USOCONSUMO,
         },
         {

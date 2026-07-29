@@ -279,7 +279,7 @@ export function EditarUsuarioDialog({
                   </TabsList>
                 </div>
 
-                <TabsContent value="dados" className="mt-4 space-y-4">
+                <TabsContent value="dados" className="mt-4 space-y-4 border bg-card p-4 rounded-2xl">
                   <div className="grid gap-2">
                     <Label>Nome</Label>
                     <Input
@@ -343,7 +343,7 @@ export function EditarUsuarioDialog({
                   </div>
                 </TabsContent>
 
-                <TabsContent value="financeiro" className="mt-4 space-y-4">
+                <TabsContent value="financeiro" className="mt-4 space-y-4 p-4 border bg-card rounded-2xl">
                   <div className="grid gap-2">
                     <Label>Salário</Label>
                     <ValueInput
@@ -381,7 +381,7 @@ export function EditarUsuarioDialog({
                   </div>
                 </TabsContent>
 
-                <TabsContent value="vinculo" className="mt-4 space-y-4">
+                <TabsContent value="vinculo" className="mt-4 space-y-4 p-4 border bg-card rounded-2xl">
                   <DatePickerField
                     label="Data de admissão"
                     value={dataAdmissao}

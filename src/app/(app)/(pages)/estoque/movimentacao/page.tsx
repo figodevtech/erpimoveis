@@ -1,71 +1,145 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import axios from "axios";
-import { CheckCircle2, ChevronLeft, ChevronRight, Loader2, MapPinned } from "lucide-react";
-import { toast } from "@/lib/toast";
+import { useSession } from "next-auth/react";
+import axios, { isAxiosError } from "axios";
+import { CheckCircle2, ChevronLeft, ChevronRight, Loader2, MapPinned, PackageSearch } from "lucide-react";
+import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { lookupInventoryLabel, type InventoryLabelItem, type InventoryLabelKind } from "@/lib/inventory-labels";
+import { toast } from "@/lib/toast";
+import { ItemSelectDialog, type UsoConsumoItemOption } from "../../usoconsumo/components/item-select-dialog";
 import { QrCodeInput } from "../components/dialog-produto/qr-code-input";
-import { ProdutoIdentificadoCard } from "../components/produto-identificado-card";
 import { ProdutoSearchPicker } from "../components/produto-search-picker";
 import type { Produto } from "../types";
 
 type Step = 1 | 2 | 3 | 4;
+type MovementTarget = { kind: InventoryLabelKind; item: InventoryLabelItem };
 
-function findExactProduct(items: Produto[], code: string) {
-  const normalized = code.trim().toLowerCase();
+function errorText(error: unknown, fallback: string) {
+  if (isAxiosError(error)) return error.response?.data?.error ?? fallback;
+  return error instanceof Error ? error.message : fallback;
+}
+
+function productToInventoryItem(product: Produto): InventoryLabelItem | null {
+  if (!product.id) return null;
+  return {
+    id: product.id,
+    titulo: product.titulo ?? null,
+    descricao: product.descricao ?? null,
+    referencia: product.referencia ?? null,
+    fabricante: product.fabricante ?? null,
+    codigobarras: product.codigobarras ?? null,
+    etiqueta: product.etiqueta ?? null,
+    local: product.local ?? null,
+    unidade: product.unidade ?? null,
+    estoque: product.estoque ?? 0,
+    estoqueminimo: product.estoqueminimo ?? 0,
+    status_estoque: product.status_estoque ?? null,
+    imgUrl: product.imgUrl ?? null,
+    updatedat: product.updatedat ? String(product.updatedat) : null,
+  };
+}
+
+function ItemIdentificadoCard({ target }: { target: MovementTarget }) {
+  const { item, kind } = target;
+  const moduleName = kind === "PRODUTO" ? "Produto" : "Uso/consumo";
+  const imageUrl = item.imgUrl || item.img_url;
+
   return (
-    items.find(
-      (item) =>
-        String(item.etiqueta ?? "").trim().toLowerCase() === normalized ||
-        String(item.codigobarras ?? "").trim().toLowerCase() === normalized ||
-        String(item.id ?? "").trim().toLowerCase() === normalized
-    ) ?? null
+    <div className="flex gap-3 rounded-lg border bg-muted/30 p-3 text-sm">
+      {imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={imageUrl}
+          alt={item.titulo || moduleName}
+          className="h-16 w-16 shrink-0 rounded-md border bg-background object-cover"
+        />
+      ) : (
+        <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-md border bg-background px-2 text-center text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          Sem foto
+        </div>
+      )}
+
+      <div className="min-w-0 flex-1 space-y-2">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <div className="font-medium">{item.titulo || `${moduleName} sem nome`}</div>
+            <div className="text-xs text-muted-foreground">#{item.id}</div>
+          </div>
+          <Badge variant="outline">{moduleName}</Badge>
+        </div>
+        <div className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
+          <div><span className="text-muted-foreground">Etiqueta:</span> {item.etiqueta || "—"}</div>
+          <div><span className="text-muted-foreground">Código de barras:</span> {item.codigobarras || "—"}</div>
+          <div><span className="text-muted-foreground">Referência:</span> {item.referencia || "—"}</div>
+          <div><span className="text-muted-foreground">Local:</span> {item.local || "—"}</div>
+          <div><span className="text-muted-foreground">Estoque:</span> {item.estoque ?? 0} {item.unidade || ""}</div>
+          <div><span className="text-muted-foreground">Status:</span> {item.status_estoque || "—"}</div>
+        </div>
+      </div>
+    </div>
   );
 }
 
 export default function MovimentacaoPage() {
+  const { data: session } = useSession();
+  const permissions = (session?.user as { permissoes?: unknown })?.permissoes;
+  const canSearchProducts = permissionSetHas(permissions, PERMS.ESTOQUE);
+  const canSearchUse = permissionSetHas(permissions, PERMS.USOCONSUMO);
+
   const [step, setStep] = useState<Step>(1);
-  const [codigoProduto, setCodigoProduto] = useState("");
-  const [produto, setProduto] = useState<Produto | null>(null);
-  const [produtoError, setProdutoError] = useState<string | null>(null);
-  const [buscandoProduto, setBuscandoProduto] = useState(false);
+  const [codigoItem, setCodigoItem] = useState("");
+  const [target, setTarget] = useState<MovementTarget | null>(null);
+  const [itemError, setItemError] = useState<string | null>(null);
+  const [buscandoItem, setBuscandoItem] = useState(false);
+  const [useSelectOpen, setUseSelectOpen] = useState(false);
   const [local, setLocal] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    const q = codigoProduto.trim();
-    setProdutoError(null);
+    const code = codigoItem.trim();
+    setItemError(null);
 
-    if (!q) {
-      setProduto(null);
+    if (!code) {
+      setBuscandoItem(false);
       return;
     }
 
     let active = true;
     const timeout = window.setTimeout(async () => {
-      setBuscandoProduto(true);
+      setBuscandoItem(true);
       try {
-        const res = await axios.get("/api/products", { params: { search: q, limit: 10 } });
-        const items: Produto[] = res.data?.data ?? [];
-        const match = findExactProduct(items, q);
-
+        const lookup = await lookupInventoryLabel(code);
         if (!active) return;
 
-        if (!match) {
-          setProduto(null);
-          setProdutoError("Etiqueta nao vinculada a um produto.");
-          toast.error("Nao existem produtos vinculados a esta etiqueta");
+        if (lookup.status === "CONFLICT") {
+          setTarget(null);
+          setItemError("Este código está vinculado a mais de um item. Corrija o conflito de etiquetas antes de movimentar.");
           return;
         }
 
-        setProduto(match);
-      } catch (err: any) {
+        const match = lookup.matches[0];
+        if (!match) {
+          setTarget(null);
+          setItemError("Etiqueta ou código de barras não vinculado a produto nem a item de uso/consumo.");
+          return;
+        }
+
+        if (match.restricted || !match.item) {
+          setTarget(null);
+          setItemError(`A etiqueta pertence ao módulo ${match.kind === "PRODUTO" ? "de produtos" : "de uso/consumo"}, mas seu perfil não possui acesso.`);
+          return;
+        }
+
+        setTarget({ kind: match.kind, item: match.item });
+      } catch (error) {
         if (!active) return;
-        setProduto(null);
-        setProdutoError(err?.response?.data?.error ?? "Nao foi possivel buscar o produto.");
+        setTarget(null);
+        setItemError(errorText(error, "Não foi possível consultar a etiqueta."));
       } finally {
-        if (active) setBuscandoProduto(false);
+        if (active) setBuscandoItem(false);
       }
     }, 250);
 
@@ -73,39 +147,73 @@ export default function MovimentacaoPage() {
       active = false;
       window.clearTimeout(timeout);
     };
-  }, [codigoProduto]);
+  }, [codigoItem]);
+
+  async function selectUseItem(option: UsoConsumoItemOption) {
+    setCodigoItem("");
+    setBuscandoItem(true);
+    setItemError(null);
+    try {
+      const { data } = await axios.get(`/api/usoconsumo/itens/${option.id}`);
+      setTarget({ kind: "USOCONSUMO", item: data.data as InventoryLabelItem });
+    } catch (error) {
+      setTarget(null);
+      setItemError(errorText(error, "Não foi possível carregar o item de uso/consumo."));
+    } finally {
+      setBuscandoItem(false);
+    }
+  }
 
   const confirmar = async () => {
-    if (!produto?.id || !local.trim()) return;
+    if (!target || !local.trim()) return;
 
     setSaving(true);
     try {
-      await axios.patch(`/api/products/${produto.id}`, { local: local.trim() });
-      toast.success("Local atualizado");
+      if (target.kind === "PRODUTO") {
+        await axios.patch(`/api/products/${target.item.id}`, {
+          changes: { local: { original: target.item.local ?? null, value: local.trim() } },
+        });
+      } else {
+        await axios.patch(`/api/usoconsumo/itens/${target.item.id}`, {
+          local: local.trim(),
+          ...(target.item.updated_at ? { expectedUpdatedAt: target.item.updated_at } : {}),
+        });
+      }
+      toast.success("Local atualizado", {
+        description: `${target.kind === "PRODUTO" ? "Produto" : "Item de uso/consumo"} direcionado para ${local.trim()}.`,
+      });
       setStep(4);
-    } catch (err: any) {
-      toast.error("Nao foi possivel registrar movimentacao", {
-        description: err?.response?.data?.error ?? "Tente novamente.",
+    } catch (error) {
+      toast.error("Não foi possível registrar a movimentação", {
+        description: errorText(error, "Tente novamente."),
       });
     } finally {
       setSaving(false);
     }
   };
 
+  const reset = () => {
+    setStep(1);
+    setCodigoItem("");
+    setTarget(null);
+    setItemError(null);
+    setLocal("");
+  };
+
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
-        <h1 className="text-xl font-semibold">Movimentacao</h1>
-        <p className="text-sm text-muted-foreground">Atualize o local de armazenamento de um produto.</p>
+        <h1 className="text-xl font-semibold">Movimentação</h1>
+        <p className="text-sm text-muted-foreground">Atualize o local de armazenamento de produtos e itens de uso/consumo.</p>
       </div>
 
       <div className="rounded-lg border bg-card p-4">
         <div className="mb-4 flex items-center justify-between text-sm">
           <span>Passo {step} de 4</span>
           <span className="text-muted-foreground">
-            {step === 1 && "Produto"}
+            {step === 1 && "Item"}
             {step === 2 && "Local"}
-            {step === 3 && "Conferencia"}
+            {step === 3 && "Conferência"}
             {step === 4 && "Finalizado"}
           </span>
         </div>
@@ -113,35 +221,56 @@ export default function MovimentacaoPage() {
         {step === 1 && (
           <div className="space-y-4">
             <QrCodeInput
-              id="mov-produto"
-              label="Etiqueta/codigo do produto"
-              value={codigoProduto}
-              placeholder="Leia o QR, codigo de barras ou digite"
+              id="mov-item"
+              label="Etiqueta ou código de barras"
+              value={codigoItem}
+              placeholder="Leia o QR Code, código de barras ou digite"
               uppercase
-              onChange={setCodigoProduto}
+              onChange={(value) => {
+                setCodigoItem(value);
+                setTarget(null);
+              }}
             />
 
-            {buscandoProduto ? (
+            {buscandoItem ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Buscando produto...
+                Buscando nos estoques de produtos e uso/consumo...
               </div>
             ) : null}
 
-            {produtoError ? <p className="text-sm text-destructive">{produtoError}</p> : null}
-            {produto ? <ProdutoIdentificadoCard produto={produto} /> : null}
+            {itemError ? <p className="text-sm text-destructive">{itemError}</p> : null}
+            {target ? <ItemIdentificadoCard target={target} /> : null}
 
-            <ProdutoSearchPicker
-              selected={produto}
-              onSelect={(item) => {
-                setProduto(item);
-                setProdutoError(null);
-              }}
-              showSelected={false}
-            />
+            {(canSearchProducts || canSearchUse) ? (
+              <div className="space-y-3 rounded-lg border p-3">
+                <p className="text-xs font-medium text-muted-foreground">Ou selecione manualmente</p>
+                {canSearchProducts ? (
+                  <ProdutoSearchPicker
+                    selected={null}
+                    onSelect={(product) => {
+                      const item = productToInventoryItem(product);
+                      if (!item) return;
+                      setCodigoItem("");
+                      setTarget({ kind: "PRODUTO", item });
+                      setItemError(null);
+                    }}
+                    showSelected={false}
+                  />
+                ) : null}
+                {canSearchUse ? (
+                  <ItemSelectDialog open={useSelectOpen} setOpen={setUseSelectOpen} onSelect={(item) => void selectUseItem(item)}>
+                    <Button type="button" variant="outline" className="w-full justify-start">
+                      <PackageSearch className="mr-2 h-4 w-4" />
+                      Selecionar item de uso/consumo
+                    </Button>
+                  </ItemSelectDialog>
+                ) : null}
+              </div>
+            ) : null}
 
-            <Button className="w-full gap-2" disabled={!produto} onClick={() => setStep(2)}>
-              Proximo
+            <Button className="w-full gap-2" disabled={!target || buscandoItem} onClick={() => setStep(2)}>
+              Próximo
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
@@ -162,7 +291,7 @@ export default function MovimentacaoPage() {
                 Voltar
               </Button>
               <Button className="flex-1 gap-2" disabled={!local.trim()} onClick={() => setStep(3)}>
-                Proximo
+                Próximo
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
@@ -174,11 +303,11 @@ export default function MovimentacaoPage() {
             <div className="rounded-lg border bg-muted/30 p-4 text-sm">
               <div className="mb-2 flex items-center gap-2 font-medium">
                 <MapPinned className="h-4 w-4" />
-                Conferir movimentacao
+                Conferir movimentação
               </div>
-              {produto ? <ProdutoIdentificadoCard produto={produto} /> : null}
+              {target ? <ItemIdentificadoCard target={target} /> : null}
               <div className="mt-3 space-y-1">
-                <p>Local atual: <b>{produto?.local || "-"}</b></p>
+                <p>Local atual: <b>{target?.item.local || "—"}</b></p>
                 <p>Novo local: <b>{local}</b></p>
               </div>
             </div>
@@ -187,7 +316,7 @@ export default function MovimentacaoPage() {
                 <ChevronLeft className="h-4 w-4" />
                 Voltar
               </Button>
-              <Button className="flex-1" disabled={saving} onClick={confirmar}>
+              <Button className="flex-1" disabled={saving || !target} onClick={confirmar}>
                 {saving ? "Salvando..." : "Confirmar"}
               </Button>
             </div>
@@ -199,25 +328,16 @@ export default function MovimentacaoPage() {
             <CheckCircle2 className="mx-auto h-12 w-12 text-primary" />
             <div>
               <h2 className="font-semibold">Local atualizado</h2>
-              <p className="text-sm text-muted-foreground">O produto foi direcionado para {local}.</p>
+              <p className="text-sm text-muted-foreground">
+                {target?.kind === "USOCONSUMO" ? "O item de uso/consumo" : "O produto"} foi direcionado para {local}.
+              </p>
             </div>
-            <Button
-              className="w-full"
-              onClick={() => {
-                setStep(1);
-                setCodigoProduto("");
-                setProduto(null);
-                setProdutoError(null);
-                setLocal("");
-              }}
-            >
-              Registrar outra movimentacao
-            </Button>
+            <Button className="w-full" onClick={reset}>Registrar outra movimentação</Button>
           </div>
         )}
 
         <div className="mt-4 rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
-          Esta versao simples atualiza apenas o campo local do produto. Historico e quantidade por caixa podem ser adicionados depois.
+          A movimentação atualiza somente o local do registro identificado, sem alterar a quantidade em estoque.
         </div>
       </div>
     </div>

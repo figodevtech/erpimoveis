@@ -111,6 +111,7 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
 ];
 
 const ROUTE_ANY_PERMS: Array<{ prefix: string; perms: Permission[] }> = [
+  { prefix: "/movimentacao", perms: [PERMS.ESTOQUE, PERMS.USOCONSUMO] },
   {
     prefix: "/api/etiquetas",
     perms: [

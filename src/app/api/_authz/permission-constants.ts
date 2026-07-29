@@ -80,6 +80,17 @@ export function normalizePermission(perm: unknown) {
   return String(perm ?? "").trim().toUpperCase();
 }
 
+const IMPLIED_PERMISSIONS: Record<string, Permission[]> = {
+  [normalizePermission(PERMS.ESTOQUE)]: [PERMS.USOCONSUMO],
+  [normalizePermission(PERMS.ESTOQUE_CRIAR)]: [PERMS.USOCONSUMO_CRIAR, PERMS.USOCONSUMO_ENTRADA],
+  [normalizePermission(PERMS.ESTOQUE_EDITAR)]: [
+    PERMS.USOCONSUMO_EDITAR,
+    PERMS.USOCONSUMO_SAIDA,
+    PERMS.USOCONSUMO_CANCELAR,
+  ],
+  [normalizePermission(PERMS.ESTOQUE_EXCLUIR)]: [PERMS.USOCONSUMO_EXCLUIR],
+};
+
 export function expandPermissions(permissoes: unknown): string[] {
   const raw = Array.isArray(permissoes) ? permissoes : [];
   const expanded = new Set<string>();
@@ -88,6 +99,9 @@ export function expandPermissions(permissoes: unknown): string[] {
     const normalized = normalizePermission(perm);
     if (!normalized) continue;
     expanded.add(normalized);
+    for (const implied of IMPLIED_PERMISSIONS[normalized] ?? []) {
+      expanded.add(normalizePermission(implied));
+    }
   }
 
   return Array.from(expanded);

@@ -234,7 +234,7 @@ export function CriarUsuarioDialog({
             <DialogTitle>Novo usuário</DialogTitle>
           </DialogHeader>
 
-          <div className="h-full min-h-0 overflow-auto px-6 py-6 dark:bg-muted-foreground/5">
+          <div className="h-full min-h-0 overflow-auto px-6 py-6">
             <Tabs
               value={tab}
               onValueChange={(v) =>
@@ -256,7 +256,7 @@ export function CriarUsuarioDialog({
                 </TabsList>
               </div>
 
-              <TabsContent value="dados" className="mt-4 space-y-4">
+              <TabsContent value="dados" className="mt-4 space-y-4 p-4 border bg-card rounded-2xl">
                 <div className="grid gap-2">
                   <Label>Nome</Label>
                   <Input
@@ -320,7 +320,7 @@ export function CriarUsuarioDialog({
                 </div>
               </TabsContent>
 
-              <TabsContent value="financeiro" className="mt-4 space-y-4">
+              <TabsContent value="financeiro" className="mt-4 space-y-4 p-4 border bg-card rounded-2xl">
                 <div className="grid gap-2">
                   <Label>Salário</Label>
                   <ValueInput
@@ -365,7 +365,7 @@ export function CriarUsuarioDialog({
                 </div>
               </TabsContent>
 
-              <TabsContent value="vinculo" className="mt-4 space-y-4">
+              <TabsContent value="vinculo" className="mt-4 space-y-4 p-4 border bg-card rounded-2xl">
                 <DatePickerField
                   label="Data de admissão"
                   value={dataAdmissao}
