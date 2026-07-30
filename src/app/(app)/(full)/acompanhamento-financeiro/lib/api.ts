@@ -1,5 +1,11 @@
 export type OrigemCobranca = "OS" | "VENDA";
 
+export type MetodoPagamentoResumo = {
+  metodo: string;
+  valor: number;
+  parcelas?: number | null;
+};
+
 export type CobrancaItem = {
   chave: string;
   origem: OrigemCobranca;
@@ -17,6 +23,8 @@ export type CobrancaItem = {
   saldo: number;
   percentual: number;
   ultimoPagamentoEm: string | null;
+  pagamentosPrevistos: MetodoPagamentoResumo[] | null;
+  pagamentosExecutados: MetodoPagamentoResumo[] | null;
 };
 
 export type QuadroFinanceiro = {

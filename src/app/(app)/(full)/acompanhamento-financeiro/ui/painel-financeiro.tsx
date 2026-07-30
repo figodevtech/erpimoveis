@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { AlertCircle, Building2, Clock3, Layers3, Loader2, RefreshCcw, WalletCards } from "lucide-react";
+import { AlertCircle, Building2, Clock3, Eye, EyeOff, Layers3, Loader2, RefreshCcw, WalletCards } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import CobrancaTile from "./cobranca-tile";
+import ValorMascarado from "./valor-mascarado";
 import {
   listarAcompanhamentoFinanceiro,
   listarSetoresFinanceiro,
@@ -22,6 +23,7 @@ import {
 const real = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const STORAGE_SETOR = "acompanhamento-financeiro:setor";
 const STORAGE_ORIGEM = "acompanhamento-financeiro:origem";
+const STORAGE_OCULTAR_VALORES = "acompanhamento-financeiro:ocultarValores";
 
 function useDoorbellChime() {
   return useCallback(async () => {
@@ -98,6 +100,7 @@ function Coluna({
   loading,
   vazio,
   situacao,
+  ocultarValores,
 }: {
   titulo: string;
   subtitulo: string;
@@ -105,6 +108,7 @@ function Coluna({
   loading: boolean;
   vazio: string;
   situacao: "AGUARDANDO" | "RECEBIDO";
+  ocultarValores: boolean;
 }) {
   const columnClass = {
     AGUARDANDO: "border-sky-500/20 bg-sky-500/[0.035]",
@@ -132,7 +136,9 @@ function Coluna({
         {loading ? (
           Array.from({ length: 5 }, (_, index) => <Skeleton key={index} className="h-[174px] rounded-lg" />)
         ) : items.length ? (
-          items.map((item) => <CobrancaTile key={item.chave} item={item} situacao={situacao} />)
+          items.map((item) => (
+            <CobrancaTile key={item.chave} item={item} situacao={situacao} ocultarValores={ocultarValores} />
+          ))
         ) : (
           <div className="flex h-36 items-center justify-center rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">
             {vazio}
@@ -151,6 +157,7 @@ export default function PainelFinanceiro() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [ocultarValores, setOcultarValores] = useState(false);
   const inFlight = useRef(false);
   const doorbell = useDoorbellChime();
 
@@ -159,9 +166,18 @@ export default function PainelFinanceiro() {
       setSetor(localStorage.getItem(STORAGE_SETOR) || "all");
       const origemSalva = localStorage.getItem(STORAGE_ORIGEM);
       if (origemSalva === "OS" || origemSalva === "VENDA" || origemSalva === "TODAS") setOrigem(origemSalva);
+      setOcultarValores(localStorage.getItem(STORAGE_OCULTAR_VALORES) === "1");
     } catch {}
     listarSetoresFinanceiro().then(setSetores).catch(() => setSetores([]));
   }, []);
+
+  function alternarOcultarValores() {
+    setOcultarValores((atual) => {
+      const proximo = !atual;
+      try { localStorage.setItem(STORAGE_OCULTAR_VALORES, proximo ? "1" : "0"); } catch {}
+      return proximo;
+    });
+  }
 
   const carregar = useCallback(async () => {
     if (inFlight.current) return;
@@ -261,6 +277,15 @@ export default function PainelFinanceiro() {
             </SelectContent>
           </Select>
           <Button asChild variant="outline" className="h-9"><Link href="/">Sair</Link></Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-9 w-9"
+            onClick={alternarOcultarValores}
+            title={ocultarValores ? "Mostrar valores" : "Ocultar valores"}
+          >
+            {ocultarValores ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </Button>
           <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => void carregar()} disabled={refreshing}>
             {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
           </Button>
@@ -311,7 +336,7 @@ export default function PainelFinanceiro() {
               {item.label}
             </div>
             <p className="text-lg font-bold tabular-nums text-foreground">
-              {loading ? "—" : item.value}
+              {loading ? "—" : <ValorMascarado oculto={ocultarValores}>{item.value}</ValorMascarado>}
             </p>
           </Card>
         ))}
@@ -325,6 +350,7 @@ export default function PainelFinanceiro() {
           loading={loading}
           vazio="Nenhuma cobrança aguardando pagamento."
           situacao="AGUARDANDO"
+          ocultarValores={ocultarValores}
         />
         <Coluna
           titulo="Recebidos"
@@ -333,6 +359,7 @@ export default function PainelFinanceiro() {
           loading={loading}
           vazio="Nenhum pagamento recebido recentemente."
           situacao="RECEBIDO"
+          ocultarValores={ocultarValores}
         />
       </main>
     </div>

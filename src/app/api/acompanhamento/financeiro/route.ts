@@ -4,8 +4,15 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { PAYMENT_METHOD_OPTIONS } from "@/lib/payment-methods";
 
 type Origem = "OS" | "VENDA";
+
+type MetodoPagamentoResumo = {
+  metodo: string;
+  valor: number;
+  parcelas?: number | null;
+};
 
 type Cobranca = {
   chave: string;
@@ -24,10 +31,13 @@ type Cobranca = {
   saldo: number;
   percentual: number;
   ultimoPagamentoEm: string | null;
+  pagamentosPrevistos: MetodoPagamentoResumo[] | null;
+  pagamentosExecutados: MetodoPagamentoResumo[] | null;
 };
 
 const OS_SELECT = `
   id, descricao, status, orcamentototal, dataentrada, datasaida, updatedat,
+  forma_pagamento, parcelas_pagamento, pagamentos_previstos,
   cliente:clienteid ( id, nomerazaosocial ),
   setor:setorid ( id, nome ),
   veiculo:veiculoid ( placa, modelo, marca ),
@@ -36,7 +46,7 @@ const OS_SELECT = `
 `;
 
 const VENDA_SELECT = `
-  id, status, valortotal, datavenda, updatedat, canal,
+  id, status, valortotal, datavenda, updatedat, canal, forma_pagamento,
   cliente:clienteid ( id, nomerazaosocial ),
   categoria:categoriavendaid ( id, nome ),
   vendedor_rel:vendedor (
@@ -44,6 +54,74 @@ const VENDA_SELECT = `
     setor:setorid ( id, nome )
   )
 `;
+
+/** Agrupa transações executadas por método de pagamento (soma valor + conta parcelas). */
+function agruparPagamentosExecutados(
+  transacoes: Array<{ metodopagamento: string | null; valor: unknown }>,
+): MetodoPagamentoResumo[] | null {
+  if (!transacoes.length) return null;
+  const porMetodo = new Map<string, { valor: number; parcelas: number }>();
+  for (const transacao of transacoes) {
+    const metodo = transacao.metodopagamento || "NAO_INFORMADO";
+    const atual = porMetodo.get(metodo) ?? { valor: 0, parcelas: 0 };
+    atual.valor = moeda(atual.valor + numero(transacao.valor));
+    atual.parcelas += 1;
+    porMetodo.set(metodo, atual);
+  }
+  return Array.from(porMetodo.entries()).map(([metodo, dados]) => ({
+    metodo,
+    valor: dados.valor,
+    parcelas: dados.parcelas > 1 ? dados.parcelas : null,
+  }));
+}
+
+const PAYMENT_METHOD_VALUES = new Set<string>(PAYMENT_METHOD_OPTIONS.map((option) => option.value));
+
+function parseValorMonetario(texto: string): number | null {
+  const limpo = texto.replace(/[^\d,.-]/g, "");
+  if (!limpo) return null;
+  const normalizado = limpo.includes(",") ? limpo.replace(/\./g, "").replace(",", ".") : limpo;
+  const valor = Number(normalizado);
+  return Number.isFinite(valor) ? Math.round(valor * 100) / 100 : null;
+}
+
+/**
+ * `forma_pagamento` guarda texto livre: pode ser "PIX", "PIX, BOLETO" ou, desde o
+ * seletor multi-método, "BOLETO: R$ 9.000,00" / "PIX: R$ 3.000,00, BOLETO: R$ 6.000,00".
+ * Sem isso, a string inteira (com o valor embutido) acabava virando o "método" do badge.
+ */
+function parseFormaPagamentoTexto(
+  raw: string | null | undefined,
+  totalFallback: number,
+  parcelasFallback: number | null,
+): MetodoPagamentoResumo[] | null {
+  const texto = String(raw ?? "").trim();
+  if (!texto) return null;
+
+  const partes = texto.split(",").map((parte) => parte.trim()).filter(Boolean);
+  if (!partes.length) return null;
+
+  const entradas: MetodoPagamentoResumo[] = [];
+  for (const parte of partes) {
+    const [metodoBruto, ...valorPartes] = parte.split(":");
+    const metodo = metodoBruto.trim().toUpperCase();
+    if (!PAYMENT_METHOD_VALUES.has(metodo)) {
+      // Texto legado nao reconhecido: mostra como veio, sem tentar separar valor.
+      return [{ metodo: texto, valor: totalFallback, parcelas: parcelasFallback }];
+    }
+
+    const valorTexto = valorPartes.join(":").trim();
+    const valor = valorTexto ? parseValorMonetario(valorTexto) : null;
+    entradas.push({ metodo, valor: valor ?? 0, parcelas: null });
+  }
+
+  if (entradas.length === 1 && entradas[0].valor === 0) {
+    entradas[0].valor = totalFallback;
+    entradas[0].parcelas = parcelasFallback;
+  }
+
+  return entradas;
+}
 
 function numero(value: unknown) {
   const parsed = Number(value);
@@ -107,7 +185,7 @@ export async function GET(req: NextRequest) {
     const transacoesOsPromise = ordemIds.length
       ? supabaseAdmin
           .from("transacao")
-          .select("id, ordemservicoid, valor, data, tipo, pendente")
+          .select("id, ordemservicoid, valor, data, tipo, metodopagamento")
           .in("ordemservicoid", ordemIds)
           .eq("is_deleted", false)
           .eq("tipo", "RECEITA")
@@ -116,7 +194,7 @@ export async function GET(req: NextRequest) {
     const transacoesVendasPromise = vendaIds.length
       ? supabaseAdmin
           .from("transacao")
-          .select("id, vendaid, valor, data, tipo, pendente")
+          .select("id, vendaid, valor, data, tipo, metodopagamento")
           .in("vendaid", vendaIds)
           .eq("is_deleted", false)
           .eq("tipo", "RECEITA")
@@ -129,24 +207,33 @@ export async function GET(req: NextRequest) {
     if (transacoesOsResult.error) throw transacoesOsResult.error;
     if (transacoesVendasResult.error) throw transacoesVendasResult.error;
 
+    // Transações pendentes (lançadas mas ainda não baixadas) contam como pagas aqui:
+    // a OS/Venda já foi marcada como concluída pelo valor lançado, então o painel
+    // precisa refletir isso para o item não ficar "preso" em Aguardando.
     const pagamentosOs = new Map<number, { total: number; ultimo: string | null }>();
+    const transacoesPorOs = new Map<number, Array<{ metodopagamento: string | null; valor: unknown }>>();
     for (const transacao of (transacoesOsResult.data ?? []) as any[]) {
-      if (transacao.pendente) continue;
       const id = Number(transacao.ordemservicoid);
       const atual = pagamentosOs.get(id) ?? { total: 0, ultimo: null };
       atual.total += numero(transacao.valor);
       if (transacao.data && (!atual.ultimo || transacao.data > atual.ultimo)) atual.ultimo = transacao.data;
       pagamentosOs.set(id, atual);
+      const lista = transacoesPorOs.get(id) ?? [];
+      lista.push({ metodopagamento: transacao.metodopagamento ?? null, valor: transacao.valor });
+      transacoesPorOs.set(id, lista);
     }
 
     const pagamentosVendas = new Map<number, { total: number; ultimo: string | null }>();
+    const transacoesPorVenda = new Map<number, Array<{ metodopagamento: string | null; valor: unknown }>>();
     for (const transacao of (transacoesVendasResult.data ?? []) as any[]) {
-      if (transacao.pendente) continue;
       const id = Number(transacao.vendaid);
       const atual = pagamentosVendas.get(id) ?? { total: 0, ultimo: null };
       atual.total += numero(transacao.valor);
       if (transacao.data && (!atual.ultimo || transacao.data > atual.ultimo)) atual.ultimo = transacao.data;
       pagamentosVendas.set(id, atual);
+      const lista = transacoesPorVenda.get(id) ?? [];
+      lista.push({ metodopagamento: transacao.metodopagamento ?? null, valor: transacao.valor });
+      transacoesPorVenda.set(id, lista);
     }
 
     const cobrancas: Cobranca[] = [];
@@ -167,6 +254,14 @@ export async function GET(req: NextRequest) {
         ? [ordem.peca.titulo, ordem.peca.lacre].filter(Boolean).join(" • ")
         : null;
 
+      const pagamentosPrevistos: MetodoPagamentoResumo[] | null = Array.isArray(ordem.pagamentos_previstos) && ordem.pagamentos_previstos.length
+        ? ordem.pagamentos_previstos.map((item: any) => ({
+            metodo: String(item?.metodo ?? "NAO_INFORMADO"),
+            valor: moeda(numero(item?.valor)),
+            parcelas: item?.parcelas ?? null,
+          }))
+        : parseFormaPagamentoTexto(ordem.forma_pagamento, total, ordem.parcelas_pagamento ?? null);
+
       cobrancas.push({
         chave: `OS-${ordem.id}`,
         origem: "OS",
@@ -184,6 +279,8 @@ export async function GET(req: NextRequest) {
         saldo: moeda(Math.max(0, total - pago)),
         percentual: total > 0 ? Math.min(100, Math.round((pago / total) * 100)) : 0,
         ultimoPagamentoEm: pagamento.ultimo,
+        pagamentosPrevistos,
+        pagamentosExecutados: agruparPagamentosExecutados(transacoesPorOs.get(Number(ordem.id)) ?? []),
       });
     }
 
@@ -197,6 +294,8 @@ export async function GET(req: NextRequest) {
 
       const setorVenda = venda.vendedor_rel?.setor ?? null;
       if (setorId && Number(setorVenda?.id) !== setorId) continue;
+
+      const pagamentosPrevistos: MetodoPagamentoResumo[] | null = parseFormaPagamentoTexto(venda.forma_pagamento, total, null);
 
       cobrancas.push({
         chave: `VENDA-${venda.id}`,
@@ -215,6 +314,8 @@ export async function GET(req: NextRequest) {
         saldo: moeda(Math.max(0, total - pago)),
         percentual: total > 0 ? Math.min(100, Math.round((pago / total) * 100)) : 0,
         ultimoPagamentoEm: pagamento.ultimo,
+        pagamentosPrevistos,
+        pagamentosExecutados: agruparPagamentosExecutados(transacoesPorVenda.get(Number(venda.id)) ?? []),
       });
     }
 

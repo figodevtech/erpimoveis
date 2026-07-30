@@ -21,6 +21,7 @@ import {
   Trash2,
   Plus,
   Minus,
+  ChevronsUpDown,
 } from "lucide-react"
 import { toast } from "@/lib/toast"
 import type { VendaCanal, VendaStatusEntrega, vendaStatus } from "../types"
@@ -53,11 +54,14 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import ValueInput from "@/components/ui/value-input"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Command, CommandGroup, CommandItem, CommandList } from "@/components/ui/command"
 import CustomerSelect from "@/app/(app)/components/customerSelect"
 import ProductSelect from "@/app/(app)/components/productSelect"
 import type { Customer } from "@/app/(app)/(pages)/clientes/types"
 import type { Produto as EstoqueProduto } from "@/app/(app)/(pages)/estoque/types"
-import { PAYMENT_METHOD_OPTIONS } from "@/lib/payment-methods"
+import { PAYMENT_METHOD_OPTIONS, type PaymentMethodOption } from "@/lib/payment-methods"
 import { calculateFinancialSurcharge, calculateFinancialTotal } from "@/lib/financial-surcharge"
 import {
   VENDA_ANEXO_CATEGORIAS,
@@ -260,6 +264,66 @@ function toDateTimeLocal(value?: string | null) {
   return new Date(date.getTime() - offset).toISOString().slice(0, 16)
 }
 
+type PaymentMethod = PaymentMethodOption | "NAO_INFORMAR"
+type PaymentAmounts = Partial<Record<PaymentMethodOption, string>>
+
+const moneyToCents = (value: number) => Math.round((Number.isFinite(value) ? value : 0) * 100)
+const centsToNumber = (value: number) => value / 100
+
+const amountInputToCents = (value: string): number | null => {
+  const raw = value.trim()
+  if (!raw) return null
+
+  const digits = raw.replace(/\D/g, "")
+  if (digits) return Number(digits)
+
+  const normalized = raw.includes(",") ? raw.replace(/\./g, "").replace(",", ".") : raw
+  const parsed = Number(normalized)
+  if (!Number.isFinite(parsed) || parsed < 0) return null
+
+  return moneyToCents(parsed)
+}
+
+const formatCentsToPaymentInput = (value: number) =>
+  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(centsToNumber(Math.max(0, value)))
+
+const PAYMENT_METHOD_VALUES = new Set<string>(PAYMENT_METHOD_OPTIONS.map((option) => option.value))
+
+/**
+ * A string em forma_pagamento pode vir como "PIX", "PIX, CREDITO" (sem valores) ou
+ * "PIX: R$ 100,00, CREDITO: R$ 50,00" (formato gerado pelo PDV). Só reidrata os
+ * métodos/valores quando reconhece TODOS os tokens; caso contrário, começa vazio
+ * em vez de arriscar interpretar texto livre legado como um método inválido.
+ */
+function parseFormaPagamento(raw: string | null | undefined): {
+  methods: PaymentMethodOption[]
+  amounts: PaymentAmounts
+} {
+  const text = String(raw ?? "").trim()
+  if (!text) return { methods: [], amounts: {} }
+
+  const parts = text.split(",").map((part) => part.trim()).filter(Boolean)
+  if (!parts.length) return { methods: [], amounts: {} }
+
+  const methods: PaymentMethodOption[] = []
+  const amounts: PaymentAmounts = {}
+
+  for (const part of parts) {
+    const [methodRaw, ...valueParts] = part.split(":")
+    const method = methodRaw.trim().toUpperCase()
+    if (!PAYMENT_METHOD_VALUES.has(method)) return { methods: [], amounts: {} }
+
+    methods.push(method as PaymentMethodOption)
+    const valueText = valueParts.join(":").trim()
+    if (valueText) {
+      const cents = amountInputToCents(valueText.replace(/[^\d.,]/g, ""))
+      if (cents != null) amounts[method as PaymentMethodOption] = formatCentsToPaymentInput(cents)
+    }
+  }
+
+  return { methods, amounts }
+}
+
 export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: VendaDetailsDialogProps) {
   const [venda, setVenda] = useState<Venda | null>(null)
   const [loading, setLoading] = useState(false)
@@ -279,6 +343,9 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
   const [deletingAnexoId, setDeletingAnexoId] = useState<number | null>(null)
   const [anexoCategoria, setAnexoCategoria] =
     useState<VendaAnexoCategoria>("COMPROVANTE_PAGAMENTO")
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>(["NAO_INFORMAR"])
+  const [paymentAmounts, setPaymentAmounts] = useState<PaymentAmounts>({})
+  const [paymentMethodsOpen, setPaymentMethodsOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const isDesktop = useMediaQuery("(min-width: 768px)")
   const itemEditingLocked = venda
@@ -309,6 +376,107 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
     venda?.acrescimo_financeiro_tipo,
     venda?.acrescimo_financeiro_valor,
   )
+
+  const hasPaymentMethodSelected = paymentMethods.some((method) => method !== "NAO_INFORMAR")
+  const selectedPaymentMethods = paymentMethods.filter(
+    (method): method is PaymentMethodOption => method !== "NAO_INFORMAR",
+  )
+  const hasAnyPaymentAmount = selectedPaymentMethods.some((method) => Boolean(paymentAmounts[method]?.trim()))
+  const paymentAmountEntries = selectedPaymentMethods.map((method) => ({
+    method,
+    label: PAYMENT_METHOD_OPTIONS.find((option) => option.value === method)?.label ?? method,
+    cents: amountInputToCents(paymentAmounts[method] ?? ""),
+  }))
+  const paymentAmountsTotalCents = paymentAmountEntries.reduce((sum, item) => sum + (item.cents ?? 0), 0)
+  const soleSelectedPaymentMethod = selectedPaymentMethods.length === 1 ? selectedPaymentMethods[0] : null
+  const paymentMethodsLabel = !hasPaymentMethodSelected
+    ? "Não informar"
+    : PAYMENT_METHOD_OPTIONS.filter((method) => selectedPaymentMethods.includes(method.value))
+        .map((method) => method.label)
+        .join(", ")
+
+  // Com um único método selecionado, o valor só pode ser o total financeiro —
+  // preenche automaticamente para não exigir digitação redundante (mesma regra do PDV).
+  useEffect(() => {
+    if (!venda || !soleSelectedPaymentMethod) return
+    setPaymentAmounts((current) => ({
+      ...current,
+      [soleSelectedPaymentMethod]: formatCentsToPaymentInput(moneyToCents(financialTotal)),
+    }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [soleSelectedPaymentMethod, financialTotal, Boolean(venda)])
+
+  const togglePaymentMethod = (method: PaymentMethodOption) => {
+    setPaymentMethods((current) => {
+      const hasMethod = current.includes(method)
+
+      if (hasMethod) {
+        const next = current.filter((value) => value !== method)
+        setPaymentAmounts((amounts) => {
+          const remaining = { ...amounts }
+          delete remaining[method]
+          return remaining
+        })
+        return next.length > 0 ? next : ["NAO_INFORMAR"]
+      }
+
+      return [...current.filter((value) => value !== "NAO_INFORMAR"), method]
+    })
+  }
+
+  const toggleNaoInformar = (checked: boolean) => {
+    setPaymentMethods(checked ? ["NAO_INFORMAR"] : [])
+    if (checked) setPaymentAmounts({})
+  }
+
+  const updatePaymentAmount = (method: PaymentMethodOption, value: string) => {
+    const digits = value.replace(/\D/g, "")
+    if (!digits) {
+      setPaymentAmounts((current) => ({ ...current, [method]: "" }))
+      return
+    }
+
+    const requestedCents = Number(digits)
+    const totalCents = moneyToCents(financialTotal)
+    const otherMethodsTotalCents = selectedPaymentMethods
+      .filter((selectedMethod) => selectedMethod !== method)
+      .reduce((sum, selectedMethod) => sum + (amountInputToCents(paymentAmounts[selectedMethod] ?? "") ?? 0), 0)
+    const maxAllowedCents = Math.max(0, totalCents - otherMethodsTotalCents)
+    const nextCents = Math.min(requestedCents, maxAllowedCents)
+
+    setPaymentAmounts((current) => ({ ...current, [method]: formatCentsToPaymentInput(nextCents) }))
+  }
+
+  const buildFormaPagamento = (): string | null => {
+    if (!hasPaymentMethodSelected) return null
+    if (!hasAnyPaymentAmount) return selectedPaymentMethods.join(", ")
+
+    return paymentAmountEntries
+      .map((item) => `${item.method}: ${formatCurrency(centsToNumber(item.cents ?? 0))}`)
+      .join(", ")
+  }
+
+  const validatePaymentAmounts = (): boolean => {
+    if (!hasPaymentMethodSelected) return true
+
+    const invalidEntry = paymentAmountEntries.find((item) => item.cents === null || item.cents <= 0)
+    if (invalidEntry) {
+      toast.error("Informe valores válidos para os métodos selecionados.", {
+        description: "Ao preencher valores, cada método selecionado precisa ter um valor maior que zero.",
+      })
+      return false
+    }
+
+    const totalCents = moneyToCents(financialTotal)
+    if (paymentAmountsTotalCents !== totalCents) {
+      toast.error("A soma dos pagamentos precisa fechar o total da venda.", {
+        description: `Total informado: ${formatCurrency(centsToNumber(paymentAmountsTotalCents))}. Total da venda: ${formatCurrency(financialTotal)}.`,
+      })
+      return false
+    }
+
+    return true
+  }
 
   useEffect(() => {
     const loadUsers = async () => {
@@ -371,6 +539,9 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
       const result = await response.json()
       setVenda(result.data)
       setItemsDirty(false)
+      const parsed = parseFormaPagamento(result.data?.forma_pagamento)
+      setPaymentMethods(parsed.methods.length ? parsed.methods : ["NAO_INFORMAR"])
+      setPaymentAmounts(parsed.amounts)
     } catch (err) {
       console.error("[debug] Erro ao buscar venda:", err)
       setError(err instanceof Error ? err.message : "Erro ao carregar dados da venda")
@@ -424,6 +595,9 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
       setAnexos([])
       setCurrentTab("Geral")
       setItemsDirty(false)
+      setPaymentMethods(["NAO_INFORMAR"])
+      setPaymentAmounts({})
+      setPaymentMethodsOpen(false)
     }
   }, [open, vendaId, fetchVenda, fetchAnexos])
 
@@ -436,6 +610,9 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
     }
     if (venda.itens.some((item) => item.quantidade <= 0 || itemUnitPrice(item) <= 0)) {
       toast.error("Revise as quantidades e os preços dos produtos.")
+      return
+    }
+    if (!itemEditingLocked && !validatePaymentAmounts()) {
       return
     }
 
@@ -454,7 +631,7 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
           vendedor: venda.vendedor,
           categoriaVendaId: venda.categoriavendaid ?? null,
           dataVenda: venda.datavenda,
-          formaPagamento: venda.forma_pagamento?.trim() || null,
+          formaPagamento: buildFormaPagamento(),
           descontoTipo: venda.desconto_tipo,
           descontoValor: venda.desconto_tipo ? Math.max(0, Number(venda.desconto_valor ?? 0)) : 0,
           valorFrete: Math.max(0, Number(venda.valor_frete ?? 0)),
@@ -973,17 +1150,90 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                         <div className="grid gap-4 rounded-lg border bg-card p-4 md:grid-cols-2">
                           <div className="space-y-2 md:col-span-2">
                             <p className="text-xs font-medium text-muted-foreground">Forma de pagamento</p>
-                            <Input
-                              list="venda-payment-methods"
-                              value={venda.forma_pagamento ?? ""}
-                              onChange={(event) => handleChange("forma_pagamento", event.target.value)}
-                              placeholder="Ex.: PIX ou CREDITO: R$ 100,00, PIX: R$ 50,00"
-                            />
-                            <datalist id="venda-payment-methods">
-                              {PAYMENT_METHOD_OPTIONS.map((method) => (
-                                <option key={method.value} value={method.value}>{method.label}</option>
-                              ))}
-                            </datalist>
+                            {itemEditingLocked ? (
+                              <p className="text-sm font-medium">
+                                {hasAnyPaymentAmount
+                                  ? paymentAmountEntries
+                                      .map((item) => `${item.label}: ${formatCurrency(centsToNumber(item.cents ?? 0))}`)
+                                      .join(", ")
+                                  : paymentMethodsLabel}
+                              </p>
+                            ) : (
+                              <>
+                                <Popover open={paymentMethodsOpen} onOpenChange={setPaymentMethodsOpen}>
+                                  <PopoverTrigger asChild>
+                                    <Button type="button" variant="outline" className="w-full justify-between font-normal">
+                                      <span className="truncate">{paymentMethodsLabel}</span>
+                                      <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-60" />
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-0">
+                                    <Command>
+                                      <CommandList>
+                                        <CommandGroup>
+                                          <CommandItem
+                                            value="nao-informar"
+                                            onSelect={() => toggleNaoInformar(!paymentMethods.includes("NAO_INFORMAR"))}
+                                            className="flex items-center gap-3"
+                                          >
+                                            <Checkbox checked={!hasPaymentMethodSelected} />
+                                            <span>Não informar</span>
+                                          </CommandItem>
+                                          {PAYMENT_METHOD_OPTIONS.map((method) => (
+                                            <CommandItem
+                                              key={method.value}
+                                              value={method.value}
+                                              onSelect={() => togglePaymentMethod(method.value)}
+                                              className="flex items-center gap-3"
+                                            >
+                                              <Checkbox checked={paymentMethods.includes(method.value)} />
+                                              <span>{method.label}</span>
+                                            </CommandItem>
+                                          ))}
+                                        </CommandGroup>
+                                      </CommandList>
+                                    </Command>
+                                  </PopoverContent>
+                                </Popover>
+
+                                {hasPaymentMethodSelected && (
+                                  <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+                                    <div className="flex items-center justify-between gap-3">
+                                      <span className="text-xs font-medium text-muted-foreground">Valores por método</span>
+                                      {hasAnyPaymentAmount && (
+                                        <span className="text-xs text-muted-foreground">
+                                          {formatCurrency(centsToNumber(paymentAmountsTotalCents))} / {formatCurrency(financialTotal)}
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    <div className="space-y-2">
+                                      {selectedPaymentMethods.map((method) => {
+                                        const label = PAYMENT_METHOD_OPTIONS.find((option) => option.value === method)?.label ?? method
+                                        return (
+                                          <div key={method} className="grid grid-cols-[minmax(0,1fr)_minmax(7rem,9rem)] items-center gap-2">
+                                            <span className="truncate text-sm text-foreground">{label}</span>
+                                            <ValueInput
+                                              value={centsToNumber(amountInputToCents(paymentAmounts[method] ?? "") ?? 0)}
+                                              onValueChange={(value) =>
+                                                updatePaymentAmount(method, formatCentsToPaymentInput(moneyToCents(value)))
+                                              }
+                                              className="h-9 text-right"
+                                            />
+                                          </div>
+                                        )
+                                      })}
+                                    </div>
+
+                                    {hasAnyPaymentAmount && paymentAmountsTotalCents !== moneyToCents(financialTotal) && (
+                                      <p className="text-xs text-muted-foreground">
+                                        Restante: {formatCurrency(centsToNumber(moneyToCents(financialTotal) - paymentAmountsTotalCents))}
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
+                              </>
+                            )}
                           </div>
 
                           <div className="space-y-2">
