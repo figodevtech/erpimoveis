@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { normalizarStatusNFSe } from "@/lib/services/fiscais/nfse-service";
 
 export const runtime = "nodejs";
 
@@ -19,16 +20,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, message: "Webhook: referencia (ref) ausente." }, { status: 400 });
     }
 
-    // Mapeamento de Status Focus -> Sistema Interno
-    const statusMap: Record<string, string> = {
-      "autorizado": "AUTORIZADA",
-      "cancelado": "CANCELADA",
-      "erro_autorizacao": "REJEITADA",
-      "denegado": "DENEGADA",
-      "processando_autorizacao": "PROCESSANDO"
-    };
-
-    const finalStatus = (statusMap[focusStatus] || focusStatus || "PROCESSANDO").toUpperCase();
+    const finalStatus = normalizarStatusNFSe(focusStatus);
 
     // Tentar encontrar a referência na tabela 'nfse'
     const { data: nfse } = await supabaseAdmin

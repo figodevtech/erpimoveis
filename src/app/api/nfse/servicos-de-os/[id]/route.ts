@@ -1,5 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import {
+  identificarModeloEmissao,
+  validarDadosObrigatoriosNFSe,
+  type NFSeModeloEmissao,
+} from "@/lib/services/fiscais/nfse-service";
+import type { CodigosFiscaisForm } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/emissao-nfse-dialog/types";
 
 export const runtime = "nodejs";
 
@@ -24,6 +30,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       .from("ordemservico")
       .select(`
         id,
+        cliente (*),
         osservico (
           *,
           servico (*)
@@ -43,34 +50,51 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     // Busca Notas Fiscais de Serviço vinculadas a esta OS para verificar o status
     const { data: notas } = await supabaseAdmin
       .from("nfse")
-      .select("id, referencia, status, erros, modelo_emissao")
+      .select("id, referencia, status, erros, modelo_emissao, servico_ids, itens")
       .eq("ordemservicoid", osId)
       .order("id", { ascending: false });
 
     const { data: empresa } = await supabaseAdmin
       .from("empresa")
-      .select("codigomunicipio, regimetributario")
+      .select("cnpj, inscricaomunicipal, codigomunicipio, regimetributario")
       .limit(1)
       .maybeSingle();
 
-    const codigoMunicipio = String(empresa?.codigomunicipio || "").replace(/\D/g, "");
-    const modeloEmissao = String(empresa?.regimetributario) === "4"
-      ? "NACIONAL"
-      : codigoMunicipio === "2503209"
-        ? "MUNICIPAL_CABEDELO"
-        : "MUNICIPAL_JOAO_PESSOA";
+    const codigoMunicipio = String(empresa?.codigomunicipio ?? "").replace(/\D/g, "");
+    const modeloEmissao: NFSeModeloEmissao | null = identificarModeloEmissao(empresa);
+
+    const { data: nfseConfig } = await supabaseAdmin
+      .from("nfse_config")
+      .select("padroes_emissao")
+      .eq("empresa_id", 1)
+      .maybeSingle();
+
+    const padroesEmissao = (nfseConfig?.padroes_emissao ?? {}) as Partial<
+      Record<NFSeModeloEmissao, Partial<CodigosFiscaisForm>>
+    >;
+    const padraoFiscal = modeloEmissao ? padroesEmissao[modeloEmissao] ?? null : null;
 
     // Mescla os dados
     const servicosMapeados = os.osservico.map((item: any) => {
-      const refPattern = `OS_${os.id}_SRV_${item.servicoid}_`;
-      const notaGerada = notas?.find((n: any) => n.referencia?.startsWith(refPattern));
+      const notaGerada = notas?.find((nota: any) => (
+        Array.isArray(nota.servico_ids)
+        && nota.servico_ids.map(Number).includes(Number(item.servicoid))
+      ));
+      const itemEmitido = Array.isArray(notaGerada?.itens)
+        ? notaGerada.itens.find((snapshot: any) => Number(snapshot?.servicoid) === Number(item.servicoid))
+        : null;
 
       return {
         ...item,
+        pendenciasCadastro: modeloEmissao
+          ? validarDadosObrigatoriosNFSe(os, empresa, item, modeloEmissao)
+          : ["município da empresa sem modelo de NFS-e configurado"],
         notaFiscalStatus: notaGerada ? notaGerada.status : null,
         notaFiscalId: notaGerada ? notaGerada.id : null,
         notaFiscalErros: notaGerada ? notaGerada.erros : null,
         notaFiscalModelo: notaGerada ? notaGerada.modelo_emissao : null,
+        notaFiscalReferencia: notaGerada ? notaGerada.referencia : null,
+        notaFiscalValor: itemEmitido ? Number(itemEmitido.valor) : null,
       };
     });
 
@@ -79,6 +103,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       servicos: servicosMapeados,
       modeloEmissao,
       codigoMunicipio,
+      padraoFiscal,
     });
   } catch (e: any) {
     console.error("[GET /api/nfse/servicos-de-os]", e);

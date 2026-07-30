@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { NFSeService } from "@/lib/services/fiscais/nfse-service";
+import { NFSeService, normalizarStatusNFSe } from "@/lib/services/fiscais/nfse-service";
 
 export const runtime = "nodejs";
 
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     // 3. Update DB state
     if (resultado.ok) {
         // Focus NFe returns status like "autorizado", "cancelado", "erro_autorizacao", "processando_autorizacao"
-        const finalStatus = (resultado.status || "PROCESSANDO").toUpperCase();
+        const finalStatus = normalizarStatusNFSe(resultado.status);
         
         await supabaseAdmin
             .from("nfse")

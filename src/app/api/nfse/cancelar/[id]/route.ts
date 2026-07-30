@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { NFSeService } from "@/lib/services/fiscais/nfse-service";
+import { NFSeService, normalizarStatusNFSe } from "@/lib/services/fiscais/nfse-service";
 
 export const runtime = "nodejs";
 
@@ -57,7 +57,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     // 3. Update DB state
     if (resultado.ok) {
         // Normally Focus returns { status: "cancelado" } if successful immediately
-        const finalStatus = (resultado.status || "CANCELADA").toUpperCase();
+        const finalStatus = normalizarStatusNFSe(resultado.status, "CANCELADA");
         
         await supabaseAdmin
             .from("nfse")

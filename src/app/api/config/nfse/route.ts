@@ -25,6 +25,7 @@ export async function GET() {
       token: r.data?.token ?? "",
       certificadoA1Base64: r.data?.certificado_a1_base64 ?? "",
       senhaCertificado: r.data?.senha_certificado ?? "",
+      padroesEmissao: r.data?.padroes_emissao ?? {},
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (e: any) {
     console.error("GET /api/config/nfse", e);
@@ -36,6 +37,10 @@ export async function PUT(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const nfse = body?.nfse || {};
+
+    const padroesEmissao = nfse.padroesEmissao && typeof nfse.padroesEmissao === "object"
+      ? nfse.padroesEmissao
+      : {};
 
     const up = await supabase
       .from("nfse_config")
@@ -49,6 +54,7 @@ export async function PUT(req: NextRequest) {
         token: nfse.token ?? null,
         certificado_a1_base64: nfse.certificadoA1Base64 ?? null,
         senha_certificado: nfse.senhaCertificado ?? null,
+        padroes_emissao: padroesEmissao,
         updated_at: new Date().toISOString(),
       }, { onConflict: "empresa_id" })
       .select("*")
@@ -66,6 +72,7 @@ export async function PUT(req: NextRequest) {
         token: up.data?.token ?? "",
         certificadoA1Base64: up.data?.certificado_a1_base64 ?? "",
         senhaCertificado: up.data?.senha_certificado ?? "",
+        padroesEmissao: up.data?.padroes_emissao ?? {},
       },
     });
   } catch (e: any) {

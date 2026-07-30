@@ -1,66 +1,212 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Loader2, Zap, AlertCircle } from "lucide-react";
-import { toast } from "@/lib/toast";
-import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  AlertCircle,
+  ArrowRight,
+  CheckCircle2,
+  FileText,
+  ListChecks,
+  RefreshCw,
+  ShieldCheck,
+} from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/lib/supabase";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { toast } from "@/lib/toast";
+import { NfseFiscalForm } from "./nfse-fiscal-form";
+import { NfseServiceCard } from "./nfse-service-card";
+import {
+  EMPTY_CODIGOS,
+  type CodigosFiscaisForm,
+  type ModeloEmissao,
+  type ServicoOS,
+  type ServicosOSResponse,
+  type ValoresServicosForm,
+} from "./types";
 
-type ModeloEmissao = "NACIONAL" | "MUNICIPAL_CABEDELO" | "MUNICIPAL_JOAO_PESSOA";
-
-type CodigosFiscaisForm = {
-  itemListaServico: string;
-  codigoCnae: string;
-  codigoTributarioMunicipio: string;
-  codigoTributacaoNacionalIss: string;
-  codigoNbs: string;
-  aliquotaIss: string;
-};
-
-const EMPTY_CODIGOS: CodigosFiscaisForm = {
-  itemListaServico: "",
-  codigoCnae: "",
-  codigoTributarioMunicipio: "",
-  codigoTributacaoNacionalIss: "",
-  codigoNbs: "",
-  aliquotaIss: "",
-};
-
-export function EmissaoNfseDialog({
-  open,
-  onOpenChange,
-  osId,
-  onAfterGenerate,
-}: {
+type EmissaoNfseDialogProps = {
   open: boolean;
-  onOpenChange: (v: boolean) => void;
+  onOpenChange: (open: boolean) => void;
   osId: number | null;
   onAfterGenerate?: () => void;
-}) {
+};
+
+function getModeloLabel(modelo: ModeloEmissao | null) {
+  if (modelo === "NACIONAL") return "NFS-e Nacional";
+  if (modelo === "MUNICIPAL_CABEDELO") return "NFS-e Cabedelo";
+  if (modelo === "MUNICIPAL_JOAO_PESSOA") return "NFS-e João Pessoa";
+  return "Modelo não configurado";
+}
+
+function isStatus(status: string | null | undefined, values: string[]) {
+  return values.includes(String(status ?? "").toUpperCase());
+}
+
+function numero(value: string) {
+  return Number(value.replace(",", "."));
+}
+
+function valorOriginal(servico: ServicoOS) {
+  const quantidade = Number(servico.quantidade);
+  const preco = Number(servico.precounitario);
+  const total = quantidade * preco;
+  return Number.isFinite(total) && total > 0 ? total.toFixed(2).replace(".", ",") : "";
+}
+
+function valorComum(values: Array<string | number | null | undefined>) {
+  const normalizados = values.map((value) => String(value ?? "").trim()).filter(Boolean);
+  if (normalizados.length === 0 || new Set(normalizados).size !== 1) return "";
+  return normalizados[0];
+}
+
+function validarFormulario(
+  modelo: ModeloEmissao,
+  codigos: CodigosFiscaisForm,
+  servicos: ServicoOS[],
+  valores: ValoresServicosForm,
+) {
+  if (servicos.length === 0) return "Selecione ao menos um serviço.";
+  for (const servico of servicos) {
+    const value = numero(valores[servico.servicoid] ?? "");
+    if (!Number.isFinite(value) || value <= 0) {
+      return `Informe um valor maior que zero para o serviço ${servico.servicoid}.`;
+    }
+  }
+
+  if (modelo === "NACIONAL") {
+    if (codigos.codigoTributacaoNacionalIss.replace(/\D/g, "").length !== 6) return "Informe o Código de Tributação Nacional do ISS com 6 dígitos.";
+    if (!["1", "2", "3", "4"].includes(codigos.tributacaoIss)) return "Selecione a tributação do ISS.";
+    if (!["1", "2", "3"].includes(codigos.tipoRetencaoIss)) return "Selecione a retenção do ISS.";
+    if (codigos.finalidadeEmissao !== "0") return "Selecione a finalidade da emissão.";
+    if (!["0", "1"].includes(codigos.consumidorFinal)) return "Informe se a operação é de consumo final.";
+    if (codigos.indicadorDestinatario !== "0") return "Confirme que o destinatário é o próprio tomador.";
+    if (codigos.ibsCbsSituacaoTributaria.replace(/\D/g, "").length !== 3) return "Informe o CST do IBS/CBS com 3 dígitos.";
+    if (codigos.ibsCbsClassificacaoTributaria.replace(/\D/g, "").length !== 6) return "Informe a Classificação Tributária do IBS/CBS com 6 dígitos.";
+  } else {
+    const itemLista = codigos.itemListaServico.replace(/\D/g, "");
+    if (itemLista.length < 4 || itemLista.length > 6) return "Informe um Item da Lista de Serviço válido, por exemplo 14.01.";
+    const cnae = codigos.codigoCnae.replace(/\D/g, "");
+    const cnaeValido = modelo === "MUNICIPAL_JOAO_PESSOA" ? cnae.length === 9 : cnae.length >= 7 && cnae.length <= 9;
+    if (!cnaeValido) return modelo === "MUNICIPAL_JOAO_PESSOA" ? "Informe a variação do CNAE com 9 dígitos exigida por João Pessoa." : "Informe um CNAE com 7 a 9 dígitos.";
+    if (!["1", "2", "3", "4", "5", "6"].includes(codigos.naturezaOperacao)) return "Selecione a natureza da operação.";
+    if (!["true", "false"].includes(codigos.issRetido)) return "Informe se o ISS será retido.";
+    const aliquota = numero(codigos.aliquotaIss);
+    if (!Number.isFinite(aliquota) || aliquota < 0 || aliquota > 100) return "Informe uma alíquota de ISS válida entre 0 e 100%.";
+  }
+
+  const nbs = codigos.codigoNbs.replace(/\D/g, "");
+  if (codigos.codigoNbs.trim() && nbs.length !== 9) return "Quando informado, o Código NBS deve possuir 9 dígitos.";
+  const indicadorOperacao = codigos.codigoIndicadorOperacao.replace(/\D/g, "");
+  if (codigos.codigoIndicadorOperacao.trim() && indicadorOperacao.length !== 6) return "Quando informado, o Código Indicador da Operação deve possuir 6 dígitos.";
+  if (codigos.informacoesComplementares.length > 2000) return "As informações complementares devem possuir no máximo 2.000 caracteres.";
+
+  if (modelo === "MUNICIPAL_CABEDELO") {
+    const informouReforma = [
+      codigos.finalidadeEmissao,
+      codigos.consumidorFinal,
+      codigos.indicadorDestinatario,
+      codigos.codigoIndicadorOperacao,
+      codigos.ibsCbsSituacaoTributaria,
+      codigos.ibsCbsClassificacaoTributaria,
+    ].some(Boolean);
+    if (informouReforma) {
+      if (codigos.finalidadeEmissao !== "0" || !["0", "1"].includes(codigos.consumidorFinal) || codigos.indicadorDestinatario !== "0") {
+        return "Complete finalidade, consumo final e destinatário dos dados da Reforma Tributária.";
+      }
+      if (codigos.ibsCbsSituacaoTributaria.replace(/\D/g, "").length !== 3 || codigos.ibsCbsClassificacaoTributaria.replace(/\D/g, "").length !== 6) {
+        return "Complete o CST e a Classificação Tributária do IBS/CBS.";
+      }
+    }
+  }
+
+  return null;
+}
+
+function DialogStepIndicator({ currentStep }: { currentStep: 1 | 2 | 3 }) {
+  const steps = ["Selecionar", "Revisar", "Enviar"];
+  return (
+    <ol className="flex items-start gap-2" aria-label={`Etapa ${currentStep} de 3`}>
+      {steps.map((step, index) => {
+        const stepNumber = index + 1;
+        const isActive = currentStep === stepNumber;
+        const isComplete = currentStep > stepNumber;
+        return (
+          <li key={step} className="min-w-0 flex-1">
+            <div className={`h-1 ${isActive || isComplete ? "bg-amber-500" : "bg-border"}`} aria-hidden="true" />
+            <div className="mt-2 flex items-center gap-1.5">
+              {isComplete ? <CheckCircle2 aria-hidden="true" className="size-3.5 text-emerald-600" /> : (
+                <span className={`grid size-4 place-items-center border text-[9px] font-bold ${isActive ? "border-amber-500 text-amber-700" : "border-border text-muted-foreground"}`} aria-hidden="true">{stepNumber}</span>
+              )}
+              <span className={`truncate text-[11px] font-medium ${isActive ? "text-foreground" : "text-muted-foreground"}`}>{step}</span>
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function ServiceListSkeleton() {
+  return (
+    <div className="space-y-3" aria-label="Carregando serviços">
+      {[0, 1, 2].map((item) => (
+        <div key={item} className="border border-l-4 border-l-border bg-card p-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex-1 space-y-3"><Skeleton className="h-5 w-28 rounded-sm" /><Skeleton className="h-4 w-2/3 rounded-sm" /><Skeleton className="h-3 w-40 rounded-sm" /></div>
+            <Skeleton className="h-11 w-full rounded-sm sm:w-28" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function EmissaoNfseDialog({ open, onOpenChange, osId, onAfterGenerate }: EmissaoNfseDialogProps) {
   const [loading, setLoading] = useState(false);
-  const [servicos, setServicos] = useState<any[]>([]);
   const [fetching, setFetching] = useState(false);
-  const [modeloEmissao, setModeloEmissao] = useState<ModeloEmissao>("MUNICIPAL_JOAO_PESSOA");
-  const [servicoSelecionado, setServicoSelecionado] = useState<any | null>(null);
+  const [servicos, setServicos] = useState<ServicoOS[]>([]);
+  const [modeloEmissao, setModeloEmissao] = useState<ModeloEmissao | null>(null);
+  const [padraoFiscal, setPadraoFiscal] = useState<Partial<CodigosFiscaisForm> | null>(null);
+  const [selecionados, setSelecionados] = useState<number[]>([]);
+  const [valores, setValores] = useState<ValoresServicosForm>({});
+  const [revisando, setRevisando] = useState(false);
   const [codigosFiscais, setCodigosFiscais] = useState<CodigosFiscaisForm>(EMPTY_CODIGOS);
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  const servicosSelecionados = useMemo(
+    () => selecionados.map((id) => servicos.find((servico) => servico.servicoid === id)).filter((servico): servico is ServicoOS => Boolean(servico)),
+    [selecionados, servicos],
+  );
 
   const carregarServicos = useCallback(async () => {
     if (!osId) return;
     setFetching(true);
     try {
-      const res = await fetch(`/api/nfse/servicos-de-os/${osId}`);
-      const json = await res.json();
-      if (json.ok) {
-        setServicos(json.servicos || []);
-        setModeloEmissao(json.modeloEmissao || "MUNICIPAL_JOAO_PESSOA");
+      const response = await fetch(`/api/nfse/servicos-de-os/${osId}`);
+      const payload = await response.json() as ServicosOSResponse;
+      if (!response.ok || !payload.ok) {
+        setModeloEmissao(null);
+        toast.error(payload.message || "Erro ao carregar serviços da OS");
+        return;
       }
+      const nextServices = payload.servicos ?? [];
+      setServicos(nextServices);
+      setModeloEmissao(payload.modeloEmissao ?? null);
+      setPadraoFiscal(payload.padraoFiscal ?? null);
+      setSelecionados((current) => current.filter((id) => nextServices.some((item) => item.servicoid === id)));
     } catch {
       toast.error("Erro ao carregar serviços da OS");
     } finally {
@@ -70,383 +216,210 @@ export function EmissaoNfseDialog({
 
   useEffect(() => {
     if (open && osId) {
-      carregarServicos();
-    } else {
-      setServicos([]);
-      setServicoSelecionado(null);
-      setCodigosFiscais(EMPTY_CODIGOS);
+      void carregarServicos();
+      return;
     }
+    setServicos([]);
+    setModeloEmissao(null);
+    setPadraoFiscal(null);
+    setSelecionados([]);
+    setValores({});
+    setRevisando(false);
+    setCodigosFiscais(EMPTY_CODIGOS);
+    setValidationError(null);
   }, [open, osId, carregarServicos]);
 
-  /**
-   * Assina atualizações em tempo real para refletir mudanças no status fiscal
-   */
   useEffect(() => {
     if (!open || !osId) return;
-
-    const channel = supabase
-      .channel(`nfse-servicos-os-${osId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "nfse",
-          filter: `ordemservicoid=eq.${osId}`,
-        },
-        () => {
-          console.log(`[EmissaoNfseDialog] Mudança na NFSe detectada. Recarregando serviços...`);
-          carregarServicos();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    const channel = supabase.channel(`nfse-servicos-os-${osId}`).on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "nfse", filter: `ordemservicoid=eq.${osId}` },
+      () => void carregarServicos(),
+    ).subscribe();
+    return () => { void supabase.removeChannel(channel); };
   }, [open, osId, carregarServicos]);
 
-  const abrirFormularioEmissao = (servicoOs: any) => {
-    const servicoCadastro = servicoOs.servico || {};
-    const itemLista = String(servicoCadastro.itemlistaservico || "").trim();
-    const itemListaDigitos = itemLista.replace(/\D/g, "");
-
-    setServicoSelecionado(servicoOs);
-    setCodigosFiscais({
-      itemListaServico: itemLista,
-      codigoCnae: String(servicoCadastro.cnae || ""),
-      codigoTributarioMunicipio: String(servicoCadastro.codigoservicomunicipal || ""),
-      codigoTributacaoNacionalIss: itemListaDigitos.length === 6 ? itemListaDigitos : "",
-      codigoNbs: "",
-      aliquotaIss: servicoCadastro.aliquotaiss === null || servicoCadastro.aliquotaiss === undefined
-        ? ""
-        : String(servicoCadastro.aliquotaiss),
-    });
-  };
-
-  const atualizarCodigo = (campo: keyof CodigosFiscaisForm, valor: string) => {
-    setCodigosFiscais((atual) => ({ ...atual, [campo]: valor }));
-  };
-
-  const validarCodigosAntesDoEnvio = () => {
-    if (modeloEmissao === "NACIONAL") {
-      if (codigosFiscais.codigoTributacaoNacionalIss.replace(/\D/g, "").length !== 6) {
-        return "Informe o Código de Tributação Nacional do ISS com 6 dígitos.";
-      }
-    } else {
-      const itemLista = codigosFiscais.itemListaServico.replace(/\D/g, "");
-      if (itemLista.length < 4 || itemLista.length > 6) {
-        return "Informe um Item da Lista de Serviço válido, por exemplo 14.01.";
-      }
-
-      const cnae = codigosFiscais.codigoCnae.replace(/\D/g, "");
-      const cnaeValido = modeloEmissao === "MUNICIPAL_JOAO_PESSOA"
-        ? cnae.length === 9
-        : cnae.length >= 7 && cnae.length <= 9;
-      if (!cnaeValido) {
-        return modeloEmissao === "MUNICIPAL_JOAO_PESSOA"
-          ? "Informe a variação do CNAE com 9 dígitos exigida por João Pessoa."
-          : "Informe um CNAE com 7 a 9 dígitos.";
-      }
-
-      const aliquota = Number(codigosFiscais.aliquotaIss.replace(",", "."));
-      if (codigosFiscais.aliquotaIss.trim() === "" || !Number.isFinite(aliquota) || aliquota < 0 || aliquota > 100) {
-        return "Informe uma alíquota de ISS válida entre 0 e 100%.";
-      }
+  const alternarServico = (servico: ServicoOS, selected: boolean) => {
+    setValidationError(null);
+    setSelecionados((current) => selected
+      ? current.includes(servico.servicoid) ? current : [...current, servico.servicoid]
+      : current.filter((id) => id !== servico.servicoid));
+    if (selected) {
+      setValores((current) => ({ ...current, [servico.servicoid]: current[servico.servicoid] ?? valorOriginal(servico) }));
     }
-
-    const nbs = codigosFiscais.codigoNbs.replace(/\D/g, "");
-    if (codigosFiscais.codigoNbs.trim() && nbs.length !== 9) {
-      return "Quando informado, o Código NBS deve possuir 9 dígitos.";
-    }
-
-    return null;
   };
 
-  const handleEmitir = async () => {
-    if (!osId) return;
-    if (!servicoSelecionado) return;
-
-    const erroValidacao = validarCodigosAntesDoEnvio();
-    if (erroValidacao) {
-      toast.error(erroValidacao);
+  const iniciarRevisao = () => {
+    if (!modeloEmissao || servicosSelecionados.length === 0) {
+      toast.error("Selecione ao menos um serviço para continuar.");
+      return;
+    }
+    const pendencias = [...new Set(servicosSelecionados.flatMap((servico) => servico.pendenciasCadastro ?? []))];
+    if (pendencias.length) {
+      toast.error(`Preencha os dados obrigatórios antes de emitir: ${pendencias.join(", ")}.`);
       return;
     }
 
+    setCodigosFiscais({
+      ...EMPTY_CODIGOS,
+      ...padraoFiscal,
+      itemListaServico: valorComum(servicosSelecionados.map((item) => item.servico?.itemlistaservico)) || padraoFiscal?.itemListaServico || "",
+      codigoCnae: valorComum(servicosSelecionados.map((item) => item.servico?.cnae)) || padraoFiscal?.codigoCnae || "",
+      aliquotaIss: valorComum(servicosSelecionados.map((item) => item.servico?.aliquotaiss)) || padraoFiscal?.aliquotaIss || "",
+    });
+    setValidationError(null);
+    setRevisando(true);
+  };
+
+  const atualizarCodigo = (campo: keyof CodigosFiscaisForm, valor: string) => {
+    setValidationError(null);
+    setCodigosFiscais((current) => ({ ...current, [campo]: valor }));
+  };
+
+  const atualizarValor = (servicoId: number, valor: string) => {
+    setValidationError(null);
+    setValores((current) => ({ ...current, [servicoId]: valor }));
+  };
+
+  const handleEmitir = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!osId || !modeloEmissao) return;
+    const error = validarFormulario(modeloEmissao, codigosFiscais, servicosSelecionados, valores);
+    if (error) {
+      setValidationError(error);
+      toast.error(error);
+      return;
+    }
+
+    setValidationError(null);
     setLoading(true);
-    const toastId = toast.loading("Emitindo NFS-e pela Focus NFe...");
+    const toastId = toast.loading("Enviando NFS-e para a Focus NFe...");
+    const optionalNumber = (value: string) => value === "" ? undefined : Number(value);
 
     try {
-      const res = await fetch(`/api/nfse/de-os/${osId}`, { 
-        method: "POST", 
+      const response = await fetch(`/api/nfse/de-os/${osId}`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          osservicoId: servicoSelecionado.servicoid,
+          servicos: servicosSelecionados.map((servico) => ({
+            osservicoId: servico.servicoid,
+            valor: numero(valores[servico.servicoid]),
+          })),
           codigosFiscais: {
             item_lista_servico: codigosFiscais.itemListaServico,
             codigo_cnae: codigosFiscais.codigoCnae,
-            codigo_tributario_municipio: codigosFiscais.codigoTributarioMunicipio,
             codigo_tributacao_nacional_iss: codigosFiscais.codigoTributacaoNacionalIss,
             codigo_nbs: codigosFiscais.codigoNbs,
-            aliquota_iss: codigosFiscais.aliquotaIss.trim() === ""
-              ? undefined
-              : Number(codigosFiscais.aliquotaIss.replace(",", ".")),
+            aliquota_iss: codigosFiscais.aliquotaIss === "" ? undefined : numero(codigosFiscais.aliquotaIss),
+            natureza_operacao: optionalNumber(codigosFiscais.naturezaOperacao),
+            iss_retido: codigosFiscais.issRetido === "" ? undefined : codigosFiscais.issRetido === "true",
+            tributacao_iss: optionalNumber(codigosFiscais.tributacaoIss),
+            tipo_retencao_iss: optionalNumber(codigosFiscais.tipoRetencaoIss),
+            finalidade_emissao: optionalNumber(codigosFiscais.finalidadeEmissao),
+            consumidor_final: optionalNumber(codigosFiscais.consumidorFinal),
+            indicador_destinatario: optionalNumber(codigosFiscais.indicadorDestinatario),
+            codigo_indicador_operacao: codigosFiscais.codigoIndicadorOperacao,
+            ibs_cbs_situacao_tributaria: codigosFiscais.ibsCbsSituacaoTributaria,
+            ibs_cbs_classificacao_tributaria: codigosFiscais.ibsCbsClassificacaoTributaria,
+            informacoes_complementares: codigosFiscais.informacoesComplementares,
           },
         }),
       });
-      const json = await res.json().catch(() => ({}));
-
-      if (!res.ok || !json.ok) {
-        toast.error(json.message || "Erro ao gerar NFS-e", { id: toastId });
+      const payload = await response.json().catch(() => ({})) as { ok?: boolean; message?: string };
+      if (!response.ok || !payload.ok) {
+        const message = payload.message || "Erro ao emitir NFS-e";
+        setValidationError(message);
+        toast.error(message, { id: toastId });
         return;
       }
-
-      toast.success("NFS-e registrada com sucesso!", { id: toastId });
-      setServicoSelecionado(null);
-      setCodigosFiscais(EMPTY_CODIGOS);
-      if (onAfterGenerate) onAfterGenerate();
+      toast.success("NFS-e enviada para processamento.", { id: toastId });
+      onAfterGenerate?.();
       onOpenChange(false);
-    } catch (e: any) {
-      toast.error(e?.message || "Erro de rede ao conectar à API", { id: toastId });
+    } catch (networkError: unknown) {
+      const message = networkError instanceof Error ? networkError.message : "Erro de rede ao conectar à API";
+      setValidationError(message);
+      toast.error(message, { id: toastId });
     } finally {
       setLoading(false);
     }
   };
 
-  const hasRejection = servicos.some(s => s.notaFiscalStatus === "REJEITADA" || s.notaFiscalStatus === "ERRO");
-  const rejectionErrors = servicos
-    .filter(s => s.notaFiscalStatus === "REJEITADA" || s.notaFiscalStatus === "ERRO")
-    .map(s => s.notaFiscalErros)
-    .filter(Boolean);
-  const isNacional = modeloEmissao === "NACIONAL";
-  const modeloLabel = isNacional
-    ? "NFS-e Nacional"
-    : modeloEmissao === "MUNICIPAL_CABEDELO"
-      ? "NFS-e Cabedelo"
-      : "NFS-e João Pessoa";
+  const autorizadas = servicos.filter((servico) => isStatus(servico.notaFiscalStatus, ["AUTORIZADA", "AUTORIZADO", "EMITIDA"])).length;
+  const comPendencias = servicos.filter((servico) => Boolean(servico.pendenciasCadastro?.length)).length;
+  const rejeitadas = servicos.filter((servico) => isStatus(servico.notaFiscalStatus, ["REJEITADA", "ERRO", "ERRO_AUTORIZACAO"])).length;
+  const currentStep: 1 | 2 | 3 = loading ? 3 : revisando ? 2 : 1;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[700px] p-0">
-        <DialogHeader className="px-6 pt-6">
-          <DialogTitle className="flex items-center gap-2 text-xl">
-            <Zap className="h-5 w-5 text-amber-500 fill-amber-500" /> Emissão de NFS-e por Serviço
-          </DialogTitle>
-          <DialogDescription>
-            Selecione um serviço e revise os códigos fiscais antes de enviá-lo para a Focus NFe.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="px-6 pb-6 space-y-4">
-          {hasRejection && (
-            <Alert variant="destructive" className="bg-destructive/5 border-destructive/20">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Rejeição Detectada</AlertTitle>
-              <AlertDescription className="text-xs">
-                {rejectionErrors.length > 0 
-                  ? "Alguns serviços foram rejeitados. Verifique se os dados do cliente (CPF/CNPJ, Endereço, CEP) estão corretos."
-                  : "Erro na comunicação com a FocusNFe ou dados inconsistentes."}
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {servicoSelecionado && (
-            <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
-              <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <p className="text-sm font-semibold">Dados fiscais do serviço</p>
-                  <p className="text-xs text-muted-foreground">
-                    {servicoSelecionado.servico?.descricao || "Serviço"} · {modeloLabel}
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={loading}
-                  onClick={() => setServicoSelecionado(null)}
-                >
-                  Trocar serviço
-                </Button>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                {isNacional ? (
-                  <div className="space-y-2">
-                    <Label htmlFor="nfse-codigo-nacional">Código de Tributação Nacional do ISS *</Label>
-                    <Input
-                      id="nfse-codigo-nacional"
-                      value={codigosFiscais.codigoTributacaoNacionalIss}
-                      onChange={(event) => atualizarCodigo("codigoTributacaoNacionalIss", event.target.value)}
-                      placeholder="Ex.: 140101"
-                      inputMode="numeric"
-                      disabled={loading}
-                    />
-                    <p className="text-[11px] text-muted-foreground">Informe os 6 dígitos da tabela nacional.</p>
-                  </div>
-                ) : (
-                  <>
-                    <div className="space-y-2">
-                      <Label htmlFor="nfse-item-lista">Item da Lista de Serviço *</Label>
-                      <Input
-                        id="nfse-item-lista"
-                        value={codigosFiscais.itemListaServico}
-                        onChange={(event) => atualizarCodigo("itemListaServico", event.target.value)}
-                        placeholder="Ex.: 14.01"
-                        disabled={loading}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="nfse-cnae">CNAE *</Label>
-                      <Input
-                        id="nfse-cnae"
-                        value={codigosFiscais.codigoCnae}
-                        onChange={(event) => atualizarCodigo("codigoCnae", event.target.value)}
-                        placeholder={modeloEmissao === "MUNICIPAL_JOAO_PESSOA" ? "Variação com 9 dígitos" : "7 a 9 dígitos"}
-                        inputMode="numeric"
-                        disabled={loading}
-                      />
-                    </div>
-                  </>
-                )}
-
-                <div className="space-y-2">
-                  <Label htmlFor="nfse-codigo-municipal">Código de Tributação Municipal</Label>
-                  <Input
-                    id="nfse-codigo-municipal"
-                    value={codigosFiscais.codigoTributarioMunicipio}
-                    onChange={(event) => atualizarCodigo("codigoTributarioMunicipio", event.target.value)}
-                    placeholder="Opcional, conforme o município"
-                    disabled={loading}
-                  />
-                  {modeloEmissao === "MUNICIPAL_JOAO_PESSOA" && (
-                    <p className="text-[11px] text-muted-foreground">João Pessoa normalmente não utiliza este campo.</p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="nfse-nbs">Código NBS</Label>
-                  <Input
-                    id="nfse-nbs"
-                    value={codigosFiscais.codigoNbs}
-                    onChange={(event) => atualizarCodigo("codigoNbs", event.target.value)}
-                    placeholder="Opcional · 9 dígitos"
-                    disabled={loading}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="nfse-aliquota">Alíquota do ISS (%) {!isNacional && "*"}</Label>
-                  <Input
-                    id="nfse-aliquota"
-                    value={codigosFiscais.aliquotaIss}
-                    onChange={(event) => atualizarCodigo("aliquotaIss", event.target.value)}
-                    placeholder={isNacional ? "Opcional, quando exigida" : "Ex.: 3,00"}
-                    inputMode="decimal"
-                    disabled={loading}
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end">
-                <Button type="button" onClick={handleEmitir} disabled={loading}>
-                  {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Emitir NFS-e deste serviço
-                </Button>
+      <DialogContent className="flex h-[100dvh] w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none border-0 p-0 [&>[data-slot=dialog-close]]:grid [&>[data-slot=dialog-close]]:size-11 [&>[data-slot=dialog-close]]:place-items-center sm:h-[min(92dvh,880px)] sm:w-[calc(100vw-2rem)] sm:max-w-[1080px] sm:rounded-sm sm:border">
+        <DialogHeader className="shrink-0 border-b bg-card pb-5 pl-5 pr-16 pt-[max(1.5rem,env(safe-area-inset-top))] text-left sm:pl-7 sm:pt-6">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex min-w-0 items-start gap-4">
+              <div className="grid size-12 shrink-0 place-items-center border-2 border-amber-500 bg-amber-500/10 text-amber-700"><FileText aria-hidden="true" className="size-6" /></div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2"><p className="text-[11px] font-bold uppercase tracking-[0.16em] text-amber-700">Documento fiscal de serviço</p><Badge variant="outline" className="rounded-sm">OS #{osId ?? "—"}</Badge></div>
+                <DialogTitle className="mt-1 text-xl font-bold tracking-tight sm:text-2xl">Emitir NFS-e</DialogTitle>
+                <DialogDescription className="mt-1 max-w-[68ch] text-sm leading-relaxed">Selecione um ou mais serviços, informe os valores da nota e revise a tributação antes do envio.</DialogDescription>
               </div>
             </div>
-          )}
-
-          <div className="rounded-xl border bg-card/50 overflow-hidden">
-            {fetching ? (
-              <div className="flex flex-col items-center justify-center p-12 space-y-4">
-                <Loader2 className="animate-spin h-8 w-8 text-primary/60" />
-                <p className="text-sm text-muted-foreground animate-pulse">Carregando serviços...</p>
-              </div>
-            ) : servicos.length === 0 ? (
-              <p className="text-sm text-center text-muted-foreground p-12">Nenhum serviço encontrado nesta OS.</p>
-            ) : (
-              <Table>
-                <TableHeader className="bg-muted/50">
-                  <TableRow>
-                    <TableHead className="font-semibold">Serviço/Descrição</TableHead>
-                    <TableHead className="font-semibold text-right">Total (BRL)</TableHead>
-                    <TableHead className="font-semibold text-center">Status Fiscal</TableHead>
-                    <TableHead className="text-right">Ação</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {servicos.map((s, index) => {
-                    const valorTotal = (s.quantidade || 1) * (s.precounitario || 0);
-                    const status = s.notaFiscalStatus;
-                    const isProcessing = status === "PROCESSANDO";
-                    const isAuthorized = status === "AUTORIZADA";
-                    return (
-                      <TableRow key={s.servicoid || index} className="group hover:bg-muted/30 transition-colors">
-                        <TableCell className="max-w-[250px]">
-                          <div className="font-medium line-clamp-2">
-                             {s.servico?.descricao || "Serviço Padrão"}
-                          </div>
-                          {s.notaFiscalModelo ? (
-                            <Badge variant="outline" className="mt-1 text-[9px]">
-                              {s.notaFiscalModelo === "NACIONAL"
-                                ? "NFS-e Nacional · MEI"
-                                : s.notaFiscalModelo === "MUNICIPAL_CABEDELO"
-                                  ? "NFS-e Cabedelo"
-                                  : "NFS-e João Pessoa"}
-                            </Badge>
-                          ) : null}
-                          <div className="text-[10px] text-muted-foreground font-mono">
-                            Qtd: {s.quantidade} • Un: R$ {(s.precounitario || 0).toFixed(2)}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right font-bold text-primary/80">
-                           {valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                        </TableCell>
-                        <TableCell className="text-center">
-                           {!status && <Badge variant="outline" className="opacity-60">Pendente</Badge>}
-                           {status === "AUTORIZADA" && <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">Autorizada</Badge>}
-                           {status === "PROCESSANDO" && <Badge className="bg-sky-500/10 text-sky-600 border-sky-500/20 animate-pulse">Processando</Badge>}
-                           {(status === "REJEITADA" || status === "ERRO") && (
-                             <TooltipProvider>
-                               <Tooltip>
-                                 <TooltipTrigger asChild>
-                                   <Badge variant="destructive" className="cursor-help transition-transform hover:scale-105">Rejeitada</Badge>
-                                 </TooltipTrigger>
-                                 <TooltipContent className="max-w-[300px] break-words">
-                                    {s.notaFiscalErros ? JSON.stringify(s.notaFiscalErros) : "Erro não detalhado"}
-                                 </TooltipContent>
-                               </Tooltip>
-                             </TooltipProvider>
-                           )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button 
-                            size="sm" 
-                            disabled={loading || isProcessing} 
-                            onClick={() => abrirFormularioEmissao(s)}
-                            variant={isAuthorized ? "outline" : "default"}
-                            className="hover:scale-105 active:scale-95 transition-all text-xs"
-                          >
-                            {isProcessing ? (
-                              <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                            ) : null}
-                            {isAuthorized ? "Revisar e re-emitir" : "Informar códigos"}
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            )}
+            <div className="w-full lg:max-w-80"><DialogStepIndicator currentStep={currentStep} /></div>
           </div>
-        </div>
+          <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 border-t pt-4 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5 font-medium text-foreground"><ShieldCheck aria-hidden="true" className="size-4 text-emerald-600" />{getModeloLabel(modeloEmissao)}</span>
+            <span>{servicos.length} serviços</span><span>{autorizadas} autorizadas</span><span>{selecionados.length} selecionados</span>
+            <span className={comPendencias ? "font-medium text-amber-700" : undefined}>{comPendencias} com pendências</span>
+          </div>
+        </DialogHeader>
 
-        <DialogFooter className="px-6 py-4 bg-muted/30 border-t">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Fechar
-          </Button>
+        <ScrollArea className="min-h-0 flex-1">
+          <main className="px-4 py-5 sm:px-7 sm:py-6">
+            <div className="mx-auto max-w-4xl space-y-5">
+              {!modeloEmissao && !fetching && <Alert variant="destructive" className="rounded-sm border-l-4"><AlertCircle aria-hidden="true" className="size-4" /><AlertTitle>Emissão não configurada</AlertTitle><AlertDescription>Preencha o código IBGE e o regime tributário da empresa.</AlertDescription></Alert>}
+              {rejeitadas > 0 && !revisando && <Alert variant="destructive" className="rounded-sm border-l-4"><AlertCircle aria-hidden="true" className="size-4" /><AlertTitle>{rejeitadas} emissões rejeitadas</AlertTitle><AlertDescription>Os serviços rejeitados podem ser selecionados novamente após a correção.</AlertDescription></Alert>}
+
+              {revisando && modeloEmissao ? (
+                <NfseFiscalForm
+                  servicos={servicosSelecionados}
+                  valores={valores}
+                  modelo={modeloEmissao}
+                  codigos={codigosFiscais}
+                  validationError={validationError}
+                  loading={loading}
+                  onChange={atualizarCodigo}
+                  onValueChange={atualizarValor}
+                  onBack={() => { setRevisando(false); setValidationError(null); }}
+                  onRefresh={() => void carregarServicos()}
+                  onSubmit={handleEmitir}
+                />
+              ) : (
+                <section aria-labelledby="selecao-servico-title">
+                  <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                    <div><p className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground"><ListChecks aria-hidden="true" className="size-4" />Etapa 1 de 3</p><h2 id="selecao-servico-title" className="mt-1 text-lg font-bold">Serviços que irão compor a nota</h2><p className="mt-1 text-sm text-muted-foreground">Serviços selecionados serão consolidados em uma única NFS-e.</p></div>
+                    <Button type="button" variant="ghost" size="sm" className="min-h-11 rounded-sm" disabled={fetching} onClick={() => void carregarServicos()}><RefreshCw aria-hidden="true" className={`mr-2 size-4 ${fetching ? "animate-spin" : ""}`} />Atualizar</Button>
+                  </div>
+
+                  {fetching ? <ServiceListSkeleton /> : servicos.length === 0 ? (
+                    <div className="border border-dashed px-6 py-12 text-center"><FileText aria-hidden="true" className="mx-auto size-8 text-muted-foreground" /><h3 className="mt-3 text-sm font-semibold">Nenhum serviço encontrado</h3></div>
+                  ) : (
+                    <div className="space-y-3">
+                      {servicos.map((servico) => <NfseServiceCard key={servico.servicoid} servico={servico} selected={selecionados.includes(servico.servicoid)} loading={loading} onToggle={alternarServico} />)}
+                    </div>
+                  )}
+
+                  <div className="sticky bottom-0 mt-5 flex flex-col gap-3 border bg-card p-4 shadow-lg sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-sm text-muted-foreground"><strong className="text-foreground">{selecionados.length}</strong> {selecionados.length === 1 ? "serviço selecionado" : "serviços selecionados"}</p>
+                    <Button type="button" className="min-h-11 rounded-sm px-5" disabled={!modeloEmissao || selecionados.length === 0 || fetching} onClick={iniciarRevisao}>Revisar nota<ArrowRight aria-hidden="true" className="ml-2 size-4" /></Button>
+                  </div>
+                </section>
+              )}
+            </div>
+          </main>
+        </ScrollArea>
+
+        <Separator />
+        <DialogFooter className="shrink-0 bg-card px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:flex-row sm:items-center sm:justify-between sm:px-7 sm:py-3">
+          <p className="text-xs text-muted-foreground" aria-live="polite">{loading ? "Enviando documento para processamento fiscal..." : "A autorização será atualizada automaticamente quando a Focus responder."}</p>
+          <Button type="button" variant="outline" className="min-h-11 rounded-sm" disabled={loading} onClick={() => onOpenChange(false)}>Fechar</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

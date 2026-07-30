@@ -353,6 +353,18 @@ export function POSSystem() {
     (sum, item) => sum + (item.cents ?? 0),
     0,
   );
+  const soleSelectedPaymentMethod =
+    selectedPaymentMethods.length === 1 ? selectedPaymentMethods[0] : null;
+
+  // Com um único método selecionado, o valor só pode ser o total da venda —
+  // preenche automaticamente para não exigir digitação redundante.
+  useEffect(() => {
+    if (!soleSelectedPaymentMethod) return;
+    setPaymentAmounts((current) => ({
+      ...current,
+      [soleSelectedPaymentMethod]: formatCentsToPaymentInput(moneyToCents(total)),
+    }));
+  }, [soleSelectedPaymentMethod, total]);
 
   const togglePaymentMethod = (method: PaymentMethodOption) => {
     setPaymentMethods((current) => {
@@ -421,7 +433,7 @@ export function POSSystem() {
   };
 
   const validatePaymentAmounts = (): boolean => {
-    if (!hasPaymentMethodSelected || !hasAnyPaymentAmount) return true;
+    if (!hasPaymentMethodSelected) return true;
 
     const invalidEntry = paymentAmountEntries.find(
       (item) => item.cents === null || item.cents <= 0,
@@ -1356,7 +1368,7 @@ export function POSSystem() {
                             <div className="space-y-2 rounded-md border bg-muted/20 p-3">
                               <div className="flex items-center justify-between gap-3">
                                 <span className="text-xs font-medium text-muted-foreground">
-                                  Valores por método (opcional)
+                                  Valores por método
                                 </span>
                                 {hasAnyPaymentAmount && (
                                   <span className="text-xs text-muted-foreground">
