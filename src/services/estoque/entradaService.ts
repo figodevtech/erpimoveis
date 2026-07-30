@@ -58,7 +58,11 @@ function digits(value: unknown) {
 
 type OrigemEntrada = "AJUSTE_RAPIDO" | "MANUAL" | "NFE_TERCEIRO";
 
-export async function registrarEntradaConfirmada(body: any, origem: OrigemEntrada) {
+export async function registrarEntradaConfirmada(
+  body: any,
+  origem: OrigemEntrada,
+  createdBy?: string | null,
+) {
   const rawItems = Array.isArray(body?.itens)
     ? body.itens
     : [{
@@ -180,6 +184,8 @@ export async function registrarEntradaConfirmada(body: any, origem: OrigemEntrad
       body?.valorTotalDocumento === null || body?.valorTotalDocumento === undefined
         ? null
         : nonNegative(body.valorTotalDocumento, "Total do documento"),
+    // Lido pela RPC via p_entrada->>'created_by' (mesmo padrao de registrar_saida_usoconsumo).
+    created_by: createdBy ?? null,
   };
 
   const rpcName = entrada.fiscal_dfe_documento_id

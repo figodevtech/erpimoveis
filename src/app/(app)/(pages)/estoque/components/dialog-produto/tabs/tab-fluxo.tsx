@@ -10,18 +10,10 @@ import { ChevronDown, Undo2, Receipt, ArrowRightLeft, Eye } from "lucide-react";
 import { Produto } from "../../../types";
 import { formatDate } from "@/utils/formatDate";
 import { EmissaoNotaDialog } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/emissao-nota-dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { toast } from "@/lib/toast";
 import { EntryDetailsDialog } from "../../entry-details-dialog";
+import { ExitDetailsDialog } from "../../exit-details-dialog";
+import { CancelMovementDialog, type CancelTarget } from "../../cancel-movement-dialog";
 
 export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfterChange?: () => void | Promise<void> }) {
   const entradas = (produto as any).entrada ?? [];
@@ -36,6 +28,7 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
       status: item.entradainfo?.status,
       quantidade: item.quantidade,
       entrada: item.entradainfo,
+      usuario: item.entradainfo?.criador?.nome ?? null,
     })),
     ...saidas.map((item: any) => ({
       id: item.saida?.id ?? item.id,
@@ -46,25 +39,39 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
       status: item.saida?.status,
       quantidade: item.quantidade,
       entrada: null,
+      usuario: item.saida?.criador?.nome ?? null,
     })),
   ].sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
   const [nfeDialogEntradaId, setNfeDialogEntradaId] = useState<number | null>(null);
   const [detailsEntradaId, setDetailsEntradaId] = useState<number | null>(null);
-  const [entradaParaCancelar, setEntradaParaCancelar] = useState<number | null>(null);
+  const [detailsSaidaId, setDetailsSaidaId] = useState<number | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<CancelTarget | null>(null);
   const [cancelando, setCancelando] = useState(false);
 
-  const cancelarEntrada = async () => {
-    if (!entradaParaCancelar) return;
+  const cancelarMovimento = async (motivo: string) => {
+    if (!cancelTarget) return;
     setCancelando(true);
     try {
-      const response = await fetch(`/api/entradas/${entradaParaCancelar}/cancelar`, { method: "POST" });
+      const endpoint =
+        cancelTarget.kind === "entrada"
+          ? `/api/entradas/${cancelTarget.id}/cancelar`
+          : `/api/estoque/saidas/${cancelTarget.id}/cancelar`;
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ motivo }),
+      });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error ?? "Não foi possível cancelar a entrada.");
-      toast.success("Entrada cancelada e estoque estornado.");
-      setEntradaParaCancelar(null);
+      if (!response.ok) throw new Error(result.error ?? "Não foi possível cancelar a movimentação.");
+      toast.success(
+        cancelTarget.kind === "entrada"
+          ? "Entrada cancelada e estoque estornado."
+          : "Saída cancelada e estoque devolvido.",
+      );
+      setCancelTarget(null);
       await onAfterChange?.();
     } catch (error: any) {
-      toast.error("Erro ao cancelar entrada", { description: error?.message });
+      toast.error("Erro ao cancelar movimentação", { description: error?.message });
     } finally {
       setCancelando(false);
     }
@@ -103,24 +110,18 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
         open={detailsEntradaId !== null}
         onOpenChange={(open) => !open && setDetailsEntradaId(null)}
       />
-      <AlertDialog open={entradaParaCancelar !== null} onOpenChange={(open) => !open && setEntradaParaCancelar(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Cancelar esta entrada?</AlertDialogTitle>
-            <AlertDialogDescription>
-              O estoque recebido será retirado. Parcelas financeiras pendentes serão anuladas e pagamentos já
-              realizados receberão um lançamento inverso. A entrada permanecerá no histórico como cancelada e não
-              poderá ser editada. O cancelamento será impedido se o estoque atual não comportar o estorno.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={cancelando}>Voltar</AlertDialogCancel>
-            <AlertDialogAction disabled={cancelando} onClick={(event) => { event.preventDefault(); void cancelarEntrada(); }}>
-              {cancelando ? "Cancelando..." : "Cancelar entrada"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ExitDetailsDialog
+        exitId={detailsSaidaId}
+        inventory="produto"
+        open={detailsSaidaId !== null}
+        onOpenChange={(open) => !open && setDetailsSaidaId(null)}
+      />
+      <CancelMovementDialog
+        target={cancelTarget}
+        onOpenChange={(open) => !open && setCancelTarget(null)}
+        onConfirm={cancelarMovimento}
+        canceling={cancelando}
+      />
       <div className="space-y-4">
         {/* Header */}
         <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -149,6 +150,7 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
                 <TableHead>Data</TableHead>
                 <TableHead>Tipo</TableHead>
                 <TableHead>Origem / Descrição</TableHead>
+                <TableHead>Usuário</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Quantidade</TableHead>
                 <TableHead className="w-[50px]"></TableHead>
@@ -174,11 +176,40 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
                       <TableCell className="max-w-[200px] truncate capitalize" title={movimento.descricao}>
                         {movimento.descricao.toLowerCase()}
                       </TableCell>
+                      <TableCell className="max-w-[140px] truncate" title={movimento.usuario ?? undefined}>
+                        {movimento.usuario || <span className="text-muted-foreground">—</span>}
+                      </TableCell>
                       <TableCell>{getStatusBadge(movimento.status)}</TableCell>
                       <TableCell className={`text-right font-bold ${movimento.tipo === "ENTRADA" ? "text-green-600 dark:text-green-500" : "text-red-600 dark:text-red-500"}`}>
                         {movimento.tipo === "ENTRADA" ? "+" : "-"} {movimento.quantidade}
                       </TableCell>
                       <TableCell>
+                        {movimento.tipo === "SAIDA" ? (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" className="h-8 w-8 p-0 cursor-pointer rounded-full">
+                                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-[180px]">
+                              <DropdownMenuItem onClick={() => setDetailsSaidaId(movimento.id)}>
+                                <Eye className="mr-2 h-4 w-4" />
+                                Detalhes
+                              </DropdownMenuItem>
+                              {movimento.status === "CONFIRMADA" ? (
+                                <DropdownMenuItem
+                                  variant="destructive"
+                                  onClick={() =>
+                                    setCancelTarget({ id: movimento.id, kind: "saida", inventory: "produto" })
+                                  }
+                                >
+                                  <Undo2 className="mr-2 h-4 w-4" />
+                                  Cancelar Saída
+                                </DropdownMenuItem>
+                              ) : null}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        ) : null}
                         {movimento.tipo === "ENTRADA" ? <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" className="h-8 w-8 p-0 cursor-pointer rounded-full">
@@ -199,10 +230,17 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
                               Emitir Nota
                             </Button> : null}
                             
-                            {entradaInfo.status === "CONFIRMADA" ? <Button onClick={() => setEntradaParaCancelar(entradaInfo.id)} variant="ghost" className="w-full justify-start cursor-pointer px-2 text-xs text-red-600 hover:text-red-700 hover:bg-red-500/10">
-                              <Undo2 className="mr-2 h-4 w-4" />
-                              Cancelar Entrada
-                            </Button> : null}
+                            {entradaInfo.status === "CONFIRMADA" ? (
+                              <DropdownMenuItem
+                                variant="destructive"
+                                onClick={() =>
+                                  setCancelTarget({ id: entradaInfo.id, kind: "entrada", inventory: "produto" })
+                                }
+                              >
+                                <Undo2 className="mr-2 h-4 w-4" />
+                                Cancelar Entrada
+                              </DropdownMenuItem>
+                            ) : null}
                           </DropdownMenuContent>
                         </DropdownMenu> : null}
                       </TableCell>
@@ -211,7 +249,7 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
                 })
               ) : (
                 <TableRow>
-                  <TableCell className="text-center h-24 text-muted-foreground" colSpan={7}>
+                  <TableCell className="text-center h-24 text-muted-foreground" colSpan={8}>
                     <div className="flex flex-col items-center justify-center gap-2">
                       <ArrowRightLeft className="h-8 w-8 opacity-20" />
                       <p>Produto não possui histórico de movimentação no estoque</p>

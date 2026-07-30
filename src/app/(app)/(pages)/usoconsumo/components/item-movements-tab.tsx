@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useSession } from "next-auth/react";
 import { ArrowRightLeft, ChevronDown, Eye, Undo2 } from "lucide-react";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -13,6 +12,10 @@ import { TabsContent } from "@/components/ui/tabs";
 import { toast } from "@/lib/toast";
 import { formatDate } from "@/utils/formatDate";
 import { EntryDetailsDialog } from "../../estoque/components/entry-details-dialog";
+import { ExitDetailsDialog } from "../../estoque/components/exit-details-dialog";
+import { CancelMovementDialog, type CancelTarget } from "../../estoque/components/cancel-movement-dialog";
+
+type MovimentoCriador = { id: string; nome: string | null } | null;
 
 export type UsoConsumoEntradaMovimento = {
   id: number;
@@ -21,7 +24,7 @@ export type UsoConsumoEntradaMovimento = {
   saldo_anterior?: number;
   saldo_resultante: number;
   created_at: string;
-  entrada?: { id?: number; status?: string; origem?: string; numero_nota?: string; created_at?: string; fornecedor?: { nomerazaosocial?: string } | null };
+  entrada?: { id?: number; status?: string; origem?: string; numero_nota?: string; created_at?: string; criador?: MovimentoCriador; fornecedor?: { nomerazaosocial?: string } | null };
 };
 
 export type UsoConsumoSaidaMovimento = {
@@ -30,7 +33,7 @@ export type UsoConsumoSaidaMovimento = {
   saldo_anterior?: number;
   saldo_resultante: number;
   created_at: string;
-  saida?: { id?: number; status?: string; motivo?: string; observacao?: string; created_at?: string };
+  saida?: { id?: number; status?: string; motivo?: string; observacao?: string; created_at?: string; criador?: MovimentoCriador };
 };
 
 type Props = {
@@ -49,8 +52,9 @@ function statusBadge(status?: string) {
 export function ItemMovementsTab({ entradas = [], saidas = [], onAfterChange }: Props) {
   const { data: session } = useSession();
   const canCancel = permissionSetHas((session?.user as { permissoes?: unknown })?.permissoes, PERMS.USOCONSUMO_CANCELAR);
-  const [cancelTarget, setCancelTarget] = useState<{ id: number; type: "entrada" | "saida" } | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<CancelTarget | null>(null);
   const [detailsEntradaId, setDetailsEntradaId] = useState<number | null>(null);
+  const [detailsSaidaId, setDetailsSaidaId] = useState<number | null>(null);
   const [canceling, setCanceling] = useState(false);
 
   const movements = [
@@ -63,6 +67,7 @@ export function ItemMovementsTab({ entradas = [], saidas = [], onAfterChange }: 
       status: line.entrada?.status,
       quantity: line.quantidade,
       balance: line.saldo_resultante,
+      usuario: line.entrada?.criador?.nome ?? null,
     })),
     ...saidas.map((line) => ({
       key: `saida-${line.id}`,
@@ -73,17 +78,25 @@ export function ItemMovementsTab({ entradas = [], saidas = [], onAfterChange }: 
       status: line.saida?.status,
       quantity: line.quantidade,
       balance: line.saldo_resultante,
+      usuario: line.saida?.criador?.nome ?? null,
     })),
   ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-  async function cancel() {
+  async function cancel(motivo: string) {
     if (!cancelTarget) return;
     setCanceling(true);
     try {
-      const response = await fetch(`/api/usoconsumo/${cancelTarget.type === "entrada" ? "entradas" : "saidas"}/${cancelTarget.id}/cancelar`, { method: "POST" });
+      const response = await fetch(
+        `/api/usoconsumo/${cancelTarget.kind === "entrada" ? "entradas" : "saidas"}/${cancelTarget.id}/cancelar`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ motivo }),
+        },
+      );
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error ?? "Não foi possível cancelar a movimentação.");
-      toast.success(cancelTarget.type === "entrada" ? "Entrada cancelada e estoque estornado." : "Saída cancelada e estoque devolvido.");
+      toast.success(cancelTarget.kind === "entrada" ? "Entrada cancelada e estoque estornado." : "Saída cancelada e estoque devolvido.");
       setCancelTarget(null);
       await onAfterChange();
     } catch (error) {
@@ -101,19 +114,18 @@ export function ItemMovementsTab({ entradas = [], saidas = [], onAfterChange }: 
         open={detailsEntradaId !== null}
         onOpenChange={(open) => !open && setDetailsEntradaId(null)}
       />
-      <AlertDialog open={cancelTarget !== null} onOpenChange={(open) => !open && !canceling && setCancelTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Cancelar esta {cancelTarget?.type}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {cancelTarget?.type === "entrada"
-                ? "O estoque recebido será retirado e lançamentos financeiros pendentes serão anulados. O cancelamento será impedido se o saldo atual não comportar o estorno."
-                : "A quantidade retirada voltará ao estoque. A saída permanecerá no histórico como cancelada."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter><AlertDialogCancel disabled={canceling}>Voltar</AlertDialogCancel><AlertDialogAction disabled={canceling} onClick={(event) => { event.preventDefault(); void cancel(); }}>{canceling ? "Cancelando..." : "Cancelar movimentação"}</AlertDialogAction></AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ExitDetailsDialog
+        exitId={detailsSaidaId}
+        inventory="usoconsumo"
+        open={detailsSaidaId !== null}
+        onOpenChange={(open) => !open && setDetailsSaidaId(null)}
+      />
+      <CancelMovementDialog
+        target={cancelTarget}
+        onOpenChange={(open) => !open && setCancelTarget(null)}
+        onConfirm={cancel}
+        canceling={canceling}
+      />
 
       <div className="space-y-4">
         <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -123,7 +135,7 @@ export function ItemMovementsTab({ entradas = [], saidas = [], onAfterChange }: 
 
         <div className="overflow-hidden rounded-md border bg-card">
           <Table className="text-xs">
-            <TableHeader className="bg-muted/50"><TableRow><TableHead className="w-[80px]">ID</TableHead><TableHead>Data</TableHead><TableHead>Tipo</TableHead><TableHead>Origem / Descrição</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Quantidade</TableHead><TableHead className="text-right">Saldo</TableHead><TableHead className="w-[50px]" /></TableRow></TableHeader>
+            <TableHeader className="bg-muted/50"><TableRow><TableHead className="w-[80px]">ID</TableHead><TableHead>Data</TableHead><TableHead>Tipo</TableHead><TableHead>Origem / Descrição</TableHead><TableHead>Usuário</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Quantidade</TableHead><TableHead className="text-right">Saldo</TableHead><TableHead className="w-[50px]" /></TableRow></TableHeader>
             <TableBody>
               {movements.map((movement) => (
                 <TableRow key={movement.key} className="transition-colors hover:bg-muted/50">
@@ -131,31 +143,33 @@ export function ItemMovementsTab({ entradas = [], saidas = [], onAfterChange }: 
                   <TableCell>{formatDate(movement.date)}</TableCell>
                   <TableCell><Badge variant="outline" className={movement.type === "entrada" ? "border-emerald-500/20 text-emerald-700" : "border-red-500/20 text-red-700"}>{movement.type === "entrada" ? "Entrada" : "Saída"}</Badge></TableCell>
                   <TableCell className="max-w-[220px] truncate capitalize" title={movement.description}>{movement.description.toLocaleLowerCase("pt-BR")}</TableCell>
+                  <TableCell className="max-w-[140px] truncate" title={movement.usuario ?? undefined}>{movement.usuario || <span className="text-muted-foreground">—</span>}</TableCell>
                   <TableCell>{statusBadge(movement.status)}</TableCell>
                   <TableCell className={`text-right font-bold ${movement.type === "entrada" ? "text-emerald-600" : "text-red-600"}`}>{movement.type === "entrada" ? "+" : "-"} {movement.quantity}</TableCell>
                   <TableCell className="text-right font-medium">{movement.balance}</TableCell>
                   <TableCell>
-                    {movement.type === "entrada" || (canCancel && movement.status === "CONFIRMADA") ? (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 rounded-full"><ChevronDown className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {movement.type === "entrada" ? (
-                            <DropdownMenuItem onClick={() => setDetailsEntradaId(movement.id)}>
-                              <Eye className="mr-2 h-4 w-4" />Detalhes
-                            </DropdownMenuItem>
-                          ) : null}
-                          {canCancel && movement.status === "CONFIRMADA" ? (
-                            <DropdownMenuItem variant="destructive" onClick={() => setCancelTarget({ id: movement.id, type: movement.type })}>
-                              <Undo2 className="mr-2 h-4 w-4" />Cancelar {movement.type}
-                            </DropdownMenuItem>
-                          ) : null}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    ) : null}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 rounded-full"><ChevronDown className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onClick={() => (movement.type === "entrada" ? setDetailsEntradaId(movement.id) : setDetailsSaidaId(movement.id))}
+                        >
+                          <Eye className="mr-2 h-4 w-4" />Detalhes
+                        </DropdownMenuItem>
+                        {canCancel && movement.status === "CONFIRMADA" ? (
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onClick={() => setCancelTarget({ id: movement.id, kind: movement.type, inventory: "usoconsumo" })}
+                          >
+                            <Undo2 className="mr-2 h-4 w-4" />Cancelar {movement.type}
+                          </DropdownMenuItem>
+                        ) : null}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </TableCell>
                 </TableRow>
               ))}
-              {movements.length === 0 ? <TableRow><TableCell colSpan={8} className="h-24 text-center text-muted-foreground"><div className="flex flex-col items-center justify-center gap-2"><ArrowRightLeft className="h-8 w-8 opacity-20" /><p>Item não possui histórico de movimentação no estoque</p></div></TableCell></TableRow> : null}
+              {movements.length === 0 ? <TableRow><TableCell colSpan={9} className="h-24 text-center text-muted-foreground"><div className="flex flex-col items-center justify-center gap-2"><ArrowRightLeft className="h-8 w-8 opacity-20" /><p>Item não possui histórico de movimentação no estoque</p></div></TableCell></TableRow> : null}
             </TableBody>
           </Table>
         </div>
