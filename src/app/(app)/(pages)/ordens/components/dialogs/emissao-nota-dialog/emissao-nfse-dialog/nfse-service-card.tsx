@@ -142,6 +142,25 @@ export function NfseServiceCard({
             </p>
           </div>
 
+          {hasPendingData && (
+            <div
+              className="max-w-[72ch] border-l-2 border-amber-600/40 bg-amber-600/[0.06] py-2 pl-3 pr-2"
+              role="status"
+            >
+              <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-amber-800 dark:text-amber-400">
+                Complete para liberar a emissão
+              </p>
+              <ul className="mt-1.5 space-y-1">
+                {servico.pendenciasCadastro?.map((pendencia) => (
+                  <li key={pendencia} className="flex gap-1.5 text-xs leading-relaxed text-foreground">
+                    <span aria-hidden="true" className="text-amber-700 dark:text-amber-500">•</span>
+                    <span>{pendencia}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {rejectionMessage && (
             <p className="line-clamp-2 max-w-[72ch] text-xs leading-relaxed text-destructive" role="status">
               {rejectionMessage}
