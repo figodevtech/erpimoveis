@@ -852,18 +852,25 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string 
     const currentOs = currentOsRes.data as { pecaid?: number | null } | null;
 
     const alvoPeca = body?.alvo?.tipo === "PECA" ? body?.alvo?.peca ?? null : null;
-    if (alvoPeca !== null) {
-      const pecaId = pecaid ?? currentOs?.pecaid ?? null;
-      if (pecaId) {
-        const pecaPatch: Record<string, any> = {};
+    const pecaVinculadaId = pecaid ?? currentOs?.pecaid ?? null;
+
+    if (pecaVinculadaId) {
+      const pecaPatch: Record<string, any> = {};
+
+      if (alvoPeca !== null) {
         if (alvoPeca.nome !== undefined) pecaPatch.titulo = alvoPeca.nome?.trim() || null;
         if (alvoPeca.descricao !== undefined) pecaPatch.descricao = alvoPeca.descricao ?? null;
         if (alvoPeca.lacre !== undefined) pecaPatch.lacre = alvoPeca.lacre ?? null;
+      }
 
-        if (Object.keys(pecaPatch).length) {
-          const updPeca = await supabase.from("peca").update(pecaPatch).eq("id", pecaId);
-          if (updPeca.error) throw updPeca.error;
-        }
+      // A peca pertence ao dono da OS: se o cliente da ordem muda (inclusive quando
+      // uma OS aberta sem cliente passa a ter um), a peca acompanha. Fica fora do
+      // bloco acima porque o cliente pode ser alterado sem reenviar os dados da peca.
+      if (clienteid !== undefined) pecaPatch.clienteid = clienteid;
+
+      if (Object.keys(pecaPatch).length) {
+        const updPeca = await supabase.from("peca").update(pecaPatch).eq("id", pecaVinculadaId);
+        if (updPeca.error) throw updPeca.error;
       }
     }
 
