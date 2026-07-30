@@ -2,6 +2,7 @@
 export const runtime = "nodejs";
 
 import { after, NextResponse, NextRequest } from "next/server";
+import { carregarAutores } from "@/lib/movement-authors";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireEstoqueAccess, requireEstoqueDelete, requireEstoqueEdit } from "@/app/api/_authz/perms";
 import {
@@ -31,8 +32,8 @@ const PRODUTO_FIELDS = `
 `;
 const GET_PRODUTO_FIELDS = `
   ${PRODUTO_FIELDS},
-  entrada: entradaitens (id, quantidade, created_at, entradainfo: entrada(id, tipo, status, origem, fiscal, fornecedorid, fornecedor: fornecedor(id, nomerazaosocial, cpfcnpj))),
-  saidas: estoque_saida_item (id, quantidade, saldo_anterior, saldo_resultante, created_at, saida: estoque_saida(id, motivo, observacao, status, created_at)),
+  entrada: entradaitens (id, quantidade, created_at, entradainfo: entrada(id, tipo, status, origem, fiscal, fornecedorid, created_by, fornecedor: fornecedor(id, nomerazaosocial, cpfcnpj))),
+  saidas: estoque_saida_item (id, quantidade, saldo_anterior, saldo_resultante, created_at, saida: estoque_saida(id, motivo, observacao, status, created_at, created_by)),
   vendasdoproduto: vendaproduto (
   id, venda_id, produtoid, sub_total, valor_total, valor_desconto, tipo_desconto, quantidade, venda (id, valortotal, status, datavenda, desconto_valor, sub_total, cliente: cliente(nomerazaosocial))
   ),
@@ -383,7 +384,22 @@ export async function GET(_req: NextRequest, context: { params: Promise<Params> 
       throw error;
     }
 
-    return NextResponse.json({ data });
+    const entradaLinhas = (((data as any)?.entrada ?? []) as Array<Record<string, any>>);
+    const saidaLinhas = (((data as any)?.saidas ?? []) as Array<Record<string, any>>);
+    const autores = await carregarAutores([
+      ...entradaLinhas.map((linha) => linha.entradainfo?.created_by),
+      ...saidaLinhas.map((linha) => linha.saida?.created_by),
+    ]);
+    const comAutor = (movimento: Record<string, any> | null | undefined) =>
+      movimento ? { ...movimento, criador: autores.get(String(movimento.created_by ?? "")) ?? null } : movimento;
+
+    return NextResponse.json({
+      data: {
+        ...data,
+        entrada: entradaLinhas.map((linha) => ({ ...linha, entradainfo: comAutor(linha.entradainfo) })),
+        saidas: saidaLinhas.map((linha) => ({ ...linha, saida: comAutor(linha.saida) })),
+      },
+    });
   } catch (e: any) {
     const msg = e?.message ?? "Erro ao buscar produto.";
     const status = msg.includes("ID inválido") ? 400 : 500;

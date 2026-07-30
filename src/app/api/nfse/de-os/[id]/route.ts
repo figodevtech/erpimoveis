@@ -68,6 +68,14 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ ok: false, message: "OS não encontrada ou erro no banco." }, { status: 404 });
     }
 
+    // A OS pode existir sem cliente, mas a nota fiscal exige um tomador.
+    if (!os.cliente?.id) {
+      return NextResponse.json(
+        { ok: false, message: "Vincule um cliente à OS antes de emitir a NFS-e." },
+        { status: 400 },
+      );
+    }
+
     const itensDaOs = (Array.isArray(os.osservico) ? os.osservico : []) as ItemServicoBanco[];
     const itensSelecionados: NFSeItemEmissao[] = [];
 

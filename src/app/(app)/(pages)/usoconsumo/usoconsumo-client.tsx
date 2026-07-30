@@ -146,7 +146,7 @@ function StatusCards({ counts, loading }: { counts: Counts; loading: boolean }) 
         return (
           <Card key={card.title} className={`gap-0 py-4 ${index === 4 ? "col-span-2 md:col-span-1" : ""}`}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">{card.title}</CardTitle>
+              <CardTitle className="text-sm font-medium ">{card.title}</CardTitle>
               <Icon className={`h-4 w-4 ${card.color || "text-muted-foreground"}`} />
             </CardHeader>
             <CardContent>

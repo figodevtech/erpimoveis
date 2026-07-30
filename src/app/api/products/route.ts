@@ -6,6 +6,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireEstoqueAccess, requireEstoqueCreate } from "@/app/api/_authz/perms";
 import { getProductSearchTokens, matchesProductSearch } from "@/lib/product-search";
 import { registrarEntradaConfirmada } from "@/services/estoque/entradaService";
+import { auth } from "@/lib/auth";
 
 /** Status de estoque (para filtros do GET) */
 type Status = 'OK' | 'CRITICO' | 'BAIXO' | 'SEM_ESTOQUE';
@@ -462,6 +463,7 @@ export async function POST(req: Request) {
             fiscal: false,
           },
           "AJUSTE_RAPIDO",
+          ((await auth())?.user as { id?: string })?.id ?? null,
         );
       } catch (entradaError) {
         const { error: rollbackError } = await supabaseAdmin

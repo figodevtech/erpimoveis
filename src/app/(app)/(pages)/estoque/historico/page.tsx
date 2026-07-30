@@ -1,16 +1,24 @@
 "use client";
 
 import axios, { isAxiosError } from "axios";
-import { ArrowDownToLine, ArrowUpFromLine, Loader2, RefreshCw, RotateCcw } from "lucide-react";
+import {
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Boxes,
+  Loader2,
+  Package,
+  RefreshCw,
+  RotateCcw,
+} from "lucide-react";
 import { useSession } from "next-auth/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/lib/toast";
+import { CancelMovementDialog, type CancelTarget } from "../components/cancel-movement-dialog";
 
 type InventoryKind = "produtos" | "uso-consumo";
 type Direction = "entrada" | "saida";
@@ -104,108 +112,224 @@ function normalizeMovement(
   };
 }
 
-function MovementTable({
-  movements,
-  loading,
-  canCancelUse,
-  canceling,
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+}
+
+function MovementRow({
+  movement,
+  cancellable,
+  isCanceling,
+  showActions,
   onCancel,
 }: {
-  movements: Movement[];
-  loading: boolean;
-  canCancelUse: boolean;
-  canceling: string | null;
+  movement: Movement;
+  cancellable: boolean;
+  isCanceling: boolean;
+  showActions: boolean;
   onCancel: (movement: Movement) => void;
 }) {
-  const showActions = canCancelUse && movements.some((movement) => movement.inventory === "uso-consumo");
+  const isEntrada = movement.direction === "entrada";
 
   return (
-    <Card>
-      <CardContent className="p-0">
-        <Table>
+    <TableRow>
+      <TableCell>
+        <div className="flex items-start gap-2">
+          <div
+            className={`shrink-0 rounded-full p-2 ${
+              isEntrada ? "bg-emerald-500/15 text-emerald-600" : "bg-amber-500/15 text-amber-600"
+            }`}
+          >
+            {isEntrada ? <ArrowDownToLine className="size-3.5" /> : <ArrowUpFromLine className="size-3.5" />}
+          </div>
+          <div className="flex min-w-0 flex-col">
+            <span className="truncate font-medium">{movement.description}</span>
+            <span className="truncate text-xs text-muted-foreground">{movement.party}</span>
+            <span className="mt-0.5 truncate text-xs text-muted-foreground md:hidden">
+              {formatDateTime(movement.createdAt)}
+            </span>
+            <span className="mt-0.5 line-clamp-2 max-w-xs text-xs text-muted-foreground lg:hidden">
+              {movement.items}
+            </span>
+          </div>
+        </div>
+      </TableCell>
+
+      <TableCell className="hidden whitespace-nowrap md:table-cell">
+        {formatDateTime(movement.createdAt)}
+      </TableCell>
+
+      <TableCell className="hidden lg:table-cell">
+        <span className="line-clamp-2 max-w-xs text-xs text-muted-foreground">{movement.items}</span>
+      </TableCell>
+
+      <TableCell>
+        <Badge variant={isEntrada ? "default" : "secondary"} className="whitespace-nowrap">
+          {isEntrada ? "Entrada" : "Saída"}
+        </Badge>
+      </TableCell>
+
+      <TableCell className="whitespace-nowrap text-right">
+        {movement.total === null
+          ? "—"
+          : movement.total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+      </TableCell>
+
+      <TableCell className="hidden sm:table-cell">
+        <Badge variant={movement.status === "CONFIRMADA" ? "outline" : "secondary"}>
+          {label(movement.status)}
+        </Badge>
+      </TableCell>
+
+      {showActions ? (
+        <TableCell className="text-right">
+          {cancellable ? (
+            <Button size="sm" variant="outline" disabled={isCanceling} onClick={() => onCancel(movement)}>
+              {isCanceling ? <Loader2 className="mr-1 size-4 animate-spin" /> : <RotateCcw className="mr-1 size-4" />}
+              Cancelar
+            </Button>
+          ) : null}
+        </TableCell>
+      ) : null}
+    </TableRow>
+  );
+}
+
+function GroupHeaderRow({
+  icon: Icon,
+  title,
+  count,
+  colSpan,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  count: number;
+  colSpan: number;
+}) {
+  return (
+    <TableRow className="hover:bg-transparent">
+      <TableCell colSpan={colSpan} className="bg-muted/50 py-2">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <Icon className="size-3.5" />
+          {title}
+          <Badge variant="outline" className="font-normal normal-case">
+            {count}
+          </Badge>
+        </div>
+      </TableCell>
+    </TableRow>
+  );
+}
+
+function MovementTable({
+  products,
+  useItems,
+  loading,
+  canCancel,
+  canceling,
+  onReload,
+  onCancel,
+}: {
+  products: Movement[];
+  useItems: Movement[];
+  loading: boolean;
+  canCancel: (movement: Movement) => boolean;
+  canceling: string | null;
+  onReload: () => void;
+  onCancel: (movement: Movement) => void;
+}) {
+  const showActions = [...products, ...useItems].some((movement) => canCancel(movement));
+  const colSpan = showActions ? 7 : 6;
+  const isEmpty = !loading && products.length === 0 && useItems.length === 0;
+
+  return (
+    <Card className="bg-card">
+      <CardHeader className="border-b-2 pb-4">
+        <CardTitle>Histórico de estoque</CardTitle>
+        <CardDescription className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onReload}
+            className="inline-flex items-center gap-1 text-foreground/50 hover:cursor-pointer hover:text-foreground/70"
+          >
+            <span>Recarregar</span>
+            <Loader2 width={12} className={loading ? "animate-spin" : ""} />
+          </button>
+          <span className="text-foreground/60">
+            Todas as entradas e saídas, separadas entre produtos e itens de uso/consumo.
+          </span>
+        </CardDescription>
+      </CardHeader>
+
+      <CardContent className="relative -mt-[24px] min-h-[300px] px-4 pb-4 pt-0">
+        <div
+          className={`${
+            loading ? "opacity-100" : ""
+          } absolute left-0 right-0 top-0 h-0.5 w-full overflow-hidden bg-slate-400 opacity-0 transition-all`}
+        >
+          <div
+            className={`absolute left-0 h-full w-1/2 -translate-x-[100%] rounded-lg bg-primary ${
+              loading ? "animate-slideIn" : ""
+            }`}
+          />
+        </div>
+
+        <Table className="mt-6 text-xs">
           <TableHeader>
-            <TableRow>
-              <TableHead>Data</TableHead>
-              <TableHead>Movimento</TableHead>
-              <TableHead>Origem/Motivo</TableHead>
-              <TableHead>Itens</TableHead>
-              <TableHead>Fornecedor/Responsável</TableHead>
-              <TableHead>Valor</TableHead>
-              <TableHead>Status</TableHead>
-              {showActions ? <TableHead className="w-24" /> : null}
+            <TableRow className="font-bold">
+              <TableHead>Descrição</TableHead>
+              <TableHead className="hidden md:table-cell">Data</TableHead>
+              <TableHead className="hidden lg:table-cell">Itens</TableHead>
+              <TableHead>Tipo</TableHead>
+              <TableHead className="text-right">Valor</TableHead>
+              <TableHead className="hidden sm:table-cell">Status</TableHead>
+              {showActions ? <TableHead className="w-24 text-right">Ações</TableHead> : null}
             </TableRow>
           </TableHeader>
           <TableBody>
-            {movements.map((movement) => {
-              const isCanceling = canceling === movement.key;
-              const cancellable =
-                canCancelUse &&
-                movement.inventory === "uso-consumo" &&
-                movement.status === "CONFIRMADA";
+            {products.length ? (
+              <>
+                <GroupHeaderRow icon={Package} title="Produtos" count={products.length} colSpan={colSpan} />
+                {products.map((movement) => (
+                  <MovementRow
+                    key={movement.key}
+                    movement={movement}
+                    cancellable={canCancel(movement)}
+                    isCanceling={canceling === movement.key}
+                    showActions={showActions}
+                    onCancel={onCancel}
+                  />
+                ))}
+              </>
+            ) : null}
 
-              return (
-                <TableRow key={movement.key}>
-                  <TableCell className="whitespace-nowrap">
-                    {new Date(movement.createdAt).toLocaleString("pt-BR")}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={movement.direction === "entrada" ? "default" : "secondary"}>
-                      {movement.direction === "entrada" ? (
-                        <ArrowDownToLine className="mr-1 size-3" />
-                      ) : (
-                        <ArrowUpFromLine className="mr-1 size-3" />
-                      )}
-                      {movement.direction === "entrada" ? "Entrada" : "Saída"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{movement.description}</TableCell>
-                  <TableCell className="min-w-64 max-w-xl whitespace-normal">{movement.items}</TableCell>
-                  <TableCell>{movement.party}</TableCell>
-                  <TableCell className="whitespace-nowrap">
-                    {movement.total === null
-                      ? "—"
-                      : movement.total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={movement.status === "CONFIRMADA" ? "outline" : "secondary"}>
-                      {label(movement.status)}
-                    </Badge>
-                  </TableCell>
-                  {showActions ? (
-                    <TableCell>
-                      {cancellable ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={isCanceling}
-                          onClick={() => onCancel(movement)}
-                        >
-                          {isCanceling ? (
-                            <Loader2 className="mr-1 size-4 animate-spin" />
-                          ) : (
-                            <RotateCcw className="mr-1 size-4" />
-                          )}
-                          Cancelar
-                        </Button>
-                      ) : null}
-                    </TableCell>
-                  ) : null}
-                </TableRow>
-              );
-            })}
-            {!loading && movements.length === 0 ? (
+            {useItems.length ? (
+              <>
+                <GroupHeaderRow icon={Boxes} title="Uso e consumo" count={useItems.length} colSpan={colSpan} />
+                {useItems.map((movement) => (
+                  <MovementRow
+                    key={movement.key}
+                    movement={movement}
+                    cancellable={canCancel(movement)}
+                    isCanceling={canceling === movement.key}
+                    showActions={showActions}
+                    onCancel={onCancel}
+                  />
+                ))}
+              </>
+            ) : null}
+
+            {isEmpty ? (
               <TableRow>
-                <TableCell
-                  colSpan={showActions ? 8 : 7}
-                  className="h-32 text-center text-muted-foreground"
-                >
+                <TableCell colSpan={colSpan} className="h-32 text-center text-muted-foreground">
                   Nenhuma movimentação encontrada.
                 </TableCell>
               </TableRow>
             ) : null}
           </TableBody>
         </Table>
-        {loading ? (
+
+        {loading && isEmpty ? (
           <div className="flex h-32 items-center justify-center text-muted-foreground">
             <Loader2 className="mr-2 size-5 animate-spin" />
             Carregando histórico...
@@ -222,12 +346,13 @@ export default function HistoricoEstoquePage() {
   const canProducts = permissionSetHas(permissions, PERMS.ESTOQUE);
   const canUse = permissionSetHas(permissions, PERMS.USOCONSUMO);
   const canCancelUse = permissionSetHas(permissions, PERMS.USOCONSUMO_CANCELAR);
+  const canCancelProducts = permissionSetHas(permissions, PERMS.ESTOQUE_EDITAR);
 
   const [products, setProducts] = useState<Movement[]>([]);
   const [useItems, setUseItems] = useState<Movement[]>([]);
-  const [tab, setTab] = useState<InventoryKind>("produtos");
   const [loading, setLoading] = useState(true);
   const [canceling, setCanceling] = useState<string | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<{ movement: Movement; target: CancelTarget } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -280,27 +405,31 @@ export default function HistoricoEstoquePage() {
 
   useEffect(() => {
     if (sessionStatus !== "authenticated") return;
-    setTab(canProducts ? "produtos" : "uso-consumo");
     void load();
-  }, [canProducts, load, sessionStatus]);
+  }, [load, sessionStatus]);
 
-  const activeMovements = useMemo(
-    () => (tab === "produtos" ? products : useItems),
-    [products, tab, useItems],
-  );
+  /** Produto usa a permissao de edicao de estoque; uso/consumo tem permissao propria. */
+  function podeCancelar(movement: Movement) {
+    if (movement.status !== "CONFIRMADA") return false;
+    return movement.inventory === "uso-consumo" ? canCancelUse : canCancelProducts;
+  }
 
-  async function cancelMovement(movement: Movement) {
-    if (
-      movement.inventory !== "uso-consumo" ||
-      !canCancelUse ||
-      !window.confirm(`Cancelar esta ${movement.direction}?`)
-    ) return;
+  async function cancelMovement(motivo: string) {
+    if (!cancelTarget) return;
+    const { movement } = cancelTarget;
 
     setCanceling(movement.key);
     try {
       const path = movement.direction === "entrada" ? "entradas" : "saidas";
-      await axios.post(`/api/usoconsumo/${path}/${movement.id}/cancelar`);
+      const endpoint =
+        movement.inventory === "uso-consumo"
+          ? `/api/usoconsumo/${path}/${movement.id}/cancelar`
+          : movement.direction === "entrada"
+            ? `/api/entradas/${movement.id}/cancelar`
+            : `/api/estoque/saidas/${movement.id}/cancelar`;
+      await axios.post(endpoint, { motivo });
       toast.success("Movimentação cancelada.");
+      setCancelTarget(null);
       await load();
     } catch (error) {
       toast.error("Cancelamento não realizado", { description: errorText(error) });
@@ -315,7 +444,7 @@ export default function HistoricoEstoquePage() {
         <div>
           <h1 className="text-xl font-semibold">Histórico de estoque</h1>
           <p className="text-sm text-muted-foreground">
-            Todas as entradas e saídas, separadas entre produtos e itens de uso/consumo.
+            Acompanhe entradas e saídas de produtos e de itens de uso/consumo em um só lugar.
           </p>
         </div>
         <Button variant="outline" disabled={loading} onClick={() => void load()}>
@@ -324,19 +453,30 @@ export default function HistoricoEstoquePage() {
         </Button>
       </div>
 
-      <Tabs value={tab} onValueChange={(value) => setTab(value as InventoryKind)}>
-        <TabsList>
-          {canProducts ? <TabsTrigger value="produtos">Produtos</TabsTrigger> : null}
-          {canUse ? <TabsTrigger value="uso-consumo">Uso/Consumo</TabsTrigger> : null}
-        </TabsList>
-      </Tabs>
-
       <MovementTable
-        movements={activeMovements}
+        products={products}
+        useItems={useItems}
         loading={loading}
-        canCancelUse={canCancelUse}
+        canCancel={podeCancelar}
         canceling={canceling}
-        onCancel={(movement) => void cancelMovement(movement)}
+        onReload={() => void load()}
+        onCancel={(movement) =>
+          setCancelTarget({
+            movement,
+            target: {
+              id: movement.id,
+              kind: movement.direction,
+              inventory: movement.inventory === "uso-consumo" ? "usoconsumo" : "produto",
+            },
+          })
+        }
+      />
+
+      <CancelMovementDialog
+        target={cancelTarget?.target ?? null}
+        onOpenChange={(open) => !open && setCancelTarget(null)}
+        onConfirm={cancelMovement}
+        canceling={canceling !== null}
       />
     </div>
   );

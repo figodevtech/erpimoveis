@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireEstoqueAccess, requireEstoqueCreate } from "@/app/api/_authz/perms";
+import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { entradaErrorResponse, registrarEntradaConfirmada } from "@/services/estoque/entradaService";
 
@@ -49,7 +50,12 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     await requireEstoqueCreate();
-    const result = await registrarEntradaConfirmada(await req.json(), "AJUSTE_RAPIDO");
+    const session = await auth();
+    const result = await registrarEntradaConfirmada(
+      await req.json(),
+      "AJUSTE_RAPIDO",
+      (session?.user as { id?: string })?.id ?? null,
+    );
     return NextResponse.json(
       { success: true, entradaId: result.entrada_id, valorTotal: result.valor_total },
       { status: 201 },
