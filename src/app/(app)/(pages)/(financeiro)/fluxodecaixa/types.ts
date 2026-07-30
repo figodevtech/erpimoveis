@@ -39,6 +39,14 @@ export interface TransactionCustomer {
   cpfcnpj: string;
 }
 
+/** Fornecedor vinculado a uma transacao (mutuamente exclusivo com o cliente). */
+export interface TransactionFornecedor {
+  id: number;
+  nomerazaosocial?: string | null;
+  nomefantasia?: string | null;
+  cpfcnpj?: string | null;
+}
+
 export interface Banco {
   id: number;
   titulo: string;
@@ -99,6 +107,8 @@ export interface Transaction {
   centro_custo_dados?: Centro_custo | null;
   tipo: Tipo_transacao;
   cliente_id?: number;
+  fornecedor_id?: number | null;
+  fornecedor?: TransactionFornecedor | null;
   banco_id?: number | null;
   banco?: Banco | null;
   parcelas?: number;
@@ -126,6 +136,7 @@ export interface NewTransaction {
   centro_custo_id?: number | null;
   tipo?: Tipo_transacao;
   cliente_id?: number | null;
+  fornecedor_id?: number | null;
   banco_id?: number | null;
   banco?: Banco | null;
   parcelas?: number;

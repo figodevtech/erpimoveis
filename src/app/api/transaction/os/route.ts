@@ -22,6 +22,7 @@ const WRITABLE_FIELDS = new Set([
   "centro_custo_id",
   "tipo",
   "cliente_id",
+  "fornecedor_id",
   "banco_id",
   "nomepagador",
   "cpfcnpjpagador",
@@ -31,7 +32,7 @@ const WRITABLE_FIELDS = new Set([
 
 /** Campos retornados no select padrão (transacao) */
 const TRANSACAO_FIELDS =
-  "id, descricao, valor, valorLiquido, data, ordemservicoid, vendaid, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, pendente, cliente_id, banco_id, created_at, updated_at";
+  "id, descricao, valor, valorLiquido, data, ordemservicoid, vendaid, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, pendente, cliente_id, fornecedor_id, banco_id, created_at, updated_at";
 
 /** Campos do banco (bancoconta) alinhados ao que você precisa no front */
 const BANCO_FIELDS =
@@ -150,7 +151,8 @@ function sanitizeTransacaoPayload(body: any, { strict }: { strict: boolean }) {
         out[key] = toNumberOrNull(body[key]);
         break;
       }
-      case "cliente_id": {
+      case "cliente_id":
+      case "fornecedor_id": {
         const n = toNumberOrNull(body[key]);
         out[key] = n == null ? null : Math.trunc(n);
         break;
@@ -228,7 +230,8 @@ export async function GET(req: Request) {
         ${TRANSACAO_FIELDS},
         banco:bancoconta!transacao_banco_id_fkey ( ${BANCO_FIELDS} ),
         categoria_dados:categoriatransacao!transacao_categoria_id_fkey ( id, nome, icone ),
-        centro_custo_dados:centrosdecusto!transacao_centro_custo_id_fkey ( id, nome, descricao, ativo )
+        centro_custo_dados:centrosdecusto!transacao_centro_custo_id_fkey ( id, nome, descricao, ativo ),
+        fornecedor:fornecedor!transacao_fornecedor_id_fkey ( id, nomerazaosocial, nomefantasia, cpfcnpj )
         `,
         { count: "exact" }
       )
@@ -551,7 +554,8 @@ export async function POST(req: Request) {
         ${TRANSACAO_FIELDS},
         banco:bancoconta!transacao_banco_id_fkey ( ${BANCO_FIELDS} ),
         categoria_dados:categoriatransacao!transacao_categoria_id_fkey ( id, nome, icone ),
-        centro_custo_dados:centrosdecusto!transacao_centro_custo_id_fkey ( id, nome, descricao, ativo )
+        centro_custo_dados:centrosdecusto!transacao_centro_custo_id_fkey ( id, nome, descricao, ativo ),
+        fornecedor:fornecedor!transacao_fornecedor_id_fkey ( id, nomerazaosocial, nomefantasia, cpfcnpj )
         `
       );
 
