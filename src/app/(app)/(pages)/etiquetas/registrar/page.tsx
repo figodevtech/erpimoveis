@@ -1,19 +1,19 @@
 "use client";
 
-import { FormEvent, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import axios, { isAxiosError } from "axios";
-import { AlertTriangle, CheckCircle2, Edit, LinkIcon, PackageSearch, Search } from "lucide-react";
+import { AlertTriangle, CheckCircle2, LinkIcon, PackageSearch, Search } from "lucide-react";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import ProductSelect from "@/app/(app)/components/productSelect";
 import { DialogProduto } from "../../estoque/components/dialog-produto/dialog-produto";
+import { InventoryItemFoundCard } from "../../estoque/components/inventory-item-found-card";
 import { QrCodeInput } from "../../estoque/components/dialog-produto/qr-code-input";
 import type { Produto } from "../../estoque/types";
 import { ItemDialog } from "../../usoconsumo/components/item-dialog";
 import { ItemSelectDialog, type UsoConsumoItemOption } from "../../usoconsumo/components/item-select-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "@/lib/toast";
@@ -33,17 +33,13 @@ function ItemCard({ match, canEdit, onEdit }: { match: InventoryLabelMatch; canE
     );
   }
   return (
-    <Card>
-      <CardHeader className="flex-row items-start justify-between gap-3">
-        <div><Badge variant="outline">{title}</Badge><CardTitle className="mt-2 text-base">{item.titulo || `${title} #${item.id}`}</CardTitle></div>
-        {canEdit ? <Button size="sm" variant="outline" onClick={onEdit}><Edit className="mr-2 h-4 w-4" />Editar</Button> : null}
-      </CardHeader>
-      <CardContent className="grid gap-2 text-sm sm:grid-cols-2">
-        <p><strong>ID:</strong> #{item.id}</p><p><strong>Encontrado por:</strong> {match.matchBy === "CODIGOBARRAS" ? "Código de barras" : "Etiqueta"}</p>
-        <p><strong>Referência:</strong> {item.referencia || "—"}</p><p><strong>Local:</strong> {item.local || "—"}</p>
-        <p><strong>Estoque:</strong> {item.estoque ?? 0} {item.unidade || ""}</p><p><strong>Status:</strong> {item.status_estoque || "—"}</p>
-      </CardContent>
-    </Card>
+    <InventoryItemFoundCard
+      kind={match.kind}
+      item={item}
+      matchBy={match.matchBy}
+      subtitle="Resultado da consulta de etiqueta"
+      onEdit={canEdit ? onEdit : undefined}
+    />
   );
 }
 
@@ -75,8 +71,8 @@ function RegistrarEtiquetaContent() {
 
   useEffect(() => { void loadGroups().catch(() => undefined); }, [loadGroups]);
 
-  const runLookup = useCallback(async (notify = true) => {
-    const normalized = code.trim();
+  const runLookup = useCallback(async (notify = true, scannedCode?: string) => {
+    const normalized = (scannedCode ?? code).trim();
     if (!normalized) return null;
     setLoading(true);
     try {
@@ -134,15 +130,24 @@ function RegistrarEtiquetaContent() {
   const found = lookup?.matches ?? [];
   const available = lookup?.status === "AVAILABLE";
   const canChooseAny = canEditProduct || canEditUse;
-  const description = useMemo(() => origin === "usoconsumo"
-    ? "Consulte ou vincule uma etiqueta a um produto ou item de uso/consumo."
-    : "Leia o QR Code e identifique automaticamente a qual estoque a etiqueta pertence.", [origin]);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <div><h1 className="text-xl font-semibold">Registro/Consulta de Etiqueta</h1><p className="text-sm text-muted-foreground">{description}</p></div>
       <form className="space-y-3 rounded-lg border bg-card p-4" onSubmit={submit}>
-        <QrCodeInput id="consultar-etiqueta-compartilhada" label="Etiqueta ou código de barras" value={code} placeholder="Leia o QR Code ou informe o código" loading={loading} loadingLabel="Consultando" uppercase onChange={(value) => { setCode(value); setLookup(null); }} />
+        <QrCodeInput
+          id="consultar-etiqueta-compartilhada"
+          label="Etiqueta ou código de barras"
+          value={code}
+          placeholder="Leia o QR Code ou informe o código"
+          loading={loading}
+          loadingLabel="Consultando"
+          uppercase
+          onChange={(value) => {
+            setCode(value);
+            setLookup(null);
+          }}
+          onScan={(value) => void runLookup(true, value)}
+        />
         <Button className="w-full" type="submit" disabled={!code.trim() || loading}><Search className="mr-2 h-4 w-4" />Consultar</Button>
       </form>
 

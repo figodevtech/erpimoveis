@@ -13,7 +13,6 @@ import {
   ChevronsLeft,
   ChevronsRight,
   CircleOff,
-  ClipboardCheck,
   Clock,
   Download,
   Edit,
@@ -436,7 +435,6 @@ export default function UsoConsumoClient() {
                         {canEdit ? <DropdownMenuItem onClick={() => editItem(item)}><Edit className="mr-2 h-4 w-4" />Editar</DropdownMenuItem> : null}
                         {canEntry ? <DropdownMenuItem onClick={() => setMovement({ item, type: "entrada" })}><PackagePlus className="mr-2 h-4 w-4" />Entrada</DropdownMenuItem> : null}
                         {canExit ? <DropdownMenuItem disabled={item.estoque <= 0} onClick={() => setMovement({ item, type: "saida" })}><PackageMinus className="mr-2 h-4 w-4" />Saída</DropdownMenuItem> : null}
-                        {canEdit ? <DropdownMenuItem onClick={() => setMovement({ item, type: "inventario" })}><ClipboardCheck className="mr-2 h-4 w-4" />Inventário</DropdownMenuItem> : null}
                         {canDelete ? <DropdownMenuItem variant="destructive" onClick={() => setDeleteItem(item)}><Trash2Icon className="mr-2 h-4 w-4" />Excluir</DropdownMenuItem> : null}
                       </DropdownMenuContent>
                     </DropdownMenu>

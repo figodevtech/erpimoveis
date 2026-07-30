@@ -12,6 +12,7 @@ import {
   FileText,
   Loader2,
   MoreHorizontal,
+  Printer,
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import {
@@ -236,6 +237,18 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
                         </DropdownMenuTrigger>
 
                         <DropdownMenuContent id={menuId} aria-labelledby={triggerId} className="space-y-1">
+                          <DropdownMenuItem
+                            onClick={() =>
+                              window.open(
+                                `/print/venda/${v.id}/orcamento`,
+                                "_blank",
+                                "noopener,noreferrer",
+                              )
+                            }
+                          >
+                            <Printer className="h-4 w-4" />
+                            <span>Imprimir</span>
+                          </DropdownMenuItem>
                           <VendasFinancialDialog
                             handleGetVendas={handleGetVendas}
                             open={open}

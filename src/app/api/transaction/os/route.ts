@@ -86,18 +86,18 @@ function centsToNumber(cents: number): number {
   return Number((cents / 100).toFixed(2));
 }
 
-function distributeNetByGross(grossCentsList: number[], totalNetCents: number) {
-  const grossTotal = grossCentsList.reduce((acc, value) => acc + value, 0);
-  if (grossTotal <= 0) return grossCentsList.map(() => 0);
+function distributeTotalByWeights(weights: number[], totalCents: number) {
+  const weightTotal = weights.reduce((acc, value) => acc + value, 0);
+  if (weightTotal <= 0) return weights.map(() => 0);
 
   let allocated = 0;
 
-  return grossCentsList.map((gross, index) => {
-    if (index === grossCentsList.length - 1) {
-      return totalNetCents - allocated;
+  return weights.map((weight, index) => {
+    if (index === weights.length - 1) {
+      return totalCents - allocated;
     }
 
-    const proportional = Math.floor((gross * totalNetCents) / grossTotal);
+    const proportional = Math.floor((weight * totalCents) / weightTotal);
     allocated += proportional;
     return proportional;
   });
@@ -362,19 +362,30 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "O valor da transação deve ser maior que zero." }, { status: 400 });
     }
 
-    // ------ Validação quando é OS ------
-    const parcelasGrossCents = hasParcelamento
+    // As parcelas informadas representam os valores líquidos que serão recebidos.
+    const valorLiquidoTotalCents = moneyToCents(payload?.valorLiquido as any) ?? valorTotalCents;
+    const parcelasNetCents = hasParcelamento
       ? parcelasDetalhadas.map((parcela) => moneyToCents(parcela.valor as any) ?? 0)
-      : [valorTotalCents ?? 0];
-    const totalNovoValorCents = parcelasGrossCents.reduce((acc, value) => acc + value, 0);
-    const valorCents = totalNovoValorCents;
+      : [valorLiquidoTotalCents];
+    const totalParcelasNetCents = parcelasNetCents.reduce((acc, value) => acc + value, 0);
 
-    if (hasParcelamento && totalNovoValorCents !== valorTotalCents) {
+    if (hasParcelamento && totalParcelasNetCents !== valorLiquidoTotalCents) {
       return NextResponse.json(
-        { error: "A soma das parcelas deve ser igual ao valor total informado." },
+        {
+          error:
+            valorLiquidoTotalCents !== valorTotalCents
+              ? "A soma das parcelas deve ser igual ao valor líquido informado."
+              : "A soma das parcelas deve ser igual ao valor total informado.",
+        },
         { status: 400 }
       );
     }
+
+    const parcelasGrossCents = hasParcelamento
+      ? distributeTotalByWeights(parcelasNetCents, valorTotalCents)
+      : [valorTotalCents];
+    const totalNovoValorCents = parcelasGrossCents.reduce((acc, value) => acc + value, 0);
+    const valorCents = totalNovoValorCents;
 
     if (payload?.ordemservicoid != null && payload?.evento_financeiro_id == null && isReceita) {
       osId = Number(payload.ordemservicoid);
@@ -515,10 +526,6 @@ export async function POST(req: Request) {
     // =================== Fim validações pré-inserção ===================
 
     // 🔹 Insere e retorna já com o banco relacionado
-    const valorLiquidoTotalCents = moneyToCents(payload?.valorLiquido as any) ?? valorTotalCents;
-    const parcelasNetCents = hasParcelamento
-      ? distributeNetByGross(parcelasGrossCents, valorLiquidoTotalCents)
-      : [valorLiquidoTotalCents];
     const baseDescricao = String(payload.descricao ?? "").trim();
     const rowsToInsert = (hasParcelamento ? parcelasDetalhadas : [{ valor: payload.valor, data: payload.data }]).map(
       (_, index) => ({

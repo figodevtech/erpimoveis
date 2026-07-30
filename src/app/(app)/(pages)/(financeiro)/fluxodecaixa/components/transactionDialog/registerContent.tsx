@@ -181,6 +181,9 @@ export default function RegisterContent({
     newTransaction.metodopagamento === Metodo_pagamento.BOLETO ||
     newTransaction.metodopagamento === Metodo_pagamento.CREDITO;
   const canManageParcelas = metodoPermiteParcelas && !!newTransaction.pendente;
+  const valorTotalParcelamento = isChecked
+    ? (newTransaction.valorLiquido ?? newTransaction.valor ?? 0)
+    : (newTransaction.valor ?? 0);
   const nomeMetodoParcelado =
     newTransaction.metodopagamento === Metodo_pagamento.CREDITO
       ? "crédito"
@@ -463,10 +466,14 @@ export default function RegisterContent({
           (acc, parcela) => acc + toCentavos(parcela.valor),
           0,
         );
-        const valorTotal = toCentavos(newTransaction.valor);
+        const valorTotal = toCentavos(valorTotalParcelamento);
 
         if (somaParcelas !== valorTotal) {
-          toast.error("A soma das parcelas deve ser igual ao valor total.");
+          toast.error(
+            isChecked
+              ? "A soma das parcelas deve ser igual ao valor líquido."
+              : "A soma das parcelas deve ser igual ao valor total.",
+          );
           return;
         }
 
@@ -548,7 +555,7 @@ export default function RegisterContent({
     setParcelasDetalhadas((prev) => {
       const quantidade = Math.max(1, prev.length || 1);
       const valoresPadrao = distribuirValoresIguais(
-        newTransaction.valor ?? 0,
+        valorTotalParcelamento,
         quantidade,
       );
       const dataBase = newTransaction.data ?? new Date();
@@ -566,7 +573,7 @@ export default function RegisterContent({
     canManageParcelas,
     parcelasIguais,
     newTransaction.data,
-    newTransaction.valor,
+    valorTotalParcelamento,
   ]);
 
   useEffect(() => {
@@ -1054,7 +1061,7 @@ export default function RegisterContent({
 
                                 const valoresRedistribuidos =
                                   distribuirValoresIguais(
-                                    newTransaction.valor ?? 0,
+                                    valorTotalParcelamento,
                                     next.length,
                                   );
 
@@ -1112,7 +1119,8 @@ export default function RegisterContent({
 
                     <div className="flex items-center justify-between text-xs text-muted-foreground">
                       <span>
-                        Valor total: {formatarEmReal(newTransaction.valor || 0)}
+                        {isChecked ? "Valor líquido a parcelar" : "Valor total"}: {" "}
+                        {formatarEmReal(valorTotalParcelamento)}
                       </span>
                       <span>
                         Soma das parcelas:{" "}
@@ -1148,7 +1156,7 @@ export default function RegisterContent({
                           }
 
                           const valoresRedistribuidos = distribuirValoresIguais(
-                            newTransaction.valor ?? 0,
+                            valorTotalParcelamento,
                             next.length,
                           );
 

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useSession } from "next-auth/react";
-import { ArrowRightLeft, ChevronDown, Undo2 } from "lucide-react";
+import { ArrowRightLeft, ChevronDown, Eye, Undo2 } from "lucide-react";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { TabsContent } from "@/components/ui/tabs";
 import { toast } from "@/lib/toast";
 import { formatDate } from "@/utils/formatDate";
+import { EntryDetailsDialog } from "../../estoque/components/entry-details-dialog";
 
 export type UsoConsumoEntradaMovimento = {
   id: number;
@@ -49,6 +50,7 @@ export function ItemMovementsTab({ entradas = [], saidas = [], onAfterChange }: 
   const { data: session } = useSession();
   const canCancel = permissionSetHas((session?.user as { permissoes?: unknown })?.permissoes, PERMS.USOCONSUMO_CANCELAR);
   const [cancelTarget, setCancelTarget] = useState<{ id: number; type: "entrada" | "saida" } | null>(null);
+  const [detailsEntradaId, setDetailsEntradaId] = useState<number | null>(null);
   const [canceling, setCanceling] = useState(false);
 
   const movements = [
@@ -93,6 +95,12 @@ export function ItemMovementsTab({ entradas = [], saidas = [], onAfterChange }: 
 
   return (
     <TabsContent value="Fluxo" className="h-full min-h-0 space-y-6 overflow-auto px-2 py-3 dark:bg-muted-foreground/5 md:px-6 md:py-6">
+      <EntryDetailsDialog
+        entryId={detailsEntradaId}
+        inventory="usoconsumo"
+        open={detailsEntradaId !== null}
+        onOpenChange={(open) => !open && setDetailsEntradaId(null)}
+      />
       <AlertDialog open={cancelTarget !== null} onOpenChange={(open) => !open && !canceling && setCancelTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -126,7 +134,25 @@ export function ItemMovementsTab({ entradas = [], saidas = [], onAfterChange }: 
                   <TableCell>{statusBadge(movement.status)}</TableCell>
                   <TableCell className={`text-right font-bold ${movement.type === "entrada" ? "text-emerald-600" : "text-red-600"}`}>{movement.type === "entrada" ? "+" : "-"} {movement.quantity}</TableCell>
                   <TableCell className="text-right font-medium">{movement.balance}</TableCell>
-                  <TableCell>{canCancel && movement.status === "CONFIRMADA" ? <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 rounded-full"><ChevronDown className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem variant="destructive" onClick={() => setCancelTarget({ id: movement.id, type: movement.type })}><Undo2 className="mr-2 h-4 w-4" />Cancelar {movement.type}</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}</TableCell>
+                  <TableCell>
+                    {movement.type === "entrada" || (canCancel && movement.status === "CONFIRMADA") ? (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 rounded-full"><ChevronDown className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {movement.type === "entrada" ? (
+                            <DropdownMenuItem onClick={() => setDetailsEntradaId(movement.id)}>
+                              <Eye className="mr-2 h-4 w-4" />Detalhes
+                            </DropdownMenuItem>
+                          ) : null}
+                          {canCancel && movement.status === "CONFIRMADA" ? (
+                            <DropdownMenuItem variant="destructive" onClick={() => setCancelTarget({ id: movement.id, type: movement.type })}>
+                              <Undo2 className="mr-2 h-4 w-4" />Cancelar {movement.type}
+                            </DropdownMenuItem>
+                          ) : null}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    ) : null}
+                  </TableCell>
                 </TableRow>
               ))}
               {movements.length === 0 ? <TableRow><TableCell colSpan={8} className="h-24 text-center text-muted-foreground"><div className="flex flex-col items-center justify-center gap-2"><ArrowRightLeft className="h-8 w-8 opacity-20" /><p>Item não possui histórico de movimentação no estoque</p></div></TableCell></TableRow> : null}

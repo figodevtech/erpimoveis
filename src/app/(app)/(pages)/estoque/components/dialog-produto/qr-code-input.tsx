@@ -16,6 +16,7 @@ type Props = {
   loadingLabel?: string;
   uppercase?: boolean;
   onChange: (value: string) => void;
+  onScan?: (value: string) => void;
 };
 
 function normalizeQrValue(value: string) {
@@ -33,6 +34,7 @@ export function QrCodeInput({
   loadingLabel,
   uppercase = false,
   onChange,
+  onScan,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -115,7 +117,9 @@ export function QrCodeInput({
 
           if (rawValue) {
             const normalized = normalizeQrValue(rawValue);
-            onChange(uppercase ? normalized.toUpperCase() : normalized);
+            const scannedValue = uppercase ? normalized.toUpperCase() : normalized;
+            onChange(scannedValue);
+            onScan?.(scannedValue);
             setOpen(false);
             return;
           }
@@ -138,7 +142,7 @@ export function QrCodeInput({
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     };
-  }, [onChange, open, uppercase]);
+  }, [onChange, onScan, open, uppercase]);
 
   return (
     <div className="space-y-2">

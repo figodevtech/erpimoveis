@@ -52,7 +52,10 @@ export const usoConsumoItemPatchSchema = z.object({
   aliquota_cofins: patchNumber(100), modo_cofins: patchText,
   aliquota_por_unidade_cofins: patchNumber(), cst_ibscbs: patchText, cclass_trib: patchText,
   aliquota_ibs_uf: patchNumber(100), aliquota_ibs_municipio: patchNumber(100), aliquota_cbs: patchNumber(100),
-  expectedUpdatedAt: z.string().datetime().optional(),
+  // PostgREST serializa timestamptz com offset (por exemplo, +00:00).
+  // O padrão do Zod aceita somente o sufixo Z e rejeitava timestamps
+  // válidos retornados pelo próprio Supabase como "Invalid datetime".
+  expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
 }).strict().refine((value) => Object.keys(value).some((key) => key !== "expectedUpdatedAt"), "Nada para atualizar.");
 
 export const entradaItemSchema = z.object({

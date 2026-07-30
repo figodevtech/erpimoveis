@@ -13,6 +13,7 @@ import {
   FileText,
   Loader2,
   MoreHorizontal,
+  Printer,
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
@@ -244,6 +245,18 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
                         </DropdownMenuTrigger>
 
                         <DropdownMenuContent id={menuId} aria-labelledby={triggerId} className="space-y-1" align="end">
+                          <DropdownMenuItem
+                            onClick={() =>
+                              window.open(
+                                `/print/ordemservico/${o.id}`,
+                                "_blank",
+                                "noopener,noreferrer",
+                              )
+                            }
+                          >
+                            <Printer className="h-4 w-4" />
+                            <span>Imprimir</span>
+                          </DropdownMenuItem>
                           <OsFinancialDialog handleGetOrdens={handleGetOrdens} osId={o.id}>
                             <DropdownMenuItem disabled={o.orcamentototal <= 0} onSelect={(e) => e.preventDefault()}>
                               <DollarSign className="h-4 w-4" />

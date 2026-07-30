@@ -3,10 +3,10 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TabsContent } from "@/components/ui/tabs";
-import { ChevronDown, Undo2, Receipt, ArrowRightLeft } from "lucide-react";
+import { ChevronDown, Undo2, Receipt, ArrowRightLeft, Eye } from "lucide-react";
 import { Produto } from "../../../types";
 import { formatDate } from "@/utils/formatDate";
 import { EmissaoNotaDialog } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/emissao-nota-dialog";
@@ -21,6 +21,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "@/lib/toast";
+import { EntryDetailsDialog } from "../../entry-details-dialog";
 
 export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfterChange?: () => void | Promise<void> }) {
   const entradas = (produto as any).entrada ?? [];
@@ -48,6 +49,7 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
     })),
   ].sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
   const [nfeDialogEntradaId, setNfeDialogEntradaId] = useState<number | null>(null);
+  const [detailsEntradaId, setDetailsEntradaId] = useState<number | null>(null);
   const [entradaParaCancelar, setEntradaParaCancelar] = useState<number | null>(null);
   const [cancelando, setCancelando] = useState(false);
 
@@ -94,6 +96,12 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
         open={!!nfeDialogEntradaId}
         onOpenChange={(v) => !v && setNfeDialogEntradaId(null)}
         entradaId={nfeDialogEntradaId}
+      />
+      <EntryDetailsDialog
+        entryId={detailsEntradaId}
+        inventory="produto"
+        open={detailsEntradaId !== null}
+        onOpenChange={(open) => !open && setDetailsEntradaId(null)}
       />
       <AlertDialog open={entradaParaCancelar !== null} onOpenChange={(open) => !open && setEntradaParaCancelar(null)}>
         <AlertDialogContent>
@@ -178,6 +186,10 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-[180px]">
+                            <DropdownMenuItem onClick={() => setDetailsEntradaId(movimento.id)}>
+                              <Eye className="mr-2 h-4 w-4" />
+                              Detalhes
+                            </DropdownMenuItem>
                             {entradaInfo.status === "CONFIRMADA" && entradaInfo.origem !== "NFE_TERCEIRO" ? <Button onClick={()=>{
                               if (entradaInfo.id) {
                                 setNfeDialogEntradaId(entradaInfo.id)
