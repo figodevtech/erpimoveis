@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import axios, { isAxiosError } from "axios";
-import { Loader2, PackageMinus } from "lucide-react";
+import { Loader2, Minus, PackageMinus, Plus } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,30 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-const MOTIVOS = [
-  ["USO_INTERNO", "Uso interno"],
-  ["AVARIA", "Avaria"],
-  ["PERDA", "Perda"],
-  ["FURTO", "Furto"],
-  ["VENCIMENTO", "Vencimento"],
-  ["DOACAO", "Doação"],
-  ["TRANSFERENCIA", "Transferência"],
-  ["AJUSTE_INVENTARIO", "Ajuste de inventario"],
-  ["OUTRO", "Outro"],
-] as const;
-
-const MOTIVOS_USOCONSUMO = [
-  ["CONSUMO_INTERNO", "Consumo interno"],
-  ["ENTREGA_FUNCIONARIO", "Entrega a funcionário"],
-  ["MANUTENCAO_INTERNA", "Manutenção interna"],
-  ["AVARIA", "Avaria"],
-  ["PERDA", "Perda"],
-  ["FURTO", "Furto"],
-  ["VENCIMENTO", "Vencimento"],
-  ["TRANSFERENCIA", "Transferência"],
-  ["AJUSTE_INVENTARIO", "Ajuste de inventário"],
-  ["OUTRO", "Outro"],
-] as const;
+type MotivoSaidaOption = { codigo: string; nome: string };
 
 interface DialogSaidaProps {
   isOpen: boolean;
@@ -66,6 +43,8 @@ export default function DialogSaida({
   const [motivo, setMotivo] = useState("");
   const [observacao, setObservacao] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [motivos, setMotivos] = useState<MotivoSaidaOption[]>([]);
+  const [loadingMotivos, setLoadingMotivos] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
@@ -74,6 +53,28 @@ export default function DialogSaida({
       setObservacao("");
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let ativo = true;
+    setLoadingMotivos(true);
+    const escopo = inventory === "usoconsumo" ? "USOCONSUMO" : "PRODUTO";
+    axios
+      .get(`/api/tipos/motivos-saida?ativo=true&escopo=${escopo}`)
+      .then(({ data }) => {
+        if (!ativo) return;
+        setMotivos((data?.items ?? []).map((item: any) => ({ codigo: String(item.codigo), nome: String(item.nome) })));
+      })
+      .catch(() => {
+        if (ativo) toast.error("Não foi possível carregar os motivos de saída.");
+      })
+      .finally(() => {
+        if (ativo) setLoadingMotivos(false);
+      });
+    return () => {
+      ativo = false;
+    };
+  }, [isOpen, inventory]);
 
   const saldoResultante = currentQuantity - quantidade;
   const saidaValida = Number.isInteger(quantidade) && quantidade > 0 && quantidade <= currentQuantity;
@@ -138,16 +139,41 @@ export default function DialogSaida({
 
           <div className="space-y-2">
             <Label htmlFor="saida-quantidade">Quantidade</Label>
-            <Input
-              id="saida-quantidade"
-              type="number"
-              min={1}
-              max={currentQuantity}
-              step={1}
-              value={quantidade || ""}
-              onChange={(event) => setQuantidade(Number(event.target.value))}
-              placeholder="0"
-            />
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                className="sm:hidden shrink-0"
+                onClick={() => setQuantidade((atual) => Math.max(0, (Number.isFinite(atual) ? atual : 0) - 1))}
+                disabled={quantidade <= 0}
+                aria-label="Diminuir quantidade"
+              >
+                <Minus className="h-4 w-4" />
+              </Button>
+              <Input
+                id="saida-quantidade"
+                type="number"
+                min={1}
+                max={currentQuantity}
+                step={1}
+                value={quantidade || ""}
+                onChange={(event) => setQuantidade(Number(event.target.value))}
+                placeholder="0"
+                className="text-center sm:text-left"
+              />
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                className="sm:hidden shrink-0"
+                onClick={() => setQuantidade((atual) => Math.min(currentQuantity, (Number.isFinite(atual) ? atual : 0) + 1))}
+                disabled={quantidade >= currentQuantity}
+                aria-label="Aumentar quantidade"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
             {quantidade > currentQuantity ? (
               <p className="text-xs text-destructive">A quantidade supera o estoque disponível.</p>
             ) : null}
@@ -155,10 +181,16 @@ export default function DialogSaida({
 
           <div className="space-y-2">
             <Label>Motivo</Label>
-            <Select value={motivo} onValueChange={setMotivo}>
-              <SelectTrigger><SelectValue placeholder="Selecione o motivo" /></SelectTrigger>
+            <Select value={motivo} onValueChange={setMotivo} disabled={loadingMotivos}>
+              <SelectTrigger>
+                <SelectValue placeholder={loadingMotivos ? "Carregando motivos..." : "Selecione o motivo"} />
+              </SelectTrigger>
               <SelectContent>
-                {(inventory === "usoconsumo" ? MOTIVOS_USOCONSUMO : MOTIVOS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
+                {motivos.map((item) => (
+                  <SelectItem key={item.codigo} value={item.codigo}>
+                    {item.nome}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

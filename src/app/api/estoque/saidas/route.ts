@@ -5,17 +5,16 @@ import { requireEstoqueAccess, requireEstoqueEdit } from "@/app/api/_authz/perms
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-const MOTIVOS = new Set([
-  "USO_INTERNO",
-  "AVARIA",
-  "PERDA",
-  "FURTO",
-  "VENCIMENTO",
-  "DOACAO",
-  "TRANSFERENCIA",
-  "AJUSTE_INVENTARIO",
-  "OUTRO",
-]);
+async function motivoValidoParaProduto(motivo: string) {
+  const { data } = await supabaseAdmin
+    .from("tipos_motivo_saida")
+    .select("id")
+    .eq("codigo", motivo)
+    .eq("ativo", true)
+    .in("escopo", ["PRODUTO", "AMBOS"])
+    .maybeSingle();
+  return Boolean(data);
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -61,7 +60,7 @@ export async function POST(req: NextRequest) {
     if (!Number.isInteger(quantidade) || quantidade <= 0) {
       return NextResponse.json({ error: "Informe uma quantidade inteira maior que zero." }, { status: 400 });
     }
-    if (!MOTIVOS.has(motivo)) {
+    if (!(await motivoValidoParaProduto(motivo))) {
       return NextResponse.json({ error: "Selecione um motivo válido." }, { status: 400 });
     }
     if (motivo === "OUTRO" && !observacao) {

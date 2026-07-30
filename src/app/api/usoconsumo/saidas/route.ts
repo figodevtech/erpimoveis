@@ -5,6 +5,17 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { usoConsumoError } from "@/lib/usoconsumo/api";
 import { saidaUsoConsumoSchema, zodMessage } from "@/lib/usoconsumo/schemas";
 
+async function motivoValidoParaUsoConsumo(motivo: string) {
+  const { data } = await supabaseAdmin
+    .from("tipos_motivo_saida")
+    .select("id")
+    .eq("codigo", motivo)
+    .eq("ativo", true)
+    .in("escopo", ["USOCONSUMO", "AMBOS"])
+    .maybeSingle();
+  return Boolean(data);
+}
+
 export async function GET(req: NextRequest) {
   try {
     await requireUsoConsumoAccess();
@@ -22,6 +33,9 @@ export async function POST(req: NextRequest) {
     await requireUsoConsumoSaida();
     const parsed=saidaUsoConsumoSchema.safeParse(await req.json());
     if(!parsed.success) return NextResponse.json({error:zodMessage(parsed.error)},{status:400});
+    if (!(await motivoValidoParaUsoConsumo(parsed.data.motivo))) {
+      return NextResponse.json({ error: "Selecione um motivo válido." }, { status: 400 });
+    }
     const session=await auth(); const {itens,...saida}=parsed.data;
     const {data,error}=await supabaseAdmin.rpc("registrar_saida_usoconsumo",{p_saida:{...saida,created_by:(session?.user as {id?:string})?.id??null},p_itens:itens});
     if(error) throw error; return NextResponse.json({data},{status:201});

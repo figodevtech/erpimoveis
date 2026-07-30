@@ -105,7 +105,11 @@ export const entradaUsoConsumoSchema = z.object({
   }
 });
 
-const saidaMotivo = z.enum(["CONSUMO_INTERNO","ENTREGA_FUNCIONARIO","MANUTENCAO_INTERNA","AVARIA","PERDA","FURTO","VENCIMENTO","TRANSFERENCIA","AJUSTE_INVENTARIO","OUTRO"]);
+// Os motivos válidos vêm da tabela tipos_motivo_saida (cadastro dinâmico em
+// configuracoes/tipos), não dá mais pra enumerar estaticamente aqui. A
+// existência/escopo do código é checada em src/app/api/usoconsumo/saidas/route.ts
+// antes de chamar a RPC.
+const saidaMotivo = z.string().trim().min(1, "Selecione o motivo da saída.").transform((value) => value.toUpperCase());
 export const saidaUsoConsumoSchema = z.object({
   motivo: saidaMotivo, observacao: createText, setor: createText, funcionario: createText,
   centro_custo_id: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().optional()),
