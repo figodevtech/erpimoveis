@@ -14,6 +14,7 @@ import {
   NewTransaction,
   Tipo_transacao,
   TransactionCustomer,
+  TransactionFornecedor,
 } from "../../types";
 import ValueInput from "./valueInput";
 import {
@@ -28,6 +29,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Separator } from "@/components/ui/separator";
 import { Dispatch, SetStateAction, useEffect, useState } from "react";
 import CustomerSelect from "@/app/(app)/components/customerSelect";
+import FornecedorSelect from "@/app/(app)/components/fornecedorSelect";
 import { formatCpfCnpj } from "../../utils";
 import axios, { isAxiosError } from "axios";
 import { toast } from "@/lib/toast";
@@ -161,6 +163,8 @@ export default function RegisterContent({
   lockValue = false,
 }: RegisterContentProps) {
   const [isCustomerSelectOpen, setIsCustomerSelectOpen] = useState(false);
+  const [isFornecedorSelectOpen, setIsFornecedorSelectOpen] = useState(false);
+  const [selectedFornecedor, setSelectedFornecedor] = useState<TransactionFornecedor | undefined>(undefined);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingBanks, setIsLoadingBanks] = useState(false);
   const [banks, setBanks] = useState<Banco[]>([]);
@@ -334,6 +338,30 @@ export default function RegisterContent({
       }));
     }
   }, [setNewTransaction, selectedCustomer]);
+
+  // Cliente e fornecedor sao mutuamente exclusivos: ambos alimentam
+  // nomepagador/cpfcnpjpagador, entao manter os dois geraria dado conflitante.
+  useEffect(() => {
+    if (selectedFornecedor) {
+      setNewTransaction((prev) => ({
+        ...prev,
+        nomepagador: selectedFornecedor.nomerazaosocial ?? selectedFornecedor.nomefantasia ?? "",
+        cpfcnpjpagador: selectedFornecedor.cpfcnpj ?? "",
+        fornecedor_id: selectedFornecedor.id,
+        cliente_id: null,
+      }));
+    }
+  }, [setNewTransaction, selectedFornecedor]);
+
+  const limparFornecedor = () => {
+    setSelectedFornecedor(undefined);
+    setNewTransaction((prev) => ({
+      ...prev,
+      fornecedor_id: null,
+      nomepagador: "",
+      cpfcnpjpagador: "",
+    }));
+  };
 
   useEffect(() => {
     if (!dialogOpen || !internalCompanyExpense) return;
@@ -515,6 +543,7 @@ export default function RegisterContent({
         // opcional: limpar o formulário
         setNewTransaction({});
         setSelectedCustomer?.(undefined);
+        setSelectedFornecedor(undefined);
         setParcelasDetalhadas([]);
         setParcelasIguais(false);
       }
@@ -1228,7 +1257,7 @@ export default function RegisterContent({
               {/* dados do cliente */}
               <div>
                 <span className=" text-xs text-muted-foreground">
-                  Dados do pagador
+                  Dados do pagador/recebedor
                 </span>
                 <Separator />
               </div>
@@ -1264,6 +1293,36 @@ export default function RegisterContent({
                     </div>
                   )}
 
+                  {/* Os seletores ficam sempre montados: sao dialogs controlados por estado. */}
+                  <CustomerSelect
+                    open={isCustomerSelectOpen}
+                    setOpen={setIsCustomerSelectOpen}
+                    OnSelect={(c) => {
+                      // Escolher cliente descarta o fornecedor (mutuamente exclusivos).
+                      setSelectedFornecedor(undefined);
+                      setNewTransaction((prev) => ({ ...prev, fornecedor_id: null }));
+                      setSelectedCustomer({
+                        cpfcnpj: c.cpfcnpj,
+                        nome: c.nomerazaosocial,
+                        id: c.id,
+                      });
+                    }}
+                  />
+                  <FornecedorSelect
+                    open={isFornecedorSelectOpen}
+                    setOpen={setIsFornecedorSelectOpen}
+                    OnSelect={(f) => {
+                      // Escolher fornecedor descarta o cliente (mutuamente exclusivos).
+                      setSelectedCustomer(undefined);
+                      setSelectedFornecedor({
+                        id: f.id,
+                        nomerazaosocial: f.nomerazaosocial,
+                        nomefantasia: f.nomefantasia,
+                        cpfcnpj: f.cpfcnpj,
+                      });
+                    }}
+                  />
+
                   {selectedCustomer ? (
                     <Button
                       disabled={pagoPeloMesmo || internalCompanyExpense}
@@ -1282,20 +1341,18 @@ export default function RegisterContent({
                     >
                       Remover Cliente
                     </Button>
+                  ) : selectedFornecedor ? (
+                    <Button
+                      disabled={pagoPeloMesmo || internalCompanyExpense}
+                      onClick={limparFornecedor}
+                      className="hover:cursor-pointer"
+                      variant={"ghost"}
+                      size={"sm"}
+                    >
+                      Remover Fornecedor
+                    </Button>
                   ) : (
                     <>
-                      <CustomerSelect
-                        open={isCustomerSelectOpen}
-                        setOpen={setIsCustomerSelectOpen}
-                        OnSelect={(c) => {
-                          setSelectedCustomer({
-                            cpfcnpj: c.cpfcnpj,
-                            nome: c.nomerazaosocial,
-                            id: c.id,
-                          });
-                        }}
-                      />
-
                       <Button
                         disabled={pagoPeloMesmo || internalCompanyExpense}
                         onClick={() => setIsCustomerSelectOpen(true)}
@@ -1305,6 +1362,15 @@ export default function RegisterContent({
                       >
                         Selecionar Cliente
                       </Button>
+                      <Button
+                        disabled={pagoPeloMesmo || internalCompanyExpense}
+                        onClick={() => setIsFornecedorSelectOpen(true)}
+                        className="hover:cursor-pointer"
+                        variant={"outline"}
+                        size={"sm"}
+                      >
+                        Selecionar Fornecedor
+                      </Button>
                     </>
                   )}
                 </div>
@@ -1312,25 +1378,33 @@ export default function RegisterContent({
               <div className="space-y-4 grid sm:grid-cols-2 gap-4">
                 <div className="space-y-2 w-full">
                   <Label htmlFor="nomepagador">
-                    Nome do pagador <span className="text-red-500">*</span>
+                    Nome do pagador/recebedor <span className="text-red-500">*</span>
                   </Label>
                   <Input
-                    disabled={Boolean(selectedCustomer) || internalCompanyExpense}
+                    disabled={
+                      Boolean(selectedCustomer) ||
+                      Boolean(selectedFornecedor) ||
+                      internalCompanyExpense
+                    }
                     id="descricao"
                     value={newTransaction.nomepagador || ""}
                     onChange={(e) =>
                       handleChange("nomepagador", e.target.value)
                     }
-                    placeholder="Nome do pagador"
+                    placeholder="Nome do pagador/recebedor"
                     className="w-full"
                   />
                 </div>
                 <div className="space-y-2 w-full">
                   <Label htmlFor="cpfcnpjpagador">
-                    CPF/CNPJ do pagador <span className="text-red-500">*</span>
+                    CPF/CNPJ do pagador/recebedor <span className="text-red-500">*</span>
                   </Label>
                   <Input
-                    disabled={Boolean(selectedCustomer) || internalCompanyExpense}
+                    disabled={
+                      Boolean(selectedCustomer) ||
+                      Boolean(selectedFornecedor) ||
+                      internalCompanyExpense
+                    }
                     id="cpfcnpjpagador"
                     maxLength={14}
                     value={

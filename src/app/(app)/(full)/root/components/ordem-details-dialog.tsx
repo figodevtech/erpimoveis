@@ -444,11 +444,13 @@ export function OrdemDetailsDialog({
                             </div>
                             <div className="min-w-0">
                               <p className="font-semibold text-foreground text-sm">
-                                {data.os.cliente.nomerazaosocial}
+                                {data.os.cliente?.nomerazaosocial ?? "Sem cliente vinculado"}
                               </p>
-                              <p className="text-xs text-muted-foreground">
-                                ID: {data.os.cliente.id}
-                              </p>
+                              {data.os.cliente?.id ? (
+                                <p className="text-xs text-muted-foreground">
+                                  ID: {data.os.cliente.id}
+                                </p>
+                              ) : null}
                             </div>
                           </div>
                         ) : (

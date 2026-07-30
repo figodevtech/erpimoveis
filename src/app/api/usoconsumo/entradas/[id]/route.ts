@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireUsoConsumoAccess } from "@/app/api/_authz/perms";
+import { anexarAutor } from "@/lib/movement-authors";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { usoConsumoError } from "@/lib/usoconsumo/api";
 
@@ -13,7 +14,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       .eq("id",id).maybeSingle();
     if (error) throw error;
     if (!data) return NextResponse.json({ error: "Entrada não encontrada." }, { status: 404 });
-    return NextResponse.json({ data });
+    return NextResponse.json({ data: await anexarAutor(data) });
   } catch (error) { return usoConsumoError(error, "Erro ao buscar entrada."); }
 }
 

@@ -584,29 +584,42 @@ export default function EditContent({
 
             <div className="mb-4">
               <span className="text-xs text-muted-foreground">
-                Dados do pagador
+                Dados do pagador/recebedor
               </span>
               <Separator />
             </div>
 
+            {selectedTransaction.fornecedor ? (
+              <div className="mb-4 rounded-lg border bg-muted/30 px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Fornecedor vinculado
+                </p>
+                <p className="mt-0.5 text-sm font-medium">
+                  {selectedTransaction.fornecedor.nomerazaosocial ||
+                    selectedTransaction.fornecedor.nomefantasia ||
+                    `Fornecedor #${selectedTransaction.fornecedor.id}`}
+                </p>
+              </div>
+            ) : null}
+
             <div className="grid space-y-4 gap-4 sm:grid-cols-2">
               <div className="space-y-2 w-full">
                 <Label htmlFor="nomepagador">
-                  Nome do pagador <span className="text-red-500">*</span>
+                  Nome do pagador/recebedor <span className="text-red-500">*</span>
                 </Label>
                 <Input
                   disabled={!editable}
                   id="nomepagador"
                   value={selectedTransaction.nomepagador || ""}
                   onChange={(e) => handleChange("nomepagador", e.target.value)}
-                  placeholder="Nome do pagador"
+                  placeholder="Nome do pagador/recebedor"
                   className="w-full"
                 />
               </div>
 
               <div className="space-y-2 w-full">
                 <Label htmlFor="cpfcnpjpagador">
-                  CPF/CNPJ do pagador <span className="text-red-500">*</span>
+                  CPF/CNPJ do pagador/recebedor <span className="text-red-500">*</span>
                 </Label>
                 <Input
                   disabled

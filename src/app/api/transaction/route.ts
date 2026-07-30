@@ -21,6 +21,7 @@ const WRITABLE_FIELDS = new Set([
   "centro_custo_id",
   "tipo",
   "cliente_id",
+  "fornecedor_id",
   "banco_id",
   "nomepagador",
   "cpfcnpjpagador",
@@ -31,7 +32,7 @@ const WRITABLE_FIELDS = new Set([
 const FORTALEZA_OFFSET = "-03:00";
 
 const TRANSACAO_FIELDS =
-  "id, descricao, valor, valorLiquido, nomepagador, cpfcnpjpagador, pendente, data, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, banco_id, created_at, updated_at";
+  "id, descricao, valor, valorLiquido, nomepagador, cpfcnpjpagador, pendente, data, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, fornecedor_id, banco_id, created_at, updated_at";
 
 const BANCO_FIELDS =
   "id, titulo, tipo, agencia, contanumero, proprietario, valorinicial, empresa_id, created_at, updated_at";
@@ -135,6 +136,7 @@ function sanitizeTransacaoPayload(body: any, { strict }: { strict: boolean }) {
         break;
       }
       case "cliente_id":
+      case "fornecedor_id":
       case "ordemservicoid":
       case "vendaid":
       case "categoria_id":
@@ -212,7 +214,8 @@ export async function GET(req: Request) {
         banco:bancoconta!transacao_banco_id_fkey ( ${BANCO_FIELDS} ),
         categoria_dados:categoriatransacao!transacao_categoria_id_fkey ( id, nome, icone ),
         plano_de_conta_dados:planosdeconta!transacao_plano_de_conta_id_fkey ( id, codigo, nome ),
-        centro_custo_dados:centrosdecusto!transacao_centro_custo_id_fkey ( id, nome, descricao, ativo )
+        centro_custo_dados:centrosdecusto!transacao_centro_custo_id_fkey ( id, nome, descricao, ativo ),
+        fornecedor:fornecedor!transacao_fornecedor_id_fkey ( id, nomerazaosocial, nomefantasia, cpfcnpj )
         `,
         { count: "exact" }
       )
@@ -436,7 +439,8 @@ export async function POST(req: Request) {
         banco:bancoconta!transacao_banco_id_fkey ( ${BANCO_FIELDS} ),
         categoria_dados:categoriatransacao!transacao_categoria_id_fkey ( id, nome, icone ),
         plano_de_conta_dados:planosdeconta!transacao_plano_de_conta_id_fkey ( id, codigo, nome ),
-        centro_custo_dados:centrosdecusto!transacao_centro_custo_id_fkey ( id, nome, descricao, ativo )
+        centro_custo_dados:centrosdecusto!transacao_centro_custo_id_fkey ( id, nome, descricao, ativo ),
+        fornecedor:fornecedor!transacao_fornecedor_id_fkey ( id, nomerazaosocial, nomefantasia, cpfcnpj )
         `
       );
 

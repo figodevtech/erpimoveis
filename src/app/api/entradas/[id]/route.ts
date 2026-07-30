@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { requireEstoqueAccess, requireEstoqueEdit } from "@/app/api/_authz/perms";
+import { anexarAutor } from "@/lib/movement-authors";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 type Params = { params: Promise<{ id: string }> };
 
 const SELECT_ENTRADA = `
   id, created_at, fornecedorid, fiscal, notachave, tipo, status, origem,
-  numero_nota, serie_nota, data_emissao, valor_total, cancelada_at,
+  numero_nota, serie_nota, data_emissao, valor_total, cancelada_at, created_by,
+  cancelada_by, motivo_cancelamento,
   fornecedor:fornecedorid(id, cpfcnpj, nomerazaosocial, nomefantasia),
   itens:entradaitens(
     id, produto_id, unidade, quantidade, precovenda, valor_unitario_compra,
@@ -32,10 +34,10 @@ export async function GET(_req: Request, { params }: Params) {
     if (error) throw error;
     if (!data) return NextResponse.json({ error: "Entrada não encontrada." }, { status: 404 });
     return NextResponse.json({
-      entrada: {
+      entrada: await anexarAutor({
         ...data,
         itens: Array.isArray(data.itens) ? [...data.itens].sort((a, b) => Number(a.id) - Number(b.id)) : [],
-      },
+      }),
     });
   } catch (error: any) {
     return NextResponse.json(

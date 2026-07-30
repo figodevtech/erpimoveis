@@ -6,6 +6,7 @@ import {
   Hash,
   MapPin,
   PackageCheck,
+  PackageMinus,
   PackageSearch,
   Pencil,
   Tag,
@@ -24,6 +25,7 @@ type InventoryItemFoundCardProps = {
   matchBy?: InventoryLabelMatchBy;
   subtitle?: string;
   onEdit?: () => void;
+  onBaixa?: () => void;
 };
 
 function stockStatusMeta(status: string | null | undefined) {
@@ -81,6 +83,7 @@ export function InventoryItemFoundCard({
   matchBy,
   subtitle = "Dados do estoque identificados",
   onEdit,
+  onBaixa,
 }: InventoryItemFoundCardProps) {
   const moduleName = kind === "PRODUTO" ? "Produto" : "Uso/consumo";
   const imageUrl = item.imgUrl || item.img_url;
@@ -88,6 +91,7 @@ export function InventoryItemFoundCard({
   const itemName = item.titulo || `${moduleName} sem nome`;
   const unit = item.unidade ? ` ${item.unidade}` : "";
   const editLabel = kind === "PRODUTO" ? "Editar" : "Editar";
+  const semEstoque = Number(item.estoque ?? 0) <= 0;
 
   return (
     <article
@@ -100,6 +104,13 @@ export function InventoryItemFoundCard({
             <Badge className=" absolute top-2 bg-primary text-primary-foreground right-2 uppercase tracking-wide">
               {moduleName}
             </Badge>
+            <Badge
+                  variant="secondary"
+                  className="bg-muted text-muted-foreground absolute bottom-2 right-2 flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide"
+                >
+                  <Tag className="size-3.5" aria-hidden="true" />
+                  {item.etiqueta}
+                </Badge>
             {imageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -136,11 +147,11 @@ export function InventoryItemFoundCard({
               </Badge>
             </div>
 
-            {item.descricao ? (
+            {/* {item.descricao ? (
               <p className="mt-3 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
                 {item.descricao}
               </p>
-            ) : null}
+            ) : null} */}
 
             <div className="mt-4 flex flex-wrap gap-x-8 gap-y-3 border-l-2 border-foreground/15 pl-3">
               <div>
@@ -167,28 +178,38 @@ export function InventoryItemFoundCard({
         </div>
 
         <dl className="mt-4 grid border-y text-xs sm:grid-cols-2 sm:divide-x">
-          <div className="min-w-0 py-3 sm:pr-4 flex flex-row gap-2 justify-between items-center">
+          <div className="min-w-0 py-3 sm:pr-4 flex flex-wrap gap-2 justify-between items-center">
               <dt className="flex items-center gap-1.5 font-medium text-muted-foreground">
-                <Badge
-                  variant="secondary"
-                  className="bg-muted text-muted-foreground"
-                >
-                  <Tag className="size-3.5" aria-hidden="true" />
-                  {item.etiqueta}
-                </Badge>
+                
               </dt>
-            {onEdit ? (
-              <Button
-                type="button"
-                size={"sm"}
-                className=" h-min text-xs py-1"
-                variant="outline"
-                onClick={onEdit}
-              >
-                <Pencil className="mr-2 size-2.5" aria-hidden="true" />
-                {editLabel.toUpperCase()}
-              </Button>
-            ) : null}
+            <div className="flex flex-wrap items-center gap-2 w-full">
+              {onBaixa ? (
+                <Button
+                  type="button"
+                  size={"sm"}
+                  className="w-full h-10 border-red-500/40 py-1 text-red-700 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-red-500/10 dark:text-red-300"
+                  variant="outline"
+                  onClick={onBaixa}
+                  disabled={semEstoque}
+                  title={semEstoque ? "Sem estoque disponível para baixa" : undefined}
+                >
+                  <PackageMinus className="mr-2" aria-hidden="true" />
+                  BAIXA
+                </Button>
+              ) : null}
+              {/* {onEdit ? (
+                <Button
+                  type="button"
+                  size={"sm"}
+                  className=" h-min text-xs py-1"
+                  variant="outline"
+                  onClick={onEdit}
+                >
+                  <Pencil className="mr-2 size-2.5" aria-hidden="true" />
+                  {editLabel.toUpperCase()}
+                </Button>
+              ) : null} */}
+            </div>
           </div>
         </dl>
       </div>

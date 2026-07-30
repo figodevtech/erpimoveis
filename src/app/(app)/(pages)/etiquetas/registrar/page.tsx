@@ -10,6 +10,7 @@ import ProductSelect from "@/app/(app)/components/productSelect";
 import { DialogProduto } from "../../estoque/components/dialog-produto/dialog-produto";
 import { InventoryItemFoundCard } from "../../estoque/components/inventory-item-found-card";
 import { QrCodeInput } from "../../estoque/components/dialog-produto/qr-code-input";
+import DialogSaida from "../../estoque/components/dialog-saida/dialog-saida-unica";
 import type { Produto } from "../../estoque/types";
 import { ItemDialog } from "../../usoconsumo/components/item-dialog";
 import { ItemSelectDialog, type UsoConsumoItemOption } from "../../usoconsumo/components/item-select-dialog";
@@ -24,7 +25,19 @@ function errorText(error: unknown) {
   return isAxiosError(error) ? error.response?.data?.error ?? error.message : error instanceof Error ? error.message : "Erro inesperado.";
 }
 
-function ItemCard({ match, canEdit, onEdit }: { match: InventoryLabelMatch; canEdit: boolean; onEdit: () => void }) {
+function ItemCard({
+  match,
+  canEdit,
+  onEdit,
+  canBaixa,
+  onBaixa,
+}: {
+  match: InventoryLabelMatch;
+  canEdit: boolean;
+  onEdit: () => void;
+  canBaixa: boolean;
+  onBaixa: () => void;
+}) {
   const item = match.item;
   const title = match.kind === "PRODUTO" ? "Produto" : "Uso/consumo";
   if (match.restricted || !item) {
@@ -39,6 +52,7 @@ function ItemCard({ match, canEdit, onEdit }: { match: InventoryLabelMatch; canE
       matchBy={match.matchBy}
       subtitle="Resultado da consulta de etiqueta"
       onEdit={canEdit ? onEdit : undefined}
+      onBaixa={canBaixa ? onBaixa : undefined}
     />
   );
 }
@@ -50,6 +64,10 @@ function RegistrarEtiquetaContent() {
   const permissions = (session?.user as { permissoes?: unknown })?.permissoes;
   const canEditProduct = permissionSetHas(permissions, PERMS.ESTOQUE_EDITAR);
   const canEditUse = permissionSetHas(permissions, PERMS.USOCONSUMO_EDITAR);
+  // Baixa de produto usa a mesma permissão do "Editar" (o backend de /api/estoque/saidas
+  // exige ESTOQUE_EDITAR); baixa de uso/consumo tem permissão própria e independente
+  // (USOCONSUMO_SAIDA), então não pode reaproveitar canEditUse.
+  const canBaixaUse = permissionSetHas(permissions, PERMS.USOCONSUMO_SAIDA);
 
   const [code, setCode] = useState("");
   const [lookup, setLookup] = useState<InventoryLabelLookup | null>(null);
@@ -61,6 +79,12 @@ function RegistrarEtiquetaContent() {
   const [useSelectOpen, setUseSelectOpen] = useState(false);
   const [productEditId, setProductEditId] = useState<number | null>(null);
   const [useEditItem, setUseEditItem] = useState<UsoConsumoItem | null>(null);
+  const [baixaTarget, setBaixaTarget] = useState<{
+    kind: "PRODUTO" | "USOCONSUMO";
+    id: number;
+    nome: string;
+    estoque: number;
+  } | null>(null);
   const [groups, setGroups] = useState<UsoConsumoGrupo[]>([]);
 
   const loadGroups = useCallback(async () => {
@@ -152,7 +176,24 @@ function RegistrarEtiquetaContent() {
       </form>
 
       {lookup?.status === "CONFLICT" ? <Alert variant="destructive"><AlertTriangle className="h-4 w-4" /><AlertTitle>Conflito de identificação</AlertTitle><AlertDescription>Este código corresponde a mais de um registro. Nenhuma alteração será permitida até que as etiquetas duplicadas sejam corrigidas.</AlertDescription></Alert> : null}
-      {found.map((match, index) => <ItemCard key={`${match.kind}-${match.item?.id ?? "restricted"}-${index}`} match={match} canEdit={match.kind === "PRODUTO" ? canEditProduct : canEditUse} onEdit={() => match.kind === "PRODUTO" ? setProductEditId(match.item?.id ?? null) : setUseEditItem(match.item as UsoConsumoItem)} />)}
+      {found.map((match, index) => (
+        <ItemCard
+          key={`${match.kind}-${match.item?.id ?? "restricted"}-${index}`}
+          match={match}
+          canEdit={match.kind === "PRODUTO" ? canEditProduct : canEditUse}
+          onEdit={() => (match.kind === "PRODUTO" ? setProductEditId(match.item?.id ?? null) : setUseEditItem(match.item as UsoConsumoItem))}
+          canBaixa={match.kind === "PRODUTO" ? canEditProduct : canBaixaUse}
+          onBaixa={() => {
+            if (!match.item) return;
+            setBaixaTarget({
+              kind: match.kind,
+              id: match.item.id,
+              nome: match.item.titulo || (match.kind === "PRODUTO" ? "Produto" : "Item de uso/consumo"),
+              estoque: Number(match.item.estoque ?? 0),
+            });
+          }}
+        />
+      ))}
 
       {available ? (
         <Card>
@@ -167,6 +208,17 @@ function RegistrarEtiquetaContent() {
 
       {productEditId ? <DialogProduto productId={productEditId} isOpen setIsOpen={(open) => !open && setProductEditId(null)} onAfterSaveProduct={() => void runLookup(false)} /> : null}
       <ItemDialog open={useEditItem !== null} item={useEditItem} grupos={groups} onOpenChange={(open) => !open && setUseEditItem(null)} onSaved={async () => { await runLookup(false); }} onGroupsChanged={loadGroups} />
+      {baixaTarget ? (
+        <DialogSaida
+          isOpen
+          setIsOpen={(open) => !open && setBaixaTarget(null)}
+          inventory={baixaTarget.kind === "PRODUTO" ? "produto" : "usoconsumo"}
+          productId={baixaTarget.id}
+          productDescription={baixaTarget.nome}
+          currentQuantity={baixaTarget.estoque}
+          onSuccess={async () => { await runLookup(false); }}
+        />
+      ) : null}
     </div>
   );
 }

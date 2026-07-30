@@ -15,6 +15,7 @@ import {
   ShoppingBag,
   Building2,
   Box,
+  PackageMinus,
 } from "lucide-react";
 import GruposProdutoSection from "./grupos-produto-section";
 import UnidadesMedidaSection from "./unidades-medida-section";
@@ -28,6 +29,7 @@ import SetoresSection from "./setores-section";
 import CoresVeiculosSection from "./cores-veiculos-section";
 import CentrosCustoSection from "./centros-custo-section";
 import GruposUsoConsumoSection from "./grupos-usoconsumo-section";
+import MotivosSaidaSection from "./motivos-saida-section";
 
 type TabId =
   | "grupos"
@@ -41,7 +43,8 @@ type TabId =
   | "planos_conta"
   | "centros_custo"
   | "categorias_venda"
-  | "cores_veiculos";
+  | "cores_veiculos"
+  | "motivos_saida";
 
 export default function TiposConfigPage() {
   const [activeTab, setActiveTab] = useState<TabId>("grupos");
@@ -125,6 +128,12 @@ export default function TiposConfigPage() {
       title: "Cores de veículo",
       subtitle: "Cores para o cadastro",
     },
+    {
+      id: "motivos_saida",
+      icon: PackageMinus,
+      title: "Motivos de saída",
+      subtitle: "Exibidos no dialog de baixa de estoque",
+    },
   ];
 
   function handleSelect(tab: TabId) {
@@ -206,6 +215,7 @@ export default function TiposConfigPage() {
           {activeTab === "centros_custo" && <CentrosCustoSection />}
           {activeTab === "categorias_venda" && <CategoriasVendaSection />}
           {activeTab === "cores_veiculos" && <CoresVeiculosSection />}
+          {activeTab === "motivos_saida" && <MotivosSaidaSection />}
         </div>
       </div>
     </div>

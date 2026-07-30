@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireEstoqueCreate } from "@/app/api/_authz/perms";
+import { auth } from "@/lib/auth";
 import { entradaErrorResponse, registrarEntradaConfirmada } from "@/services/estoque/entradaService";
 
 export async function POST(req: NextRequest) {
   try {
     await requireEstoqueCreate();
-    const result = await registrarEntradaConfirmada(await req.json(), "MANUAL");
+    const session = await auth();
+    const result = await registrarEntradaConfirmada(
+      await req.json(),
+      "MANUAL",
+      (session?.user as { id?: string })?.id ?? null,
+    );
     return NextResponse.json(
       { success: true, entradaId: result.entrada_id, valorTotal: result.valor_total },
       { status: 201 },
