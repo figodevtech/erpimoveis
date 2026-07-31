@@ -10,6 +10,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   DollarSign,
+  Eye,
   FileText,
   Loader2,
   MoreHorizontal,
@@ -28,6 +29,7 @@ import OsFinancialDialog from "./osFinancialDialog/osFinancialDialog";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { useEffect, useState } from "react";
 import { EmissaoNotaDialog } from "../../../ordens/components/dialogs/emissao-nota-dialog/emissao-nota-dialog";
+import { OSDetalhesDialog } from "../../../ordens/components/dialogs/detalhes-os-dialog";
 import { useConfig } from "../../../config-context";
 import { Badge } from "@/components/ui/badge";
 import { calculateFinancialTotal } from "@/lib/financial-surcharge";
@@ -56,6 +58,8 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
   const limitUid = React.useId();
   const [openEmissao, setOpenEmissao] = useState(false);
   const [emissaoId, setEmissaoId] = useState<number | undefined>(undefined);
+  const [detalhesOpen, setDetalhesOpen] = useState(false);
+  const [detalhesId, setDetalhesId] = useState<number | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState<PaymentListFilters>({
     cliente: "",
@@ -163,6 +167,18 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
           open={openEmissao}
           osId={emissaoId}
         />
+        <OSDetalhesDialog
+          open={detalhesOpen}
+          onOpenChange={(v) => {
+            setDetalhesOpen(v);
+            if (!v) {
+              setDetalhesId(null);
+              // O dialog permite lancar eventos financeiros, que alteram o total da linha.
+              handleGetOrdens(selectedStatus, pagination.page, pagination.limit, search, filters);
+            }
+          }}
+          osId={detalhesId ?? 0}
+        />
         {/* barra superior de loading */}
         <div
           className={`${isLoading && "opacity-100"
@@ -245,6 +261,15 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
                         </DropdownMenuTrigger>
 
                         <DropdownMenuContent id={menuId} aria-labelledby={triggerId} className="space-y-1" align="end">
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setDetalhesId(o.id);
+                              setDetalhesOpen(true);
+                            }}
+                          >
+                            <Eye className="h-4 w-4" />
+                            <span>Detalhes</span>
+                          </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() =>
                               window.open(

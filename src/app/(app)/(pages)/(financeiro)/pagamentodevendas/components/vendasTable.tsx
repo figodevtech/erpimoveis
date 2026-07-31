@@ -9,6 +9,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   DollarSign,
+  Eye,
   FileText,
   Loader2,
   MoreHorizontal,
@@ -29,6 +30,7 @@ import { VendaComItens, vendaStatus } from "../../../(vendas)/historicovendas/ty
 import { formatDate } from "@/utils/formatDate";
 import VendasFinancialDialog from "./vendasFinancialDialog/vendasFinancialDialog";
 import { EmissaoNotaDialog } from "../../../ordens/components/dialogs/emissao-nota-dialog/emissao-nota-dialog";
+import { VendaDetailsDialog } from "../../../(vendas)/historicovendas/components/venda-detail-dialog";
 import { useConfig } from "../../../config-context";
 import { Badge } from "@/components/ui/badge";
 import { calculateFinancialTotal } from "@/lib/financial-surcharge";
@@ -57,6 +59,8 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
   const [open, setOpen] = useState(false);
   const [openEmissao, setOpenEmissao] = useState(false);
   const [emissaoId, setEmissaoId] = useState<number | undefined>(undefined);
+  const [detalhesOpen, setDetalhesOpen] = useState(false);
+  const [detalhesId, setDetalhesId] = useState<number | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState<PaymentListFilters>({
     cliente: "",
@@ -173,6 +177,17 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
           open={openEmissao}
           vendaId={emissaoId}
         />
+        <VendaDetailsDialog
+          open={detalhesOpen}
+          onOpenChange={(v) => {
+            setDetalhesOpen(v);
+            if (!v) setDetalhesId(null);
+          }}
+          vendaId={detalhesId}
+          onSaved={() =>
+            handleGetVendas(selectedStatus, pagination.page, pagination.limit, search, filters)
+          }
+        />
         <Table className="text-xs mt-6">
           <TableHeader>
             <TableRow className="font-bold">
@@ -237,6 +252,15 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
                         </DropdownMenuTrigger>
 
                         <DropdownMenuContent id={menuId} aria-labelledby={triggerId} className="space-y-1">
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setDetalhesId(v.id);
+                              setDetalhesOpen(true);
+                            }}
+                          >
+                            <Eye className="h-4 w-4" />
+                            <span>Detalhes</span>
+                          </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() =>
                               window.open(
