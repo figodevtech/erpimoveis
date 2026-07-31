@@ -19,6 +19,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/lib/toast";
 import { CancelMovementDialog, type CancelTarget } from "../components/cancel-movement-dialog";
+import { CancelarEntradaDialog } from "@/components/entrada-fiscal/cancelar-entrada-dialog";
 
 type InventoryKind = "produtos" | "uso-consumo";
 type Direction = "entrada" | "saida";
@@ -353,6 +354,10 @@ export default function HistoricoEstoquePage() {
   const [loading, setLoading] = useState(true);
   const [canceling, setCanceling] = useState<string | null>(null);
   const [cancelTarget, setCancelTarget] = useState<{ movement: Movement; target: CancelTarget } | null>(null);
+  /** Entradas usam o dialogo detalhado, que resolve nota mista e lista o que sera desfeito. */
+  const [entradaCancelamento, setEntradaCancelamento] = useState<
+    { id: number; origem: "ESTOQUE" | "USOCONSUMO" } | null
+  >(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -460,7 +465,14 @@ export default function HistoricoEstoquePage() {
         canCancel={podeCancelar}
         canceling={canceling}
         onReload={() => void load()}
-        onCancel={(movement) =>
+        onCancel={(movement) => {
+          if (movement.direction === "entrada") {
+            setEntradaCancelamento({
+              id: movement.id,
+              origem: movement.inventory === "uso-consumo" ? "USOCONSUMO" : "ESTOQUE",
+            });
+            return;
+          }
           setCancelTarget({
             movement,
             target: {
@@ -468,8 +480,8 @@ export default function HistoricoEstoquePage() {
               kind: movement.direction,
               inventory: movement.inventory === "uso-consumo" ? "usoconsumo" : "produto",
             },
-          })
-        }
+          });
+        }}
       />
 
       <CancelMovementDialog
@@ -477,6 +489,14 @@ export default function HistoricoEstoquePage() {
         onOpenChange={(open) => !open && setCancelTarget(null)}
         onConfirm={cancelMovement}
         canceling={canceling !== null}
+      />
+
+      <CancelarEntradaDialog
+        open={entradaCancelamento !== null}
+        onOpenChange={(open) => !open && setEntradaCancelamento(null)}
+        entradaId={entradaCancelamento?.id ?? null}
+        origem={entradaCancelamento?.origem ?? "ESTOQUE"}
+        onCancelada={() => load()}
       />
     </div>
   );
