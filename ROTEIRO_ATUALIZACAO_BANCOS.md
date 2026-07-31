@@ -28,7 +28,7 @@ npm run db:deploy:demo
 Esse comando faz o dry-run e aplica migrations somente na Demonstração. Teste
 no ERP todos os fluxos afetados antes de continuar.
 
-## 3. Atualizar Demir e AlphaGarage
+## 3. Atualizar Demir, AlphaGarage e Garage Premium
 
 Se a Demonstração estiver funcionando:
 
@@ -37,7 +37,7 @@ npm run db:deploy:clients
 ```
 
 Digite `CLIENTES` quando solicitado. O comando confirma que a Demonstração está
-atualizada, aplica no Demir, aplica no AlphaGarage e compara os três bancos.
+atualizada, aplica no Demir, no AlphaGarage e no Garage Premium e compara os quatro bancos.
 
 ## 4. Conferência final
 

@@ -9,13 +9,14 @@ const { Client } = pg;
 
 export const projectRoot = path.resolve(import.meta.dirname, "../..");
 
-export type DatabaseKey = "demo" | "demir" | "alpha";
+export type DatabaseKey = "demo" | "demir" | "alpha" | "garage";
 
 export type DatabaseConfig = {
   key: DatabaseKey;
   label: string;
   projectRef: string;
   envName: string;
+  poolerHosts: string[];
   url: string;
 };
 
@@ -39,18 +40,40 @@ const DATABASES: Omit<DatabaseConfig, "url">[] = [
     label: "Demonstração",
     projectRef: "ozluphhwktyvqfrypjin",
     envName: "ERP_DB_DEMO",
+    poolerHosts: [
+      "aws-0-sa-east-1.pooler.supabase.com",
+      "aws-1-sa-east-1.pooler.supabase.com",
+    ],
   },
   {
     key: "demir",
     label: "Demir",
     projectRef: "lkpwaiynvnfedvxcjmrp",
     envName: "ERP_DB_DEMIR",
+    poolerHosts: [
+      "aws-0-sa-east-1.pooler.supabase.com",
+      "aws-1-sa-east-1.pooler.supabase.com",
+    ],
   },
   {
     key: "alpha",
     label: "AlphaGarage",
     projectRef: "mbiztfbgsctkuutaldph",
     envName: "ERP_DB_ALPHA",
+    poolerHosts: [
+      "aws-0-sa-east-1.pooler.supabase.com",
+      "aws-1-sa-east-1.pooler.supabase.com",
+    ],
+  },
+  {
+    key: "garage",
+    label: "Garage Premium",
+    projectRef: "qwvyhtjqjjicjbfiwjfm",
+    envName: "ERP_DB_GARAGE_PREMIUM",
+    poolerHosts: [
+      "aws-0-ca-central-1.pooler.supabase.com",
+      "aws-1-ca-central-1.pooler.supabase.com",
+    ],
   },
 ];
 
@@ -152,10 +175,7 @@ function connectionCandidates(database: DatabaseConfig) {
     urls.push(source.toString());
   }
 
-  for (const host of [
-    "aws-0-sa-east-1.pooler.supabase.com",
-    "aws-1-sa-east-1.pooler.supabase.com",
-  ]) {
+  for (const host of database.poolerHosts) {
     for (const port of ["5432", "6543"]) {
       const candidate = new URL(source.toString());
       candidate.hostname = host;
@@ -222,11 +242,13 @@ function normalizeFunction(source: string) {
     .trim();
 }
 
-const SCHEMA_QUERIES: Record<string, string> = {
+export const SCHEMA_QUERIES: Record<string, string> = {
   relations: `
     select c.relname, c.relkind, c.relpersistence, c.relreplident,
            c.relrowsecurity, c.relforcerowsecurity,
-           pg_get_userbyid(c.relowner) owner, coalesce(c.relacl::text, '') acl
+           pg_get_userbyid(c.relowner) owner,
+           coalesce((select array_agg(x::text order by x::text)::text
+                       from unnest(c.relacl) x), '') acl
       from pg_class c
       join pg_namespace n on n.oid = c.relnamespace
      where n.nspname = 'public' and c.relkind in ('r','p','v','m','S')
@@ -272,7 +294,9 @@ const SCHEMA_QUERIES: Record<string, string> = {
      order by 1, 2, 3`,
   enums: `
     select t.typname, e.enumsortorder, e.enumlabel,
-           pg_get_userbyid(t.typowner) owner, coalesce(t.typacl::text, '') acl
+           pg_get_userbyid(t.typowner) owner,
+           coalesce((select array_agg(x::text order by x::text)::text
+                       from unnest(t.typacl) x), '') acl
       from pg_type t
       join pg_namespace n on n.oid = t.typnamespace
       join pg_enum e on e.enumtypid = t.oid
@@ -292,13 +316,35 @@ const SCHEMA_QUERIES: Record<string, string> = {
       join pg_namespace n on n.oid = c.relnamespace
      where n.nspname = 'public'
      order by 1, 2`,
+  authTriggers: `
+    select t.tgname, t.tgenabled, pg_get_triggerdef(t.oid, true) definition
+      from pg_trigger t
+     where t.tgrelid = 'auth.users'::regclass
+       and not t.tgisinternal
+       and t.tgname like 'on_auth_%'
+     order by 1`,
+  storageBuckets: `
+    select id, name, public, file_size_limit,
+           coalesce(array_to_string(allowed_mime_types, ','), '') allowed_mime_types
+      from storage.buckets
+     order by id`,
+  extensions: `
+    select e.extname, n.nspname
+      from pg_extension e
+      join pg_namespace n on n.oid = e.extnamespace
+     where e.extname in (
+       'pg_cron', 'pg_net', 'pg_stat_statements', 'pg_trgm',
+       'pgcrypto', 'plpgsql', 'supabase_vault', 'uuid-ossp'
+     )
+     order by 1`,
   functions: `
     select p.proname, pg_get_function_identity_arguments(p.oid) args,
            pg_get_function_result(p.oid) result, p.prokind, p.provolatile,
            p.proparallel, p.prosecdef, p.proleakproof,
            coalesce(array_to_string(p.proconfig, ','), '') config,
            p.prosrc, pg_get_userbyid(p.proowner) owner,
-           coalesce(p.proacl::text, '') acl
+           coalesce((select array_agg(x::text order by x::text)::text
+                       from unnest(p.proacl) x), '') acl
       from pg_proc p
       join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public'
