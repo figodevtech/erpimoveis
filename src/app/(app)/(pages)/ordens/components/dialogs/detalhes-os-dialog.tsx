@@ -26,6 +26,7 @@ CreditCard,
 Download,
 ExternalLink,
 FileText,
+History,
 ImageIcon,
 Link2,
 ListChecks,
@@ -123,6 +124,31 @@ function fmtPercent(value: number | null | undefined) {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   });
+}
+
+function auditDotClass(tipo: AuditoriaResumoItem["tipo"]) {
+  switch (tipo) {
+    case "criacao":
+      return "bg-sky-500 ring-sky-500/20";
+    case "status":
+      return "bg-violet-500 ring-violet-500/20";
+    case "orcamento":
+      return "bg-emerald-500 ring-emerald-500/20";
+    case "checklist":
+      return "bg-amber-500 ring-amber-500/20";
+    case "atribuicao":
+      return "bg-cyan-500 ring-cyan-500/20";
+    case "execucao":
+      return "bg-green-500 ring-green-500/20";
+    case "aprovacao":
+      return "bg-indigo-500 ring-indigo-500/20";
+    case "anexo":
+      return "bg-pink-500 ring-pink-500/20";
+    case "estoque":
+      return "bg-orange-500 ring-orange-500/20";
+    default:
+      return "bg-muted-foreground ring-muted-foreground/20";
+  }
 }
 
 function fmtFileSize(value?: number | null) {
@@ -268,12 +294,32 @@ type OsAnexo = {
   createdat?: string | null;
 };
 
+type AuditoriaResumoItem = {
+  id: string;
+  ocorridoEm: string;
+  tipo:
+    | "criacao"
+    | "status"
+    | "orcamento"
+    | "checklist"
+    | "atribuicao"
+    | "execucao"
+    | "aprovacao"
+    | "anexo"
+    | "estoque"
+    | "dados";
+  titulo: string;
+  detalhe: string | null;
+  usuario: { id: string | null; nome: string };
+};
+
 type OSDetalhesResponse = {
   os: OS;
   itensProduto: ItemProduto[];
   itensServico: ItemServico[];
   checklist: ChecklistItem[];
   aprovacoes?: Aprovacao[];
+  auditoriaResumo?: AuditoriaResumoItem[];
   eventosFinanceiros?: Array<{
     id: number;
     origem: "PRODUTO" | "SERVICO" | "COMISSAO" | "AVULSO";
@@ -571,13 +617,21 @@ export function OSDetalhesDialog({
     if (!osId) return;
     try {
       setLoading(true);
-      const [j, eventosResponse] = await Promise.all([
+      const [j, eventosResponse, auditoriaResponse] = await Promise.all([
         carregarDetalhesOS<OSDetalhesResponse>(osId),
         fetch(`/api/ordens/${osId}/eventos-financeiros`, { cache: "no-store" }),
+        fetch(`/api/ordens/${osId}/auditoria-resumo`, { cache: "no-store" }),
       ]);
       const eventosPayload = await eventosResponse.json().catch(() => ({}));
       if (!eventosResponse.ok) throw new Error(eventosPayload?.error || "Erro ao carregar eventos financeiros");
-      setData({ ...j, eventosFinanceiros: eventosPayload?.eventos ?? [] });
+      const auditoriaPayload = await auditoriaResponse.json().catch(() => ({}));
+      setData({
+        ...j,
+        eventosFinanceiros: eventosPayload?.eventos ?? [],
+        auditoriaResumo: auditoriaResponse.ok && Array.isArray(auditoriaPayload?.itens)
+          ? auditoriaPayload.itens
+          : [],
+      });
     } catch (e: any) {
       toast.error(e?.message || "Erro ao carregar detalhes");
       setData(null);
@@ -1099,7 +1153,11 @@ export function OSDetalhesDialog({
 
                 <TabsContent value="resumo" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-4 sm:px-6 sm:py-5">
               {/* Resumo */}
-              <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div>
+                <h3 className="text-sm font-semibold">Identificação e condições</h3>
+                <p className="text-xs text-muted-foreground">Dados principais para consulta rápida da ordem de serviço.</p>
+              </div>
+              <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <div className="rounded-lg border bg-card p-4">
                   <div className="flex items-center gap-2 mb-1.5">
                     <User2 className="h-4 w-4 text-primary" />
@@ -1201,16 +1259,6 @@ export function OSDetalhesDialog({
 
                 <div className="rounded-lg border bg-card p-4">
                   <div className="flex items-center gap-2 mb-1.5">
-                    <FileText className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium">Descrição para o financeiro</span>
-                  </div>
-                  <div className="text-sm whitespace-pre-wrap">
-                    {data.os.descricao_financeiro || "Não informada"}
-                  </div>
-                </div>
-
-                <div className="rounded-lg border bg-card p-4">
-                  <div className="flex items-center gap-2 mb-1.5">
                     <CheckSquare className="h-4 w-4 text-primary" />
                     <span className="text-sm font-medium">Garantia</span>
                   </div>
@@ -1218,46 +1266,123 @@ export function OSDetalhesDialog({
                     {data.os.garantia || "Não informada"}
                   </div>
                 </div>
+
+                <div className="rounded-lg border bg-card p-4 md:col-span-2 xl:col-span-3">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <FileText className="h-4 w-4 text-primary" />
+                    <span className="text-sm font-medium">Descrição para o financeiro</span>
+                  </div>
+                  <div className="text-sm whitespace-pre-wrap">
+                    {data.os.descricao_financeiro || "Não informada"}
+                  </div>
+                </div>
               </section>
+
+              <div>
+                <h3 className="text-sm font-semibold">Informações complementares</h3>
+                <p className="text-xs text-muted-foreground">Descrição, observações e justificativas da OS.</p>
+              </div>
 
               {/* Descrição / Observações / Motivo */}
               <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="rounded-lg border bg-card p-4">
+                <div className="rounded-lg border bg-card p-4 md:col-span-2">
                   <div className="flex items-center gap-2 mb-1.5">
                     <FileText className="h-4 w-4 text-primary" />
                     <span className="text-sm font-medium">Descrição</span>
                   </div>
                   <div className="text-sm whitespace-pre-wrap">{data.os.descricao || "—"}</div>
                 </div>
-                <div className="rounded-lg border bg-card p-4">
+
+                {data.os.observacoes ? (
+                  <div className="rounded-lg border bg-card p-4">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <StickyNote className="h-4 w-4 text-primary" />
+                      <span className="text-sm font-medium">Observações internas</span>
+                    </div>
+                    <div className="text-sm whitespace-pre-wrap">{data.os.observacoes}</div>
+                  </div>
+                ) : null}
+
+                {data.os.observacoes_fiscais ? (
+                  <div className="rounded-lg border bg-card p-4">
                   <div className="flex items-center gap-2 mb-1.5">
                     <StickyNote className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium">Observações Fiscais</span>
+                      <span className="text-sm font-medium">Observações fiscais</span>
                   </div>
-                  <div className="text-sm whitespace-pre-wrap">{data.os.observacoes_fiscais || "—"}</div>
-                </div>
-                <div className="rounded-lg border bg-card p-4">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <StickyNote className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium">Observações (Interno)</span>
+                    <div className="text-sm whitespace-pre-wrap">{data.os.observacoes_fiscais}</div>
                   </div>
-                  <div className="text-sm whitespace-pre-wrap">{data.os.observacoes || "—"}</div>
-                </div>
-                <div className="rounded-lg border bg-card p-4">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <AlertTriangle className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium">Motivo do cancelamento</span>
+                ) : null}
+
+                {motivoCancelamento ? (
+                  <div className="rounded-lg border border-red-500/25 bg-card p-4 md:col-span-2">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <AlertTriangle className="h-4 w-4 text-red-500" />
+                      <span className="text-sm font-medium">Motivo do cancelamento</span>
+                    </div>
+                    <div className="text-sm whitespace-pre-wrap">{motivoCancelamento}</div>
                   </div>
-                  <div className="text-sm whitespace-pre-wrap">{motivoCancelamento || "—"}</div>
+                ) : null}
+
+                {motivoSemCobranca ? (
+                  <div className="rounded-lg border border-amber-500/25 bg-card p-4 md:col-span-2">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <AlertTriangle className="h-4 w-4 text-amber-500" />
+                      <span className="text-sm font-medium">Motivo sem cobrança</span>
+                    </div>
+                    <div className="text-sm whitespace-pre-wrap">{motivoSemCobranca}</div>
+                  </div>
+                ) : null}
+              </section>
+
+              <section className="overflow-hidden rounded-xl border bg-card">
+                <div className="flex items-start gap-3 border-b px-4 py-4 sm:px-5">
+                  <div className="rounded-lg bg-primary/10 p-2 text-primary">
+                    <History className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold">Histórico de atividades da OS</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Da criação à finalização, incluindo ações de usuários e respostas do cliente.
+                    </p>
+                  </div>
                 </div>
 
-                <div className="rounded-lg border bg-card p-4">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <AlertTriangle className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium">Motivo sem cobrança</span>
+                {(data.auditoriaResumo ?? []).length ? (
+                  <ol className="px-4 py-2 sm:px-5">
+                    {(data.auditoriaResumo ?? []).map((evento, index, eventos) => (
+                      <li key={evento.id} className="relative flex gap-3 py-3">
+                        {index < eventos.length - 1 ? (
+                          <span className="absolute bottom-0 left-[5px] top-5 w-px bg-border" aria-hidden="true" />
+                        ) : null}
+                        <span
+                          className={`relative z-10 mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ring-4 ${auditDotClass(evento.tipo)}`}
+                          aria-hidden="true"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-col gap-0.5 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                            <div className="text-sm">
+                              <span className="font-semibold">{evento.usuario.nome}</span>
+                              <span className="text-muted-foreground"> · {evento.titulo}</span>
+                            </div>
+                            <time className="shrink-0 text-xs text-muted-foreground">
+                              {fmtDate(evento.ocorridoEm)}
+                            </time>
+                          </div>
+                          {evento.detalhe ? (
+                            <p className="mt-1 text-xs text-muted-foreground">{evento.detalhe}</p>
+                          ) : null}
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <div className="px-5 py-8 text-center">
+                    <History className="mx-auto h-6 w-6 text-muted-foreground/50" />
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Ainda não há atividades registradas para esta OS.
+                    </p>
                   </div>
-                  <div className="text-sm whitespace-pre-wrap">{motivoSemCobranca || "—"}</div>
-                </div>
+                )}
               </section>
 
               {/* Produtos / Serviços / Totais */}

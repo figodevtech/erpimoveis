@@ -59,11 +59,20 @@ async function fetchWithAuditActor(input: RequestInfo | URL, init?: RequestInit)
   const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(method)) return fetch(input, init);
 
+  const requestHeaders = new Headers(input instanceof Request ? input.headers : undefined);
+  new Headers(init?.headers).forEach((value, name) => requestHeaders.set(name, value));
+
+  // Uma rota pública pode declarar explicitamente um ator externo confiável.
+  // Nesse caso, a sessão eventualmente presente no mesmo navegador não pode
+  // sobrescrever o cliente que realmente executou a ação.
+  if (requestHeaders.get("x-audit-actor-type")?.toLowerCase() === "cliente") {
+    requestHeaders.delete("x-audit-user-id");
+    return fetch(input, { ...init, headers: requestHeaders });
+  }
+
   const userId = await getAuditUserId();
   if (!userId) return fetch(input, init);
 
-  const requestHeaders = new Headers(input instanceof Request ? input.headers : undefined);
-  new Headers(init?.headers).forEach((value, name) => requestHeaders.set(name, value));
   requestHeaders.set("x-audit-user-id", userId);
   return fetch(input, { ...init, headers: requestHeaders });
 }

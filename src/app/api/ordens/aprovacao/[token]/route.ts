@@ -55,6 +55,14 @@ function onlyDigits(s: string | null | undefined) {
   return (s || "").replace(/\D+/g, "");
 }
 
+function auditHeaderValue(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\x20-\x7E]/g, "")
+    .slice(0, 120);
+}
+
 async function carregarPorToken(token: string): Promise<Bundle | null> {
   const tok = await supabaseAdmin
     .from("osaprovacao")
@@ -315,6 +323,9 @@ export async function POST(
       body.acao === "aprovar" ? "APROVADA" : "REPROVADA";
     const desiredOS: DBStatusOS =
       body.acao === "aprovar" ? "ORCAMENTO_APROVADO" : "ORCAMENTO_RECUSADO";
+    const auditActorName = auditHeaderValue(
+      `Cliente: ${cliente.nomerazaosocial} (link de aprovacao)`,
+    );
 
     // 1) Atualiza a OS com o resultado da aprovação
     const upd = await supabaseAdmin
@@ -325,7 +336,7 @@ export async function POST(
       })
       .eq("id", ordemservicoid)
       .setHeader("x-audit-actor-type", "cliente")
-      .setHeader("x-audit-actor-name", "Cliente via link de aprovação");
+      .setHeader("x-audit-actor-name", auditActorName);
 
     if (upd.error) throw upd.error;
 
@@ -342,7 +353,7 @@ export async function POST(
       .eq("id", tokenRow.id)
       .is("usado_em", null)
       .setHeader("x-audit-actor-type", "cliente")
-      .setHeader("x-audit-actor-name", "Cliente via link de aprovação");
+      .setHeader("x-audit-actor-name", auditActorName);
 
     if (mark.error) throw mark.error;
 
