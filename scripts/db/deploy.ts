@@ -38,7 +38,7 @@ async function main() {
   const clients = databases.filter((database) => database.key !== "demo");
   if (!demo) throw new Error("Banco de Demonstração não configurado.");
 
-  console.log("Pré-validação dos três bancos...");
+  console.log("Pré-validação dos quatro bancos...");
   const initial = await inspectAllDatabases();
   printInspectionSummary(initial.inspections);
 
@@ -84,7 +84,7 @@ async function main() {
     );
     await confirm(
       "CLIENTES",
-      "Após validar a Demonstração, deseja atualizar Demir e AlphaGarage?",
+      "Após validar a Demonstração, deseja atualizar Demir, AlphaGarage e Garage Premium?",
       flags.has("--approve-clients"),
     );
 
@@ -99,7 +99,7 @@ async function main() {
       await runDatabasePush(status.database, false);
     }
   } else {
-    console.log("Demir e AlphaGarage já estão atualizados.");
+    console.log("Demir, AlphaGarage e Garage Premium já estão atualizados.");
   }
 
   console.log("\nValidação final...");
@@ -115,7 +115,7 @@ async function main() {
     );
   }
 
-  console.log("\nDeploy concluído: os três bancos estão alinhados.");
+  console.log("\nDeploy concluído: os quatro bancos estão alinhados.");
 }
 
 main().catch((error) => {

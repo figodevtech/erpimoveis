@@ -1,12 +1,12 @@
 # Fluxo de migrations dos bancos
 
-Os três bancos usam as mesmas migrations e o mesmo schema. Somente os dados de
+Os quatro bancos usam as mesmas migrations e o mesmo schema. Somente os dados de
 cada empresa são independentes.
 
 ## Configuração local
 
 Copie `.env.migrations.example` para `.env.migrations.local` e configure as URLs
-PostgreSQL de Demonstração, Demir e AlphaGarage. O arquivo local é ignorado pelo
+PostgreSQL de Demonstração, Demir, AlphaGarage e Garage Premium. O arquivo local é ignorado pelo
 Git. Por compatibilidade, os comandos também reconhecem as URLs antigas do
 `.env.local`, identificando cada projeto pelo project ref.
 
@@ -36,7 +36,7 @@ npm run db:deploy
 
 O fluxo faz dry-run e aplica primeiro na Demonstração. Em seguida, fica parado
 para permitir o teste do ERP. Somente depois da confirmação `CLIENTES` ele faz
-dry-run e aplica, em sequência, no Demir e no AlphaGarage. Qualquer erro
+dry-run e aplica, em sequência, no Demir, no AlphaGarage e no Garage Premium. Qualquer erro
 interrompe o processo.
 
 O fluxo também pode ser executado em duas etapas independentes:
@@ -45,7 +45,7 @@ O fluxo também pode ser executado em duas etapas independentes:
 # Aplica somente na Demonstração
 npm run db:deploy:demo
 
-# Depois dos testes, aplica no Demir e no AlphaGarage
+# Depois dos testes, aplica nos três bancos de clientes
 npm run db:deploy:clients
 ```
 
