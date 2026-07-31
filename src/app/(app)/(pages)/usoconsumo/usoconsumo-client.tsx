@@ -65,7 +65,7 @@ import type {
   UsoConsumoPagination,
   UsoConsumoStatus,
 } from "@/types/usoconsumo";
-import { FiscalEntryDialog } from "./components/fiscal-entry-dialog";
+import { EntradaFiscalDialog } from "@/components/entrada-fiscal/entrada-fiscal-dialog";
 import { ItemDialog } from "./components/item-dialog";
 import { ManualEntryDialog } from "./components/manual-entry-dialog";
 import { MovementDialog } from "./components/movement-dialog";
@@ -479,7 +479,7 @@ export default function UsoConsumoClient() {
         onSaved={refresh}
       />
       <ManualEntryDialog open={manualOpen} onOpenChange={setManualOpen} fornecedores={options.fornecedores} onSaved={refresh} />
-      <FiscalEntryDialog open={fiscalOpen} onOpenChange={setFiscalOpen} options={options} onSaved={refresh} />
+      <EntradaFiscalDialog open={fiscalOpen} onOpenChange={setFiscalOpen} onSaved={refresh} />
 
       <AlertDialog open={Boolean(deleteItem)} onOpenChange={(open) => { if (!open && !deleting) setDeleteItem(null); }}>
         <AlertDialogContent>

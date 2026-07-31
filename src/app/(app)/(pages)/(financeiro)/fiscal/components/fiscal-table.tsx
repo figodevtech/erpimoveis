@@ -74,7 +74,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { traduzStatusNfe } from "@/lib/nfe/statusNfe";
-import DialogEntradaFiscal from "../../../estoque/components/dialog-entrada/dialog-entrada-fiscal";
+import { EntradaFiscalDialog } from "@/components/entrada-fiscal/entrada-fiscal-dialog";
 
 import type { FiscalViewMode, NotaFiscal, Pagination } from "../types";
 
@@ -1009,9 +1009,9 @@ export default function FiscalTable({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-    <DialogEntradaFiscal
-      isOpen={Boolean(notaGerarEntrada)}
-      setIsOpen={(open) => {
+    <EntradaFiscalDialog
+      open={Boolean(notaGerarEntrada)}
+      onOpenChange={(open) => {
         if (!open) setNotaGerarEntrada(null);
       }}
       notaFiscalRecebidaId={notaGerarEntrada?.id}

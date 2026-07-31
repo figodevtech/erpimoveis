@@ -73,7 +73,7 @@ import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 
 import EntradaDialog from "./dialog-entrada/dialog-entrada-unica";
 import SaidaDialog from "./dialog-saida/dialog-saida-unica";
-import EntradaFiscalDialog from "./dialog-entrada/dialog-entrada-fiscal";
+import { EntradaFiscalDialog } from "@/components/entrada-fiscal/entrada-fiscal-dialog";
 import { DialogEntradaGeral } from "./dialog-entrada-geral/dialog-entrada-geral";
 import { ProdutoFiltrosSheet } from "./produto-filtros-sheet";
 
@@ -379,9 +379,9 @@ export default function TabelaProdutos({
 
         {/* ✅ Entrada Fiscal (1 instância) */}
         <EntradaFiscalDialog
-          handleGetProducts={filteredHandleGetProducts}
-          isOpen={entradaFiscalOpen}
-          setIsOpen={setEntradaFiscalOpen}
+          open={entradaFiscalOpen}
+          onOpenChange={setEntradaFiscalOpen}
+          onSaved={() => filteredHandleGetProducts(pagination.page, pagination.limit, search, status)}
         />
         <DialogEntradaGeral
           open={entradaGeralOpen}
