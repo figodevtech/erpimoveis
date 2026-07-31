@@ -10,6 +10,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { formatCep } from "@/app/(app)/(pages)/clientes/components/customerDialogRegister/utils";
 import { fetchPrimeiroLogoEmpresa } from "@/lib/empresa-logo";
 import { fetchPrintColors } from "@/lib/print-config";
+import { getTermoAceiteVenda } from "@/lib/print-aceite";
 
 export const runtime = "nodejs";
 
@@ -39,7 +40,9 @@ function itemDiscountApplied(item: {
   if (item.tipo_desconto === "PORCENTAGEM") {
     return roundMoney(subtotal * (Math.min(discount, 100) / 100));
   }
-  return item.tipo_desconto === "FIXO" ? Math.min(subtotal, roundMoney(discount)) : 0;
+  return item.tipo_desconto === "FIXO"
+    ? Math.min(subtotal, roundMoney(discount))
+    : 0;
 }
 
 function fmtDateTime(v?: string | null) {
@@ -48,7 +51,7 @@ function fmtDateTime(v?: string | null) {
   if (Number.isNaN(d.getTime())) return EMPTY;
   return d.toLocaleString("pt-BR", {
     dateStyle: "short",
-    timeStyle: "short",
+
     timeZone: "America/Fortaleza",
   });
 }
@@ -69,6 +72,12 @@ function fmtDoc(value?: string | null) {
   if (s.length === 14)
     return s.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
   return value;
+}
+
+function fmtText(value?: string | number | null) {
+  if (value == null) return EMPTY;
+  const s = String(value).trim();
+  return s ? s : EMPTY;
 }
 
 function joinParts(parts: Array<string | null | undefined>, separator = ", ") {
@@ -123,6 +132,10 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
       sub_total,
       observacoes,
       valortotal,
+      criador:created_by (
+        id,
+        nome
+      ),
       cliente:clienteid (
         id,
         nomerazaosocial,
@@ -168,6 +181,10 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
   const cliente = Array.isArray(venda.cliente)
     ? venda.cliente[0]
     : venda.cliente;
+  const criador = Array.isArray(venda.criador)
+    ? venda.criador[0]
+    : venda.criador;
+  const criadorNome = criador?.nome ?? null;
   const empresaNome =
     empresa?.nomefantasia || empresa?.razaosocial || "Empresa";
   const empresaEndereco = joinParts(
@@ -205,14 +222,29 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
     " • ",
   );
   const itemDiscountTotal = roundMoney(
-    (venda.itens ?? []).reduce((total, item) => total + itemDiscountApplied(item), 0),
+    (venda.itens ?? []).reduce(
+      (total, item) => total + itemDiscountApplied(item),
+      0,
+    ),
   );
-  const generalDiscountBase = Math.max(0, Number(venda.sub_total ?? 0) - itemDiscountTotal);
-  const generalDiscountApplied = venda.desconto_tipo === "PORCENTAGEM"
-    ? roundMoney(generalDiscountBase * (Math.min(Math.max(Number(venda.desconto_valor ?? 0), 0), 100) / 100))
-    : venda.desconto_tipo === "FIXO"
-      ? Math.min(generalDiscountBase, Math.max(0, Number(venda.desconto_valor ?? 0)))
-      : 0;
+  const generalDiscountBase = Math.max(
+    0,
+    Number(venda.sub_total ?? 0) - itemDiscountTotal,
+  );
+  const generalDiscountApplied =
+    venda.desconto_tipo === "PORCENTAGEM"
+      ? roundMoney(
+          generalDiscountBase *
+            (Math.min(Math.max(Number(venda.desconto_valor ?? 0), 0), 100) /
+              100),
+        )
+      : venda.desconto_tipo === "FIXO"
+        ? Math.min(
+            generalDiscountBase,
+            Math.max(0, Number(venda.desconto_valor ?? 0)),
+          )
+        : 0;
+  const termoAceite = getTermoAceiteVenda(venda.status);
 
   return (
     <div className="os-print-root">
@@ -338,6 +370,14 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
         .linha-total-final{ margin-top:8px; padding-top:8px; border-top:1px solid var(--brand-primary); display:flex; justify-content:space-between; align-items:center; }
         .total-label{ font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; color:var(--brand-primary); }
         .total-valor{ font-size:16px; font-weight:800; color:var(--brand-primary); }
+        .assinaturas{ margin-top:35px; display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+        .assinatura{ border-top:2px solid var(--border); padding-top:8px; text-align:center; }
+        .assin-label{ font-size:9px; text-transform:uppercase; letter-spacing:.12em; color:var(--muted); font-weight:700; }
+        .aceite-box{ margin-top:10px; border:1px solid var(--border); background:var(--soft-bg); border-radius:var(--radius); padding:8px 10px; }
+        .aceite-titulo{ font-size:8px; font-weight:800; text-transform:uppercase; letter-spacing:.12em; color:var(--brand-primary); margin-bottom:4px; }
+        .aceite-intro{ font-size:8px; font-weight:700; line-height:1.4; color:var(--ink); margin-bottom:4px; }
+        .aceite-item{ font-size:8px; line-height:1.4; text-align:justify; color:var(--ink); margin-bottom:3px; }
+        .aceite-item:last-child{ margin-bottom:0; }
       `}</style>
 
       <div className="toolbar no-print">
@@ -379,11 +419,7 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
           <div className="logo-box">
             {finalLogo ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={finalLogo}
-                alt="Logo da empresa"
-                className="logo-img"
-              />
+              <img src={finalLogo} alt="Logo da empresa" className="logo-img" />
             ) : (
               "PDV"
             )}
@@ -417,22 +453,32 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
         <div className="conteudo">
           <div className="meta-grid">
             <div className="meta-badge">
-              <div className="label">Emitido em</div>
+              <div className="label">Data da Venda</div>
               <div className="valor">
                 {fmtDateTime(venda.datavenda || venda.createdat)}
+              </div>
+            </div>
+            <div className="meta-badge">
+              <div className="label">Impressão</div>
+              <div className="valor">
+                {new Date().toLocaleString("pt-BR", {
+                  timeZone: "America/Fortaleza",
+                  day: "2-digit",
+                  month: "2-digit",
+                  year: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
               </div>
             </div>
             <div className="meta-badge">
               <div className="label">Itens</div>
               <div className="valor">{venda.itens?.length ?? 0}</div>
             </div>
+            
             <div className="meta-badge">
-              <div className="label">Tipo desconto</div>
-              <div className="valor">{venda.desconto_tipo || EMPTY}</div>
-            </div>
-            <div className="meta-badge">
-              <div className="label">Desconto geral</div>
-              <div className="valor">{fmtMoney(generalDiscountApplied)}</div>
+              <div className="label">Criado por</div>
+              <div className="valor">{fmtText(criadorNome)}</div>
             </div>
           </div>
 
@@ -521,7 +567,9 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
                           Math.max(Number(item.quantidade || 1), 1),
                       )}
                     </td>
-                    <td className="col-sub">{fmtMoney(itemDiscountApplied(item))}</td>
+                    <td className="col-sub">
+                      {fmtMoney(itemDiscountApplied(item))}
+                    </td>
                     <td className="col-sub">{fmtMoney(item.valor_total)}</td>
                   </tr>
                 ))}
@@ -540,6 +588,15 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
                   <div className="obs-texto">{venda.observacoes}</div>
                 </div>
               ) : null}
+
+              <div className="assinaturas">
+                <div className="assinatura">
+                  <div className="assin-label">Responsável pela venda</div>
+                </div>
+                <div className="assinatura">
+                  <div className="assin-label">Cliente</div>
+                </div>
+              </div>
             </div>
 
             <div className="totais-box">
@@ -567,9 +624,20 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
               </div>
             </div>
           </div>
+
+          {termoAceite && (
+            <div className="aceite-box">
+              <div className="aceite-titulo">{termoAceite.titulo}</div>
+              <div className="aceite-intro">{termoAceite.intro}</div>
+              {termoAceite.itens.map((item, idx) => (
+                <div key={idx} className="aceite-item">
+                  {item}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
-

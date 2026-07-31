@@ -12,6 +12,9 @@ import {
   PdvOrcamentoPrintData,
 } from "../../../pdv/components/pdv-orcamento-print";
 import { formatCep } from "@/app/(app)/(pages)/clientes/components/customerDialogRegister/utils";
+import { getTermoAceiteVenda } from "@/lib/print-aceite";
+
+const TERMO_ACEITE_PDV = getTermoAceiteVenda("ORCAMENTO");
 
 type EmpresaConfig = {
   nomefantasia?: string;
@@ -459,6 +462,54 @@ function PrintPdvOrcamentoContent() {
           font-weight:800;
           color:var(--brand-primary);
         }
+        .assinaturas{
+          margin-top:35px;
+          display:grid;
+          grid-template-columns:1fr 1fr;
+          gap:12px;
+        }
+        .assinatura{
+          border-top:2px solid var(--border);
+          padding-top:8px;
+          text-align:center;
+        }
+        .assin-label{
+          font-size:9px;
+          text-transform:uppercase;
+          letter-spacing:.12em;
+          color:var(--muted);
+          font-weight:700;
+        }
+        .aceite-box{
+          margin-top:10px;
+          border:1px solid var(--border);
+          background:var(--soft-bg);
+          border-radius:var(--radius);
+          padding:8px 10px;
+        }
+        .aceite-titulo{
+          font-size:8px;
+          font-weight:800;
+          text-transform:uppercase;
+          letter-spacing:.12em;
+          color:var(--brand-primary);
+          margin-bottom:4px;
+        }
+        .aceite-intro{
+          font-size:8px;
+          font-weight:700;
+          line-height:1.4;
+          color:var(--ink);
+          margin-bottom:4px;
+        }
+        .aceite-item{
+          font-size:8px;
+          line-height:1.4;
+          text-align:justify;
+          color:var(--ink);
+          margin-bottom:3px;
+        }
+        .aceite-item:last-child{ margin-bottom:0; }
       `}</style>
 
       <div className="toolbar no-print">
@@ -617,13 +668,24 @@ function PrintPdvOrcamentoContent() {
           </div>
 
           <div className="rodape">
-            <div className="observacoes-box">
-              <div className="obs-titulo">
-                <FileText className="w-4 h-4 inline mr-1" />
-                Observações
+            <div>
+              <div className="observacoes-box">
+                <div className="obs-titulo">
+                  <FileText className="w-4 h-4 inline mr-1" />
+                  Observações
+                </div>
+                <div className="obs-texto">
+                  Este orçamento foi gerado pelo PDV e não representa faturamento ou reserva definitiva de estoque.
+                </div>
               </div>
-              <div className="obs-texto">
-                Este orçamento foi gerado pelo PDV e não representa faturamento ou reserva definitiva de estoque.
+
+              <div className="assinaturas">
+                <div className="assinatura">
+                  <div className="assin-label">Responsável pela venda</div>
+                </div>
+                <div className="assinatura">
+                  <div className="assin-label">Cliente</div>
+                </div>
               </div>
             </div>
 
@@ -642,6 +704,18 @@ function PrintPdvOrcamentoContent() {
               </div>
             </div>
           </div>
+
+          {TERMO_ACEITE_PDV && (
+            <div className="aceite-box">
+              <div className="aceite-titulo">{TERMO_ACEITE_PDV.titulo}</div>
+              <div className="aceite-intro">{TERMO_ACEITE_PDV.intro}</div>
+              {TERMO_ACEITE_PDV.itens.map((item, idx) => (
+                <div key={idx} className="aceite-item">
+                  {item}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

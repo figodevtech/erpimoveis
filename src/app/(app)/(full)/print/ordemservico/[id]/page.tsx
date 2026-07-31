@@ -13,6 +13,7 @@ import { PrintShareMenu } from "../../../components/PrintShareMenu";
 import { fetchPrimeiroLogoEmpresa } from "@/lib/empresa-logo";
 import { fetchPrintColors } from "@/lib/print-config";
 import { PAYMENT_METHOD_OPTIONS } from "@/lib/payment-methods";
+import { getTermoAceiteOS, type AceiteAlvo } from "@/lib/print-aceite";
 
 export const runtime = "nodejs";
 
@@ -162,6 +163,7 @@ export default async function OSFullPage({ params }: PageProps) {
       cliente:clienteid (*),
       veiculo:veiculoid (*),
       peca:pecaid (*),
+      criador:usuariocriadorid ( id, nome ),
       servicos:osservico (*, servico:servicoid (*)),
       produtos:osproduto (*, produto:produtoid (*))
     `
@@ -235,6 +237,16 @@ export default async function OSFullPage({ params }: PageProps) {
       : os.alvo_tipo === "EQUIPAMENTO"
         ? "Máquina/Equipamento"
         : "Veículo";
+  const aceiteAlvo: AceiteAlvo =
+    os.alvo_tipo === "PECA"
+      ? "PECA"
+      : os.alvo_tipo === "EQUIPAMENTO"
+        ? "EQUIPAMENTO"
+        : "VEICULO";
+  const termoAceite = getTermoAceiteOS(os.status, aceiteAlvo);
+
+  const criador = Array.isArray(os.criador) ? os.criador[0] : os.criador;
+  const criadorNome = criador?.nome ?? null;
 
   const itens: Array<{
     tipo: "SERVIÇO" | "PEÇA";
@@ -295,37 +307,11 @@ export default async function OSFullPage({ params }: PageProps) {
         </Badge>
       ),
     },
-    { k: "Prioridade", v: fmtEnum(os.prioridade) },
     { k: "Impressão", v: fmtDateTime(new Date()) },
     { k: "Entrada", v: fmtDate(os.dataentrada) },
     { k: "Saída", v: fmtDate(os.datasaida) },
     { k: "Alvo", v: alvoTipo },
-    {
-      k: "Forma de pagamento",
-      v:
-        Array.isArray(os.pagamentos_previstos) && os.pagamentos_previstos.length > 0
-          ? os.pagamentos_previstos
-              .map(
-                (pagamento: {
-                  metodo: string;
-                  valor: number;
-                  parcelas?: number | null;
-                }) =>
-                  `${
-                    PAYMENT_METHOD_OPTIONS.find(
-                      (method) => method.value === pagamento.metodo,
-                    )?.label ?? pagamento.metodo
-                  }${pagamento.parcelas ? ` em ${pagamento.parcelas}x` : ""}: ${fmtMoney(
-                    pagamento.valor,
-                  )}`,
-              )
-              .join(" + ")
-          : `${
-              PAYMENT_METHOD_OPTIONS.find(
-                (method) => method.value === os.forma_pagamento,
-              )?.label ?? "Não informada"
-            }${os.parcelas_pagamento ? ` em ${os.parcelas_pagamento}x` : ""}`,
-    },
+    { k: "Criado por", v: fmtText(criadorNome) },
   ];
 
   return (
@@ -815,6 +801,41 @@ export default async function OSFullPage({ params }: PageProps) {
     font-weight:700;
   }
 
+  .aceite-box{
+    margin-top: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--soft-bg);
+    padding: 8px 10px;
+  }
+
+  .aceite-titulo{
+    font-size: 8px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .12em;
+    color: var(--brand-primary);
+    margin-bottom: 4px;
+  }
+
+  .aceite-intro{
+    font-size: 8px;
+    font-weight: 700;
+    line-height: 1.4;
+    color: var(--ink);
+    margin-bottom: 4px;
+  }
+
+  .aceite-item{
+    font-size: 8px;
+    line-height: 1.4;
+    text-align: justify;
+    color: var(--ink);
+    margin-bottom: 3px;
+  }
+
+  .aceite-item:last-child{ margin-bottom: 0; }
+
   .clamp-3{
     display:-webkit-box;
     -webkit-line-clamp:3;
@@ -1163,6 +1184,18 @@ export default async function OSFullPage({ params }: PageProps) {
                 </div>
               </div>
             </div>
+
+            {termoAceite && (
+              <div className="aceite-box">
+                <div className="aceite-titulo">{termoAceite.titulo}</div>
+                <div className="aceite-intro">{termoAceite.intro}</div>
+                {termoAceite.itens.map((item, idx) => (
+                  <div key={idx} className="aceite-item">
+                    {item}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
