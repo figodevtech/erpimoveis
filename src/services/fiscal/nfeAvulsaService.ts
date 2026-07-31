@@ -225,7 +225,11 @@ function mapInputToTaxItem(item: NFeAvulsaItemInput, index: number): NFeItem {
   const vIbsMun = calculateValue(baseRtc, pIbsMun, item.valorIbsMunicipio);
   return {
     numeroItem: index + 1,
-    codigoProduto: cleanText(item.codigo) || String(item.produtoId ?? index + 1),
+    // cProd usa o id do produto: a referencia e texto livre (traco, espaco, varios
+    // codigos) e quebra o casamento na volta, em InvoiceDraftService.
+    codigoProduto: item.produtoId != null
+      ? String(item.produtoId)
+      : cleanText(item.codigo) || String(index + 1),
     descricao: cleanText(item.descricao),
     ncm: onlyDigits(item.ncm),
     cfop: onlyDigits(item.cfop),
