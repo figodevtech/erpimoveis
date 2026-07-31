@@ -265,7 +265,8 @@ export function toNFeItem(item: AssistedFiscalItem, index = 0): NFeItem {
 
   return {
     numeroItem: index + 1,
-    codigoProduto: item.codigo || String(item.produtoId),
+    // cProd usa o id do produto; a referencia continua so na exibicao do item.
+    codigoProduto: item.produtoId != null ? String(item.produtoId) : item.codigo,
     descricao: item.descricao,
     ncm: onlyDigits(item.ncm),
     cfop: onlyDigits(item.cfop),

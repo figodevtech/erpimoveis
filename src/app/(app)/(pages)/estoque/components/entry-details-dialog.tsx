@@ -249,7 +249,7 @@ export function EntryDetailsDialog({ entryId, inventory, open, onOpenChange }: P
           </div>
 
           <Section title="Dados da entrada" icon={Receipt}>
-            <dl className="grid gap-4 rounded-lg border bg-muted/20 p-4 sm:grid-cols-2 lg:grid-cols-4">
+            <dl className="grid gap-4 rounded-lg border bg-card p-4 sm:grid-cols-2 lg:grid-cols-4">
               <Field label="Tipo">{formatEnum(entry.tipo)}</Field>
               <Field label="Origem">{formatEnum(entry.origem)}</Field>
               <Field label="Registrado em">{formatDateTime(entry.created_at)}</Field>
@@ -260,7 +260,7 @@ export function EntryDetailsDialog({ entryId, inventory, open, onOpenChange }: P
 
           <div className="grid gap-6 md:grid-cols-2">
             <Section title="Fornecedor" icon={Building2}>
-              <dl className="grid gap-3 rounded-lg border p-4">
+              <dl className="grid gap-3 rounded-lg border p-4 bg-card">
                 <Field label="Nome">
                   {entry.fornecedor?.nomerazaosocial || entry.fornecedor?.nomefantasia || "Não informado"}
                 </Field>
@@ -272,7 +272,7 @@ export function EntryDetailsDialog({ entryId, inventory, open, onOpenChange }: P
             </Section>
 
             <Section title="Documento fiscal" icon={FileText}>
-              <dl className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2">
+              <dl className="grid bg-card gap-3 rounded-lg border p-4 sm:grid-cols-2">
                 <Field label="Nota">{entry.numero_nota || "Não informada"}</Field>
                 <Field label="Série">{entry.serie_nota || "Não informada"}</Field>
                 <Field label="Emissão" className="sm:col-span-2">
@@ -308,8 +308,8 @@ export function EntryDetailsDialog({ entryId, inventory, open, onOpenChange }: P
                 }, []);
 
                 return (
-                  <article key={item.id ?? index} className="overflow-hidden rounded-lg border">
-                    <div className="flex flex-wrap items-start justify-between gap-3 border-b bg-muted/30 px-4 py-3">
+                  <article key={item.id ?? index} className="overflow-hidden rounded-lg bg-card border">
+                    <div className="flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3">
                       <div className="min-w-0">
                         <p className="font-semibold leading-tight">{itemTitle}</p>
                         <p className="mt-0.5 text-xs text-muted-foreground">
@@ -337,7 +337,7 @@ export function EntryDetailsDialog({ entryId, inventory, open, onOpenChange }: P
                     </dl>
 
                     {fiscalDetails.length ? (
-                      <div className="border-t bg-muted/20 px-4 py-3">
+                      <div className="border-t px-4 py-3">
                         <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
                           Dados fiscais do item
                         </p>
