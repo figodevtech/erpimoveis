@@ -14,6 +14,7 @@ import { gerarCNF, gerarChaveAcesso } from './chaveAcesso';
 import { mapEmpresaToEmitente } from './mapEmpresaToEmitente';
 import { getCodigoUF } from './ufUtils';
 import { calcularTotaisNFe, normalizarCRT } from './fiscal';
+import { deveGerarICMSUFDest, montarICMSUFDest } from './difal';
 import { escapeXml } from './xmlUtils';
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from './constants';
 
@@ -424,10 +425,35 @@ export function buildNFePreviewXml(
   const itensBase: NFeItem[] = itensOverride;
 
   // Garante nº do item em cada item
-  const itens: NFeItem[] = itensBase.map((item, index) => ({
+  const itensNumerados: NFeItem[] = itensBase.map((item, index) => ({
     ...item,
     numeroItem: item.numeroItem ?? index + 1,
   }));
+
+  // DIFAL: venda interestadual a consumidor final nao contribuinte exige o grupo
+  // ICMSUFDest em todos os itens. Sem ele a SEFAZ devolve a rejeicao 694.
+  const exigeDifal = deveGerarICMSUFDest({
+    ufEmitente: empresaUf,
+    ufDestinatario: String(dest.endereco?.uf ?? ""),
+    indFinal: ide.indFinal ?? 1,
+    indIEDest: dest.indIEDest ?? "9",
+  });
+
+  const itens: NFeItem[] = exigeDifal
+    ? itensNumerados.map((item) => ({
+        ...item,
+        icmsUfDest: item.icmsUfDest ?? montarICMSUFDest({
+          // A base do DIFAL e o valor da operacao, incluindo o frete rateado.
+          baseCalculo: Number(item.valorTotal ?? 0) + Number(item.valorFrete ?? 0),
+          ufEmitente: empresaUf,
+          ufDestinatario: String(dest.endereco?.uf ?? ""),
+          origemMercadoria: item.orig,
+          aliquotaInternaDestino: item.aliquotaInternaDestino,
+          aliquotaInterestadual: item.aliquotaInterestadual,
+          aliquotaFcpDestino: item.aliquotaFcpDestino,
+        }),
+      }))
+    : itensNumerados;
 
   const ideXml = buildIdeXml(ide);
   const emitXml = buildEmitXml(emitente);
@@ -450,6 +476,20 @@ export function buildNFePreviewXml(
   const vFrete = valorFrete.toFixed(2);
   const vNF = (soma.vProd + valorFrete + soma.vST + soma.vFCPST + soma.vIPI).toFixed(2);
 
+  // Totais do DIFAL. Ficam entre vICMSDeson e vFCP, na ordem do leiaute 4.00,
+  // e so aparecem quando a nota realmente gerou o grupo nos itens.
+  const difalTotaisXml = exigeDifal
+    ? (() => {
+        const somar = (pegar: (grupo: NonNullable<NFeItem['icmsUfDest']>) => number) =>
+          itens.reduce((total, item) => total + (item.icmsUfDest ? pegar(item.icmsUfDest) : 0), 0);
+        return (
+          `<vFCPUFDest>${somar((g) => g.vFCPUFDest).toFixed(2)}</vFCPUFDest>` +
+          `<vICMSUFDest>${somar((g) => g.vICMSUFDest).toFixed(2)}</vICMSUFDest>` +
+          `<vICMSUFRemet>${somar((g) => g.vICMSUFRemet).toFixed(2)}</vICMSUFRemet>`
+        );
+      })()
+    : '';
+
   const isTotXml = soma.vIS > 0
     ? `<ISTot><vIS>${soma.vIS.toFixed(2)}</vIS></ISTot>`
     : '';
@@ -471,6 +511,7 @@ export function buildNFePreviewXml(
     `<vBC>${vBC}</vBC>` +
     `<vICMS>${vICMS}</vICMS>` +
     `<vICMSDeson>${soma.vICMSDeson.toFixed(2)}</vICMSDeson>` +
+    difalTotaisXml +
     `<vFCP>${soma.vFCP.toFixed(2)}</vFCP>` +
     `<vBCST>${soma.vBCST.toFixed(2)}</vBCST>` +
     `<vST>${soma.vST.toFixed(2)}</vST>` +

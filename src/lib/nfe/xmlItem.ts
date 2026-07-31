@@ -9,6 +9,7 @@ import {
   getCestXml,
   normalizarCRT,
 } from './fiscal';
+import { buildIcmsUFDestXml } from './difal';
 import { escapeXml } from './xmlUtils';
 
 function formatNumber(value: number, decimals: number): string {
@@ -65,6 +66,11 @@ export function buildDetXml(item: NFeItem, crt: string | number): string {
   partes.push(buildCofinsXmlPorCRT(item, crtNormalizado));
   partes.push(buildImpostoSeletivoXml(item));
   partes.push(buildRtcXml(item));
+  // ICMSUFDest e o ultimo elemento da sequencia <imposto> no leiaute 4.00,
+  // depois de PIS/COFINS. Fora dessa posicao o XML falha no XSD.
+  if (item.icmsUfDest) {
+    partes.push(buildIcmsUFDestXml(item.icmsUfDest));
+  }
   partes.push('</imposto>');
   partes.push('</det>');
 

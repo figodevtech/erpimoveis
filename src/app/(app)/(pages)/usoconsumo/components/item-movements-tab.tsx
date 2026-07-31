@@ -14,6 +14,7 @@ import { formatDate } from "@/utils/formatDate";
 import { EntryDetailsDialog } from "../../estoque/components/entry-details-dialog";
 import { ExitDetailsDialog } from "../../estoque/components/exit-details-dialog";
 import { CancelMovementDialog, type CancelTarget } from "../../estoque/components/cancel-movement-dialog";
+import { CancelarEntradaDialog } from "@/components/entrada-fiscal/cancelar-entrada-dialog";
 
 type MovimentoCriador = { id: string; nome: string | null } | null;
 
@@ -53,6 +54,8 @@ export function ItemMovementsTab({ entradas = [], saidas = [], onAfterChange }: 
   const { data: session } = useSession();
   const canCancel = permissionSetHas((session?.user as { permissoes?: unknown })?.permissoes, PERMS.USOCONSUMO_CANCELAR);
   const [cancelTarget, setCancelTarget] = useState<CancelTarget | null>(null);
+  /** Entradas usam o dialogo detalhado, que resolve nota mista e lista o que sera desfeito. */
+  const [entradaCancelamentoId, setEntradaCancelamentoId] = useState<number | null>(null);
   const [detailsEntradaId, setDetailsEntradaId] = useState<number | null>(null);
   const [detailsSaidaId, setDetailsSaidaId] = useState<number | null>(null);
   const [canceling, setCanceling] = useState(false);
@@ -126,6 +129,13 @@ export function ItemMovementsTab({ entradas = [], saidas = [], onAfterChange }: 
         onConfirm={cancel}
         canceling={canceling}
       />
+      <CancelarEntradaDialog
+        open={entradaCancelamentoId !== null}
+        onOpenChange={(open) => !open && setEntradaCancelamentoId(null)}
+        entradaId={entradaCancelamentoId}
+        origem="USOCONSUMO"
+        onCancelada={() => onAfterChange?.()}
+      />
 
       <div className="space-y-4">
         <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -159,7 +169,9 @@ export function ItemMovementsTab({ entradas = [], saidas = [], onAfterChange }: 
                         {canCancel && movement.status === "CONFIRMADA" ? (
                           <DropdownMenuItem
                             variant="destructive"
-                            onClick={() => setCancelTarget({ id: movement.id, kind: movement.type, inventory: "usoconsumo" })}
+                            onClick={() => movement.type === "entrada"
+                              ? setEntradaCancelamentoId(movement.id)
+                              : setCancelTarget({ id: movement.id, kind: movement.type, inventory: "usoconsumo" })}
                           >
                             <Undo2 className="mr-2 h-4 w-4" />Cancelar {movement.type}
                           </DropdownMenuItem>

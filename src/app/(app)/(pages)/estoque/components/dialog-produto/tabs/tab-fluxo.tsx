@@ -14,6 +14,7 @@ import { toast } from "@/lib/toast";
 import { EntryDetailsDialog } from "../../entry-details-dialog";
 import { ExitDetailsDialog } from "../../exit-details-dialog";
 import { CancelMovementDialog, type CancelTarget } from "../../cancel-movement-dialog";
+import { CancelarEntradaDialog } from "@/components/entrada-fiscal/cancelar-entrada-dialog";
 
 export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfterChange?: () => void | Promise<void> }) {
   const entradas = (produto as any).entrada ?? [];
@@ -47,6 +48,8 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
   const [detailsSaidaId, setDetailsSaidaId] = useState<number | null>(null);
   const [cancelTarget, setCancelTarget] = useState<CancelTarget | null>(null);
   const [cancelando, setCancelando] = useState(false);
+  /** Entradas usam o dialogo detalhado, que resolve nota mista e lista o que sera desfeito. */
+  const [entradaCancelamentoId, setEntradaCancelamentoId] = useState<number | null>(null);
 
   const cancelarMovimento = async (motivo: string) => {
     if (!cancelTarget) return;
@@ -121,6 +124,13 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
         onOpenChange={(open) => !open && setCancelTarget(null)}
         onConfirm={cancelarMovimento}
         canceling={cancelando}
+      />
+      <CancelarEntradaDialog
+        open={entradaCancelamentoId !== null}
+        onOpenChange={(open) => !open && setEntradaCancelamentoId(null)}
+        entradaId={entradaCancelamentoId}
+        origem="ESTOQUE"
+        onCancelada={() => onAfterChange?.()}
       />
       <div className="space-y-4">
         {/* Header */}
@@ -234,7 +244,7 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
                               <DropdownMenuItem
                                 variant="destructive"
                                 onClick={() =>
-                                  setCancelTarget({ id: entradaInfo.id, kind: "entrada", inventory: "produto" })
+                                  setEntradaCancelamentoId(entradaInfo.id)
                                 }
                               >
                                 <Undo2 className="mr-2 h-4 w-4" />

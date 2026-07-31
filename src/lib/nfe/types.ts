@@ -1,5 +1,9 @@
 // src/lib/nfe/types.ts
 
+import type { ICMSUFDest } from './difal';
+
+export type { ICMSUFDest };
+
 // =====================
 // Tabela EMPRESA (Supabase)
 // =====================
@@ -319,6 +323,17 @@ export interface NFeItem {
   quantidadeIpi?: number;
   valorUnidadeIpi?: number;
   valorIpi?: number;
+
+  // ---------- DIFAL (ICMSUFDest) ----------
+  /**
+   * Grupo de partilha do ICMS para a UF de destino. Preenchido pelo motor
+   * quando a operação é interestadual para consumidor final não contribuinte.
+   * Os campos abaixo permitem sobrepor as alíquotas resolvidas por padrão.
+   */
+  icmsUfDest?: ICMSUFDest;
+  aliquotaInternaDestino?: number | null;
+  aliquotaInterestadual?: number | null;
+  aliquotaFcpDestino?: number | null;
 
   // ---------- Reforma tributária ----------
   rtc?: TributosRtc;
