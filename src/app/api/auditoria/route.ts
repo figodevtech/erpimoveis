@@ -56,7 +56,7 @@ async function carregarReferencias(eventos: EventoAuditoria[]): Promise<Referenc
   );
 
   const [pecas, clientes, veiculos, setores, servicos, produtos, modelosChecklist, usuarios] = await Promise.all([
-    consultar(ids.pecaid, () => supabaseAdmin.from("peca").select("id, titulo, descricao, codigo").in("id", ids.pecaid)),
+    consultar(ids.pecaid, () => supabaseAdmin.from("peca").select("id, titulo, descricao").in("id", ids.pecaid)),
     consultar(ids.clienteid, () => supabaseAdmin.from("cliente").select("id, nomerazaosocial").in("id", ids.clienteid)),
     consultar(ids.veiculoid, () => supabaseAdmin.from("veiculo").select("id, placa, marca, modelo").in("id", ids.veiculoid)),
     consultar(ids.setorid, () => supabaseAdmin.from("setor").select("id, nome").in("id", ids.setorid)),
@@ -77,7 +77,7 @@ async function carregarReferencias(eventos: EventoAuditoria[]): Promise<Referenc
     referencias[campo][String(id)] = nome;
   };
 
-  for (const item of pecas.data ?? []) adicionar("pecaid", item.id, juntarPartes(item.titulo, item.codigo || item.descricao));
+  for (const item of pecas.data ?? []) adicionar("pecaid", item.id, juntarPartes(item.titulo, item.descricao));
   for (const item of clientes.data ?? []) adicionar("clienteid", item.id, juntarPartes(item.nomerazaosocial));
   for (const item of veiculos.data ?? []) adicionar("veiculoid", item.id, juntarPartes(`${item.marca} ${item.modelo}`.trim(), item.placa));
   for (const item of setores.data ?? []) adicionar("setorid", item.id, String(item.nome));
