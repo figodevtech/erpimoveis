@@ -119,6 +119,9 @@ export interface Transaction {
   pendente?: boolean
   evento_financeiro_id?: number | null
   is_deleted?: boolean
+  /** Usuario que registrou/baixou o pagamento. */
+  baixado_por?: string | null
+  baixadoPor?: { id: string; nome: string | null } | null
 }
 
 export interface NewTransaction {

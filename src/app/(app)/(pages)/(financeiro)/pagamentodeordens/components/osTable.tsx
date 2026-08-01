@@ -37,6 +37,7 @@ import {
   PaymentListFilters,
   PaymentsFilterSheet,
 } from "../../components/payments-filter-sheet";
+import { resumirBaixas } from "../../components/payment-settler";
 
 interface OsTableProps {
   ordens: Ordem[];
@@ -199,6 +200,7 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
               <TableHead>Cliente</TableHead>
               <TableHead>Setor</TableHead>
               <TableHead className="whitespace-nowrap">Pago</TableHead>
+              <TableHead className="whitespace-nowrap">Baixa por</TableHead>
               <TableHead className="whitespace-nowrap">Total</TableHead>
               <TableHead className="text-center">Situação</TableHead>
               <TableHead className="text-right whitespace-nowrap w-[90px]">Ações</TableHead>
@@ -223,6 +225,7 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
                     transacao.is_deleted !== true
                   )
                   .reduce((acc, transacao) => acc + Number(transacao.valor ?? 0), 0) ?? 0;
+                const baixa = resumirBaixas(o.transacoes);
 
                 return (
                   <TableRow key={o.id} className="hover:cursor-pointer">
@@ -234,6 +237,21 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
                     <TableCell>{o.setor?.nome}</TableCell>
                     <TableCell className=" text-blue-300 not-dark:text-blue-700 font-bold">
                       {formatarEmReal(totalPago)}
+                    </TableCell>
+                    <TableCell
+                      className="max-w-[160px] truncate"
+                      title={baixa ? baixa.todos.join(", ") : undefined}
+                    >
+                      {baixa ? (
+                        <span>
+                          {baixa.nome}
+                          {baixa.outros > 0 && (
+                            <span className="text-muted-foreground"> +{baixa.outros}</span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
                     </TableCell>
                     <TableCell>{formatarEmReal(totalFinanceiro)}</TableCell>
                     <TableCell className="text-center">

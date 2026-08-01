@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { auth } from "@/lib/auth";
 import { requireFinanceiroCreate, requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { calculateFinancialTotal } from "@/lib/financial-surcharge";
 
@@ -281,6 +282,10 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     await requireFinanceiroCreate();
+    const session = await auth();
+    // Quem registra um pagamento ja realizado e quem executou a baixa.
+    // Nunca vem do corpo da requisicao: so a sessao autenticada define o autor.
+    const baixadoPor = ((session?.user as any)?.id as string | undefined) ?? null;
     const body = (await req.json()) as any;
     const json = body?.newTransaction && typeof body.newTransaction === "object" ? body.newTransaction : body;
 
@@ -417,17 +422,23 @@ export async function POST(req: Request) {
 
     const baseDescricao = String(payload.descricao ?? "").trim();
     const rowsToInsert = (hasParcelamento ? parcelasDetalhadas : [{ valor: payload.valor, data: payload.data }]).map(
-      (_, index) => ({
-        ...payload,
-        descricao:
-          totalParcelas > 1
-            ? `${baseDescricao} - Parcela ${index + 1}/${totalParcelas}`
-            : baseDescricao,
-        valor: centsToNumber(parcelasGrossCents[index] ?? 0),
-        valorLiquido: centsToNumber(parcelasNetCents[index] ?? parcelasGrossCents[index] ?? 0),
-        data: hasParcelamento ? parcelasDetalhadas[index]?.data : payload.data,
-        pendente: hasParcelamento ? Boolean(payload.pendente) : payload.pendente,
-      })
+      (_, index) => {
+        const pendenteLinha = hasParcelamento ? Boolean(payload.pendente) : payload.pendente;
+
+        return {
+          ...payload,
+          descricao:
+            totalParcelas > 1
+              ? `${baseDescricao} - Parcela ${index + 1}/${totalParcelas}`
+              : baseDescricao,
+          valor: centsToNumber(parcelasGrossCents[index] ?? 0),
+          valorLiquido: centsToNumber(parcelasNetCents[index] ?? parcelasGrossCents[index] ?? 0),
+          data: hasParcelamento ? parcelasDetalhadas[index]?.data : payload.data,
+          pendente: pendenteLinha,
+          // Parcela pendente ainda sera baixada depois, por baixar_transacao_pendente.
+          baixado_por: pendenteLinha ? null : baixadoPor,
+        };
+      }
     );
 
     const { data, error } = await supabaseAdmin

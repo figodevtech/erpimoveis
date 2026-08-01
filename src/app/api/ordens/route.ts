@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { StatusOS } from "@/app/(app)/(pages)/ordens/types";
 import { requireOSAccess } from "@/app/api/_authz/perms";
+import { carregarAutores } from "@/lib/movement-authors";
 
 type Prioridade = "ALTA" | "NORMAL" | "BAIXA" | null;
 type AlvoTipo = "VEICULO" | "PECA" | "EQUIPAMENTO" | null;
@@ -97,6 +98,8 @@ export async function GET(req: Request) {
           tipo,
           evento_financeiro_id,
           is_deleted,
+          pendente,
+          baixado_por,
           banco_id,
           nomepagador,
           cpfcnpjpagador,
@@ -281,12 +284,27 @@ export async function GET(req: Request) {
         metodoPagamento: t.metodopagamento as string,
         categoria: t.categoria as string,
         tipo: t.tipo as string,
+        // A lista usa estes campos para somar apenas os recebimentos reais da OS.
+        evento_financeiro_id: (t.evento_financeiro_id as number | null) ?? null,
+        is_deleted: Boolean(t.is_deleted),
+        pendente: Boolean(t.pendente),
+        baixado_por: (t.baixado_por as string | null) ?? null,
+        baixadoPor: null as { id: string; nome: string | null } | null,
         bancoId: Number(t.banco_id),
         pagador: { nome: t.nomepagador as string, cpfcnpj: t.cpfcnpjpagador as string },
         createdAt: t.created_at as string,
         updatedAt: t.updated_at as string,
       })),
     }));
+
+    const autores = await carregarAutores(
+      items.flatMap((item) => item.transacoes.map((t: any) => t.baixado_por)),
+    );
+    for (const item of items) {
+      for (const transacao of item.transacoes as any[]) {
+        transacao.baixadoPor = autores.get(String(transacao.baixado_por ?? "")) ?? null;
+      }
+    }
 
     const ordemIds = items.map((item) => item.id).filter(Boolean);
 

@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
 import { requireVendasAccess, requireVendasCreate } from "@/app/api/_authz/perms";
+import { carregarAutores } from "@/lib/movement-authors";
 import { syncPendingMercadoLivreStock } from "@/lib/integrations/mercadolivre-stock-sync";
 import { buscarModoBaixaEstoqueOS } from "@/lib/ordens/estoque-os";
 
@@ -103,7 +104,12 @@ const VENDA_SELECT = `
   sub_total,
   transacoes:transacao!transacao_vendaid_fkey (
     id,
-    valor
+    valor,
+    data,
+    tipo,
+    pendente,
+    is_deleted,
+    baixado_por
   ),
   itens:vendaproduto (
     id,
@@ -355,6 +361,17 @@ export async function GET(req: Request) {
     }
 
     const items = data ?? [];
+
+    // `transacao.baixado_por` e um uuid solto (sem FK para `usuario`), entao o nome
+    // de quem executou a baixa e resolvido em lote.
+    const autores = await carregarAutores(
+      items.flatMap((item: any) => (item.transacoes ?? []).map((t: any) => t.baixado_por)),
+    );
+    for (const item of items as any[]) {
+      for (const transacao of item.transacoes ?? []) {
+        transacao.baixadoPor = autores.get(String(transacao.baixado_por ?? "")) ?? null;
+      }
+    }
 
     const vendaIds = items.map((item: any) => Number(item.id)).filter(Number.isFinite);
 

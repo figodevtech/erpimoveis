@@ -38,6 +38,7 @@ import {
   PaymentListFilters,
   PaymentsFilterSheet,
 } from "../../components/payments-filter-sheet";
+import { resumirBaixas } from "../../components/payment-settler";
 
 interface OsTableProps {
   vendas: VendaComItens[];
@@ -196,6 +197,7 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
               <TableCell>Cliente</TableCell>
               <TableCell>Data</TableCell>
               <TableCell>Valor Total</TableCell>
+              <TableCell>Baixa por</TableCell>
               <TableCell>Status</TableCell>
               <TableCell></TableCell>
             </TableRow>
@@ -212,6 +214,7 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
                   v.acrescimo_financeiro_tipo,
                   v.acrescimo_financeiro_valor,
                 );
+                const baixa = resumirBaixas(v.transacoes);
 
                 return (
                   <TableRow key={v.id} className="hover:cursor-pointer">
@@ -221,6 +224,21 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
                     <TableCell>{v.cliente.nomerazaosocial}</TableCell>
                     <TableCell>{formatDate(v.datavenda)}</TableCell>
                     <TableCell>{formatarEmReal(totalFinanceiro)}</TableCell>
+                    <TableCell
+                      className="max-w-[160px] truncate"
+                      title={baixa ? baixa.todos.join(", ") : undefined}
+                    >
+                      {baixa ? (
+                        <span>
+                          {baixa.nome}
+                          {baixa.outros > 0 && (
+                            <span className="text-muted-foreground"> +{baixa.outros}</span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       {totalFinanceiro > 0 ? (
                         (v.transacoes?.reduce((total, transaction) => total + Number(transaction?.valor ?? 0), 0) ?? 0) <
