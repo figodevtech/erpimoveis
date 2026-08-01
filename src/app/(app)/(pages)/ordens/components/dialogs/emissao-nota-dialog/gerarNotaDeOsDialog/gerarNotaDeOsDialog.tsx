@@ -54,9 +54,11 @@ import {
 import { isValidCnpj, isValidCpf, normalizeFiscalRecipient } from "@/lib/nfe/recipientNormalization";
 
 import {
+  aplicarSugestaoDifal,
   createAssistedItem,
   type AssistedFiscalItem,
   type AssistedItemIssue,
+  type DifalContexto,
   type FiscalSetup,
   type SourceProduct,
   toApiItem,
@@ -218,6 +220,35 @@ export function GerarNotaDeOsDialog({
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
   const [paymentMethodsOpen, setPaymentMethodsOpen] = useState(false);
 
+  // Consumidor final e a IE do destinatário mudam a exigência do DIFAL. Reavalia
+  // na hora, preservando o que já foi digitado nos campos.
+  const difalContexto = useMemo(() => {
+    const parceiro = source?.fornecedor ?? source?.cliente;
+    return {
+      ufEmitente: setup?.empresa?.uf ?? null,
+      ufDestinatario: parceiro?.uf ?? null,
+      tipoOperacao: source?.tipo_operacao ?? "SAIDA",
+      indFinal: fiscalConfig.consumidorFinal ? 1 : 0,
+      indIEDest: String(source?.cliente?.inscricaoestadual ?? "").trim() ? 1 : 9,
+    } satisfies DifalContexto;
+  }, [
+    setup?.empresa?.uf,
+    source?.fornecedor,
+    source?.cliente,
+    source?.tipo_operacao,
+    fiscalConfig.consumidorFinal,
+  ]);
+
+  useEffect(() => {
+    setItems((current) => {
+      if (!current.length) return current;
+      const proximos = current.map((item) => aplicarSugestaoDifal(item, difalContexto));
+      return proximos.some((item, index) => item !== current[index]) ? proximos : current;
+    });
+  }, [difalContexto]);
+
+  const difalAtivo = items.some((item) => item.difalHabilitado);
+
   const origin = osId ? "OS" : vendaId ? "VENDA" : entradaId ? "ENTRADA" : null;
   const originId = osId ?? vendaId ?? entradaId ?? null;
   const productsEndpoint = useMemo(() => {
@@ -261,10 +292,15 @@ export function GerarNotaDeOsDialog({
 
       const fiscalSetup = setupJson as FiscalSetup;
       const parceiro = productsJson.fornecedor ?? productsJson.cliente;
+      // Sem inscrição estadual o destinatário é não contribuinte (indIEDest 9),
+      // que junto com consumidor final e operação interestadual aciona o DIFAL.
+      const indIEDest = String(productsJson.cliente?.inscricaoestadual ?? "").trim() ? 1 : 9;
       const mapped = productsJson.itens.map((item) =>
         createAssistedItem(item, fiscalSetup, {
           tipoOperacao: productsJson.tipo_operacao ?? "SAIDA",
           parceiroUf: parceiro?.uf,
+          indFinal: defaultFiscalConfig.consumidorFinal ? 1 : 0,
+          indIEDest,
         }),
       );
       setSetup(fiscalSetup);
@@ -473,6 +509,8 @@ export function GerarNotaDeOsDialog({
       const updatedItem = createAssistedItem(updatedSource, setup, {
         tipoOperacao: json.tipo_operacao ?? "SAIDA",
         parceiroUf: parceiro?.uf,
+        indFinal: fiscalConfig.consumidorFinal ? 1 : 0,
+        indIEDest: String(json.cliente?.inscricaoestadual ?? "").trim() ? 1 : 9,
       });
       setSource(json);
       setItems((current) =>
@@ -700,6 +738,12 @@ export function GerarNotaDeOsDialog({
                     <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-2">
                       <div className="min-w-0 space-y-1.5">
                         <Label>Consumidor final</Label>
+                        {difalAtivo ? (
+                          <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                            Esta operação exige DIFAL. Alterar este campo recalcula a seção
+                            de partilha nos itens.
+                          </p>
+                        ) : null}
                         <Select
                           value={fiscalConfig.consumidorFinal ? "SIM" : "NAO"}
                           onValueChange={(value) => setFiscalConfig((current) => ({

@@ -125,14 +125,14 @@ export default function TiposConfigPage() {
     {
       id: "cores_veiculos",
       icon: Palette,
-      title: "Cores de veículo",
+      title: "Cores de veículos",
       subtitle: "Cores para o cadastro",
     },
     {
       id: "motivos_saida",
       icon: PackageMinus,
-      title: "Motivos de saída",
-      subtitle: "Exibidos no dialog de baixa de estoque",
+      title: "Motivos de saídas",
+      subtitle: "Exibidos na baixa de estoque",
     },
   ];
 

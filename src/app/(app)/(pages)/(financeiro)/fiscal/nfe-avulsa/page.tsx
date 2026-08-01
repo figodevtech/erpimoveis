@@ -58,6 +58,7 @@ import type { Produto } from "@/app/(app)/(pages)/estoque/types";
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
 import { normalizeCfopForOperation } from "@/lib/nfe/cfopOperation";
 import { getRequiredPisCofinsMode, PIS_COFINS_CST_OPTIONS } from "@/lib/nfe/taxRules";
+import { aplicarSugestaoDifal } from "@/lib/nfe/difal-sugestao";
 import { DanfeView, type DanfeViewData } from "@/components/danfe/danfe-view";
 import ValueInput from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/components/transactionDialog/valueInput";
 
@@ -181,6 +182,16 @@ type DraftItem = {
   valorIbsMunicipio: string;
   aliquotaCbs: string;
   valorCbs: string;
+  /**
+   * DIFAL (ICMSUFDest). Sugerido quando a operação exige, mas editável: a
+   * alíquota interna do destino muda por lei estadual, NCM e benefício fiscal.
+   */
+  difalHabilitado: boolean;
+  difalAliquotaInterna: string;
+  difalAliquotaInterestadual: string;
+  difalAliquotaFcp: string;
+  difalPercentualPartilha: string;
+  difalBaseFcp: string;
 };
 
 type DraftTransporte = {
@@ -423,6 +434,12 @@ const emptyItem: DraftItem = {
   valorIbsMunicipio: "",
   aliquotaCbs: "",
   valorCbs: "",
+  difalHabilitado: false,
+  difalAliquotaInterna: "",
+  difalAliquotaInterestadual: "",
+  difalAliquotaFcp: "",
+  difalPercentualPartilha: "",
+  difalBaseFcp: "",
 };
 
 const initialDraft: DraftPayload = {
@@ -754,6 +771,36 @@ export default function NFeAvulsaPage() {
   const [errors, setErrors] = React.useState<ValidationError[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
+
+  // DIFAL: reavalia sempre que emitente, destino, consumidor final ou o
+  // indicador de IE mudarem. Preserva o que o usuário já digitou.
+  const difalContexto = React.useMemo(
+    () => ({
+      ufEmitente: setup?.empresa?.uf ?? null,
+      ufDestinatario: draft.destinatario.estado ?? null,
+      tipoOperacao: "SAIDA" as const,
+      indFinal: draft.operacao.consumidorFinal ? 1 : 0,
+      indIEDest: draft.destinatario.indicadorIe || "9",
+    }),
+    [
+      setup?.empresa?.uf,
+      draft.destinatario.estado,
+      draft.destinatario.indicadorIe,
+      draft.operacao.consumidorFinal,
+    ],
+  );
+
+  React.useEffect(() => {
+    setDraft((current) => {
+      if (!current.itens.length) return current;
+      const itens = current.itens.map((item) => aplicarSugestaoDifal(item, difalContexto));
+      return itens.some((item, index) => item !== current.itens[index])
+        ? { ...current, itens }
+        : current;
+    });
+  }, [difalContexto]);
+
+  const difalAtivo = draft.itens.some((item) => item.difalHabilitado);
   const [authorizing, setAuthorizing] = React.useState(false);
   const [dirty, setDirty] = React.useState(false);
   const [openCustomerSelect, setOpenCustomerSelect] = React.useState(false);
@@ -955,6 +1002,16 @@ export default function NFeAvulsaPage() {
       ...current,
       pagamento: pagamentos[0] ?? current.pagamento,
       pagamentos,
+      // O motor lê o DIFAL sob outros nomes; sem essa tradução o que o usuário
+      // digitou seria descartado e recalculado com os padrões.
+      itens: current.itens.map((item) => ({
+        ...item,
+        aliquotaInternaDestino: item.difalHabilitado ? item.difalAliquotaInterna || null : null,
+        aliquotaInterestadual: item.difalHabilitado ? item.difalAliquotaInterestadual || null : null,
+        aliquotaFcpDestino: item.difalHabilitado ? item.difalAliquotaFcp || null : null,
+        percentualPartilhaDestino: item.difalHabilitado ? item.difalPercentualPartilha || null : null,
+        baseCalculoFcpDestino: item.difalHabilitado ? item.difalBaseFcp || null : null,
+      })),
     };
   }
 
@@ -1462,6 +1519,12 @@ export default function NFeAvulsaPage() {
                   </Select>
                 </Field>
                 <Field label="Consumidor final" required>
+                  {difalAtivo ? (
+                    <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                      Esta operação exige DIFAL. Alterar este campo recalcula a seção de
+                      partilha nos itens.
+                    </p>
+                  ) : null}
                   <Select
                     value={draft.operacao.consumidorFinal ? "SIM" : "NAO"}
                     onValueChange={(value) =>
@@ -1867,6 +1930,58 @@ export default function NFeAvulsaPage() {
                           </Field>
                         )}
                         </div>
+
+                        {item.difalHabilitado ? (
+                          <div className="mt-3 space-y-3 rounded-lg border p-3">
+                            <div>
+                              <p className="text-sm font-semibold">DIFAL — partilha para a UF de destino</p>
+                              <p className="text-xs text-muted-foreground">
+                                Venda interestadual a consumidor final não contribuinte. Os valores são
+                                sugestões: confira a legislação vigente da UF de destino e ajuste.
+                              </p>
+                            </div>
+                            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                              <Field label="% interna destino" required>
+                                <Input
+                                  placeholder="Pesquise a alíquota"
+                                  value={item.difalAliquotaInterna}
+                                  onChange={(event) => updateItem(index, { difalAliquotaInterna: event.target.value })}
+                                />
+                              </Field>
+                              <Field label="% interestadual" required>
+                                <Input
+                                  value={item.difalAliquotaInterestadual}
+                                  onChange={(event) => updateItem(index, { difalAliquotaInterestadual: event.target.value })}
+                                />
+                              </Field>
+                              <Field label="% partilha destino">
+                                <Input
+                                  value={item.difalPercentualPartilha}
+                                  onChange={(event) => updateItem(index, { difalPercentualPartilha: event.target.value })}
+                                />
+                              </Field>
+                              <Field label="% FCP">
+                                <Input
+                                  placeholder="0"
+                                  value={item.difalAliquotaFcp}
+                                  onChange={(event) => updateItem(index, { difalAliquotaFcp: event.target.value })}
+                                />
+                              </Field>
+                              <Field label="Base FCP (R$)">
+                                <Input
+                                  placeholder="Mesma do DIFAL"
+                                  value={item.difalBaseFcp}
+                                  onChange={(event) => updateItem(index, { difalBaseFcp: event.target.value })}
+                                />
+                              </Field>
+                            </div>
+                            {!item.difalAliquotaInterna.trim() ? (
+                              <p className="text-xs text-destructive">
+                                Informe a alíquota interna da UF de destino para calcular o DIFAL.
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : null}
 
                         <div className="md:col-span-12"><Separator /></div>
                         <p className="text-sm font-medium md:col-span-12">PIS e COFINS</p>

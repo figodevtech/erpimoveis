@@ -368,6 +368,73 @@ export function NfeItemFiscalEditor({
           />
         </section>
 
+        {item.difalHabilitado ? (
+          <section className="min-w-0 space-y-3 rounded-lg border p-3 sm:p-4 bg-card">
+            <div>
+              <h3 className="text-sm font-semibold">DIFAL — partilha para a UF de destino</h3>
+              <p className="text-xs text-muted-foreground">
+                Venda interestadual a consumidor final não contribuinte. Os valores abaixo são
+                sugestões: confira a legislação vigente da UF de destino e ajuste se necessário.
+              </p>
+            </div>
+            <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+              <Field label="Alíquota interna do destino (%)" required>
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  placeholder="Pesquise a alíquota vigente"
+                  value={item.difalAliquotaInterna}
+                  onChange={(event) => onChange({ difalAliquotaInterna: event.target.value })}
+                />
+              </Field>
+              <Field label="Alíquota interestadual (%)" required>
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  value={item.difalAliquotaInterestadual}
+                  onChange={(event) => onChange({ difalAliquotaInterestadual: event.target.value })}
+                />
+              </Field>
+              <Field label="Partilha ao destino (%)">
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  value={item.difalPercentualPartilha}
+                  onChange={(event) => onChange({ difalPercentualPartilha: event.target.value })}
+                />
+              </Field>
+              <Field label="Alíquota FCP (%)">
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  placeholder="0"
+                  value={item.difalAliquotaFcp}
+                  onChange={(event) => onChange({ difalAliquotaFcp: event.target.value })}
+                />
+              </Field>
+              <Field label="Base do FCP (R$)">
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  placeholder="Mesma do DIFAL"
+                  value={item.difalBaseFcp}
+                  onChange={(event) => onChange({ difalBaseFcp: event.target.value })}
+                />
+              </Field>
+            </div>
+            {!item.difalAliquotaInterna.trim() ? (
+              <p className="text-xs text-destructive">
+                Informe a alíquota interna da UF de destino para calcular o DIFAL.
+              </p>
+            ) : null}
+          </section>
+        ) : null}
+
         <section className="min-w-0 space-y-3 rounded-lg border p-3 sm:p-4 bg-card">
           <h3 className="text-sm font-semibold">Reforma tributária (IBS/CBS)</h3>
           <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-6">

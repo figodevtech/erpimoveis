@@ -65,6 +65,12 @@ export type NFeAvulsaItemInput = {
   valorIbsMunicipio?: string | number | null;
   aliquotaCbs?: string | number | null;
   valorCbs?: string | number | null;
+  /** DIFAL (ICMSUFDest) confirmado pelo usuário; sobrepõe os padrões do motor. */
+  aliquotaInternaDestino?: string | number | null;
+  aliquotaInterestadual?: string | number | null;
+  aliquotaFcpDestino?: string | number | null;
+  percentualPartilhaDestino?: string | number | null;
+  baseCalculoFcpDestino?: string | number | null;
 };
 
 export type NFeAvulsaDraftInput = {
@@ -230,6 +236,13 @@ function mapInputToTaxItem(item: NFeAvulsaItemInput, index: number): NFeItem {
     codigoProduto: item.produtoId != null
       ? String(item.produtoId)
       : cleanText(item.codigo) || String(index + 1),
+    // DIFAL: repassa apenas o que veio preenchido. Campo vazio deixa o motor
+    // resolver com os padroes.
+    aliquotaInternaDestino: toOptionalDecimal(item.aliquotaInternaDestino) ?? undefined,
+    aliquotaInterestadual: toOptionalDecimal(item.aliquotaInterestadual) ?? undefined,
+    aliquotaFcpDestino: toOptionalDecimal(item.aliquotaFcpDestino) ?? undefined,
+    percentualPartilhaDestino: toOptionalDecimal(item.percentualPartilhaDestino) ?? undefined,
+    baseCalculoFcpDestino: toOptionalDecimal(item.baseCalculoFcpDestino) ?? undefined,
     descricao: cleanText(item.descricao),
     ncm: onlyDigits(item.ncm),
     cfop: onlyDigits(item.cfop),

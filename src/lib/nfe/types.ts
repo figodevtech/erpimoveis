@@ -334,6 +334,9 @@ export interface NFeItem {
   aliquotaInternaDestino?: number | null;
   aliquotaInterestadual?: number | null;
   aliquotaFcpDestino?: number | null;
+  /** Base do FCP quando diferente da base do DIFAL. */
+  baseCalculoFcpDestino?: number | null;
+  percentualPartilhaDestino?: number | null;
 
   // ---------- Reforma tributária ----------
   rtc?: TributosRtc;

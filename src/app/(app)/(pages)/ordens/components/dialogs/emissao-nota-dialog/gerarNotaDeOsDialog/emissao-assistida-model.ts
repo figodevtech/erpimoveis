@@ -10,6 +10,12 @@ import {
   type NFeFiscalFieldRules,
 } from "@/lib/nfe/taxRules";
 import {
+  ALIQUOTA_INTERNA_POR_UF,
+  aliquotaInterestadual,
+  deveGerarICMSUFDest,
+} from "@/lib/nfe/difal";
+export { aplicarSugestaoDifal, type DifalContexto } from "@/lib/nfe/difal-sugestao";
+import {
   isCfopCompatibleWithOperation,
   normalizeCfopForOperation,
   type NFeOperationDirection,
@@ -107,6 +113,17 @@ export type AssistedFiscalItem = {
   valorIbsMunicipio: string;
   aliquotaCbs: string;
   valorCbs: string;
+  /**
+   * DIFAL (ICMSUFDest). Pré-preenchido como sugestão quando a operação exige o
+   * grupo, mas totalmente editável: a alíquota interna da UF de destino muda por
+   * lei estadual, NCM e benefício fiscal, então quem confirma é o usuário.
+   */
+  difalHabilitado: boolean;
+  difalAliquotaInterna: string;
+  difalAliquotaInterestadual: string;
+  difalAliquotaFcp: string;
+  difalPercentualPartilha: string;
+  difalBaseFcp: string;
 };
 
 export type AssistedItemIssue = {
@@ -160,9 +177,30 @@ export function createAssistedItem(
   context?: {
     tipoOperacao?: NFeOperationDirection;
     parceiroUf?: string | null;
+    indFinal?: number | string;
+    indIEDest?: number | string;
   },
 ): AssistedFiscalItem {
   const crt = Number(setup.empresa?.crt ?? 0);
+
+  // Sugestão de DIFAL: só liga quando a operação realmente exige o grupo.
+  // Os valores abaixo são ponto de partida — o usuário confirma ou corrige.
+  const ufEmitente = String(setup.empresa?.uf ?? "");
+  const ufDestino = String(context?.parceiroUf ?? "");
+  const exigeDifal =
+    (context?.tipoOperacao ?? "SAIDA") === "SAIDA" &&
+    Boolean(ufEmitente && ufDestino) &&
+    deveGerarICMSUFDest({
+      ufEmitente,
+      ufDestinatario: ufDestino,
+      indFinal: context?.indFinal ?? 1,
+      indIEDest: context?.indIEDest ?? 9,
+      tpNF: 1,
+      cfop: source.cfop,
+    });
+  const internaSugerida = exigeDifal
+    ? ALIQUOTA_INTERNA_POR_UF[ufDestino.trim().toUpperCase()]
+    : undefined;
   const modoPis = source.modo_pis || inferPisCofinsMode(source.cst_pis, source.aliquota_pis);
   const modoCofins =
     source.modo_cofins || inferPisCofinsMode(source.cst_cofins, source.aliquota_cofins);
@@ -227,6 +265,18 @@ export function createAssistedItem(
     valorIbsMunicipio: "",
     aliquotaCbs: source.aliquota_cbs == null ? "" : String(source.aliquota_cbs),
     valorCbs: "",
+    difalHabilitado: exigeDifal,
+    // Interna vem da tabela de referência; vazia se a UF não estiver mapeada,
+    // para o usuário pesquisar e preencher em vez de emitir com valor errado.
+    difalAliquotaInterna: internaSugerida == null ? "" : String(internaSugerida),
+    // Interestadual é a única com regra objetiva (Resolução 13/2012 + origem),
+    // mas segue editável.
+    difalAliquotaInterestadual: exigeDifal
+      ? String(aliquotaInterestadual(ufEmitente, ufDestino, source.origem_mercadoria))
+      : "",
+    difalAliquotaFcp: "",
+    difalPercentualPartilha: exigeDifal ? "100" : "",
+    difalBaseFcp: "",
   };
 }
 
@@ -267,6 +317,17 @@ export function toNFeItem(item: AssistedFiscalItem, index = 0): NFeItem {
     numeroItem: index + 1,
     // cProd usa o id do produto; a referencia continua so na exibicao do item.
     codigoProduto: item.produtoId != null ? String(item.produtoId) : item.codigo,
+    // DIFAL: repassa o que o usuário confirmou. O motor só monta o grupo se a
+    // operação exigir; estes campos apenas substituem os padrões dele.
+    ...(item.difalHabilitado
+      ? {
+          aliquotaInternaDestino: optionalDecimal(item.difalAliquotaInterna),
+          aliquotaInterestadual: optionalDecimal(item.difalAliquotaInterestadual),
+          aliquotaFcpDestino: optionalDecimal(item.difalAliquotaFcp),
+          percentualPartilhaDestino: optionalDecimal(item.difalPercentualPartilha),
+          baseCalculoFcpDestino: optionalDecimal(item.difalBaseFcp),
+        }
+      : {}),
     descricao: item.descricao,
     ncm: onlyDigits(item.ncm),
     cfop: onlyDigits(item.cfop),
@@ -428,5 +489,12 @@ export function toApiItem(item: AssistedFiscalItem) {
     valorIbsMunicipio: item.valorIbsMunicipio || null,
     aliquotaCbs: item.aliquotaCbs || null,
     valorCbs: item.valorCbs || null,
+    // DIFAL confirmado pelo usuário. Sem isso o servidor recalcularia com os
+    // padrões e descartaria o que foi digitado na tela.
+    aliquotaInternaDestino: item.difalHabilitado ? item.difalAliquotaInterna || null : null,
+    aliquotaInterestadual: item.difalHabilitado ? item.difalAliquotaInterestadual || null : null,
+    aliquotaFcpDestino: item.difalHabilitado ? item.difalAliquotaFcp || null : null,
+    percentualPartilhaDestino: item.difalHabilitado ? item.difalPercentualPartilha || null : null,
+    baseCalculoFcpDestino: item.difalHabilitado ? item.difalBaseFcp || null : null,
   };
 }

@@ -14,7 +14,7 @@ import { gerarCNF, gerarChaveAcesso } from './chaveAcesso';
 import { mapEmpresaToEmitente } from './mapEmpresaToEmitente';
 import { getCodigoUF } from './ufUtils';
 import { calcularTotaisNFe, normalizarCRT } from './fiscal';
-import { deveGerarICMSUFDest, montarICMSUFDest } from './difal';
+import { cfopDispensaDifal, deveGerarICMSUFDest, montarICMSUFDest } from './difal';
 import { escapeXml } from './xmlUtils';
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from './constants';
 
@@ -430,29 +430,40 @@ export function buildNFePreviewXml(
     numeroItem: item.numeroItem ?? index + 1,
   }));
 
-  // DIFAL: venda interestadual a consumidor final nao contribuinte exige o grupo
+  // DIFAL: saida interestadual a consumidor final nao contribuinte exige o grupo
   // ICMSUFDest em todos os itens. Sem ele a SEFAZ devolve a rejeicao 694.
+  const ufDestino = String(dest.endereco?.uf ?? "");
   const exigeDifal = deveGerarICMSUFDest({
     ufEmitente: empresaUf,
-    ufDestinatario: String(dest.endereco?.uf ?? ""),
+    ufDestinatario: ufDestino,
     indFinal: ide.indFinal ?? 1,
     indIEDest: dest.indIEDest ?? "9",
+    tpNF: ide.tpNF ?? 1,
   });
 
   const itens: NFeItem[] = exigeDifal
-    ? itensNumerados.map((item) => ({
+    ? itensNumerados.map((item) => (
+      // O CFOP é por item: devolução e remessa na mesma nota não geram DIFAL.
+      cfopDispensaDifal(item.cfop) ? item : {
         ...item,
         icmsUfDest: item.icmsUfDest ?? montarICMSUFDest({
           // A base do DIFAL e o valor da operacao, incluindo o frete rateado.
           baseCalculo: Number(item.valorTotal ?? 0) + Number(item.valorFrete ?? 0),
+          baseCalculoFcp: item.baseCalculoFcpDestino,
           ufEmitente: empresaUf,
-          ufDestinatario: String(dest.endereco?.uf ?? ""),
+          ufDestinatario: ufDestino,
           origemMercadoria: item.orig,
           aliquotaInternaDestino: item.aliquotaInternaDestino,
           aliquotaInterestadual: item.aliquotaInterestadual,
           aliquotaFcpDestino: item.aliquotaFcpDestino,
+          percentualPartilhaDestino: item.percentualPartilhaDestino,
+          onAliquotaPadrao: (uf, aliquota) =>
+            console.warn(
+              `[NF-e] Item ${item.numeroItem}: alíquota interna de ${uf} não configurada no cadastro fiscal; usando o padrão da tabela (${aliquota}%).`,
+            ),
         }),
-      }))
+      }
+    ))
     : itensNumerados;
 
   const ideXml = buildIdeXml(ide);
