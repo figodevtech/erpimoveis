@@ -64,14 +64,20 @@ export function buildDetXml(item: NFeItem, crt: string | number): string {
   partes.push(buildIpiXml(item));
   partes.push(buildPisXmlPorCRT(item, crtNormalizado));
   partes.push(buildCofinsXmlPorCRT(item, crtNormalizado));
-  partes.push(buildImpostoSeletivoXml(item));
-  partes.push(buildRtcXml(item));
-  // ICMSUFDest e o ultimo elemento da sequencia <imposto> no leiaute 4.00,
-  // depois de PIS/COFINS. Fora dessa posicao o XML falha no XSD.
+  // Ordem da sequencia <imposto> no leiaute com RTC (PL_010):
+  //   vTotTrib, (ICMS|ISSQN), IPI, II, PIS, PISST, COFINS, COFINSST,
+  //   ICMSUFDest, IS, IBSCBS
+  // ICMSUFDest vem DEPOIS de COFINS e ANTES dos grupos da reforma. Fora dessa
+  // posicao a SEFAZ devolve rejeicao 225 (falha no schema do lote).
   if (item.icmsUfDest) {
     partes.push(buildIcmsUFDestXml(item.icmsUfDest));
   }
+  partes.push(buildImpostoSeletivoXml(item));
+  partes.push(buildRtcXml(item));
   partes.push('</imposto>');
+  // vItem e o valor do item na operacao. Nao acumula IBS/CBS destacados: em 2026
+  // os tributos da reforma sao informativos e nao elevam o valor comercial.
+  partes.push(`<vItem>${vProd}</vItem>`);
   partes.push('</det>');
 
   return partes.join('');

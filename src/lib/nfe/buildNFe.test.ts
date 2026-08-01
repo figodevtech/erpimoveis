@@ -116,13 +116,34 @@ describe("DIFAL (ICMSUFDest)", () => {
     assert.match(xml, /<pICMSInterPart>100\.00<\/pICMSInterPart>/);
   });
 
-  it("posiciona o grupo como último filho de <imposto>, fora de <ICMS>", () => {
-    const { xml } = buildNFePreviewXml(empresaRegimeNormal, 4, 1, [itemDifal], destinatario("MG"), {
-      nomeMunicipioEmitente: "SAO PAULO",
-    });
+  it("posiciona o grupo entre COFINS e os grupos da reforma tributária", () => {
+    const { xml } = buildNFePreviewXml(
+      empresaRegimeNormal,
+      4,
+      1,
+      [{
+        ...itemDifal,
+        rtc: {
+          cstIbsCbs: "000",
+          cClassTrib: "000001",
+          baseCalculo: 2000,
+          ibsUf: { aliquota: 0.1, valor: 2 },
+          ibsMunicipio: { aliquota: 0, valor: 0 },
+          valorIbs: 2,
+          cbs: { aliquota: 0.9, valor: 18 },
+          versaoClassificacao: "1.00",
+          validadoEm: new Date().toISOString(),
+        },
+      }],
+      destinatario("MG"),
+      { nomeMunicipioEmitente: "SAO PAULO" },
+    );
 
-    // O XSD 4.00 exige ICMSUFDest depois de PIS/COFINS e imediatamente antes de </imposto>.
-    assert.match(xml, /<\/COFINS>[\s\S]*<ICMSUFDest>[\s\S]*<\/ICMSUFDest><\/imposto>/);
+    // Sequência do PL_010: ... COFINS, COFINSST, ICMSUFDest, IS, IBSCBS.
+    // Emitir ICMSUFDest depois de IBSCBS gera rejeição 225 (falha no schema).
+    assert.match(xml, /<\/COFINS>[\s\S]*<ICMSUFDest>/);
+    assert.match(xml, /<\/ICMSUFDest>[\s\S]*<IBSCBS>/);
+    assert.doesNotMatch(xml, /<\/IBSCBS>[\s\S]*<ICMSUFDest>/);
     // Nunca aninhado dentro do grupo ICMS.
     assert.doesNotMatch(xml, /<ICMS>(?:(?!<\/ICMS>)[\s\S])*<ICMSUFDest>/);
   });
@@ -135,6 +156,42 @@ describe("DIFAL (ICMSUFDest)", () => {
     assert.match(
       xml,
       /<vICMSDeson>0\.00<\/vICMSDeson><vFCPUFDest>0\.00<\/vFCPUFDest><vICMSUFDest>240\.00<\/vICMSUFDest><vICMSUFRemet>0\.00<\/vICMSUFRemet><vFCP>/,
+    );
+  });
+
+  it("emite IBSCBSTot com todos os filhos exigidos por TIBSCBSMonoTot", () => {
+    const { xml } = buildNFePreviewXml(
+      empresaRegimeNormal,
+      9,
+      1,
+      [{
+        ...itemDifal,
+        rtc: {
+          cstIbsCbs: "000",
+          cClassTrib: "000001",
+          baseCalculo: 2000,
+          ibsUf: { aliquota: 0.1, valor: 2 },
+          ibsMunicipio: { aliquota: 0, valor: 0 },
+          valorIbs: 2,
+          cbs: { aliquota: 0.9, valor: 18 },
+          versaoClassificacao: "1.00",
+          validadoEm: new Date().toISOString(),
+        },
+      }],
+      destinatario("MG"),
+      { nomeMunicipioEmitente: "SAO PAULO" },
+    );
+
+    // gIBS = gIBSUF, gIBSMun, vIBS, vCredPres, vCredPresCondSus.
+    // Faltar vCredPres/vCredPresCondSus gera rejeição 225 em IBSCBSTot/gIBS.
+    assert.match(
+      xml,
+      /<gIBS><gIBSUF>[\s\S]*<\/gIBSUF><gIBSMun>[\s\S]*<\/gIBSMun><vIBS>[\d.]+<\/vIBS><vCredPres>0\.00<\/vCredPres><vCredPresCondSus>0\.00<\/vCredPresCondSus><\/gIBS>/,
+    );
+    // gCBS = vDif, vDevTrib, vCBS, vCredPres, vCredPresCondSus.
+    assert.match(
+      xml,
+      /<gCBS><vDif>0\.00<\/vDif><vDevTrib>0\.00<\/vDevTrib><vCBS>[\d.]+<\/vCBS><vCredPres>0\.00<\/vCredPres><vCredPresCondSus>0\.00<\/vCredPresCondSus><\/gCBS>/,
     );
   });
 

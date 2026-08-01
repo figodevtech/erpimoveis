@@ -504,6 +504,8 @@ export function buildNFePreviewXml(
   const isTotXml = soma.vIS > 0
     ? `<ISTot><vIS>${soma.vIS.toFixed(2)}</vIS></ISTot>`
     : '';
+  // Estrutura de TIBSCBSMonoTot: gIBS e gCBS exigem vCredPres e vCredPresCondSus
+  // alem dos valores apurados. Omiti-los gera rejeicao 225 apontando IBSCBSTot/gIBS.
   const ibsCbsTotXml = itens.some((item) => item.rtc)
     ? '<IBSCBSTot>' +
       `<vBCIBSCBS>${soma.vBCIBSCBS.toFixed(2)}</vBCIBSCBS>` +
@@ -511,8 +513,16 @@ export function buildNFePreviewXml(
       `<gIBSUF><vDif>0.00</vDif><vDevTrib>0.00</vDevTrib><vIBSUF>${soma.vIBSUF.toFixed(2)}</vIBSUF></gIBSUF>` +
       `<gIBSMun><vDif>0.00</vDif><vDevTrib>0.00</vDevTrib><vIBSMun>${soma.vIBSMun.toFixed(2)}</vIBSMun></gIBSMun>` +
       `<vIBS>${soma.vIBS.toFixed(2)}</vIBS>` +
+      '<vCredPres>0.00</vCredPres>' +
+      '<vCredPresCondSus>0.00</vCredPresCondSus>' +
       '</gIBS>' +
-      `<gCBS><vDif>0.00</vDif><vDevTrib>0.00</vDevTrib><vCBS>${soma.vCBS.toFixed(2)}</vCBS></gCBS>` +
+      '<gCBS>' +
+      '<vDif>0.00</vDif>' +
+      '<vDevTrib>0.00</vDevTrib>' +
+      `<vCBS>${soma.vCBS.toFixed(2)}</vCBS>` +
+      '<vCredPres>0.00</vCredPres>' +
+      '<vCredPresCondSus>0.00</vCredPresCondSus>' +
+      '</gCBS>' +
       '</IBSCBSTot>'
     : '';
 
@@ -542,6 +552,9 @@ export function buildNFePreviewXml(
     '</ICMSTot>' +
     isTotXml +
     ibsCbsTotXml +
+    // vNFTot fecha o grupo <total>. Espelha o vNF: IBS/CBS destacados não somam
+    // ao valor da nota, apenas informam o tributo da reforma.
+    (ibsCbsTotXml ? `<vNFTot>${vNF}</vNFTot>` : '') +
     '</total>';
 
   const transpXml = buildTranspXml({

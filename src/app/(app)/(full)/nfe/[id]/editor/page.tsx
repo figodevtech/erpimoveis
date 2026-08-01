@@ -136,7 +136,11 @@ export default function EditorNfePage({ params }: Props) {
     }
   }
 
-  const isRascunho = status === "RASCUNHO";
+  // Rejeicao nao consome numeracao: a nota e corrigida e retransmitida com o
+  // mesmo numero. Autorizada, cancelada e denegada ja produziram efeito fiscal.
+  const statusUpper = String(status ?? "").toUpperCase();
+  const podeEditar = statusUpper === "RASCUNHO" || statusUpper === "REJEITADA";
+  const isRejeitada = statusUpper === "REJEITADA";
 
   return (
     <div className="container mx-auto max-w-5xl py-8">
@@ -147,11 +151,11 @@ export default function EditorNfePage({ params }: Props) {
         </div>
         <div className="flex items-center gap-2">
           {status && (
-            <Badge variant={isRascunho ? "outline" : "destructive"}>
+            <Badge variant={podeEditar ? "outline" : "destructive"}>
               Status: {status}
             </Badge>
           )}
-          <Button onClick={salvar} disabled={!isRascunho || saving || loading}>
+          <Button onClick={salvar} disabled={!podeEditar || saving || loading}>
             {saving ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -177,18 +181,27 @@ export default function EditorNfePage({ params }: Props) {
               <Loader2 className="h-4 w-4 animate-spin" />
               Carregando XML...
             </div>
-          ) : isRascunho ? (
-            <Textarea
-              value={xml}
-              onChange={(e) => setXml(e.target.value)}
-              wrap="off"
-              style={{ tabSize: 2 }}
-              className="font-mono text-sm min-h-[500px] resize-vertical"
-              spellCheck={false}
-            />
+          ) : podeEditar ? (
+            <>
+              {isRejeitada ? (
+                <p className="mb-3 border border-l-4 border-l-amber-500 bg-amber-500/5 p-3 text-xs">
+                  Nota rejeitada pela SEFAZ. Ao salvar, a assinatura e o protocolo antigos
+                  são descartados e o XML é assinado de novo na transmissão — o número
+                  e a série são preservados.
+                </p>
+              ) : null}
+              <Textarea
+                value={xml}
+                onChange={(e) => setXml(e.target.value)}
+                wrap="off"
+                style={{ tabSize: 2 }}
+                className="font-mono text-sm min-h-[500px] resize-vertical"
+                spellCheck={false}
+              />
+            </>
           ) : (
             <p className="text-sm text-muted-foreground">
-              Apenas NF-e em status RASCUNHO podem ser editadas. Status atual: {status ?? "desconhecido"}.
+              Apenas NF-e em rascunho ou rejeitada podem ser editadas. Status atual: {status ?? "desconhecido"}.
             </p>
           )}
         </CardContent>

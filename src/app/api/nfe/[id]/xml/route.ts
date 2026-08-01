@@ -3,6 +3,15 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
+/**
+ * Status em que o XML ainda pode ser editado.
+ *
+ * REJEITADA entra porque a rejeição não consome a numeração: a nota é corrigida
+ * e retransmitida com o mesmo número e série. AUTORIZADA, CANCELADA e DENEGADA
+ * ficam de fora — nesses casos o documento já produziu efeito fiscal.
+ */
+const STATUS_EDITAVEIS = new Set(["RASCUNHO", "REJEITADA"]);
+
 function parseId(idParam: string | undefined): number | null {
   const n = Number(idParam);
   return Number.isFinite(n) ? n : null;
@@ -43,11 +52,11 @@ export async function GET(_req: NextRequest, { params }: Contexto) {
     );
   }
 
-  if (data.status !== "RASCUNHO") {
+  if (!STATUS_EDITAVEIS.has(String(data.status ?? "").toUpperCase())) {
     return NextResponse.json(
       {
         ok: false,
-        message: "Somente NF-e em status RASCUNHO podem ter o XML editado",
+        message: "Somente NF-e em rascunho ou rejeitada podem ter o XML editado",
       },
       { status: 409 }
     );
@@ -104,22 +113,32 @@ export async function PUT(req: NextRequest, { params }: Contexto) {
     );
   }
 
-  if (data.status !== "RASCUNHO") {
+  if (!STATUS_EDITAVEIS.has(String(data.status ?? "").toUpperCase())) {
     return NextResponse.json(
       {
         ok: false,
-        message: "Somente NF-e em status RASCUNHO podem ter o XML editado",
+        message: "Somente NF-e em rascunho ou rejeitada podem ter o XML editado",
       },
       { status: 409 }
     );
   }
 
+  const atualizacao: Record<string, unknown> = {
+    xml_assinado: xml,
+    updatedat: new Date().toISOString(),
+  };
+
+  // Editar o XML de uma nota rejeitada invalida o retorno anterior da SEFAZ:
+  // qualquer alteração dentro de infNFe quebra o DigestValue, então protocolo e
+  // XML processado antigos não podem sobreviver à edição.
+  if (String(data.status ?? "").toUpperCase() === "REJEITADA") {
+    atualizacao.protocolo = null;
+    atualizacao.xml_autorizado = null;
+  }
+
   const { error: updateError } = await supabaseAdmin
     .from("nfe")
-    .update({
-      xml_assinado: xml,
-      updatedat: new Date().toISOString(),
-    })
+    .update(atualizacao)
     .eq("id", nfeId);
 
   if (updateError) {

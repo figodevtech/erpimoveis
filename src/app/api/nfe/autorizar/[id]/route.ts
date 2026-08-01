@@ -566,6 +566,19 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
         }
       }
 
+      // Registra o retorno da SEFAZ para que a nota rejeitada possa ser corrigida
+      // depois, sem depender do toast do momento do envio.
+      if (statusFinal === "REJEITADA" || statusFinal === "DENEGADA") {
+        updatePayload.codigo_rejeicao = prot_cStat ?? lote_cStat ?? null;
+        updatePayload.motivo_rejeicao = prot_xMotivo ?? lote_xMotivo ?? null;
+        updatePayload.rejeitada_em = new Date().toISOString();
+      } else if (statusFinal === "AUTORIZADA") {
+        // A nota foi corrigida e passou: a rejeicao anterior deixa de valer.
+        updatePayload.codigo_rejeicao = null;
+        updatePayload.motivo_rejeicao = null;
+        updatePayload.rejeitada_em = null;
+      }
+
       if (nProt) {
         updatePayload.protocolo = nProt;
         protocoloFinal = nProt;

@@ -13,6 +13,7 @@ import {
   ChevronsRight,
   Download,
   Eye,
+  FileCode,
   FileSearch,
   FilePlus2,
   Loader2,
@@ -648,10 +649,13 @@ export default function FiscalTable({
               const podeVerDanfe =
                 viewMode !== "EMITIDAS_TERCEIROS" || nota.xmlStatus === "XML_COMPLETO";
               const isRascunho = String(nota.status).toUpperCase() === "RASCUNHO";
+              // Rejeição não consome a numeração: a nota pode ser corrigida e
+              // retransmitida com o mesmo número e série.
+              const isRejeitada = String(nota.status).toUpperCase() === "REJEITADA";
               const statusTraduzido = traduzStatusNfe(nota.status).toUpperCase();
               const podeConsultarSefaz = !isRascunho;
               const podeExcluirRascunho = viewMode !== "EMITIDAS_TERCEIROS" && isRascunho;
-              const podeEditarRascunho = viewMode !== "EMITIDAS_TERCEIROS" && isRascunho;
+              const podeEditar = viewMode !== "EMITIDAS_TERCEIROS" && (isRascunho || isRejeitada);
               const podeCancelarNota =
                 viewMode !== "EMITIDAS_TERCEIROS" &&
                 !isRascunho &&
@@ -784,11 +788,21 @@ export default function FiscalTable({
                             Consultar SEFAZ
                           </DropdownMenuItem>
                         ) : null}
-                        {podeEditarRascunho ? (
-                          <DropdownMenuItem onClick={() => router.push(`/fiscal/nfe-avulsa?id=${nota.id}`)}>
-                            <Pencil className="mr-2 h-4 w-4" />
-                            Editar rascunho
-                          </DropdownMenuItem>
+                        {podeEditar ? (
+                          <>
+                            <DropdownMenuItem onClick={() => router.push(`/fiscal/nfe-avulsa?id=${nota.id}`)}>
+                              <Pencil className="mr-2 h-4 w-4" />
+                              {isRejeitada ? "Corrigir dados" : "Editar rascunho"}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() =>
+                                window.open(`/nfe/${nota.id}/editor`, "_blank", "noopener,noreferrer")
+                              }
+                            >
+                              <FileCode className="mr-2 h-4 w-4" />
+                              Editar XML
+                            </DropdownMenuItem>
+                          </>
                         ) : null}
                         {podeExcluirRascunho ? (
                           <DropdownMenuItem

@@ -1932,15 +1932,15 @@ export default function NFeAvulsaPage() {
                         </div>
 
                         {item.difalHabilitado ? (
-                          <div className="mt-3 space-y-3 rounded-lg border p-3">
+                          <div className="flex flex-1 flex-col gap-3 md:col-span-12">
                             <div>
                               <p className="text-sm font-semibold">DIFAL — partilha para a UF de destino</p>
-                              <p className="text-xs text-muted-foreground">
+                              {/* <p className="text-xs text-muted-foreground">
                                 Venda interestadual a consumidor final não contribuinte. Os valores são
                                 sugestões: confira a legislação vigente da UF de destino e ajuste.
-                              </p>
+                              </p> */}
                             </div>
-                            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                               <Field label="% interna destino" required>
                                 <Input
                                   placeholder="Pesquise a alíquota"

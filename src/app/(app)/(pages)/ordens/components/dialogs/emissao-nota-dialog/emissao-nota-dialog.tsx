@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Dialog,
   DialogContent,
@@ -43,6 +44,9 @@ type NfeResumo = {
   xml_assinado?: string | null;
   xml_autorizado?: string | null;
   justificativacancelamento: string | null;
+  codigo_rejeicao?: string | null;
+  motivo_rejeicao?: string | null;
+  rejeitada_em?: string | null;
   createdat: string | null;
   updatedat: string | null;
   empresaid: number | null;
@@ -121,8 +125,15 @@ function buildObservacao(nfe: NfeResumo): string {
     return base;
   }
 
-  if (statusUpper === "REJEITADA") {
-    return "NF-e rejeitada pela SEFAZ. Motivo não está registrado na tabela de NF-e. Verifique o histórico de retorno da SEFAZ.";
+  if (statusUpper === "REJEITADA" || statusUpper === "DENEGADA") {
+    const rotulo = statusUpper === "DENEGADA" ? "NF-e denegada" : "NF-e rejeitada";
+    const motivo = nfe.motivo_rejeicao?.trim();
+    if (motivo) {
+      const codigo = nfe.codigo_rejeicao?.trim();
+      return `${rotulo} pela SEFAZ. ${codigo ? `Rejeição ${codigo}: ` : ""}${motivo}`;
+    }
+    // Notas rejeitadas antes de o motivo passar a ser gravado.
+    return `${rotulo} pela SEFAZ. Motivo não registrado — reenvie para obter o retorno atualizado.`;
   }
 
   if (statusUpper === "RASCUNHO") {
@@ -156,6 +167,7 @@ export function EmissaoNotaDialog({
   entradaId?: number | null;
 }) {
   const [loading, setLoading] = useState(false);
+  const router = useRouter();
   const [nfes, setNfes] = useState<NfeResumo[] | null>(null);
   const [avisoListagem, setAvisoListagem] = useState<string | null>(null);
   const [openGerarNfe, setOpenGerarNfe] = useState(false);
@@ -622,8 +634,29 @@ export function EmissaoNotaDialog({
                                 </div>
                               ) : (
                                 <>
-                                  {nfe.status === "RASCUNHO" && (
+                                  {/*
+                                    Rejeição não consome a numeração: a nota pode ser
+                                    corrigida e retransmitida com o mesmo número/série.
+                                    Denegada, ao contrário, consome o número e não é
+                                    reaproveitável — por isso fica de fora.
+                                  */}
+                                  {(nfe.status === "RASCUNHO" || isRejeitada) && (
                                     <div className="flex flex-col gap-1">
+                                      {isRejeitada ? (
+                                        // Abre a nota no editor fiscal com o mesmo id: o
+                                        // usuário corrige e transmite de lá, sem gerar
+                                        // rascunho novo nem consumir outro número.
+                                        <Button
+                                          size="sm"
+                                          className="text-xs hover:cursor-pointer"
+                                          onClick={() => {
+                                            onOpenChange(false);
+                                            router.push(`/fiscal/nfe-avulsa?id=${nfe.id}`);
+                                          }}
+                                        >
+                                          Corrigir dados
+                                        </Button>
+                                      ) : null}
                                       <AutorizarNfeButton
                                         nfeId={nfe.id}
                                         size="sm"
@@ -631,7 +664,7 @@ export function EmissaoNotaDialog({
                                         className="text-xs hover:cursor-pointer"
                                         onAfterAuthorize={() => fetchNfes()}
                                       >
-                                        Autorizar NF-e
+                                        {isRejeitada ? "Reenviar sem alterar" : "Autorizar NF-e"}
                                       </AutorizarNfeButton>
 
                                       <Button
@@ -822,10 +855,34 @@ export function EmissaoNotaDialog({
                               {nfe.protocolo && <div>Protocolo: {nfe.protocolo}</div>}
                             </div>
 
-                            <div className="mt-2 text-xs">
-                              <span className="font-medium">Observações: </span>
-                              <span className="text-muted-foreground">{observacao}</span>
-                            </div>
+                            {isRejeitada || statusUpper === "DENEGADA" ? (
+                              <div className="mt-2 flex items-start gap-2 border border-l-4 border-l-destructive bg-destructive/5 p-2.5 text-xs">
+                                <XCircle
+                                  aria-hidden="true"
+                                  className="mt-0.5 h-4 w-4 shrink-0 text-destructive"
+                                />
+                                <div className="min-w-0">
+                                  <p className="font-semibold text-destructive">
+                                    {nfe.codigo_rejeicao?.trim()
+                                      ? `Rejeição ${nfe.codigo_rejeicao.trim()}`
+                                      : "Motivo da rejeição"}
+                                  </p>
+                                  <p className="mt-0.5 [overflow-wrap:anywhere]">
+                                    {nfe.motivo_rejeicao?.trim()
+                                      || "Não registrado. Reenvie a nota para obter o retorno atualizado da SEFAZ."}
+                                  </p>
+                                  <p className="mt-1 text-[11px] text-muted-foreground">
+                                    Corrija os dados e reenvie — a NF-e mantém o número {nfe.numero ?? "—"}
+                                    {nfe.serie ? `/série ${nfe.serie}` : ""}. Rejeição não consome numeração.
+                                  </p>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="mt-2 text-xs">
+                                <span className="font-medium">Observações: </span>
+                                <span className="text-muted-foreground">{observacao}</span>
+                              </div>
+                            )}
 
                             {nfe.createdat && (
                               <div className="mt-1 text-[11px] text-muted-foreground">

@@ -232,7 +232,7 @@ function mapInputToTaxItem(item: NFeAvulsaItemInput, index: number): NFeItem {
   return {
     numeroItem: index + 1,
     // cProd usa o id do produto: a referencia e texto livre (traco, espaco, varios
-    // codigos) e quebra o casamento na volta, em InvoiceDraftService.
+    // codigos) e nao permite reencontrar o produto ao ler a nota de volta.
     codigoProduto: item.produtoId != null
       ? String(item.produtoId)
       : cleanText(item.codigo) || String(index + 1),
