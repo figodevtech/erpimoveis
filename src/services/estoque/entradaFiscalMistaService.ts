@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { dataDoCalendario } from "@/lib/data-calendario";
 import { entradaUsoConsumoSchema, zodMessage } from "@/lib/usoconsumo/schemas";
 import { normalizarUnidadeMedidaEntrada } from "./entradaService";
 
@@ -145,8 +146,9 @@ function montarTransacoes(body: any) {
       ...base,
       descricao: `${descricao}${parcelas.length > 1 ? ` - Parcela ${index + 1}/${parcelas.length}` : ""}`,
       valor: nonNegative(parcela.valor, `Valor da parcela ${index + 1}`),
-      data: new Date().toISOString(),
-      vencimento_em: vencimento.includes("T") ? vencimento : `${vencimento}T12:00:00`,
+      // `data` e o eixo do fluxo de caixa: enquanto pendente carrega o vencimento.
+      // `vencimento_em` fica para baixar_transacao_pendente preencher.
+      data: dataDoCalendario(vencimento),
       pendente: true,
     };
   });

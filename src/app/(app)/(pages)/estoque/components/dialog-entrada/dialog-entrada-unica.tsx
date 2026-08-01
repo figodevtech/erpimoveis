@@ -216,12 +216,14 @@ export default function DialogEntrada({
       };
 
       const now = new Date().toISOString();
+      // `data` e o eixo do fluxo de caixa: enquanto pendente carrega o vencimento.
+      // `vencimento_em` nao vai no cadastro — baixar_transacao_pendente o preenche
+      // a partir de `data` no momento da baixa.
       const transacoes = !lancarFinanceiro ? [] : pagamentoFuturo
         ? parcelas.map((parcela) => ({
             descricao: "Compra de material de uso e consumo",
             valor: Number(parcela.valor.toFixed(2)),
-            data: now,
-            vencimento_em: `${parcela.dataVencimento}T12:00:00`,
+            data: `${parcela.dataVencimento}T12:00:00`,
             metodopagamento: null,
             categoria: selectedCategoria,
             categoria_id: categorias.find((categoria) => categoria.nome === selectedCategoria)?.id ?? null,
@@ -238,7 +240,6 @@ export default function DialogEntrada({
             descricao: "Compra de material de uso e consumo",
             valor: Number(totalEntrada.toFixed(2)),
             data: now,
-            vencimento_em: now,
             metodopagamento: selectedMetodo,
             categoria: selectedCategoria,
             categoria_id: categorias.find((categoria) => categoria.nome === selectedCategoria)?.id ?? null,

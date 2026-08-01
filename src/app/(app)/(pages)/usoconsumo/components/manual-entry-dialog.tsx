@@ -31,7 +31,7 @@ export function ManualEntryDialog({open,onOpenChange,fornecedores,onSaved}:Props
       const selectedSupplier=fornecedores.find((item)=>String(item.id)===supplier);
       await axios.post("/api/usoconsumo/entradas/geral",{
         fornecedor_id:supplier==="none"?undefined:Number(supplier),tipo:"COMPRA_FORNECEDOR",itens:lines,
-        transacoes:finance?[{descricao:"Compra de material de uso e consumo",valor:Number(total.toFixed(2)),data:`${due}T12:00:00`,vencimento_em:`${due}T12:00:00`,metodopagamento:null,categoria:"Compra de material de uso e consumo",categoria_id:null,banco_id:null,nomepagador:selectedSupplier?.nomerazaosocial??"Fornecedor",cpfcnpjpagador:selectedSupplier?.cpfcnpj??"NAO INFORMADO",pendente:true,plano_de_conta_id:null,plano_de_conta:null,centro_custo_id:null,centro_custo:null}]:[],
+        transacoes:finance?[{descricao:"Compra de material de uso e consumo",valor:Number(total.toFixed(2)),data:`${due}T12:00:00`,metodopagamento:null,categoria:"Compra de material de uso e consumo",categoria_id:null,banco_id:null,nomepagador:selectedSupplier?.nomerazaosocial??"Fornecedor",cpfcnpjpagador:selectedSupplier?.cpfcnpj??"NAO INFORMADO",pendente:true,plano_de_conta_id:null,plano_de_conta:null,centro_custo_id:null,centro_custo:null}]:[],
       });
       toast.success("Entrada manual registrada.");onOpenChange(false);await onSaved();
     }catch(error){toast.error("Entrada não registrada.",{description:errorText(error)});}finally{setLoading(false);}

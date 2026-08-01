@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { dataDoCalendario } from "@/lib/data-calendario";
 
 const TIPOS = new Set(["COMPRA_FORNECEDOR", "COMPRA_PF", "DEVOLUCAO"]);
 
@@ -23,6 +24,7 @@ function text(value: unknown) {
   const normalized = String(value ?? "").trim();
   return normalized || null;
 }
+
 
 const UNIDADES_ESTOQUE = new Set(["UN", "JGO", "KIT", "PAR", "CX", "PCT"]);
 const ALIASES_UNIDADE: Record<string, string> = {
@@ -151,7 +153,7 @@ export async function registrarEntradaConfirmada(
         ...base,
         descricao: `${text(financeiro?.descricao ?? body?.descricaoTransacao) ?? "Compra de mercadorias"}${parcelas.length > 1 ? ` - Parcela ${index + 1}/${parcelas.length}` : ""}`,
         valor: nonNegative(parcela.valor, `Valor da parcela ${index + 1}`),
-        data: text(parcela.dataVencimento ?? parcela.data),
+        data: dataDoCalendario(parcela.dataVencimento ?? parcela.data),
         pendente: true,
       }));
     } else {
@@ -161,7 +163,7 @@ export async function registrarEntradaConfirmada(
         ...base,
         descricao: text(financeiro?.descricao ?? body?.descricaoTransacao) ?? "Compra de mercadorias",
         valor: Number(totalEntrada.toFixed(2)),
-        data: text(financeiro?.dataPagamento) ?? new Date().toISOString(),
+        data: dataDoCalendario(financeiro?.dataPagamento) ?? new Date().toISOString(),
         pendente: false,
       }];
     }

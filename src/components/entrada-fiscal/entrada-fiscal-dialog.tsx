@@ -744,10 +744,9 @@ export function EntradaFiscalDialog({
     return parcelas.map((parcela, indice) => ({
       descricao: `${financeiro.descricaoTransacao}${parcelas.length > 1 ? ` - Parcela ${indice + 1}/${parcelas.length}` : ""}`,
       valor: parcela.valor,
-      data: agora,
-      vencimento_em: parcela.dataVencimento
-        ? `${parcela.dataVencimento}T12:00:00`
-        : null,
+      // `data` e o eixo do fluxo de caixa: enquanto pendente carrega o vencimento.
+      // `vencimento_em` fica para a baixa preencher, a partir de `data`.
+      data: parcela.dataVencimento ? `${parcela.dataVencimento}T12:00:00` : agora,
       metodopagamento: financeiro.metodoPagamento,
       categoria: financeiro.categoria,
       categoria_id: financeiro.categoriaId,
