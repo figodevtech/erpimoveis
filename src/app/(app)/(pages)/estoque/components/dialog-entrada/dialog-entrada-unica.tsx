@@ -1,9 +1,10 @@
+"use client";
+
 import { useIsMobile } from "@/app/(app)/hooks/use-mobile";
 import FornecedorSelect from "@/app/(app)/components/fornecedorSelect";
 import { Button } from "@/components/ui/button";
 import {
   Drawer,
-  DrawerClose,
   DrawerContent,
   DrawerDescription,
   DrawerFooter,
@@ -13,7 +14,6 @@ import {
 } from "@/components/ui/drawer";
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -23,8 +23,9 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Building2, Loader2, Minus, Plus, Search, X } from "lucide-react";
+import { Building2, Loader2, Minus, PackagePlus, Plus, Search, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import ValueInput from "../dialog-produto/entrada-valor";
 import { toast } from "@/lib/toast";
@@ -56,6 +57,8 @@ interface DialogEntradaProps {
   onSuccess?: () => void | Promise<void>;
 }
 
+const MAX_OBSERVACAO = 500;
+
 export default function DialogEntrada({
   children,
   isOpen,
@@ -76,7 +79,8 @@ export default function DialogEntrada({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [openFornecedor, setOpenFornecedor] = useState(false);
   const [selectedFornecedor, setSelectedFornecedor] = useState<Fornecedor | undefined>(undefined);
-  const [selectedType, setSelectedType] = useState<Entrada_tipo | undefined>(undefined)
+  const [selectedType, setSelectedType] = useState<Entrada_tipo | undefined>(undefined);
+  const [observacao, setObservacao] = useState("");
   const [lancarFinanceiro, setLancarFinanceiro] = useState(false);
   const [pagamentoFuturo, setPagamentoFuturo] = useState(true);
   const [parcelas, setParcelas] = useState<Parcela[]>([]);
@@ -98,6 +102,7 @@ export default function DialogEntrada({
     setValue(0);
     setSelectedFornecedor(undefined);
     setSelectedType(undefined);
+    setObservacao("");
     setOpenFornecedor(false);
     setLancarFinanceiro(false);
     setPagamentoFuturo(true);
@@ -126,6 +131,13 @@ export default function DialogEntrada({
     return () => { cancelled = true; };
   }, [lancarFinanceiro]);
 
+  const isRetorno = String(selectedType) === "DEVOLUCAO";
+  const totalEntrada = newQtd * value;
+  const saldoResultante = currentQuantity + newQtd;
+  const quantidadeValida = Number.isInteger(newQtd) && newQtd > 0;
+  const valorValido = Number.isFinite(value) && value >= 0 && (isRetorno || value > 0);
+  const entradaValida = quantidadeValida && valorValido && Boolean(selectedType);
+
   const handleCreateEntrada = async () => {
     setIsSubmitting(true);
 
@@ -135,20 +147,18 @@ export default function DialogEntrada({
         return;
       }
 
-      if (!Number.isInteger(newQtd) || newQtd <= 0) {
+      if (!quantidadeValida) {
         toast.error("Insira uma quantidade inteira maior que zero para realizar a entrada");
         return;
       }
 
-      if(!selectedType){
-        toast.error("Selecione um tipo para a entrada")
+      if (!selectedType) {
+        toast.error("Selecione um tipo para a entrada");
         return;
       }
 
       // valor_unitario em entradaitens é NOT NULL.
-      // Se você quiser permitir custo 0, remova essa validação.
-      const isRetorno = String(selectedType) === "DEVOLUCAO";
-      if (!Number.isFinite(value) || value < 0 || (!isRetorno && value <= 0)) {
+      if (!valorValido) {
         toast.error(
           isRetorno
             ? "O valor unitário do retorno não pode ser negativo."
@@ -157,7 +167,6 @@ export default function DialogEntrada({
         return;
       }
 
-      const totalEntrada = newQtd * value;
       if (lancarFinanceiro) {
         if (!selectedCategoria) {
           toast.error("Selecione a categoria do lançamento financeiro.");
@@ -179,14 +188,15 @@ export default function DialogEntrada({
         }
       }
 
-      // Formato simples (compatível com a API ajustada):
-      // cria 1 entrada (cabeçalho) + 1 entradaitens
+      const observacaoLimpa = observacao.trim() || null;
+
       const produtoPayload = {
         fornecedorid: selectedFornecedor?.id ?? null,
         produtoid: productId,
         quantidade: newQtd,
         valor_unitario: value,
         tipo: selectedType,
+        observacao: observacaoLimpa,
         financeiro: {
           lancar: lancarFinanceiro,
           pagamentoFuturo,
@@ -246,6 +256,7 @@ export default function DialogEntrada({
         fiscal: false,
         origem: "AJUSTE_RAPIDO",
         tipo: String(selectedType),
+        observacao: observacaoLimpa ?? undefined,
         itens: [{ item_id: productId, quantidade: newQtd, valor_unitario_compra: value }],
         transacoes,
       };
@@ -254,14 +265,13 @@ export default function DialogEntrada({
 
       if (response.status === 201) {
         toast.success("Sucesso!", {
-            description: inventory === "usoconsumo" ? "Entrada do item realizada." : "Entrada realizada.",
+          description: inventory === "usoconsumo" ? "Entrada do item realizada." : "Entrada realizada.",
           duration: 2000,
         });
 
         onCloseReset();
         setIsOpen?.(false);
 
-        // Atualiza lista (se necessário)
         handleGetProducts?.(paginantion?.page, paginantion?.limit, search, status);
         await onSuccess?.();
       }
@@ -278,6 +288,101 @@ export default function DialogEntrada({
       setIsSubmitting(false);
     }
   };
+
+  // Painel de saldo, no mesmo formato do diálogo de saída.
+  const saldoPanel = (
+    <div className="grid grid-cols-2 gap-3 rounded-lg border bg-muted/30 p-4 text-sm">
+      <div>
+        <p className="text-muted-foreground">Estoque atual</p>
+        <p className="text-lg font-semibold">{currentQuantity}</p>
+      </div>
+      <div>
+        <p className="text-muted-foreground">Após a entrada</p>
+        <p className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">{saldoResultante}</p>
+      </div>
+    </div>
+  );
+
+  const tipoField = (
+    <div className="space-y-2">
+      <Label>Tipo</Label>
+      <Select
+        value={selectedType}
+        onValueChange={(v: Entrada_tipo) => {
+          setSelectedType(v);
+          if (String(v) === "DEVOLUCAO") setLancarFinanceiro(false);
+        }}
+      >
+        <SelectTrigger>
+          <SelectValue placeholder="Selecione o tipo da entrada" />
+        </SelectTrigger>
+        <SelectContent>
+          {Object.entries(Entrada_tipo).map(([codigo, rotulo]) => (
+            <SelectItem key={rotulo} value={codigo}>
+              {codigo === "DEVOLUCAO" ? "DEVOLUÇÃO / RETORNO" : rotulo}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
+  const quantidadeField = (
+    <div className="space-y-2">
+      <Label htmlFor="entrada-quantidade">Quantidade</Label>
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          size="icon"
+          variant="outline"
+          className="sm:hidden shrink-0"
+          onClick={() => setNewQtd((atual) => Math.max(0, (Number.isFinite(atual) ? atual : 0) - 1))}
+          disabled={newQtd <= 0}
+          aria-label="Diminuir quantidade"
+        >
+          <Minus className="h-4 w-4" />
+        </Button>
+        <Input
+          id="entrada-quantidade"
+          type="number"
+          min={1}
+          step={1}
+          value={newQtd || ""}
+          onChange={(event) => setNewQtd(Number(event.target.value))}
+          placeholder="0"
+          className="text-center sm:text-left"
+        />
+        <Button
+          type="button"
+          size="icon"
+          variant="outline"
+          className="sm:hidden shrink-0"
+          onClick={() => setNewQtd((atual) => (Number.isFinite(atual) ? atual : 0) + 1)}
+          aria-label="Aumentar quantidade"
+        >
+          <Plus className="h-4 w-4" />
+        </Button>
+      </div>
+      {newQtd > 0 && !Number.isInteger(newQtd) ? (
+        <p className="text-xs text-destructive">A quantidade precisa ser um número inteiro.</p>
+      ) : null}
+    </div>
+  );
+
+  const valorField = (
+    <div className="space-y-2">
+      <Label>Valor unitário</Label>
+      <ValueInput price={value} setPrice={setValue} />
+      {isRetorno ? (
+        <p className="text-xs text-muted-foreground">O retorno pode ser registrado com valor zero.</p>
+      ) : null}
+      {totalEntrada > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Total da entrada: {totalEntrada.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+        </p>
+      ) : null}
+    </div>
+  );
 
   const fornecedorField = (
     <div className="min-w-0 max-w-full space-y-2 overflow-hidden">
@@ -326,7 +431,20 @@ export default function DialogEntrada({
     </div>
   );
 
-  const totalEntrada = newQtd * value;
+  const observacaoField = (
+    <div className="space-y-2">
+      <Label htmlFor="entrada-observacao">Observação (opcional)</Label>
+      <Textarea
+        id="entrada-observacao"
+        value={observacao}
+        onChange={(event) => setObservacao(event.target.value)}
+        placeholder="Detalhes sobre a entrada no estoque"
+        maxLength={MAX_OBSERVACAO}
+        rows={3}
+      />
+    </div>
+  );
+
   const financeiroField = (
     <div className="min-w-0 max-w-full space-y-3 rounded-lg border p-3">
       <div className="flex items-center justify-between gap-3">
@@ -422,6 +540,31 @@ export default function DialogEntrada({
     </div>
   );
 
+  const corpo = (
+    <div className="space-y-5 rounded-2xl border bg-card p-4">
+      {saldoPanel}
+      {tipoField}
+      {quantidadeField}
+      {valorField}
+      {fornecedorField}
+      {observacaoField}
+      {financeiroField}
+    </div>
+  );
+
+  const botaoRegistrar = (
+    <Button
+      onClick={handleCreateEntrada}
+      className="hover:cursor-pointer"
+      disabled={isSubmitting || !entradaValida}
+    >
+      {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PackagePlus className="mr-2 h-4 w-4" />}
+      Registrar entrada
+    </Button>
+  );
+
+  const titulo = `Entrada de ${inventory === "usoconsumo" ? "uso/consumo" : "estoque"}`;
+
   if (isMobile) {
     return (
       <Drawer
@@ -444,78 +587,31 @@ export default function DialogEntrada({
         <DrawerContent className="h-[95dvh] max-h-[95dvh] overflow-hidden" onDoubleClick={(e) => e.stopPropagation()}>
           <div className="mx-auto flex h-full min-h-0 w-full max-w-sm flex-col overflow-hidden">
             <DrawerHeader className="border-b px-4 py-3">
-              <DrawerTitle>Entrada de {inventory === "usoconsumo" ? "item de uso/consumo" : "produto"}</DrawerTitle>
-              <DrawerDescription className="flex flex-col gap-1 text-sm">
-                <span>{productDescription}</span>
-                <span>Em estoque: {currentQuantity}</span>
-              </DrawerDescription>
+              <DrawerTitle className="flex items-center gap-2">
+                <PackagePlus className="h-5 w-5 text-emerald-600" />
+                {titulo}
+              </DrawerTitle>
+              <DrawerDescription>{productDescription}</DrawerDescription>
             </DrawerHeader>
 
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 relative">
-              <div className="space-y-2">
-                <Label>Tipo:</Label>
-                <Select
-                  value={selectedType}
-                  onValueChange={(v: Entrada_tipo) => {
-                    setSelectedType(v);
-                    if (String(v) === "DEVOLUCAO") setLancarFinanceiro(false);
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione"></SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(Entrada_tipo).map((tipo)=>
-                      <SelectItem key={tipo[1]} value={tipo[0]}>
-                        {tipo[0] === "DEVOLUCAO" ? "DEVOLUÇÃO / RETORNO" : tipo[1]}
-                      </SelectItem>
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Quantidade:</Label>
-                <Input className="w-24" type="numeric" value={newQtd} onChange={(e) => setNewQtd(Number(e.target.value))} />
-              </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">{corpo}</div>
 
-              <div className="space-y-2">
-                <Label>Valor unitário:</Label>
-                <ValueInput price={value} setPrice={setValue} />
-                {String(selectedType) === "DEVOLUCAO" ? (
-                  <p className="text-xs text-muted-foreground">O retorno pode ser registrado com valor zero.</p>
-                ) : null}
-              </div>
-
-              {fornecedorField}
-              {financeiroField}
-            </div>
-
-            <DrawerFooter className="flex flex-row gap-2 items-center justify-center">
-              <Button onClick={handleCreateEntrada} className="hover:cursor-pointer" disabled={isSubmitting}>
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="animate-spin" /> Registrando...
-                  </>
-                ) : (
-                  "Registrar Entrada"
-                )}
+            <DrawerFooter className="flex flex-row items-center justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setIsOpen?.(false)}
+                disabled={isSubmitting}
+                className="hover:cursor-pointer"
+              >
+                Cancelar
               </Button>
-              <DrawerClose asChild>
-                <Button
-                  disabled={isSubmitting}
-                  className="hover:cursor-pointer"
-                  variant="outline"
-                  onClick={onCloseReset}
-                >
-                  Cancelar
-                </Button>
-              </DrawerClose>
+              {botaoRegistrar}
             </DrawerFooter>
           </div>
         </DrawerContent>
       </Drawer>
     );
-  } 
+  }
 
   return (
     <Dialog
@@ -536,87 +632,35 @@ export default function DialogEntrada({
         setOpen={setOpenFornecedor}
       />
       <DialogContent
-        className="h-[min(90dvh,760px)] w-[calc(100vw-2rem)] max-w-2xl overflow-hidden p-0"
+        className="flex max-h-[90dvh] flex-col overflow-hidden sm:max-w-[520px]"
         showCloseButton={!isSubmitting}
         onDoubleClick={(e) => e.stopPropagation()}
         onEscapeKeyDown={(event) => isSubmitting && event.preventDefault()}
         onInteractOutside={(event) => isSubmitting && event.preventDefault()}
       >
-        <div className="flex h-full min-h-0 flex-col">
-          <DialogHeader className="shrink-0 px-6 py-4 border-b-1">
-            <DialogTitle>Entrada de {inventory === "usoconsumo" ? "item de uso/consumo" : "produto"}</DialogTitle>
-            <DialogDescription className="flex min-w-0 flex-row items-center justify-between gap-3">
-              <span className="min-w-0 truncate" title={productDescription}>{productDescription}</span>
-              <span className="shrink-0">Em estoque: {currentQuantity}</span>
-            </DialogDescription>
-          </DialogHeader>
+        <DialogHeader className="shrink-0">
+          <DialogTitle className="flex items-center gap-2">
+            <PackagePlus className="h-5 w-5 text-emerald-600" />
+            {titulo}
+          </DialogTitle>
+          <DialogDescription className="truncate" title={productDescription}>
+            {productDescription}
+          </DialogDescription>
+        </DialogHeader>
 
-          <div className="h-full min-h-0 overflow-auto dark:bg-muted-foreground/5 bg-muted px-6 py-10 space-y-2 relative">
-            <div className="min-h-0 min-w-0 rounded-md px-4 py-8 space-y-4 bg-card">
-              <div className="space-y-2">
-                <Label>Tipo:</Label>
-                <Select
-                  value={selectedType}
-                  onValueChange={(v: Entrada_tipo) => {
-                    setSelectedType(v);
-                    if (String(v) === "DEVOLUCAO") setLancarFinanceiro(false);
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione"></SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(Entrada_tipo).map((tipo)=>
-                      <SelectItem key={tipo[1]} value={tipo[0]}>
-                        {tipo[0] === "DEVOLUCAO" ? "DEVOLUÇÃO / RETORNO" : tipo[1]}
-                      </SelectItem>
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Quantidade:</Label>
-                <Input className="w-24" type="numeric" value={newQtd} onChange={(e) => setNewQtd(Number(e.target.value))} />
-              </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">{corpo}</div>
 
-              <div className="space-y-2">
-                <Label>Valor unitário:</Label>
-                <ValueInput price={value} setPrice={setValue} />
-                {String(selectedType) === "DEVOLUCAO" ? (
-                  <p className="text-xs text-muted-foreground">O retorno pode ser registrado com valor zero.</p>
-                ) : null}
-              </div>
-
-              {fornecedorField}
-              {financeiroField}
-            </div>
-          </div>
-
-          <DialogFooter className="px-6 py-4">
-            <div className="flex sm:flex-row gap-3 sm:gap-4">
-              <Button onClick={handleCreateEntrada} className="hover:cursor-pointer" disabled={isSubmitting}>
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="animate-spin" /> Registrando...
-                  </>
-                ) : (
-                  "Registrar Entrada"
-                )}
-              </Button>
-
-              <DialogClose asChild>
-                <Button
-                  disabled={isSubmitting}
-                  className="hover:cursor-pointer"
-                  variant="outline"
-                  onClick={onCloseReset}
-                >
-                  Cancelar
-                </Button>
-              </DialogClose>
-            </div>
-          </DialogFooter>
-        </div>
+        <DialogFooter className="shrink-0">
+          <Button
+            variant="outline"
+            onClick={() => setIsOpen?.(false)}
+            disabled={isSubmitting}
+            className="hover:cursor-pointer"
+          >
+            Cancelar
+          </Button>
+          {botaoRegistrar}
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

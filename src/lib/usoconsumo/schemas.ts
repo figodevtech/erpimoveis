@@ -92,6 +92,7 @@ export const entradaUsoConsumoSchema = z.object({
   tipo: z.enum(["COMPRA_FORNECEDOR","COMPRA_PF","DEVOLUCAO"]).default("COMPRA_FORNECEDOR"),
   origem: z.enum(["AJUSTE_RAPIDO","MANUAL","NFE_TERCEIRO","INVENTARIO"]).default("MANUAL"),
   documento_fiscal_recebido_id: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().optional()),
+  observacao: createText,
   itens: z.array(entradaItemSchema).min(1),
   transacoes: z.array(transacaoUsoConsumoSchema).default([]),
 }).strict().superRefine((value, ctx) => {

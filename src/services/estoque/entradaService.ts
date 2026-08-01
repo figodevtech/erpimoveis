@@ -186,6 +186,7 @@ export async function registrarEntradaConfirmada(
         : nonNegative(body.valorTotalDocumento, "Total do documento"),
     // Lido pela RPC via p_entrada->>'created_by' (mesmo padrao de registrar_saida_usoconsumo).
     created_by: createdBy ?? null,
+    observacao: text(body?.observacao),
   };
 
   const rpcName = entrada.fiscal_dfe_documento_id
