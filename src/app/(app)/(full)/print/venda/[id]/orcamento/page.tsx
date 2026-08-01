@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ObservacoesToggle } from "../../../../components/ObservacoesToggle";
 import { PrintShareMenu } from "../../../../components/PrintShareMenu";
-import { FileText, Power, ShoppingCart, User } from "lucide-react";
+import { FileText, Power, ShoppingCart, Tag, User } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { formatCep } from "@/app/(app)/(pages)/clientes/components/customerDialogRegister/utils";
 import { fetchPrimeiroLogoEmpresa } from "@/lib/empresa-logo";
@@ -87,6 +87,25 @@ function joinParts(parts: Array<string | null | undefined>, separator = ", ") {
     .join(separator);
 }
 
+function CodigoProduto({ id, etiqueta }: { id?: unknown; etiqueta?: unknown }) {
+  const idTexto = id != null ? `#${id}` : null;
+  const etiquetaTexto = String(etiqueta ?? "").trim() || null;
+
+  if (!idTexto && !etiquetaTexto) return null;
+
+  return (
+    <span className="item-codigo">
+      {idTexto}
+      {etiquetaTexto ? (
+        <span className="item-etiqueta">
+          <Tag className="item-etiqueta-icone" />
+          {etiquetaTexto}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 async function fetchEmpresa() {
   const { data, error } = await supabaseAdmin
     .from("empresa")
@@ -160,6 +179,7 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
         produto:produtoid (
           id,
           titulo,
+          etiqueta,
           grupo:grupo_produto_id (
             nome
           )
@@ -357,6 +377,9 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
         tbody td{ font-size:10px; padding:7px 8px; border-bottom:1px solid #f1f5f9; vertical-align:middle; }
         tbody tr:last-child td{ border-bottom:none; }
         .col-num{ width:38px; text-align:center; font-weight:700; }
+        .item-codigo{ display:inline-flex; align-items:center; gap:5px; margin-left:6px; font-size:8px; font-weight:600; letter-spacing:.04em; color:color-mix(in srgb, var(--muted) 70%, #fff); white-space:nowrap; vertical-align:baseline; }
+        .item-etiqueta{ display:inline-flex; align-items:center; gap:2px; }
+        .item-etiqueta-icone{ width:8px; height:8px; flex-shrink:0; display:block; }
         .col-qtd{ width:52px; text-align:center; font-weight:700; }
         .col-unit, .col-sub{ width:110px; text-align:right; font-weight:700; }
         .rodape{ margin-top:auto; display:grid; grid-template-columns:1fr 320px; gap:10px; padding-top:8px; }
@@ -558,7 +581,13 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
                 {(venda.itens || []).map((item: any, index: number) => (
                   <tr key={`${item.id}-${index}`}>
                     <td className="col-num">{index + 1}</td>
-                    <td>{item.produto?.titulo || EMPTY}</td>
+                    <td>
+                      {item.produto?.titulo || EMPTY}
+                      <CodigoProduto
+                        id={item.produto?.id}
+                        etiqueta={item.produto?.etiqueta}
+                      />
+                    </td>
                     <td>{item.produto?.grupo?.nome || EMPTY}</td>
                     <td className="col-qtd">{item.quantidade}</td>
                     <td className="col-unit">

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import Image from "next/image";
 import Script from "next/script";
-import { Car, ClipboardList, Cog, User, Power } from "lucide-react";
+import { Car, ClipboardList, Cog, Tag, User, Power } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { formatCep } from "@/app/(app)/(pages)/clientes/components/customerDialogRegister/utils";
 import { Button } from "@/components/ui/button";
@@ -99,6 +99,25 @@ function joinParts(parts: Array<string | null | undefined>, separator = ", ") {
     .map((part) => (part ?? "").toString().trim())
     .filter((part) => part.length > 0)
     .join(separator);
+}
+
+function CodigoProduto({ id, etiqueta }: { id?: unknown; etiqueta?: unknown }) {
+  const idTexto = id != null ? `#${id}` : null;
+  const etiquetaTexto = String(etiqueta ?? "").trim() || null;
+
+  if (!idTexto && !etiquetaTexto) return null;
+
+  return (
+    <span className="item-codigo">
+      {idTexto}
+      {etiquetaTexto ? (
+        <span className="item-etiqueta">
+          <Tag className="item-etiqueta-icone" />
+          {etiquetaTexto}
+        </span>
+      ) : null}
+    </span>
+  );
 }
 
 function fmtDoc(cpfCnpj: unknown) {
@@ -251,6 +270,8 @@ export default async function OSFullPage({ params }: PageProps) {
   const itens: Array<{
     tipo: "SERVIÇO" | "PEÇA";
     descricao: string;
+    produtoId?: number | string | null;
+    etiqueta?: string | null;
     subdescricao?: string | null;
     qtd: number;
     unitario: number | string | null | undefined;
@@ -288,6 +309,8 @@ export default async function OSFullPage({ params }: PageProps) {
       return {
         tipo: "PEÇA" as const,
         descricao: p.produto?.titulo || p.produto?.descricao || "Peça",
+        produtoId: p.produto?.id ?? null,
+        etiqueta: p.produto?.etiqueta ?? null,
         qtd,
         unitario: p.precounitario,
         descontoTipo,
@@ -720,6 +743,32 @@ export default async function OSFullPage({ params }: PageProps) {
     display: inline-block;
   }
 
+  .item-codigo{
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    margin-left:6px;
+    font-size:8px;
+    font-weight:600;
+    letter-spacing:.04em;
+    color: color-mix(in srgb, var(--muted) 70%, #fff);
+    white-space: nowrap;
+    vertical-align: baseline;
+  }
+
+  .item-etiqueta{
+    display:inline-flex;
+    align-items:center;
+    gap:2px;
+  }
+
+  .item-etiqueta-icone{
+    width:8px;
+    height:8px;
+    flex-shrink:0;
+    display:block;
+  }
+
   .col-qtd{ width:50px; text-align:center; font-weight:700; }
   .col-unit{ width:90px; text-align:right; font-weight:600; }
   .col-desconto{ width:100px; text-align:right; font-weight:600; }
@@ -1090,7 +1139,13 @@ export default async function OSFullPage({ params }: PageProps) {
                           </span>
                         </td>
                         <td>
-                          <div>{item.descricao}</div>
+                          <div>
+                            {item.descricao}
+                            <CodigoProduto
+                              id={item.produtoId}
+                              etiqueta={item.etiqueta}
+                            />
+                          </div>
                           {item.subdescricao ? (
                             <div className="mt-1 text-[9px] leading-snug text-slate-500">
                               {item.subdescricao}
