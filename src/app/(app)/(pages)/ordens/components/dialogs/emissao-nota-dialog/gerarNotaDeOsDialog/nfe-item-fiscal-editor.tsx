@@ -377,7 +377,7 @@ export function NfeItemFiscalEditor({
                 sugestões: confira a legislação vigente da UF de destino e ajuste se necessário.
               </p>
             </div>
-            <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <Field label="Alíquota interna do destino (%)" required>
                 <Input
                   type="number"

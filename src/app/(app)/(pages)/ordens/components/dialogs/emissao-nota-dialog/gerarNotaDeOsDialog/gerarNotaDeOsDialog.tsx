@@ -11,7 +11,6 @@ import {
   PackageSearch,
   Pencil,
   Receipt,
-  X,
 } from "lucide-react";
 
 import { DialogProduto } from "@/app/(app)/(pages)/estoque/components/dialog-produto/dialog-produto";
@@ -24,12 +23,18 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Command, CommandGroup, CommandItem, CommandList } from "@/components/ui/command";
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  BarraAcaoFiscal,
+  CabecalhoFiscal,
+  EsqueletoFiscal,
+  FISCAL_DIALOG_CONTENT_CLASS,
+  type EtapaFiscal,
+} from "../components/fiscal-dialog-chrome";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -426,6 +431,31 @@ export function GerarNotaDeOsDialog({
     return errors;
   }, [fiscalConfig.pagamentos, origin, selectedTotal]);
 
+  // Indicador informativo: mostra o que já está resolvido. Não bloqueia nenhuma
+  // seção — todas seguem visíveis e editáveis em qualquer ordem.
+  const etapasEmissao = useMemo<EtapaFiscal[]>(
+    () => [
+      { rotulo: "Emitente", concluida: (setup?.empresaErros.length ?? 0) === 0 },
+      {
+        rotulo: origin === "ENTRADA" ? "Fornecedor" : "Destinatário",
+        concluida: origin === "ENTRADA" ? entrySupplierErrors.length === 0 : customerErrors.length === 0,
+      },
+      { rotulo: "Produtos", concluida: selectedItems.length > 0 && selectedIssues.length === 0 },
+      { rotulo: "Pagamento", concluida: paymentErrors.length === 0 },
+      { rotulo: "Transporte", concluida: transportErrors.length === 0 },
+    ],
+    [
+      setup?.empresaErros.length,
+      origin,
+      entrySupplierErrors.length,
+      customerErrors.length,
+      selectedItems.length,
+      selectedIssues.length,
+      paymentErrors.length,
+      transportErrors.length,
+    ],
+  );
+
   const paymentMethodsLabel = fiscalConfig.pagamentos.length === 0
     ? "Selecione os métodos"
     : fiscalConfig.pagamentos
@@ -626,33 +656,32 @@ export function GerarNotaDeOsDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent
-          showCloseButton={false}
-          className="max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] min-w-0 overflow-x-hidden overflow-y-auto p-0 sm:max-h-[92dvh] sm:w-[94vw] sm:max-w-[94vw] lg:w-[92vw] lg:max-w-6xl xl:max-w-7xl 2xl:max-w-[1440px]"
-        >
-          <div className="relative min-w-0 border-b bg-background/95">
-            <DialogClose asChild>
-              <Button variant="ghost" size="icon" className="absolute right-2 top-2" aria-label="Fechar">
-                <X className="h-4 w-4" />
-              </Button>
-            </DialogClose>
-            <DialogHeader className="min-w-0 px-4 pb-4 pt-5 pr-12 sm:px-5 sm:pr-12">
-              <DialogTitle className="flex min-w-0 items-start gap-2 leading-snug">
-                <Receipt className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-                <span className="min-w-0 break-words">{title}</span>
-              </DialogTitle>
-              <DialogDescription className="break-words">
-                Os dados da origem, do {parceiroLabel.toLowerCase()} e dos produtos já estão preenchidos. Ajuste somente as pendências fiscais.
-              </DialogDescription>
-            </DialogHeader>
-          </div>
+        <DialogContent className={FISCAL_DIALOG_CONTENT_CLASS}>
+          <DialogHeader className="sr-only">
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription>
+              Os dados da origem, do {parceiroLabel.toLowerCase()} e dos produtos já estão
+              preenchidos. Ajuste somente as pendências fiscais.
+            </DialogDescription>
+          </DialogHeader>
 
-          <div className="min-w-0 space-y-4 px-3 pb-4 pt-4 sm:px-5 sm:pb-5">
-            {loading ? (
-              <div className="grid min-h-40 place-items-center">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : null}
+          <CabecalhoFiscal
+            icone={<Receipt aria-hidden="true" className="size-6" />}
+            eyebrow="Documento fiscal de mercadoria"
+            titulo={title}
+            descricao={`Os dados da origem, do ${parceiroLabel.toLowerCase()} e dos produtos já estão preenchidos. Ajuste somente as pendências fiscais.`}
+            badge={
+              originId ? (
+                <Badge variant="outline" className="rounded-sm">
+                  {origin === "OS" ? "OS" : origin === "VENDA" ? "Venda" : "Entrada"} #{originId}
+                </Badge>
+              ) : null
+            }
+            etapas={etapasEmissao}
+          />
+
+          <div className="min-w-0 flex-1 space-y-4 overflow-y-auto px-3 pb-4 pt-4 sm:px-5 sm:pb-5">
+            {loading ? <EsqueletoFiscal /> : null}
 
             {loadError ? (
               <Alert variant="destructive" className="min-w-0 overflow-hidden">
@@ -669,7 +698,7 @@ export function GerarNotaDeOsDialog({
 
             {!loading && setup && source ? (
               <>
-                <section className="flex min-w-0 flex-row gap-2 rounded-lg border bg-card p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                <section className="flex min-w-0 flex-row gap-2 border border-l-4 border-l-border bg-card p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
                     <p className="break-words font-medium">{operationLabel}</p>
                     <p className="break-words text-xs text-muted-foreground">
@@ -689,7 +718,7 @@ export function GerarNotaDeOsDialog({
                 ) : null}
 
                 {(origin === "OS" || origin === "VENDA") && source.cliente ? (
-                  <section className="min-w-0 space-y-3 rounded-lg border bg-card p-3 sm:p-4">
+                  <section className="min-w-0 space-y-3 border border-l-4 border-l-border bg-card p-3 sm:p-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0 space-y-1">
                         <div className="flex flex-wrap items-center gap-2">
@@ -728,7 +757,7 @@ export function GerarNotaDeOsDialog({
                 ) : null}
 
                 {origin === "OS" || origin === "VENDA" ? (
-                  <section className="min-w-0 space-y-4 rounded-lg border bg-card p-3 sm:p-4">
+                  <section className="min-w-0 space-y-4 border border-l-4 border-l-border bg-card p-3 sm:p-4">
                     <div>
                       <p className="font-medium">Dados da operação</p>
                       <p className="text-xs text-muted-foreground">
@@ -995,7 +1024,7 @@ export function GerarNotaDeOsDialog({
                     <AlertDescription>Adicione produtos à origem antes de gerar a NF-e.</AlertDescription>
                   </Alert>
                 ) : (
-                  <section className="min-w-0 space-y-3 rounded-lg border p-3 bg-card sm:p-4">
+                  <section className="min-w-0 space-y-3 border border-l-4 border-l-border bg-card p-3 sm:p-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div className="min-w-0 flex flex-wrap items-center gap-2">
                         <Package className="h-4 w-4 shrink-0 text-primary" />
@@ -1090,7 +1119,7 @@ export function GerarNotaDeOsDialog({
                   </section>
                 )}
 
-                <section className="min-w-0 space-y-3 bg-card rounded-lg border p-3 sm:p-4">
+                <section className="min-w-0 space-y-3 border border-l-4 border-l-border bg-card p-3 sm:p-4">
                   <div className="flex min-w-0 items-center justify-between gap-3">
                     <div className="min-w-0">
                       <Label htmlFor="nfe-origin-observations">Incluir observações fiscais</Label>
@@ -1113,43 +1142,62 @@ export function GerarNotaDeOsDialog({
                   ) : null}
                 </section>
 
-                <section className="min-w-0 bg-card  gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
-                  <div className="min-w-0 text-sm">
-                    <p className=""><b>{selectedItems.length}</b> produto(s) selecionado(s) · <b>{fmtMoney(selectedTotal)}</b></p>
-                    {selectedIssues.length > 0 ? (
-                      <p className="text-xs text-destructive">Existem {selectedIssues.length} pendência(s) nos itens selecionados.</p>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">Todos os itens selecionados passaram pela validação fiscal.</p>
-                    )}
-                  </div>
-                  <div className="flex min-w-0 flex-col mt-2 gap-2 sm:shrink-0 sm:flex-row">
-                    {selectedIssues.length > 0 ? (
-                      <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={openFirstPending}>
-                        Corrigir pendências
-                      </Button>
-                    ) : null}
-                    <Button
-                      type="button"
-                      className="h-auto min-h-9 w-full whitespace-normal text-center sm:w-auto"
-                      disabled={
-                        saving ||
-                        selectedItems.length === 0 ||
-                        setup.empresaErros.length > 0 ||
-                        entrySupplierErrors.length > 0 ||
-                        customerErrors.length > 0 ||
-                        transportErrors.length > 0 ||
-                        paymentErrors.length > 0
-                      }
-                      onClick={() => void generateDraft()}
-                    >
-                      {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                      Gerar rascunho de NF-e
-                    </Button>
-                  </div>
-                </section>
               </>
             ) : null}
           </div>
+
+          {!loading && setup ? (
+            <BarraAcaoFiscal
+              resumo={
+                <>
+                  <p>
+                    <b>{selectedItems.length}</b> produto(s) selecionado(s) ·{" "}
+                    <b>{fmtMoney(selectedTotal)}</b>
+                  </p>
+                  {selectedIssues.length > 0 ? (
+                    <p className="text-xs text-destructive">
+                      Existem {selectedIssues.length} pendência(s) nos itens selecionados.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Todos os itens selecionados passaram pela validação fiscal.
+                    </p>
+                  )}
+                </>
+              }
+              acoes={
+                <>
+                  {selectedIssues.length > 0 ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="min-h-11 w-full rounded-sm sm:w-auto"
+                      onClick={openFirstPending}
+                    >
+                      Corrigir pendências
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    className="min-h-11 w-full whitespace-normal rounded-sm text-center sm:w-auto"
+                    disabled={
+                      saving ||
+                      selectedItems.length === 0 ||
+                      setup.empresaErros.length > 0 ||
+                      entrySupplierErrors.length > 0 ||
+                      customerErrors.length > 0 ||
+                      transportErrors.length > 0 ||
+                      paymentErrors.length > 0
+                    }
+                    onClick={() => void generateDraft()}
+                  >
+                    {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Gerar rascunho de NF-e
+                  </Button>
+                </>
+              }
+            />
+          ) : null}
         </DialogContent>
       </Dialog>
 
