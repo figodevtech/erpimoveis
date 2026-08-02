@@ -4,7 +4,7 @@ import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHeader, TableRow, TableHead } from "@/components/ui/table";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { Transaction } from "../../../fluxodecaixa/types";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import axios, { isAxiosError } from "axios";
 import TransactionDialog from "../../../fluxodecaixa/components/transactionDialog/transactionDialog";
 import { Button } from "@/components/ui/button";
@@ -13,11 +13,21 @@ import ValueInput from "@/components/ui/value-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ChevronDown, ExternalLink, FileText, Loader, Loader2, Package, Paperclip, Percent, ReceiptText, Trash2Icon } from "lucide-react";
+import { ChevronDown, ExternalLink, FileText, Loader, Loader2, Package, Paperclip, Percent, ReceiptText, Trash2Icon, Upload } from "lucide-react";
 import { TransactionDeleteAlert } from "../../../components/transaction-delete-alert";
 import { toast } from "@/lib/toast";
 import { formatDate } from "@/utils/formatDate";
 import { calculateFinancialSurcharge, calculateFinancialTotal } from "@/lib/financial-surcharge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { PAYMENT_METHOD_OPTIONS } from "@/lib/payment-methods";
 
 interface OsContentProps {
@@ -110,6 +120,9 @@ type OsAnexo = {
 
 // Ajuste conforme a sua estrutura real
 
+/** Espelha o limite aplicado em /api/ordens/[id]/anexos, para avisar antes do envio. */
+const MAX_ANEXOS_POR_OS = 10;
+
 const toNum = (value: unknown) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -158,6 +171,10 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
   const [itensServico, setItensServico] = useState<OsServicoItem[]>([]);
   const [anexos, setAnexos] = useState<OsAnexo[]>([]);
   const [isLoadingAnexos, setIsLoadingAnexos] = useState(false);
+  const [uploadingAnexo, setUploadingAnexo] = useState(false);
+  const [deletingAnexoId, setDeletingAnexoId] = useState<number | null>(null);
+  const [anexoParaRemover, setAnexoParaRemover] = useState<OsAnexo | null>(null);
+  const anexoInputRef = useRef<HTMLInputElement | null>(null);
   const [descontoTipo, setDescontoTipo] = useState<"FIXO" | "PORCENTAGEM" | null>(null);
   const [desconto, setDesconto] = useState(0);
   const [acrescimoTipo, setAcrescimoTipo] = useState<"FIXO" | "PORCENTAGEM" | null>(null);
@@ -288,6 +305,71 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
       toast.error("Não foi possível carregar os anexos");
     } finally {
       setIsLoadingAnexos(false);
+    }
+  };
+
+  const handleAnexoChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    // Zera o input para permitir reenviar o mesmo arquivo depois de um erro.
+    event.target.value = "";
+    if (!file || !ordem?.id) return;
+
+    if (anexos.length >= MAX_ANEXOS_POR_OS) {
+      toast.error("Limite de anexos atingido", {
+        description: `Esta OS aceita no máximo ${MAX_ANEXOS_POR_OS} anexos.`,
+      });
+      return;
+    }
+
+    setUploadingAnexo(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch(`/api/ordens/${ordem.id}/anexos`, {
+        method: "POST",
+        body: formData,
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || "Erro ao anexar arquivo");
+
+      toast.success("Anexo enviado", {
+        description: file.type.startsWith("image/")
+          ? "Imagem otimizada e anexada à OS."
+          : "Arquivo anexado à OS.",
+      });
+      await handleGetAnexos(ordem.id);
+    } catch (error) {
+      toast.error("Erro ao anexar", {
+        description: error instanceof Error ? error.message : "Erro ao anexar arquivo",
+      });
+    } finally {
+      setUploadingAnexo(false);
+    }
+  };
+
+  const handleDeleteAnexo = async () => {
+    const alvo = anexoParaRemover;
+    if (!ordem?.id || !alvo) return;
+
+    const anexoId = alvo.id;
+    setAnexoParaRemover(null);
+    setDeletingAnexoId(anexoId);
+    try {
+      const response = await fetch(`/api/ordens/${ordem.id}/anexos/${anexoId}`, {
+        method: "DELETE",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || "Erro ao remover anexo");
+
+      toast.success("Anexo removido");
+      await handleGetAnexos(ordem.id);
+    } catch (error) {
+      toast.error("Erro ao remover", {
+        description: error instanceof Error ? error.message : "Erro ao remover anexo",
+      });
+    } finally {
+      setDeletingAnexoId(null);
     }
   };
 
@@ -852,17 +934,50 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                   <div className="flex min-w-0 items-center gap-2">
                     <Paperclip className="h-4 w-4 text-muted-foreground" />
                     <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Anexos da OS</span>
-                    <span className="rounded-md border px-2 py-0.5 text-xs text-muted-foreground">{anexos.length}</span>
+                    <span className="rounded-md border px-2 py-0.5 text-xs text-muted-foreground">
+                      {anexos.length}/{MAX_ANEXOS_POR_OS}
+                    </span>
                   </div>
-                  <button
-                    type="button"
-                    className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                    onClick={() => handleGetAnexos(ordem.id)}
-                  >
-                    Recarregar
-                    <Loader2 className={`h-3 w-3 ${isLoadingAnexos ? "animate-spin" : ""}`} />
-                  </button>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <input
+                      ref={anexoInputRef}
+                      type="file"
+                      accept="image/*,application/pdf"
+                      className="hidden"
+                      onChange={handleAnexoChange}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8"
+                      disabled={uploadingAnexo || isLoadingAnexos || anexos.length >= MAX_ANEXOS_POR_OS}
+                      onClick={() => anexoInputRef.current?.click()}
+                    >
+                      {uploadingAnexo ? (
+                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Upload className="mr-1 h-3.5 w-3.5" />
+                      )}
+                      {uploadingAnexo
+                        ? "Enviando..."
+                        : anexos.length >= MAX_ANEXOS_POR_OS
+                          ? "Limite atingido"
+                          : "Anexar"}
+                    </Button>
+                    <button
+                      type="button"
+                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                      onClick={() => handleGetAnexos(ordem.id)}
+                    >
+                      Recarregar
+                      <Loader2 className={`h-3 w-3 ${isLoadingAnexos ? "animate-spin" : ""}`} />
+                    </button>
+                  </div>
                 </div>
+                <p className="mb-2 text-[11px] text-muted-foreground">
+                  Imagem ou PDF, até 10 MB. Imagens são otimizadas no envio.
+                </p>
 
                 {isLoadingAnexos ? (
                   <div className="flex h-16 items-center justify-center gap-2 rounded-md border border-dashed text-sm text-muted-foreground">
@@ -896,11 +1011,28 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                             {formatFileSize(anexo.tamanho)}
                           </p>
                         </div>
-                        <Button type="button" variant="outline" size="sm" className="h-8 shrink-0 px-2" asChild>
-                          <a href={anexo.url} target="_blank" rel="noreferrer" aria-label="Abrir anexo">
-                            <ExternalLink className="h-4 w-4" />
-                          </a>
-                        </Button>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <Button type="button" variant="outline" size="sm" className="h-8 px-2" asChild>
+                            <a href={anexo.url} target="_blank" rel="noreferrer" aria-label={`Abrir ${anexo.nome}`}>
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 px-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            aria-label={`Remover ${anexo.nome}`}
+                            disabled={deletingAnexoId === anexo.id || uploadingAnexo}
+                            onClick={() => setAnexoParaRemover(anexo)}
+                          >
+                            {deletingAnexoId === anexo.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2Icon className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1074,6 +1206,45 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
           </div>
         </DialogFooter>
       </div>
+
+      <AlertDialog
+        open={anexoParaRemover !== null}
+        onOpenChange={(open) => {
+          if (!open) setAnexoParaRemover(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover este anexo?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação não pode ser desfeita. O arquivo é apagado do armazenamento e o
+              vínculo com a OS é removido.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="rounded-md border bg-muted/30 p-3 text-sm">
+            <p className="truncate font-medium" title={anexoParaRemover?.nome}>
+              {anexoParaRemover?.nome}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {formatFileSize(anexoParaRemover?.tamanho)}
+            </p>
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel className="hover:cursor-pointer">Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 hover:cursor-pointer"
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDeleteAnexo();
+              }}
+            >
+              Remover anexo
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DialogContent>
   );
 }
