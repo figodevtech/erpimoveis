@@ -54,6 +54,7 @@ type ServicoForm = {
   precohora: string;
   ativo: boolean;
   permite_agendamento: boolean;
+  gera_comissao: boolean;
 };
 
 const emptyForm: ServicoForm = {
@@ -62,6 +63,7 @@ const emptyForm: ServicoForm = {
   precohora: "",
   ativo: true,
   permite_agendamento: false,
+  gera_comissao: true,
 };
 export default function ServiceSelect({
   children,

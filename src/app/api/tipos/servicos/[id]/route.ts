@@ -42,6 +42,7 @@ export async function PUT(
       precohora,
       ativo,
       permite_agendamento,
+      gera_comissao,
     } = body ?? {};
 
     if (!codigo?.trim() || !descricao?.trim()) {
@@ -78,6 +79,10 @@ export async function PUT(
       payload.permite_agendamento = permite_agendamento;
     }
 
+    if (typeof gera_comissao === "boolean") {
+      payload.gera_comissao = gera_comissao;
+    }
+
     const { data, error } = await supabaseAdmin
       .from("servico")
       .update(payload)
@@ -93,7 +98,8 @@ export async function PUT(
         itemlistaservico,
         tiposervicoid,
         ativo,
-        permite_agendamento
+        permite_agendamento,
+        gera_comissao
       `)
       .maybeSingle();
 
@@ -120,6 +126,7 @@ export async function PUT(
       tiposervicoid: (data.tiposervicoid as number | null) ?? null,
       ativo: typeof data.ativo === "boolean" ? data.ativo : true,
       permite_agendamento: typeof data.permite_agendamento === "boolean" ? data.permite_agendamento : false,
+      gera_comissao: typeof data.gera_comissao === "boolean" ? data.gera_comissao : true,
     };
 
     return NextResponse.json({ item });
@@ -181,7 +188,8 @@ export async function PATCH(
         itemlistaservico,
         tiposervicoid,
         ativo,
-        permite_agendamento
+        permite_agendamento,
+        gera_comissao
       `)
       .maybeSingle();
 
@@ -208,6 +216,7 @@ export async function PATCH(
       tiposervicoid: (data.tiposervicoid as number | null) ?? null,
       ativo: typeof data.ativo === "boolean" ? data.ativo : ativo,
       permite_agendamento: typeof data.permite_agendamento === "boolean" ? data.permite_agendamento : false,
+      gera_comissao: typeof data.gera_comissao === "boolean" ? data.gera_comissao : true,
     };
 
     return NextResponse.json({ item });

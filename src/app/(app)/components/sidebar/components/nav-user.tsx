@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   ChevronsUpDown,
   LogOut,
   KeyRound,
   Loader2,
+  UserRound,
 } from "lucide-react";
 
 import {
@@ -40,8 +42,15 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/lib/toast";
 
-export function NavUser({ user }: { user: { nome: string; email: string } }) {
+export function NavUser({
+  user,
+  billingBlocked = false,
+}: {
+  user: { nome: string; email: string };
+  billingBlocked?: boolean;
+}) {
   const { isMobile } = useSidebar();
+  const router = useRouter();
 
   // --- Modal Alterar Senha
   const [pwdOpen, setPwdOpen] = useState(false);
@@ -157,6 +166,15 @@ export function NavUser({ user }: { user: { nome: string; email: string } }) {
               <DropdownMenuSeparator />
 
               <DropdownMenuGroup>
+                {/* Central Pessoal — indisponível enquanto o acesso está
+                    restrito ao módulo de plano por bloqueio de cobrança. */}
+                {!billingBlocked && (
+                  <DropdownMenuItem onSelect={() => router.push("/meu-perfil")}>
+                    <UserRound />
+                    Meu perfil
+                  </DropdownMenuItem>
+                )}
+
                 {/* Alterar senha */}
                 <DropdownMenuItem
                   onSelect={(e) => {

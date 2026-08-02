@@ -39,6 +39,7 @@ type Servico = {
   tiposervicoid?: number | null;
   ativo?: boolean | null;
   permite_agendamento?: boolean | null;
+  gera_comissao?: boolean | null;
 };
 
 type ServicoForm = {
@@ -47,6 +48,7 @@ type ServicoForm = {
   precohora: string;
   ativo: boolean;
   permite_agendamento: boolean;
+  gera_comissao: boolean;
 };
 
 const emptyForm: ServicoForm = {
@@ -55,6 +57,7 @@ const emptyForm: ServicoForm = {
   precohora: "",
   ativo: true,
   permite_agendamento: false,
+  gera_comissao: true,
 };
 
 const DEFAULT_LIMIT = 10;
@@ -157,6 +160,7 @@ export default function ServicosSection() {
       precohora: s.precohora != null ? String(s.precohora) : "",
       ativo: s.ativo ?? true,
       permite_agendamento: s.permite_agendamento ?? false,
+      gera_comissao: s.gera_comissao ?? true,
     });
     setOpen(true);
   }

@@ -33,7 +33,8 @@ export async function GET() {
         itemlistaservico,
         tiposervicoid,
         ativo,
-        permite_agendamento
+        permite_agendamento,
+        gera_comissao
       `)
       .order("descricao", { ascending: true });
 
@@ -54,6 +55,8 @@ export async function GET() {
       tiposervicoid: (s.tiposervicoid as number | null) ?? null,
       ativo: typeof s.ativo === "boolean" ? s.ativo : true,
       permite_agendamento: typeof s.permite_agendamento === "boolean" ? s.permite_agendamento : false,
+      // Serviços anteriores à coluna geram comissão, igual ao default do banco.
+      gera_comissao: typeof s.gera_comissao === "boolean" ? s.gera_comissao : true,
     }));
 
     return NextResponse.json({ items });
@@ -81,6 +84,7 @@ export async function POST(req: Request) {
       precohora,
       ativo,
       permite_agendamento,
+      gera_comissao,
     } = body ?? {};
 
     if (!codigo?.trim() || !descricao?.trim()) {
@@ -110,6 +114,7 @@ export async function POST(req: Request) {
       precohora: preco,
       ativo: typeof ativo === "boolean" ? ativo : true,
       permite_agendamento: typeof permite_agendamento === "boolean" ? permite_agendamento : false,
+      gera_comissao: typeof gera_comissao === "boolean" ? gera_comissao : true,
       createdat: now,
       updatedat: now,
     };
@@ -128,7 +133,8 @@ export async function POST(req: Request) {
         itemlistaservico,
         tiposervicoid,
         ativo,
-        permite_agendamento
+        permite_agendamento,
+        gera_comissao
       `)
       .maybeSingle();
 
@@ -155,6 +161,7 @@ export async function POST(req: Request) {
       tiposervicoid: (data.tiposervicoid as number | null) ?? null,
       ativo: typeof data.ativo === "boolean" ? data.ativo : true,
       permite_agendamento: typeof data.permite_agendamento === "boolean" ? data.permite_agendamento : false,
+      gera_comissao: typeof data.gera_comissao === "boolean" ? data.gera_comissao : true,
     };
 
     return NextResponse.json({ item }, { status: 201 });

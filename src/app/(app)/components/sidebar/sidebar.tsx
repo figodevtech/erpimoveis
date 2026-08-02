@@ -390,6 +390,7 @@ export function AppSidebar({ user, setOpen, hoverHabilitado, billingBlocked = fa
               nome: effectiveUser.nome || "",
               email: effectiveUser.email || "",
             }}
+            billingBlocked={billingBlocked}
           />
         )}
       </SidebarFooter>

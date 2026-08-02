@@ -369,6 +369,12 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
       pathname.startsWith("/api/tipos/setores") ||
       pathname.startsWith("/api/auth") ||
       pathname.startsWith("/api/config") ||
+      // Central Pessoal: so devolve dados do proprio usuario, e o executor e
+      // justamente quem mais tem servicos realizados para consultar.
+      pathname === "/meu-perfil" ||
+      pathname.startsWith("/meu-perfil/") ||
+      pathname === "/api/me" ||
+      pathname.startsWith("/api/me/") ||
       pathname === "/nao-autorizado";
 
     if (!allowedExecutorPath) {

@@ -44,6 +44,7 @@ type ServicoForm = {
   precohora: string;
   ativo: boolean;
   permite_agendamento: boolean;
+  gera_comissao: boolean;
 };
 
 interface ServicoDialogProps {
@@ -65,6 +66,8 @@ const emptyForm: ServicoForm = {
   precohora: "",
   ativo: true,
   permite_agendamento: false,
+  // Igual ao default do banco: serviço novo gera comissão.
+  gera_comissao: true,
 };
 
 export default function ServicoDialog({
@@ -108,6 +111,7 @@ export default function ServicoDialog({
       precohora,
       ativo: form.ativo,
       permite_agendamento: form.permite_agendamento,
+      gera_comissao: form.gera_comissao,
     };
 
     try {
@@ -206,6 +210,25 @@ export default function ServicoDialog({
               <Switch
                 checked={form.permite_agendamento}
                 onCheckedChange={(val) => handleChange("permite_agendamento", val)}
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 flex items-center justify-between rounded-md border px-3 py-2 bg-muted/40">
+            <div className="space-y-0.5">
+              <span className="text-sm font-medium">Gera comissao</span>
+              <p className="text-xs text-muted-foreground">
+                Desmarque para que o realizador deste servico nao receba comissao nem gere despesa no
+                financeiro.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground hidden sm:inline">
+                {form.gera_comissao ? "Sim" : "Nao"}
+              </span>
+              <Switch
+                checked={form.gera_comissao}
+                onCheckedChange={(val) => handleChange("gera_comissao", val)}
               />
             </div>
           </div>
