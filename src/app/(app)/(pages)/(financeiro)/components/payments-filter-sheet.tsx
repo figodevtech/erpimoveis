@@ -25,6 +25,8 @@ export type PaymentListFilters = {
   notaNumero: string;
   dataInicio?: Date;
   dataFim?: Date;
+  /** Restringe a listagem aos registros criados pelo usuario logado. */
+  apenasMinhas?: boolean;
 };
 
 type PaymentsFilterSheetProps = {

@@ -1,4 +1,5 @@
 export const VENDA_ANEXO_CATEGORIAS = [
+  { value: "NOTA_FISCAL", label: "Nota fiscal" },
   { value: "COMPROVANTE_PAGAMENTO", label: "Comprovante de pagamento" },
   { value: "DOCUMENTO_PESSOAL", label: "Documento pessoal" },
   { value: "COMPROVANTE_ENTREGA", label: "Comprovante de entrega" },

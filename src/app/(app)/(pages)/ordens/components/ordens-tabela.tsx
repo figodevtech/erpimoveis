@@ -41,6 +41,7 @@ import {
   AlertTriangle,
   Search,
   Send,
+  UserRound,
   X,
   Wrench,
 } from "lucide-react";
@@ -64,11 +65,9 @@ import {
   SortDir,
   PrioFiltro,
   MAX_CLIENTE_CHARS,
-  normalizeDateDay,
   getTempoMs,
   SortableHeader,
   buildPolicy,
-  prioRank,
 } from "./ordens-tabela-helpers";
 import { OrdensFilterSheet } from "./ordens-filtros";
 import { EmissaoNotaDialog } from "./dialogs/emissao-nota-dialog/emissao-nota-dialog";
@@ -81,6 +80,29 @@ import {
 } from "@/lib/payment-methods";
 
 const MAX_ALVO_CHARS = 48;
+
+/** Parâmetros que a listagem envia ao banco. Filtro e ordenação são server-side. */
+type FetchParams = {
+  statuses: StatusOS[];
+  search: string;
+  page: number;
+  limit: number;
+  apenasMinhas: boolean;
+  prioFiltro: PrioFiltro;
+  setorFiltro: string;
+  alvoFiltro: "TODOS" | "VEICULO" | "PECA" | "EQUIPAMENTO";
+  dataInicio?: Date;
+  dataFim?: Date;
+  sortKey: SortKey;
+  sortDir: SortDir;
+};
+
+/** Dia local em YYYY-MM-DD (toISOString converteria para UTC e podia trocar o dia). */
+function toDiaISO(date: Date) {
+  const mes = String(date.getMonth() + 1).padStart(2, "0");
+  const dia = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${mes}-${dia}`;
+}
 
 const formatCurrencyBRL = (value: number) =>
   new Intl.NumberFormat("pt-BR", {
@@ -139,6 +161,7 @@ export function OrdensTabela({
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const [filtroAberto, setFiltroAberto] = useState(false);
+  const [apenasMinhas, setApenasMinhas] = useState(false);
   const [prioFiltro, setPrioFiltro] = useState<PrioFiltro>("TODAS");
   const [setorFiltro, setSetorFiltro] = useState<string>("TODOS");
   const [alvoFiltro, setAlvoFiltro] = useState<"TODOS" | "VEICULO" | "PECA" | "EQUIPAMENTO">("TODOS");
@@ -153,10 +176,51 @@ export function OrdensTabela({
 
   const statusesKey = useMemo(() => (statuses?.length ? statuses.join("|") : ""), [statuses]);
 
-  const currentParamsRef = useRef({ statuses, search: "", page: 1, limit: 25 });
+  // Toda a filtragem/ordenação acontece no banco, então o realtime precisa repetir
+  // exatamente os mesmos parâmetros — por isso tudo passa por este ref.
+  const currentParamsRef = useRef<FetchParams>({
+    statuses,
+    search: "",
+    page: 1,
+    limit: 25,
+    apenasMinhas: false,
+    prioFiltro: "TODAS",
+    setorFiltro: "TODOS",
+    alvoFiltro: "TODOS",
+    dataInicio: undefined,
+    dataFim: undefined,
+    sortKey: "prioridade",
+    sortDir: "desc",
+  });
   useEffect(() => {
-    currentParamsRef.current = { statuses, search: localSearch, page, limit };
-  }, [statuses, localSearch, page, limit]);
+    currentParamsRef.current = {
+      statuses,
+      search: localSearch,
+      page,
+      limit,
+      apenasMinhas,
+      prioFiltro,
+      setorFiltro,
+      alvoFiltro,
+      dataInicio,
+      dataFim,
+      sortKey,
+      sortDir,
+    };
+  }, [
+    statuses,
+    localSearch,
+    page,
+    limit,
+    apenasMinhas,
+    prioFiltro,
+    setorFiltro,
+    alvoFiltro,
+    dataInicio,
+    dataFim,
+    sortKey,
+    sortDir,
+  ]);
 
   const lastRealtimeRef = useRef(0);
 
@@ -166,12 +230,15 @@ export function OrdensTabela({
       search: q,
       page: pg,
       limit: lm,
-    }: {
-      statuses: StatusOS[];
-      search: string;
-      page: number;
-      limit: number;
-    },
+      apenasMinhas: somenteMinhas,
+      prioFiltro: prio,
+      setorFiltro: setor,
+      alvoFiltro: alvo,
+      dataInicio: inicio,
+      dataFim: fim,
+      sortKey: ordenarPor,
+      sortDir: ordenarDir,
+    }: FetchParams,
     opts?: { silent?: boolean }
   ) {
     const myId = ++reqIdRef.current;
@@ -194,6 +261,20 @@ export function OrdensTabela({
 
       if (q?.trim()) url.searchParams.set("q", q.trim());
       else url.searchParams.delete("q");
+
+      if (somenteMinhas) url.searchParams.set("apenasMinhas", "1");
+      else url.searchParams.delete("apenasMinhas");
+
+      if (prio && prio !== "TODAS") url.searchParams.set("prioridade", prio);
+      if (setor && setor !== "TODOS") url.searchParams.set("setor", setor);
+      if (alvo && alvo !== "TODOS") url.searchParams.set("alvoTipo", alvo);
+      if (inicio) url.searchParams.set("dateFrom", toDiaISO(inicio));
+      if (fim) url.searchParams.set("dateTo", toDiaISO(fim));
+
+      if (ordenarPor) {
+        url.searchParams.set("sort", ordenarPor);
+        url.searchParams.set("dir", ordenarDir);
+      }
 
       url.searchParams.set("page", String(pg));
       url.searchParams.set("limit", String(lm));
@@ -237,9 +318,22 @@ export function OrdensTabela({
   }
 
   useEffect(() => {
-    const t = setTimeout(() => fetchNow({ statuses, search: localSearch, page, limit }), 300);
+    const t = setTimeout(() => fetchNow(currentParamsRef.current), 300);
     return () => clearTimeout(t);
-  }, [statusesKey, localSearch, page, limit]);
+  }, [
+    statusesKey,
+    localSearch,
+    page,
+    limit,
+    apenasMinhas,
+    prioFiltro,
+    setorFiltro,
+    alvoFiltro,
+    dataInicio,
+    dataFim,
+    sortKey,
+    sortDir,
+  ]);
 
   useEffect(() => {
     setPage(1);
@@ -248,6 +342,12 @@ export function OrdensTabela({
   useEffect(() => {
     setPage(1);
   }, [localSearch]);
+
+  // Qualquer filtro novo recomeça na primeira página: a página atual pode nem existir
+  // no resultado filtrado.
+  useEffect(() => {
+    setPage(1);
+  }, [apenasMinhas, prioFiltro, setorFiltro, alvoFiltro, dataInicio, dataFim]);
 
   useEffect(() => {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -711,109 +811,8 @@ export function OrdensTabela({
     setAlvoFiltro("TODOS");
     setDataInicioState(undefined);
     setDataFimState(undefined);
+    setApenasMinhas(false);
   };
-
-  const getSetorValue = (row: OrdemComDatas) => {
-    const id = (row as any).setor?.id ?? (row as any).setorid ?? (row as any).setorId;
-    const nome =
-      row.setor?.nome ?? (row as any).setor_nome ?? (row as any).setor?.descricao ?? (row as any).setorNome ?? "";
-    return id != null ? String(id) : nome || "";
-  };
-
-  const isPecaRow = (row: OrdemComDatas) =>
-    (row as any).alvo_tipo === "PECA" || (row as any).alvoTipo === "PECA" || (row as any)?.peca;
-
-  const filteredRows = useMemo(() => {
-    const inicioDay = normalizeDateDay(dataInicio ?? null);
-    const fimDay = normalizeDateDay(dataFim ?? null);
-
-    return rows.filter((row) => {
-      if (prioFiltro !== "TODAS") {
-        const p = String(row.prioridade || "").toUpperCase();
-        if (p !== prioFiltro) return false;
-      }
-
-      if (setorFiltro !== "TODOS") {
-        if (getSetorValue(row) !== setorFiltro) return false;
-      }
-
-      const isPeca = isPecaRow(row);
-      const isEquipamento =
-        (row as any).alvo_tipo === "EQUIPAMENTO" ||
-        (row as any).alvoTipo === "EQUIPAMENTO" ||
-        Boolean((row as any).equipamento);
-      if (alvoFiltro === "PECA" && !isPeca) return false;
-      if (alvoFiltro === "EQUIPAMENTO" && !isEquipamento) return false;
-      if (alvoFiltro === "VEICULO" && (isPeca || isEquipamento)) return false;
-
-      const entradaStr = (row as any).dataEntrada ?? (row as any).dataentrada ?? row.dataEntrada;
-
-      if (inicioDay || fimDay) {
-        if (!entradaStr) return false;
-        const entradaDay = normalizeDateDay(entradaStr);
-        if (!entradaDay) return false;
-
-        if (inicioDay && entradaDay < inicioDay) return false;
-        if (fimDay && entradaDay > fimDay) return false;
-      }
-
-      return true;
-    });
-  }, [rows, prioFiltro, setorFiltro, alvoFiltro, dataInicio, dataFim]);
-
-  const sortedRows = useMemo(() => {
-    if (!sortKey) return filteredRows;
-    const decorated = filteredRows.map((r, i) => ({ r, i }));
-
-    const compareStr = (a?: string | null, b?: string | null) =>
-      (a || "—").localeCompare(b || "—", "pt-BR", { sensitivity: "base" });
-
-    decorated.sort((a, b) => {
-      let cmp = 0;
-      const ra = a.r;
-      const rb = b.r;
-
-      switch (sortKey) {
-        case "setor":
-          cmp = compareStr(ra.setor?.nome, rb.setor?.nome);
-          break;
-        case "status":
-          cmp = compareStr(safeStatus(ra.status), safeStatus(rb.status));
-          break;
-        case "entrada": {
-          const da = normalizeDateDay((ra as any).dataEntrada ?? (ra as any).dataentrada)?.getTime() ?? 0;
-          const db = normalizeDateDay((rb as any).dataEntrada ?? (rb as any).dataentrada)?.getTime() ?? 0;
-          cmp = da - db;
-          break;
-        }
-        case "saida": {
-          const da = normalizeDateDay((ra as any).dataSaida ?? (ra as any).datasaida)?.getTime() ?? 0;
-          const db = normalizeDateDay((rb as any).dataSaida ?? (rb as any).datasaida)?.getTime() ?? 0;
-          cmp = da - db;
-          break;
-        }
-        case "prioridade": {
-          const pa = prioRank(ra.prioridade);
-          const pb = prioRank(rb.prioridade);
-          cmp = pa - pb;
-          break;
-        }
-        case "tempo": {
-          const ta = getTempoMs(ra, now);
-          const tb = getTempoMs(rb, now);
-          cmp = ta - tb;
-          break;
-        }
-        default:
-          cmp = 0;
-      }
-
-      if (cmp !== 0) return sortDir === "asc" ? cmp : -cmp;
-      return a.i - b.i;
-    });
-
-    return decorated.map((d) => d.r);
-  }, [filteredRows, sortKey, sortDir, now]);
 
   const handleSortChange = (key: SortKey, dir: SortDir) => {
     setSortKey(key);
@@ -854,6 +853,19 @@ export function OrdensTabela({
                   </button>
                 )}
               </div>
+
+              <Button
+                variant={apenasMinhas ? "default" : "outline"}
+                size="sm"
+                className="gap-1 hover:cursor-pointer"
+                aria-pressed={apenasMinhas}
+                title="Mostrar apenas as ordens de serviço criadas por mim"
+                onClick={() => setApenasMinhas((atual) => !atual)}
+              >
+                <UserRound className="h-4 w-4" />
+                <span className="hidden lg:inline">Minhas Ordens de Serviço</span>
+                <span className="lg:hidden">Minhas OS</span>
+              </Button>
 
               <OrdensFilterSheet
                 open={filtroAberto}
@@ -946,7 +958,7 @@ export function OrdensTabela({
               </TableHeader>
 
               <TableBody>
-                {sortedRows.map((r) => {
+                {rows.map((r) => {
                     const st = safeStatus(r.status) as StatusOS;
                     const clienteNome = r.cliente?.nome ?? "—";
                     const whatsappUrl = getWhatsAppUrl(r.cliente?.telefone);
@@ -1105,7 +1117,7 @@ export function OrdensTabela({
                     );
                   })}
 
-                {!isLoading && sortedRows.length === 0 && (
+                {!isLoading && rows.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={10} className="py-10 text-center text-muted-foreground">
                       Nenhuma OS encontrada.

@@ -3,12 +3,36 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { auth } from "@/lib/auth";
 import { StatusOS } from "@/app/(app)/(pages)/ordens/types";
 import { requireOSAccess } from "@/app/api/_authz/perms";
 import { carregarAutores } from "@/lib/movement-authors";
 
 type Prioridade = "ALTA" | "NORMAL" | "BAIXA" | null;
 type AlvoTipo = "VEICULO" | "PECA" | "EQUIPAMENTO" | null;
+
+const PRIORIDADES = ["ALTA", "NORMAL", "BAIXA"];
+const ALVOS = ["VEICULO", "PECA", "EQUIPAMENTO"];
+
+/** Ordenar o pai por uma coluna do embed exige PostgREST >= 10. */
+const COLUNA_SETOR_POR_NOME = "setor(nome)";
+
+/**
+ * Colunas de ordenacao aceitas pela lista de OS.
+ *
+ * `prioridade` e `status` sao enums: o Postgres ordena pela ordem de declaracao,
+ * e em `enum_prioridade_os` (BAIXA, NORMAL, ALTA) isso coincide com a régua usada
+ * na tela. `tempo` nao existe como coluna — para OS em aberto, ficar ha mais tempo
+ * na oficina e exatamente ter entrado antes, entao invertemos a data de entrada.
+ */
+const ORDENACOES: Record<string, { coluna: string; inverter?: boolean }> = {
+  entrada: { coluna: "dataentrada" },
+  saida: { coluna: "datasaida" },
+  status: { coluna: "status" },
+  prioridade: { coluna: "prioridade" },
+  setor: { coluna: COLUNA_SETOR_POR_NOME },
+  tempo: { coluna: "dataentrada", inverter: true },
+};
 
 function parseStatuses(param?: string | null): StatusOS[] {
   if (!param) return [];
@@ -31,6 +55,16 @@ export async function GET(req: Request) {
     const notaNumero = searchParams.get("notaNumero")?.trim() || "";
     const dateFrom = searchParams.get("dateFrom")?.trim() || "";
     const dateTo = searchParams.get("dateTo")?.trim() || "";
+    const apenasMinhas = ["1", "true", "yes"].includes(
+      (searchParams.get("apenasMinhas") ?? "").trim().toLowerCase()
+    );
+    const prioridadeParam = (searchParams.get("prioridade") ?? "").trim().toUpperCase();
+    const prioridade = PRIORIDADES.includes(prioridadeParam) ? prioridadeParam : "";
+    const setor = searchParams.get("setor")?.trim() || "";
+    const alvoTipoParam = (searchParams.get("alvoTipo") ?? "").trim().toUpperCase();
+    const alvoTipo = ALVOS.includes(alvoTipoParam) ? alvoTipoParam : "";
+    const sort = searchParams.get("sort")?.trim() || "";
+    const dir = searchParams.get("dir")?.trim().toLowerCase() === "asc" ? "asc" : "desc";
 
     const limit = Math.min(Math.max(Number(searchParams.get("limit") ?? 10), 1), 200);
     const page = Math.max(Number(searchParams.get("page") ?? 1), 1);
@@ -47,94 +81,18 @@ export async function GET(req: Request) {
         pageCount: 0,
       });
 
-    let query = supabaseAdmin
-      .from("ordemservico")
-      .select(
-        `
-        id,
-        descricao,
-        prioridade,
-        orcamentototal,
-        acrescimo_financeiro_tipo,
-        acrescimo_financeiro_valor,
-        status,
-        dataentrada,
-        datasaida,
-        alvo_tipo,
-        equipamento_nome,
-        equipamento_patrimonio,
-        equipamento_ano,
-        equipamento_horimetro,
-
-        cliente:clienteid (
-          id,
-          nomerazaosocial,
-          telefone,
-          email
-        ),
-        veiculo:veiculoid (
-          id,
-          placa,
-          modelo,
-          marca
-        ),
-        peca:pecaid (
-          id,
-          titulo,
-          descricao
-        ),
-        setor:setorid (
-          id,
-          nome
-        ),
-
-        transacoes:transacao!transacao_ordemservicoid_fkey (
-          id,
-          descricao,
-          valor,
-          data,
-          metodopagamento,
-          categoria,
-          tipo,
-          evento_financeiro_id,
-          is_deleted,
-          pendente,
-          baixado_por,
-          banco_id,
-          nomepagador,
-          cpfcnpjpagador,
-          created_at,
-          updated_at
-        ),
-
-        usuario:usuario!usuariocriadorid (id, nome),
-
-        cFilter:clienteid(),
-        vFilter:veiculoid(),
-        pFilter:pecaid()
-      `,
-        { count: "exact" }
-      )
-      .order("dataentrada", { ascending: false })
-      .range(from, to)
-      .order("data", { foreignTable: "transacoes", ascending: false })
-      .limit(50, { foreignTable: "transacoes" });
-
-    // status (1 ou vários)
-    if (status && status !== "TODAS") {
-      query = query.eq("status", status);
-    } else if (statuses.length > 0) {
-      query = query.in("status", statuses);
+    // Filtros que dependem de outra tabela sao resolvidos antes de montar a query,
+    // porque a ordenacao por setor pode exigir uma segunda tentativa.
+    let usuarioCriadorId: string | null = null;
+    if (apenasMinhas) {
+      // "Minhas ordens": o dono vem da sessao, nunca de um id enviado pelo cliente.
+      const session = await auth();
+      const usuarioId = (session?.user as any)?.id as string | undefined;
+      if (!usuarioId) return emptyResponse();
+      usuarioCriadorId = usuarioId;
     }
 
-    if (dateFrom) {
-      query = query.gte("dataentrada", `${dateFrom}T00:00:00.000Z`);
-    }
-
-    if (dateTo) {
-      query = query.lte("dataentrada", `${dateTo}T23:59:59.999Z`);
-    }
-
+    let clienteIds: number[] | null = null;
     if (cliente) {
       const { data: clientesData, error: clientesError } = await supabaseAdmin
         .from("cliente")
@@ -146,14 +104,11 @@ export async function GET(req: Request) {
 
       if (clientesError) throw clientesError;
 
-      const clienteIds = (clientesData ?? []).map((item) => item.id);
-      if (clienteIds.length === 0) {
-        return emptyResponse();
-      }
-
-      query = query.in("clienteid", clienteIds);
+      clienteIds = (clientesData ?? []).map((item) => item.id);
+      if (clienteIds.length === 0) return emptyResponse();
     }
 
+    let notaOrdemIds: number[] | null = null;
     if (notaNumero) {
       const notaNumeroValue = Number(notaNumero.replace(/\D/g, ""));
 
@@ -170,49 +125,198 @@ export async function GET(req: Request) {
 
       if (notasError) throw notasError;
 
-      const ordemIds = (notasData ?? [])
+      notaOrdemIds = (notasData ?? [])
         .map((item) => item.ordemservicoid)
         .filter((value): value is number => Number.isFinite(Number(value)));
 
-      if (ordemIds.length === 0) {
-        return emptyResponse();
+      if (notaOrdemIds.length === 0) return emptyResponse();
+    }
+
+    let setorIds: number[] | null = null;
+    if (setor && setor !== "TODOS") {
+      const setorIdNumerico = Number(setor);
+      if (Number.isFinite(setorIdNumerico)) {
+        setorIds = [Math.trunc(setorIdNumerico)];
+      } else {
+        // O seletor de setor cai para o nome quando /api/tipos/setores nao responde.
+        const { data: setoresData, error: setoresError } = await supabaseAdmin
+          .from("setor")
+          .select("id")
+          .ilike("nome", setor)
+          .limit(50);
+
+        if (setoresError) throw setoresError;
+
+        setorIds = (setoresData ?? []).map((item) => Number(item.id));
+        if (setorIds.length === 0) return emptyResponse();
+      }
+    }
+
+    const construirQuery = (colunaOrdenacaoSetor: string) => {
+      let query = supabaseAdmin
+        .from("ordemservico")
+        .select(
+          `
+          id,
+          descricao,
+          prioridade,
+          orcamentototal,
+          acrescimo_financeiro_tipo,
+          acrescimo_financeiro_valor,
+          status,
+          dataentrada,
+          datasaida,
+          alvo_tipo,
+          equipamento_nome,
+          equipamento_patrimonio,
+          equipamento_ano,
+          equipamento_horimetro,
+
+          cliente:clienteid (
+            id,
+            nomerazaosocial,
+            telefone,
+            email
+          ),
+          veiculo:veiculoid (
+            id,
+            placa,
+            modelo,
+            marca
+          ),
+          peca:pecaid (
+            id,
+            titulo,
+            descricao
+          ),
+          setor:setorid (
+            id,
+            nome
+          ),
+
+          transacoes:transacao!transacao_ordemservicoid_fkey (
+            id,
+            descricao,
+            valor,
+            data,
+            metodopagamento,
+            categoria,
+            tipo,
+            evento_financeiro_id,
+            is_deleted,
+            pendente,
+            baixado_por,
+            banco_id,
+            nomepagador,
+            cpfcnpjpagador,
+            created_at,
+            updated_at
+          ),
+
+          usuario:usuario!usuariocriadorid (id, nome),
+
+          cFilter:clienteid(),
+          vFilter:veiculoid(),
+          pFilter:pecaid()
+        `,
+          { count: "exact" }
+        )
+        .range(from, to)
+        .order("data", { foreignTable: "transacoes", ascending: false })
+        .limit(50, { foreignTable: "transacoes" });
+
+      // status (1 ou vários)
+      if (status && status !== "TODAS") {
+        query = query.eq("status", status);
+      } else if (statuses.length > 0) {
+        query = query.in("status", statuses);
       }
 
-      query = query.in("id", ordemIds);
+      if (usuarioCriadorId) {
+        query = query.eq("usuariocriadorid", usuarioCriadorId);
+      }
+
+      if (dateFrom) {
+        query = query.gte("dataentrada", `${dateFrom}T00:00:00.000Z`);
+      }
+
+      if (dateTo) {
+        query = query.lte("dataentrada", `${dateTo}T23:59:59.999Z`);
+      }
+
+      if (clienteIds) {
+        query = query.in("clienteid", clienteIds);
+      }
+
+      if (notaOrdemIds) {
+        query = query.in("id", notaOrdemIds);
+      }
+
+      if (setorIds) {
+        query = query.in("setorid", setorIds);
+      }
+
+      if (prioridade) {
+        query = query.eq("prioridade", prioridade);
+      }
+
+      if (alvoTipo === "VEICULO") {
+        // OS antigas nasceram sem alvo_tipo e sempre foram tratadas como veiculo.
+        query = query.or("alvo_tipo.is.null,alvo_tipo.eq.VEICULO");
+      } else if (alvoTipo) {
+        query = query.eq("alvo_tipo", alvoTipo);
+      }
+
+      if (q) {
+        const like = `%${q}%`;
+        const onlyDigits = q.replace(/\D/g, "");
+
+        // aplica filtros nos embeds (isso preenche cFilter/vFilter/pFilter quando casar)
+        query = query.or(`nomerazaosocial.ilike.${like},telefone.ilike.${like},email.ilike.${like}`, {
+          foreignTable: "cFilter",
+        });
+        query = query.or(`placa.ilike.${like},modelo.ilike.${like},marca.ilike.${like}`, {
+          foreignTable: "vFilter",
+        });
+        query = query.or(`titulo.ilike.${like},descricao.ilike.${like}`, {
+          foreignTable: "pFilter",
+        });
+
+        // agora faz OR no nível do pai:
+        // - descricao bate OU
+        // - algum embed "de filtro" não é null (porque passou no filtro acima)
+        const topOr: string[] = [
+          `descricao.ilike.${like}`,
+          `equipamento_nome.ilike.${like}`,
+          `equipamento_patrimonio.ilike.${like}`,
+          `cFilter.not.is.null`,
+          `vFilter.not.is.null`,
+          `pFilter.not.is.null`,
+        ];
+        if (onlyDigits) topOr.push(`id.eq.${Number(onlyDigits)}`);
+
+        query = query.or(topOr.join(","));
+      }
+
+      const ordenacao = ORDENACOES[sort];
+      if (ordenacao) {
+        const coluna = sort === "setor" ? colunaOrdenacaoSetor : ordenacao.coluna;
+        const ascendente = ordenacao.inverter ? dir !== "asc" : dir === "asc";
+        query = query.order(coluna, { ascending: ascendente, nullsFirst: false });
+      } else {
+        query = query.order("dataentrada", { ascending: false });
+      }
+      // Desempate estavel: sem ele a paginacao pode repetir/perder linhas.
+      return query.order("id", { ascending: false });
+    };
+
+    let { data, error, count } = await construirQuery(COLUNA_SETOR_POR_NOME);
+    if (error && sort === "setor") {
+      // Ordenar o pai por coluna de embed exige PostgREST recente; se nao houver
+      // suporte, agrupamos por setor usando a propria FK em vez de quebrar a lista.
+      console.warn("[ordens] ordenacao por setor(nome) indisponivel, usando setorid:", error);
+      ({ data, error, count } = await construirQuery("setorid"));
     }
-
-    if (q) {
-      const like = `%${q}%`;
-      const onlyDigits = q.replace(/\D/g, "");
-
-      // aplica filtros nos embeds (isso preenche cFilter/vFilter/pFilter quando casar)
-      query = query.or(`nomerazaosocial.ilike.${like},telefone.ilike.${like},email.ilike.${like}`, {
-        foreignTable: "cFilter",
-      });
-      query = query.or(`placa.ilike.${like},modelo.ilike.${like},marca.ilike.${like}`, {
-        foreignTable: "vFilter",
-      });
-      query = query.or(`titulo.ilike.${like},descricao.ilike.${like}`, {
-        foreignTable: "pFilter",
-      });
-
-      // agora faz OR no nível do pai:
-      // - descricao bate OU
-      // - algum embed "de filtro" não é null (porque passou no filtro acima)
-      const topOr: string[] = [
-        `descricao.ilike.${like}`,
-        `equipamento_nome.ilike.${like}`,
-        `equipamento_patrimonio.ilike.${like}`,
-        `cFilter.not.is.null`,
-        `vFilter.not.is.null`,
-        `pFilter.not.is.null`,
-      ];
-      if (onlyDigits) topOr.push(`id.eq.${Number(onlyDigits)}`);
-
-      query = query.or(topOr.join(","));
-    }
-
-    const { data, error, count } = await query;
     if (error) throw error;
 
     const items = (data ?? []).map((r: any) => ({

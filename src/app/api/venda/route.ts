@@ -190,6 +190,9 @@ export async function GET(req: Request) {
     const notaNumero = searchParams.get("notaNumero")?.trim() || "";
     const dateFrom = searchParams.get("dateFrom")?.trim() || "";
     const dateTo = searchParams.get("dateTo")?.trim() || "";
+    const apenasMinhas = ["1", "true", "yes"].includes(
+      (searchParams.get("apenasMinhas") ?? "").trim().toLowerCase()
+    );
 
     const statusParam = (searchParams.get("status") ?? "TODOS").toUpperCase();
     const statusFilter = STATUS_SET.has(statusParam as Status)
@@ -270,6 +273,14 @@ export async function GET(req: Request) {
       .select(VENDA_SELECT, { count: "exact" })
       .order("id", { ascending: false })
       .range(from, to);
+
+    // "Minhas vendas": o dono vem da sessao, nunca de um id enviado pelo cliente.
+    if (apenasMinhas) {
+      const session = await auth();
+      const usuarioId = (session?.user as any)?.id as string | undefined;
+      if (!usuarioId) return emptyResponse();
+      query = query.eq("created_by", usuarioId);
+    }
 
     let clienteIdNum: number | null = null;
 

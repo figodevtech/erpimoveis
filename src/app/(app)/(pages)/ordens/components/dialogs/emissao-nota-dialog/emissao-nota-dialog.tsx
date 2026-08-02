@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/lib/toast";
 import { supabase } from "@/lib/supabase";
-import { Loader2, Receipt, AlertCircle, CheckCircle2, XCircle, Info, X, Plus, RotateCw, Ellipsis, Download, Package, Wrench } from "lucide-react";
+import { Loader2, Receipt, AlertCircle, CheckCircle2, XCircle, Info, X, Plus, RotateCw, Ellipsis, Download, Package, Paperclip, Wrench } from "lucide-react";
 import { AutorizarNfeButton } from "./autorizarNfe-button";
 import { GerarNotaDeOsDialog } from "./gerarNotaDeOsDialog/gerarNotaDeOsDialog";
 import { EmissaoNfseDialog } from "./emissao-nfse-dialog/emissao-nfse-dialog";
@@ -23,6 +23,7 @@ import { CancelarNfeButton } from "./cancelarNfeButton";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ExcluirRascunhoNfeButton } from "./excluirRascunhoNfeButton";
 import { CancelarNotaDialog } from "./cancelar-nota-dialog";
+import { nfseEntregaPdf, nfseMotivoSemPdf } from "@/lib/nfse-modelos";
 
 type NfeResumo = {
   id: number;
@@ -52,6 +53,8 @@ type NfeResumo = {
   empresaid: number | null;
   url_pdf?: string;
   codigo_verificacao?: string;
+  /** Só em NFS-e: define se a prefeitura entrega o PDF ou apenas link de consulta. */
+  modelo_emissao?: string | null;
 };
 
 type ListarNfeResponsePorOs = {
@@ -176,6 +179,7 @@ export function EmissaoNotaDialog({
   const [openCancelNfseDialog, setOpenCancelNfseDialog] = useState(false);
   const [selectedNfseId, setSelectedNfseId] = useState<number | null>(null);
   const [downloadingXmlId, setDownloadingXmlId] = useState<number | null>(null);
+  const [anexandoDanfeId, setAnexandoDanfeId] = useState<number | null>(null);
 
   const origem = osId ? "OS" : vendaId ? "VENDA" : entradaId ? "ENTRADA" : null;
   const origemId = osId ?? vendaId ?? entradaId ?? null;
@@ -237,6 +241,84 @@ export function EmissaoNotaDialog({
       });
     } finally {
       setDownloadingXmlId(null);
+    }
+  };
+
+  /**
+   * Onde o DANFE sera anexado. Prioriza o vinculo da propria NF-e e cai para a
+   * origem do dialog quando a listagem nao trouxer o campo — quem decide de fato
+   * e o servidor, que relê o vinculo direto da nota.
+   */
+  const destinoDoAnexo = (nfe: NfeResumo): "OS" | "VENDA" | null => {
+    if (nfe.modelo === "NFSE") return null;
+    if (nfe.ordemservicoid) return "OS";
+    if (nfe.vendaid) return "VENDA";
+    if (origem === "OS" && osId) return "OS";
+    if (origem === "VENDA" && vendaId) return "VENDA";
+    return null;
+  };
+
+  /**
+   * Baixa o PDF da NFS-e no portal da prefeitura e grava como anexo na OS.
+   */
+  const anexarNfse = async (nfe: NfeResumo) => {
+    if (anexandoDanfeId === nfe.id) return;
+
+    const toastId = toast.loading("Baixando NFS-e e anexando na OS...");
+    setAnexandoDanfeId(nfe.id);
+
+    try {
+      const response = await fetch(`/api/nfse/${nfe.id}/anexar`, { method: "POST" });
+      const json = await response.json().catch(() => null);
+
+      if (!response.ok || !json?.ok) {
+        throw new Error(json?.message || "Não foi possível anexar a NFS-e.");
+      }
+
+      toast.success(json.jaExistia ? "A NFS-e já estava anexada nesta OS." : "NFS-e anexada na OS.", {
+        id: toastId,
+      });
+    } catch (error: any) {
+      toast.error("Não foi possível anexar a NFS-e.", {
+        id: toastId,
+        description: error?.message,
+      });
+    } finally {
+      setAnexandoDanfeId(null);
+    }
+  };
+
+  /**
+   * Gera o DANFE em PDF e grava como anexo "Nota fiscal" na OS ou na venda.
+   */
+  const anexarDanfe = async (nfe: NfeResumo) => {
+    if (anexandoDanfeId === nfe.id) return;
+
+    const destino = destinoDoAnexo(nfe) === "OS" ? "OS" : "venda";
+    const toastId = toast.loading(`Gerando DANFE e anexando na ${destino}...`);
+    setAnexandoDanfeId(nfe.id);
+
+    try {
+      const response = await fetch(`/api/nfe/${nfe.id}/danfe/anexar`, { method: "POST" });
+      const json = await response.json().catch(() => null);
+
+      if (!response.ok || !json?.ok) {
+        throw new Error(json?.message || "Não foi possível anexar o DANFE.");
+      }
+
+      toast.success(
+        json.jaExistia
+          ? `O DANFE já estava anexado nesta ${destino}.`
+          : `DANFE anexado na ${destino}.`,
+        { id: toastId },
+      );
+    } catch (error: any) {
+      toast.error("Não foi possível anexar o DANFE.", {
+        id: toastId,
+        description: error?.message,
+      });
+    } finally {
+      setAnexandoDanfeId(null);
     }
   };
 
@@ -303,6 +385,7 @@ export function EmissaoNotaDialog({
           createdat: n.createdat,
           empresaid: n.empresaid,
           url_pdf: n.url_pdf,
+          modelo_emissao: n.modelo_emissao ?? null,
         }));
         fetchedNfes = [...fetchedNfes, ...mappedNfses].sort(
           (a, b) => new Date(b.createdat || 0).getTime() - new Date(a.createdat || 0).getTime(),
@@ -391,7 +474,7 @@ export function EmissaoNotaDialog({
 
   const titulo = useMemo(() => {
     if (!origem || !origemId) return "Emissão de Nota Fiscal";
-    if (origem === "OS") return `Emissão de Nota Fiscal - OS #${origemId}`;
+    if (origem === "OS") return ` ?${origemId}`;
     if (origem === "VENDA") return `Emissão de Nota Fiscal - Venda #${origemId}`;
     return `Emissão de Nota Fiscal - Entrada #${origemId}`;
   }, [origem, origemId]);
@@ -626,6 +709,37 @@ export function EmissaoNotaDialog({
                                     </Button>
                                   )}
 
+                                  {isAutorizada && nfe.ordemservicoid && (
+                                    nfseEntregaPdf(nfe.modelo_emissao) ? (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="text-xs hover:cursor-pointer"
+                                        disabled={anexandoDanfeId === nfe.id || !nfe.url_pdf}
+                                        title={
+                                          nfe.url_pdf
+                                            ? undefined
+                                            : "Consulte a NFS-e para obter o link do documento."
+                                        }
+                                        onClick={() => void anexarNfse(nfe)}
+                                      >
+                                        {anexandoDanfeId === nfe.id ? (
+                                          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                        ) : (
+                                          <Paperclip className="mr-1.5 h-3.5 w-3.5" />
+                                        )}
+                                        Anexar na OS
+                                      </Button>
+                                    ) : (
+                                      <span
+                                        className="px-2 py-1 text-[11px] leading-tight text-muted-foreground"
+                                        title={nfseMotivoSemPdf(nfe.modelo_emissao)}
+                                      >
+                                        {nfseMotivoSemPdf(nfe.modelo_emissao)}
+                                      </span>
+                                    )
+                                  )}
+
                                   {!nfe.url_pdf && statusUpper === "CANCELADA" && (
                                     <span className="text-xs px-2 py-1 text-muted-foreground text-center">
                                       Nota Cancelada.
@@ -724,6 +838,23 @@ export function EmissaoNotaDialog({
                                         )}
                                         Baixar XML
                                       </Button>
+
+                                      {destinoDoAnexo(nfe) && (
+                                        <Button
+                                          className="text-xs hover:cursor-pointer"
+                                          variant="outline"
+                                          size="sm"
+                                          disabled={anexandoDanfeId === nfe.id}
+                                          onClick={() => void anexarDanfe(nfe)}
+                                        >
+                                          {anexandoDanfeId === nfe.id ? (
+                                            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                          ) : (
+                                            <Paperclip className="mr-1.5 h-3.5 w-3.5" />
+                                          )}
+                                          {destinoDoAnexo(nfe) === "OS" ? "Anexar na OS" : "Anexar na venda"}
+                                        </Button>
+                                      )}
 
                                       <Button
                                         className="text-xs hover:cursor-pointer"

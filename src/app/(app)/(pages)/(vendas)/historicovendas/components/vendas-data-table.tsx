@@ -19,6 +19,7 @@ import {
   MoreHorizontal,
   FileText,
   Pencil,
+  UserRound,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -243,8 +244,18 @@ export default function VendasDataTable({
   const canEdit = permissionSetHas((session?.user as any)?.permissoes, PERMS.VENDAS_EDITAR);
   const canDelete = permissionSetHas((session?.user as any)?.permissoes, PERMS.VENDAS_EXCLUIR);
   const hasActiveFilters = Boolean(
-    filters.cliente.trim() || filters.notaNumero.trim() || filters.dataInicio || filters.dataFim,
+    filters.cliente.trim() ||
+      filters.notaNumero.trim() ||
+      filters.dataInicio ||
+      filters.dataFim ||
+      filters.apenasMinhas,
   );
+
+  const toggleApenasMinhas = () => {
+    const next = { ...filters, apenasMinhas: !filters.apenasMinhas };
+    setFilters(next);
+    handleGetVendas(1, pagination.limit, search, status, next);
+  };
 
   const handleDeleteVenda = async (id: number) => {
     if (!canDelete) return;
@@ -376,6 +387,17 @@ export default function VendasDataTable({
                 Mercado Livre
               </Button>
             )}
+            <Button
+              variant={filters.apenasMinhas ? "default" : "outline"}
+              size="sm"
+              className="gap-1 hover:cursor-pointer"
+              aria-pressed={Boolean(filters.apenasMinhas)}
+              title="Mostrar apenas as vendas criadas por mim"
+              onClick={toggleApenasMinhas}
+            >
+              <UserRound className="h-4 w-4" />
+              Minhas Vendas
+            </Button>
             {hasActiveFilters && (
               <Button
                 variant="ghost"

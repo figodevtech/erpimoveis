@@ -68,6 +68,18 @@ CommandItem,
 CommandList,
 } from "@/components/ui/command";
 import { Popover,PopoverContent,PopoverTrigger } from "@/components/ui/popover";
+import {
+Select,
+SelectContent,
+SelectItem,
+SelectTrigger,
+SelectValue,
+} from "@/components/ui/select";
+import {
+OS_ANEXO_CATEGORIAS,
+getOsAnexoCategoriaLabel,
+type OsAnexoCategoria,
+} from "@/lib/os-anexo-categorias";
 
 import { carregarDetalhesOS,listarUsuariosAtivos,type UsuarioAtivo } from "../../lib/api";
 import {
@@ -291,6 +303,7 @@ type OsAnexo = {
   tamanho?: number | null;
   url: string;
   descricao?: string | null;
+  categoria?: string | null;
   createdat?: string | null;
 };
 
@@ -588,6 +601,7 @@ export function OSDetalhesDialog({
     valor: number;
   } | null>(null);
   const [anexos, setAnexos] = useState<OsAnexo[]>([]);
+  const [anexoCategoria, setAnexoCategoria] = useState<OsAnexoCategoria>("OUTROS");
   const [loadingAnexos, setLoadingAnexos] = useState(false);
   const [uploadingAnexo, setUploadingAnexo] = useState(false);
   const [deletingAnexoId, setDeletingAnexoId] = useState<number | null>(null);
@@ -977,6 +991,7 @@ export function OSDetalhesDialog({
 
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("categoria", anexoCategoria);
 
     setUploadingAnexo(true);
     try {
@@ -2072,35 +2087,53 @@ export function OSDetalhesDialog({
                           <Badge variant="outline">{anexos.length}/{maxAnexosPorOs}</Badge>
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          Envie imagens ou PDFs relacionados a esta ordem de serviço.
+                          Envie imagens ou PDFs relacionados a esta ordem de serviço, com o tipo de documento definido.
                         </div>
                       </div>
 
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept="image/*,application/pdf"
-                        className="hidden"
-                        onChange={handleAnexoChange}
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="gap-2"
-                        disabled={uploadingAnexo || loadingAnexos || anexos.length >= maxAnexosPorOs}
-                        onClick={() => fileInputRef.current?.click()}
-                      >
-                        {uploadingAnexo ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Upload className="h-4 w-4" />
-                        )}
-                        {uploadingAnexo
-                          ? "Enviando..."
-                          : anexos.length >= maxAnexosPorOs
-                            ? "Limite atingido"
-                            : "Adicionar anexo"}
-                      </Button>
+                      <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[280px]">
+                        <Select
+                          value={anexoCategoria}
+                          onValueChange={(value) => setAnexoCategoria(value as OsAnexoCategoria)}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Tipo do documento" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {OS_ANEXO_CATEGORIAS.map((categoria) => (
+                              <SelectItem key={categoria.value} value={categoria.value}>
+                                {categoria.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept="image/*,application/pdf"
+                          className="hidden"
+                          onChange={handleAnexoChange}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="gap-2"
+                          disabled={uploadingAnexo || loadingAnexos || anexos.length >= maxAnexosPorOs}
+                          onClick={() => fileInputRef.current?.click()}
+                        >
+                          {uploadingAnexo ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Upload className="h-4 w-4" />
+                          )}
+                          {uploadingAnexo
+                            ? "Enviando..."
+                            : anexos.length >= maxAnexosPorOs
+                              ? "Limite atingido"
+                              : "Adicionar anexo"}
+                        </Button>
+                      </div>
                     </div>
                   </section>
 
@@ -2142,6 +2175,9 @@ export function OSDetalhesDialog({
                                   )}
                                 </span>
                                 <span className="min-w-0 flex-1">
+                                  <Badge variant="secondary" className="mb-1">
+                                    {getOsAnexoCategoriaLabel(anexo.categoria)}
+                                  </Badge>
                                   <span className="block truncate text-sm font-medium">{anexo.nome}</span>
                                   <span className="block truncate text-xs text-muted-foreground">
                                     {[fileSize, fmtDate(anexo.createdat)].filter(Boolean).join(" • ")}

@@ -4,11 +4,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import {
+  OS_ANEXO_CATEGORIA_VALUES,
+  type OsAnexoCategoria,
+} from "@/lib/os-anexo-categorias";
 
 type Params = { id: string };
 const BUCKET = "os_anexos";
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const MAX_ANEXOS_POR_OS = 10;
+const OS_ANEXO_CATEGORIAS_SET = new Set(OS_ANEXO_CATEGORIA_VALUES);
 
 function sanitizeFileName(name: string) {
   return (name || "anexo")
@@ -64,7 +69,7 @@ export async function GET(_req: NextRequest, context: { params: Promise<Params> 
     const osId = await parseId(context);
     const { data, error } = await supabaseAdmin
       .from("osanexo")
-      .select("id, ordemservicoid, nome, tipo, tamanho, url, path, descricao, createdat")
+      .select("id, ordemservicoid, nome, tipo, tamanho, url, path, descricao, categoria, createdat")
       .eq("ordemservicoid", osId)
       .order("createdat", { ascending: false });
 
@@ -110,6 +115,10 @@ export async function POST(req: NextRequest, context: { params: Promise<Params> 
     const form = await req.formData();
     const file = form.get("file");
     const descricao = String(form.get("descricao") ?? "").trim() || null;
+    const categoriaRaw = String(form.get("categoria") ?? "OUTROS").trim().toUpperCase();
+    const categoria = OS_ANEXO_CATEGORIAS_SET.has(categoriaRaw as OsAnexoCategoria)
+      ? (categoriaRaw as OsAnexoCategoria)
+      : "OUTROS";
 
     if (!file || !(file instanceof File)) {
       return NextResponse.json({ error: "Envie um arquivo em 'file'." }, { status: 400 });
@@ -171,8 +180,9 @@ export async function POST(req: NextRequest, context: { params: Promise<Params> 
         url: publicUrl,
         path,
         descricao,
+        categoria,
       })
-      .select("id, ordemservicoid, nome, tipo, tamanho, url, path, descricao, createdat")
+      .select("id, ordemservicoid, nome, tipo, tamanho, url, path, descricao, categoria, createdat")
       .single();
 
     if (insertError) {

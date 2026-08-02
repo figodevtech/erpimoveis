@@ -67,6 +67,7 @@ export default function HistoricoVendas() {
           dateTo: activeFilters.dataFim
             ? activeFilters.dataFim.toISOString().slice(0, 10)
             : "",
+          apenasMinhas: activeFilters.apenasMinhas ? "1" : "",
         },
       });
       if (response.status === 200) {
