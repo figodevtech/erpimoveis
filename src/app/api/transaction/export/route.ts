@@ -16,7 +16,7 @@ const FORTALEZA_OFFSET = "-03:00";
  *           cliente_id, banco_id, created_at, updated_at
  */
 const TRANSACAO_FIELDS =
-  'id, descricao, valor, "valorLiquido", nomepagador, cpfcnpjpagador, pendente, data, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, banco_id, created_at, updated_at';
+  'id, descricao, descricao_pagamento, valor, "valorLiquido", nomepagador, cpfcnpjpagador, pendente, data, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, banco_id, created_at, updated_at';
 
 /** bancoconta: id, titulo, ... , created_at, updated_at */
 const BANCO_FIELDS = "id, titulo, created_at, updated_at";
@@ -108,6 +108,7 @@ export async function GET(req: Request) {
     const headers = [
       "ID",
       "Descrição",
+      "Descrição do pagamento",
       "Tipo",
       "Categoria",
       "Plano de conta",
@@ -136,6 +137,7 @@ export async function GET(req: Request) {
     ws["!cols"] = [
       { wch: 8 },  // ID
       { wch: 40 }, // Descrição
+      { wch: 34 }, // Descrição do pagamento
       { wch: 12 }, // Tipo
       { wch: 18 }, // Categoria
       { wch: 28 }, // Plano de conta
@@ -212,6 +214,7 @@ export async function GET(req: Request) {
       const rows = (data ?? []).map((t: any) => [
         t.id ?? "",
         t.descricao ?? "",
+        t.descricao_pagamento ?? "",
         t.tipo ?? "",
         t.categoria ?? "",
         t.plano_de_conta ?? "",
