@@ -5,24 +5,42 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   Boxes,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   Loader2,
   Package,
-  RefreshCw,
   RotateCcw,
+  Search,
+  SlidersHorizontal,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/lib/toast";
 import { CancelMovementDialog, type CancelTarget } from "../components/cancel-movement-dialog";
 import { CancelarEntradaDialog } from "@/components/entrada-fiscal/cancelar-entrada-dialog";
 
 type InventoryKind = "produtos" | "uso-consumo";
 type Direction = "entrada" | "saida";
+type DirectionFilter = "todos" | Direction;
+type StatusFilter = "todos" | "CONFIRMADA" | "CANCELADA";
 
 type MovementItem = {
   quantidade?: number | null;
@@ -196,32 +214,6 @@ function MovementRow({
   );
 }
 
-function GroupHeaderRow({
-  icon: Icon,
-  title,
-  count,
-  colSpan,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  title: string;
-  count: number;
-  colSpan: number;
-}) {
-  return (
-    <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={colSpan} className="bg-muted/50 py-2">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          <Icon className="size-3.5" />
-          {title}
-          <Badge variant="outline" className="font-normal normal-case">
-            {count}
-          </Badge>
-        </div>
-      </TableCell>
-    </TableRow>
-  );
-}
-
 function MovementTable({
   products,
   useItems,
@@ -239,27 +231,229 @@ function MovementTable({
   onReload: () => void;
   onCancel: (movement: Movement) => void;
 }) {
-  const showActions = [...products, ...useItems].some((movement) => canCancel(movement));
+  const [inventory, setInventory] = useState<InventoryKind>("produtos");
+  const [search, setSearch] = useState("");
+  const [directionFilter, setDirectionFilter] = useState<DirectionFilter>("todos");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("todos");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [draftDirection, setDraftDirection] = useState<DirectionFilter>("todos");
+  const [draftStatus, setDraftStatus] = useState<StatusFilter>("todos");
+  const [draftDateFrom, setDraftDateFrom] = useState("");
+  const [draftDateTo, setDraftDateTo] = useState("");
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
+
+  const normalizedSearch = search.trim().toLocaleLowerCase("pt-BR");
+  const sourceMovements = inventory === "produtos" ? products : useItems;
+  const filteredMovements = useMemo(
+    () =>
+      sourceMovements.filter((movement) => {
+        if (directionFilter !== "todos" && movement.direction !== directionFilter) return false;
+        if (statusFilter !== "todos" && movement.status !== statusFilter) return false;
+
+        const movementDate = new Date(movement.createdAt);
+        if (dateFrom && movementDate < new Date(`${dateFrom}T00:00:00`)) return false;
+        if (dateTo && movementDate > new Date(`${dateTo}T23:59:59.999`)) return false;
+
+        if (!normalizedSearch) return true;
+        return [movement.id, movement.description, movement.party, movement.items, movement.status]
+          .join(" ")
+          .toLocaleLowerCase("pt-BR")
+          .includes(normalizedSearch);
+      }),
+    [dateFrom, dateTo, directionFilter, normalizedSearch, sourceMovements, statusFilter],
+  );
+  const totalPages = Math.max(1, Math.ceil(filteredMovements.length / limit));
+  const start = (page - 1) * limit;
+  const pageMovements = filteredMovements.slice(start, start + limit);
+  const showActions = filteredMovements.some((movement) => canCancel(movement));
   const colSpan = showActions ? 7 : 6;
-  const isEmpty = !loading && products.length === 0 && useItems.length === 0;
+  const isEmpty = !loading && filteredMovements.length === 0;
+  const activeFilterCount =
+    Number(directionFilter !== "todos") +
+    Number(statusFilter !== "todos") +
+    Number(Boolean(dateFrom)) +
+    Number(Boolean(dateTo));
+
+  useEffect(() => {
+    setPage(1);
+  }, [dateFrom, dateTo, directionFilter, inventory, limit, normalizedSearch, statusFilter]);
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, totalPages));
+  }, [totalPages]);
+
+  function changeInventory(value: string) {
+    if (value === "produtos" || value === "uso-consumo") setInventory(value);
+  }
+
+  function changeSheetOpen(open: boolean) {
+    if (open) {
+      setDraftDirection(directionFilter);
+      setDraftStatus(statusFilter);
+      setDraftDateFrom(dateFrom);
+      setDraftDateTo(dateTo);
+    }
+    setSheetOpen(open);
+  }
+
+  function applyFilters() {
+    setDirectionFilter(draftDirection);
+    setStatusFilter(draftStatus);
+    setDateFrom(draftDateFrom);
+    setDateTo(draftDateTo);
+    setSheetOpen(false);
+  }
+
+  function clearDraftFilters() {
+    setDraftDirection("todos");
+    setDraftStatus("todos");
+    setDraftDateFrom("");
+    setDraftDateTo("");
+  }
 
   return (
     <Card className="bg-card">
       <CardHeader className="border-b-2 pb-4">
-        <CardTitle>Histórico de estoque</CardTitle>
-        <CardDescription className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onReload}
-            className="inline-flex items-center gap-1 text-foreground/50 hover:cursor-pointer hover:text-foreground/70"
-          >
-            <span>Recarregar</span>
-            <Loader2 width={12} className={loading ? "animate-spin" : ""} />
-          </button>
-          <span className="text-foreground/60">
-            Todas as entradas e saídas, separadas entre produtos e itens de uso/consumo.
-          </span>
-        </CardDescription>
+        <div className="relative flex min-w-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="min-w-0 md:max-w-sm xl:max-w-md">
+            <CardTitle>Histórico de estoque</CardTitle>
+            <CardDescription className="flex flex-col items-start gap-1">
+              <span>Todas as entradas e saídas, separadas entre produtos e itens de uso/consumo.</span>
+              <button
+                type="button"
+                onClick={onReload}
+                className="inline-flex items-center gap-1 text-foreground/50 hover:cursor-pointer hover:text-foreground/70"
+              >
+                <span>Recarregar</span>
+                <Loader2 width={12} className={loading ? "animate-spin" : ""} />
+              </button>
+            </CardDescription>
+          </div>
+
+          <div className="flex flex-1 items-center justify-center xl:absolute xl:left-1/2 xl:top-1/2 xl:-translate-x-1/2 xl:-translate-y-1/2">
+            <Tabs value={inventory} onValueChange={changeInventory}>
+              <TabsList className="h-auto gap-1.5 rounded-2xl border bg-muted/40 p-1 backdrop-blur-sm">
+                <TabsTrigger
+                  value="produtos"
+                  className="h-8 rounded-xl px-3 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:bg-primary dark:data-[state=active]:text-primary-foreground"
+                >
+                  <Package className="size-3.5" />
+                  Produtos
+                </TabsTrigger>
+                <TabsTrigger
+                  value="uso-consumo"
+                  className="h-8 rounded-xl px-3 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:bg-primary dark:data-[state=active]:text-primary-foreground"
+                >
+                  <Boxes className="size-3.5" />
+                  Uso e consumo
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+
+          <div className="flex w-full flex-col gap-2 sm:flex-row md:w-auto md:items-center md:justify-end">
+            <div className="relative w-full sm:w-64">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Buscar no histórico..."
+                className="h-9 pl-9"
+              />
+            </div>
+
+            <Sheet open={sheetOpen} onOpenChange={changeSheetOpen}>
+              <SheetTrigger asChild>
+                <Button variant="outline" size="sm" className="h-9 gap-2 hover:cursor-pointer">
+                  <SlidersHorizontal className="size-4" />
+                  Filtros
+                  {activeFilterCount > 0 ? (
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] text-primary">
+                      {activeFilterCount}
+                    </span>
+                  ) : null}
+                </Button>
+              </SheetTrigger>
+              <SheetContent className="w-full overflow-hidden sm:max-w-md">
+                <SheetHeader>
+                  <SheetTitle>Filtros do histórico de estoque</SheetTitle>
+                </SheetHeader>
+
+                <div className="grid flex-1 auto-rows-min gap-5 overflow-y-auto p-4">
+                  <div className="space-y-5 rounded-xl border bg-card p-4">
+                    <div className="space-y-2">
+                      <Label>Movimentação</Label>
+                      <Select value={draftDirection} onValueChange={(value) => setDraftDirection(value as DirectionFilter)}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="todos">Entradas e saídas</SelectItem>
+                          <SelectItem value="entrada">Somente entradas</SelectItem>
+                          <SelectItem value="saida">Somente saídas</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2 border-t pt-4">
+                      <Label>Status</Label>
+                      <Select value={draftStatus} onValueChange={(value) => setDraftStatus(value as StatusFilter)}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="todos">Todos os status</SelectItem>
+                          <SelectItem value="CONFIRMADA">Confirmadas</SelectItem>
+                          <SelectItem value="CANCELADA">Canceladas</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-3 border-t pt-4">
+                      <Label>Período</Label>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="estoque-data-inicial" className="text-xs text-muted-foreground">
+                            Data inicial
+                          </Label>
+                          <Input
+                            id="estoque-data-inicial"
+                            type="date"
+                            value={draftDateFrom}
+                            onChange={(event) => setDraftDateFrom(event.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="estoque-data-final" className="text-xs text-muted-foreground">
+                            Data final
+                          </Label>
+                          <Input
+                            id="estoque-data-final"
+                            type="date"
+                            value={draftDateTo}
+                            onChange={(event) => setDraftDateTo(event.target.value)}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end gap-2 border-t pt-4">
+                      <Button type="button" variant="outline" onClick={clearDraftFilters}>
+                        Limpar
+                      </Button>
+                      <Button type="button" onClick={applyFilters}>
+                        Aplicar filtros
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </SheetContent>
+            </Sheet>
+          </div>
+        </div>
       </CardHeader>
 
       <CardContent className="relative -mt-[24px] min-h-[300px] px-4 pb-4 pt-0">
@@ -288,37 +482,16 @@ function MovementTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {products.length ? (
-              <>
-                <GroupHeaderRow icon={Package} title="Produtos" count={products.length} colSpan={colSpan} />
-                {products.map((movement) => (
-                  <MovementRow
-                    key={movement.key}
-                    movement={movement}
-                    cancellable={canCancel(movement)}
-                    isCanceling={canceling === movement.key}
-                    showActions={showActions}
-                    onCancel={onCancel}
-                  />
-                ))}
-              </>
-            ) : null}
-
-            {useItems.length ? (
-              <>
-                <GroupHeaderRow icon={Boxes} title="Uso e consumo" count={useItems.length} colSpan={colSpan} />
-                {useItems.map((movement) => (
-                  <MovementRow
-                    key={movement.key}
-                    movement={movement}
-                    cancellable={canCancel(movement)}
-                    isCanceling={canceling === movement.key}
-                    showActions={showActions}
-                    onCancel={onCancel}
-                  />
-                ))}
-              </>
-            ) : null}
+            {pageMovements.map((movement) => (
+              <MovementRow
+                key={movement.key}
+                movement={movement}
+                cancellable={canCancel(movement)}
+                isCanceling={canceling === movement.key}
+                showActions={showActions}
+                onCancel={onCancel}
+              />
+            ))}
 
             {isEmpty ? (
               <TableRow>
@@ -330,10 +503,89 @@ function MovementTable({
           </TableBody>
         </Table>
 
-        {loading && isEmpty ? (
+        {loading && filteredMovements.length === 0 ? (
           <div className="flex h-32 items-center justify-center text-muted-foreground">
             <Loader2 className="mr-2 size-5 animate-spin" />
             Carregando histórico...
+          </div>
+        ) : null}
+
+        {!loading && filteredMovements.length > 0 ? (
+          <div className="mt-4 grid min-h-9 grid-cols-1 items-center gap-3 sm:grid-cols-[1fr_auto_1fr]">
+            <div className="flex flex-nowrap justify-self-center text-xs text-muted-foreground sm:justify-self-start">
+              <span>{start + 1}</span> - <span>{Math.min(start + pageMovements.length, filteredMovements.length)}</span>
+              <span className="ml-1 hidden sm:block">de {filteredMovements.length}</span>
+            </div>
+
+            <div className="flex items-center justify-center space-x-1 sm:space-x-3 sm:col-start-2 sm:row-start-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  aria-label="Primeira página"
+                  disabled={page === 1}
+                  onClick={() => setPage(1)}
+                >
+                  <ChevronsLeft className="size-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  aria-label="Página anterior"
+                  disabled={page === 1}
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                >
+                  <ChevronLeft className="size-4" />
+                </Button>
+                <span className="min-w-20 text-center text-xs text-muted-foreground">
+                  Pg. {page} de {totalPages}
+                </span>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="h-8 w-8"
+                  aria-label="Próxima página"
+                  disabled={page === totalPages}
+                  onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                >
+                  <ChevronRight className="size-4" />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="h-8 w-8"
+                  aria-label="Última página"
+                  disabled={page === totalPages}
+                  onClick={() => setPage(totalPages)}
+                >
+                  <ChevronsRight className="size-4" />
+                </Button>
+            </div>
+
+            <Select
+              value={String(limit)}
+              onValueChange={(value) => {
+                setPage(1);
+                setLimit(Number(value));
+              }}
+            >
+              <SelectTrigger
+                className="w-auto justify-self-center hover:cursor-pointer sm:col-start-3 sm:row-start-1 sm:justify-self-end"
+                aria-label="Itens por página"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="10">10</SelectItem>
+                <SelectItem value="20">20</SelectItem>
+                <SelectItem value="50">50</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         ) : null}
       </CardContent>
@@ -445,19 +697,6 @@ export default function HistoricoEstoquePage() {
 
   return (
     <div className="mx-auto space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">Histórico de estoque</h1>
-          <p className="text-sm text-muted-foreground">
-            Acompanhe entradas e saídas de produtos e de itens de uso/consumo em um só lugar.
-          </p>
-        </div>
-        <Button variant="outline" disabled={loading} onClick={() => void load()}>
-          <RefreshCw className={`mr-2 size-4 ${loading ? "animate-spin" : ""}`} />
-          Atualizar
-        </Button>
-      </div>
-
       <MovementTable
         products={products}
         useItems={useItems}
