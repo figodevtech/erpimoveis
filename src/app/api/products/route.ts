@@ -261,6 +261,87 @@ export async function GET(req: Request) {
 
     if (q) {
       const searchTokens = getProductSearchTokens(q);
+      const isNumericSearch = /^\d+$/.test(q);
+      const isAlphaNumericCodeSearch = /[a-z]/i.test(q) && /\d/.test(q) && /^[a-z0-9]+$/i.test(q);
+      const isSingleStructuredSearch = searchTokens.length === 1 && searchTokens[0]?.structured;
+      const safeDirectSearch = q.replace(/[,%()]/g, ' ').trim();
+
+      // IDs, referências e códigos são pesquisados diretamente no Postgres.
+      // Além de reduzir muito o custo, isso evita carregar o catálogo inteiro
+      // para as pesquisas mais comuns na tela de estoque.
+      if (safeDirectSearch && (isNumericSearch || isAlphaNumericCodeSearch || isSingleStructuredSearch)) {
+        const structuredColumns = [
+          'referencia',
+          'codigobarras',
+          'etiqueta',
+          'ncm',
+          'cest',
+        ];
+        const generalColumns = [
+          ...structuredColumns,
+          'titulo',
+          'descricao',
+          'fabricante',
+          'local',
+          'cfop',
+          'csosn',
+          'cst',
+          'cst_pis',
+          'cst_cofins',
+          'cst_ibscbs',
+          'cclass_trib',
+        ];
+        const directFilters = (isNumericSearch || isAlphaNumericCodeSearch ? generalColumns : structuredColumns).map(
+          (column) => `${column}.ilike.%${safeDirectSearch}%`,
+        );
+
+        // `produto.id` é integer (int4). Um código de barras/CNPJ numérico pode
+        // ser maior que esse limite e não deve ser enviado ao Postgres como ID.
+        const numericId = Number(safeDirectSearch);
+        if (
+          isNumericSearch &&
+          Number.isInteger(numericId) &&
+          numericId > 0 &&
+          numericId <= 2_147_483_647
+        ) {
+          directFilters.push(`id.eq.${numericId}`);
+        }
+
+        const from = (page - 1) * limit;
+        const to = from + limit - 1;
+        let directQuery = supabaseAdmin
+          .from('produto')
+          .select(PRODUTO_FIELDS, { count: 'exact' })
+          .eq('is_deleted', false)
+          .or(directFilters.join(','))
+          .order('id', { ascending: false })
+          .range(from, to);
+
+        if (statusFilter) {
+          directQuery = directQuery.eq('status_estoque', statusFilter);
+        }
+        directQuery = applyProductFilters(directQuery, productFilters);
+
+        const { data, error, count } = await directQuery;
+        if (error) throw error;
+
+        const items = data ?? [];
+        const total = count ?? 0;
+        return NextResponse.json({
+          data: items,
+          pagination: {
+            total,
+            page,
+            limit,
+            totalPages: Math.max(1, Math.ceil(total / limit)),
+            pageCount: items.length,
+            hasPrevPage: page > 1,
+            hasNextPage: page * limit < total,
+          },
+          filters: { search: q },
+        });
+      }
+
       const batchSize = 1000;
       const searchableProducts: Record<string, unknown>[] = [];
 

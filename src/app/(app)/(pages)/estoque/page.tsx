@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Produto, Pagination, Estoque_status, ProductListFilters } from "./types";
 import axios from "axios";
 import useContadorStatus from "./hooks/contador-status";
@@ -8,6 +8,7 @@ import Cards from "./components/cards";
 import FiltroPesquisa from "./components/filtro-pesquisa";
 import TabelaProdutos from "./components/tabela-produtos";
 import { EMPTY_PRODUCT_FILTERS } from "./components/produto-filtros-sheet";
+import { toast } from "@/lib/toast";
 
 export default function EstoquePage() {
   const [status, setStatus] = useState<Estoque_status>(Estoque_status.TODOS);
@@ -31,6 +32,7 @@ export default function EstoquePage() {
   });
   const [search, setSearch] = useState("");
   const [productFilters, setProductFilters] = useState<ProductListFilters>(EMPTY_PRODUCT_FILTERS);
+  const latestProductsRequestRef = useRef(0);
 
   const handleGetProducts = async (
     pageNumber?: number,
@@ -39,12 +41,13 @@ export default function EstoquePage() {
     statusValue?: Estoque_status,
     filters?: ProductListFilters,
   ) => {
+    const requestId = ++latestProductsRequestRef.current;
     setIsLoading(true);
     try {
       const response = await axios.get("/api/products", {
         params: {
           page: pageNumber || 1,
-          limit: pagination.limit,
+          limit: limit || pagination.limit,
           search: searchText || undefined,
           status: statusValue || "TODOS",
           grupoId: filters?.grupoId || undefined,
@@ -59,22 +62,27 @@ export default function EstoquePage() {
           precoMax: filters?.precoMax || undefined,
         },
       });
-      if (response.status === 200) {
+      if (response.status === 200 && requestId === latestProductsRequestRef.current) {
         const { data } = response;
         setProducts(data.data);
         setPagination(data.pagination);
       }
     } catch (error) {
-      console.log("Erro ao buscar Produtos:", error);
+      if (requestId === latestProductsRequestRef.current) {
+        console.log("Erro ao buscar Produtos:", error);
+        const message = axios.isAxiosError(error)
+          ? error.response?.data?.error ?? error.message
+          : error instanceof Error
+            ? error.message
+            : "Erro inesperado.";
+        toast.error("Não foi possível buscar os produtos.", { description: message });
+      }
     } finally {
-      setIsLoading(false);
+      if (requestId === latestProductsRequestRef.current) {
+        setIsLoading(false);
+      }
     }
   };
-
-  useEffect(() => {
-    handleGetProducts(1, pagination.limit, search, status, productFilters);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   useEffect(() => {
     handleGetProducts(1, pagination.limit, search, status, productFilters);

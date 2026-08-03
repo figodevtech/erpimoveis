@@ -59,6 +59,7 @@ export const matchesProductSearch = (
   product: Record<string, unknown>,
   tokens: ProductSearchToken[],
 ) => {
+  const productId = normalizeProductSearchText(product.id);
   const generalText = valuesFromFields(product, GENERAL_SEARCH_FIELDS)
     .map(normalizeProductSearchText)
     .join(" ");
@@ -68,6 +69,6 @@ export const matchesProductSearch = (
   return tokens.every((token) =>
     token.structured
       ? structuredValues.some((value) => value.includes(token.value))
-      : generalText.includes(token.value),
+      : productId === token.value || generalText.includes(token.value),
   );
 };
