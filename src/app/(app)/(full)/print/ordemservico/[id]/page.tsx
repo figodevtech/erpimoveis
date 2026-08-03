@@ -9,6 +9,7 @@ import { formatCep } from "@/app/(app)/(pages)/clientes/components/customerDialo
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { ObservacoesToggle } from "../../../components/ObservacoesToggle";
+import { PrintFilterToggles } from "../../../components/PrintFilterToggles";
 import { PrintShareMenu } from "../../../components/PrintShareMenu";
 import { fetchPrimeiroLogoEmpresa } from "@/lib/empresa-logo";
 import { fetchPrintColors } from "@/lib/print-config";
@@ -788,6 +789,17 @@ export default async function OSFullPage({ params }: PageProps) {
   .os-observacoes { display: none; }
   html[data-os-observacoes="1"] .os-observacoes { display: block; }
 
+  /* ✅ Ocultar valores: colunas monetárias da tabela + caixa de totais */
+  html[data-print-ocultar-valores] .col-unit,
+  html[data-print-ocultar-valores] .col-desconto,
+  html[data-print-ocultar-valores] .col-sub,
+  html[data-print-ocultar-valores] .totais-box{ display:none !important; }
+  html[data-print-ocultar-valores] .rodape{ grid-template-columns: 1fr !important; }
+
+  /* ✅ Ocultar dados do cliente: some o cartão inteiro e as demais colunas ocupam a linha */
+  html[data-print-ocultar-cliente] .bloco-cliente{ display:none !important; }
+  html[data-print-ocultar-cliente] .grid-info{ grid-template-columns: repeat(4, 1fr) !important; }
+
 
   .obs-titulo{ font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--brand-primary); margin-bottom: 6px; } .obs-texto{ font-size: 10px; line-height: 1.4; color: var(--muted); max-height: 60px; overflow: hidden; }
   .totais-box{
@@ -931,8 +943,9 @@ export default async function OSFullPage({ params }: PageProps) {
         </div>
       </div>
       <div className="toolbar no-print">
-        <div className="flex flex-row items-center gap-1">
+        <div className="flex flex-row flex-wrap items-center gap-1">
           <ObservacoesToggle />
+          <PrintFilterToggles />
         </div>
       </div>
 
@@ -992,7 +1005,7 @@ export default async function OSFullPage({ params }: PageProps) {
             </div>
 
             <div className="grid-info">
-              <div className="cartao cartao-destaque col-span-3">
+              <div className="cartao cartao-destaque col-span-3 bloco-cliente">
                 <div className="titulo-secao">
                   <User className="w-4 h-4" />
                   Cliente

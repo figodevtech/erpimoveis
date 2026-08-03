@@ -216,7 +216,7 @@ export default function ServicoDialog({
 
           <div className="mt-4 flex items-center justify-between rounded-md border px-3 py-2 bg-muted/40">
             <div className="space-y-0.5">
-              <span className="text-sm font-medium">Gera comissao</span>
+              <span className="text-sm font-medium">Gera comissão</span>
               <p className="text-xs text-muted-foreground">
                 Desmarque para que o realizador deste servico nao receba comissao nem gere despesa no
                 financeiro.

@@ -17,11 +17,9 @@ export function ObservacoesToggle() {
   }, [checked]);
 
   return (
-    <div className="toolbar no-print">
-      <div className={`flex flex-row items-center text-[10px] md:text-xs gap-1 hover:cursor-pointer ${!checked ? "bg-muted-foreground/50" : "bg-muted-foreground text-white"} rounded-2xl px-3 py-2`} onClick={()=>setChecked(!checked)}>
-        <Checkbox className="" checked={checked} />
-        <span className="">Observações</span>
-      </div>
+    <div className={`flex flex-row items-center text-[10px] md:text-xs gap-1 hover:cursor-pointer ${!checked ? "bg-muted-foreground/50" : "bg-muted-foreground text-white"} rounded-2xl px-3 py-2`} onClick={()=>setChecked(!checked)}>
+      <Checkbox className="" checked={checked} />
+      <span className="">Observações</span>
     </div>
   );
 }

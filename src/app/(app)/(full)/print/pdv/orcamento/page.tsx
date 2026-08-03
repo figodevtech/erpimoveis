@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PrintButton } from "../../../components/PrintButton";
+import { PrintFilterToggles } from "../../../components/PrintFilterToggles";
 import { FileText, Power, ShoppingCart, User } from "lucide-react";
 import {
   PDV_ORCAMENTO_STORAGE_PREFIX,
@@ -510,6 +511,17 @@ function PrintPdvOrcamentoContent() {
           margin-bottom:3px;
         }
         .aceite-item:last-child{ margin-bottom:0; }
+        html[data-print-ocultar-valores] .col-unit,
+        html[data-print-ocultar-valores] .col-sub,
+        html[data-print-ocultar-valores] .meta-valor,
+        html[data-print-ocultar-valores] .bloco-resumo,
+        html[data-print-ocultar-valores] .totais-box{ display:none !important; }
+        html[data-print-ocultar-valores] .rodape{ grid-template-columns:1fr !important; }
+        html[data-print-ocultar-valores] .meta-grid{ grid-template-columns:repeat(2, 1fr) !important; }
+        html[data-print-ocultar-valores] .grid-info{ grid-template-columns:1fr !important; }
+        html[data-print-ocultar-cliente] .bloco-cliente{ display:none !important; }
+        html[data-print-ocultar-cliente] .grid-info{ grid-template-columns:1fr !important; }
+        html[data-print-ocultar-cliente][data-print-ocultar-valores] .grid-info{ display:none !important; }
       `}</style>
 
       <div className="toolbar no-print">
@@ -527,6 +539,12 @@ function PrintPdvOrcamentoContent() {
             </Link>
           </Button>
           <PrintButton />
+        </div>
+      </div>
+
+      <div className="toolbar no-print">
+        <div className="flex flex-row flex-wrap items-center gap-1">
+          <PrintFilterToggles />
         </div>
       </div>
 
@@ -572,18 +590,18 @@ function PrintPdvOrcamentoContent() {
               <div className="label">Itens</div>
               <div className="valor">{draft.items.length}</div>
             </div>
-            <div className="meta-badge">
+            <div className="meta-badge meta-valor">
               <div className="label">Tipo desconto</div>
               <div className="valor">{draft.discountType ?? EMPTY}</div>
             </div>
-            <div className="meta-badge">
+            <div className="meta-badge meta-valor">
               <div className="label">Desconto</div>
               <div className="valor">{fmtMoney(draft.discountAmount)}</div>
             </div>
           </div>
 
           <div className="grid-info">
-            <div className="cartao cartao-destaque">
+            <div className="cartao cartao-destaque bloco-cliente">
               <div className="titulo-secao">
                 <User className="w-4 h-4" />
                 Cliente
@@ -613,7 +631,7 @@ function PrintPdvOrcamentoContent() {
               )}
             </div>
 
-            <div className="cartao cartao-destaque">
+            <div className="cartao cartao-destaque bloco-resumo">
               <div className="titulo-secao">
                 <ShoppingCart className="w-4 h-4" />
                 Resumo

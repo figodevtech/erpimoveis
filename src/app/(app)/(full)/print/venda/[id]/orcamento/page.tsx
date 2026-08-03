@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ObservacoesToggle } from "../../../../components/ObservacoesToggle";
+import { PrintFilterToggles } from "../../../../components/PrintFilterToggles";
 import { PrintShareMenu } from "../../../../components/PrintShareMenu";
 import { FileText, Power, ShoppingCart, Tag, User } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -386,6 +387,15 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
         .observacoes-box{ border:1px solid var(--border); background:var(--soft-bg); border-radius:var(--radius); padding:10px; }
         .venda-observacoes{ display:none; }
         html[data-os-observacoes="1"] .venda-observacoes{ display:block; }
+        html[data-print-ocultar-valores] .col-unit,
+        html[data-print-ocultar-valores] .col-sub,
+        html[data-print-ocultar-valores] .bloco-resumo,
+        html[data-print-ocultar-valores] .totais-box{ display:none !important; }
+        html[data-print-ocultar-valores] .rodape{ grid-template-columns:1fr !important; }
+        html[data-print-ocultar-valores] .grid-info{ grid-template-columns:1fr !important; }
+        html[data-print-ocultar-cliente] .bloco-cliente{ display:none !important; }
+        html[data-print-ocultar-cliente] .grid-info{ grid-template-columns:1fr !important; }
+        html[data-print-ocultar-cliente][data-print-ocultar-valores] .grid-info{ display:none !important; }
         .obs-titulo{ font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; color:var(--brand-primary); margin-bottom:6px; }
         .obs-texto{ font-size:10px; line-height:1.45; color:var(--muted); }
         .totais-box{ border:1px solid var(--brand-primary); background:linear-gradient(135deg, var(--primary-soft), #fff); border-radius:var(--radius); padding:12px; }
@@ -429,13 +439,12 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
         </div>
       </div>
 
-      {Boolean(venda.observacoes) && (
-        <div className="toolbar no-print">
-          <div className="flex flex-row items-center gap-1">
-            <ObservacoesToggle />
-          </div>
+      <div className="toolbar no-print">
+        <div className="flex flex-row flex-wrap items-center gap-1">
+          {Boolean(venda.observacoes) && <ObservacoesToggle />}
+          <PrintFilterToggles />
         </div>
-      )}
+      </div>
 
       <div className="folha" data-print-export-target>
         <div className="header-os">
@@ -506,7 +515,7 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
           </div>
 
           <div className="grid-info">
-            <div className="cartao cartao-destaque">
+            <div className="cartao cartao-destaque bloco-cliente">
               <div className="titulo-secao">
                 <User className="w-4 h-4" />
                 Cliente
@@ -536,7 +545,7 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
               )}
             </div>
 
-            <div className="cartao cartao-destaque">
+            <div className="cartao cartao-destaque bloco-resumo">
               <div className="titulo-secao">
                 <ShoppingCart className="w-4 h-4" />
                 Resumo
