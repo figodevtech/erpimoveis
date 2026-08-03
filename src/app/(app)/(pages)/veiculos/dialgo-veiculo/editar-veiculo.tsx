@@ -236,7 +236,6 @@ export default function EditContent({
   const [openCustomer, setOpenCustomer] = useState(false);
   const [openMarca, setOpenMarca] = useState(false);
   const [openModelo, setOpenModelo] = useState(false);
-  const [openVersao, setOpenVersao] = useState(false);
   const [currentTab, setCurrentTab] = useState("Geral");
   const [expandedOrdemId, setExpandedOrdemId] = useState<number | null>(null);
 
@@ -1115,108 +1114,6 @@ export default function EditContent({
                                           "ml-auto",
                                           selectedVeiculo?.modelo ===
                                             m.name
-                                            ? "opacity-100"
-                                            : "opacity-0",
-                                        )}
-                                      />
-                                    </CommandItem>
-                                  ))}
-                                </CommandGroup>
-                              </CommandList>
-                            </Command>
-                          </PopoverContent>
-                        </Popover>
-                      )}
-                    </div>
-
-                    {/* Versão */}
-                    <div className="col-span-2 space-y-2">
-                      <Label htmlFor="versao" className="text-sm">
-                        Versão
-                      </Label>
-                      {isOffline ? (
-                        <Input
-                          id="versao"
-                          value={selectedVeiculo?.versao || ""}
-                          onChange={(e) => {
-                            setSelectedVeiculo((prev) =>
-                              prev
-                                ? {
-                                    ...prev,
-                                    versao: e.target.value.toUpperCase(),
-                                    ano_modelo: undefined,
-                                    fipe: undefined,
-                                    combustivel: "",
-                                  }
-                                : prev,
-                            );
-                          }}
-                          disabled={disabledForm}
-                          placeholder="Ex.: 1.0 MT"
-                        />
-                      ) : (
-                        <Popover open={openVersao} onOpenChange={setOpenVersao}>
-                          <PopoverTrigger asChild>
-                            <Button
-                              id="versao"
-                              variant="outline"
-                              role="combobox"
-                              aria-expanded={openVersao}
-                              className="h-9 w-full justify-between truncate text-sm"
-                              disabled={
-                                disabledForm ||
-                                !selectedVeiculo?.modelo ||
-                                modelosRaw.length === 0
-                              }
-                            >
-                              {selectedVeiculo?.versao
-                                ? selectedVeiculo.versao
-                                : "Selecione..."}
-                              <ChevronsUpDown className="opacity-50 shrink-0" />
-                            </Button>
-                          </PopoverTrigger>
-
-                          <PopoverContent
-                            onWheel={(e) => e.stopPropagation()}
-                            onTouchMove={(e) => e.stopPropagation()}
-                            onOpenAutoFocus={(e) => e.preventDefault()}
-                            className="w-[var(--radix-popover-trigger-width)] p-0"
-                            onWheelCapture={(e) => e.stopPropagation()}
-                          >
-                            <Command>
-                              <CommandInput
-                                placeholder="Buscar versão..."
-                                className="h-9 text-base"
-                              />
-                              <CommandList className="max-h-64 overflow-y-auto overscroll-contain">
-                                <CommandEmpty>
-                                  Nenhuma versão encontrada.
-                                </CommandEmpty>
-                                <CommandGroup>
-                                  {versoesOptions.map((v, i) => (
-                                    <CommandItem
-                                      className="hover:cursor-pointer text-sm"
-                                      key={i}
-                                      value={v.name}
-                                      onSelect={() => {
-                                        setSelectedVeiculo((prev) =>
-                                          prev
-                                            ? {
-                                                ...prev,
-                                                versao: v.name.toUpperCase(),
-                                                fipe: undefined,
-                                              }
-                                            : prev,
-                                        );
-                                        setOpenVersao(false);
-                                      }}
-                                    >
-                                      {v.name.toUpperCase()}
-                                      <Check
-                                        className={cn(
-                                          "ml-auto",
-                                          selectedVeiculo?.versao ===
-                                            v.name.toUpperCase()
                                             ? "opacity-100"
                                             : "opacity-0",
                                         )}

@@ -128,7 +128,6 @@ export default function RegisterContent({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [open1, setOpen1] = useState(false);
   const [open2, setOpen2] = useState(false);
-  const [openVersao, setOpenVersao] = useState(false);
   const [openCustomer, setOpenCustomer] = useState(false);
   const [loadingPlaca, setLoadingPlaca] = useState(false);
   const [currentTab, setCurrentTab] = useState("Geral");
@@ -648,7 +647,7 @@ export default function RegisterContent({
                 <TabsTrigger
                   onClick={() => setCurrentTab("Geral")}
                   value="Geral"
-                  className="group h-9 rounded-xl px-4 text-xs font-medium transition-all hover:cursor-pointer data-[state=active]:bg-background data-[state=active]:shadow-sm sm:text-sm"
+                  className="group h-8 rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm dark:data-[state=active]:bg-primary dark:data-[state=active]:text-primary-foreground"
                 >
                   <span className="flex items-center gap-2">
                     <Car className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
@@ -658,7 +657,7 @@ export default function RegisterContent({
                 <TabsTrigger
                   onClick={() => setCurrentTab("Imagens")}
                   value="Imagens"
-                  className="group h-9 rounded-xl px-4 text-xs font-medium transition-all hover:cursor-pointer data-[state=active]:bg-background data-[state=active]:shadow-sm sm:text-sm"
+                  className="group h-8 rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm dark:data-[state=active]:bg-primary dark:data-[state=active]:text-primary-foreground"
                 >
                   <span className="flex items-center gap-2">
                     <ImageIcon className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
@@ -979,89 +978,6 @@ export default function RegisterContent({
                   </Command>
                 </PopoverContent>
               </Popover>
-            </div>
-
-            <div className="col-span-2 space-y-2">
-              <Label htmlFor="versao" className="text-sm">
-                Versão
-              </Label>
-              {isOffline ? (
-                <Input
-                  id="versao"
-                  value={novoVeiculo.versao || ""}
-                  onChange={(e) => {
-                    setNovoVeiculo({
-                      ...novoVeiculo,
-                      versao: e.target.value.toUpperCase(),
-                      ano_modelo: undefined,
-                      combustivel: "",
-                      fipe: undefined,
-                    });
-                  }}
-                  placeholder="Ex.: 1.0 MT"
-                />
-              ) : (
-                <Popover open={openVersao} onOpenChange={setOpenVersao}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      id="versao"
-                      variant="outline"
-                      role="combobox"
-                      aria-expanded={openVersao}
-                      className="h-9 w-full justify-between truncate text-sm"
-                      disabled={!novoVeiculo.modelo || modelosRaw.length === 0}
-                    >
-                      {novoVeiculo.versao ? novoVeiculo.versao : "Selecione..."}
-                      <ChevronsUpDown className="opacity-50 shrink-0" />
-                    </Button>
-                  </PopoverTrigger>
-
-                  <PopoverContent
-                    onWheel={(e) => e.stopPropagation()}
-                    onTouchMove={(e) => e.stopPropagation()}
-                    onOpenAutoFocus={(e) => e.preventDefault()}
-                    className="w-[var(--radix-popover-trigger-width)] p-0"
-                    onWheelCapture={(e) => e.stopPropagation()}
-                  >
-                    <Command>
-                      <CommandInput
-                        placeholder="Buscar versão..."
-                        className="h-9 text-base"
-                      />
-                      <CommandList className="max-h-64 overflow-y-auto overscroll-contain">
-                        <CommandEmpty>Nenhuma versão encontrada.</CommandEmpty>
-                        <CommandGroup>
-                          {versoesOptions.map((v, i) => (
-                            <CommandItem
-                              className="hover:cursor-pointer text-sm"
-                              key={i}
-                              value={v.name}
-                              onSelect={() => {
-                                setNovoVeiculo({
-                                  ...novoVeiculo,
-                                  versao: v.name.toUpperCase(),
-                                  fipe: undefined,
-                                });
-                                setOpenVersao(false);
-                              }}
-                            >
-                              {v.name.toUpperCase()}
-                              <Check
-                                className={cn(
-                                  "ml-auto",
-                                  novoVeiculo.versao === v.name.toUpperCase()
-                                    ? "opacity-100"
-                                    : "opacity-0",
-                                )}
-                              />
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-              )}
             </div>
 
             <div className="space-y-2">
