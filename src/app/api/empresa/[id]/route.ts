@@ -1,5 +1,6 @@
 // app/api/empresa/[id]/route.ts
 import { NextResponse } from 'next/server';
+import { parsePostgresIntegerId } from '@/lib/postgres-id';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 const CAMPOS_EMPRESA = [
@@ -52,9 +53,9 @@ type Contexto = { params: Promise<{ id: string }> };
 export async function GET(_req: Request, { params }: Contexto) {
   try {
     const { id } = await params;
-    const idNumber = Number(id);
+    const idNumber = parsePostgresIntegerId(id);
 
-    if (Number.isNaN(idNumber)) {
+    if (idNumber === null) {
       return NextResponse.json(
         { ok: false, mensagem: 'ID inválido' },
         { status: 400 }
@@ -96,9 +97,9 @@ export async function GET(_req: Request, { params }: Contexto) {
 export async function PUT(req: Request, { params }: Contexto) {
   try {
     const { id } = await params;
-    const idNumber = Number(id);
+    const idNumber = parsePostgresIntegerId(id);
 
-    if (Number.isNaN(idNumber)) {
+    if (idNumber === null) {
       return NextResponse.json(
         { ok: false, mensagem: 'ID inválido' },
         { status: 400 }
@@ -155,9 +156,9 @@ export async function PUT(req: Request, { params }: Contexto) {
 export async function DELETE(_req: Request, { params }: Contexto) {
   try {
     const { id } = await params;
-    const idNumber = Number(id);
+    const idNumber = parsePostgresIntegerId(id);
 
-    if (Number.isNaN(idNumber)) {
+    if (idNumber === null) {
       return NextResponse.json(
         { ok: false, mensagem: 'ID inválido' },
         { status: 400 }

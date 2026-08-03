@@ -3,6 +3,7 @@ import { XMLParser } from "fast-xml-parser";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { matchesFiscalNoteSearch } from "@/lib/fiscal-search";
+import { parsePostgresIntegerId } from "@/lib/postgres-id";
 import { carregarCertificadoA1 } from "@/lib/nfe/certificado";
 import { assinarEventoNFeXml } from "@/lib/nfe/assinaturaEvento";
 import { traduzStatusNfe } from "@/lib/nfe/statusNfe";
@@ -145,8 +146,18 @@ function getCufAutor(empresa: EmpresaRow) {
 }
 
 async function getEmpresa(empresaId?: number) {
+  const normalizedEmpresaId =
+    empresaId === undefined ? undefined : parsePostgresIntegerId(empresaId);
+
+  if (empresaId !== undefined && normalizedEmpresaId === null) {
+    throw Object.assign(
+      new Error("ID da empresa inválido: informe o ID interno, não o CNPJ."),
+      { statusCode: 400 },
+    );
+  }
+
   let query = supabaseAdmin.from("empresa").select("*");
-  if (empresaId) query = query.eq("id", empresaId);
+  if (normalizedEmpresaId) query = query.eq("id", normalizedEmpresaId);
   const { data, error } = await query.order("id", { ascending: true }).limit(1).maybeSingle<EmpresaRow>();
 
   if (error) throw error;

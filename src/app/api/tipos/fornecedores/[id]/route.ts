@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { parsePostgresIntegerId } from "@/lib/postgres-id";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 function isOpen() {
@@ -16,9 +17,7 @@ async function ensureAuth() {
 }
 
 function parseId(paramId: string): number | null {
-  const n = Number(paramId);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return n;
+  return parsePostgresIntegerId(paramId);
 }
 
 // PUT /api/tipos/fornecedores/[id]  -> editar cadastro completo
