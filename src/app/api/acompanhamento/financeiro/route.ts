@@ -86,6 +86,34 @@ function parseValorMonetario(texto: string): number | null {
 }
 
 /**
+ * Separa os métodos de `forma_pagamento`.
+ *
+ * `split(",")` direto não serve: o valor em pt-BR também tem vírgula, então
+ * "PIX: R$ 3.000,00" virava ["PIX: R$ 3.000", "00"] e o "00" órfão derrubava o
+ * parse para o fallback de texto legado — o badge mostrava a string inteira como
+ * se fosse o nome do método. Só quebra quando o trecho seguinte começa com um
+ * método conhecido.
+ */
+function separarMetodosPagamento(texto: string): string[] {
+  const entradas: string[] = [];
+  let atual = "";
+
+  for (const trecho of texto.split(",")) {
+    const candidato = trecho.trim().split(":")[0].trim().toUpperCase();
+
+    if (atual && PAYMENT_METHOD_VALUES.has(candidato)) {
+      entradas.push(atual.trim());
+      atual = trecho;
+    } else {
+      atual = atual ? `${atual},${trecho}` : trecho;
+    }
+  }
+
+  if (atual.trim()) entradas.push(atual.trim());
+  return entradas;
+}
+
+/**
  * `forma_pagamento` guarda texto livre: pode ser "PIX", "PIX, BOLETO" ou, desde o
  * seletor multi-método, "BOLETO: R$ 9.000,00" / "PIX: R$ 3.000,00, BOLETO: R$ 6.000,00".
  * Sem isso, a string inteira (com o valor embutido) acabava virando o "método" do badge.
@@ -98,7 +126,7 @@ function parseFormaPagamentoTexto(
   const texto = String(raw ?? "").trim();
   if (!texto) return null;
 
-  const partes = texto.split(",").map((parte) => parte.trim()).filter(Boolean);
+  const partes = separarMetodosPagamento(texto);
   if (!partes.length) return null;
 
   const entradas: MetodoPagamentoResumo[] = [];
