@@ -12,6 +12,7 @@ import { toast } from "@/lib/toast";
 
 import { uploadChecklistImages } from "../../lib/upload-checklist-images";
 import { listarChecklistModelos, type ChecklistTemplateModel } from "../../lib/api";
+import { ChecklistImagePreview } from "./checklist-image-preview";
 
 // Dialog "original": usado para salvar checklist pela primeira vez (AGUARDANDO_CHECKLIST).
 // Nao carrega checklist existente; depois de salvar, a OS avanca para ORCAMENTO no backend.
@@ -432,10 +433,9 @@ export function ChecklistDialog({ open, onOpenChange, osId }: Props) {
                           >
                             <div className="aspect-square w-full overflow-hidden bg-muted">
                               {previewUrls[idx] ? (
-                                <img
+                                <ChecklistImagePreview
                                   src={previewUrls[idx]}
                                   alt={f.name}
-                                  className="h-full w-full object-cover"
                                 />
                               ) : null}
                             </div>

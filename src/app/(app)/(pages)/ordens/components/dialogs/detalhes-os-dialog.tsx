@@ -93,6 +93,7 @@ import ValueInput from "../../../(financeiro)/fluxodecaixa/components/transactio
 import { DialogProduto } from "../../../estoque/components/dialog-produto/dialog-produto";
 import { Tipo_transacao, type Transaction } from "../../../(financeiro)/fluxodecaixa/types";
 import { PAYMENT_METHOD_OPTIONS, type PlannedPayment } from "@/lib/payment-methods";
+import { ChecklistImagePreview } from "./checklist-image-preview";
 
 const PUBLIC_APPROVAL_BASE = "/aprovacao";
 function approvalUrlFromToken(token: string) {
@@ -2033,24 +2034,22 @@ export function OSDetalhesDialog({
                                       key={img.id}
                                       className="group relative overflow-hidden rounded-md border bg-muted/20 transition-colors hover:bg-muted"
                                     >
+                                      <span className="block aspect-square w-full overflow-hidden bg-muted">
+                                        <ChecklistImagePreview
+                                          src={img.url}
+                                          alt={img.descricao || name}
+                                          imageClassName="transition-transform group-hover:scale-[1.02]"
+                                        />
+                                      </span>
                                       <a
                                         href={img.url}
                                         target="_blank"
                                         rel="noreferrer"
-                                        className="block focus:outline-none focus:ring-2 focus:ring-primary"
-                                        title={img.descricao || name}
+                                        className="flex min-w-0 items-center gap-1 px-2 py-1.5 text-[11px] text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                                        title="Abrir imagem original em nova aba"
                                       >
-                                      <span className="block aspect-square w-full overflow-hidden bg-muted">
-                                        <span
-                                          aria-label={img.descricao || name}
-                                          className="block h-full w-full bg-cover bg-center transition-transform group-hover:scale-[1.02]"
-                                          style={{ backgroundImage: `url(${img.url})` }}
-                                        />
-                                      </span>
-                                      <span className="flex min-w-0 items-center gap-1 px-2 py-1.5 text-[11px] text-muted-foreground">
-                                        <span className="truncate">{img.descricao || name}</span>
-                                        <ExternalLink className="h-3 w-3 shrink-0 opacity-70" />
-                                      </span>
+                                          <span className="truncate">{img.descricao || name}</span>
+                                          <ExternalLink className="h-3 w-3 shrink-0 opacity-70" />
                                       </a>
                                       <button
                                         type="button"

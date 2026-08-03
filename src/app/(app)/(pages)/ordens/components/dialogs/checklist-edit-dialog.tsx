@@ -12,6 +12,7 @@ import { toast } from "@/lib/toast";
 
 import { uploadChecklistImages } from "../../lib/upload-checklist-images";
 import { listarChecklistModelos, type ChecklistTemplateModel } from "../../lib/api";
+import { ChecklistImagePreview } from "./checklist-image-preview";
 
 // Dialog de edicao: carrega checklist/modelo existente e permite editar ate EM_ANDAMENTO.
 // Nao tenta avancar status automaticamente (isso fica para o fluxo "primeira vez").
@@ -628,10 +629,9 @@ export function ChecklistEditDialog({ open, onOpenChange, osId }: Props) {
                         {existingImgs.map((im) => (
                           <div key={im.id} className="relative overflow-hidden rounded-md border bg-muted/20">
                             <div className="aspect-square w-full overflow-hidden bg-muted">
-                              <img
+                              <ChecklistImagePreview
                                 src={im.url}
                                 alt={im.descricao ?? "Imagem"}
-                                className="h-full w-full object-cover"
                               />
                             </div>
                             <div className="truncate px-2 py-1.5 text-[11px] text-muted-foreground">
@@ -658,10 +658,9 @@ export function ChecklistEditDialog({ open, onOpenChange, osId }: Props) {
                             </Badge>
                             <div className="aspect-square w-full overflow-hidden bg-muted">
                               {previewUrls[idx] ? (
-                                <img
+                                <ChecklistImagePreview
                                   src={previewUrls[idx]}
                                   alt={f.name}
-                                  className="h-full w-full object-cover"
                                 />
                               ) : null}
                             </div>
