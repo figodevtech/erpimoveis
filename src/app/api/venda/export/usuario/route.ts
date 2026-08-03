@@ -41,17 +41,13 @@ function firstOrSelf<T>(v: T | T[] | null | undefined): T | null {
 const VENDA_SELECT = `
   id,
   status,
-  canal,
   valortotal,
   sub_total,
   desconto_tipo,
   desconto_valor,
   datavenda,
-  createdat,
-  updatedat,
-  created_by,
-  cliente:clienteid ( id, nomerazaosocial, cpfcnpj, telefone, email ),
-  vendedor:created_by ( id, nome, email )
+  cliente:clienteid ( nomerazaosocial, cpfcnpj ),
+  vendedor:created_by ( nome )
 `;
 
 export async function GET(req: Request) {
@@ -82,15 +78,9 @@ export async function GET(req: Request) {
       "Venda ID",
       "Data Venda",
       "Status",
-      "Canal",
-      "Vendedor ID",
       "Vendedor Nome",
-      "Vendedor Email",
-      "Cliente ID",
       "Cliente Nome/Razão",
       "Cliente CPF/CNPJ",
-      "Cliente Telefone",
-      "Cliente Email",
       "Subtotal (R$)",
       "Desconto Tipo",
       "Desconto Valor (R$)",
@@ -105,15 +95,9 @@ export async function GET(req: Request) {
         v.id ?? "",
         formatFortaleza(v.datavenda ?? null),
         v.status ?? "",
-        v.canal ?? "",
-        vendedor?.id ?? v.created_by ?? "",
         vendedor?.nome ?? "",
-        vendedor?.email ?? "",
-        cliente?.id ?? "",
         cliente?.nomerazaosocial ?? "",
         cliente?.cpfcnpj ?? "",
-        cliente?.telefone ?? "",
-        cliente?.email ?? "",
         toNum(v.sub_total) ?? null,
         v.desconto_tipo ?? "",
         toNum(v.desconto_valor) ?? null,
@@ -124,22 +108,16 @@ export async function GET(req: Request) {
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet([headers as unknown as string[], ...rows]);
     ws["!cols"] = [
-      { wch: 10 },
-      { wch: 22 },
-      { wch: 16 },
-      { wch: 12 },
-      { wch: 38 },
-      { wch: 28 },
-      { wch: 30 },
-      { wch: 10 },
-      { wch: 34 },
-      { wch: 18 },
-      { wch: 18 },
-      { wch: 28 },
-      { wch: 16 },
-      { wch: 16 },
-      { wch: 16 },
-      { wch: 16 },
+      { wch: 10 }, // Venda ID
+      { wch: 22 }, // Data Venda
+      { wch: 16 }, // Status
+      { wch: 28 }, // Vendedor Nome
+      { wch: 34 }, // Cliente Nome/Razão
+      { wch: 18 }, // Cliente CPF/CNPJ
+      { wch: 16 }, // Subtotal (R$)
+      { wch: 16 }, // Desconto Tipo
+      { wch: 16 }, // Desconto Valor (R$)
+      { wch: 16 }, // Total (R$)
     ];
     XLSX.utils.book_append_sheet(wb, ws, "Vendas por usuário");
 

@@ -92,6 +92,8 @@ export type TransactionRelationFilters = {
 export interface Transaction {
   id: number;
   descricao: string;
+  /** Texto livre sobre o pagamento; permanece editavel mesmo com a descricao travada por OS/venda. */
+  descricao_pagamento?: string | null;
   valor: number;
   valorLiquido: number;
   data: Date;
@@ -127,6 +129,7 @@ export interface Transaction {
 export interface NewTransaction {
   id?: number;
   descricao?: string;
+  descricao_pagamento?: string | null;
   valor?: number | 0;
   valorLiquido?: number | 0;
   data?: Date;

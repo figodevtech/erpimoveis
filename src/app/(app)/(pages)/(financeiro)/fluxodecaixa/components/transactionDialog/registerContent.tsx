@@ -1030,6 +1030,22 @@ export default function RegisterContent({
                     className="w-full"
                   />
                 </div>
+                {/* Sempre editavel: a descricao acima fica travada quando o lancamento
+                    vem de OS/venda, entao este e o unico campo livre nesses casos. */}
+                <div className="space-y-2 w-full col-span-full">
+                  <Label htmlFor="descricao-pagamento">
+                    Descrição do pagamento
+                  </Label>
+                  <Input
+                    id="descricao-pagamento"
+                    value={newTransaction.descricao_pagamento || ""}
+                    onChange={(e) =>
+                      handleChange("descricao_pagamento", e.target.value)
+                    }
+                    placeholder="Ex.: entrada de 50%, sinal, restante na entrega"
+                    className="w-full"
+                  />
+                </div>
                 {metodoPermiteParcelas && !newTransaction.pendente && (
                     <div className="w-full sm:col-span-3 rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">
                       Ative `Lançamento futuro` para habilitar o parcelamento do

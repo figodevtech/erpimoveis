@@ -359,6 +359,11 @@ export default function FinancialTable({
                     </div>
                     <div className="flex flex-col items-start">
                       {t.descricao}
+                      {t.descricao_pagamento && (
+                        <span className="text-xs text-muted-foreground italic">
+                          {t.descricao_pagamento}
+                        </span>
+                      )}
                       {t.nomepagador && (
                         <span className="text-xs text-muted-foreground">
                           {t.nomepagador}
