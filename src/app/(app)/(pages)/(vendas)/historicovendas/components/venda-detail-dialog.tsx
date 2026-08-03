@@ -290,6 +290,33 @@ const formatCentsToPaymentInput = (value: number) =>
 const PAYMENT_METHOD_VALUES = new Set<string>(PAYMENT_METHOD_OPTIONS.map((option) => option.value))
 
 /**
+ * Separa os métodos de forma_pagamento.
+ *
+ * `split(",")` direto não serve: o valor em pt-BR também tem vírgula, então
+ * "PIX: R$ 3.000,00" virava ["PIX: R$ 3.000", "00"] e o "00" órfão derrubava o
+ * parse inteiro. Só quebra quando o trecho seguinte começa com um método
+ * conhecido — vírgula dentro de valor fica onde está.
+ */
+function splitFormaPagamento(text: string): string[] {
+  const entries: string[] = []
+  let current = ""
+
+  for (const chunk of text.split(",")) {
+    const candidate = chunk.trim().split(":")[0].trim().toUpperCase()
+
+    if (current && PAYMENT_METHOD_VALUES.has(candidate)) {
+      entries.push(current.trim())
+      current = chunk
+    } else {
+      current = current ? `${current},${chunk}` : chunk
+    }
+  }
+
+  if (current.trim()) entries.push(current.trim())
+  return entries
+}
+
+/**
  * A string em forma_pagamento pode vir como "PIX", "PIX, CREDITO" (sem valores) ou
  * "PIX: R$ 100,00, CREDITO: R$ 50,00" (formato gerado pelo PDV). Só reidrata os
  * métodos/valores quando reconhece TODOS os tokens; caso contrário, começa vazio
@@ -302,7 +329,7 @@ function parseFormaPagamento(raw: string | null | undefined): {
   const text = String(raw ?? "").trim()
   if (!text) return { methods: [], amounts: {} }
 
-  const parts = text.split(",").map((part) => part.trim()).filter(Boolean)
+  const parts = splitFormaPagamento(text)
   if (!parts.length) return { methods: [], amounts: {} }
 
   const methods: PaymentMethodOption[] = []

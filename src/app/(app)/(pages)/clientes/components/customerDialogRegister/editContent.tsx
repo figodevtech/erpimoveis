@@ -136,7 +136,13 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
   const [selectedCustomer, setselectedCustomer] = useState<Customer | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingCep, setIsLoadingCep] = useState(false);
-  const { cidades, loading } = useGetCidades(selectedCustomer?.estado ?? undefined);
+  const {
+    cidades,
+    loading,
+    error: erroCidades,
+    origem: origemCidades,
+    recarregar: recarregarCidades,
+  } = useGetCidades(selectedCustomer?.estado ?? undefined);
   const [open, setOpen] = useState(false);
   const [open2, setOpen2] = useState(false);
   const [openVehicle, setOpenVehicle] = useState(false);
@@ -806,12 +812,17 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                           className="w-full justify-between"
                         >
                           {selectedCustomer.cidade
-                            ? cidades.find((cidade) => cidade.nome === selectedCustomer.cidade)?.nome
+                            ? // Sem o fallback, a cidade ja salva some do botao
+                              // enquanto a lista do IBGE nao carrega (ou falha).
+                              cidades.find((cidade) => cidade.nome === selectedCustomer.cidade)?.nome ??
+                              selectedCustomer.cidade
                             : loading
                               ? "Carregando..."
-                              : selectedCustomer.estado
-                                ? "Selecione..."
-                                : "Selecione o estado"}
+                              : erroCidades
+                                ? "Cidades indisponíveis"
+                                : selectedCustomer.estado
+                                  ? "Selecione..."
+                                  : "Selecione o estado"}
                           <ChevronsUpDown className="opacity-50" />
                         </Button>
                       </PopoverTrigger>
@@ -826,7 +837,37 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                         <Command>
                           <CommandInput placeholder="Buscar cidade..." className="h-9 text-base" />
                           <CommandList className="max-h-45 overflow-y-auto overscroll-contain">
-                            <CommandEmpty>Nenhuma cidade encontrada.</CommandEmpty>
+                            {erroCidades ? (
+                              // O codigomunicipio vem junto da lista do IBGE e e
+                              // obrigatorio na nota fiscal, entao nao oferecemos
+                              // digitacao manual aqui: so tentar de novo.
+                              <div className="space-y-2 p-3 text-center">
+                                <p className="text-xs text-muted-foreground">
+                                  {erroCidades}
+                                </p>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => recarregarCidades()}
+                                >
+                                  Tentar novamente
+                                </Button>
+                              </div>
+                            ) : loading ? (
+                              <div className="p-3 text-center text-xs text-muted-foreground">
+                                Buscando cidades...
+                              </div>
+                            ) : (
+                              <>
+                                {origemCidades === "local" && (
+                                  <p className="border-b px-3 py-2 text-[11px] text-muted-foreground">
+                                    IBGE indisponível — usando a lista interna.
+                                  </p>
+                                )}
+                                <CommandEmpty>Nenhuma cidade encontrada.</CommandEmpty>
+                              </>
+                            )}
 
                             {/* Aqui NÃO precisa de overflow/max-h */}
                             <CommandGroup>
