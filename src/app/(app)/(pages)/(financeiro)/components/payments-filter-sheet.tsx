@@ -36,6 +36,7 @@ type PaymentsFilterSheetProps = {
   onFiltersChange: (value: PaymentListFilters) => void;
   onAplicar: () => void;
   onLimpar: () => void;
+  showTextFilters?: boolean;
 };
 
 export function PaymentsFilterSheet({
@@ -45,6 +46,7 @@ export function PaymentsFilterSheet({
   onFiltersChange,
   onAplicar,
   onLimpar,
+  showTextFilters = true,
 }: PaymentsFilterSheetProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -60,7 +62,7 @@ export function PaymentsFilterSheet({
         </SheetHeader>
 
         <div className="grid flex-1 auto-rows-min gap-6 px-4">
-          <div className="space-y-2">
+          {showTextFilters ? <div className="space-y-2">
             <Label htmlFor="filtro-cliente">Cliente</Label>
             <Input
               id="filtro-cliente"
@@ -73,9 +75,9 @@ export function PaymentsFilterSheet({
               }
               placeholder="Nome do cliente"
             />
-          </div>
+          </div> : null}
 
-          <div className="space-y-2">
+          {showTextFilters ? <div className="space-y-2">
             <Label htmlFor="filtro-nota">Nº da nota</Label>
             <Input
               id="filtro-nota"
@@ -88,7 +90,7 @@ export function PaymentsFilterSheet({
               }
               placeholder="Número da nota"
             />
-          </div>
+          </div> : null}
 
           <div className="space-y-3">
             <p className="text-sm font-medium">Período</p>

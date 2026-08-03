@@ -20,7 +20,9 @@ import {
   FileText,
   Pencil,
   UserRound,
+  Search,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog,
@@ -58,6 +60,7 @@ interface VendasDataTableProps {
   isLoading: boolean;
   pagination: Pagination;
   search: string;
+  setSearch: (value: string) => void;
   filters: PaymentListFilters;
   setFilters: (value: PaymentListFilters) => void;
   handleGetVendas: (
@@ -221,6 +224,7 @@ export default function VendasDataTable({
   vendas,
   pagination,
   search,
+  setSearch,
   filters,
   setFilters,
   handleGetVendas,
@@ -244,11 +248,7 @@ export default function VendasDataTable({
   const canEdit = permissionSetHas((session?.user as any)?.permissoes, PERMS.VENDAS_EDITAR);
   const canDelete = permissionSetHas((session?.user as any)?.permissoes, PERMS.VENDAS_EXCLUIR);
   const hasActiveFilters = Boolean(
-    filters.cliente.trim() ||
-      filters.notaNumero.trim() ||
-      filters.dataInicio ||
-      filters.dataFim ||
-      filters.apenasMinhas,
+    filters.dataInicio || filters.dataFim || filters.apenasMinhas,
   );
 
   const toggleApenasMinhas = () => {
@@ -370,7 +370,18 @@ export default function VendasDataTable({
             </CardDescription>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="relative w-full sm:w-64">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="ID, valor, cliente, CPF/CNPJ ou nota..."
+                aria-label="Buscar no histórico de vendas"
+                className="pl-9"
+              />
+            </div>
             {canEdit && (
               <Button
                 variant="outline"
@@ -413,6 +424,7 @@ export default function VendasDataTable({
               </Button>
             )}
             <PaymentsFilterSheet
+              showTextFilters={false}
               open={filtersOpen}
               onOpenChange={setFiltersOpen}
               filters={filters}

@@ -37,7 +37,7 @@ export default function HistoricoVendas() {
     limit: 20,
     totalPages: 0,
   });
-  const [search] = useState("");
+  const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<PaymentListFilters>({
     cliente: "",
     notaNumero: "",
@@ -99,9 +99,13 @@ export default function HistoricoVendas() {
   }
 
   useEffect(() => {
-    handleGetVendas(1, pagination.limit, search, status);
+    const timeout = window.setTimeout(() => {
+      handleGetVendas(1, pagination.limit, search, status);
+    }, 350);
+
+    return () => window.clearTimeout(timeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [search]);
   useEffect(() => {
     fetchMetrics();
   }, [, month]);
@@ -123,6 +127,7 @@ export default function HistoricoVendas() {
         fetchStatusCounts={fetchMetrics}
         pagination={pagination}
         search={search}
+        setSearch={setSearch}
         selectedVendaId={selectedVendaId}
         setSelectedVendaId={setSelectedVendaId}
         status={status}

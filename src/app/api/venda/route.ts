@@ -285,7 +285,59 @@ export async function GET(req: Request) {
     let clienteIdNum: number | null = null;
 
     if (q) {
-      query = query.or(`id.ilike.%${q}%,valortotal.ilike.%${q}%`);
+      const orFilters: string[] = [];
+      const safeText = q.replace(/[,%()]/g, " ").trim();
+
+      if (safeText) {
+        const { data: clientesBusca, error: clientesBuscaError } = await supabaseAdmin
+          .from("cliente")
+          .select("id")
+          .or(
+            `nomerazaosocial.ilike.%${safeText}%,cpfcnpj.ilike.%${safeText}%,telefone.ilike.%${safeText}%`
+          )
+          .limit(200);
+
+        if (clientesBuscaError) throw clientesBuscaError;
+        const clienteIdsBusca = (clientesBusca ?? [])
+          .map((item) => Number(item.id))
+          .filter(Number.isFinite);
+        if (clienteIdsBusca.length > 0) {
+          orFilters.push(`clienteid.in.(${clienteIdsBusca.join(",")})`);
+        }
+      }
+
+      const digits = q.replace(/\D/g, "");
+      if (digits) {
+        const { data: notasBusca, error: notasBuscaError } = await supabaseAdmin
+          .from("nfe")
+          .select("vendaid")
+          .eq("numero", Number(digits))
+          .not("vendaid", "is", null)
+          .limit(200);
+
+        if (notasBuscaError) throw notasBuscaError;
+        const vendaIdsNota = (notasBusca ?? [])
+          .map((item) => Number(item.vendaid))
+          .filter(Number.isFinite);
+        if (vendaIdsNota.length > 0) {
+          orFilters.push(`id.in.(${vendaIdsNota.join(",")})`);
+        }
+      }
+
+      const normalizedMoney = q
+        .replace(/[^\d,.-]/g, "")
+        .replace(/\.(?=\d{3}(?:\D|$))/g, "")
+        .replace(",", ".");
+      const numericValue = Number(normalizedMoney);
+      if (Number.isFinite(numericValue)) {
+        orFilters.push(`valortotal.eq.${numericValue}`);
+      }
+      if (/^\d+$/.test(q)) {
+        orFilters.push(`id.eq.${Number(q)}`);
+      }
+
+      if (orFilters.length === 0) return emptyResponse();
+      query = query.or(orFilters.join(","));
     }
 
     if (dateFrom) {
