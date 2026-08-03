@@ -99,7 +99,13 @@ export default function RegisterContent({
   isDesktop = true,
 }: RegisterContentProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { cidades, loading } = useGetCidades(newCustomer?.estado);
+  const {
+    cidades,
+    loading,
+    error: erroCidades,
+    origem: origemCidades,
+    recarregar: recarregarCidades,
+  } = useGetCidades(newCustomer?.estado);
   const [open, setOpen] = useState(false);
   const [isLoadingCep, setIsLoadingCep] = useState(false);
   const [isLoadingCNPJ, setIsLoadingCNPJ] = useState(false);
@@ -755,14 +761,18 @@ export default function RegisterContent({
                       className="w-full justify-between"
                     >
                       {newCustomer.cidade
-                        ? cidades.find(
-                          (cidade) => cidade.nome === newCustomer.cidade
-                        )?.nome
+                        ? // Sem o fallback, a cidade ja escolhida some do botao
+                          // enquanto a lista do IBGE nao carrega (ou falha).
+                          cidades.find(
+                            (cidade) => cidade.nome === newCustomer.cidade
+                          )?.nome ?? newCustomer.cidade
                         : loading
                           ? "Carregando..."
-                          : newCustomer.estado
-                            ? "Selecione..."
-                            : "Selecione o estado"}
+                          : erroCidades
+                            ? "Cidades indisponíveis"
+                            : newCustomer.estado
+                              ? "Selecione..."
+                              : "Selecione o estado"}
                       <ChevronsUpDown className="opacity-50" />
                     </Button>
                   </PopoverTrigger>
@@ -780,7 +790,37 @@ export default function RegisterContent({
                         className="h-9 text-base"
                       />
                       <CommandList className="max-h-45 overflow-y-auto overscroll-contain">
-                        <CommandEmpty>Nenhuma cidade encontrada.</CommandEmpty>
+                        {erroCidades ? (
+                          // O codigomunicipio vem junto da lista do IBGE e e
+                          // obrigatorio na nota fiscal, entao nao oferecemos
+                          // digitacao manual aqui: so tentar de novo.
+                          <div className="space-y-2 p-3 text-center">
+                            <p className="text-xs text-muted-foreground">
+                              {erroCidades}
+                            </p>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => recarregarCidades()}
+                            >
+                              Tentar novamente
+                            </Button>
+                          </div>
+                        ) : loading ? (
+                          <div className="p-3 text-center text-xs text-muted-foreground">
+                            Buscando cidades...
+                          </div>
+                        ) : (
+                          <>
+                            {origemCidades === "local" && (
+                              <p className="border-b px-3 py-2 text-[11px] text-muted-foreground">
+                                IBGE indisponível — usando a lista interna.
+                              </p>
+                            )}
+                            <CommandEmpty>Nenhuma cidade encontrada.</CommandEmpty>
+                          </>
+                        )}
 
                         {/* Aqui NÃO precisa de overflow/max-h */}
                         <CommandGroup>

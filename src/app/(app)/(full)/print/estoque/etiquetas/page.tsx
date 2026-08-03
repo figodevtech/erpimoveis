@@ -208,8 +208,10 @@ function EtiquetasPrintContent() {
       </div>
 
       <div className="sheet">
-        {labels.map((label) => (
-          <div className="label" key={label.code}>
+        {/* A key inclui o indice porque "apenas prefixo" gera codigos repetidos
+            de proposito: so o code colidiria entre as etiquetas do mesmo lote. */}
+        {labels.map((label, index) => (
+          <div className="label" key={`${label.code}-${index}`}>
             <div className="qr">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={label.qrDataUrl} alt={`QR ${label.code}`} />
