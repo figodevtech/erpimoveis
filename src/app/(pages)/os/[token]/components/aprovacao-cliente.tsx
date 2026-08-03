@@ -9,30 +9,27 @@ import { toast } from "@/lib/toast";
 import { CabecalhoOS } from "./cabecalho-os";
 import { TabelaProdutos } from "./tabela-produtos";
 import { TabelaServicos } from "./tabela-servicos";
+import { ResumoTotais } from "./resumo-totais";
 import { AcoesAprovacao } from "./acoes-aprovacao";
 import { CartaoFeedback } from "./cartao-feedback";
 import { SolicitarDocumento } from "./solicitar-documento";
+import type { LinhaOrcamento, TotaisOrcamento } from "./tipos";
 
 /* ----------------------------- Tipagens locais ---------------------------- */
-type LinhaProduto = {
-  descricao: string;
-  quantidade: number;
-  precounitario: number;
-  subtotal: number;
-};
-type LinhaServico = {
-  descricao: string;
-  quantidade: number;
-  precounitario: number;
-  subtotal: number;
+type Resumo = {
+  produtos: LinhaOrcamento[];
+  servicos: LinhaOrcamento[];
+  totais: TotaisOrcamento;
 };
 
-type Resumo = {
-  produtos: LinhaProduto[];
-  servicos: LinhaServico[];
-  totalProdutos: number;
-  totalServicos: number;
-  totalGeral: number;
+const TOTAIS_ZERADOS: TotaisOrcamento = {
+  totalProdutos: 0,
+  totalServicos: 0,
+  subtotal: 0,
+  descontoGeralTipo: null,
+  descontoGeralInformado: 0,
+  descontoGeral: 0,
+  totalGeral: 0,
 };
 
 type DadosBasicos = {
@@ -120,9 +117,7 @@ export default function AprovacaoCliente({ token }: { token: string }) {
       const resumoOk: Resumo = {
         produtos: Array.isArray(j.produtos) ? j.produtos : j.resumo?.produtos || [],
         servicos: Array.isArray(j.servicos) ? j.servicos : j.resumo?.servicos || [],
-        totalProdutos: j.totais?.totalProdutos ?? j.resumo?.totalProdutos ?? 0,
-        totalServicos: j.totais?.totalServicos ?? j.resumo?.totalServicos ?? 0,
-        totalGeral: j.totais?.totalGeral ?? j.resumo?.totalGeral ?? 0,
+        totais: { ...TOTAIS_ZERADOS, ...(j.totais ?? j.resumo ?? {}) },
       };
 
       setDados((old) =>
@@ -239,18 +234,19 @@ export default function AprovacaoCliente({ token }: { token: string }) {
             <CabecalhoOS
               osId={dados.osId}
               clienteNome={dados.cliente?.nome ?? ""}
-              totalGeral={resumo?.totalGeral || 0}
+              totalGeral={resumo?.totais.totalGeral || 0}
             />
 
             <div className="space-y-5">
               <TabelaProdutos itens={resumo?.produtos ?? []} />
               <Separator />
               <TabelaServicos itens={resumo?.servicos ?? []} />
+              {resumo ? <ResumoTotais totais={resumo.totais} /> : null}
             </div>
 
             <AcoesAprovacao
               token={token}
-              totalGeral={resumo?.totalGeral || 0}
+              totalGeral={resumo?.totais.totalGeral || 0}
               docConfirmado={ultimoDoc}
               onAprovado={() => setResultado("aprovado")}
               onReprovado={() => setResultado("reprovado")}

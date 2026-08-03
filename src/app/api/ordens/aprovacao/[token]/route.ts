@@ -1,6 +1,12 @@
 // src/app/api/ordens/aprovacao/[token]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import {
+  arredondarMoeda,
+  calcularDescontoAplicado,
+  sanitizeTipoDesconto,
+  type TipoDesconto,
+} from "@/lib/ordens/desconto";
 
 type DBStatusOS =
   | "AGUARDANDO_CHECKLIST"
@@ -16,18 +22,46 @@ type DBStatusOS =
 
 type DBAprovacao = "PENDENTE" | "APROVADA" | "REPROVADA";
 
-type LinhaProduto = {
+type LinhaOrcamento = {
   descricao: string;
   quantidade: number;
   precounitario: number;
+  /** quantidade x preço unitário, antes do desconto do item */
+  valorBruto: number;
+  descontoTipo: TipoDesconto;
+  /** valor informado no cadastro: reais quando FIXO, percentual quando PORCENTAGEM */
+  desconto: number;
+  /** quanto o desconto do item representa em reais */
+  descontoAplicado: number;
+  /** valorBruto - descontoAplicado */
   subtotal: number;
 };
 
-type LinhaServico = {
-  descricao: string;
-  quantidade: number;
-  precounitario: number;
+type LinhaProduto = LinhaOrcamento;
+
+type LinhaServico = LinhaOrcamento;
+
+type Totais = {
+  totalProdutos: number;
+  totalServicos: number;
+  /** soma dos itens já líquidos do desconto de cada um */
   subtotal: number;
+  descontoGeralTipo: TipoDesconto;
+  descontoGeralInformado: number;
+  /** desconto geral da OS convertido em reais */
+  descontoGeral: number;
+  /** subtotal - descontoGeral: é o valor que o cliente está aprovando */
+  totalGeral: number;
+};
+
+const TOTAIS_ZERADOS: Totais = {
+  totalProdutos: 0,
+  totalServicos: 0,
+  subtotal: 0,
+  descontoGeralTipo: null,
+  descontoGeralInformado: 0,
+  descontoGeral: 0,
+  totalGeral: 0,
 };
 
 type ClienteResumo = {
@@ -42,11 +76,7 @@ type Bundle = {
   cliente: ClienteResumo;
   produtos: LinhaProduto[];
   servicos: LinhaServico[];
-  totais: {
-    totalProdutos: number;
-    totalServicos: number;
-    totalGeral: number;
-  };
+  totais: Totais;
   statusOS: DBStatusOS;
   statusAprovacao: DBAprovacao;
 };
@@ -79,7 +109,7 @@ async function carregarPorToken(token: string): Promise<Bundle | null> {
 
   const os = await supabaseAdmin
     .from("ordemservico")
-    .select("id, status, statusaprovacao, clienteid")
+    .select("id, status, statusaprovacao, clienteid, desconto, desconto_tipo")
     .eq("id", osId)
     .maybeSingle();
 
@@ -98,7 +128,7 @@ async function carregarPorToken(token: string): Promise<Bundle | null> {
   const prod = await supabaseAdmin
     .from("osproduto")
     .select(
-      "produtoid, quantidade, precounitario, subtotal, produto:produtoid ( titulo, descricao )"
+      "produtoid, quantidade, precounitario, subtotal, desconto, desconto_tipo, produto:produtoid ( titulo, descricao )"
     )
     .eq("ordemservicoid", osId);
 
@@ -107,29 +137,52 @@ async function carregarPorToken(token: string): Promise<Bundle | null> {
   const serv = await supabaseAdmin
     .from("osservico")
     .select(
-      "servicoid, quantidade, precounitario, subtotal, servico:servicoid ( descricao )"
+      "servicoid, quantidade, precounitario, subtotal, desconto, desconto_tipo, servico:servicoid ( descricao )"
     )
     .eq("ordemservicoid", osId);
 
   if (serv.error) throw serv.error;
 
-  const produtos: LinhaProduto[] = (prod.data ?? []).map((row: any) => ({
-    descricao: row.produto?.titulo || row.produto?.descricao || "Produto",
-    quantidade: Number(row.quantidade) || 0,
-    precounitario: Number(row.precounitario) || 0,
-    subtotal: Number(row.subtotal) || 0,
-  }));
+  // `subtotal` já é gravado líquido do desconto do item, mas recalculamos a partir do
+  // bruto para o detalhamento nunca divergir do desconto que está sendo exibido.
+  function montarLinha(descricao: string, row: any): LinhaOrcamento {
+    const quantidade = Number(row.quantidade) || 0;
+    const precounitario = Number(row.precounitario) || 0;
+    const valorBruto = arredondarMoeda(quantidade * precounitario);
+    const descontoTipo = sanitizeTipoDesconto(row.desconto_tipo);
+    const desconto = Number(row.desconto) || 0;
+    const descontoAplicado = calcularDescontoAplicado(valorBruto, descontoTipo, desconto);
 
-  const servicos: LinhaServico[] = (serv.data ?? []).map((row: any) => ({
-    descricao: row.servico?.descricao ?? "Serviço",
-    quantidade: Number(row.quantidade) || 0,
-    precounitario: Number(row.precounitario) || 0,
-    subtotal: Number(row.subtotal) || 0,
-  }));
+    return {
+      descricao,
+      quantidade,
+      precounitario,
+      valorBruto,
+      descontoTipo,
+      desconto,
+      descontoAplicado,
+      subtotal: arredondarMoeda(valorBruto - descontoAplicado),
+    };
+  }
 
-  const totalProdutos = produtos.reduce((acc, p) => acc + p.subtotal, 0);
-  const totalServicos = servicos.reduce((acc, s) => acc + s.subtotal, 0);
-  const totalGeral = totalProdutos + totalServicos;
+  const produtos: LinhaProduto[] = (prod.data ?? []).map((row: any) =>
+    montarLinha(row.produto?.titulo || row.produto?.descricao || "Produto", row)
+  );
+
+  const servicos: LinhaServico[] = (serv.data ?? []).map((row: any) =>
+    montarLinha(row.servico?.descricao ?? "Serviço", row)
+  );
+
+  const totalProdutos = arredondarMoeda(produtos.reduce((acc, p) => acc + p.subtotal, 0));
+  const totalServicos = arredondarMoeda(servicos.reduce((acc, s) => acc + s.subtotal, 0));
+  const subtotal = arredondarMoeda(totalProdutos + totalServicos);
+
+  // O desconto geral da OS incide sobre a soma dos itens e é o que faltava aqui:
+  // sem ele o cliente aprovava um valor maior do que o orçado.
+  const descontoGeralTipo = sanitizeTipoDesconto(os.data.desconto_tipo);
+  const descontoGeralInformado = Number(os.data.desconto) || 0;
+  const descontoGeral = calcularDescontoAplicado(subtotal, descontoGeralTipo, descontoGeralInformado);
+  const totalGeral = arredondarMoeda(subtotal - descontoGeral);
 
   return {
     tokenRow: tok.data,
@@ -141,7 +194,15 @@ async function carregarPorToken(token: string): Promise<Bundle | null> {
     },
     produtos,
     servicos,
-    totais: { totalProdutos, totalServicos, totalGeral },
+    totais: {
+      totalProdutos,
+      totalServicos,
+      subtotal,
+      descontoGeralTipo,
+      descontoGeralInformado,
+      descontoGeral,
+      totalGeral,
+    },
     statusOS: (os.data.status || "ORCAMENTO") as DBStatusOS,
     statusAprovacao: (os.data.statusaprovacao || "PENDENTE") as DBAprovacao,
   };
@@ -206,11 +267,7 @@ export async function GET(
           jaRespondido: usado,
           produtos: [],
           servicos: [],
-          totais: {
-            totalProdutos: 0,
-            totalServicos: 0,
-            totalGeral: 0,
-          },
+          totais: TOTAIS_ZERADOS,
         },
         { status: 200 }
       );
@@ -224,11 +281,7 @@ export async function GET(
           acessoLiberado: false,
           produtos: [],
           servicos: [],
-          totais: {
-            totalProdutos: 0,
-            totalServicos: 0,
-            totalGeral: 0,
-          },
+          totais: TOTAIS_ZERADOS,
         },
         { status: 200 }
       );
