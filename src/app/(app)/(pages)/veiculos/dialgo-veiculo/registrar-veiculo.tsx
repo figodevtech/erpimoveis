@@ -489,14 +489,15 @@ export default function RegisterContent({
     fetchModelsByBrandAndYear,
   ]);
 
-  const extractModeloBase = (name: string) =>
-    name.trim().split(" ")[0].toUpperCase();
-
   const modelosOptions = useMemo(
     () =>
-      Array.from(
-        new Set(modelosRaw.map((m) => extractModeloBase(m.name))),
-      ).sort(),
+      modelosRaw
+        .map((m) => ({ ...m, name: m.name.trim().toUpperCase() }))
+        .filter(
+          (m, index, items) =>
+            items.findIndex((item) => item.code === m.code) === index,
+        )
+        .sort((a, b) => a.name.localeCompare(b.name)),
     [modelosRaw],
   );
 
@@ -520,46 +521,31 @@ export default function RegisterContent({
     [modelosRaw, novoVeiculo.modelo],
   );
 
-  // Cleanup: Clear modelo and versao if they are no longer valid after a list update (e.g., brand or year change)
-  useEffect(() => {
-    if (
-      isOpen &&
-      novoVeiculo.modelo &&
-      !loadingModelos &&
-      modelosOptions.length > 0
-    ) {
-      if (!modelosOptions.includes(novoVeiculo.modelo.toUpperCase())) {
-        setNovoVeiculo({
-          ...novoVeiculo,
-          modelo: "",
-          versao: "",
-          fipe: undefined,
-        });
-      }
-    }
+  const selectedVersaoCode = useMemo(() => {
+    const modeloCompleto = modelosOptions.find(
+      (modelo) => modelo.name === novoVeiculo.modelo?.toUpperCase(),
+    );
+    return (
+      modeloCompleto?.code ??
+      versoesOptions.find(
+        (v) => v.name === novoVeiculo.versao?.toUpperCase(),
+      )?.code
+    );
   }, [
-    isOpen,
     modelosOptions,
-    loadingModelos,
+    versoesOptions,
     novoVeiculo.modelo,
-    novoVeiculo,
-    setNovoVeiculo,
+    novoVeiculo.versao,
   ]);
 
-  const selectedVersaoCode = useMemo(() => {
-    return versoesOptions.find(
-      (v) => v.name === novoVeiculo.versao?.toUpperCase(),
-    )?.code;
-  }, [versoesOptions, novoVeiculo.versao]);
-
-  // Flow 1: Fetch specific years when Versao is selected
+  // Busca os anos pelo codigo do nome completo selecionado. Mantem suporte
+  // aos cadastros antigos, que separavam modelo e versao.
   useEffect(() => {
     if (
       isOpen &&
       novoVeiculo.tipo &&
       novoVeiculo.marca &&
       novoVeiculo.modelo &&
-      novoVeiculo.versao &&
       selectedVersaoCode
     ) {
       const m = encontrarMarcaFipe(marcasFipe, novoVeiculo.marca);
@@ -586,7 +572,6 @@ export default function RegisterContent({
       !novoVeiculo.ano_modelo ||
       !novoVeiculo.tipo ||
       !novoVeiculo.marca ||
-      !novoVeiculo.versao ||
       !novoVeiculo.modelo
     )
       return;
@@ -597,10 +582,6 @@ export default function RegisterContent({
       return;
     }
     const m = encontrarMarcaFipe(marcasFipe, novoVeiculo.marca);
-    const selectedVersao = versoesOptions.find(
-      (v) => v.name === novoVeiculo.versao?.toUpperCase(),
-    );
-
     const y = anosFipe.find((a) => {
       const anoMatch = a.name.match(/\d+/);
       const aAno = anoMatch ? Number(anoMatch[0]) : null;
@@ -611,11 +592,11 @@ export default function RegisterContent({
       );
     });
 
-    if (m && selectedVersao && y) {
+    if (m && selectedVersaoCode && y) {
       const data = await fetchPrice(
         String(novoVeiculo.tipo),
         m.code,
-        selectedVersao.code,
+        selectedVersaoCode,
         y.code,
       );
       if (data && data.price) {
@@ -937,12 +918,17 @@ export default function RegisterContent({
                       loadingModelos || !novoVeiculo.tipo || !novoVeiculo.marca
                     }
                   >
-                    {loadingModelos
-                      ? "Carregando..."
-                      : novoVeiculo.modelo
-                        ? novoVeiculo.modelo
-                        : "Selecione..."}
-                    <ChevronsUpDown className="opacity-50" />
+                    <span
+                      className="truncate text-left"
+                      title={novoVeiculo.modelo || undefined}
+                    >
+                      {loadingModelos
+                        ? "Carregando..."
+                        : novoVeiculo.modelo
+                          ? novoVeiculo.modelo
+                          : "Selecione..."}
+                    </span>
+                    <ChevronsUpDown className="shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
 
@@ -962,26 +948,26 @@ export default function RegisterContent({
                       <CommandEmpty>Nenhum modelo encontrado.</CommandEmpty>
 
                       <CommandGroup>
-                        {modelosOptions.map((m, i) => (
+                        {modelosOptions.map((m) => (
                           <CommandItem
-                            className="hover:cursor-pointer text-sm"
-                            key={i}
-                            value={m}
+                            className="h-auto whitespace-normal break-words py-2 text-left text-sm hover:cursor-pointer"
+                            key={m.code}
+                            value={m.name}
                             onSelect={() => {
                               setNovoVeiculo({
                                 ...novoVeiculo,
-                                modelo: m.toUpperCase(),
+                                modelo: m.name,
                                 versao: "",
                                 fipe: undefined,
                               });
                               setOpen1(false);
                             }}
                           >
-                            {m.toUpperCase()}
+                            {m.name}
                             <Check
                               className={cn(
                                 "ml-auto",
-                                novoVeiculo.modelo === m.toUpperCase()
+                                novoVeiculo.modelo === m.name
                                   ? "opacity-100"
                                   : "opacity-0",
                               )}
@@ -1258,7 +1244,7 @@ export default function RegisterContent({
                     isOffline ||
                     loadingPrice ||
                     !novoVeiculo.ano_modelo ||
-                    !novoVeiculo.versao
+                    !selectedVersaoCode
                   }
                 >
                   {loadingPrice ? "Buscando..." : "Buscar"}
