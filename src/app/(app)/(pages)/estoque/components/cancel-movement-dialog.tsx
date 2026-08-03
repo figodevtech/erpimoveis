@@ -81,7 +81,7 @@ function CancelForm({
           <AlertDialogDescription>{CONSEQUENCIA[kind]}</AlertDialogDescription>
         </AlertDialogHeader>
 
-        <div className="space-y-2">
+        <div className="space-y-2 bg-card p-4 rounded-xl">
           <Label htmlFor="motivo-cancelamento">
             Motivo do cancelamento <span className="text-destructive">*</span>
           </Label>

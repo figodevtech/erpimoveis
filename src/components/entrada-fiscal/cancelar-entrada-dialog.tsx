@@ -177,7 +177,7 @@ export function CancelarEntradaDialog({ open, onOpenChange, entradaId, origem, o
             </div>
           ) : preview ? (
             <div className="space-y-4">
-              <section className="rounded-lg border bg-muted/40 p-3">
+              <section className="rounded-lg border bg-card p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="min-w-0">
                     <p className="text-sm font-semibold">
@@ -216,7 +216,7 @@ export function CancelarEntradaDialog({ open, onOpenChange, entradaId, origem, o
                 </section>
               ) : null}
 
-              <section className="rounded-lg border p-3">
+              <section className="rounded-lg border p-3 bg-card">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Resumo do que será desfeito
                 </p>
@@ -255,7 +255,7 @@ export function CancelarEntradaDialog({ open, onOpenChange, entradaId, origem, o
               ) : null}
 
               {preview.transacoes.length ? (
-                <section className="rounded-lg border">
+                <section className="rounded-lg border bg-card">
                   <header className="flex items-center gap-2 border-b px-3 py-2">
                     <Receipt className="h-4 w-4 text-muted-foreground" />
                     <p className="text-sm font-semibold">Financeiro</p>
@@ -290,7 +290,7 @@ export function CancelarEntradaDialog({ open, onOpenChange, entradaId, origem, o
 
               <Separator />
 
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 p-4 bg-card rounded-xl">
                 <Label htmlFor="motivo-cancelamento">
                   Motivo do cancelamento <span className="text-destructive">*</span>
                 </Label>

@@ -89,7 +89,9 @@ export const entradaUsoConsumoSchema = z.object({
   fornecedor_id: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().optional()),
   fiscal: z.boolean().default(false), chave_nfe: createText, numero_nota: createText, serie_nota: createText,
   data_emissao: createText,
-  tipo: z.enum(["COMPRA_FORNECEDOR","COMPRA_PF","DEVOLUCAO"]).default("COMPRA_FORNECEDOR"),
+  // Codigo livre: os tipos vivem em tipos_entrada (Configuracoes > Tipos) e quem
+  // valida existencia/escopo e o trigger de usoconsumo_entrada.
+  tipo: z.string().trim().min(1).transform((value) => value.toUpperCase()).default("COMPRA_FORNECEDOR"),
   origem: z.enum(["AJUSTE_RAPIDO","MANUAL","NFE_TERCEIRO","INVENTARIO"]).default("MANUAL"),
   documento_fiscal_recebido_id: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().optional()),
   observacao: createText,

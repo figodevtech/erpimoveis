@@ -34,14 +34,7 @@ import { usePlanosDeConta } from "../../../(financeiro)/fluxodecaixa/hooks/use-p
 import { useCentrosCusto } from "../../../(financeiro)/fluxodecaixa/hooks/use-centros-custo";
 import { PlanoContaCombobox } from "../../../(financeiro)/fluxodecaixa/components/plano-conta-combobox";
 import { SearchCombobox } from "../../../(financeiro)/fluxodecaixa/components/search-combobox";
-export const TIPOS_ENTRADA = [
-  { value: "COMPRA_FORNECEDOR", label: "Compra fornecedor" },
-  { value: "COMPRA_PF", label: "Compra PF" },
-  { value: "DEVOLUCAO", label: "Devolução / retorno" },
-] as const;
-
-export type EntradaTipo = (typeof TIPOS_ENTRADA)[number]["value"];
-
+import { useTiposEntrada } from "../../hooks/use-tipos-entrada";
 // ======== NOVO MODELO DO ITEM (alinhado com entradaitens) ========
 type EntradaItemForm = {
   produto_id: number;
@@ -107,7 +100,8 @@ type EntradaCreatePayload = {
   fiscal: false;
   notachave: null;
 
-  tipo: EntradaTipo;
+  /** Código de um tipo cadastrado em Configurações &gt; Tipos. */
+  tipo: string;
   itens: EntradaItemInsert[];
   financeiro?: {
     lancar: boolean;
@@ -227,8 +221,12 @@ export default function RegisterContent({
   open,
   onOpenChange,
 }: RegisterContentProps) {
-  const [tipo, setTipo] = useState<EntradaTipo>("COMPRA_FORNECEDOR");
+  const [tipo, setTipo] = useState<string>("COMPRA_FORNECEDOR");
   const [itens, setItens] = useState<EntradaItemForm[]>([]);
+  const { tipos, loadingTipos } = useTiposEntrada(open !== false);
+  // Se o tipo selecionado nao estiver na lista ativa (desativado no cadastro),
+  // cai no primeiro disponivel. Derivado na leitura, sem setState em efeito.
+  const tipoAtual = tipos.some((item) => item.codigo === tipo) ? tipo : tipos[0]?.codigo ?? tipo;
 
   const [fornecedorSelecionado, setFornecedorSelecionado] = useState<
     Fornecedor | undefined
@@ -375,7 +373,7 @@ export default function RegisterContent({
       fiscal: false,
       notachave: null,
 
-      tipo,
+      tipo: tipoAtual,
       itens: itens.map(mapFormToInsert),
       financeiro: {
         lancar: lancarFinanceiro,
@@ -457,24 +455,32 @@ export default function RegisterContent({
               <div className="space-y-2">
                 <Label>Tipo da entrada</Label>
                 <Select
-                  value={tipo}
-                  onValueChange={(v) => setTipo(v as EntradaTipo)}
+                  value={tipoAtual}
+                  onValueChange={setTipo}
+                  disabled={loadingTipos && !tipos.length}
                 >
                   <SelectTrigger className="w-full text-xs">
-                    <SelectValue placeholder="Selecione o tipo" />
+                    <SelectValue
+                      placeholder={loadingTipos && !tipos.length ? "Carregando tipos..." : "Selecione o tipo"}
+                    />
                   </SelectTrigger>
                   <SelectContent className="text-xs">
-                    {TIPOS_ENTRADA.map((opt) => (
+                    {tipos.map((opt) => (
                       <SelectItem
-                        key={opt.value}
-                        value={opt.value}
+                        key={opt.codigo}
+                        value={opt.codigo}
                         className="text-xs hover:cursor-pointer"
                       >
-                        {opt.label}
+                        {opt.nome}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {!loadingTipos && !tipos.length ? (
+                  <p className="text-xs text-muted-foreground">
+                    Nenhum tipo de entrada ativo. Cadastre em Configurações &gt; Tipos.
+                  </p>
+                ) : null}
               </div>
             </div>
 

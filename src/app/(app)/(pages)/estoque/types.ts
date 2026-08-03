@@ -31,12 +31,6 @@ export enum Unidade_medida {
   PCT = "PCT",
 }
 
-export enum Entrada_tipo {
-  COMPRA_FORNECEDOR = "COMPRA FORNECEDOR",
-  COMPRA_PF = "COMPRA PF",
-  DEVOLUCAO = "DEVOLUÇÃO",
-}
-
 export enum Entrada_status {
   CONFIRMADA = "CONFIRMADA",
   CANCELADA = "CANCELADA",
@@ -44,7 +38,8 @@ export enum Entrada_status {
 
 export interface EntradaInfo {
   id: number;
-  tipo: Entrada_tipo;
+  /** Código de um tipo cadastrado em tipos_entrada (Configurações &gt; Tipos). */
+  tipo: string;
   status: Entrada_status;
   fiscal: boolean;
   origem: "AJUSTE_RAPIDO" | "MANUAL" | "NFE_TERCEIRO";

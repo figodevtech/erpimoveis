@@ -16,6 +16,7 @@ import {
   Building2,
   Box,
   PackageMinus,
+  PackagePlus,
 } from "lucide-react";
 import GruposProdutoSection from "./grupos-produto-section";
 import UnidadesMedidaSection from "./unidades-medida-section";
@@ -30,6 +31,7 @@ import CoresVeiculosSection from "./cores-veiculos-section";
 import CentrosCustoSection from "./centros-custo-section";
 import GruposUsoConsumoSection from "./grupos-usoconsumo-section";
 import MotivosSaidaSection from "./motivos-saida-section";
+import TiposEntradaSection from "./tipos-entrada-section";
 
 type TabId =
   | "grupos"
@@ -44,6 +46,7 @@ type TabId =
   | "centros_custo"
   | "categorias_venda"
   | "cores_veiculos"
+  | "tipos_entrada"
   | "motivos_saida";
 
 export default function TiposConfigPage() {
@@ -129,6 +132,12 @@ export default function TiposConfigPage() {
       subtitle: "Cores para o cadastro",
     },
     {
+      id: "tipos_entrada",
+      icon: PackagePlus,
+      title: "Motivos de entradas",
+      subtitle: "Exibidos no registro de entrada",
+    },
+    {
       id: "motivos_saida",
       icon: PackageMinus,
       title: "Motivos de saídas",
@@ -159,16 +168,18 @@ export default function TiposConfigPage() {
             </div>
             <ChevronDown className={`h-4 w-4 transition-transform ${mobileOpen ? "rotate-180" : "rotate-0"}`} />
           </button>
+          {/* max-height em vh (e nao em px fixo): a lista cresce a cada cadastro novo
+              e passava a ser cortada sem rolagem quando ultrapassava a altura fixa. */}
           <div
             className={`overflow-hidden transition-[max-height] duration-300 ease-in-out ${
-              mobileOpen ? "max-h-[620px] mt-2" : "max-h-0"
+              mobileOpen ? "max-h-[75vh] mt-2" : "max-h-0"
             }`}
           >
-            <div className="w-full border rounded-md overflow-hidden bg-card">
-              <div className="bg-muted/60 border-b px-3 py-2 text-xs font-semibold uppercase tracking-wide">
+            <div className="flex max-h-[70vh] w-full flex-col overflow-hidden rounded-md border bg-card">
+              <div className="shrink-0 bg-muted/60 border-b px-3 py-2 text-xs font-semibold uppercase tracking-wide">
                 Cadastros
               </div>
-              <nav className="flex flex-col">
+              <nav className="flex flex-col overflow-y-auto overscroll-contain">
                 {tabs.map((tab) => (
                   <TabButton
                     key={tab.id}
@@ -215,6 +226,7 @@ export default function TiposConfigPage() {
           {activeTab === "centros_custo" && <CentrosCustoSection />}
           {activeTab === "categorias_venda" && <CategoriasVendaSection />}
           {activeTab === "cores_veiculos" && <CoresVeiculosSection />}
+          {activeTab === "tipos_entrada" && <TiposEntradaSection />}
           {activeTab === "motivos_saida" && <MotivosSaidaSection />}
         </div>
       </div>
@@ -235,7 +247,7 @@ function TabButton({ active, icon: Icon, title, subtitle, onClick }: TabButtonPr
     <button
       type="button"
       onClick={onClick}
-      className={`flex items-center gap-3 px-3 py-3 text-left transition-colors border-l-2 ${
+      className={`flex shrink-0 items-center gap-3 px-3 py-3 text-left transition-colors border-l-2 ${
         active
           ? "bg-primary/10 text-foreground border-primary"
           : "bg-card text-muted-foreground border-transparent hover:bg-muted/70"

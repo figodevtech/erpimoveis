@@ -36,6 +36,7 @@ import {
   FileClock,
   CreditCard,
   MonitorCheck,
+  ChartNoAxesCombined,
 } from "lucide-react";
 
 import { NavMain } from "./components/nav-main";
@@ -219,6 +220,12 @@ const data = {
           title: "Acompanhamento",
           url: "/acompanhamento-financeiro",
           icon: MonitorCheck,
+          perm: PERMS.FINANCEIRO,
+        },
+        {
+          title: "DRE",
+          url: "/dre",
+          icon: ChartNoAxesCombined,
           perm: PERMS.FINANCEIRO,
         },
       ],

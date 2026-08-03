@@ -1,8 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { dataDoCalendario } from "@/lib/data-calendario";
 
-const TIPOS = new Set(["COMPRA_FORNECEDOR", "COMPRA_PF", "DEVOLUCAO"]);
-
 function positiveInt(value: unknown, field: string) {
   const number = Number(value);
   if (!Number.isInteger(number) || number <= 0) throw new Error(`${field}: informe um número inteiro maior que zero.`);
@@ -76,13 +74,9 @@ export async function registrarEntradaConfirmada(
 
   if (!rawItems.length) throw new Error("Informe ao menos um produto para a entrada.");
 
-  const tipoInformado = body?.entradaTipo ?? body?.tipo;
-  const tipo = tipoInformado && TIPOS.has(String(tipoInformado))
-    ? String(tipoInformado)
-    : "COMPRA_FORNECEDOR";
-  if (tipoInformado && !TIPOS.has(String(tipoInformado)) && origem !== "NFE_TERCEIRO") {
-    throw new Error("Tipo de entrada inválido.");
-  }
+  // Os tipos vivem em tipos_entrada (Configurações > Tipos), não mais numa lista fixa.
+  // Existência e escopo são validados pelo trigger da tabela entrada; aqui só normalizamos.
+  const tipo = String(body?.entradaTipo ?? body?.tipo ?? "").trim().toUpperCase() || "COMPRA_FORNECEDOR";
 
   const itens = rawItems.map((item: any, index: number) => ({
     produto_id: positiveInt(item.produto_id ?? item.produtoid ?? item.produtoId, `Produto ${index + 1}`),
@@ -115,6 +109,20 @@ export async function registrarEntradaConfirmada(
       `Número fiscal do produto ${index + 1}`,
     ),
   }));
+
+  // "Obriga informar valor" é regra do tipo cadastrado. Entradas vindas de NF-e ficam
+  // de fora: o documento do fornecedor pode trazer item bonificado com valor zero.
+  if (origem !== "NFE_TERCEIRO") {
+    const { data: tipoCadastrado } = await supabaseAdmin
+      .from("tipos_entrada")
+      .select("nome, exige_valor")
+      .eq("codigo", tipo)
+      .maybeSingle();
+    const semValor = itens.some((item: (typeof itens)[number]) => item.valor_unitario_compra <= 0);
+    if (tipoCadastrado?.exige_valor !== false && semValor) {
+      throw new Error(`O tipo "${tipoCadastrado?.nome ?? tipo}" exige valor unitário maior que zero.`);
+    }
+  }
 
   const fiscal = origem === "NFE_TERCEIRO" || Boolean(body?.fiscal);
   const chave = digits(body?.notaChave ?? body?.notachave);

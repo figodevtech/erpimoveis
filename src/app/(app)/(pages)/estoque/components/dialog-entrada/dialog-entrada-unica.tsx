@@ -30,7 +30,7 @@ import { useEffect, useState } from "react";
 import ValueInput from "../dialog-produto/entrada-valor";
 import { toast } from "@/lib/toast";
 import axios, { isAxiosError } from "axios";
-import { Entrada_tipo, Estoque_status, Fornecedor, Pagination } from "../../types";
+import { Estoque_status, Fornecedor, Pagination } from "../../types";
 import { Switch } from "@/components/ui/switch";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Banco, Metodo_pagamento } from "../../../(financeiro)/fluxodecaixa/types";
@@ -39,6 +39,7 @@ import { usePlanosDeConta } from "../../../(financeiro)/fluxodecaixa/hooks/use-p
 import { useCentrosCusto } from "../../../(financeiro)/fluxodecaixa/hooks/use-centros-custo";
 import { PlanoContaCombobox } from "../../../(financeiro)/fluxodecaixa/components/plano-conta-combobox";
 import { SearchCombobox } from "../../../(financeiro)/fluxodecaixa/components/search-combobox";
+import { useTiposEntrada } from "../../hooks/use-tipos-entrada";
 
 type Parcela = { id: number; dataVencimento?: string; valor: number };
 
@@ -79,7 +80,8 @@ export default function DialogEntrada({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [openFornecedor, setOpenFornecedor] = useState(false);
   const [selectedFornecedor, setSelectedFornecedor] = useState<Fornecedor | undefined>(undefined);
-  const [selectedType, setSelectedType] = useState<Entrada_tipo | undefined>(undefined);
+  const [selectedType, setSelectedType] = useState<string | undefined>(undefined);
+  const { tipos, loadingTipos } = useTiposEntrada(Boolean(isOpen), inventory);
   const [observacao, setObservacao] = useState("");
   const [lancarFinanceiro, setLancarFinanceiro] = useState(false);
   const [pagamentoFuturo, setPagamentoFuturo] = useState(true);
@@ -131,11 +133,14 @@ export default function DialogEntrada({
     return () => { cancelled = true; };
   }, [lancarFinanceiro]);
 
-  const isRetorno = String(selectedType) === "DEVOLUCAO";
+  const tipoSelecionado = tipos.find((tipo) => tipo.codigo === selectedType);
+  // Tipos sem "obriga informar valor" (ex.: devolução/retorno) aceitam valor zero.
+  // Enquanto os tipos carregam, tratamos como obrigatório para nao liberar valor zero por engano.
+  const valorObrigatorio = tipoSelecionado?.exigeValor !== false;
   const totalEntrada = newQtd * value;
   const saldoResultante = currentQuantity + newQtd;
   const quantidadeValida = Number.isInteger(newQtd) && newQtd > 0;
-  const valorValido = Number.isFinite(value) && value >= 0 && (isRetorno || value > 0);
+  const valorValido = Number.isFinite(value) && value >= 0 && (!valorObrigatorio || value > 0);
   const entradaValida = quantidadeValida && valorValido && Boolean(selectedType);
 
   const handleCreateEntrada = async () => {
@@ -160,9 +165,9 @@ export default function DialogEntrada({
       // valor_unitario em entradaitens é NOT NULL.
       if (!valorValido) {
         toast.error(
-          isRetorno
-            ? "O valor unitário do retorno não pode ser negativo."
-            : "Informe um valor unitário maior que zero.",
+          valorObrigatorio
+            ? "Informe um valor unitário maior que zero."
+            : "O valor unitário não pode ser negativo.",
         );
         return;
       }
@@ -307,24 +312,23 @@ export default function DialogEntrada({
   const tipoField = (
     <div className="space-y-2">
       <Label>Tipo</Label>
-      <Select
-        value={selectedType}
-        onValueChange={(v: Entrada_tipo) => {
-          setSelectedType(v);
-          if (String(v) === "DEVOLUCAO") setLancarFinanceiro(false);
-        }}
-      >
+      <Select value={selectedType} onValueChange={setSelectedType} disabled={loadingTipos && !tipos.length}>
         <SelectTrigger>
-          <SelectValue placeholder="Selecione o tipo da entrada" />
+          <SelectValue placeholder={loadingTipos && !tipos.length ? "Carregando tipos..." : "Selecione o tipo da entrada"} />
         </SelectTrigger>
         <SelectContent>
-          {Object.entries(Entrada_tipo).map(([codigo, rotulo]) => (
-            <SelectItem key={rotulo} value={codigo}>
-              {codigo === "DEVOLUCAO" ? "DEVOLUÇÃO / RETORNO" : rotulo}
+          {tipos.map((tipo) => (
+            <SelectItem key={tipo.codigo} value={tipo.codigo}>
+              {tipo.nome}
             </SelectItem>
           ))}
         </SelectContent>
       </Select>
+      {!loadingTipos && !tipos.length ? (
+        <p className="text-xs text-muted-foreground">
+          Nenhum tipo de entrada ativo. Cadastre em Configurações &gt; Tipos.
+        </p>
+      ) : null}
     </div>
   );
 
@@ -374,8 +378,8 @@ export default function DialogEntrada({
     <div className="space-y-2">
       <Label>Valor unitário</Label>
       <ValueInput price={value} setPrice={setValue} />
-      {isRetorno ? (
-        <p className="text-xs text-muted-foreground">O retorno pode ser registrado com valor zero.</p>
+      {selectedType && !valorObrigatorio ? (
+        <p className="text-xs text-muted-foreground">Este tipo pode ser registrado com valor zero.</p>
       ) : null}
       {totalEntrada > 0 ? (
         <p className="text-xs text-muted-foreground">

@@ -30,14 +30,7 @@ import { Input } from "@/components/ui/input";
 import ValueInput from "@/components/ui/value-input";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { Loader2, Search } from "lucide-react";
-
-export const TIPOS_ENTRADA = [
-  { value: "COMPRA_FORNECEDOR", label: "Compra fornecedor" },
-  { value: "COMPRA_PF", label: "Compra PF" },
-  { value: "DEVOLUCAO", label: "Devolução / retorno" },
-] as const;
-
-export type EntradaTipo = (typeof TIPOS_ENTRADA)[number]["value"];
+import { useTiposEntrada } from "../../hooks/use-tipos-entrada";
 
 type EntradaItemEditForm = {
   id?: number; // <- existe quando já está no banco
@@ -129,8 +122,9 @@ export default function EditContent({ selectedEntradaId, onSaved }: EditContentP
 
   const [saving, setSaving] = useState(false);
 
-  const [tipo, setTipo] = useState<EntradaTipo>("COMPRA_FORNECEDOR");
+  const [tipo, setTipo] = useState<string>("COMPRA_FORNECEDOR");
   const [itens, setItens] = useState<EntradaItemEditForm[]>([]);
+  const { tipos, loadingTipos } = useTiposEntrada(Boolean(selectedEntradaId));
   const [itensRemover, setItensRemover] = useState<number[]>([]);
 
   const [fornecedorSelecionado, setFornecedorSelecionado] = useState<
@@ -139,6 +133,13 @@ export default function EditContent({ selectedEntradaId, onSaved }: EditContentP
 
   const [openFornecedor, setOpenFornecedor] = useState(false);
   const [openProduto, setOpenProduto] = useState(false);
+
+  // O tipo já gravado na entrada continua listado mesmo se tiver sido desativado
+  // no cadastro, para que editar a entrada não troque o tipo dela sem querer.
+  const opcoesTipo = useMemo(() => {
+    if (!tipo || tipos.some((item) => item.codigo === tipo)) return tipos;
+    return [...tipos, { codigo: tipo, nome: tipo, exigeValor: true }];
+  }, [tipos, tipo]);
 
   const totalGeral = useMemo(() => {
     return itens.reduce((acc, it) => acc + n(it.quantidade) * n(it.precovenda), 0);
@@ -184,7 +185,7 @@ export default function EditContent({ selectedEntradaId, onSaved }: EditContentP
       const entrada = json?.entrada;
       if (!entrada) throw new Error("Resposta inválida da API (sem 'entrada').");
 
-      setTipo((entrada.tipo as EntradaTipo) ?? "COMPRA_FORNECEDOR");
+      setTipo(String(entrada.tipo ?? "") || "COMPRA_FORNECEDOR");
       setFornecedorSelecionado(entrada.fornecedor ?? undefined);
 
       const itensApi = Array.isArray(entrada.itens) ? entrada.itens : [];
@@ -298,7 +299,7 @@ export default function EditContent({ selectedEntradaId, onSaved }: EditContentP
 
       // Re-hidrata com retorno (principalmente ids de itens novos)
       if (entradaAtualizada) {
-        setTipo((entradaAtualizada.tipo as EntradaTipo) ?? tipo);
+        setTipo(String(entradaAtualizada.tipo ?? "") || tipo);
         setFornecedorSelecionado(entradaAtualizada.fornecedor ?? fornecedorSelecionado);
 
         const itensApi = Array.isArray(entradaAtualizada.itens) ? entradaAtualizada.itens : [];
@@ -404,18 +405,20 @@ export default function EditContent({ selectedEntradaId, onSaved }: EditContentP
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label>Tipo da entrada</Label>
-                <Select value={tipo} onValueChange={(v) => setTipo(v as EntradaTipo)}>
+                <Select value={tipo} onValueChange={setTipo} disabled={loadingTipos && !opcoesTipo.length}>
                   <SelectTrigger className="w-full text-xs">
-                    <SelectValue placeholder="Selecione o tipo" />
+                    <SelectValue
+                      placeholder={loadingTipos && !opcoesTipo.length ? "Carregando tipos..." : "Selecione o tipo"}
+                    />
                   </SelectTrigger>
                   <SelectContent className="text-xs">
-                    {TIPOS_ENTRADA.map((opt) => (
+                    {opcoesTipo.map((opt) => (
                       <SelectItem
-                        key={opt.value}
-                        value={opt.value}
+                        key={opt.codigo}
+                        value={opt.codigo}
                         className="text-xs hover:cursor-pointer"
                       >
-                        {opt.label}
+                        {opt.nome}
                       </SelectItem>
                     ))}
                   </SelectContent>

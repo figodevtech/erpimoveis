@@ -75,6 +75,7 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
   { prefix: "/api/veiculos", perm: PERMS.VEICULOS },
   { prefix: "/api/venda", perm: PERMS.VENDAS },
   { prefix: "/api/transaction", perm: PERMS.FINANCEIRO },
+  { prefix: "/api/dre", perm: PERMS.FINANCEIRO },
   { prefix: "/api/pagamentos", perm: PERMS.FINANCEIRO },
   { prefix: "/api/banks", perm: PERMS.FINANCEIRO },
   { prefix: "/api/users", perm: PERMS.USUARIOS },
@@ -99,6 +100,7 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
   { prefix: "/usuarios", perm: PERMS.USUARIOS },
   { prefix: "/acompanhamento", perm: PERMS.ACOMPANHAMENTO },
 
+  { prefix: "/dre", perm: PERMS.FINANCEIRO },
   { prefix: "/fluxodecaixa", perm: PERMS.FINANCEIRO },
   { prefix: "/pagamentodeordens", perm: PERMS.FINANCEIRO },
   { prefix: "/pagamentodevendas", perm: PERMS.FINANCEIRO },

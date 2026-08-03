@@ -8,6 +8,23 @@ export async function registrarEntradaUsoConsumo(body: unknown, userId: string |
   const parsed = entradaUsoConsumoSchema.safeParse(candidate);
   if (!parsed.success) throw Object.assign(new Error(zodMessage(parsed.error)), { statusCode: 400 });
   const { itens, transacoes, ...entrada } = parsed.data;
+
+  // "Obriga informar valor" é regra do tipo cadastrado em tipos_entrada. Entradas
+  // vindas de NF-e ficam de fora: o documento pode trazer item bonificado sem valor.
+  if (entrada.origem !== "NFE_TERCEIRO") {
+    const { data: tipoCadastrado } = await supabaseAdmin
+      .from("tipos_entrada")
+      .select("nome, exige_valor")
+      .eq("codigo", entrada.tipo)
+      .maybeSingle();
+    if (tipoCadastrado?.exige_valor !== false && itens.some((item) => Number(item.valor_unitario_compra) <= 0)) {
+      throw Object.assign(
+        new Error(`O tipo "${tipoCadastrado?.nome ?? entrada.tipo}" exige valor unitário maior que zero.`),
+        { statusCode: 400 },
+      );
+    }
+  }
+
   const { data, error } = await supabaseAdmin.rpc("registrar_entrada_usoconsumo", {
     p_entrada: { ...entrada, chave_nfe: entrada.chave_nfe?.replace(/\D/g,""), created_by: userId },
     p_itens: itens,
