@@ -81,7 +81,7 @@ async function revalidarStatusVenda(vendaId: number) {
 }
 
 const TRANSACAO_FIELDS = `
-  id, descricao, valor, data, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, fornecedor_id,
+  id, descricao, descricao_pagamento, valor, data, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, fornecedor_id,
   banco_id, nomepagador, cpfcnpjpagador, pendente, ordemservicoid, valorLiquido, vendaid,
   created_at, updated_at
 `;
@@ -92,6 +92,7 @@ const BANCO_FIELDS =
 
 const WRITABLE_FIELDS = new Set([
   "descricao",
+  "descricao_pagamento",
   "valor",
   "data",
   "metodopagamento",

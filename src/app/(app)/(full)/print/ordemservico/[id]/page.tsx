@@ -140,6 +140,14 @@ function fmtPhone(value?: string | null) {
   return value;
 }
 
+/** Quilometragem com separador de milhar, igual ao dialog de detalhes da OS. */
+function fmtKm(value?: number | string | null) {
+  if (value == null || value === "") return EMPTY;
+  const numero = Number(value);
+  if (!Number.isFinite(numero)) return EMPTY;
+  return `${numero.toLocaleString("pt-BR")} km`;
+}
+
 function fmtEnum(value?: string | null) {
   if (!value) return EMPTY;
   return String(value)
@@ -250,7 +258,15 @@ export default async function OSFullPage({ params }: PageProps) {
   );
 
   const veiculoNome = joinParts([os.veiculo?.marca, os.veiculo?.modelo], " ");
-  const veiculoPlaca = os.veiculo?.placa_formatada || os.veiculo?.placa;
+  // A placa impressa e a cadastrada — e a que esta no carro e no CRLV.
+  // `placa_formatada` e uma coluna gerada que converte placa antiga para o
+  // equivalente Mercosul, entao so entra como referencia secundaria e apenas
+  // quando difere da original (em placa ja no padrao novo as duas sao iguais).
+  const veiculoPlaca = os.veiculo?.placa || os.veiculo?.placa_formatada;
+  const veiculoPlacaMercosul =
+    os.veiculo?.placa_formatada && os.veiculo.placa_formatada !== os.veiculo.placa
+      ? os.veiculo.placa_formatada
+      : null;
   const alvoTipo =
     os.alvo_tipo === "PECA"
       ? "Peça"
@@ -665,6 +681,16 @@ export default async function OSFullPage({ params }: PageProps) {
     white-space: normal;
   }
 
+  /* Equivalente Mercosul: referencia secundaria, nunca compete com a placa real. */
+  .placa-equivalente{
+    display:block;
+    font-size:8px;
+    font-weight:600;
+    letter-spacing:.04em;
+    color: var(--muted);
+    margin-top:1px;
+  }
+
   .meta-grid{
     display:grid;
     grid-template-columns: repeat(6, 1fr);
@@ -1053,10 +1079,26 @@ export default async function OSFullPage({ params }: PageProps) {
                   {alvoTipo === "Peça" ? "Peça / Componente" : alvoTipo}
                 </div>
                 {alvoTipo === "Peça" ? (
-                  <div className="h2">
-                    {fmtText(
-                      os.peca?.titulo?.toUpperCase?.() ?? os.peca?.titulo
-                    )}
+                  <div>
+                    <div className="h2">
+                      {fmtText(
+                        os.peca?.titulo?.toUpperCase?.() ?? os.peca?.titulo
+                      )}
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                      <div className="kv">
+                        <span className="k">Fabricante</span>
+                        <span className="v">{fmtText(os.peca?.fabricante)}</span>
+                      </div>
+                      <div className="kv">
+                        <span className="k">Modelo</span>
+                        <span className="v">{fmtText(os.peca?.modelo)}</span>
+                      </div>
+                      <div className="kv">
+                        <span className="k">Código</span>
+                        <span className="v">{fmtText(os.peca?.codigo)}</span>
+                      </div>
+                    </div>
                   </div>
                 ) : alvoTipo === "Máquina/Equipamento" ? (
                   <div>
@@ -1074,8 +1116,8 @@ export default async function OSFullPage({ params }: PageProps) {
                         <span className="k">Horímetro</span>
                         <span className="v">
                           {os.equipamento_horimetro != null
-                            ? `${os.equipamento_horimetro} h`
-                            : "—"}
+                            ? `${Number(os.equipamento_horimetro).toLocaleString("pt-BR")} h`
+                            : EMPTY}
                         </span>
                       </div>
                     </div>
@@ -1088,7 +1130,18 @@ export default async function OSFullPage({ params }: PageProps) {
                     <div style={{ marginTop: 8 }}>
                       <div className="kv">
                         <span className="k">Placa</span>
-                        <span className="v">{fmtText(veiculoPlaca)}</span>
+                        <span className="v">
+                          {fmtText(veiculoPlaca)}
+                          {veiculoPlacaMercosul ? (
+                            <span className="placa-equivalente">
+                              Mercosul {veiculoPlacaMercosul}
+                            </span>
+                          ) : null}
+                        </span>
+                      </div>
+                      <div className="kv">
+                        <span className="k">Cor</span>
+                        <span className="v">{fmtText(os.veiculo?.cor)}</span>
                       </div>
                       <div className="kv">
                         <span className="k">Ano</span>
@@ -1096,7 +1149,7 @@ export default async function OSFullPage({ params }: PageProps) {
                       </div>
                       <div className="kv">
                         <span className="k">KM</span>
-                        <span className="v">{fmtText(os.veiculo?.km)}</span>
+                        <span className="v">{fmtKm(os.veiculo?.kmatual)}</span>
                       </div>
                     </div></>
                   ):

@@ -30,7 +30,14 @@ import {
 } from "../../types";
 import { formatCpfCnpj } from "../../utils";
 import { Switch } from "@/components/ui/switch";
-import { Info } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FileText, History, Info, Layers, Link2, User } from "lucide-react";
+import { ClienteTab } from "./tabs/cliente-tab";
+import { HistoricoTab } from "./tabs/historico-tab";
+import { ParcelasTab } from "./tabs/parcelas-tab";
+import { VinculoTab } from "./tabs/vinculo-tab";
+import { tabsListClass, tabTriggerClass } from "./tabs/shared";
+import type { TransacaoContexto } from "./tabs/types";
 import { useCategoriasTransacao } from "../../hooks/use-categoria-transacao";
 import { usePlanosDeConta } from "../../hooks/use-planos-de-conta";
 import { useCentrosCusto } from "../../hooks/use-centros-custo";
@@ -102,6 +109,15 @@ function toDateFromApi(value: unknown): Date | undefined {
   return undefined;
 }
 
+function CarregandoAba() {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed bg-muted/20 py-16">
+      <div className="size-6 animate-spin rounded-t-full border-t-2 border-primary" />
+      <span className="text-xs text-muted-foreground">Carregando</span>
+    </div>
+  );
+}
+
 export default function EditContent({
   selectedTransactionId,
   isDesktop,
@@ -116,6 +132,8 @@ export default function EditContent({
   const [isLoadingBanks, setIsLoadingBanks] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [banks, setBanks] = useState<Banco[]>([]);
+  const [contexto, setContexto] = useState<TransacaoContexto | undefined>(undefined);
+  const [isLoadingContexto, setIsLoadingContexto] = useState(false);
   const { categorias, loadingCategorias, errorCategorias } =
     useCategoriasTransacao();
   const { gruposPlanosDeConta, loadingPlanos } = usePlanosDeConta();
@@ -161,12 +179,28 @@ export default function EditContent({
     }
   };
 
+  const handleGetContexto = async (id: number) => {
+    setIsLoadingContexto(true);
+    try {
+      const response = await axios.get(`/api/transaction/${id}/contexto`);
+      if (response.status === 200) setContexto(response.data);
+    } catch {
+      // O contexto e informativo: se falhar, a aba Detalhes continua utilizavel.
+      setContexto(undefined);
+    } finally {
+      setIsLoadingContexto(false);
+    }
+  };
+
   useEffect(() => {
     if (!selectedTransactionId) return;
     handleGetTransaction(selectedTransactionId);
+    handleGetContexto(selectedTransactionId);
     handleGetBanks();
   }, [selectedTransactionId]);
 
+  // O contexto fica fora deste gate de propósito: a aba Detalhes abre na hora e
+  // cada aba lateral mostra o próprio carregamento.
   const isLoading =
     isLoadingTransaction || isLoadingBanks || loadingCategorias || loadingCentrosCusto;
 
@@ -181,6 +215,7 @@ export default function EditContent({
     try {
       await axios.patch(`/api/transaction/${selectedTransaction.id}`, {
         descricao: selectedTransaction.descricao,
+        descricao_pagamento: selectedTransaction.descricao_pagamento ?? null,
         data: selectedTransaction.data,
         tipo: selectedTransaction.tipo,
         metodopagamento: selectedTransaction.metodopagamento || null,
@@ -289,7 +324,46 @@ export default function EditContent({
         </Header>
 
         <div className="h-full min-h-0 overflow-hidden p-0">
-          <div className="h-full min-h-0 overflow-auto space-y-2 bg-muted-foreground/5 px-4 py-10">
+          <div className="h-full min-h-0 overflow-auto space-y-2 bg-muted-foreground/5 px-4 py-6">
+          <Tabs defaultValue="detalhes" className="space-y-3">
+            <div className="pb-1 overflow-x-auto">
+              <TabsList className={tabsListClass}>
+                <TabsTrigger value="detalhes" className={tabTriggerClass}>
+                  <span className="flex items-center gap-2">
+                    <FileText className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                    Detalhes
+                  </span>
+                </TabsTrigger>
+                <TabsTrigger value="parcelas" className={tabTriggerClass}>
+                  <span className="flex items-center gap-2">
+                    <Layers className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                    Parcelas
+                  </span>
+                </TabsTrigger>
+                <TabsTrigger value="cliente" className={tabTriggerClass}>
+                  <span className="flex items-center gap-2">
+                    <User className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                    Cliente
+                  </span>
+                </TabsTrigger>
+                {contexto?.vinculo ? (
+                  <TabsTrigger value="vinculo" className={tabTriggerClass}>
+                    <span className="flex items-center gap-2">
+                      <Link2 className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                      {contexto.vinculo.tipo === "OS" ? "Ordem de serviço" : "Venda"}
+                    </span>
+                  </TabsTrigger>
+                ) : null}
+                <TabsTrigger value="historico" className={tabTriggerClass}>
+                  <span className="flex items-center gap-2">
+                    <History className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                    Histórico
+                  </span>
+                </TabsTrigger>
+              </TabsList>
+            </div>
+
+            <TabsContent value="detalhes" className="mt-0">
                                                      <div className="rounded-lg border bg-card p-4 gap-3 flex flex-col">
 
             <div className="grid space-y-4 gap-4 sm:grid-cols-3">
@@ -530,6 +604,22 @@ export default function EditContent({
                 />
               </div>
 
+              <div className="space-y-2 w-full col-span-full">
+                <Label htmlFor="descricao-pagamento">
+                  Descrição do pagamento
+                </Label>
+                <Input
+                  disabled={!editable}
+                  id="descricao-pagamento"
+                  value={selectedTransaction.descricao_pagamento || ""}
+                  onChange={(e) =>
+                    handleChange("descricao_pagamento", e.target.value)
+                  }
+                  placeholder="Ex.: entrada de 50%, sinal, restante na entrega"
+                  className="w-full"
+                />
+              </div>
+
               <div className="space-y-2 w-full sm:col-span-3">
                 <Label htmlFor="data">Data do vencimento</Label>
                 <DatePicker
@@ -638,6 +728,51 @@ export default function EditContent({
               </div>
             </div>
           </div>
+            </TabsContent>
+
+            <TabsContent value="parcelas" className="mt-0">
+              {isLoadingContexto || !contexto ? (
+                <CarregandoAba />
+              ) : (
+                <ParcelasTab
+                  origem={contexto.relacionadas.origem}
+                  itens={contexto.relacionadas.itens}
+                  resumo={contexto.relacionadas.resumo}
+                  transacaoAtualId={selectedTransaction.id}
+                />
+              )}
+            </TabsContent>
+
+            <TabsContent value="cliente" className="mt-0">
+              {isLoadingContexto || !contexto ? (
+                <CarregandoAba />
+              ) : (
+                <ClienteTab
+                  cliente={contexto.cliente}
+                  fornecedor={contexto.fornecedor}
+                  nomepagador={selectedTransaction.nomepagador}
+                  cpfcnpjpagador={selectedTransaction.cpfcnpjpagador}
+                />
+              )}
+            </TabsContent>
+
+            {contexto?.vinculo ? (
+              <TabsContent value="vinculo" className="mt-0">
+                <VinculoTab vinculo={contexto.vinculo} />
+              </TabsContent>
+            ) : null}
+
+            <TabsContent value="historico" className="mt-0">
+              {isLoadingContexto || !contexto ? (
+                <CarregandoAba />
+              ) : (
+                <HistoricoTab
+                  baixa={contexto.baixa}
+                  auditoria={contexto.auditoria}
+                />
+              )}
+            </TabsContent>
+          </Tabs>
         </div>
         </div>
 
