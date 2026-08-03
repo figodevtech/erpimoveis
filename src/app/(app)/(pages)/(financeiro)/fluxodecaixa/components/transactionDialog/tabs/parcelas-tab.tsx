@@ -142,6 +142,12 @@ export function ParcelasTab({
             <tbody>
               {itens.map((item) => {
                 const atual = item.id === transacaoAtualId;
+                const bruto = Number(item.valor ?? 0);
+                const liquido = Number(item.valorLiquido ?? item.valor ?? 0);
+                // Taxa de recebimento (cartao, por exemplo): o cliente pagou o
+                // bruto, o caixa recebeu o liquido. Os indicadores acima somam o
+                // bruto, que e o que abate o total da OS/venda.
+                const possuiTaxa = Math.round(bruto * 100) !== Math.round(liquido * 100);
 
                 return (
                   <tr
@@ -197,7 +203,14 @@ export function ParcelasTab({
                       )}
                     </td>
                     <td className="px-3 py-2 text-right align-top font-medium">
-                      {formatarEmReal(Number(item.valor ?? 0))}
+                      <div className="flex flex-col items-end">
+                        <span>{formatarEmReal(bruto)}</span>
+                        {possuiTaxa && (
+                          <span className="text-xs font-normal text-muted-foreground">
+                            Líquido: {formatarEmReal(liquido)}
+                          </span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
