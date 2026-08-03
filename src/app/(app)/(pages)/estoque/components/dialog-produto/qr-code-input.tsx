@@ -19,6 +19,9 @@ type Props = {
   onScan?: (value: string) => void;
 };
 
+/** Largura maxima do quadro analisado pelo jsQR, em pixels. */
+const MAX_SCAN_WIDTH = 640;
+
 function normalizeQrValue(value: string) {
   const trimmed = value.trim();
   if (trimmed.startsWith("ERP:ETQ:")) return trimmed.slice("ERP:ETQ:".length);
@@ -43,6 +46,17 @@ export function QrCodeInput({
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number | null>(null);
 
+  // Os callbacks chegam como arrow inline dos pais, ou seja, com identidade nova
+  // a cada render deles. Lidos por ref, eles ficam fora das dependencias do
+  // efeito abaixo — senao qualquer render do pai derrubaria a camera no meio da
+  // leitura e pediria um getUserMedia novo.
+  const onChangeRef = useRef(onChange);
+  const onScanRef = useRef(onScan);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+    onScanRef.current = onScan;
+  });
+
   useEffect(() => {
     if (!open) return;
 
@@ -53,7 +67,11 @@ export function QrCodeInput({
 
       try {
         if (!navigator.mediaDevices?.getUserMedia) {
-          setError("Camera nao disponivel neste navegador. Digite o codigo manualmente.");
+          setError(
+            window.isSecureContext === false
+              ? "A camera exige uma conexao segura (https). Abra o sistema por https ou digite o codigo manualmente."
+              : "Camera nao disponivel neste navegador. Digite o codigo manualmente.",
+          );
           return;
         }
 
@@ -70,7 +88,10 @@ export function QrCodeInput({
         streamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
-          await videoRef.current.play();
+          // play() nao pode ser aguardado aqui: no Android ele rejeita com
+          // AbortError enquanto o dialog ainda esta animando, e o await levava
+          // esse erro ao catch de baixo, matando o loop de leitura inteiro.
+          void videoRef.current.play().catch(() => undefined);
         }
 
         const BarcodeDetectorCtor = (window as any).BarcodeDetector;
@@ -96,8 +117,12 @@ export function QrCodeInput({
           if (!rawValue) {
             const video = videoRef.current;
             const canvas = canvasRef.current;
-            const width = video.videoWidth;
-            const height = video.videoHeight;
+            // A analise roda numa copia reduzida: getImageData + jsQR sobre um
+            // quadro 1080p a cada frame trava celular intermediario, e o QR de
+            // uma etiqueta continua legivel nessa escala.
+            const scale = Math.min(1, MAX_SCAN_WIDTH / (video.videoWidth || 1));
+            const width = Math.round(video.videoWidth * scale);
+            const height = Math.round(video.videoHeight * scale);
 
             if (canvas && width > 0 && height > 0) {
               canvas.width = width;
@@ -118,8 +143,8 @@ export function QrCodeInput({
           if (rawValue) {
             const normalized = normalizeQrValue(rawValue);
             const scannedValue = uppercase ? normalized.toUpperCase() : normalized;
-            onChange(scannedValue);
-            onScan?.(scannedValue);
+            onChangeRef.current(scannedValue);
+            onScanRef.current?.(scannedValue);
             setOpen(false);
             return;
           }
@@ -128,8 +153,19 @@ export function QrCodeInput({
         };
 
         rafRef.current = window.requestAnimationFrame(scan);
-      } catch {
-        setError("Nao foi possivel acessar a camera. Verifique as permissoes do navegador.");
+      } catch (cameraError) {
+        // O motivo importa no diagnostico: permissao negada, camera ocupada por
+        // outro app e navegador sem suporte tem solucoes diferentes.
+        const name = cameraError instanceof Error ? cameraError.name : "";
+        if (name === "NotAllowedError" || name === "SecurityError") {
+          setError("Permissao de camera negada. Libere a camera para este site nas configuracoes do navegador.");
+        } else if (name === "NotFoundError" || name === "OverconstrainedError") {
+          setError("Nenhuma camera encontrada neste aparelho.");
+        } else if (name === "NotReadableError") {
+          setError("A camera esta em uso por outro aplicativo. Feche-o e tente de novo.");
+        } else {
+          setError(`Nao foi possivel acessar a camera${name ? ` (${name})` : ""}. Verifique as permissoes do navegador.`);
+        }
       }
     }
 
@@ -142,7 +178,7 @@ export function QrCodeInput({
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     };
-  }, [onChange, onScan, open, uppercase]);
+  }, [open, uppercase]);
 
   return (
     <div className="space-y-2">
@@ -178,7 +214,7 @@ export function QrCodeInput({
 
           <div className="space-y-3">
             <div className="overflow-hidden rounded-lg border bg-muted">
-              <video ref={videoRef} className="aspect-square w-full object-cover" muted playsInline />
+              <video ref={videoRef} className="aspect-square w-full object-cover" autoPlay muted playsInline />
               <canvas ref={canvasRef} className="hidden" />
             </div>
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
