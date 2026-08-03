@@ -87,6 +87,7 @@ export async function PUT(
         ordemservicoid,
         servicoid,
         usuarioIds: [],
+        idusuariorealizador: null,
         realizadores: [],
       });
     }
@@ -148,6 +149,7 @@ export async function PUT(
       ordemservicoid,
       servicoid,
       usuarioIds,
+      idusuariorealizador: usuarioIds[0] ?? null,
       realizadores: usuarioIds.map((uid) => ({
         id: uid,
         nome: map.get(uid)?.nome ?? null,

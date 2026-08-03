@@ -1657,6 +1657,10 @@ export function OrdensTabela({
             if (!v) setRealizadoresOsId(null);
           }}
           osId={realizadoresOsId}
+          onStart={async () => {
+            if (!realizadoresOsId) return false;
+            return setStatus(realizadoresOsId, "EM_ANDAMENTO");
+          }}
         />
 
         <AlertDialog open={!!estoqueDialog} onOpenChange={(open) => !open && setEstoqueDialog(null)}>

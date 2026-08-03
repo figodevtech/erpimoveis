@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "@/lib/toast";
-import { CheckCircle2, Loader2, Users, XCircle } from "lucide-react";
+import { CheckCircle2, Loader2, Play, Save, Users, XCircle } from "lucide-react";
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -54,13 +54,6 @@ function getIdsFromItem(it: ItemServico): string[] {
   return legacy ? [legacy] : [];
 }
 
-function buildRealizadoresFromIds(ids: string[], users: UsuarioAtivo[]): RealizadorLite[] {
-  return ids.map((id) => ({
-    id,
-    nome: users.find((u) => u.id === id)?.nome ?? null,
-  }));
-}
-
 const money = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(v) || 0);
 
@@ -93,13 +86,15 @@ export function RealizadoresOSDialog({
   open,
   onOpenChange,
   osId,
+  onStart,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   osId: number | null;
+  onStart: () => Promise<boolean>;
 }) {
   const [loading, setLoading] = useState(false);
-  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [savingAction, setSavingAction] = useState<"save" | "start" | null>(null);
 
   const [itensServico, setItensServico] = useState<ItemServico[]>([]);
   const [usuarios, setUsuarios] = useState<UsuarioAtivo[]>([]);
@@ -113,7 +108,7 @@ export function RealizadoresOSDialog({
   const [activeKey, setActiveKey] = useState<string | null>(null);
 
   const canFetch = open && !!osId;
-  const busy = loading || savingKey != null;
+  const busy = loading || savingAction != null;
 
   useEffect(() => {
     if (!canFetch || !osId) return;
@@ -161,9 +156,8 @@ export function RealizadoresOSDialog({
     return usuarios.some((u) => getComissaoPercentual(u) > 0);
   }, [usuarios]);
 
-  const servicosView = useMemo(() => {
-    const q = buscaServico.trim().toLowerCase();
-    const arr = itensServico.map((it) => {
+  const servicos = useMemo(() => {
+    return itensServico.map((it) => {
       const key = `${it.ordemservicoid}-${it.servicoid}`;
       const titulo = it.servico?.descricao || it.servico?.codigo || `Serviço #${it.servicoid}`;
       const baseTotal = Number(it.subtotal ?? 0) || Number(it.quantidade ?? 0) * Number(it.precounitario ?? 0);
@@ -172,13 +166,17 @@ export function RealizadoresOSDialog({
       const semRealizador = ids.length === 0;
       return { it, key, titulo, baseTotal, selectedCount: ids.length, pendenteSalvar, semRealizador };
     });
+  }, [itensServico, selecionados, origSelecionados]);
 
+  const servicosView = useMemo(() => {
+    const q = buscaServico.trim().toLowerCase();
+    const arr = servicos;
     if (!q) return arr;
     return arr.filter((s) => s.titulo.toLowerCase().includes(q) || s.key.includes(q));
-  }, [itensServico, buscaServico, selecionados, origSelecionados]);
+  }, [servicos, buscaServico]);
 
-  const pendentesCount = useMemo(() => servicosView.filter((s) => s.pendenteSalvar).length, [servicosView]);
-  const semRealizadorCount = useMemo(() => servicosView.filter((s) => s.semRealizador).length, [servicosView]);
+  const pendentesCount = useMemo(() => servicos.filter((s) => s.pendenteSalvar).length, [servicos]);
+  const semRealizadorCount = useMemo(() => servicos.filter((s) => s.semRealizador).length, [servicos]);
 
   const active = useMemo(() => {
     if (!activeKey) return null;
@@ -221,58 +219,93 @@ export function RealizadoresOSDialog({
     setSelecionados((prev) => ({ ...prev, [serviceKey]: [] }));
   }
 
-  async function salvarServico(it: ItemServico, key: string) {
-    if (!osId) return;
+  async function salvarTodos(iniciar: boolean) {
+    if (!osId || busy) return;
 
-    const ids = uniq((selecionados[key] ?? []).filter(Boolean));
-    setSavingKey(key);
+    const primeiroSemRealizador = servicos.find((servico) => servico.semRealizador);
+    if (iniciar && primeiroSemRealizador) {
+      setActiveKey(primeiroSemRealizador.key);
+      toast.error("Selecione ao menos um realizador para todos os serviços antes de iniciar a OS.");
+      return;
+    }
 
-    // otimista local
-    setItensServico((prev) =>
-      prev.map((s) => {
-        if (s.ordemservicoid !== it.ordemservicoid || s.servicoid !== it.servicoid) return s;
+    const alterados = servicos.filter((servico) => servico.pendenteSalvar);
+    if (!iniciar && alterados.length === 0) {
+      toast.info("Nenhuma alteração pendente para salvar.");
+      return;
+    }
 
-        const otimista = buildRealizadoresFromIds(ids, usuarios);
-        const principal = ids[0] ?? null;
-
-        return {
-          ...s,
-          realizadores: otimista,
-          idusuariorealizador: principal,
-          realizador: principal ? { id: principal, nome: otimista[0]?.nome ?? null } : null,
-        };
-      })
-    );
+    setSavingAction(iniciar ? "start" : "save");
 
     try {
-      const resp = await putRealizadores(osId, it.servicoid, ids);
-
-      setItensServico((prev) =>
-        prev.map((s) => {
-          if (s.ordemservicoid !== resp.ordemservicoid || s.servicoid !== resp.servicoid) return s;
-
-          return {
-            ...s,
-            realizadores: resp.realizadores ?? [],
-            idusuariorealizador: resp.idusuariorealizador,
-            realizador: resp.idusuariorealizador
-              ? {
-                  id: resp.idusuariorealizador,
-                  nome: resp.realizadores?.find((r) => r.id === resp.idusuariorealizador)?.nome ?? null,
-                }
-              : null,
-          };
-        })
+      const resultados = await Promise.allSettled(
+        alterados.map(async (servico) => ({
+          key: servico.key,
+          ids: uniq((selecionados[servico.key] ?? []).filter(Boolean)),
+          response: await putRealizadores(
+            osId,
+            servico.it.servicoid,
+            uniq((selecionados[servico.key] ?? []).filter(Boolean)),
+          ),
+        })),
       );
 
-      setOrigSelecionados((prev) => ({ ...prev, [key]: ids }));
+      const salvos = resultados.flatMap((resultado) =>
+        resultado.status === "fulfilled" ? [resultado.value] : [],
+      );
 
-      toast.success("Realizadores atualizados");
-      window.dispatchEvent(new Event("os:refresh"));
-    } catch (e: any) {
-      toast.error(e?.message || "Erro ao salvar realizadores");
+      if (salvos.length > 0) {
+        const respostasPorServico = new Map(
+          salvos.map(({ response }) => [`${response.ordemservicoid}-${response.servicoid}`, response]),
+        );
+
+        setItensServico((prev) =>
+          prev.map((servico) => {
+            const key = `${servico.ordemservicoid}-${servico.servicoid}`;
+            const response = respostasPorServico.get(key);
+            if (!response) return servico;
+
+            return {
+              ...servico,
+              realizadores: response.realizadores ?? [],
+              idusuariorealizador: response.idusuariorealizador,
+              realizador: response.idusuariorealizador
+                ? {
+                    id: response.idusuariorealizador,
+                    nome:
+                      response.realizadores?.find((realizador) => realizador.id === response.idusuariorealizador)?.nome ??
+                      null,
+                  }
+                : null,
+            };
+          }),
+        );
+        setOrigSelecionados((prev) => {
+          const next = { ...prev };
+          for (const salvo of salvos) next[salvo.key] = salvo.ids;
+          return next;
+        });
+        window.dispatchEvent(new Event("os:refresh"));
+      }
+
+      const falhas = resultados.filter((resultado) => resultado.status === "rejected");
+      if (falhas.length > 0) {
+        const primeiraFalha = falhas[0] as PromiseRejectedResult;
+        const mensagem = primeiraFalha.reason instanceof Error ? primeiraFalha.reason.message : "Erro desconhecido";
+        toast.error(`${falhas.length} serviço(s) não foram salvos.`, { description: mensagem });
+        return;
+      }
+
+      if (!iniciar) {
+        toast.success("Realizadores de todos os serviços atualizados.");
+        return;
+      }
+
+      if (alterados.length > 0) toast.success("Realizadores salvos. Iniciando a OS...");
+      const iniciou = await onStart();
+      if (iniciou) onOpenChange(false);
     } finally {
-      setSavingKey(null);
+      setSavingAction(null);
     }
   }
 
@@ -294,7 +327,7 @@ export function RealizadoresOSDialog({
               Realizadores dos serviços (OS #{osId ?? "—"})
             </DialogTitle>
             <DialogDescription>
-              Selecione 1 ou mais usuários por serviço. O cálculo usa a base do serviço dividida pelos selecionados.
+              Selecione 1 ou mais usuários em cada serviço e salve todas as atribuições de uma só vez.
             </DialogDescription>
           </DialogHeader>
 
@@ -406,24 +439,9 @@ export function RealizadoresOSDialog({
                           variant="outline"
                           size="sm"
                           onClick={() => limparSelecionados(active.key)}
-                          disabled={savingKey === active.key}
+                          disabled={busy}
                         >
                           Limpar
-                        </Button>
-
-                        <Button
-                          size="sm"
-                          onClick={() => salvarServico(active.it, active.key)}
-                          disabled={!active.pendenteSalvar || savingKey === active.key}
-                        >
-                          {savingKey === active.key ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Salvando…
-                            </>
-                          ) : (
-                            "Salvar Serviço"
-                          )}
                         </Button>
                       </div>
                     </div>
@@ -509,14 +527,30 @@ export function RealizadoresOSDialog({
 
         {/* Footer fixo */}
         <div className="shrink-0 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 p-4">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-xs text-muted-foreground">
               {pendentesCount > 0 ? `${pendentesCount} serviço(s) com alterações pendentes` : "Nenhuma alteração pendente"}
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
                 Fechar
+              </Button>
+              <Button variant="outline" onClick={() => salvarTodos(false)} disabled={busy || pendentesCount === 0}>
+                {savingAction === "save" ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="mr-2 h-4 w-4" />
+                )}
+                Salvar alterações
+              </Button>
+              <Button onClick={() => salvarTodos(true)} disabled={busy || semRealizadorCount > 0}>
+                {savingAction === "start" ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Play className="mr-2 h-4 w-4" />
+                )}
+                {pendentesCount > 0 ? "Salvar e iniciar" : "Iniciar OS"}
               </Button>
             </div>
           </div>
