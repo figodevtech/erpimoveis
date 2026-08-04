@@ -824,10 +824,10 @@ export function OrdensTabela({
 
   return (
     <TooltipProvider>
-      <Card className="bg-card">
-        <CardHeader className="border-b-2 pb-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
+      <Card className="min-w-0 max-w-full overflow-hidden bg-card">
+        <CardHeader className="min-w-0 border-b-2 pb-4">
+          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
               <CardTitle>Ordens de Serviço</CardTitle>
               <CardDescription className="flex items-center gap-2">
                 <button
@@ -840,7 +840,7 @@ export function OrdensTabela({
               </CardDescription>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2 sm:flex-nowrap">
               <div className="relative hidden md:block w-[400px]">
                 <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input value={localSearch} onChange={(e) => setLocalSearch(e.target.value)} placeholder="Buscar..." className="pl-8 pr-9" />
@@ -860,7 +860,7 @@ export function OrdensTabela({
               <Button
                 variant={apenasMinhas ? "default" : "outline"}
                 size="sm"
-                className="gap-1 hover:cursor-pointer"
+                className="min-w-0 flex-1 gap-1 hover:cursor-pointer sm:flex-none"
                 aria-pressed={apenasMinhas}
                 title="Mostrar apenas as ordens de serviço criadas por mim"
                 onClick={() => setApenasMinhas((atual) => !atual)}
@@ -888,7 +888,7 @@ export function OrdensTabela({
               />
 
               {canCreate ? (
-              <Button onClick={onNovaOS} size="sm" className="hover:cursor-pointer">
+              <Button onClick={onNovaOS} size="sm" className="flex-1 hover:cursor-pointer sm:flex-none">
                 <Plus className="h-4 w-4 mr-1" />
                 Nova OS
               </Button>
@@ -896,7 +896,7 @@ export function OrdensTabela({
             </div>
           </div>
 
-          <div className="mt-3 md:hidden">
+          <div className="mt-3 min-w-0 md:hidden">
             <div className="relative w-full">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input value={localSearch} onChange={(e) => setLocalSearch(e.target.value)} placeholder="Buscar..." className="pl-8 pr-9" />
@@ -915,7 +915,7 @@ export function OrdensTabela({
           </div>
         </CardHeader>
 
-        <CardContent className="min-h-[300px] -mt-[24px] px-4 pb-4 pt-0 relative">
+        <CardContent className="relative -mt-[24px] min-h-[300px] min-w-0 px-3 pb-4 pt-0 sm:px-4">
           <div
             className={`${
               isLoading && " opacity-100"
@@ -928,7 +928,7 @@ export function OrdensTabela({
             />
           </div>
 
-          <div className="overflow-x-auto rounded-md border mt-6">
+          <div className="mt-6 min-w-0 max-w-full overflow-hidden rounded-md border">
             <Table className="text-xs">
               <TableHeader>
                 <TableRow className="bg-muted/40">
@@ -1131,7 +1131,7 @@ export function OrdensTabela({
             </Table>
           </div>
 
-          <div className="mt-4 flex items-center justify-between">
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-3 sm:justify-between">
             <div className="flex flex-nowrap text-xs text-muted-foreground">
               <span>{start || 0}</span> - <span>{end || 0}</span>
               <span className="ml-1 hidden sm:block">de {total}</span>
@@ -1168,7 +1168,7 @@ export function OrdensTabela({
               </Button>
             </div>
 
-            <div>
+            <div className="shrink-0">
               <Select
                 value={String(limit)}
                 onValueChange={(v) => {
