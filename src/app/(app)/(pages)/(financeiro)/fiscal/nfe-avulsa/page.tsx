@@ -279,6 +279,7 @@ type DraftPayment = {
   cnpjCredenciadora: string;
   bandeira: string;
   autorizacao: string;
+  descricao: string;
 };
 
 type ValidationError = {
@@ -476,6 +477,7 @@ const initialDraft: DraftPayload = {
     cnpjCredenciadora: "",
     bandeira: "",
     autorizacao: "",
+    descricao: "",
   },
   pagamentos: [{
     meio: "01",
@@ -484,6 +486,7 @@ const initialDraft: DraftPayload = {
     cnpjCredenciadora: "",
     bandeira: "",
     autorizacao: "",
+    descricao: "",
   }],
   descontoGeral: "0",
   transporte: {
@@ -599,6 +602,7 @@ function normalizePagamento(value: unknown): DraftPayload["pagamento"] {
     cnpjCredenciadora: onlyDigits(String(pagamento.cnpjCredenciadora ?? "")),
     bandeira: onlyDigits(String(pagamento.bandeira ?? "")),
     autorizacao: String(pagamento.autorizacao ?? ""),
+    descricao: String(pagamento.descricao ?? ""),
   };
 }
 
@@ -923,6 +927,9 @@ export default function NFeAvulsaPage() {
     if (draft.pagamentos.length > 1 && Math.abs(totalPagamentos - totalProdutos) > 0.01) {
       result.push(`A soma dos pagamentos deve ser ${formatarEmReal(totalProdutos)}.`);
     }
+    if (draft.pagamentos.length > 1 && draft.pagamentos.some((pagamento) => pagamento.meio === "90")) {
+      result.push("Sem pagamento não pode ser combinado com outros métodos.");
+    }
     draft.pagamentos.forEach((pagamento) => {
       if (pagamento.meio !== "03" && pagamento.meio !== "04") return;
       if (!pagamento.bandeira) {
@@ -935,6 +942,12 @@ export default function NFeAvulsaPage() {
         if (!pagamento.autorizacao.trim()) {
           result.push(`Informe o código de autorização de ${getPaymentLabel(pagamento.meio)}.`);
         }
+      }
+    });
+    draft.pagamentos.forEach((pagamento) => {
+      if (pagamento.meio !== "99") return;
+      if (!pagamento.descricao.trim()) {
+        result.push("Informe a descrição da forma de pagamento \"Outros\".");
       }
     });
     return result;
@@ -2238,7 +2251,7 @@ export default function NFeAvulsaPage() {
                               onWheel={(event) => event.stopPropagation()}
                             >
                               <CommandGroup>
-                                {paymentOptions.filter((option) => option.value !== "90").map((option) => {
+                                {paymentOptions.map((option) => {
                                   const checked = draft.pagamentos.some(
                                     (pagamento) => pagamento.meio === option.value,
                                   );
@@ -2388,6 +2401,30 @@ export default function NFeAvulsaPage() {
                           </>
                         )}
                       </div>
+                    </div>
+                  ))}
+
+                {!isSemPagamentoObrigatorio && draft.pagamentos
+                  .filter((pagamento) => pagamento.meio === "99")
+                  .map((pagamento) => (
+                    <div key={pagamento.meio} className="min-w-0 space-y-4 rounded-lg border p-3 sm:p-4">
+                      <div>
+                        <p className="font-medium">
+                          Dados do {pagamento.meio} - {getPaymentLabel(pagamento.meio)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          A SEFAZ exige a descrição da forma de pagamento quando o método for &quot;Outros&quot;.
+                        </p>
+                      </div>
+                      <Field label="Descrição do pagamento" required>
+                        <Input
+                          value={pagamento.descricao}
+                          maxLength={60}
+                          onChange={(event) =>
+                            updatePayment(pagamento.meio, { descricao: event.target.value })
+                          }
+                        />
+                      </Field>
                     </div>
                   ))}
               </section>
@@ -2851,7 +2888,7 @@ function NFeAutorizadaView({
         : pagamentosAtuais.length === 1
           ? totalProdutos
           : pagamento.valor,
-      descricao: "",
+      descricao: pagamento.descricao,
       integracao: pagamento.tipoIntegracao,
       cnpjCredenciadora: pagamento.cnpjCredenciadora,
       bandeira: pagamento.bandeira,

@@ -73,6 +73,7 @@ export type NFePagamentoOptions = {
   cnpjCredenciadora?: string | null;
   bandeira?: string | null;
   autorizacao?: string | null;
+  xPag?: string | null;
 };
 
 export type NFeTransporteOptions = {
@@ -263,6 +264,9 @@ function buildPagXml(params: {
     const cnpjCredenciadora = onlyDigits(pagamento.cnpjCredenciadora);
     const bandeira = onlyDigits(pagamento.bandeira);
     const autorizacao = String(pagamento.autorizacao ?? "").trim();
+    const xPag = String(pagamento.xPag ?? "").trim();
+    // SEFAZ só aceita/exige xPag quando tPag = 99 (Outros).
+    const xPagXml = tPag === "99" && xPag ? `<xPag>${escapeXml(xPag)}</xPag>` : "";
     const cardXml = isCartao
       ? '<card>' +
         `<tpIntegra>${tpIntegra}</tpIntegra>` +
@@ -272,7 +276,7 @@ function buildPagXml(params: {
         '</card>'
       : "";
 
-    return '<detPag>' + `<tPag>${tPag}</tPag>` + `<vPag>${vPag}</vPag>` + cardXml + '</detPag>';
+    return '<detPag>' + `<tPag>${tPag}</tPag>` + xPagXml + `<vPag>${vPag}</vPag>` + cardXml + '</detPag>';
   });
 
   const totalPago = pagamentos.reduce((total, pagamento) => {

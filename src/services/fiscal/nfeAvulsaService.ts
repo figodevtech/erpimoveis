@@ -106,6 +106,7 @@ export type NFeAvulsaDraftInput = {
     cnpjCredenciadora?: string | null;
     bandeira?: string | null;
     autorizacao?: string | null;
+    descricao?: string | null;
   } | null;
   /**
    * Desconto geral digitado na tela. Não vai para o XML: já chega rateado no
@@ -120,6 +121,7 @@ export type NFeAvulsaDraftInput = {
     cnpjCredenciadora?: string | null;
     bandeira?: string | null;
     autorizacao?: string | null;
+    descricao?: string | null;
   }> | null;
   transporte?: {
     modFrete?: "0" | "1" | "2" | "3" | "4" | "9" | string | null;
@@ -354,6 +356,7 @@ function getPagamentoFiscal(input: NFeAvulsaDraftInput): NFePagamentoOptions {
     cnpjCredenciadora: onlyDigits(input.pagamento?.cnpjCredenciadora),
     bandeira: onlyDigits(input.pagamento?.bandeira),
     autorizacao: cleanText(input.pagamento?.autorizacao),
+    xPag: cleanText(input.pagamento?.descricao),
   };
 }
 
@@ -369,6 +372,7 @@ function getPagamentosFiscais(input: NFeAvulsaDraftInput): NFePagamentoOptions[]
     cnpjCredenciadora: onlyDigits(pagamento.cnpjCredenciadora),
     bandeira: onlyDigits(pagamento.bandeira),
     autorizacao: cleanText(pagamento.autorizacao),
+    xPag: cleanText(pagamento.descricao),
   }));
 }
 
@@ -381,6 +385,7 @@ function getPagamentoDadosAvulsos(input: NFeAvulsaDraftInput) {
     cnpjCredenciadora: pagamento.cnpjCredenciadora,
     bandeira: pagamento.bandeira,
     autorizacao: pagamento.autorizacao,
+    descricao: pagamento.xPag,
   };
 }
 
@@ -392,6 +397,7 @@ function getPagamentosDadosAvulsos(input: NFeAvulsaDraftInput) {
     cnpjCredenciadora: pagamento.cnpjCredenciadora,
     bandeira: pagamento.bandeira,
     autorizacao: pagamento.autorizacao,
+    descricao: pagamento.xPag,
   }));
 }
 
@@ -602,6 +608,14 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
           message: "Informe o código de autorização quando o cartão for integrado ao sistema.",
         });
       }
+    }
+
+    if (pagamentoFiscal.tPag === "99" && !pagamentoFiscal.xPag) {
+      errors.push({
+        step: "payment",
+        field: `pagamentos.${paymentIndex}.descricao`,
+        message: "Informe a descrição da forma de pagamento quando o método for \"Outros\".",
+      });
     }
   });
 
