@@ -22,7 +22,7 @@ export function Providers({
   session?: Session | null;
 } & NextThemesProps) {
   return (
-    <SessionProvider session={session} refetchInterval={30} refetchOnWindowFocus>
+    <SessionProvider session={session} refetchInterval={0} refetchOnWindowFocus={false}>
       <SessionPermissionsRefresher />
       <NextThemesProvider {...props}>{children}</NextThemesProvider>
     </SessionProvider>

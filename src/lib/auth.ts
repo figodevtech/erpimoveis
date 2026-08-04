@@ -7,7 +7,6 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { expandPermissions } from "@/app/api/_authz/permission-constants";
 
 const MAX_AGE_SECONDS = 60 * 60 * 24; // 24h
-const PERMISSIONS_TOKEN_REFRESH_INTERVAL_MS = 5 * 1000;
 
 async function carregarPermissoesPorPerfil(perfilId: number | null): Promise<string[]> {
   if (!perfilId) return [];
@@ -76,27 +75,6 @@ async function atualizarTokenComUsuarioAtual(token: any) {
   token.permissoes = usuario.permissoes;
 
   return token;
-}
-
-async function carregarPermissoesDaSessao(token: any) {
-  const usuario = await carregarUsuarioAplicacao(token.id as string | undefined, token.email as string | undefined);
-  if (!usuario) {
-    return {
-      id: token.id as string | undefined,
-      email: token.email as string | undefined,
-      nome: token.nome as string | undefined,
-      perfilId: (token as any).perfilId ?? null,
-      setorId: (token as any).setorId ?? null,
-      ativo: (token as any).ativo ?? true,
-      permissoes: (token as any).permissoes ?? [],
-      permissoesRefreshedAt: (token as any).permissoesRefreshedAt ?? null,
-    };
-  }
-
-  return {
-    ...usuario,
-    permissoesRefreshedAt: Date.now(),
-  };
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -181,10 +159,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         return token;
       }
 
-      const lastRefresh = Number((token as any).permissoesRefreshedAt ?? 0);
-      const shouldRefresh = trigger === "update" || Date.now() - lastRefresh > PERMISSIONS_TOKEN_REFRESH_INTERVAL_MS;
-
-      if (shouldRefresh) {
+      if (trigger === "update") {
         try {
           return await atualizarTokenComUsuarioAtual(token);
         } catch (error) {
@@ -198,18 +173,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
     async session({ session, token }) {
       if (session.user) {
-        const usuarioAtual = await carregarPermissoesDaSessao(token);
-
-        (session.user as any).id = usuarioAtual.id as string;
-        (session.user as any).email = usuarioAtual.email as string;
-
-        (session.user as any).nome = usuarioAtual.nome as string;
-        (session.user as any).perfilId = usuarioAtual.perfilId ?? null;
-        (session.user as any).setorId = usuarioAtual.setorId ?? null;
-
-        (session.user as any).ativo = usuarioAtual.ativo ?? true;
-        (session.user as any).permissoes = usuarioAtual.permissoes ?? [];
-        (session.user as any).permissoesRefreshedAt = usuarioAtual.permissoesRefreshedAt ?? null;
+        (session.user as any).id = token.id as string;
+        (session.user as any).email = token.email as string;
+        (session.user as any).nome = (token as any).nome as string;
+        (session.user as any).perfilId = (token as any).perfilId ?? null;
+        (session.user as any).setorId = (token as any).setorId ?? null;
+        (session.user as any).ativo = (token as any).ativo ?? true;
+        (session.user as any).permissoes = (token as any).permissoes ?? [];
+        (session.user as any).permissoesRefreshedAt = (token as any).permissoesRefreshedAt ?? null;
       }
 
       return session;
