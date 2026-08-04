@@ -53,10 +53,11 @@ async function main() {
   console.log(`Executando ${path.basename(caminho)} em ${configuracao.label}...\n`);
 
   const { client } = await connectDatabase(configuracao);
+  let ecoarNotices = true;
 
   // Sem isto o RAISE NOTICE do script não aparece em lugar nenhum.
   client.on("notice", (notice) => {
-    if (notice.message) console.log(notice.message);
+    if (ecoarNotices && notice.message) console.log(notice.message);
   });
 
   try {
@@ -67,6 +68,10 @@ async function main() {
     console.error(`\nResultado: ${mensagem}`);
     process.exitCode = 1;
   } finally {
+    // Rede de segurança para quando o arquivo aborta antes do próprio ROLLBACK.
+    // No caminho feliz a transação já acabou, e o aviso "no transaction in
+    // progress" só assustaria quem lê a saída.
+    ecoarNotices = false;
     await client.query("ROLLBACK").catch(() => undefined);
     await client.end().catch(() => undefined);
   }
