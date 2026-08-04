@@ -58,8 +58,6 @@ async function carregarUsuarios(opts?: { onlyActive?: boolean; q?: string }) {
     )
     .order("createdat", { ascending: false });
 
-    query=query.eq("is_root", false); // sempre excluir usuários root
-
   if (onlyActive) {
     query = query.eq("ativo", true);
   }

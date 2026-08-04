@@ -18,5 +18,6 @@ export interface Config {
     modo_baixa_estoque_os: "ORCAMENTO" | "EXECUCAO";
     produto_preco_medio_compra_obrigatorio: boolean;
     habilitar_edicao_transacoes: boolean;
+    permitir_produto_avulso_os: boolean;
     created_at: string;
 }

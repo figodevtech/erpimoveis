@@ -376,6 +376,20 @@ export async function POST(
       body.acao === "aprovar" ? "APROVADA" : "REPROVADA";
     const desiredOS: DBStatusOS =
       body.acao === "aprovar" ? "ORCAMENTO_APROVADO" : "ORCAMENTO_RECUSADO";
+
+    if (body.acao === "aprovar") {
+      const { count: produtosAvulsos, error: produtosAvulsosError } = await supabaseAdmin
+        .from("osproduto_avulso")
+        .select("id", { count: "exact", head: true })
+        .eq("ordemservicoid", ordemservicoid);
+      if (produtosAvulsosError) throw produtosAvulsosError;
+      if ((produtosAvulsos ?? 0) > 0) {
+        return NextResponse.json(
+          { error: "Este orçamento possui produtos avulsos pendentes e ainda não pode ser aprovado." },
+          { status: 409 },
+        );
+      }
+    }
     const auditActorName = auditHeaderValue(
       `Cliente: ${cliente.nomerazaosocial} (link de aprovacao)`,
     );

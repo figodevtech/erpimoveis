@@ -123,6 +123,7 @@ export default function ConfigGeralPage() {
       modo_baixa_estoque_os: "ORCAMENTO",
       produto_preco_medio_compra_obrigatorio: false,
       habilitar_edicao_transacoes: false,
+      permitir_produto_avulso_os: false,
     },
   });
 
@@ -888,6 +889,21 @@ export default function ConfigGeralPage() {
             <CardDescription>Defina quando os produtos da OS saem do estoque.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col space-y-1">
+                <Label>Permitir produto avulso em OS</Label>
+                <span className="text-xs text-muted-foreground">
+                  Permite orçar itens temporários, que devem ser cadastrados ou vinculados antes de avançar a OS.
+                </span>
+              </div>
+              <Switch
+                checked={watch("permitir_produto_avulso_os")}
+                onCheckedChange={(value) =>
+                  setValue("permitir_produto_avulso_os", value, { shouldDirty: true })
+                }
+              />
+            </div>
+            <Separator />
             <div className="flex items-center justify-between gap-4">
               <div className="flex flex-col space-y-1">
                 <Label>Valor médio de compra obrigatório</Label>

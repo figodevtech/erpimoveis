@@ -22,7 +22,6 @@ const authConfig: NextAuthConfig = {
         (session.user as any).perfilId = (token as any).perfilId ?? null;
         (session.user as any).setorId = (token as any).setorId ?? null;
         (session.user as any).ativo = (token as any).ativo ?? true;
-        (session.user as any).is_root = (token as any).is_root ?? false;
         (session.user as any).permissoes = (token as any).permissoes ?? [];
         (session.user as any).permissoesRefreshedAt = (token as any).permissoesRefreshedAt ?? null;
       }

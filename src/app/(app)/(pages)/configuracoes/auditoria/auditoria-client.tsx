@@ -208,7 +208,6 @@ const ROTULOS_CAMPOS: Record<string, string> = {
   inscricaoestadual: "Inscrição estadual",
   inscricaomunicipal: "Inscrição municipal",
   is_deleted: "Excluído",
-  is_root: "Administrador principal",
   nome: "Nome",
   nomerazaosocial: "Nome / razão social",
   observacoes: "Observações",

@@ -31,7 +31,7 @@ async function carregarUsuarioAplicacao(userId?: string | null, email?: string |
   if (userId) {
     const { data } = await supabaseAdmin
       .from("usuario")
-      .select("id, email, nome, perfilid, setorid, ativo, is_root")
+      .select("id, email, nome, perfilid, setorid, ativo")
       .eq("id", userId)
       .maybeSingle();
     row = data ?? null;
@@ -40,7 +40,7 @@ async function carregarUsuarioAplicacao(userId?: string | null, email?: string |
   if (!row && email) {
     const { data } = await supabaseAdmin
       .from("usuario")
-      .select("id, email, nome, perfilid, setorid, ativo, is_root")
+      .select("id, email, nome, perfilid, setorid, ativo")
       .eq("email", email)
       .maybeSingle();
     row = data ?? null;
@@ -57,7 +57,6 @@ async function carregarUsuarioAplicacao(userId?: string | null, email?: string |
     perfilId,
     setorId: (row.setorid as number | null) ?? null,
     ativo: row.ativo !== false,
-    is_root: row.is_root === true,
     permissoes: await carregarPermissoesPorPerfil(perfilId),
   };
 }
@@ -74,7 +73,6 @@ async function atualizarTokenComUsuarioAtual(token: any) {
   token.perfilId = usuario.perfilId;
   token.setorId = usuario.setorId;
   token.ativo = usuario.ativo;
-  token.is_root = usuario.is_root;
   token.permissoes = usuario.permissoes;
 
   return token;
@@ -90,7 +88,6 @@ async function carregarPermissoesDaSessao(token: any) {
       perfilId: (token as any).perfilId ?? null,
       setorId: (token as any).setorId ?? null,
       ativo: (token as any).ativo ?? true,
-      is_root: (token as any).is_root ?? false,
       permissoes: (token as any).permissoes ?? [],
       permissoesRefreshedAt: (token as any).permissoesRefreshedAt ?? null,
     };
@@ -142,7 +139,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             setorId: usuarioAplicacao?.setorId ?? null,
             ativo,
             permissoes: usuarioAplicacao?.permissoes ?? [],
-            is_root: usuarioAplicacao?.is_root ?? false,
           } as any;
         } catch (e: any) {
           if (
@@ -179,7 +175,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         (token as any).setorId = (user as any).setorId ?? null;
 
         (token as any).ativo = (user as any).ativo ?? true;
-        (token as any).is_root = (user as any).is_root ?? false;
         (token as any).permissoes = Array.isArray((user as any).permissoes) ? (user as any).permissoes : [];
         (token as any).permissoesRefreshedAt = Date.now();
 
@@ -213,7 +208,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         (session.user as any).setorId = usuarioAtual.setorId ?? null;
 
         (session.user as any).ativo = usuarioAtual.ativo ?? true;
-        (session.user as any).is_root = usuarioAtual.is_root ?? false;
         (session.user as any).permissoes = usuarioAtual.permissoes ?? [];
         (session.user as any).permissoesRefreshedAt = usuarioAtual.permissoesRefreshedAt ?? null;
       }

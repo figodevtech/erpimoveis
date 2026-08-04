@@ -193,7 +193,8 @@ export default async function OSFullPage({ params }: PageProps) {
       peca:pecaid (*),
       criador:usuariocriadorid ( id, nome ),
       servicos:osservico (*, servico:servicoid (*)),
-      produtos:osproduto (*, produto:produtoid (*))
+      produtos:osproduto (*, produto:produtoid (*)),
+      produtosAvulsos:osproduto_avulso (*)
     `
     )
     .eq("id", osId)
@@ -209,8 +210,8 @@ export default async function OSFullPage({ params }: PageProps) {
   const printColors = await fetchPrintColors();
 
   const totalProdutos =
-    os.produtos?.reduce((acc: number, p: any) => acc + toNumber(p.subtotal), 0) ||
-    0;
+    (os.produtos?.reduce((acc: number, p: any) => acc + toNumber(p.subtotal), 0) || 0) +
+    (os.produtosAvulsos?.reduce((acc: number, p: any) => acc + toNumber(p.subtotal), 0) || 0);
   const totalServicos =
     os.servicos?.reduce((acc: number, s: any) => acc + toNumber(s.subtotal), 0) ||
     0;
@@ -328,6 +329,25 @@ export default async function OSFullPage({ params }: PageProps) {
         descricao: p.produto?.titulo || p.produto?.descricao || "Peça",
         produtoId: p.produto?.id ?? null,
         etiqueta: p.produto?.etiqueta ?? null,
+        qtd,
+        unitario: p.precounitario,
+        descontoTipo,
+        desconto,
+        descontoAplicado: calcularDescontoAplicado(qtd * unitario, descontoTipo, desconto),
+        subtotal: p.subtotal,
+      };
+    }),
+    ...(os.produtosAvulsos ?? []).map((p: any) => {
+      const qtd = Number(p.quantidade ?? 1);
+      const unitario = toNumber(p.precounitario);
+      const descontoTipo = getTipoDesconto(p.desconto_tipo);
+      const desconto = toNumber(p.desconto);
+      return {
+        tipo: "PEÇA" as const,
+        descricao: String(p.titulo || "Produto avulso"),
+        produtoId: null,
+        etiqueta: null,
+        subdescricao: null,
         qtd,
         unitario: p.precounitario,
         descontoTipo,

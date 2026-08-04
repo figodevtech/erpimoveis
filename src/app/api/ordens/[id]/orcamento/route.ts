@@ -95,6 +95,23 @@ export async function GET(
       desconto: toNum(r.desconto ?? 0),
     }));
 
+    const { data: avulsoRows, error: avulsoErr } = await supabase
+      .from("osproduto_avulso")
+      .select("id, titulo, quantidade, precounitario, subtotal, desconto_tipo, desconto")
+      .eq("ordemservicoid", osId)
+      .order("id", { ascending: true });
+
+    if (avulsoErr) throw avulsoErr;
+    const produtosAvulsos = (avulsoRows ?? []).map((r: any) => ({
+      id: toNum(r.id),
+      titulo: String(r.titulo ?? ""),
+      quantidade: toNum(r.quantidade ?? 1),
+      precounitario: toNum(r.precounitario ?? 0),
+      subtotal: toNum(r.subtotal ?? 0),
+      descontoTipo: r.desconto_tipo ?? null,
+      desconto: toNum(r.desconto ?? 0),
+    }));
+
     // Serviços com descrição
     const { data: servRows, error: servErr } = await supabase
       .from("osservico")
@@ -127,6 +144,7 @@ export async function GET(
     return NextResponse.json(
       {
         produtos,
+        produtosAvulsos,
         servicos,
         subtotal: toNum((osRow as any)?.subtotal ?? 0),
         descontoTipo: (osRow as any)?.desconto_tipo ?? null,
@@ -196,6 +214,14 @@ export async function PUT(
       descontoTipo?: string | null;
       desconto?: Num;
     }> = Array.isArray(body?.servicos) ? body.servicos : [];
+    const avulsosBody: Array<{
+      id?: Num;
+      titulo: string;
+      quantidade: Num;
+      precounitario: Num;
+      descontoTipo?: string | null;
+      desconto?: Num;
+    }> = Array.isArray(body?.produtosAvulsos) ? body.produtosAvulsos : [];
     const descontoTipo = sanitizeTipoDesconto(body?.descontoTipo);
     const descontoSolicitado = Math.max(0, toNum(body?.desconto ?? 0));
     const acrescimoFinanceiroTipo = sanitizeFinancialSurchargeType(body?.acrescimoFinanceiroTipo);
@@ -208,6 +234,47 @@ export async function PUT(
     }
 
     const modoBaixaEstoqueOS = await buscarModoBaixaEstoqueOS();
+
+    const avulsosNormalizados = avulsosBody.map((item) => {
+      const titulo = String(item.titulo ?? "").trim();
+      const quantidade = Math.max(0, Math.trunc(toNum(item.quantidade)));
+      const precounitario = Math.max(0, toNum(item.precounitario));
+      const itemDescontoTipo = sanitizeTipoDesconto(item.descontoTipo);
+      const itemDesconto = limitarDesconto(
+        quantidade * precounitario,
+        itemDescontoTipo,
+        toNum(item.desconto ?? 0),
+      );
+      return {
+        id: item.id ? toNum(item.id) : null,
+        titulo,
+        quantidade,
+        precounitario,
+        desconto_tipo: itemDescontoTipo,
+        desconto: itemDesconto,
+        subtotal: calcularTotalComDesconto(quantidade * precounitario, itemDescontoTipo, itemDesconto),
+      };
+    });
+
+    if (avulsosNormalizados.some((item) => !item.titulo || item.quantidade < 1 || item.precounitario <= 0)) {
+      return NextResponse.json(
+        { error: "Informe título, quantidade e valor maior que zero para cada produto avulso." },
+        { status: 400 },
+      );
+    }
+
+    if (avulsosNormalizados.some((item) => !item.id)) {
+      const { data: configAvulso, error: configAvulsoError } = await supabase
+        .from("config_geral")
+        .select("permitir_produto_avulso_os")
+        .order("id", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (configAvulsoError) throw configAvulsoError;
+      if (configAvulso?.permitir_produto_avulso_os !== true) {
+        return NextResponse.json({ error: "Produtos avulsos em OS não estão habilitados." }, { status: 403 });
+      }
+    }
 
     // Normaliza (não aceitaremos números negativos)
     const desejados = produtosBody
@@ -488,7 +555,43 @@ export async function PUT(
       }
     }
 
-    // 4) Atualiza total geral da OS
+    // 4) Sincroniza produtos avulsos (ainda não movimentam estoque).
+    const { data: avulsosAtuais, error: avulsosAtuaisError } = await supabase
+      .from("osproduto_avulso")
+      .select("id")
+      .eq("ordemservicoid", osId);
+    if (avulsosAtuaisError) throw avulsosAtuaisError;
+
+    const idsAvulsosManter = new Set(avulsosNormalizados.map((item) => item.id).filter(Boolean));
+    const idsAvulsosRemover = (avulsosAtuais ?? [])
+      .map((item: any) => toNum(item.id))
+      .filter((id) => !idsAvulsosManter.has(id));
+    if (idsAvulsosRemover.length > 0) {
+      const removidos = await supabase
+        .from("osproduto_avulso")
+        .delete()
+        .eq("ordemservicoid", osId)
+        .in("id", idsAvulsosRemover);
+      if (removidos.error) throw removidos.error;
+    }
+
+    for (const item of avulsosNormalizados) {
+      const payload = {
+        titulo: item.titulo,
+        quantidade: item.quantidade,
+        precounitario: item.precounitario,
+        desconto_tipo: item.desconto_tipo,
+        desconto: item.desconto,
+        subtotal: item.subtotal,
+        updated_at: new Date().toISOString(),
+      };
+      const result = item.id
+        ? await supabase.from("osproduto_avulso").update(payload).eq("id", item.id).eq("ordemservicoid", osId)
+        : await supabase.from("osproduto_avulso").insert({ ...payload, ordemservicoid: osId });
+      if (result.error) throw result.error;
+    }
+
+    // 5) Atualiza total geral da OS
     const totalProdutos = desejados.reduce<number>(
       (acc, p) => acc + (Number(p.subtotal) || 0),
       0
@@ -506,7 +609,11 @@ export async function PUT(
         )
       );
     }, 0);
-    const subtotal = arredondarMoeda(totalProdutos + totalServicos);
+    const totalProdutosAvulsos = avulsosNormalizados.reduce(
+      (acc, item) => acc + item.subtotal,
+      0,
+    );
+    const subtotal = arredondarMoeda(totalProdutos + totalProdutosAvulsos + totalServicos);
     const desconto = limitarDesconto(subtotal, descontoTipo, descontoSolicitado);
     const totalGeral = calcularTotalComDesconto(subtotal, descontoTipo, desconto);
 

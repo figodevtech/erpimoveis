@@ -198,7 +198,7 @@ async function fetchFreshUserState(userId: string) {
 
   const url = new URL(`${supabaseUrl}/rest/v1/usuario`);
   url.searchParams.set("id", `eq.${userId}`);
-  url.searchParams.set("select", "ativo,is_root");
+  url.searchParams.set("select", "ativo");
   url.searchParams.set("limit", "1");
 
   const res = await fetch(url.toString(), {
@@ -254,7 +254,6 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
 
   // VariÃ¡veis locais para decisÃ£o (evita mutar o objeto user da sessÃ£o original se possÃ­vel)
   let isInactive = false;
-  let isRoot = false;
 
   // Se tiver usuÃ¡rio, pega o ID e consulta dados frescos
   const userId = (user as any)?.id as string | undefined;
@@ -262,7 +261,6 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
   // Inicializa com o que veio do token (fallback)
   if (isLoggedIn) {
     isInactive = (user as any).ativo === false;
-    isRoot = (user as any).is_root === true;
   }
 
   if (userId) {
@@ -271,7 +269,6 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
       if (data) {
         // Atualiza as variÃ¡veis locais com a verdade do banco
         isInactive = data.ativo === false;
-        isRoot = data.is_root === true;
 
       }
     } catch (err) {
@@ -334,31 +331,6 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
     }
     if (isBillingPath) {
       return NextResponse.next({ headers: { "Cache-Control": "no-store" } });
-    }
-  }
-
-  // âœ… LÃ³gica de UsuÃ¡rio ROOT
-  if (isRoot) {
-    // Se for API, deixa passar (para nÃ£o quebrar fetches do front)
-    if (isApi) {
-      return NextResponse.next({ headers: { "Cache-Control": "no-store" } });
-    }
-
-    if (!pathname.startsWith("/root")) {
-      // Se tentar acessar qualquer coisa fora do /root (ex: /dashboard, /clientes), joga para /root
-      return NextResponse.redirect(new URL("/root", nextUrl), {
-        headers: { "Cache-Control": "no-store" },
-      });
-    }
-    // Se for /root, deixa passar (ainda vai cair no return next() lÃ¡ embaixo)
-    return NextResponse.next({ headers: { "Cache-Control": "no-store" } });
-  } else {
-    // âŒ NÃ£o Ã© root
-    if (pathname.startsWith("/root")) {
-      // Se tentar acessar /root sendo comum, joga para /dashboard
-      return NextResponse.redirect(new URL(getDefaultRouteForPerms((user as any)?.permissoes), nextUrl), {
-        headers: { "Cache-Control": "no-store" },
-      });
     }
   }
 

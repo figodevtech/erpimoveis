@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 const CONFIG_SELECT_BASE_LEGADO =
   "id, aviso_pagamento, checklist_obrigatorio, alerta_estoque_pdv, habilitar_emissao_nfe, emissao_nf_no_modulo_ordens, emissao_nf_no_modulo_vendas, emissao_nf_ordens_nao_pagas, emissao_nf_vendas_nao_pagas, modo_baixa_estoque_os, created_at, habilitar_drawers";
 
-const CONFIG_SELECT_BASE = `${CONFIG_SELECT_BASE_LEGADO}, produto_preco_medio_compra_obrigatorio, habilitar_edicao_transacoes`;
+const CONFIG_SELECT_BASE = `${CONFIG_SELECT_BASE_LEGADO}, produto_preco_medio_compra_obrigatorio, habilitar_edicao_transacoes, permitir_produto_avulso_os`;
 
 const CONFIG_SELECT_BASE_SEM_MODO_BAIXA =
   "id, aviso_pagamento, checklist_obrigatorio, alerta_estoque_pdv, habilitar_emissao_nfe, emissao_nf_no_modulo_ordens, emissao_nf_no_modulo_vendas, emissao_nf_ordens_nao_pagas, emissao_nf_vendas_nao_pagas, created_at, habilitar_drawers";
@@ -83,6 +83,7 @@ function comPadroesAgendamento(config: any) {
     modo_baixa_estoque_os: modoBaixaEstoqueOSValido(config.modo_baixa_estoque_os) ?? "ORCAMENTO",
     produto_preco_medio_compra_obrigatorio: config.produto_preco_medio_compra_obrigatorio === true,
     habilitar_edicao_transacoes: config.habilitar_edicao_transacoes === true,
+    permitir_produto_avulso_os: config.permitir_produto_avulso_os === true,
   };
 }
 
@@ -219,6 +220,7 @@ export async function PUT(request: Request) {
       "emissao_nf_vendas_nao_pagas",
       "produto_preco_medio_compra_obrigatorio",
       "habilitar_edicao_transacoes",
+      "permitir_produto_avulso_os",
     ];
 
     const patch: any = {};

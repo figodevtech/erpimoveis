@@ -31,6 +31,7 @@ const DEFAULT_CONFIG: Config = {
   modo_baixa_estoque_os: "ORCAMENTO",
   produto_preco_medio_compra_obrigatorio: false,
   habilitar_edicao_transacoes: false,
+  permitir_produto_avulso_os: false,
   created_at: "",
 };
 

@@ -40,6 +40,21 @@ export async function GET(
       );
     }
 
+    const { count: produtosAvulsos, error: produtosAvulsosError } = await supabase
+      .from("osproduto_avulso")
+      .select("id", { count: "exact", head: true })
+      .eq("ordemservicoid", osId);
+    if (produtosAvulsosError) throw produtosAvulsosError;
+    if ((produtosAvulsos ?? 0) > 0) {
+      return NextResponse.json(
+        {
+          error: `Existem ${produtosAvulsos} produto(s) avulso(s) pendente(s). Vincule ou cadastre antes de gerar o link.`,
+          codigo: "PRODUTOS_AVULSOS_PENDENTES",
+        },
+        { status: 409 },
+      );
+    }
+
     const agora = new Date();
     const { data: existente, error: e1 } = await supabase
       .from("osaprovacao")

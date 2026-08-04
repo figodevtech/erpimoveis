@@ -72,6 +72,32 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
       return NextResponse.json({ error: "Status é obrigatório." }, { status: 400 });
     }
 
+    const statusesBloqueadosPorAvulso: DBStatusOS[] = [
+      "APROVACAO_ORCAMENTO",
+      "ORCAMENTO_APROVADO",
+      "EM_ANDAMENTO",
+      "PAGAMENTO",
+      "SEM_COBRANCA",
+      "CONCLUIDO",
+    ];
+    if (statusesBloqueadosPorAvulso.includes(status)) {
+      const { count: pendentes, error: pendentesError } = await supabaseAdmin
+        .from("osproduto_avulso")
+        .select("id", { count: "exact", head: true })
+        .eq("ordemservicoid", osId);
+      if (pendentesError) throw pendentesError;
+      if ((pendentes ?? 0) > 0) {
+        return NextResponse.json(
+          {
+            error: `Existem ${pendentes} produto(s) avulso(s) pendente(s). Vincule ou cadastre esses produtos antes de avançar a OS.`,
+            codigo: "PRODUTOS_AVULSOS_PENDENTES",
+            quantidade: pendentes,
+          },
+          { status: 409 },
+        );
+      }
+    }
+
     if (
       formaPagamento !== null &&
       !["CREDITO", "DEBITO", "DINHEIRO", "PIX", "BOLETO"].includes(formaPagamento)
