@@ -9,7 +9,6 @@ declare module "next-auth" {
       perfilId?: number | null;
       setorId?: number | null;
       ativo?: boolean;
-      is_root?: boolean;
       permissoes?: string[];
       permissoesRefreshedAt?: number | null;
     };
@@ -23,7 +22,6 @@ declare module "next-auth" {
     perfilId?: number | null;
     setorId?: number | null;
     ativo?: boolean;
-    is_root?: boolean;
     permissoes?: string[];
   }
 }
@@ -36,7 +34,6 @@ declare module "next-auth/jwt" {
     perfilId?: number | null;
     setorId?: number | null;
     ativo?: boolean;
-    is_root?: boolean;
     permissoes?: string[];
     permissoesRefreshedAt?: number | null;
   }

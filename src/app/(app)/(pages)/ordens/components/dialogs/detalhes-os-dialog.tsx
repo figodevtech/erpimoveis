@@ -243,6 +243,15 @@ type ItemProduto = {
   } | null;
 };
 
+type ItemProdutoAvulso = {
+  id: number;
+  ordemservicoid: number;
+  titulo: string;
+  quantidade: number;
+  precounitario: number;
+  subtotal: number;
+};
+
 type RealizadorLite = {
   id: string;
   nome: string | null;
@@ -330,6 +339,7 @@ type AuditoriaResumoItem = {
 type OSDetalhesResponse = {
   os: OS;
   itensProduto: ItemProduto[];
+  itensProdutoAvulso: ItemProdutoAvulso[];
   itensServico: ItemServico[];
   checklist: ChecklistItem[];
   aprovacoes?: Aprovacao[];
@@ -730,8 +740,10 @@ export function OSDetalhesDialog({
   }, [data?.os?.prioridade]);
 
   const totalProdutos = useMemo(
-    () => (data?.itensProduto || []).reduce((acc, it) => acc + Number(it.subtotal || 0), 0),
-    [data?.itensProduto]
+    () =>
+      (data?.itensProduto || []).reduce((acc, it) => acc + Number(it.subtotal || 0), 0) +
+      (data?.itensProdutoAvulso || []).reduce((acc, it) => acc + Number(it.subtotal || 0), 0),
+    [data?.itensProduto, data?.itensProdutoAvulso]
   );
   const totalServicos = useMemo(
     () => (data?.itensServico || []).reduce((acc, it) => acc + Number(it.subtotal || 0), 0),
@@ -1427,7 +1439,7 @@ export function OSDetalhesDialog({
                       Total: <b>{fmtMoney(totalProdutos)}</b>
                     </span>
                   </div>
-                  {(data.itensProduto ?? []).length === 0 ? (
+                  {(data.itensProduto ?? []).length === 0 && (data.itensProdutoAvulso ?? []).length === 0 ? (
                     <div className="text-sm text-muted-foreground">—</div>
                   ) : (
                     <ul className="space-y-2 text-sm">
@@ -1460,6 +1472,18 @@ export function OSDetalhesDialog({
                           </li>
                         );
                       })}
+                      {(data.itensProdutoAvulso ?? []).map((it) => (
+                        <li key={`avulso-${it.id}`} className="flex flex-col gap-1 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 font-medium">
+                              <span className="truncate">{it.titulo}</span>
+                              <Badge variant="outline" className="border-amber-500/50 text-amber-700 dark:text-amber-300">Avulso pendente</Badge>
+                            </div>
+                            <div className="text-xs text-muted-foreground">{it.quantidade} × {fmtMoney(it.precounitario)}</div>
+                          </div>
+                          <div className="shrink-0 font-medium sm:text-right">{fmtMoney(it.subtotal)}</div>
+                        </li>
+                      ))}
                     </ul>
                   )}
                 </div>

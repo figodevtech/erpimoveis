@@ -374,6 +374,23 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         : null,
     }));
 
+    const avulsoRes = await supabase
+      .from("osproduto_avulso")
+      .select("id, ordemservicoid, titulo, quantidade, precounitario, subtotal, desconto_tipo, desconto")
+      .eq("ordemservicoid", osId)
+      .order("id", { ascending: true });
+    if (avulsoRes.error) throw avulsoRes.error;
+    const itensProdutoAvulso = (avulsoRes.data ?? []).map((item: any) => ({
+      id: Number(item.id),
+      ordemservicoid: osId,
+      titulo: String(item.titulo ?? ""),
+      quantidade: toNum(item.quantidade),
+      precounitario: toNum(item.precounitario),
+      subtotal: toNum(item.subtotal),
+      descontoTipo: item.desconto_tipo ?? null,
+      desconto: toNum(item.desconto ?? 0),
+    }));
+
     // Itens — serviços
     const serv_res = await supabase
       .from("osservico")
@@ -618,6 +635,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         precounitario: p.precounitario,
         subtotal: p.subtotal,
       })),
+      produtosAvulsos: itensProdutoAvulso,
       servicos: itensServico.map((s) => ({
         servicoid: s.servicoid,
         descricao: s.servico?.descricao ?? "Serviço",
@@ -629,7 +647,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     };
 
     return NextResponse.json(
-      { os, cliente: os.cliente, itensProduto, itensServico, checklist, aprovacoes, orcamento, transacoes, rentabilidade },
+      { os, cliente: os.cliente, itensProduto, itensProdutoAvulso, itensServico, checklist, aprovacoes, orcamento, transacoes, rentabilidade },
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch (e: any) {

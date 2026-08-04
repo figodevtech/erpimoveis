@@ -26,6 +26,16 @@ export type ItemProduto = {
   desconto?: number;
 };
 
+export type ItemProdutoAvulso = {
+  id?: number;
+  titulo: string;
+  quantidade: number;
+  precounitario: number;
+  subtotal: number;
+  descontoTipo?: TipoDesconto | null;
+  desconto?: number;
+};
+
 export type ItemServico = {
   servicoid: number;
   descricao: string;

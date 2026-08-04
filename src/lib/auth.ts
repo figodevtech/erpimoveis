@@ -7,7 +7,6 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { expandPermissions } from "@/app/api/_authz/permission-constants";
 
 const MAX_AGE_SECONDS = 60 * 60 * 24; // 24h
-const PERMISSIONS_TOKEN_REFRESH_INTERVAL_MS = 5 * 1000;
 
 async function carregarPermissoesPorPerfil(perfilId: number | null): Promise<string[]> {
   if (!perfilId) return [];
@@ -31,7 +30,7 @@ async function carregarUsuarioAplicacao(userId?: string | null, email?: string |
   if (userId) {
     const { data } = await supabaseAdmin
       .from("usuario")
-      .select("id, email, nome, perfilid, setorid, ativo, is_root")
+      .select("id, email, nome, perfilid, setorid, ativo")
       .eq("id", userId)
       .maybeSingle();
     row = data ?? null;
@@ -40,7 +39,7 @@ async function carregarUsuarioAplicacao(userId?: string | null, email?: string |
   if (!row && email) {
     const { data } = await supabaseAdmin
       .from("usuario")
-      .select("id, email, nome, perfilid, setorid, ativo, is_root")
+      .select("id, email, nome, perfilid, setorid, ativo")
       .eq("email", email)
       .maybeSingle();
     row = data ?? null;
@@ -57,7 +56,6 @@ async function carregarUsuarioAplicacao(userId?: string | null, email?: string |
     perfilId,
     setorId: (row.setorid as number | null) ?? null,
     ativo: row.ativo !== false,
-    is_root: row.is_root === true,
     permissoes: await carregarPermissoesPorPerfil(perfilId),
   };
 }
@@ -74,32 +72,9 @@ async function atualizarTokenComUsuarioAtual(token: any) {
   token.perfilId = usuario.perfilId;
   token.setorId = usuario.setorId;
   token.ativo = usuario.ativo;
-  token.is_root = usuario.is_root;
   token.permissoes = usuario.permissoes;
 
   return token;
-}
-
-async function carregarPermissoesDaSessao(token: any) {
-  const usuario = await carregarUsuarioAplicacao(token.id as string | undefined, token.email as string | undefined);
-  if (!usuario) {
-    return {
-      id: token.id as string | undefined,
-      email: token.email as string | undefined,
-      nome: token.nome as string | undefined,
-      perfilId: (token as any).perfilId ?? null,
-      setorId: (token as any).setorId ?? null,
-      ativo: (token as any).ativo ?? true,
-      is_root: (token as any).is_root ?? false,
-      permissoes: (token as any).permissoes ?? [],
-      permissoesRefreshedAt: (token as any).permissoesRefreshedAt ?? null,
-    };
-  }
-
-  return {
-    ...usuario,
-    permissoesRefreshedAt: Date.now(),
-  };
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -142,7 +117,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             setorId: usuarioAplicacao?.setorId ?? null,
             ativo,
             permissoes: usuarioAplicacao?.permissoes ?? [],
-            is_root: usuarioAplicacao?.is_root ?? false,
           } as any;
         } catch (e: any) {
           if (
@@ -179,17 +153,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         (token as any).setorId = (user as any).setorId ?? null;
 
         (token as any).ativo = (user as any).ativo ?? true;
-        (token as any).is_root = (user as any).is_root ?? false;
         (token as any).permissoes = Array.isArray((user as any).permissoes) ? (user as any).permissoes : [];
         (token as any).permissoesRefreshedAt = Date.now();
 
         return token;
       }
 
-      const lastRefresh = Number((token as any).permissoesRefreshedAt ?? 0);
-      const shouldRefresh = trigger === "update" || Date.now() - lastRefresh > PERMISSIONS_TOKEN_REFRESH_INTERVAL_MS;
-
-      if (shouldRefresh) {
+      if (trigger === "update") {
         try {
           return await atualizarTokenComUsuarioAtual(token);
         } catch (error) {
@@ -203,19 +173,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
     async session({ session, token }) {
       if (session.user) {
-        const usuarioAtual = await carregarPermissoesDaSessao(token);
-
-        (session.user as any).id = usuarioAtual.id as string;
-        (session.user as any).email = usuarioAtual.email as string;
-
-        (session.user as any).nome = usuarioAtual.nome as string;
-        (session.user as any).perfilId = usuarioAtual.perfilId ?? null;
-        (session.user as any).setorId = usuarioAtual.setorId ?? null;
-
-        (session.user as any).ativo = usuarioAtual.ativo ?? true;
-        (session.user as any).is_root = usuarioAtual.is_root ?? false;
-        (session.user as any).permissoes = usuarioAtual.permissoes ?? [];
-        (session.user as any).permissoesRefreshedAt = usuarioAtual.permissoesRefreshedAt ?? null;
+        (session.user as any).id = token.id as string;
+        (session.user as any).email = token.email as string;
+        (session.user as any).nome = (token as any).nome as string;
+        (session.user as any).perfilId = (token as any).perfilId ?? null;
+        (session.user as any).setorId = (token as any).setorId ?? null;
+        (session.user as any).ativo = (token as any).ativo ?? true;
+        (session.user as any).permissoes = (token as any).permissoes ?? [];
+        (session.user as any).permissoesRefreshedAt = (token as any).permissoesRefreshedAt ?? null;
       }
 
       return session;

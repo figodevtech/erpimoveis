@@ -1,6 +1,6 @@
 // src/app/(app)/(pages)/ordens/components/orcamento/ganchos/use-carrinho-orcamento.ts
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ItemProduto, ItemServico, ProdutoBusca, ServicoBusca, TipoDesconto } from "../tipos";
+import { ItemProduto, ItemProdutoAvulso, ItemServico, ProdutoBusca, ServicoBusca, TipoDesconto } from "../tipos";
 import { carregarItensDaOSAPI } from "../servicos/api-orcamento";
 import { calcularDescontoAplicado, calcularTotalComDesconto } from "../util";
 
@@ -18,10 +18,16 @@ export function useCarrinhoOrcamento(
 ) {
   const [itensProduto, setItensProduto] = useState<ItemProduto[]>([]);
   const [itensServico, setItensServico] = useState<ItemServico[]>([]);
+  const [itensProdutoAvulso, setItensProdutoAvulso] = useState<ItemProdutoAvulso[]>([]);
   const [descontoTipo, setDescontoTipo] = useState<TipoDesconto | null>(null);
   const [desconto, setDesconto] = useState(0);
 
-  const totalProdutos = useMemo(() => itensProduto.reduce((acc, it) => acc + toNum(it.subtotal), 0), [itensProduto]);
+  const totalProdutos = useMemo(
+    () =>
+      itensProduto.reduce((acc, it) => acc + toNum(it.subtotal), 0) +
+      itensProdutoAvulso.reduce((acc, it) => acc + toNum(it.subtotal), 0),
+    [itensProduto, itensProdutoAvulso],
+  );
   const totalServicos = useMemo(() => itensServico.reduce((acc, it) => acc + toNum(it.subtotal), 0), [itensServico]);
   const subtotal = totalProdutos + totalServicos;
   const descontoAplicado = useMemo(
@@ -40,8 +46,9 @@ export function useCarrinhoOrcamento(
   const carregarItensDaOS = useCallback(async () => {
     if (!osId) return;
     const data = await carregarItensDaOSAPI(osId);
-    const { produtos, servicos } = data;
+    const { produtos, produtosAvulsos, servicos } = data;
     setItensProduto(produtos);
+    setItensProdutoAvulso(produtosAvulsos);
     setItensServico(servicos);
     setDescontoTipo(data.descontoTipo);
     setDesconto(data.desconto);
@@ -132,11 +139,32 @@ export function useCarrinhoOrcamento(
   };
 
   const removerProduto = (i: number) => setItensProduto((prev) => prev.filter((_, idx) => idx !== i));
+  const adicionarProdutoAvulso = (item: ItemProdutoAvulso) =>
+    setItensProdutoAvulso((prev) => [...prev, item]);
+  const atualizarProdutoAvulso = (i: number, patch: Partial<ItemProdutoAvulso>) => {
+    setItensProdutoAvulso((prev) => {
+      const next = [...prev];
+      const item = { ...next[i], ...patch };
+      item.quantidade = Math.max(1, Math.trunc(toNum(item.quantidade) || 1));
+      item.precounitario = Math.max(0, toNum(item.precounitario));
+      item.desconto = toNum(item.desconto ?? 0);
+      item.subtotal = calcularTotalComDesconto(
+        item.quantidade * item.precounitario,
+        item.descontoTipo,
+        item.desconto,
+      );
+      next[i] = item;
+      return next;
+    });
+  };
+  const removerProdutoAvulso = (i: number) =>
+    setItensProdutoAvulso((prev) => prev.filter((_, idx) => idx !== i));
   const removerServico = (i: number) => setItensServico((prev) => prev.filter((_, idx) => idx !== i));
 
   return {
     itensProduto,
     itensServico,
+    itensProdutoAvulso,
     totalProdutos,
     totalServicos,
     subtotal,
@@ -152,6 +180,9 @@ export function useCarrinhoOrcamento(
     atualizarProduto,
     atualizarServico,
     removerProduto,
+    adicionarProdutoAvulso,
+    atualizarProdutoAvulso,
+    removerProdutoAvulso,
     removerServico,
   };
 }

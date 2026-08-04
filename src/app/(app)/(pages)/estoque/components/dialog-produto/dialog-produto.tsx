@@ -50,7 +50,10 @@ export function DialogProduto({
   const setOpen = setIsOpen ?? setInternalOpen;
 
   const [, setSelectedProduct] = useState<Produto | undefined>(undefined);
-  const [newProduct, setNewProduct] = useState<Produto>(initialNewProduct);
+  const [newProduct, setNewProduct] = useState<Produto>(() => ({
+    ...initialNewProduct,
+    ...newProductData,
+  }));
 
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const config = useConfig();

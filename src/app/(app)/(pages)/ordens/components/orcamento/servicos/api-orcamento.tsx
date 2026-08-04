@@ -1,5 +1,5 @@
 // src/app/(app)/(pages)/ordens/components/orcamento/servicos/api-orcamento.ts
-import { ItemProduto, ItemServico, ProdutoBusca, ServicoBusca, TipoDesconto } from "../tipos";
+import { ItemProduto, ItemProdutoAvulso, ItemServico, ProdutoBusca, ServicoBusca, TipoDesconto } from "../tipos";
 
 /** Util */
 const toNum = (v: unknown): number => {
@@ -95,8 +95,19 @@ export async function carregarItensDaOSAPI(osId: number) {
     desconto: toNum(s.desconto ?? 0),
   }));
 
+  const produtosAvulsos: ItemProdutoAvulso[] = (j?.produtosAvulsos ?? []).map((p: any) => ({
+    id: Number(p.id),
+    titulo: String(p.titulo ?? ""),
+    quantidade: toNum(p.quantidade ?? 1),
+    precounitario: toNum(p.precounitario ?? 0),
+    subtotal: toNum(p.subtotal ?? 0),
+    descontoTipo: (p.descontoTipo ?? null) as TipoDesconto | null,
+    desconto: toNum(p.desconto ?? 0),
+  }));
+
   return {
     produtos,
+    produtosAvulsos,
     servicos,
     descontoTipo: (j?.descontoTipo ?? null) as TipoDesconto | null,
     desconto: toNum(j?.desconto ?? 0),
@@ -111,6 +122,7 @@ export async function carregarItensDaOSAPI(osId: number) {
 export async function salvarOrcamentoAPI(
   osId: number,
   itensProduto: ItemProduto[],
+  itensProdutoAvulso: ItemProdutoAvulso[],
   itensServico: ItemServico[],
   descontoTipo?: TipoDesconto | null,
   desconto?: number
@@ -121,6 +133,14 @@ export async function salvarOrcamentoAPI(
       quantidade: p.quantidade,
       precounitario: p.precounitario,
       subtotal: p.subtotal,
+      descontoTipo: p.descontoTipo ?? null,
+      desconto: p.desconto ?? 0,
+    })),
+    produtosAvulsos: itensProdutoAvulso.map((p) => ({
+      id: p.id,
+      titulo: p.titulo,
+      quantidade: p.quantidade,
+      precounitario: p.precounitario,
       descontoTipo: p.descontoTipo ?? null,
       desconto: p.desconto ?? 0,
     })),
@@ -159,6 +179,17 @@ export async function salvarOrcamentoAPI(
   }
 
   return j as { ok: true; totalGeral: number };
+}
+
+export async function vincularProdutoAvulsoAPI(osId: number, avulsoId: number, produtoId: number) {
+  const response = await fetch(`/api/ordens/${osId}/produtos-avulsos/${avulsoId}/vincular`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ produtoId }),
+  });
+  const json = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(json?.error || "Falha ao vincular produto avulso");
+  return json;
 }
 
 /* =========================

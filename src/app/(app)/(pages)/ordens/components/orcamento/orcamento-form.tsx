@@ -11,7 +11,7 @@ import { toast } from "@/lib/toast";
 import { OrcamentoFormHandle, OrcamentoFormProps, ProdutoBusca, ServicoBusca } from "./tipos";
 
 import { useCarrinhoOrcamento } from "./ganchos/use-carrinho-orcamento";
-import { salvarOrcamentoAPI, EstoqueInsuficienteError } from "./servicos/api-orcamento";
+import { salvarOrcamentoAPI, EstoqueInsuficienteError, vincularProdutoAvulsoAPI } from "./servicos/api-orcamento";
 
 import { TabelaItensProduto } from "./components/tabela-itens-produto";
 import { TabelaItensServico } from "./components/tabela-tens-servico";
@@ -21,22 +21,29 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { dinheiro } from "./util";
 import { CampoDesconto } from "./components/campo-desconto";
+import { ProdutosAvulsos } from "./components/produtos-avulsos";
+import { useConfig } from "../../../config-context";
 
 export const OrcamentoForm = forwardRef<OrcamentoFormHandle, OrcamentoFormProps>(function OrcamentoForm(
   { ordemServico, onTotaisChange, onLoadingChange },
   ref
 ) {
   const osId = ordemServico?.id;
+  const config = useConfig();
 
   const {
     itensProduto,
     itensServico,
+    itensProdutoAvulso,
     carregarItensDaOS,
     adicionarProduto,
     adicionarServico,
     atualizarProduto,
     atualizarServico,
     removerProduto,
+    adicionarProdutoAvulso,
+    atualizarProdutoAvulso,
+    removerProdutoAvulso,
     removerServico,
     descontoTipo,
     desconto,
@@ -99,7 +106,7 @@ export const OrcamentoForm = forwardRef<OrcamentoFormHandle, OrcamentoFormProps>
 
     try {
       setErrosEstoque({});
-      await salvarOrcamentoAPI(osId, itensProduto, itensServico, descontoTipo, desconto);
+      await salvarOrcamentoAPI(osId, itensProduto, itensProdutoAvulso, itensServico, descontoTipo, desconto);
       toast.success("Orçamento salvo com sucesso");
       window.dispatchEvent(new Event("os:refresh"));
     } catch (e: any) {
@@ -138,7 +145,7 @@ export const OrcamentoForm = forwardRef<OrcamentoFormHandle, OrcamentoFormProps>
       // IMPORTANTE: lança erro para o pai NÃO fechar o dialog
       throw e;
     }
-  }, [osId, itensProduto, itensServico, descontoTipo, desconto]);
+  }, [osId, itensProduto, itensProdutoAvulso, itensServico, descontoTipo, desconto]);
 
   useImperativeHandle(ref, () => ({ salvarOrcamento }), [salvarOrcamento]);
 
@@ -265,6 +272,30 @@ export const OrcamentoForm = forwardRef<OrcamentoFormHandle, OrcamentoFormProps>
             onAtualizar={atualizarProdutoComReset}
             onRemover={removerProdutoComReset}
           />
+
+          {(config?.permitir_produto_avulso_os || itensProdutoAvulso.length > 0) ? (
+            <>
+              <Separator />
+              <ProdutosAvulsos
+                itens={itensProdutoAvulso}
+                onAdicionar={adicionarProdutoAvulso}
+                onAtualizar={atualizarProdutoAvulso}
+                onRemover={removerProdutoAvulso}
+                onVincular={async (item, produtoId) => {
+                  if (!item.id) throw new Error("Salve o orçamento antes de vincular o item.");
+                  try {
+                    await vincularProdutoAvulsoAPI(osId, item.id, produtoId);
+                    await carregarItensDaOS();
+                    toast.success("Produto avulso convertido em produto da OS.");
+                    window.dispatchEvent(new Event("os:refresh"));
+                  } catch (error: any) {
+                    toast.error(error?.message || "Não foi possível vincular o produto avulso.");
+                    throw error;
+                  }
+                }}
+              />
+            </>
+          ) : null}
 
           <Separator />
 
