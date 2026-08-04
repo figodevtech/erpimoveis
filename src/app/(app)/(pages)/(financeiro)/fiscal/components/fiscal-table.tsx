@@ -6,6 +6,7 @@ import Link from "next/link";
 import axios, { isAxiosError } from "axios";
 import {
   Calendar,
+  CheckCircle2,
   Copy,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -373,6 +374,45 @@ export default function FiscalTable({
           "Erro ao enviar manifestação."
         : "Erro ao enviar manifestação.";
       toast.error("Falha na manifestação", { id: toastId, description });
+    }
+  }
+
+  async function autorizarNfe(id: number) {
+    const toastId = toast.loading("Enviando NF-e para autorização na SEFAZ...");
+    try {
+      const response = await axios.post(`/api/nfe/autorizar/${id}`);
+      const data = response.data;
+      const statusDb = String(data?.nfeDb?.status ?? "").toUpperCase();
+      const motivo =
+        data?.sefaz?.protocolo?.xMotivo ??
+        data?.sefaz?.lote?.xMotivo ??
+        "Retorno recebido da SEFAZ.";
+
+      if (!data?.ok) {
+        toast.error("Falha ao autorizar NF-e", {
+          id: toastId,
+          description: data?.mensagem ?? data?.detalhe ?? "A SEFAZ retornou uma falha na autorização.",
+        });
+        return;
+      }
+
+      if (statusDb === "AUTORIZADA") {
+        toast.success("NF-e autorizada com sucesso!", { id: toastId, description: motivo });
+      } else if (statusDb === "DENEGADA") {
+        toast.error("NF-e denegada pela SEFAZ.", { id: toastId, description: motivo });
+      } else if (statusDb === "REJEITADA") {
+        toast.error("NF-e rejeitada pela SEFAZ.", { id: toastId, description: motivo });
+      } else {
+        toast.info("Retorno da SEFAZ recebido.", { id: toastId, description: motivo });
+      }
+
+      await handleGetNotas(pagination.page, pagination.limit);
+    } catch (error) {
+      const responseData = isAxiosError(error) ? error.response?.data : null;
+      const description = isAxiosError(error)
+        ? responseData?.mensagem ?? responseData?.detalhe ?? responseData?.error ?? error.message
+        : "Erro ao autorizar NF-e.";
+      toast.error("Falha ao autorizar NF-e", { id: toastId, description });
     }
   }
 
@@ -801,6 +841,10 @@ export default function FiscalTable({
                             >
                               <FileCode className="mr-2 h-4 w-4" />
                               Editar XML
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => autorizarNfe(nota.id)}>
+                              <CheckCircle2 className="mr-2 h-4 w-4" />
+                              Autorizar NFe
                             </DropdownMenuItem>
                           </>
                         ) : null}
