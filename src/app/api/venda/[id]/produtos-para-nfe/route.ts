@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireVendasAccess } from "@/app/api/_authz/perms";
 import { mapSalesChannelToPresence } from "@/lib/nfe/originFiscalDefaults";
+import { descontoPorItem, parcelaDoDescontoNaNota } from "@/lib/nfe/descontoOrigem";
 
 export const runtime = "nodejs";
 
@@ -57,8 +58,13 @@ type ProdutoParaNfeDTO = {
   descricao: string;
 
   quantidade: number;
+  /** Preço de tabela: o desconto sai destacado, não diluído no unitário. */
   precoUnitario: number;
   subtotal: number;
+  /** Desconto do item somado ao rateio do desconto geral da venda. */
+  valorDesconto: number;
+  /** Só o desconto dado no próprio item, sem o rateio: base do rerrateio na tela. */
+  valorDescontoProprio: number;
 
   ncm: string | null;
   cfop: string | null;
@@ -117,7 +123,7 @@ export async function GET(
     // 1) garantir que venda existe
     const { data: venda, error: vendaError } = await supabaseAdmin
       .from("venda")
-      .select("id, clienteid, observacoes_fiscais, canal")
+      .select("id, clienteid, observacoes_fiscais, canal, valor_frete, valortotal")
       .eq("id", vendaId)
       .maybeSingle();
 
@@ -190,15 +196,38 @@ export async function GET(
       );
     }
 
-    const resposta: ProdutoParaNfeDTO[] = (itens ?? []).map((row) => {
+    const rows = itens ?? [];
+    // Mesma conta do gerador de rascunho (`nfeOrigemService`), para a tela já
+    // mostrar o desconto que o servidor gravaria.
+    const brutoPorItem = rows.map((row) => {
+      const bruto = toNumber(row.sub_total);
+      return bruto > 0 ? bruto : toNumber(row.valor_total);
+    });
+    const liquidoPorItem = rows.map((row, index) =>
+      Math.min(toNumber(row.valor_total), brutoPorItem[index]),
+    );
+    const totalLiquidoItens = liquidoPorItem.reduce((soma, valor) => soma + valor, 0);
+    const frete = Math.max(0, toNumber(venda.valor_frete));
+    // Só deduz o desconto geral com o total comercial fechado: sem a guarda,
+    // uma venda com `valortotal` ainda zerado viraria 100% de desconto.
+    const totalComercial = toNumber(venda.valortotal);
+    const descontoGeral = totalComercial > 0
+      ? Math.max(0, Math.min(totalLiquidoItens, totalLiquidoItens + frete - totalComercial))
+      : 0;
+    const descontoPorLinha = descontoPorItem(
+      brutoPorItem.map((bruto, index) => ({ bruto, liquido: liquidoPorItem[index] })),
+      descontoGeral,
+    );
+
+    const resposta: ProdutoParaNfeDTO[] = rows.map((row, index) => {
       const p = normalizarProduto(row.produto);
 
       const titulo = p?.titulo || `Produto #${row.produtoid}`;
       const descricao = p?.descricao || titulo;
 
       const quantidade = toNumber(row.quantidade);
-      const valorTotal = toNumber(row.valor_total);
-      const precoUnitario = quantidade > 0 ? valorTotal / quantidade : valorTotal;
+      const bruto = brutoPorItem[index];
+      const precoUnitario = quantidade > 0 ? bruto / quantidade : bruto;
 
       return {
         osProdutoId: `${vendaId}-${row.produtoid}`, // reaproveita o mesmo campo do front
@@ -210,9 +239,9 @@ export async function GET(
 
         quantidade,
         precoUnitario,
-        // O desconto do item já está refletido no preço unitário líquido enviado
-        // à NF-e; o subtotal precisa usar a mesma base para não exibir o bruto.
-        subtotal: valorTotal,
+        subtotal: bruto,
+        valorDesconto: descontoPorLinha[index] ?? 0,
+        valorDescontoProprio: Number(Math.max(0, bruto - liquidoPorItem[index]).toFixed(2)),
 
         ncm: p?.ncm ?? null,
         cfop: p?.cfop ?? null,
@@ -266,6 +295,8 @@ export async function GET(
         modFrete: "9",
       },
       observacoes_fiscais: venda.observacoes_fiscais ?? null,
+      // A venda não tem serviços, então todo o desconto geral cabe aos produtos.
+      desconto_geral: parcelaDoDescontoNaNota(descontoGeral, liquidoPorItem),
       cliente: cliente
         ? {
             ...cliente,

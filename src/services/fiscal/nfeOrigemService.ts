@@ -1,4 +1,5 @@
 import { isCfopCompatibleWithOperation } from "@/lib/nfe/cfopOperation";
+import { descontoPorItem, distribuirDinheiro } from "@/lib/nfe/descontoOrigem";
 import { normalizeFiscalRecipient } from "@/lib/nfe/recipientNormalization";
 import {
   mapSalesChannelToPresence,
@@ -23,6 +24,8 @@ export type NFeOrigemItemInput = NFeAvulsaItemInput & {
 export type NFeOrigemDraftInput = {
   itens: NFeOrigemItemInput[];
   observacoesFiscais?: string | null;
+  /** Desconto geral confirmado na tela; já chega rateado nos itens. */
+  descontoGeral?: string | number | null;
   destinatario?: NFeAvulsaDraftInput["destinatario"];
   configuracaoFiscal?: {
     consumidorFinal?: boolean;
@@ -63,7 +66,10 @@ type SourceItem = {
   descricao: string;
   unidade: string;
   quantidade: number;
+  /** Preço de tabela, sem desconto: é ele que vai para vUnCom na NF-e. */
   valorUnitario: number;
+  /** Desconto do item somado à parcela do desconto geral rateada para ele. */
+  valorDesconto?: number;
   valorFrete?: number;
 };
 
@@ -94,21 +100,6 @@ function onlyDigits(value: unknown) {
 function toNumber(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
-}
-
-function distributeMoney(total: number, values: number[]) {
-  const totalCents = Math.max(0, Math.round(total * 100));
-  const weightsTotal = values.reduce((sum, value) => sum + Math.max(0, value), 0);
-  let remaining = totalCents;
-  return values.map((value, index) => {
-    const cents = index === values.length - 1
-      ? remaining
-      : weightsTotal > 0
-        ? Math.floor(totalCents * Math.max(0, value) / weightsTotal)
-        : 0;
-    remaining -= cents;
-    return cents / 100;
-  });
 }
 
 function clienteToDraft(cliente: ClienteRow): NFeAvulsaDraftInput["destinatario"] {
@@ -213,7 +204,7 @@ async function getEmpresaUf() {
 async function loadOs(osId: number): Promise<LoadedSource> {
   const { data: os, error: osError } = await supabaseAdmin
     .from("ordemservico")
-    .select("id, clienteid, observacoes_fiscais")
+    .select("id, clienteid, observacoes_fiscais, subtotal, orcamentototal")
     .eq("id", osId)
     .maybeSingle();
   if (osError) throw osError;
@@ -227,10 +218,37 @@ async function loadOs(osId: number): Promise<LoadedSource> {
       produtoid,
       quantidade,
       precounitario,
+      subtotal,
       produto:produtoid (id, titulo, descricao, referencia, codigobarras, unidade)
     `)
     .eq("ordemservicoid", osId);
   if (error) throw error;
+
+  const { data: servicos, error: servicosError } = await supabaseAdmin
+    .from("osservico")
+    .select("subtotal")
+    .eq("ordemservicoid", osId);
+  if (servicosError) throw servicosError;
+
+  const rows = data ?? [];
+  // `osproduto.subtotal` já vem líquido do desconto do item; o bruto é
+  // quantidade × preço unitário. A diferença é o desconto do próprio item.
+  const brutoPorItem = rows.map((row: any) => toNumber(row.quantidade) * toNumber(row.precounitario));
+  const liquidoPorItem = rows.map((row: any, index: number) => {
+    const liquido = toNumber(row.subtotal);
+    return liquido > 0 ? Math.min(liquido, brutoPorItem[index]) : brutoPorItem[index];
+  });
+  // Só deduz o desconto geral quando a OS tem total fechado. Sem essa guarda,
+  // uma OS com `orcamentototal` ainda zerado viraria 100% de desconto.
+  const totalComDesconto = toNumber(os.orcamentototal);
+  const descontoGeral = totalComDesconto > 0
+    ? Math.max(0, toNumber(os.subtotal) - totalComDesconto)
+    : 0;
+  const descontoPorLinha = descontoPorItem(
+    brutoPorItem.map((bruto, index) => ({ bruto, liquido: liquidoPorItem[index] })),
+    descontoGeral,
+    (servicos ?? []).map((servico: any) => toNumber(servico.subtotal)),
+  );
 
   const cliente = await getCliente(Number(os.clienteid));
   return {
@@ -245,7 +263,7 @@ async function loadOs(osId: number): Promise<LoadedSource> {
     consumidorFinal: true,
     indicadorPresenca: "1",
     transporte: { modFrete: "9" },
-    itens: (data ?? []).map((row: any) => {
+    itens: rows.map((row: any, index: number) => {
       const produto = normalizeRelation<ProdutoFiscalRow>(row.produto);
       return {
         sourceItemId: `os:${osId}:${row.produtoid}`,
@@ -255,6 +273,7 @@ async function loadOs(osId: number): Promise<LoadedSource> {
         unidade: String(produto?.unidade || "UN"),
         quantidade: toNumber(row.quantidade),
         valorUnitario: toNumber(row.precounitario),
+        valorDesconto: descontoPorLinha[index] ?? 0,
       };
     }),
   };
@@ -263,7 +282,7 @@ async function loadOs(osId: number): Promise<LoadedSource> {
 async function loadVenda(vendaId: number): Promise<LoadedSource> {
   const { data: venda, error: vendaError } = await supabaseAdmin
     .from("venda")
-    .select("id, clienteid, observacoes_fiscais, canal, valor_frete")
+    .select("id, clienteid, observacoes_fiscais, canal, valor_frete, valortotal")
     .eq("id", vendaId)
     .maybeSingle();
   if (vendaError) throw vendaError;
@@ -276,6 +295,7 @@ async function loadVenda(vendaId: number): Promise<LoadedSource> {
       id,
       produtoid,
       quantidade,
+      sub_total,
       valor_total,
       produto:produtoid (id, titulo, descricao, referencia, codigobarras, unidade)
     `)
@@ -285,10 +305,28 @@ async function loadVenda(vendaId: number): Promise<LoadedSource> {
   const cliente = await getCliente(Number(venda.clienteid));
   const rows = data ?? [];
   const freight = Math.max(0, toNumber(venda.valor_frete));
-  const freightByItem = distributeMoney(
-    freight,
-    rows.map((row: any) => toNumber(row.valor_total)),
+  // `sub_total` é o bruto do item e `valor_total` o líquido do desconto do item.
+  const brutoPorItem = rows.map((row: any) => {
+    const bruto = toNumber(row.sub_total);
+    return bruto > 0 ? bruto : toNumber(row.valor_total);
+  });
+  const liquidoPorItem = rows.map((row: any, index: number) =>
+    Math.min(toNumber(row.valor_total), brutoPorItem[index]),
   );
+  // O desconto geral sai da diferença entre o total dos itens já líquidos e o
+  // total comercial gravado na venda (que é o líquido acrescido do frete).
+  // Só vale com o total fechado: sem a guarda, uma venda com `valortotal`
+  // ainda zerado viraria 100% de desconto.
+  const totalLiquidoItens = liquidoPorItem.reduce((sum, valor) => sum + valor, 0);
+  const totalComercial = toNumber(venda.valortotal);
+  const descontoGeral = totalComercial > 0
+    ? Math.max(0, Math.min(totalLiquidoItens, totalLiquidoItens + freight - totalComercial))
+    : 0;
+  const descontoPorLinha = descontoPorItem(
+    brutoPorItem.map((bruto, index) => ({ bruto, liquido: liquidoPorItem[index] })),
+    descontoGeral,
+  );
+  const freightByItem = distribuirDinheiro(freight, liquidoPorItem);
   return {
     clienteId: Number(venda.clienteid),
     fornecedorId: null,
@@ -304,7 +342,7 @@ async function loadVenda(vendaId: number): Promise<LoadedSource> {
     itens: rows.map((row: any, index: number) => {
       const produto = normalizeRelation<ProdutoFiscalRow>(row.produto);
       const quantidade = toNumber(row.quantidade);
-      const valorTotal = toNumber(row.valor_total);
+      const bruto = brutoPorItem[index];
       return {
         sourceItemId: `venda:${vendaId}:${row.id}`,
         produtoId: Number(row.produtoid),
@@ -312,7 +350,10 @@ async function loadVenda(vendaId: number): Promise<LoadedSource> {
         descricao: String(produto?.titulo || produto?.descricao || `Produto #${row.produtoid}`),
         unidade: String(produto?.unidade || "UN"),
         quantidade,
-        valorUnitario: quantidade > 0 ? valorTotal / quantidade : valorTotal,
+        // Preço de tabela: o desconto sai destacado em vDesc, e não diluído no
+        // unitário, para a nota espelhar o que foi negociado com o cliente.
+        valorUnitario: quantidade > 0 ? bruto / quantidade : bruto,
+        valorDesconto: descontoPorLinha[index] ?? 0,
         valorFrete: freightByItem[index] ?? 0,
       };
     }),
@@ -441,10 +482,14 @@ export async function salvarNFeDeOrigem(
       codigo: sourceItem.codigo,
       descricao: sourceItem.descricao,
       unidade: item.unidade || sourceItem.unidade,
-      // Em OS e venda, quantidade e valor podem ser ajustados exclusivamente
-      // para a NF-e. Entradas continuam usando os valores registrados na origem.
+      // Em OS e venda, quantidade, valor e desconto podem ser ajustados
+      // exclusivamente para a NF-e — o desconto rateado da origem é só uma
+      // sugestão. Entradas continuam usando os valores registrados na origem.
       quantidade: tipo === "ENTRADA" ? sourceItem.quantidade : item.quantidade,
       valorUnitario: tipo === "ENTRADA" ? sourceItem.valorUnitario : item.valorUnitario,
+      valorDesconto: tipo === "ENTRADA"
+        ? sourceItem.valorDesconto ?? 0
+        : item.valorDesconto ?? sourceItem.valorDesconto ?? 0,
       valorFrete: tipo === "VENDA" ? sourceItem.valorFrete ?? 0 : item.valorFrete,
     } satisfies NFeAvulsaItemInput];
   });
@@ -478,11 +523,15 @@ export async function salvarNFeDeOrigem(
     (total, item) => total + toNumber(item.quantidade) * toNumber(item.valorUnitario),
     0,
   );
+  const totalDesconto = itens.reduce(
+    (total, item) => total + Math.max(0, toNumber(item.valorDesconto)),
+    0,
+  );
   const totalFrete = itens.reduce(
     (total, item) => total + Math.max(0, toNumber(item.valorFrete)),
     0,
   );
-  const totalNota = totalProdutos + totalFrete;
+  const totalNota = totalProdutos - totalDesconto + totalFrete;
   const pagamentos = tipo === "ENTRADA"
     ? [{ meio: "90", valor: 0, tipoIntegracao: "2" }]
     : (requestedFiscalConfig?.pagamentos ?? []).map((pagamento) => ({
@@ -534,7 +583,7 @@ export async function salvarNFeDeOrigem(
     errors.push({
       step: "payment",
       field: "pagamentos",
-      message: "A soma dos métodos de pagamento deve ser igual ao total da NF-e, incluindo o frete.",
+      message: "A soma dos métodos de pagamento deve ser igual ao total da NF-e, já com desconto e frete.",
     });
   }
   if (!NFE_FREIGHT_OPTIONS.some((option) => option.value === modFrete)) {
@@ -566,6 +615,9 @@ export async function salvarNFeDeOrigem(
       tipoIntegracao: "2",
     },
     pagamentos: tipo === "ENTRADA" ? undefined : pagamentos,
+    // Sem o valor da tela, guarda o que os itens somam — é o mesmo número
+    // quando ninguém mexeu no rateio.
+    descontoGeral: input.descontoGeral ?? totalDesconto,
     transporte,
     destinatario,
     itens,

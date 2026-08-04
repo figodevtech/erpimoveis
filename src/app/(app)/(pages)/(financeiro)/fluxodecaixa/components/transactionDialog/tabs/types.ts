@@ -73,6 +73,18 @@ export interface VinculoContexto {
   veiculo?: { nome: string | null; placa: string | null } | null;
 }
 
+/** Uma linha de `transacao_valor_historico`: quem mexeu no valor, e para quanto. */
+export interface AjusteDeValor {
+  id: number;
+  valor_anterior: number | string;
+  valor_novo: number | string;
+  valor_liquido_anterior: number | string | null;
+  valor_liquido_novo: number | string | null;
+  motivo: string | null;
+  created_at: string | null;
+  alteradoPor: Autor;
+}
+
 export interface TransacaoContexto {
   relacionadas: {
     origem: OrigemRelacionadas;
@@ -90,6 +102,8 @@ export interface TransacaoContexto {
     created_at: string | null;
     baixadoPor: Autor;
   } | null;
+  /** Mais recente primeiro. Vazio quando o valor nunca foi ajustado. */
+  ajustes: AjusteDeValor[];
   auditoria: {
     created_at: string | null;
     updated_at: string | null;

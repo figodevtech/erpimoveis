@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireOSAccess } from "@/app/api/_authz/perms";
+import { descontoPorItem, parcelaDoDescontoNaNota } from "@/lib/nfe/descontoOrigem";
 
 export const runtime = "nodejs";
 
@@ -49,6 +50,11 @@ type OsProdutoDbRow = {
   produto: ProdutoDb | ProdutoDb[] | null;
 };
 
+function toNumber(value: unknown) {
+  const numero = Number(value);
+  return Number.isFinite(numero) ? numero : 0;
+}
+
 // Tipo que vamos devolver para o frontend
 type ProdutoParaNfeDTO = {
   // id estável baseado na PK composta da tabela osproduto
@@ -62,8 +68,13 @@ type ProdutoParaNfeDTO = {
   descricao: string;
 
   quantidade: number;
+  /** Preço de tabela: o desconto sai destacado, não diluído no unitário. */
   precoUnitario: number;
   subtotal: number;
+  /** Desconto do item somado ao rateio do desconto geral da OS. */
+  valorDesconto: number;
+  /** Só o desconto dado no próprio item, sem o rateio: base do rerrateio na tela. */
+  valorDescontoProprio: number;
 
   // fiscais obrigatórios p/ emissão (validados no frontend)
   ncm: string | null;
@@ -139,7 +150,7 @@ export async function GET(req: Request) {
     // 1) Garantir que a OS existe
     const { data: os, error: osError } = await supabaseAdmin
       .from("ordemservico")
-      .select("id, clienteid, observacoes_fiscais")
+      .select("id, clienteid, observacoes_fiscais, subtotal, orcamentototal")
       .eq("id", idOs)
       .maybeSingle();
 
@@ -219,7 +230,49 @@ export async function GET(req: Request) {
       );
     }
 
-    const resposta: ProdutoParaNfeDTO[] = (itens ?? []).map((i) => {
+    const { data: servicos, error: servicosError } = await supabaseAdmin
+      .from("osservico")
+      .select("subtotal")
+      .eq("ordemservicoid", idOs);
+
+    if (servicosError) {
+      console.error("Erro ao buscar serviços da OS:", servicosError);
+      return NextResponse.json(
+        { ok: false, message: "Erro ao buscar serviços vinculados à OS." },
+        { status: 500 }
+      );
+    }
+
+    const rows = itens ?? [];
+    // Mesma conta do gerador de rascunho (`nfeOrigemService`), para a tela já
+    // mostrar o desconto que o servidor gravaria. `osproduto.subtotal` vem
+    // líquido do desconto do item; o bruto é quantidade × preço unitário.
+    const brutoPorItem = rows.map((i) => toNumber(i.quantidade) * toNumber(i.precounitario));
+    const liquidoPorItem = rows.map((i, index) => {
+      const liquido = toNumber(i.subtotal);
+      return liquido > 0 ? Math.min(liquido, brutoPorItem[index]) : brutoPorItem[index];
+    });
+    // Só deduz o desconto geral com a OS fechada: sem a guarda, uma OS com
+    // `orcamentototal` ainda zerado viraria 100% de desconto.
+    const totalComDesconto = toNumber(os.orcamentototal);
+    const descontoGeral = totalComDesconto > 0
+      ? Math.max(0, toNumber(os.subtotal) - totalComDesconto)
+      : 0;
+    const pesosDosServicos = (servicos ?? []).map((servico: any) => toNumber(servico.subtotal));
+    const descontoPorLinha = descontoPorItem(
+      brutoPorItem.map((bruto, index) => ({ bruto, liquido: liquidoPorItem[index] })),
+      descontoGeral,
+      pesosDosServicos,
+    );
+    // O que a tela mostra no campo de desconto geral é só a fatia dos produtos:
+    // numa OS com serviços, o resto do desconto da ordem sai na NFS-e.
+    const descontoGeralDaNota = parcelaDoDescontoNaNota(
+      descontoGeral,
+      liquidoPorItem,
+      pesosDosServicos,
+    );
+
+    const resposta: ProdutoParaNfeDTO[] = rows.map((i, index) => {
       const p = normalizarProduto(i.produto);
 
       const titulo = p?.titulo || `Produto #${i.produtoid}`;
@@ -237,7 +290,11 @@ export async function GET(req: Request) {
 
         quantidade: Number(i.quantidade ?? 0),
         precoUnitario: Number(i.precounitario ?? 0),
-        subtotal: Number(i.subtotal ?? 0),
+        subtotal: brutoPorItem[index],
+        valorDesconto: descontoPorLinha[index] ?? 0,
+        valorDescontoProprio: Number(
+          Math.max(0, brutoPorItem[index] - liquidoPorItem[index]).toFixed(2),
+        ),
 
         ncm: p?.ncm ?? null,
         cfop: p?.cfop ?? null,
@@ -293,6 +350,7 @@ export async function GET(req: Request) {
         modFrete: "9",
       },
       observacoes_fiscais: os.observacoes_fiscais ?? null,
+      desconto_geral: descontoGeralDaNota,
       cliente: cliente
         ? {
             ...cliente,

@@ -3,7 +3,7 @@
 import { useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { TabsContent } from "@/components/ui/tabs";
-import { Image as ImageIcon, Upload } from "lucide-react";
+import { Camera, Image as ImageIcon, Upload } from "lucide-react";
 import { ProdutoImagensGallery, type ProdutoImagemPendente } from "./produto-imagens-gallery";
 
 type Props = {
@@ -18,6 +18,7 @@ type Props = {
 
 export function TabImagensCreate({ pendentes, ordemItens, progressoUpload, saving, onPick, onReordenar, onRemove }: Props) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
 
   return (
     <TabsContent value="Imagens" className="h-full min-h-0 overflow-auto dark:bg-muted-foreground/5 px-2 py-3 md:px-6 md:py-6">
@@ -39,6 +40,11 @@ export function TabImagensCreate({ pendentes, ordemItens, progressoUpload, savin
           </div>
 
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[240px]">
+            {/* Dois inputs de proposito. O Android 13+ atende `accept="image/*"`
+                com o seletor de fotos do sistema, que nao oferece camera nem
+                escolha de aplicativo; so `capture` abre a camera direto. E
+                `capture` nao aceita `multiple`, entao o envio em lote continua
+                no input de cima. */}
             <input
               ref={fileInputRef}
               type="file"
@@ -50,6 +56,27 @@ export function TabImagensCreate({ pendentes, ordemItens, progressoUpload, savin
                 e.currentTarget.value = "";
               }}
             />
+            <input
+              ref={cameraInputRef}
+              type="file"
+              className="hidden"
+              accept="image/*"
+              capture="environment"
+              onChange={(e) => {
+                onPick(Array.from(e.target.files ?? []));
+                e.currentTarget.value = "";
+              }}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-2"
+              disabled={saving}
+              onClick={() => cameraInputRef.current?.click()}
+            >
+              <Camera className="h-4 w-4" />
+              Tirar foto
+            </Button>
             <Button
               type="button"
               variant="outline"

@@ -230,11 +230,21 @@ export async function GET(_: Request, { params }: Params) {
 
     /* ---------- Historico de baixa e auditoria ---------- */
 
-    const { data: baixa } = await supabaseAdmin
-      .from("transacao_baixa_historico")
-      .select("vencimento_em, pago_em, baixado_por, banco_id, metodopagamento, created_at")
-      .eq("transacao_id", id)
-      .maybeSingle();
+    const [{ data: baixa }, { data: ajustes }] = await Promise.all([
+      supabaseAdmin
+        .from("transacao_baixa_historico")
+        .select("vencimento_em, pago_em, baixado_por, banco_id, metodopagamento, created_at")
+        .eq("transacao_id", id)
+        .maybeSingle(),
+      supabaseAdmin
+        .from("transacao_valor_historico")
+        .select(
+          "id, valor_anterior, valor_novo, valor_liquido_anterior, valor_liquido_novo, alterado_por, motivo, created_at",
+        )
+        .eq("transacao_id", id)
+        .order("created_at", { ascending: false })
+        .limit(20),
+    ]);
 
     // `baixado_por`/`created_by` sao uuid soltos, sem FK para `usuario`.
     const autores = await carregarAutores([
@@ -242,6 +252,7 @@ export async function GET(_: Request, { params }: Params) {
       transacao.updated_by,
       transacao.baixado_por,
       baixa?.baixado_por,
+      ...(ajustes ?? []).map((item) => item.alterado_por),
       ...relacionadas.map((item) => item.baixado_por),
     ]);
     const autor = (valor: unknown) => autores.get(String(valor ?? "")) ?? null;
@@ -262,6 +273,10 @@ export async function GET(_: Request, { params }: Params) {
       baixa: baixa
         ? { ...baixa, baixadoPor: autor(baixa.baixado_por) }
         : null,
+      ajustes: (ajustes ?? []).map((item) => ({
+        ...item,
+        alteradoPor: autor(item.alterado_por),
+      })),
       auditoria: {
         created_at: transacao.created_at ?? null,
         updated_at: transacao.updated_at ?? null,

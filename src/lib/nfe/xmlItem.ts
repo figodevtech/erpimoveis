@@ -8,6 +8,7 @@ import {
   buildRtcXml,
   getCestXml,
   normalizarCRT,
+  valorLiquidoItem,
 } from './fiscal';
 import { buildIcmsUFDestXml } from './difal';
 import { escapeXml } from './xmlUtils';
@@ -49,13 +50,19 @@ export function buildDetXml(item: NFeItem, crt: string | number): string {
   partes.push(`<qCom>${qCom}</qCom>`);
   partes.push(`<vUnCom>${vUnCom}</vUnCom>`);
   partes.push(`<vProd>${vProd}</vProd>`);
-  if (Number(item.valorFrete ?? 0) > 0) {
-    partes.push(`<vFrete>${formatNumber(Number(item.valorFrete), 2)}</vFrete>`);
-  }
   partes.push(`<cEANTrib>${cEANTrib}</cEANTrib>`);
   partes.push(`<uTrib>${escapeXml(item.unidade)}</uTrib>`);
   partes.push(`<qTrib>${qCom}</qTrib>`);
   partes.push(`<vUnTrib>${vUnCom}</vUnTrib>`);
+  // Sequencia do grupo <prod> no leiaute 4.00: vFrete (I15), vSeg (I16),
+  // vDesc (I17) e vOutro (I17a) vem depois de vUnTrib (I14a) e antes de
+  // indTot. Fora dessa ordem a SEFAZ devolve rejeicao 225 (falha no schema).
+  if (Number(item.valorFrete ?? 0) > 0) {
+    partes.push(`<vFrete>${formatNumber(Number(item.valorFrete), 2)}</vFrete>`);
+  }
+  if (Number(item.valorDesconto ?? 0) > 0) {
+    partes.push(`<vDesc>${formatNumber(Number(item.valorDesconto), 2)}</vDesc>`);
+  }
   partes.push('<indTot>1</indTot>');
   partes.push('</prod>');
 
@@ -75,9 +82,10 @@ export function buildDetXml(item: NFeItem, crt: string | number): string {
   partes.push(buildImpostoSeletivoXml(item));
   partes.push(buildRtcXml(item));
   partes.push('</imposto>');
-  // vItem e o valor do item na operacao. Nao acumula IBS/CBS destacados: em 2026
-  // os tributos da reforma sao informativos e nao elevam o valor comercial.
-  partes.push(`<vItem>${vProd}</vItem>`);
+  // vItem e o valor do item na operacao, ja liquido do desconto incondicional.
+  // Nao acumula IBS/CBS destacados: em 2026 os tributos da reforma sao
+  // informativos e nao elevam o valor comercial.
+  partes.push(`<vItem>${formatNumber(valorLiquidoItem(item), 2)}</vItem>`);
   partes.push('</det>');
 
   return partes.join('');

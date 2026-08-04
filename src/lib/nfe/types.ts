@@ -201,6 +201,13 @@ export interface NFeItem {
   valorUnitario: number;
   valorTotal: number;
   valorFrete?: number;
+  /**
+   * Desconto incondicional do item (vDesc). Reúne o desconto dado no próprio
+   * item e a parcela do desconto geral da OS/venda rateada para ele. Reduz a
+   * base de ICMS/PIS/COFINS/IPI e o vNF, mas não altera vUnCom nem vProd —
+   * a nota continua mostrando o preço de tabela e o abatimento em separado.
+   */
+  valorDesconto?: number;
   codigoBarras?: string | null;
   cest?: string | null;
 

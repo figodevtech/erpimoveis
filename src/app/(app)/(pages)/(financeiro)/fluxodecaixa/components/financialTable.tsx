@@ -57,6 +57,7 @@ import {
   Transaction,
   type TransactionRelationFilters,
 } from "../types";
+import { valorLiquidoEfetivo } from "@/lib/financeiro/transacao";
 import { getCategoryIcon, getTypeColor } from "../utils";
 import { ExportTransactionsButton } from "./ExportTransactionsButton";
 import ConcluidoAlert from "./concluidoAlert";
@@ -420,8 +421,11 @@ export default function FinancialTable({
                     <div className="flex flex-col items-end">
                       {(t.tipo === "RECEITA" || t.tipo === "DEPOSITO") && "+ "}
                       {(t.tipo === "DESPESA" || t.tipo === "SAQUE") && "- "}
-                      {formatarEmReal(t.valorLiquido)}
-                      {t.valorLiquido !== t.valor && (
+                      {/* Linha sem líquido (despesa, ou registro antigo) vale o
+                          bruto — antes exibia R$ 0,00 com o bruto embaixo. */}
+                      {formatarEmReal(valorLiquidoEfetivo(t))}
+                      {Math.round(valorLiquidoEfetivo(t) * 100) !==
+                        Math.round(Number(t.valor ?? 0) * 100) && (
                         <span className="text-xs text-muted-foreground">
                           Bruto: {formatarEmReal(t.valor)}
                         </span>

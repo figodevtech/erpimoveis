@@ -4,7 +4,10 @@ export const runtime = "nodejs";
 import { NextResponse, NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireFinanceiroDelete, requireFinanceiroEdit, requireFinanceirosAccess } from "@/app/api/_authz/perms";
+import { pediuEdicaoManual, respostaSeEdicaoBloqueada } from "@/app/api/transaction/_lib/edicao";
 import { calculateFinancialTotal } from "@/lib/financial-surcharge";
+import { paraCentavos } from "@/lib/financeiro/rateio";
+import { origemDaTransacao, rotuloDaOrigem } from "@/lib/financeiro/transacao";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -83,6 +86,7 @@ async function revalidarStatusVenda(vendaId: number) {
 const TRANSACAO_FIELDS = `
   id, descricao, descricao_pagamento, valor, data, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, fornecedor_id,
   banco_id, nomepagador, cpfcnpjpagador, pendente, ordemservicoid, valorLiquido, vendaid,
+  entrada_id, usoconsumo_entrada_id,
   created_at, updated_at
 `;
 
@@ -344,35 +348,140 @@ export async function GET(_: Request, ctx: Params) {
 
 /* ========================= PATCH ========================= */
 
-async function validarEdicaoConfigurada(req: NextRequest) {
-  if (req.headers.get("x-transaction-edit") !== "true") return null;
+/**
+ * Guarda de PATCH/PUT quando a chamada vem do dialog de edição.
+ *
+ * O `valor` (bruto) continua imutável por aqui: num pagamento de OS ou venda ele
+ * é o que abate o documento, e mexer numa linha isolada quebraria o total.
+ * Redistribuir o bruto entre as parcelas é feito em `/ajustar-valores`, que
+ * valida a soma do grupo inteiro dentro de uma transação.
+ *
+ * O `valorLiquido` é livre: nenhuma soma que fecha OS/venda olha para ele — é só
+ * quanto sobrou depois da taxa da maquineta, que costuma ser conhecida bem
+ * depois de o pagamento ter sido registrado.
+ */
+async function validarEdicaoManual(req: NextRequest, id: string, body: any) {
+  if (!pediuEdicaoManual(req)) return null;
 
-  const { data: config, error } = await supabaseAdmin
-    .from("config_geral")
-    .select("habilitar_edicao_transacoes")
-    .order("id", { ascending: false })
-    .limit(1)
+  const bloqueio = await respostaSeEdicaoBloqueada();
+  if (bloqueio) return bloqueio;
+
+  if (body?.valor !== undefined) {
+    return NextResponse.json(
+      { error: "O valor bruto não pode ser alterado por aqui. Use o ajuste de valores." },
+      { status: 400 },
+    );
+  }
+
+  const precisaDaLinhaAtual =
+    body?.valorLiquido !== undefined ||
+    body?.tipo !== undefined ||
+    body?.pendente !== undefined ||
+    body?.ordemservicoid !== undefined ||
+    body?.vendaid !== undefined;
+
+  if (!precisaDaLinhaAtual) return null;
+
+  const { data: atual, error } = await supabaseAdmin
+    .from("transacao")
+    .select(
+      "valor, tipo, pendente, ordemservicoid, vendaid, entrada_id, usoconsumo_entrada_id",
+    )
+    .eq("id", id)
+    .eq("is_deleted", false)
     .maybeSingle();
 
-  if (error) {
-    return NextResponse.json({ error: "A configuração de edição de transações ainda não foi aplicada." }, { status: 409 });
+  if (error) throw error;
+  if (!atual) {
+    return NextResponse.json({ error: "Transação não encontrada." }, { status: 404 });
   }
-  if (config?.habilitar_edicao_transacoes !== true) {
-    return NextResponse.json({ error: "A edição de transações está desativada nas configurações gerais." }, { status: 403 });
+
+  /*
+   * `pendente` decide se o dinheiro entrou. Trocar por PATCH pulava tudo que a
+   * baixa garante — `pago_em`, `baixado_por`, a linha em `transacao_baixa_historico`
+   * e a revalidação do status da OS/venda. Era um caminho de baixa sem auditoria.
+   *
+   * Dar baixa é `POST /[id]/baixar` (a ação "Pago"), que passa pela RPC.
+   * Desfazer baixa não existe no sistema: o caminho é excluir e relançar.
+   */
+  if (body?.pendente !== undefined) {
+    const desejado = body.pendente === true || body.pendente === "true";
+    const atualPendente = atual.pendente === true;
+
+    if (desejado !== atualPendente) {
+      return NextResponse.json(
+        {
+          error: atualPendente
+            ? "Use a ação “Pago” para dar baixa: ela registra data, autor e histórico."
+            : "Uma transação já baixada não volta a ser lançamento futuro. Exclua e lance de novo.",
+        },
+        { status: 400 },
+      );
+    }
   }
+
+  const origem = origemDaTransacao(atual);
+
+  if (origem) {
+    const mudouTipo =
+      body?.tipo !== undefined &&
+      String(body.tipo).toUpperCase() !== String(atual.tipo ?? "").toUpperCase();
+
+    if (mudouTipo) {
+      return NextResponse.json(
+        {
+          error: `Esta transação foi gerada por uma ${rotuloDaOrigem(origem)}; o tipo não pode ser alterado.`,
+        },
+        { status: 400 },
+      );
+    }
+
+    // Repontar o vínculo tem exatamente o mesmo efeito de trocar o tipo: o
+    // documento antigo fica com o total errado e ninguém revalida o status.
+    const mudouVinculo =
+      (body?.ordemservicoid !== undefined &&
+        Number(body.ordemservicoid ?? 0) !== Number(atual.ordemservicoid ?? 0)) ||
+      (body?.vendaid !== undefined &&
+        Number(body.vendaid ?? 0) !== Number(atual.vendaid ?? 0));
+
+    if (mudouVinculo) {
+      return NextResponse.json(
+        {
+          error: `Esta transação pertence a uma ${rotuloDaOrigem(origem)} e não pode ser vinculada a outro documento.`,
+        },
+        { status: 400 },
+      );
+    }
+  }
+
+  if (body?.valorLiquido !== undefined) {
+    const liquidoEmCentavos = paraCentavos(body.valorLiquido);
+
+    if (liquidoEmCentavos <= 0) {
+      return NextResponse.json(
+        { error: "O valor líquido deve ser maior que zero." },
+        { status: 400 },
+      );
+    }
+
+    if (liquidoEmCentavos > paraCentavos(atual.valor)) {
+      return NextResponse.json(
+        { error: "O valor líquido não pode ser maior que o valor bruto." },
+        { status: 400 },
+      );
+    }
+  }
+
   return null;
 }
 
 export async function PATCH(req: NextRequest, ctx: Params) {
   try {
     await requireFinanceiroEdit();
-    const edicaoBloqueada = await validarEdicaoConfigurada(req);
-    if (edicaoBloqueada) return edicaoBloqueada;
     const id = await parseId(ctx);
     const body = await req.json().catch(() => ({}));
-    if (req.headers.get("x-transaction-edit") === "true" && (body.valor !== undefined || body.valorLiquido !== undefined)) {
-      return NextResponse.json({ error: "O valor da transação não pode ser editado." }, { status: 400 });
-    }
+    const edicaoBloqueada = await validarEdicaoManual(req, id, body);
+    if (edicaoBloqueada) return edicaoBloqueada;
     const payload = sanitizePayload(body, { strict: false });
 
     if (Object.keys(payload).length === 1 && "updated_at" in payload) {
@@ -443,13 +552,10 @@ export async function PATCH(req: NextRequest, ctx: Params) {
 export async function PUT(req: NextRequest, ctx: Params) {
   try {
     await requireFinanceiroEdit();
-    const edicaoBloqueada = await validarEdicaoConfigurada(req);
-    if (edicaoBloqueada) return edicaoBloqueada;
     const id = await parseId(ctx);
     const body = await req.json().catch(() => ({}));
-    if (req.headers.get("x-transaction-edit") === "true" && (body.valor !== undefined || body.valorLiquido !== undefined)) {
-      return NextResponse.json({ error: "O valor da transação não pode ser editado." }, { status: 400 });
-    }
+    const edicaoBloqueada = await validarEdicaoManual(req, id, body);
+    if (edicaoBloqueada) return edicaoBloqueada;
     const payload = sanitizePayload(body, { strict: true });
 
     const { data, error } = await supabaseAdmin

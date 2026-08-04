@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { buildDetXml } from './xmlItem';
-import { getRequiredPisCofinsMode, PIS_COFINS_CST_OPTIONS, validateNFeItemTax } from './taxRules';
+import {
+  getRequiredPisCofinsMode,
+  PIS_COFINS_CST_OPTIONS,
+  RTC_REGULAR_REQUIRED_FROM,
+  validateNFeItemTax,
+} from './taxRules';
 import type { CRT, NFeItem } from './types';
 
 const baseItem: NFeItem = {
@@ -20,8 +25,13 @@ const baseItem: NFeItem = {
   cofins: { cst: '07', modo: 'NAO_TRIBUTADO' },
 };
 
-function codes(item: NFeItem, crt: CRT) {
-  return validateNFeItemTax(item, crt).map((issue) => issue.code);
+// A matriz de ICMS é anterior à reforma e vale nos dois lados do marco de
+// 03/08/2026. Fixamos a data de emissão para o IBS/CBS não poluir as asserções
+// de CSOSN/CST; a obrigatoriedade do grupo tem teste próprio abaixo.
+const ANTES_DO_MARCO_RTC = new Date("2026-07-01T10:00:00-03:00");
+
+function codes(item: NFeItem, crt: CRT, issueDate = ANTES_DO_MARCO_RTC) {
+  return validateNFeItemTax(item, crt, { issueDate }).map((issue) => issue.code);
 }
 
 describe('matriz CRT da NF-e modelo 55', () => {
@@ -35,6 +45,61 @@ describe('matriz CRT da NF-e modelo 55', () => {
       assert.ok(codes({ ...baseItem, csosn: '102' }, crt).includes('NFE_CSOSN_FORBIDDEN'));
       assert.deepEqual(codes({ ...baseItem, cst: '00', aliquotaIcms: 18, baseCalculoIcms: 100 }, crt), []);
     }
+  });
+
+  it('não exige IBS/CBS no regime regular antes do marco de 03/08/2026', () => {
+    const vespera = new Date('2026-08-02T23:59:00-03:00');
+    const item = { ...baseItem, cst: '00', aliquotaIcms: 18, baseCalculoIcms: 100 };
+    assert.deepEqual(codes(item, 3, vespera), []);
+  });
+
+  it('exige IBS/CBS no regime regular a partir do marco de 03/08/2026', () => {
+    // A orientação operacional prevê rejeição do regime regular sem IBS/CBS a
+    // partir dessa data; o motor precisa barrar antes de mandar para a SEFAZ.
+    const marco = new Date(`${RTC_REGULAR_REQUIRED_FROM}T00:00:00-03:00`);
+    const item = { ...baseItem, cst: '00', aliquotaIcms: 18, baseCalculoIcms: 100 };
+    assert.deepEqual(codes(item, 3, marco), ['NFE_IBSCBS_REQUIRED']);
+
+    // Com o grupo preenchido e a classificação vigente, volta a passar.
+    const comRtc = validateNFeItemTax(
+      {
+        ...item,
+        rtc: {
+          cstIbsCbs: '000',
+          cClassTrib: '000001',
+          baseCalculo: 100,
+          ibsUf: { aliquota: 0.05, valor: 0.05 },
+          ibsMunicipio: { aliquota: 0.05, valor: 0.05 },
+          valorIbs: 0.1,
+          cbs: { aliquota: 0.9, valor: 0.9 },
+        },
+      },
+      3,
+      {
+        issueDate: marco,
+        classificacaoRtc: {
+          codigo: '000001',
+          cst: '000',
+          nome: 'Tributacao integral',
+          inicioVigencia: '2026-01-01',
+          permiteNfe: true,
+          versaoFonte: 'IT2025.002-v1.60-2026-06-22',
+        },
+      },
+    );
+    assert.deepEqual(comRtc.map((issue) => issue.code), []);
+  });
+
+  it('mantém o Simples fora da obrigatoriedade de IBS/CBS do regime regular', () => {
+    // CRT 1, 2 e 4 seguem o cronograma próprio do Simples: o marco do regime
+    // regular não pode ser copiado para eles.
+    const marco = new Date(`${RTC_REGULAR_REQUIRED_FROM}T00:00:00-03:00`);
+    assert.deepEqual(codes({ ...baseItem, csosn: '102' }, 1, marco), []);
+    assert.deepEqual(codes({ ...baseItem, csosn: '102' }, 4, marco), []);
+    assert.deepEqual(
+      codes({ ...baseItem, cst: '00', aliquotaIcms: 18, baseCalculoIcms: 100 }, 2, marco),
+      [],
+    );
   });
 
   it('restringe CSOSN e crédito do Simples no CRT 4', () => {

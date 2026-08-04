@@ -1,23 +1,25 @@
 "use client";
+
+import { ReactNode, useCallback, useState } from "react";
+
+import { useConfig } from "@/app/(app)/(pages)/config-context";
 import { Dialog, DialogTrigger } from "@/components/ui/dialog";
-import { ReactNode, useState } from "react";
-import EditContent from "./editContent";
-import RegisterContent from "./registerContent";
+import { Drawer, DrawerTrigger } from "@/components/ui/drawer";
+import { useMediaQuery } from "@/hooks/use-media-query";
+
 import {
   Metodo_pagamento,
   NewTransaction,
   Tipo_transacao,
   TransactionCustomer,
 } from "../../types";
-import { useMediaQuery } from "@/hooks/use-media-query";
-import { useConfig } from "@/app/(app)/(pages)/config-context";
-import { Drawer } from "@/components/ui/drawer";
+import EditContent from "./editContent";
+import RegisterContent from "./registerContent";
 
 interface TransactionDialogProps {
   children?: ReactNode;
   osId?: number;
   vendaId?: number;
-  transactionId?: number;
   setSelectedTransactionId?: (value: number | undefined) => void;
   open?: boolean;
   setOpen?: (value: boolean) => void;
@@ -29,6 +31,54 @@ interface TransactionDialogProps {
   lockValue?: boolean;
   editable?: boolean;
 }
+
+type SementeProps = Pick<
+  TransactionDialogProps,
+  "osId" | "vendaId" | "initialMetodoPagamento" | "initialTransaction"
+>;
+
+/**
+ * Valores iniciais do formulário de cadastro.
+ *
+ * Estava repetido três vezes no arquivo (estado inicial + os dois
+ * `onOpenChange`), e uma delas já tinha divergido das outras.
+ */
+function sementeDaTransacao({
+  osId,
+  vendaId,
+  initialMetodoPagamento,
+  initialTransaction,
+}: SementeProps): NewTransaction {
+  if (osId) {
+    return {
+      ordemservicoid: osId,
+      tipo: Tipo_transacao.RECEITA,
+      categoria: "ORDEM DE SERVIÇO",
+      descricao: `Pagamento da OS #${osId}`,
+      valor: 0,
+      valorLiquido: 0,
+      parcelas: 1,
+      ...initialTransaction,
+    };
+  }
+
+  if (vendaId) {
+    return {
+      vendaid: vendaId,
+      tipo: Tipo_transacao.RECEITA,
+      categoria: "VENDA",
+      descricao: `Pagamento da Venda #${vendaId}`,
+      valor: 0,
+      valorLiquido: 0,
+      metodopagamento: initialMetodoPagamento,
+      parcelas: 1,
+      ...initialTransaction,
+    };
+  }
+
+  return {};
+}
+
 export default function TransactionDialog({
   children,
   setSelectedTransactionId,
@@ -44,198 +94,94 @@ export default function TransactionDialog({
   lockValue = false,
   editable = false,
 }: TransactionDialogProps) {
-  const [newTransaction, setNewTransaction] = useState<NewTransaction>(() => {
-    if (osId) {
-      return {
-        ordemservicoid: osId,
-        tipo: Tipo_transacao.RECEITA,
-        categoria: "ORDEM DE SERVIÇO",
-        descricao: `Pagamento da OS #${osId}`,
-        valor: 0,
-        valorLiquido: 0,
-        parcelas: 1,
-        ...initialTransaction,
-      };
-    }
+  const semente: SementeProps = {
+    osId,
+    vendaId,
+    initialMetodoPagamento,
+    initialTransaction,
+  };
 
-    if (vendaId) {
-      return {
-        vendaid: vendaId,
-        tipo: Tipo_transacao.RECEITA,
-        categoria: "VENDA",
-        descricao: `Pagamento da Venda #${vendaId}`,
-        valor: 0,
-        valorLiquido: 0,
-        metodopagamento: initialMetodoPagamento,
-        parcelas: 1,
-        ...initialTransaction,
-      };
-    }
-
-    return {};
-  });
+  const [newTransaction, setNewTransaction] = useState<NewTransaction>(() =>
+    sementeDaTransacao(semente),
+  );
   const [selectedCustomer, setSelectedCustomer] = useState<
     TransactionCustomer | undefined
   >(undefined);
 
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const config = useConfig();
+  const usarDialog = isDesktop || !config?.habilitar_drawers;
 
-  if (isDesktop || !config?.habilitar_drawers) {
+  const aoAlternar = useCallback(
+    (aberto: boolean) => {
+      setOpen?.(aberto);
+
+      if (aberto) {
+        setNewTransaction(
+          sementeDaTransacao({
+            osId,
+            vendaId,
+            initialMetodoPagamento,
+            initialTransaction,
+          }),
+        );
+        return;
+      }
+
+      setSelectedTransactionId?.(undefined);
+      setNewTransaction({});
+      setSelectedCustomer(undefined);
+    },
+    [
+      setOpen,
+      osId,
+      vendaId,
+      initialMetodoPagamento,
+      initialTransaction,
+      setSelectedTransactionId,
+    ],
+  );
+
+  const conteudo = selectedTransactionId ? (
+    <EditContent
+      selectedTransactionId={selectedTransactionId}
+      isDesktop={usarDialog}
+      editable={editable}
+      handleGetTransactions={handleGetTransactions}
+      setOpen={setOpen}
+    />
+  ) : (
+    <RegisterContent
+      vendaId={vendaId}
+      osId={osId}
+      handleGetTransactions={handleGetTransactions}
+      selectedCustomer={selectedCustomer}
+      setSelectedCustomer={setSelectedCustomer}
+      dialogOpen={open}
+      newTransaction={newTransaction}
+      setNewTransaction={setNewTransaction}
+      setSelectedTransactionId={setSelectedTransactionId}
+      setOpen={setOpen}
+      isDesktop={usarDialog}
+      internalCompanyExpense={internalCompanyExpense}
+      lockValue={lockValue}
+    />
+  );
+
+  if (usarDialog) {
     return (
-      <Dialog
-        open={open}
-        onOpenChange={(nextOpen) => {
-          if (setOpen) setOpen(nextOpen);
-
-          if (nextOpen) {
-            if (osId) {
-              setNewTransaction({
-                ordemservicoid: osId,
-                tipo: Tipo_transacao.RECEITA,
-                categoria: "ORDEM DE SERVIÇO",
-                descricao: `Pagamento da OS #${osId}`,
-                valor: 0,
-                valorLiquido: 0,
-                parcelas: 1,
-                ...initialTransaction,
-              });
-            }
-
-            if (vendaId) {
-              setNewTransaction({
-                vendaid: vendaId,
-                tipo: Tipo_transacao.RECEITA,
-                categoria: "VENDA",
-                descricao: `Pagamento da Venda #${vendaId}`,
-                valor: 0,
-                valorLiquido: 0,
-                metodopagamento: initialMetodoPagamento,
-                parcelas: 1,
-                ...initialTransaction,
-              });
-            }
-
-            if (!osId && !vendaId) {
-              setNewTransaction({});
-            }
-
-            return;
-          }
-
-          // ao fechar, limpa estados
-          if (setSelectedTransactionId) setSelectedTransactionId(undefined);
-          setNewTransaction({});
-          setSelectedCustomer(undefined);
-        }}
-      >
+      <Dialog open={open} onOpenChange={aoAlternar}>
         {children ? <DialogTrigger asChild>{children}</DialogTrigger> : null}
-        {selectedTransactionId ? (
-          <EditContent
-            selectedTransactionId={selectedTransactionId}
-            selectedCustomer={selectedCustomer}
-            setSelectedCustomer={setSelectedCustomer}
-            isDesktop={true}
-            editable={editable}
-            handleGetTransactions={handleGetTransactions}
-            setOpen={setOpen}
-          />
-        ) : (
-          <RegisterContent
-            vendaId={vendaId}
-            osId={osId}
-            handleGetTransactions={handleGetTransactions}
-            selectedCustomer={selectedCustomer}
-            setSelectedCustomer={setSelectedCustomer}
-            dialogOpen={open}
-            newTransaction={newTransaction}
-            setNewTransaction={setNewTransaction}
-            setSelectedTransactionId={setSelectedTransactionId}
-            setOpen={setOpen}
-            isDesktop={true}
-            internalCompanyExpense={internalCompanyExpense}
-            lockValue={lockValue}
-          />
-        )}
+        {conteudo}
       </Dialog>
     );
   }
 
   return (
-    <Drawer
-      open={open}
-      onOpenChange={(nextOpen) => {
-        if (setOpen) setOpen(nextOpen);
-
-        if (nextOpen) {
-          if (osId) {
-            setNewTransaction({
-              ordemservicoid: osId,
-              tipo: Tipo_transacao.RECEITA,
-              categoria: "ORDEM DE SERVIÇO",
-              descricao: `Pagamento da OS #${osId}`,
-              valor: 0,
-              valorLiquido: 0,
-              parcelas: 1,
-              ...initialTransaction,
-            });
-          }
-
-          if (vendaId) {
-            setNewTransaction({
-              vendaid: vendaId,
-              tipo: Tipo_transacao.RECEITA,
-              categoria: "VENDA",
-              descricao: `Pagamento da Venda #${vendaId}`,
-              valor: 0,
-              valorLiquido: 0,
-              metodopagamento: initialMetodoPagamento,
-              parcelas: 1,
-              ...initialTransaction,
-            });
-          }
-
-          if (!osId && !vendaId) {
-            setNewTransaction({});
-          }
-
-          return;
-        }
-
-        // ao fechar, limpa estados
-        if (setSelectedTransactionId) setSelectedTransactionId(undefined);
-        setNewTransaction({});
-        setSelectedCustomer(undefined);
-      }}
-    >
-      {children ? <DialogTrigger asChild>{children}</DialogTrigger> : null}
-      {selectedTransactionId ? (
-        <EditContent
-          selectedTransactionId={selectedTransactionId}
-          selectedCustomer={selectedCustomer}
-          setSelectedCustomer={setSelectedCustomer}
-          isDesktop={false}
-          editable={editable}
-          handleGetTransactions={handleGetTransactions}
-          setOpen={setOpen}
-        />
-      ) : (
-        <RegisterContent
-          vendaId={vendaId}
-          osId={osId}
-          handleGetTransactions={handleGetTransactions}
-          selectedCustomer={selectedCustomer}
-          setSelectedCustomer={setSelectedCustomer}
-          dialogOpen={open}
-          newTransaction={newTransaction}
-          setNewTransaction={setNewTransaction}
-          setSelectedTransactionId={setSelectedTransactionId}
-          setOpen={setOpen}
-          isDesktop={false}
-          internalCompanyExpense={internalCompanyExpense}
-          lockValue={lockValue}
-        />
-      )}
+    <Drawer open={open} onOpenChange={aoAlternar}>
+      {/* Era `DialogTrigger` aqui: dentro do Drawer ele não abre nada. */}
+      {children ? <DrawerTrigger asChild>{children}</DrawerTrigger> : null}
+      {conteudo}
     </Drawer>
   );
 }

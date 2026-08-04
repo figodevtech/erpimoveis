@@ -4,6 +4,7 @@ import { escapeXml } from './xmlUtils';
 
 export type TotaisNFe = {
   vProd: number;
+  vDesc: number;
   vBC: number;
   vICMS: number;
   vICMSDeson: number;
@@ -65,8 +66,19 @@ function requiredNumber(item: NFeItem, field: keyof NFeItem, value: unknown, for
   return formatter(value);
 }
 
+/**
+ * Valor do item efetivamente cobrado: vProd menos o desconto incondicional.
+ * E a base padrao de ICMS, PIS/COFINS e IPI quando nada for informado — o
+ * desconto incondicional reduz a base de calculo desses tributos.
+ */
+export function valorLiquidoItem(item: NFeItem) {
+  const bruto = Number(item.valorTotal ?? 0);
+  const desconto = Math.min(Math.max(0, Number(item.valorDesconto ?? 0)), Math.max(0, bruto));
+  return Number((bruto - desconto).toFixed(2));
+}
+
 function baseIcms(item: NFeItem) {
-  return Number(item.vBC ?? item.baseCalculoIcms ?? item.valorTotal);
+  return Number(item.vBC ?? item.baseCalculoIcms ?? valorLiquidoItem(item));
 }
 
 function rateIcms(item: NFeItem) {
@@ -200,7 +212,7 @@ function legacyTributo(item: NFeItem, type: 'PIS' | 'COFINS'): TributoPisCofins 
   return {
     cst,
     modo: PIS_COFINS_NT.has(cst) ? 'NAO_TRIBUTADO' : cst === '03' ? 'QUANTIDADE' : 'PERCENTUAL',
-    base: item.valorTotal,
+    base: valorLiquidoItem(item),
     aliquota,
     valor,
   };
@@ -220,7 +232,7 @@ function buildContributionXml(item: NFeItem, type: 'PIS' | 'COFINS') {
     const groupName = cst === '03' ? `${type}Qtde` : `${type}Outr`;
     group = `<${groupName}>${tag('CST', cst)}${tag('qBCProd', requiredNumber(item, 'quantidade', data.quantidade, quantity))}${tag(unitRateTag, requiredNumber(item, 'valorUnitario', data.aliquotaPorUnidade, rate))}${tag(valueTag, money(value))}</${groupName}>`;
   } else {
-    const base = Number(data.base ?? item.valorTotal);
+    const base = Number(data.base ?? valorLiquidoItem(item));
     const aliquota = Number(data.aliquota);
     const value = has(data.valor) ? Number(data.valor) : Number(((base * aliquota) / 100).toFixed(2));
     const groupName = cst === '01' || cst === '02' ? `${type}Aliq` : `${type}Outr`;
@@ -251,7 +263,7 @@ export function buildIpiXml(item: NFeItem) {
     const value = has(item.valorIpi) ? Number(item.valorIpi) : Number((Number(item.quantidadeIpi) * Number(item.valorUnidadeIpi)).toFixed(2));
     calculation = tag('qUnid', requiredNumber(item, 'quantidadeIpi', item.quantidadeIpi, quantity)) + tag('vUnid', requiredNumber(item, 'valorUnidadeIpi', item.valorUnidadeIpi, rate)) + tag('vIPI', money(value));
   } else {
-    const base = Number(item.baseCalculoIpi ?? item.valorTotal);
+    const base = Number(item.baseCalculoIpi ?? valorLiquidoItem(item));
     const aliquota = Number(item.aliquotaIpi);
     const value = has(item.valorIpi) ? Number(item.valorIpi) : Number(((base * aliquota) / 100).toFixed(2));
     calculation = tag('vBC', money(base)) + tag('pIPI', rate(aliquota)) + tag('vIPI', money(value));
@@ -296,14 +308,17 @@ function contributionValue(item: NFeItem, type: 'PIS' | 'COFINS') {
   if (has(data.valor)) return Number(data.valor);
   return data.modo === 'QUANTIDADE'
     ? Number(data.quantidade) * Number(data.aliquotaPorUnidade)
-    : Number(data.base ?? item.valorTotal) * Number(data.aliquota) / 100;
+    : Number(data.base ?? valorLiquidoItem(item)) * Number(data.aliquota) / 100;
 }
 
 export function calcularTotaisNFe(itens: NFeItem[], crt: CRT): TotaisNFe {
-  const initial: TotaisNFe = { vProd: 0, vBC: 0, vICMS: 0, vICMSDeson: 0, vFCP: 0, vBCST: 0, vST: 0, vFCPST: 0, vFCPSTRet: 0, vPIS: 0, vCOFINS: 0, vIPI: 0, vIS: 0, vBCIBSCBS: 0, vIBSUF: 0, vIBSMun: 0, vIBS: 0, vCBS: 0 };
+  const initial: TotaisNFe = { vProd: 0, vDesc: 0, vBC: 0, vICMS: 0, vICMSDeson: 0, vFCP: 0, vBCST: 0, vST: 0, vFCPST: 0, vFCPSTRet: 0, vPIS: 0, vCOFINS: 0, vIPI: 0, vIS: 0, vBCIBSCBS: 0, vIBSUF: 0, vIBSMun: 0, vIBS: 0, vCBS: 0 };
   return itens.reduce((total, item) => {
     validarItemFiscal(item, crt);
+    // vProd continua sendo o bruto: o desconto vai para vDesc, nunca embutido
+    // no preco unitario, para a nota espelhar o preco de tabela.
     total.vProd += Number(item.valorTotal);
+    total.vDesc += Number((Number(item.valorTotal) - valorLiquidoItem(item)).toFixed(2));
     const cst = digits(item.cstIcms ?? item.cst, 2);
     if ((crt === 2 || crt === 3) && ['00', '10', '20', '51', '70', '90'].includes(cst) && has(item.vBC ?? item.baseCalculoIcms)) {
       total.vBC += baseIcms(item); total.vICMS += valueIcms(item);

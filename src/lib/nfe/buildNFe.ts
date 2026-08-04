@@ -13,7 +13,7 @@ import { buildDetXml } from './xmlItem';
 import { gerarCNF, gerarChaveAcesso } from './chaveAcesso';
 import { mapEmpresaToEmitente } from './mapEmpresaToEmitente';
 import { getCodigoUF } from './ufUtils';
-import { calcularTotaisNFe, normalizarCRT } from './fiscal';
+import { calcularTotaisNFe, normalizarCRT, valorLiquidoItem } from './fiscal';
 import { cfopDispensaDifal, deveGerarICMSUFDest, montarICMSUFDest } from './difal';
 import { escapeXml } from './xmlUtils';
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from './constants';
@@ -447,8 +447,9 @@ export function buildNFePreviewXml(
       cfopDispensaDifal(item.cfop) ? item : {
         ...item,
         icmsUfDest: item.icmsUfDest ?? montarICMSUFDest({
-          // A base do DIFAL e o valor da operacao, incluindo o frete rateado.
-          baseCalculo: Number(item.valorTotal ?? 0) + Number(item.valorFrete ?? 0),
+          // A base do DIFAL e o valor da operacao: item liquido do desconto
+          // incondicional, mais o frete rateado.
+          baseCalculo: valorLiquidoItem(item) + Number(item.valorFrete ?? 0),
           baseCalculoFcp: item.baseCalculoFcpDestino,
           ufEmitente: empresaUf,
           ufDestinatario: ufDestino,
@@ -479,13 +480,15 @@ export function buildNFePreviewXml(
   const soma = calcularTotaisNFe(itens, crt);
 
   const vProd = soma.vProd.toFixed(2);
+  const vDesc = soma.vDesc.toFixed(2);
   const vBC = soma.vBC.toFixed(2);
   const vICMS = soma.vICMS.toFixed(2);
   const vPIS = soma.vPIS.toFixed(2);
   const vCOFINS = soma.vCOFINS.toFixed(2);
   const valorFrete = itens.reduce((total, item) => total + Number(item.valorFrete ?? 0), 0);
   const vFrete = valorFrete.toFixed(2);
-  const vNF = (soma.vProd + valorFrete + soma.vST + soma.vFCPST + soma.vIPI).toFixed(2);
+  // vNF = vProd - vDesc + vFrete + vSeg + vOutro + vST + vFCPST + vIPI (leiaute 4.00).
+  const vNF = (soma.vProd - soma.vDesc + valorFrete + soma.vST + soma.vFCPST + soma.vIPI).toFixed(2);
 
   // Totais do DIFAL. Ficam entre vICMSDeson e vFCP, na ordem do leiaute 4.00,
   // e so aparecem quando a nota realmente gerou o grupo nos itens.
@@ -541,7 +544,7 @@ export function buildNFePreviewXml(
     `<vProd>${vProd}</vProd>` +
     `<vFrete>${vFrete}</vFrete>` +
     `<vSeg>0.00</vSeg>` +
-    `<vDesc>0.00</vDesc>` +
+    `<vDesc>${vDesc}</vDesc>` +
     `<vII>0.00</vII>` +
     `<vIPI>${soma.vIPI.toFixed(2)}</vIPI>` +
     `<vIPIDevol>0.00</vIPIDevol>` +

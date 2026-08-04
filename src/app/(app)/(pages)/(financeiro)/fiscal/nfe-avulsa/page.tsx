@@ -59,6 +59,7 @@ import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
 import { normalizeCfopForOperation } from "@/lib/nfe/cfopOperation";
 import { getRequiredPisCofinsMode, PIS_COFINS_CST_OPTIONS } from "@/lib/nfe/taxRules";
 import { aplicarSugestaoDifal } from "@/lib/nfe/difal-sugestao";
+import { descontoPorItem } from "@/lib/nfe/descontoOrigem";
 import { DanfeView, type DanfeViewData } from "@/components/danfe/danfe-view";
 import ValueInput from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/components/transactionDialog/valueInput";
 
@@ -153,6 +154,12 @@ type DraftItem = {
   unidade: string;
   quantidade: string;
   valorUnitario: string;
+  /**
+   * Desconto incondicional do item (vDesc). Nas notas geradas a partir de OS e
+   * venda chega preenchido com o desconto do item mais o rateio do desconto
+   * geral; aqui é sempre editável.
+   */
+  valorDesconto: string;
   orig: string;
   csosn: string;
   cst: string;
@@ -233,6 +240,12 @@ type DraftPayload = {
   };
   pagamento: DraftPayment;
   pagamentos: DraftPayment[];
+  /**
+   * Desconto geral da nota. Não vai para o XML por si: é rateado nos itens e
+   * some dentro do vDesc de cada um, porque o leiaute 4.00 não tem desconto de
+   * nota. Fica guardado no rascunho só para a tela reabrir com o mesmo número.
+   */
+  descontoGeral: string;
   transporte: DraftTransporte;
   destinatario: {
     clienteId: number | null;
@@ -405,6 +418,7 @@ const emptyItem: DraftItem = {
   unidade: "UN",
   quantidade: "1",
   valorUnitario: "0",
+  valorDesconto: "0",
   orig: "",
   csosn: "",
   cst: "",
@@ -470,6 +484,7 @@ const initialDraft: DraftPayload = {
     bandeira: "",
     autorizacao: "",
   }],
+  descontoGeral: "0",
   transporte: {
     modFrete: "9",
     transportadora: {
@@ -679,6 +694,13 @@ function mapServerDraftToPayload(value: any): { draft: DraftPayload; document: N
       },
       pagamento: pagamentosOriginais[0],
       pagamentos: pagamentosOriginais,
+      // Se o rascunho é antigo e não guardou o geral, cai para a soma dos vDesc
+      // dos itens — é o número que o usuário reconhece ao reabrir a nota.
+      descontoGeral: stringifyNumber(
+        dadosAvulsos.descontoGeral ??
+          itens.reduce((soma: number, item: any) => soma + Number(item.valor_desconto ?? 0), 0),
+        "0",
+      ),
       transporte: normalizeTransporte(transporteOriginal),
       destinatario: {
         ...initialDraft.destinatario,
@@ -710,6 +732,10 @@ function mapServerDraftToPayload(value: any): { draft: DraftPayload; document: N
             unidade: String(item.unidade ?? "UN"),
             quantidade: stringifyNumber(item.quantidade, "1"),
             valorUnitario: stringifyNumber(item.valor_unitario, "0"),
+            valorDesconto: stringifyNumber(
+              item.valor_desconto ?? item.tributacao_snapshot?.valorDesconto,
+              "0",
+            ),
             valorFrete: stringifyNumber(item.valor_frete ?? item.tributacao_snapshot?.valorFrete, "0"),
             orig: String(item.tributacao_snapshot?.orig ?? ""),
             csosn: String(item.csosn ?? ""),
@@ -808,7 +834,23 @@ export default function NFeAvulsaPage() {
   const [paymentMethodsOpen, setPaymentMethodsOpen] = React.useState(false);
   const [confirmAuthorizeOpen, setConfirmAuthorizeOpen] = React.useState(false);
 
+  // Total já líquido do desconto: é o que vira vNF e o que os pagamentos
+  // precisam fechar.
   const totalProdutos = React.useMemo(
+    () =>
+      draft.itens.reduce(
+        (sum, item) =>
+          sum +
+          Math.max(
+            0,
+            parseCurrency(item.quantidade) * parseCurrency(item.valorUnitario) -
+              parseCurrency(item.valorDesconto),
+          ),
+        0,
+      ),
+    [draft.itens],
+  );
+  const totalBrutoProdutos = React.useMemo(
     () =>
       draft.itens.reduce(
         (sum, item) => sum + parseCurrency(item.quantidade) * parseCurrency(item.valorUnitario),
@@ -816,6 +858,35 @@ export default function NFeAvulsaPage() {
       ),
     [draft.itens],
   );
+  // Soma dos vDesc que realmente vão para o ICMSTot, inclusive os ajustados à
+  // mão depois do rateio.
+  const totalDescontoItens = React.useMemo(
+    () => draft.itens.reduce((sum, item) => sum + Math.max(0, parseCurrency(item.valorDesconto)), 0),
+    [draft.itens],
+  );
+
+  function aplicarDescontoGeral(valor: number) {
+    const desconto = Math.max(0, Math.min(valor, Number(totalBrutoProdutos.toFixed(2))));
+    updateDraft((current) => {
+      const linhas = current.itens.map((item) => {
+        const bruto = Number(
+          (parseCurrency(item.quantidade) * parseCurrency(item.valorUnitario)).toFixed(2),
+        );
+        // Na avulsa não existe desconto "do item" vindo de origem: tudo o que há
+        // é o geral sendo distribuído, então o líquido é o próprio bruto.
+        return { bruto, liquido: bruto };
+      });
+      const rateio = descontoPorItem(linhas, desconto);
+      return {
+        ...current,
+        descontoGeral: desconto.toFixed(2),
+        itens: current.itens.map((item, index) => ({
+          ...item,
+          valorDesconto: (rateio[index] ?? 0).toFixed(2),
+        })),
+      };
+    });
+  }
 
   const selectedClienteLabel = draft.destinatario.clienteId
     ? `${draft.destinatario.nomeRazaoSocial || "Cliente selecionado"} - ${formatCpfCnpj(draft.destinatario.cpfCnpj)}`
@@ -1810,6 +1881,31 @@ export default function NFeAvulsaPage() {
                   </Button>
                 </div>
 
+                {draft.itens.length > 0 ? (
+                  <div className="min-w-0 space-y-2 rounded-md border bg-muted/20 p-3">
+                    <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] sm:items-start">
+                      <div className="min-w-0 space-y-1.5">
+                        <Label>Desconto geral da nota</Label>
+                        <ValueInput
+                          price={parseCurrency(draft.descontoGeral)}
+                          setPrice={aplicarDescontoGeral}
+                        />
+                      </div>
+                      <p className="text-xs leading-relaxed text-muted-foreground sm:pt-7">
+                        Rateado nos produtos proporcionalmente ao valor de cada um, com a sobra de
+                        centavos no último item. O XML não tem desconto de nota: o valor vira o vDesc
+                        de cada item e o somatório aparece no ICMSTot. Cada item ainda pode ser
+                        ajustado à mão abaixo.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                      <span>Produtos: <b>{formatarEmReal(totalBrutoProdutos)}</b></span>
+                      <span>Desconto (vDesc): <b>- {formatarEmReal(totalDescontoItens)}</b></span>
+                      <span>Total da NF-e: <b>{formatarEmReal(totalProdutos)}</b></span>
+                    </div>
+                  </div>
+                ) : null}
+
                 <div className="space-y-3">
                   {draft.itens.length === 0 ? (
                     <Card className="border-dashed">
@@ -1863,6 +1959,13 @@ export default function NFeAvulsaPage() {
                             setPrice={(value) => updateItem(index, { valorUnitario: value.toFixed(2) })}
                           />
                         </div>
+                        <div className="md:col-span-2">
+                          <Label>Desconto</Label>
+                          <ValueInput
+                            price={parseCurrency(item.valorDesconto)}
+                            setPrice={(value) => updateItem(index, { valorDesconto: value.toFixed(2) })}
+                          />
+                        </div>
                         <div className="md:col-span-3">
                           <Label className="inline-flex items-center gap-1">
                             CEST
@@ -1872,8 +1975,14 @@ export default function NFeAvulsaPage() {
                         </div>
                         <Info
                           label="Total do item"
-                          value={formatarEmReal(parseCurrency(item.quantidade) * parseCurrency(item.valorUnitario))}
-                          className="md:col-span-5"
+                          value={formatarEmReal(
+                            Math.max(
+                              0,
+                              parseCurrency(item.quantidade) * parseCurrency(item.valorUnitario) -
+                                parseCurrency(item.valorDesconto),
+                            ),
+                          )}
+                          className="md:col-span-3"
                         />
                         <div className="md:col-span-12">
                           <Separator />
@@ -2319,7 +2428,13 @@ export default function NFeAvulsaPage() {
                         <TableCell>{item.ncm || "-"}</TableCell>
                         <TableCell>{item.cfop || "-"}</TableCell>
                         <TableCell className="text-right">
-                          {formatarEmReal(parseCurrency(item.quantidade) * parseCurrency(item.valorUnitario))}
+                          {formatarEmReal(
+                            Math.max(
+                              0,
+                              parseCurrency(item.quantidade) * parseCurrency(item.valorUnitario) -
+                                parseCurrency(item.valorDesconto),
+                            ),
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -2567,6 +2682,9 @@ function NFeAutorizadaView({
     const quantidade = parseNumberInput(item.quantidade);
     const valorUnitario = parseNumberInput(item.valorUnitario);
     const valorTotal = Number((quantidade * valorUnitario).toFixed(2));
+    const valorDesconto = Math.min(Math.max(0, parseNumberInput(item.valorDesconto)), valorTotal);
+    // Os tributos incidem sobre o item já líquido do desconto incondicional.
+    const valorLiquido = Number((valorTotal - valorDesconto).toFixed(2));
     const aliquotaIcms = parseNumberInput(item.aliquotaIcms);
     const aliquotaPis = parseNumberInput(item.aliquotaPis);
     const aliquotaCofins = parseNumberInput(item.aliquotaCofins);
@@ -2586,20 +2704,20 @@ function NFeAutorizadaView({
       quantidade,
       valor_unitario: valorUnitario,
       valor_total: valorTotal,
-      valor_desconto: 0,
-      valor_bc_icms: aliquotaIcms > 0 ? valorTotal : 0,
+      valor_desconto: valorDesconto,
+      valor_bc_icms: aliquotaIcms > 0 ? valorLiquido : 0,
       aliquotaicms: aliquotaIcms,
-      valor_icms: Number((valorTotal * (aliquotaIcms / 100)).toFixed(2)),
+      valor_icms: Number((valorLiquido * (aliquotaIcms / 100)).toFixed(2)),
       cst_ipi: null,
       valor_bc_ipi: 0,
       aliquota_ipi: 0,
       valor_ipi: 0,
       cst_pis: item.cstPis || null,
       aliquota_pis: aliquotaPis,
-      valor_pis: Number((valorTotal * (aliquotaPis / 100)).toFixed(2)),
+      valor_pis: Number((valorLiquido * (aliquotaPis / 100)).toFixed(2)),
       cst_cofins: item.cstCofins || null,
       aliquota_cofins: aliquotaCofins,
-      valor_cofins: Number((valorTotal * (aliquotaCofins / 100)).toFixed(2)),
+      valor_cofins: Number((valorLiquido * (aliquotaCofins / 100)).toFixed(2)),
       cst_ibs_cbs: item.rtcHabilitado ? item.cstIbsCbs || null : null,
       classificacao_tributaria: item.rtcHabilitado ? item.cClassTrib || null : null,
       base_ibs_cbs: item.rtcHabilitado ? parseNumberInput(item.baseRtc) : 0,

@@ -118,6 +118,10 @@ export interface Transaction {
   cpfcnpjpagador?: string;
   ordemservicoid?: number | null
   vendaid?: number | null
+  /** Entrada de estoque/nota de compra que gerou o lançamento. */
+  entrada_id?: number | null
+  /** Entrada de uso e consumo que gerou o lançamento. */
+  usoconsumo_entrada_id?: number | null
   pendente?: boolean
   evento_financeiro_id?: number | null
   is_deleted?: boolean

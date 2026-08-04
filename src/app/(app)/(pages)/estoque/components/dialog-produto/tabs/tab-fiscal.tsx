@@ -108,7 +108,7 @@ export function TabFiscal({ produto, onChange }: Props) {
               value={produto.origem_mercadoria || "Selecione"}
               onValueChange={(value) => onChange("origem_mercadoria", value === "Selecione" ? "" : value)}
             >
-              <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+              <SelectTrigger className="w-full"><SelectValue placeholder="Selecione" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="Selecione">Selecione</SelectItem>
                 <SelectItem value="0">0 - Nacional</SelectItem>
@@ -132,7 +132,7 @@ export function TabFiscal({ produto, onChange }: Props) {
           {showCsosn ? (
             <Field label="CSOSN padrão" className="lg:col-span-2">
               <Select value={produto.csosn || "Selecione"} onValueChange={(value) => onChange("csosn", value === "Selecione" ? "" : value)}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectTrigger className="w-full"><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent className="max-w-[calc(100vw-2rem)] sm:w-[34rem]">
                   <SelectItem value="Selecione">Selecione</SelectItem>
                   {CSOSN_OPTIONS
@@ -155,7 +155,7 @@ export function TabFiscal({ produto, onChange }: Props) {
             {showCst ? (
               <Field label="CST ICMS padrão">
                 <Select value={cstIcmsNormalizado} onValueChange={(value) => onChange("cst", value === "Selecione" ? "" : value)}>
-                  <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                  <SelectTrigger className="w-full"><SelectValue placeholder="Selecione" /></SelectTrigger>
                   <SelectContent className="max-w-[calc(100vw-2rem)] sm:w-[32rem]">
                     <SelectItem value="Selecione">Selecione</SelectItem>
                     {CST_OPTIONS
@@ -194,7 +194,7 @@ export function TabFiscal({ produto, onChange }: Props) {
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-6">
           <Field label={rtcRequired ? "Aplicar IBS/CBS (obrigatório)" : "Aplicar IBS/CBS"}>
             <Select value={rtcEnabled ? "SIM" : "NAO"} onValueChange={(value) => onChange("rtc_habilitado", value === "SIM")}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {!rtcRequired ? <SelectItem value="NAO">Não se aplica</SelectItem> : null}
                 <SelectItem value="SIM">Aplicar</SelectItem>
@@ -212,7 +212,7 @@ export function TabFiscal({ produto, onChange }: Props) {
                     onChange("cst_ibscbs", classification?.cst || "");
                   }}
                 >
-                  <SelectTrigger title={setup?.classificacoesRtc?.find((entry) => entry.codigo === produto.cclass_trib)?.nome}>
+                  <SelectTrigger className="w-full" title={setup?.classificacoesRtc?.find((entry) => entry.codigo === produto.cclass_trib)?.nome}>
                     <SelectValue placeholder="Selecione o cClassTrib" />
                   </SelectTrigger>
                   <SelectContent className="max-w-[calc(100vw-2rem)] sm:max-w-2xl">
@@ -258,7 +258,7 @@ function ContributionDefaults({
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
       <Field label={`CST ${type}`}>
         <Select value={cst} onValueChange={onCstChange}>
-          <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+          <SelectTrigger className="w-full"><SelectValue placeholder="Selecione" /></SelectTrigger>
           <SelectContent className="max-w-[calc(100vw-2rem)] sm:w-[36rem]">
             <SelectItem value="Selecione">Selecione</SelectItem>
             {CST_PIS_OPTIONS.map((option) => (
@@ -272,7 +272,7 @@ function ContributionDefaults({
           value={mode || "Selecione"}
           onValueChange={(value) => onChange(pis ? "modo_pis" : "modo_cofins", value === "Selecione" ? undefined : value)}
         >
-          <SelectTrigger disabled={cst === "Selecione"}><SelectValue placeholder="Selecione" /></SelectTrigger>
+          <SelectTrigger className="w-full" disabled={cst === "Selecione"}><SelectValue placeholder="Selecione" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="Selecione">Selecione</SelectItem>
             {visibleModes.map((entry) => <SelectItem key={entry.value} value={entry.value}>{entry.label}</SelectItem>)}

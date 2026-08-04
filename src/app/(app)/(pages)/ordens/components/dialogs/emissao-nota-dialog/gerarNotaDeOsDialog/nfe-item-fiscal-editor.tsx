@@ -87,11 +87,13 @@ const ORIGENS = [
 function Field({
   label,
   required,
+  hint,
   children,
   className = "",
 }: {
   label: string;
   required?: boolean;
+  hint?: string;
   children: React.ReactNode;
   className?: string;
 }) {
@@ -103,6 +105,7 @@ function Field({
         {label} {required ? <span className="text-destructive">*</span> : null}
       </Label>
       {children}
+      {hint ? <p className="text-[11px] leading-snug text-muted-foreground">{hint}</p> : null}
     </div>
   );
 }
@@ -260,9 +263,22 @@ export function NfeItemFiscalEditor({
                 onValueChange={(valorUnitario) => onChange({ valorUnitario })}
               />
             </Field>
+            <Field
+              label="Desconto do item na NF-e"
+              hint="Já traz o desconto do item somado ao rateio do desconto geral. Vai para vDesc e abate a base dos tributos."
+              className="lg:col-span-3"
+            >
+              <ValueInput
+                value={item.valorDesconto}
+                onValueChange={(valorDesconto) => onChange({ valorDesconto })}
+              />
+            </Field>
             <Field label="Total do item na NF-e" className="lg:col-span-3">
               <Input
-                value={(item.quantidade * item.valorUnitario).toLocaleString("pt-BR", {
+                value={Math.max(
+                  0,
+                  item.quantidade * item.valorUnitario - item.valorDesconto,
+                ).toLocaleString("pt-BR", {
                   style: "currency",
                   currency: "BRL",
                 })}

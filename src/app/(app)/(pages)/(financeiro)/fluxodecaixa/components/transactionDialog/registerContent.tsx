@@ -56,6 +56,14 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
+import { distribuirValoresIguais, paraCentavos } from "@/lib/financeiro/rateio";
+import {
+  CABECALHO_FIXO,
+  COLUNA_CHEIA,
+  MIOLO_ROLAVEL,
+  RODAPE_FIXO,
+  classesDoConteudo,
+} from "./shell";
 
 interface ParcelaFormulario {
   id: number;
@@ -67,23 +75,6 @@ function addMonths(date: Date, months: number) {
   const next = new Date(date);
   next.setMonth(next.getMonth() + months);
   return next;
-}
-
-function distribuirValoresIguais(total: number, quantidade: number) {
-  if (quantidade <= 0) return [];
-
-  const totalCentavos = Math.round((total || 0) * 100);
-  const valorBase = Math.floor(totalCentavos / quantidade);
-  const resto = totalCentavos - valorBase * quantidade;
-
-  return Array.from({ length: quantidade }, (_, index) => {
-    const centavos = valorBase + (index < resto ? 1 : 0);
-    return centavos / 100;
-  });
-}
-
-function toCentavos(value: number | undefined) {
-  return Math.round((value || 0) * 100);
 }
 
 function toDateOnly(date: Date) {
@@ -491,10 +482,10 @@ export default function RegisterContent({
         }
 
         const somaParcelas = parcelasDetalhadas.reduce(
-          (acc, parcela) => acc + toCentavos(parcela.valor),
+          (acc, parcela) => acc + paraCentavos(parcela.valor),
           0,
         );
-        const valorTotal = toCentavos(valorTotalParcelamento);
+        const valorTotal = paraCentavos(valorTotalParcelamento);
 
         if (somaParcelas !== valorTotal) {
           toast.error(
@@ -641,18 +632,9 @@ export default function RegisterContent({
   const Close = isDesktop ? DialogClose : DrawerClose;
 
   return (
-    <Content
-      className={
-        isDesktop
-          ? `
-        h-svh w-[100dvw] max-w-[100dvw] p-0 overflow-hidden min-w-0
-        sm:max-w-[1100px] sm:max-h-[850px] sm:w-[95vw] sm:min-w-0
-      `
-          : `h-[100dvh] min-h-dvh mt-0 rounded-none max-h-none flex flex-col`
-      }
-    >
-      <div className="flex h-full min-h-0 flex-col">
-        <Header className="shrink-0 px-6 py-4 border-b-1">
+    <Content className={classesDoConteudo(Boolean(isDesktop))}>
+      <div className={COLUNA_CHEIA}>
+        <Header className={CABECALHO_FIXO}>
           {osId && (
             <Title>
               OS #{osId}{" "}
@@ -672,9 +654,8 @@ export default function RegisterContent({
           {!osId && !vendaId && <Title>Nova Transação</Title>}
           <Description>Preencha dados para registrar uma transação</Description>
         </Header>
-        <div className="h-full min-h-0 overflow-hidden">
-          <div className="h-full min-h-0 overflow-auto px-6 py-4 space-y-4 bg-background">
-            <div className="rounded-lg border bg-card p-4 gap-3 flex flex-col">
+        <div className={`${MIOLO_ROLAVEL} space-y-4 bg-background px-6 py-4`}>
+          <div className="rounded-lg border bg-card p-4 gap-3 flex flex-col">
               {/* dados da transação */}
               <div className="space-y-4 grid sm:grid-cols-3 gap-4">
                 <div className="space-y-2 w-full">
@@ -1436,14 +1417,18 @@ export default function RegisterContent({
               </div>
             </div>
           </div>
-        </div>
-        <Footer className="px-6 py-4 border-t">
-          <div className="flex sm:flex-row gap-3 sm:gap-4">
+        <Footer className={RODAPE_FIXO}>
+          <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row sm:gap-3">
+            <Close asChild>
+              <Button className="w-full hover:cursor-pointer sm:w-auto" variant={"outline"}>
+                Cancelar
+              </Button>
+            </Close>
             <Button
               type="submit"
               form="register-form"
-              // disabled={isSubmitting}
-              className="flex-1  hover:cursor-pointer"
+              disabled={isSubmitting}
+              className="w-full hover:cursor-pointer sm:w-auto"
               onClick={handleCreateTransaction}
             >
               {isSubmitting ? (
@@ -1458,11 +1443,6 @@ export default function RegisterContent({
                 </>
               )}
             </Button>
-            <Close asChild>
-              <Button className="hover:cursor-pointer" variant={"outline"}>
-                Cancelar
-              </Button>
-            </Close>
           </div>
         </Footer>
       </div>

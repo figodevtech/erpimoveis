@@ -13,7 +13,7 @@ import { TabImagensCreate } from "./tabs/tab-imagens-create";
 import type { ProdutoImagemPendente } from "./tabs/produto-imagens-gallery";
 import { TabEtiquetas } from "./tabs/tab-etiquetas";
 import { useUnidadesMedida } from "./hooks/use-unidades-medida";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { Unidade_medida } from "../../types";
 import { useGruposProduto } from "./hooks/use-grupo-produtos";
 import type { LoteSelectItem } from "@/app/(app)/components/loteSelect";
@@ -23,7 +23,7 @@ import { crossInventoryLabelMessage, lookupInventoryLabel } from "@/lib/inventor
 interface ConteudoCadastroProdutoProps {
   setSelectedProductId?: (value: number | undefined) => void;
   newProduct: Produto;
-  setNewProduct: (value: Produto) => void;
+  setNewProduct: Dispatch<SetStateAction<Produto>>;
   handleSearchFornecedor?: () => void;
   onAfterSaveProduct?: () => void | Promise<void>;
   isDesktop?: boolean;
@@ -64,11 +64,15 @@ export default function CadastroProduto({
   const tabTheme =
     " group h-8 rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:text-foreground data-[state=active]:bg-primary dark:data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm";
 
+  // Atualizacao funcional: campos fiscais como CST PIS/COFINS e a classificacao
+  // do IBS/CBS disparam varios onChange no mesmo evento. Espalhando um
+  // `newProduct` lido do closure, cada chamada partia do mesmo estado e so a
+  // ultima sobrevivia — o CST escolhido voltava a ficar em branco.
   const handleChange = useCallback(
     (field: keyof Produto, value: any) => {
-      setNewProduct({ ...newProduct, [field]: value });
+      setNewProduct((current) => ({ ...current, [field]: value }));
     },
-    [newProduct, setNewProduct],
+    [setNewProduct],
   );
 
   useEffect(() => {

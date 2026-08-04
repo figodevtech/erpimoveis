@@ -9,8 +9,10 @@
     "lint": "eslint",
     "lint:unused": "eslint . --config eslint-unused.config.mjs --no-error-on-unmatched-pattern",
     "test:nfe": "tsx --test src/lib/nfe/*.test.ts",
+    "test:financeiro": "tsx --test src/lib/financeiro/*.test.ts",
     "localidades:gerar": "node scripts/localidades/gerar-municipios.mjs",
     "db:status": "tsx scripts/db/status.ts",
+    "db:test:sql": "tsx scripts/db/test-sql.ts",
     "db:deploy": "tsx scripts/db/deploy.ts",
     "db:deploy:demo": "tsx scripts/db/deploy-demo.ts",
     "db:deploy:clients": "tsx scripts/db/deploy-clients.ts"

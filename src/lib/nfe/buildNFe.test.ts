@@ -49,6 +49,27 @@ const item: NFeItem = {
   cofins: { cst: "07", modo: "NAO_TRIBUTADO" },
 };
 
+/**
+ * Grupo IBS/CBS do ano-teste de 2026, no formato que o motor exige do regime
+ * regular a partir de 03/08/2026. `versaoClassificacao` e `validadoEm` marcam
+ * que o cClassTrib já passou pela tabela oficial — sem eles o motor recusa.
+ */
+function rtcTeste(base: number): NonNullable<NFeItem["rtc"]> {
+  const ibsUf = Number((base * 0.0005).toFixed(2));
+  const ibsMunicipio = Number((base * 0.0005).toFixed(2));
+  return {
+    cstIbsCbs: "000",
+    cClassTrib: "000001",
+    baseCalculo: base,
+    ibsUf: { aliquota: 0.05, valor: ibsUf },
+    ibsMunicipio: { aliquota: 0.05, valor: ibsMunicipio },
+    valorIbs: Number((ibsUf + ibsMunicipio).toFixed(2)),
+    cbs: { aliquota: 0.9, valor: Number((base * 0.009).toFixed(2)) },
+    versaoClassificacao: "1.00",
+    validadoEm: new Date().toISOString(),
+  };
+}
+
 function destinatario(uf: string): NFeDestinatario {
   return {
     cpf: "12345678909",
@@ -101,6 +122,9 @@ describe("DIFAL (ICMSUFDest)", () => {
     csosn: null,
     valorUnitario: 2000,
     valorTotal: 2000,
+    // Desde 03/08/2026 o regime regular não emite sem IBS/CBS: uma nota de CRT 3
+    // sem o grupo é rejeitada. Alíquotas-teste de 2026: 0,1% IBS e 0,9% CBS.
+    rtc: rtcTeste(2000),
   };
 
   it("gera o grupo na venda interestadual a consumidor final não contribuinte", () => {
@@ -274,5 +298,77 @@ describe("pagamentos na NF-e", () => {
     assert.match(result.xml, /<prod>.*<vFrete>12\.50<\/vFrete>.*<\/prod>/);
     assert.match(result.xml, /<ICMSTot>.*<vFrete>12\.50<\/vFrete>.*<vNF>22\.50<\/vNF>/);
     assert.match(result.xml, /<tPag>17<\/tPag><vPag>22\.50<\/vPag>/);
+  });
+
+  it("respeita a ordem do leiaute em vFrete e vDesc dentro de <prod>", () => {
+    const result = buildNFePreviewXml(
+      empresa,
+      6,
+      1,
+      [{ ...item, valorFrete: 12.5, valorDesconto: 2.5 }],
+      destinatario("SP"),
+      { nomeMunicipioEmitente: "SAO PAULO" },
+    );
+
+    // I14a vUnTrib < I15 vFrete < I17 vDesc < I17b indTot.
+    assert.match(
+      result.xml,
+      /<vUnTrib>[\d.]+<\/vUnTrib><vFrete>12\.50<\/vFrete><vDesc>2\.50<\/vDesc><indTot>1<\/indTot>/,
+    );
+  });
+});
+
+describe("desconto na NF-e", () => {
+  it("destaca o desconto no item e abate do vNF sem mexer no vProd", () => {
+    const result = buildNFePreviewXml(
+      empresa,
+      7,
+      1,
+      [{ ...item, quantidade: 2, valorTotal: 20, valorDesconto: 5 }],
+      destinatario("SP"),
+      {
+        nomeMunicipioEmitente: "SAO PAULO",
+        pagamento: { tPag: "17" },
+      },
+    );
+
+    // vProd segue o preço de tabela; o abatimento aparece só em vDesc.
+    assert.match(result.xml, /<vProd>20\.00<\/vProd>/);
+    assert.match(result.xml, /<prod>.*<vDesc>5\.00<\/vDesc>.*<\/prod>/);
+    assert.match(result.xml, /<ICMSTot>.*<vProd>20\.00<\/vProd>/);
+    assert.match(result.xml, /<ICMSTot>.*<vDesc>5\.00<\/vDesc>.*<vNF>15\.00<\/vNF>/);
+    assert.match(result.xml, /<tPag>17<\/tPag><vPag>15\.00<\/vPag>/);
+  });
+
+  it("calcula os tributos sobre o item já líquido do desconto", () => {
+    const result = buildNFePreviewXml(
+      empresa,
+      8,
+      1,
+      [
+        {
+          ...item,
+          quantidade: 2,
+          valorTotal: 20,
+          valorDesconto: 5,
+          pis: { cst: "01", modo: "PERCENTUAL", aliquota: 10 },
+          cofins: { cst: "01", modo: "PERCENTUAL", aliquota: 10 },
+        },
+      ],
+      destinatario("SP"),
+      { nomeMunicipioEmitente: "SAO PAULO" },
+    );
+
+    assert.match(result.xml, /<PISAliq><CST>01<\/CST><vBC>15\.00<\/vBC><pPIS>10\.0000<\/pPIS><vPIS>1\.50<\/vPIS>/);
+    assert.match(result.xml, /<ICMSTot>.*<vPIS>1\.50<\/vPIS><vCOFINS>1\.50<\/vCOFINS>/);
+  });
+
+  it("mantém vDesc zerado quando não há desconto", () => {
+    const result = buildNFePreviewXml(empresa, 9, 1, [item], destinatario("SP"), {
+      nomeMunicipioEmitente: "SAO PAULO",
+    });
+
+    assert.doesNotMatch(result.xml, /<prod>.*<vDesc>.*<\/prod>/);
+    assert.match(result.xml, /<ICMSTot>.*<vDesc>0\.00<\/vDesc>.*<vNF>10\.00<\/vNF>/);
   });
 });

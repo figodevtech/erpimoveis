@@ -8,12 +8,15 @@ import { useEffect, useState } from "react";
 import axios, { isAxiosError } from "axios";
 import TransactionDialog from "../../../fluxodecaixa/components/transactionDialog/transactionDialog";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { useSession } from "next-auth/react";
+import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
+import { useConfig } from "@/app/(app)/(pages)/config-context";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import ValueInput from "@/components/ui/value-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronDown, ExternalLink, FileText, Loader, Loader2, Package, Paperclip, Percent, ReceiptText, Trash2Icon } from "lucide-react";
+import { ChevronDown, Eye, ExternalLink, FileText, Loader, Loader2, Package, Paperclip, Pencil, Percent, ReceiptText, Trash2Icon } from "lucide-react";
 import { TransactionDeleteAlert } from "../../../components/transaction-delete-alert";
 import { toast } from "@/lib/toast";
 import { formatDate } from "@/utils/formatDate";
@@ -100,6 +103,15 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
   const [isSavingDiscount, setIsSavingDiscount] = useState(false);
   const [, setIsDeleting] = useState(false);
   const [open, setOpen] = useState(false);
+  const [selectedTransactionId, setSelectedTransactionId] = useState<number | undefined>(undefined);
+  const { data: session } = useSession();
+  const config = useConfig();
+  const canEdit = permissionSetHas(
+    (session?.user as any)?.permissoes,
+    PERMS.FINANCEIRO_EDITAR,
+  );
+  // A mesma trava do fluxo de caixa: sem ela o dialog abre em modo leitura.
+  const podeEditarTransacao = canEdit && config?.habilitar_edicao_transacoes === true;
   const totalPago = transactions?.reduce((acc, t) => acc + Number(t?.valor ?? 0), 0) ?? 0;
   const subtotalVenda = toNum(venda?.sub_total ?? venda?.valortotal ?? 0);
   const descontoItensAplicado = arredondarMoeda(
@@ -757,6 +769,9 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
                   initialMetodoPagamento={initialMetodoPagamento}
                   open={open}
                   setOpen={setOpen}
+                  selectedTransactionId={selectedTransactionId}
+                  setSelectedTransactionId={setSelectedTransactionId}
+                  editable={podeEditarTransacao}
                 >
                   <Button disabled={venda.status === "FINALIZADA"} className="hover:cursor-pointer">
                     Novo pagamento
@@ -809,6 +824,24 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent className="space-y-1 w-40" align="end">
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setSelectedTransactionId(t.id);
+                                    setOpen(true);
+                                  }}
+                                >
+                                  {podeEditarTransacao ? (
+                                    <>
+                                      <Pencil className="mr-2 h-4 w-4" />
+                                      Editar
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Eye className="mr-2 h-4 w-4" />
+                                      Visualizar
+                                    </>
+                                  )}
+                                </DropdownMenuItem>
                                 <TransactionDeleteAlert transactionId={t.id} onDelete={handleDeleteTransaction}>
                                   <Button
                                     variant="default"

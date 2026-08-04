@@ -36,6 +36,12 @@ export type NFeAvulsaItemInput = {
   quantidade: string | number;
   valorUnitario: string | number;
   valorFrete?: string | number | null;
+  /**
+   * Desconto incondicional do item, em reais. Nas emissões a partir de OS e
+   * venda vem pré-preenchido com o desconto do item somado ao rateio do
+   * desconto geral, mas continua editável até a autorização.
+   */
+  valorDesconto?: string | number | null;
   orig?: string | number | null;
   csosn?: string | null;
   cst?: string | null;
@@ -100,6 +106,12 @@ export type NFeAvulsaDraftInput = {
     bandeira?: string | null;
     autorizacao?: string | null;
   } | null;
+  /**
+   * Desconto geral digitado na tela. Não vai para o XML: já chega rateado no
+   * `valorDesconto` de cada item, porque o leiaute 4.00 não tem desconto de
+   * nota. Guardamos só para o rascunho reabrir com o mesmo número.
+   */
+  descontoGeral?: string | number | null;
   pagamentos?: Array<{
     meio?: string | null;
     valor?: string | number | null;
@@ -203,6 +215,10 @@ function mapInputToTaxItem(item: NFeAvulsaItemInput, index: number): NFeItem {
   const quantidade = toDecimalNumber(item.quantidade);
   const valorUnitario = toDecimalNumber(item.valorUnitario);
   const valorTotal = Number((quantidade * valorUnitario).toFixed(2));
+  // O desconto nunca pode superar o próprio item: um vDesc maior que vProd
+  // derruba a nota na SEFAZ e ainda geraria base de cálculo negativa.
+  const valorDesconto = Math.min(Math.max(0, toDecimalNumber(item.valorDesconto)), valorTotal);
+  const valorLiquido = Number((valorTotal - valorDesconto).toFixed(2));
   const buildContribution = (type: "pis" | "cofins") => {
     const isPis = type === "pis";
     const modo = (isPis ? item.modoPis : item.modoCofins) ?? undefined;
@@ -223,7 +239,7 @@ function mapInputToTaxItem(item: NFeAvulsaItemInput, index: number): NFeItem {
     };
   };
   const rtcEnabled = Boolean(item.rtcHabilitado);
-  const baseRtc = toDecimalNumber(item.baseRtc || valorTotal);
+  const baseRtc = toDecimalNumber(item.baseRtc || valorLiquido);
   const pIbsUf = toDecimalNumber(item.aliquotaIbsUf);
   const pIbsMun = toDecimalNumber(item.aliquotaIbsMunicipio);
   const pCbs = toDecimalNumber(item.aliquotaCbs);
@@ -250,6 +266,7 @@ function mapInputToTaxItem(item: NFeAvulsaItemInput, index: number): NFeItem {
     quantidade,
     valorUnitario,
     valorTotal,
+    valorDesconto,
     valorFrete: Math.max(0, toDecimalNumber(item.valorFrete)),
     orig: cleanText(item.orig),
     cest: onlyDigits(item.cest) || null,
@@ -257,7 +274,7 @@ function mapInputToTaxItem(item: NFeAvulsaItemInput, index: number): NFeItem {
     cst: cleanText(item.cst) || null,
     cstIcms: cleanText(item.cst) || null,
     aliquotaIcms: toOptionalDecimal(item.aliquotaIcms) ?? undefined,
-    baseCalculoIcms: toOptionalDecimal(item.aliquotaIcms) === null ? undefined : valorTotal,
+    baseCalculoIcms: toOptionalDecimal(item.aliquotaIcms) === null ? undefined : valorLiquido,
     cstPis: cleanText(item.cstPis) || null,
     aliquotaPis: toOptionalDecimal(item.aliquotaPis) ?? undefined,
     cstCofins: cleanText(item.cstCofins) || null,
@@ -546,6 +563,21 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
     if (toDecimalNumber(item.valorFrete) < 0) {
       errors.push({ step: "products", itemIndex: index, field: "valorFrete", message: "Frete não pode ser negativo." });
     }
+    const descontoItem = toDecimalNumber(item.valorDesconto);
+    if (descontoItem < 0) {
+      errors.push({ step: "products", itemIndex: index, field: "valorDesconto", message: "Desconto não pode ser negativo." });
+    }
+    if (
+      descontoItem >
+      Number((toDecimalNumber(item.quantidade) * toDecimalNumber(item.valorUnitario)).toFixed(2)) + 0.001
+    ) {
+      errors.push({
+        step: "products",
+        itemIndex: index,
+        field: "valorDesconto",
+        message: "Desconto não pode ser maior que o total do item.",
+      });
+    }
   });
 
   const pagamentosFiscais = getPagamentosFiscais(input);
@@ -598,11 +630,15 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
       (total, item) => total + toDecimalNumber(item.quantidade) * toDecimalNumber(item.valorUnitario),
       0,
     );
+    const totalDesconto = input.itens.reduce(
+      (total, item) => total + Math.max(0, toDecimalNumber(item.valorDesconto)),
+      0,
+    );
     const totalFrete = input.itens.reduce(
       (total, item) => total + Math.max(0, toDecimalNumber(item.valorFrete)),
       0,
     );
-    const totalNota = totalProdutos + totalFrete;
+    const totalNota = totalProdutos - totalDesconto + totalFrete;
     const totalPagamentos = pagamentosFiscais.reduce(
       (total, pagamento) => total + toDecimalNumber(pagamento.valor),
       0,
@@ -802,6 +838,9 @@ function mapItemToInsert(item: NFeAvulsaItemInput, index: number, nfeId: number,
   const quantidade = taxItem.quantidade;
   const valorUnitario = taxItem.valorUnitario;
   const valorTotal = taxItem.valorTotal;
+  const valorDesconto = Number(taxItem.valorDesconto ?? 0);
+  // Base dos tributos é o item já líquido do desconto incondicional.
+  const valorLiquido = Number((valorTotal - valorDesconto).toFixed(2));
   const aliquotaIcms = taxItem.aliquotaIcms ?? null;
   const aliquotaPis = taxItem.pis?.aliquota ?? taxItem.aliquotaPis ?? null;
   const aliquotaCofins = taxItem.cofins?.aliquota ?? taxItem.aliquotaCofins ?? null;
@@ -821,16 +860,17 @@ function mapItemToInsert(item: NFeAvulsaItemInput, index: number, nfeId: number,
     quantidade,
     valor_unitario: valorUnitario,
     valor_total: valorTotal,
+    valor_desconto: valorDesconto,
     valor_frete: Number(taxItem.valorFrete ?? 0),
     aliquotaicms: aliquotaIcms,
-    valor_bc_icms: aliquotaIcms === null ? null : valorTotal,
-    valor_icms: aliquotaIcms === null ? null : Number((valorTotal * (aliquotaIcms / 100)).toFixed(2)),
+    valor_bc_icms: aliquotaIcms === null ? null : valorLiquido,
+    valor_icms: aliquotaIcms === null ? null : Number((valorLiquido * (aliquotaIcms / 100)).toFixed(2)),
     cst_pis: cleanText(item.cstPis) || null,
     aliquota_pis: aliquotaPis,
-    valor_pis: taxItem.pis?.valor ?? (aliquotaPis === null ? null : Number((Number(taxItem.pis?.base ?? valorTotal) * (aliquotaPis / 100)).toFixed(2))),
+    valor_pis: taxItem.pis?.valor ?? (aliquotaPis === null ? null : Number((Number(taxItem.pis?.base ?? valorLiquido) * (aliquotaPis / 100)).toFixed(2))),
     cst_cofins: cleanText(item.cstCofins) || null,
     aliquota_cofins: aliquotaCofins,
-    valor_cofins: taxItem.cofins?.valor ?? (aliquotaCofins === null ? null : Number((Number(taxItem.cofins?.base ?? valorTotal) * (aliquotaCofins / 100)).toFixed(2))),
+    valor_cofins: taxItem.cofins?.valor ?? (aliquotaCofins === null ? null : Number((Number(taxItem.cofins?.base ?? valorLiquido) * (aliquotaCofins / 100)).toFixed(2))),
     tributacao_snapshot: {
       ...taxItem,
       ...(item.sourceItemId ? { sourceItemId: item.sourceItemId } : {}),
@@ -982,6 +1022,10 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
   const pagamentosDadosAvulsos = getPagamentosDadosAvulsos(input);
   const transporte = getTransporteFiscal(input);
   const transporteDadosAvulsos = getTransporteDadosAvulsos(input);
+  // Só eco do que a tela mandou: o rateio já veio pronto em cada item.
+  const descontoGeralInformado = Number(
+    Math.max(0, toDecimalNumber(input.descontoGeral)).toFixed(2),
+  );
   const now = new Date().toISOString();
   const itensInsertBase = input.itens.map((item, index) => mapItemToInsert(item, index, 0, itensXml[index]));
   const fornecedorId = input.origem?.fornecedorId ?? null;
@@ -1048,6 +1092,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
           pagamentos: pagamentosDadosAvulsos,
           transporte: transporteDadosAvulsos,
           destinatario: input.destinatario,
+          descontoGeral: descontoGeralInformado,
           clienteSelecionadoId: input.destinatario.clienteId ?? null,
           fornecedorSelecionadoId: fornecedorId,
           versaoRegraFiscal: NFE_FISCAL_RULE_VERSION,
@@ -1127,6 +1172,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
           pagamentos: pagamentosDadosAvulsos,
           transporte: transporteDadosAvulsos,
           destinatario: input.destinatario,
+          descontoGeral: descontoGeralInformado,
           clienteSelecionadoId: input.destinatario.clienteId ?? null,
           fornecedorSelecionadoId: fornecedorId,
           versaoRegraFiscal: NFE_FISCAL_RULE_VERSION,
@@ -1163,14 +1209,16 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
   if (itensError) throw itensError;
 
   const totalProdutos = itensInsert.reduce((sum, item) => sum + Number(item.valor_total ?? 0), 0);
+  const totalDesconto = itensInsert.reduce((sum, item) => sum + Number(item.valor_desconto ?? 0), 0);
   const totalFrete = itensInsert.reduce((sum, item) => sum + Number(item.valor_frete ?? 0), 0);
-  const totalNfe = Number((totalProdutos + totalFrete).toFixed(2));
+  const totalNfe = Number((totalProdutos - totalDesconto + totalFrete).toFixed(2));
   const { error: totalError } = await supabaseAdmin.rpc("atualizar_totais_nfe", { p_nfe_id: nfeId });
   if (totalError) {
     const { error: updateTotalError } = await supabaseAdmin
       .from("nfe")
       .update({
         total_produtos: totalProdutos,
+        valor_desconto: totalDesconto,
         valor_frete: totalFrete,
         total_nfe: totalNfe,
         updatedat: now,
@@ -1185,6 +1233,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
       chave_acesso: chave,
       xml_assinado: xml,
       total_produtos: totalProdutos,
+      valor_desconto: totalDesconto,
       valor_frete: totalFrete,
       total_nfe: totalNfe,
       updatedat: now,

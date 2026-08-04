@@ -20,6 +20,7 @@ import {
   normalizeCfopForOperation,
   type NFeOperationDirection,
 } from "@/lib/nfe/cfopOperation";
+import { descontoPorItem } from "@/lib/nfe/descontoOrigem";
 
 export type FiscalSetup = {
   empresa: {
@@ -46,6 +47,10 @@ export type SourceProduct = {
   quantidade: number;
   precoUnitario: number;
   subtotal: number;
+  /** Desconto do item somado ao rateio do desconto geral da OS/venda. */
+  valorDesconto?: number | null;
+  /** Só o desconto do próprio item, sem o rateio: base para rerratear na tela. */
+  valorDescontoProprio?: number | null;
   ncm: string | null;
   cfop: string | null;
   codigobarras: string | null;
@@ -81,6 +86,17 @@ export type AssistedFiscalItem = {
   quantidade: number;
   valorUnitario: number;
   subtotal: number;
+  /**
+   * Desconto incondicional do item (vDesc). Vem pré-preenchido com o desconto
+   * do item somado ao rateio do desconto geral da origem, mas é editável: quem
+   * emite pode renegociar o abatimento que vai para a nota.
+   */
+  valorDesconto: number;
+  /**
+   * Desconto que veio do próprio item na origem. Não é editado direto: serve de
+   * piso quando o desconto geral é redigitado e o rateio refeito.
+   */
+  valorDescontoProprio: number;
   ncm: string;
   cfop: string;
   unidade: string;
@@ -213,6 +229,8 @@ export function createAssistedItem(
     quantidade: Number(source.quantidade || 0),
     valorUnitario: Number(source.precoUnitario || 0),
     subtotal: Number(source.subtotal || 0),
+    valorDesconto: Math.max(0, Number(source.valorDesconto || 0)),
+    valorDescontoProprio: Math.max(0, Number(source.valorDescontoProprio || 0)),
     ncm: onlyDigits(source.ncm),
     cfop: normalizeCfopForOperation(
       source.cfop,
@@ -282,6 +300,9 @@ export function createAssistedItem(
 
 export function toNFeItem(item: AssistedFiscalItem, index = 0): NFeItem {
   const valorTotal = Number((item.quantidade * item.valorUnitario).toFixed(2));
+  const valorDesconto = Math.min(Math.max(0, item.valorDesconto || 0), valorTotal);
+  // Base dos tributos é o item já líquido do desconto incondicional.
+  const valorLiquido = Number((valorTotal - valorDesconto).toFixed(2));
   const buildContribution = (type: "PIS" | "COFINS") => {
     const pis = type === "PIS";
     const modo = pis ? item.modoPis : item.modoCofins;
@@ -304,7 +325,7 @@ export function toNFeItem(item: AssistedFiscalItem, index = 0): NFeItem {
     };
   };
 
-  const baseRtc = parseDecimal(item.baseRtc || valorTotal);
+  const baseRtc = parseDecimal(item.baseRtc || valorLiquido);
   const aliquotaIbsUf = parseDecimal(item.aliquotaIbsUf);
   const aliquotaIbsMunicipio = parseDecimal(item.aliquotaIbsMunicipio);
   const aliquotaCbs = parseDecimal(item.aliquotaCbs);
@@ -335,13 +356,14 @@ export function toNFeItem(item: AssistedFiscalItem, index = 0): NFeItem {
     quantidade: item.quantidade,
     valorUnitario: item.valorUnitario,
     valorTotal,
+    valorDesconto,
     orig: item.orig,
     cest: onlyDigits(item.cest) || null,
     csosn: item.csosn || null,
     cst: item.cst || null,
     cstIcms: item.cst || null,
     aliquotaIcms: optionalDecimal(item.aliquotaIcms),
-    baseCalculoIcms: item.aliquotaIcms.trim() ? valorTotal : undefined,
+    baseCalculoIcms: item.aliquotaIcms.trim() ? valorLiquido : undefined,
     cstPis: item.cstPis || null,
     aliquotaPis: optionalDecimal(item.aliquotaPis),
     cstCofins: item.cstCofins || null,
@@ -407,6 +429,16 @@ export function validateAssistedItem(
   if (item.valorUnitario <= 0) {
     issues.push({ code: "NFE_UNIT_VALUE_REQUIRED", field: "valorUnitario", message: "Valor unitário deve ser maior que zero." });
   }
+  if (item.valorDesconto < 0) {
+    issues.push({ code: "NFE_DISCOUNT_INVALID", field: "valorDesconto", message: "Desconto não pode ser negativo." });
+  }
+  if (item.valorDesconto > Number((item.quantidade * item.valorUnitario).toFixed(2))) {
+    issues.push({
+      code: "NFE_DISCOUNT_ABOVE_ITEM",
+      field: "valorDesconto",
+      message: "Desconto não pode ser maior que o total do item.",
+    });
+  }
 
   const empresaUf = String(setup.empresa?.uf ?? "").toUpperCase();
   const parceiroUf = String(context?.parceiroUf ?? context?.clienteUf ?? "").toUpperCase();
@@ -449,6 +481,35 @@ export function validateAssistedItem(
   return issues;
 }
 
+/**
+ * Redistribui o desconto geral sobre os itens escolhidos para a nota.
+ *
+ * O peso é o valor do item já líquido do desconto próprio, e a sobra de centavos
+ * cai no último — a soma dos vDesc fecha exatamente o valor digitado. Itens fora
+ * da nota mantêm o que tinham: só quem está sendo emitido divide o desconto.
+ */
+export function ratearDescontoGeralNosItens(
+  itens: AssistedFiscalItem[],
+  descontoGeral: number,
+  incluir: (item: AssistedFiscalItem) => boolean = () => true,
+): AssistedFiscalItem[] {
+  const alvos = itens.filter(incluir);
+  if (alvos.length === 0) return itens;
+
+  const linhas = alvos.map((item) => {
+    const bruto = Number((item.quantidade * item.valorUnitario).toFixed(2));
+    return { bruto, liquido: Math.max(0, bruto - Math.max(0, item.valorDescontoProprio)) };
+  });
+  const descontos = descontoPorItem(linhas, Math.max(0, descontoGeral));
+  const porItem = new Map(alvos.map((item, index) => [item.sourceItemId, descontos[index] ?? 0]));
+
+  return itens.map((item) =>
+    porItem.has(item.sourceItemId)
+      ? { ...item, valorDesconto: porItem.get(item.sourceItemId)! }
+      : item,
+  );
+}
+
 export function toApiItem(item: AssistedFiscalItem) {
   return {
     sourceItemId: item.sourceItemId,
@@ -460,6 +521,7 @@ export function toApiItem(item: AssistedFiscalItem) {
     unidade: item.unidade,
     quantidade: item.quantidade,
     valorUnitario: item.valorUnitario,
+    valorDesconto: item.valorDesconto,
     orig: item.orig,
     csosn: item.csosn || null,
     cst: item.cst || null,

@@ -66,6 +66,7 @@ import {
   type DifalContexto,
   type FiscalSetup,
   type SourceProduct,
+  ratearDescontoGeralNosItens,
   toApiItem,
   validateAssistedItem,
 } from "./emissao-assistida-model";
@@ -88,6 +89,8 @@ type SourceResponse = {
   natureza_operacao?: string;
   destinatario?: NFeEntrySupplierDraft;
   configuracao_fiscal?: Partial<AssistedFiscalConfig>;
+  /** Parcela do desconto geral da origem que cabe aos produtos desta nota. */
+  desconto_geral?: number | null;
   itens: SourceProduct[];
 };
 
@@ -220,6 +223,9 @@ export function GerarNotaDeOsDialog({
   const [serverError, setServerError] = useState<string | null>(null);
   const [includeObservations, setIncludeObservations] = useState(false);
   const [observations, setObservations] = useState("");
+  // Desconto geral da nota. Chega da origem já rateado nos itens; redigitar aqui
+  // refaz o rateio proporcional sobre os itens selecionados.
+  const [descontoGeral, setDescontoGeral] = useState(0);
   const [entrySupplier, setEntrySupplier] = useState<NFeEntrySupplierDraft>(emptyEntrySupplier);
   const [fiscalConfig, setFiscalConfig] = useState<AssistedFiscalConfig>(defaultFiscalConfig);
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
@@ -322,6 +328,7 @@ export function GerarNotaDeOsDialog({
           ...productsJson.configuracao_fiscal?.transportadora,
         },
       });
+      setDescontoGeral(Math.max(0, Number(productsJson.desconto_geral ?? 0)));
       const existingObservations = productsJson.observacoes_fiscais ?? "";
       setObservations(existingObservations);
       setIncludeObservations(Boolean(existingObservations));
@@ -332,6 +339,7 @@ export function GerarNotaDeOsDialog({
       setSource(null);
       setItems([]);
       setSelectedIds([]);
+      setDescontoGeral(0);
       setEntrySupplier(emptyEntrySupplier);
       setFiscalConfig(defaultFiscalConfig);
     } finally {
@@ -378,10 +386,32 @@ export function GerarNotaDeOsDialog({
     [issuesByItem, selectedItems],
   );
   const readyCount = items.filter((item) => (issuesByItem.get(item.sourceItemId) ?? []).length === 0).length;
+  // Total já líquido do desconto: é o que vai virar vNF e o que os pagamentos
+  // precisam fechar.
   const selectedTotal = selectedItems.reduce(
+    (total, item) => total + Math.max(0, item.quantidade * item.valorUnitario - item.valorDesconto),
+    0,
+  );
+  const selectedBruto = selectedItems.reduce(
     (total, item) => total + item.quantidade * item.valorUnitario,
     0,
   );
+  // O que realmente vai para o ICMSTot/vDesc: soma dos vDesc dos itens da nota,
+  // inclusive os ajustados à mão depois do rateio.
+  const descontoTotalDaNota = selectedItems.reduce(
+    (total, item) => total + Math.max(0, item.valorDesconto),
+    0,
+  );
+
+  function aplicarDescontoGeral(valor: number) {
+    const limite = Number(selectedBruto.toFixed(2));
+    const desconto = Math.max(0, Math.min(valor, limite));
+    setDescontoGeral(desconto);
+    setItems((current) =>
+      ratearDescontoGeralNosItens(current, desconto, (item) => selectedSet.has(item.sourceItemId)),
+    );
+  }
+
   const allSelected = items.length > 0 && selectedIds.length === items.length;
   const partiallySelected = selectedIds.length > 0 && selectedIds.length < items.length;
   const editingItem = items.find((item) => item.sourceItemId === editingId) ?? null;
@@ -611,6 +641,7 @@ export function GerarNotaDeOsDialog({
             : {}),
           ...(origin === "OS" || origin === "VENDA"
             ? {
+                descontoGeral,
                 configuracaoFiscal: {
                   consumidorFinal: fiscalConfig.consumidorFinal,
                   indicadorPresenca: fiscalConfig.indicadorPresenca,
@@ -1046,6 +1077,29 @@ export function GerarNotaDeOsDialog({
                     </div>
                     <Separator />
 
+                    <div className="min-w-0 space-y-2 rounded-md border bg-muted/20 p-3">
+                      <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] sm:items-start">
+                        <div className="min-w-0 space-y-1.5">
+                          <Label>Desconto geral da nota</Label>
+                          <ValueInput price={descontoGeral} setPrice={aplicarDescontoGeral} />
+                        </div>
+                        <p className="text-xs leading-relaxed text-muted-foreground sm:pt-7">
+                          Veio da {origin === "VENDA" ? "venda" : "OS"} e já foi rateado nos produtos
+                          proporcionalmente ao valor de cada um, com a sobra de centavos no último item.
+                          Alterar aqui refaz o rateio sobre os itens selecionados; depois disso cada item
+                          ainda pode ser ajustado à mão na tributação.
+                          {origin === "OS"
+                            ? " Numa OS com serviços, a parte da mão de obra fica de fora — ela sai na NFS-e."
+                            : ""}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                        <span>Produtos: <b>{fmtMoney(selectedBruto)}</b></span>
+                        <span>Desconto (vDesc): <b>- {fmtMoney(descontoTotalDaNota)}</b></span>
+                        <span>Total da NF-e: <b>{fmtMoney(selectedTotal)}</b></span>
+                      </div>
+                    </div>
+
                     <div className="space-y-2 grid lg:grid-cols-2 gap-2">
                       {items.map((item) => {
                         const issues = issuesByItem.get(item.sourceItemId) ?? [];
@@ -1082,7 +1136,12 @@ export function GerarNotaDeOsDialog({
                               <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                                 <span>Quantidade: <b>{item.quantidade}</b></span>
                                 <span>Unitário: <b>{fmtMoney(item.valorUnitario)}</b></span>
-                                <span>Total: <b>{fmtMoney(item.quantidade * item.valorUnitario)}</b></span>
+                                {item.valorDesconto > 0 ? (
+                                  <span>Desconto: <b>- {fmtMoney(item.valorDesconto)}</b></span>
+                                ) : null}
+                                <span>
+                                  Total: <b>{fmtMoney(Math.max(0, item.quantidade * item.valorUnitario - item.valorDesconto))}</b>
+                                </span>
                               </div>
                               {issues.length > 0 ? (
                                 <ul className="min-w-0 list-disc space-y-0.5 pl-4 text-xs text-destructive [overflow-wrap:anywhere]">

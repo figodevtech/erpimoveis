@@ -1,12 +1,17 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, Clock } from "lucide-react";
+import { useMemo, useState } from "react";
+import { AlertTriangle, CheckCircle2, Clock, SlidersHorizontal } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import formatarEmReal from "@/utils/formatarEmReal";
 
+import { valorLiquidoEfetivo } from "@/lib/financeiro/transacao";
+
 import { EstadoVazio, fmtDate, fmtDateTime } from "./shared";
+import { RateioEditor } from "./rateio-editor";
 import type { LancamentoRelacionado, ResumoRelacionadas, OrigemRelacionadas } from "./types";
 
 function Indicador({
@@ -39,12 +44,26 @@ export function ParcelasTab({
   itens,
   resumo,
   transacaoAtualId,
+  editavel = false,
+  onAjustado,
 }: {
   origem: OrigemRelacionadas;
   itens: LancamentoRelacionado[];
   resumo: ResumoRelacionadas;
   transacaoAtualId: number;
+  /** Libera o rateio. Reflete a permissão do usuário e a config do sistema. */
+  editavel?: boolean;
+  onAjustado?: () => void;
 }) {
+  const [modoAjuste, setModoAjuste] = useState(false);
+
+  // Só os lançamentos que abatem o documento entram no rateio: uma despesa
+  // vinculada à OS aparece na lista, mas não faz parte do que o cliente pagou.
+  const itensDoRateio = useMemo(
+    () => itens.filter((item) => item.contaParaTotal),
+    [itens],
+  );
+
   if (origem === "NENHUM" || itens.length === 0) {
     return (
       <EstadoVazio>
@@ -62,21 +81,72 @@ export function ParcelasTab({
       : 0;
   const quitado = temTotalDevido && (resumo.restante ?? 0) <= 0;
 
+  const temDocumento = origem === "OS" || origem === "VENDA";
   const rotuloOrigem =
     origem === "OS"
       ? "Pagamentos desta ordem de serviço"
       : origem === "VENDA"
         ? "Pagamentos desta venda"
         : "Parcelas deste lançamento";
+  const rotuloDocumento = origem === "OS" ? "desta OS" : "desta venda";
+
+  // O rateio só existe com documento de origem: é ele que define o grupo e o
+  // total que precisa ser mantido. Parcelamento avulso não tem vínculo formal
+  // no banco, então não há grupo confiável para travar a soma.
+  const podeAjustar = editavel && temDocumento && itensDoRateio.length > 0;
+
+  if (modoAjuste && podeAjustar) {
+    return (
+      <div className="space-y-4">
+        <div>
+          <p className="text-sm font-semibold">Ajustar valores</p>
+          <p className="text-xs text-muted-foreground">
+            {itensDoRateio.length} pagamento{itensDoRateio.length === 1 ? "" : "s"} no
+            rateio.
+          </p>
+        </div>
+
+        <RateioEditor
+          itens={itensDoRateio}
+          transacaoAtualId={transacaoAtualId}
+          rotuloDocumento={rotuloDocumento}
+          onCancelar={() => setModoAjuste(false)}
+          onSalvo={() => {
+            setModoAjuste(false);
+            onAjustado?.();
+          }}
+          onConflito={() => {
+            setModoAjuste(false);
+            onAjustado?.();
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
-      <div>
-        <p className="text-sm font-semibold">{rotuloOrigem}</p>
-        <p className="text-xs text-muted-foreground">
-          {itens.length} lançamento{itens.length === 1 ? "" : "s"} encontrado
-          {itens.length === 1 ? "" : "s"}.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold">{rotuloOrigem}</p>
+          <p className="text-xs text-muted-foreground">
+            {itens.length} lançamento{itens.length === 1 ? "" : "s"} encontrado
+            {itens.length === 1 ? "" : "s"}.
+          </p>
+        </div>
+
+        {podeAjustar ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8"
+            onClick={() => setModoAjuste(true)}
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            Ajustar valores
+          </Button>
+        ) : null}
       </div>
 
       {origem === "PARCELAMENTO" && (
@@ -85,7 +155,8 @@ export function ParcelasTab({
           <span>
             Parcelamento avulso: as parcelas não têm vínculo formal no banco, então
             foram agrupadas pelo momento do registro e pela descrição. Se alguma
-            descrição tiver sido editada, o grupo pode ficar incompleto.
+            descrição tiver sido editada, o grupo pode ficar incompleto — por isso o
+            rateio em lote não fica disponível aqui.
           </span>
         </div>
       )}
@@ -143,7 +214,8 @@ export function ParcelasTab({
               {itens.map((item) => {
                 const atual = item.id === transacaoAtualId;
                 const bruto = Number(item.valor ?? 0);
-                const liquido = Number(item.valorLiquido ?? item.valor ?? 0);
+                // Despesa vinculada e registro antigo não têm líquido próprio.
+                const liquido = valorLiquidoEfetivo(item);
                 // Taxa de recebimento (cartao, por exemplo): o cliente pagou o
                 // bruto, o caixa recebeu o liquido. Os indicadores acima somam o
                 // bruto, que e o que abate o total da OS/venda.
