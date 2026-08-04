@@ -32,7 +32,14 @@ export type NFeOrigemDraftInput = {
     consumidorFinal?: boolean;
     indicadorPresenca?: string | null;
     pagamentos?: NonNullable<NFeAvulsaDraftInput["pagamentos"]>;
-    transporte?: NFeAvulsaDraftInput["transporte"];
+    transporte?: NFeAvulsaDraftInput["transporte"] & {
+      /**
+       * Frete da nota inteiro, confirmado na tela. Vem da venda, mas continua
+       * editável — e pode ser informado numa origem que não guarda frete.
+       * O serviço rateia sobre os itens emitidos.
+       */
+      valorFrete?: string | number | null;
+    };
   };
 };
 
@@ -523,15 +530,34 @@ export async function salvarNFeDeOrigem(
   const indicadorPresenca = String(requestedFiscalConfig?.indicadorPresenca ?? source.indicadorPresenca);
   const transporte = requestedFiscalConfig?.transporte ?? source.transporte;
   const modFrete = String(transporte?.modFrete ?? "9");
-  const totalProdutos = itens.reduce(
+
+  // O frete confirmado na tela manda; sem ele, vale o que a origem gravou para
+  // as linhas emitidas. Como o leiaute 4.00 só tem vFrete por item, o valor da
+  // nota é rateado proporcionalmente ao líquido de cada item.
+  const freteInformado = requestedFiscalConfig?.transporte?.valorFrete;
+  const itensDaNota = freteInformado == null || freteInformado === ""
+    ? itens
+    : (() => {
+        const liquidos = itens.map((item) =>
+          Math.max(
+            0,
+            toNumber(item.quantidade) * toNumber(item.valorUnitario) -
+              Math.max(0, toNumber(item.valorDesconto)),
+          ),
+        );
+        const rateio = distribuirDinheiro(Math.max(0, toNumber(freteInformado)), liquidos);
+        return itens.map((item, index) => ({ ...item, valorFrete: rateio[index] ?? 0 }));
+      })();
+
+  const totalProdutos = itensDaNota.reduce(
     (total, item) => total + toNumber(item.quantidade) * toNumber(item.valorUnitario),
     0,
   );
-  const totalDesconto = itens.reduce(
+  const totalDesconto = itensDaNota.reduce(
     (total, item) => total + Math.max(0, toNumber(item.valorDesconto)),
     0,
   );
-  const totalFrete = itens.reduce(
+  const totalFrete = itensDaNota.reduce(
     (total, item) => total + Math.max(0, toNumber(item.valorFrete)),
     0,
   );
@@ -624,6 +650,6 @@ export async function salvarNFeDeOrigem(
     descontoGeral: input.descontoGeral ?? totalDesconto,
     transporte,
     destinatario,
-    itens,
+    itens: itensDaNota,
   });
 }

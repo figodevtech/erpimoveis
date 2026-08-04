@@ -161,6 +161,11 @@ type DraftItem = {
    * geral; aqui é sempre editável.
    */
   valorDesconto: string;
+  /**
+   * Frete do item (vFrete). Nas notas geradas a partir de uma venda chega com o
+   * frete da origem já rateado; soma ao total da NF-e e continua editável.
+   */
+  valorFrete: string;
   orig: string;
   csosn: string;
   cst: string;
@@ -421,6 +426,7 @@ const emptyItem: DraftItem = {
   quantidade: "1",
   valorUnitario: "0",
   valorDesconto: "0",
+  valorFrete: "0",
   orig: "",
   csosn: "",
   cst: "",
@@ -869,6 +875,13 @@ export default function NFeAvulsaPage() {
     () => draft.itens.reduce((sum, item) => sum + Math.max(0, parseCurrency(item.valorDesconto)), 0),
     [draft.itens],
   );
+  // Frete rateado nos itens (vFrete do ICMSTot). Entra no vNF e, por isso, nos
+  // pagamentos: é o que o motor valida antes de assinar a nota.
+  const totalFreteItens = React.useMemo(
+    () => draft.itens.reduce((sum, item) => sum + Math.max(0, parseCurrency(item.valorFrete)), 0),
+    [draft.itens],
+  );
+  const totalNota = totalProdutos + totalFreteItens;
 
   function aplicarDescontoGeral(valor: number) {
     const desconto = Math.max(0, Math.min(valor, Number(totalBrutoProdutos.toFixed(2))));
@@ -924,8 +937,8 @@ export default function NFeAvulsaPage() {
       result.push("Informe um valor maior que zero para cada método.");
     }
     const totalPagamentos = draft.pagamentos.reduce((total, pagamento) => total + pagamento.valor, 0);
-    if (draft.pagamentos.length > 1 && Math.abs(totalPagamentos - totalProdutos) > 0.01) {
-      result.push(`A soma dos pagamentos deve ser ${formatarEmReal(totalProdutos)}.`);
+    if (draft.pagamentos.length > 1 && Math.abs(totalPagamentos - totalNota) > 0.01) {
+      result.push(`A soma dos pagamentos deve ser ${formatarEmReal(totalNota)}.`);
     }
     if (draft.pagamentos.length > 1 && draft.pagamentos.some((pagamento) => pagamento.meio === "90")) {
       result.push("Sem pagamento não pode ser combinado com outros métodos.");
@@ -951,7 +964,7 @@ export default function NFeAvulsaPage() {
       }
     });
     return result;
-  }, [draft.pagamentos, isSemPagamentoObrigatorio, totalProdutos]);
+  }, [draft.pagamentos, isSemPagamentoObrigatorio, totalNota]);
   const isSemTransporte = draft.transporte.modFrete === "9";
   const isFreteContratado = ["0", "1", "2"].includes(draft.transporte.modFrete);
   const isTransporteProprio = ["3", "4"].includes(draft.transporte.modFrete);
@@ -1079,7 +1092,7 @@ export default function NFeAvulsaPage() {
       : current.pagamentos.map((pagamento) => ({
           ...pagamento,
           valor: current.pagamentos.length === 1
-            ? Number(totalProdutos.toFixed(2))
+            ? Number(totalNota.toFixed(2))
             : Number(pagamento.valor.toFixed(2)),
         }));
 
@@ -1430,6 +1443,7 @@ export default function NFeAvulsaPage() {
         documentState={documentState}
         setup={setup}
         totalProdutos={totalProdutos}
+        totalFrete={totalFreteItens}
       />
     );
   }
@@ -1921,7 +1935,10 @@ export default function NFeAvulsaPage() {
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       <span>Produtos: <b>{formatarEmReal(totalBrutoProdutos)}</b></span>
                       <span>Desconto (vDesc): <b>- {formatarEmReal(totalDescontoItens)}</b></span>
-                      <span>Total da NF-e: <b>{formatarEmReal(totalProdutos)}</b></span>
+                      {totalFreteItens > 0 ? (
+                        <span>Frete (vFrete): <b>+ {formatarEmReal(totalFreteItens)}</b></span>
+                      ) : null}
+                      <span>Total da NF-e: <b>{formatarEmReal(totalNota)}</b></span>
                     </div>
                   </div>
                 ) : null}
@@ -1986,7 +2003,14 @@ export default function NFeAvulsaPage() {
                             setPrice={(value) => updateItem(index, { valorDesconto: value.toFixed(2) })}
                           />
                         </div>
-                        <div className="md:col-span-3">
+                        <div className="md:col-span-2">
+                          <Label>Frete</Label>
+                          <ValueInput
+                            price={parseCurrency(item.valorFrete)}
+                            setPrice={(value) => updateItem(index, { valorFrete: Math.max(0, value).toFixed(2) })}
+                          />
+                        </div>
+                        <div className="md:col-span-2">
                           <Label className="inline-flex items-center gap-1">
                             CEST
                             {["201", "202", "203"].includes(item.csosn) || ["10", "30", "70"].includes(item.cst) ? <RequiredMark /> : null}
@@ -2000,9 +2024,9 @@ export default function NFeAvulsaPage() {
                               0,
                               parseCurrency(item.quantidade) * parseCurrency(item.valorUnitario) -
                                 parseCurrency(item.valorDesconto),
-                            ),
+                            ) + Math.max(0, parseCurrency(item.valorFrete)),
                           )}
-                          className="md:col-span-3"
+                          className="md:col-span-2"
                         />
                         <div className="md:col-span-12">
                           <Separator />
@@ -2281,7 +2305,7 @@ export default function NFeAvulsaPage() {
                     </Field>
                     <Info
                       label="Total da NF-e"
-                      value={formatarEmReal(totalProdutos)}
+                      value={formatarEmReal(totalNota)}
                     />
                   </div>
                 )}
@@ -2291,7 +2315,7 @@ export default function NFeAvulsaPage() {
                     <CheckCircle2 className="h-4 w-4" />
                     <AlertTitle>Pagamento integral</AlertTitle>
                     <AlertDescription>
-                      O total de {formatarEmReal(totalProdutos)} será atribuído automaticamente ao método selecionado.
+                      O total de {formatarEmReal(totalNota)} será atribuído automaticamente ao método selecionado.
                     </AlertDescription>
                   </Alert>
                 ) : null}
@@ -2305,7 +2329,7 @@ export default function NFeAvulsaPage() {
                           Informe quanto foi pago em cada método selecionado.
                         </p>
                       </div>
-                      <p className="shrink-0 text-sm font-medium">Total: {formatarEmReal(totalProdutos)}</p>
+                      <p className="shrink-0 text-sm font-medium">Total: {formatarEmReal(totalNota)}</p>
                     </div>
                     <div className="grid min-w-0 gap-3 md:grid-cols-2">
                       {draft.pagamentos.map((pagamento) => (
@@ -2450,7 +2474,7 @@ export default function NFeAvulsaPage() {
                 <div className="grid gap-3 md:grid-cols-5">
                   <Info label="Operação" value={draft.operacao.naturezaOperacao} />
                   <Info label="Destinatário" value={draft.destinatario.nomeRazaoSocial || "Pendente"} />
-                  <Info label="Total" value={formatarEmReal(totalProdutos)} />
+                  <Info label="Total" value={formatarEmReal(totalNota)} />
                   <Info label="Pagamento" value={paymentSummary} />
                   <Info label="Frete" value={`${draft.transporte.modFrete} - ${getFreightLabel(draft.transporte.modFrete)}`} />
                 </div>
@@ -2578,7 +2602,7 @@ export default function NFeAvulsaPage() {
           <div className="rounded-md border bg-card p-3 text-sm">
             <p className="font-medium">{draft.destinatario.nomeRazaoSocial || "Destinatário pendente"}</p>
             <p className="mt-1 text-muted-foreground">
-              Total da NF-e: {formatarEmReal(totalProdutos)} - Ambiente: {ambienteLabel}
+              Total da NF-e: {formatarEmReal(totalNota)} - Ambiente: {ambienteLabel}
             </p>
           </div>
           <AlertDialogFooter>
@@ -2678,12 +2702,15 @@ function NFeAutorizadaView({
   documentState,
   setup,
   totalProdutos,
+  totalFrete,
 }: {
   draft: DraftPayload;
   documentState: NFeDocumentState;
   setup: SetupResponse | null;
   totalProdutos: number;
+  totalFrete: number;
 }) {
+  const totalNota = totalProdutos + totalFrete;
   const pagamentosAtuais = draft.operacao.finalidade === "AJUSTE" || draft.operacao.finalidade === "DEVOLUCAO"
     ? [{ ...initialDraft.pagamento, meio: "90", valor: 0 }]
     : draft.pagamentos;
@@ -2838,7 +2865,7 @@ function NFeAutorizadaView({
       vFCPST: 0,
       vFCPSTRet: 0,
       vProd: totalProdutos,
-      vFrete: 0,
+      vFrete: totalFrete,
       vSeg: 0,
       vDesc: 0,
       vII: 0,
@@ -2847,7 +2874,7 @@ function NFeAutorizadaView({
       vPIS: itensDisplay.reduce((sum, item) => sum + item.valor_pis, 0),
       vCOFINS: itensDisplay.reduce((sum, item) => sum + item.valor_cofins, 0),
       vOutro: 0,
-      vNF: totalProdutos,
+      vNF: totalNota,
       vTotTrib: 0,
       vBCIBSCBS: itensDisplay.reduce((sum, item) => sum + item.base_ibs_cbs, 0),
       vIBSUF: itensDisplay.reduce((sum, item) => sum + item.valor_ibs_uf, 0),
@@ -2886,7 +2913,7 @@ function NFeAutorizadaView({
       valor: pagamento.meio === "90"
         ? 0
         : pagamentosAtuais.length === 1
-          ? totalProdutos
+          ? totalNota
           : pagamento.valor,
       descricao: pagamento.descricao,
       integracao: pagamento.tipoIntegracao,

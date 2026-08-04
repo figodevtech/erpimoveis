@@ -292,7 +292,11 @@ export async function GET(
       configuracao_fiscal: {
         consumidorFinal: true,
         indicadorPresenca: mapSalesChannelToPresence(venda.canal),
-        modFrete: "9",
+        // O frete cobrado na venda entra na nota (vFrete) e continua editável na
+        // tela. Com frete, "sem ocorrência de transporte" (9) não descreve mais
+        // a operação, então a modalidade já sugere frete por conta do emitente.
+        valorFrete: frete,
+        modFrete: frete > 0 ? "0" : "9",
       },
       observacoes_fiscais: venda.observacoes_fiscais ?? null,
       // A venda não tem serviços, então todo o desconto geral cabe aos produtos.
