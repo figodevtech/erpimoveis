@@ -2,6 +2,7 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
+import { normalizarIndIEDest } from "@/lib/nfe/indIEDest";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireClientesAccess, requireClientesCreate } from "@/app/api/_authz/perms";
 
@@ -11,6 +12,7 @@ const STATUS_SET = new Set<Status>(["ATIVO", "INATIVO", "PENDENTE"]);
 const CLIENTE_FIELDS = `
   id, tipopessoa, cpfcnpj, nomerazaosocial, email, telefone, endereco,
   cidade, estado, bairro, cep, inscricaoestadual, inscricaomunicipal, codigomunicipio,
+  ind_ie_dest,
   createdat, updatedat, endereconumero, enderecocomplemento, status
 `;
 
@@ -74,6 +76,7 @@ export async function GET(req: Request) {
         `
         id, tipopessoa, cpfcnpj, nomerazaosocial, email, telefone, endereco,
         cidade, estado, bairro, cep, inscricaoestadual, inscricaomunicipal, codigomunicipio,
+  ind_ie_dest,
         createdat, updatedat,endereconumero, enderecocomplemento, status, veiculos: veiculo (${VEICULO_FIELDS})
         `,
         { count: "exact" }
@@ -189,6 +192,7 @@ export async function POST(req: Request) {
       estado: normalizeUF(json.estado ?? null),
       cep: onlyDigits(json.cep ?? null) || null,
       inscricaoestadual: normalizeString(json.inscricaoestadual ?? null),
+      ind_ie_dest: normalizarIndIEDest(json.ind_ie_dest),
       inscricaomunicipal: normalizeString(json.inscricaomunicipal ?? null),
       codigomunicipio: normalizeString(json.codigomunicipio ?? null),
       status: (normalizeString(json.status ?? null) as Status | null) ?? null,

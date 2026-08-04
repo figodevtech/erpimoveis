@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
+import { IndicadorIeSelect } from "@/components/fiscal/indicador-ie-select";
 import {
   User,
   Building2,
@@ -113,11 +114,15 @@ export default function RegisterContent({
   const [selectedPhoto, setSelectedPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
 
-  const handleInputChange = (field: keyof NewCustomer, value: string) => {
+  // `ind_ie_dest` é numérico; os demais campos do cadastro são texto.
+  const handleInputChange = (
+    field: keyof NewCustomer,
+    value: string | number | null,
+  ) => {
     setNewCustomer({
       ...newCustomer,
       [field]:
-        field === "nomerazaosocial"
+        field === "nomerazaosocial" && typeof value === "string"
           ? value.toLocaleUpperCase("pt-BR")
           : value,
     });
@@ -896,6 +901,11 @@ export default function RegisterContent({
                   </h3>
                 </div>
 
+                <IndicadorIeSelect
+                  value={newCustomer.ind_ie_dest}
+                  onChange={(indicador) => handleInputChange("ind_ie_dest", indicador)}
+                />
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                   <div className="space-y-2">
                     <Label
@@ -903,16 +913,34 @@ export default function RegisterContent({
                       className="text-sm"
                     >
                       Inscrição Estadual
+                      {newCustomer.ind_ie_dest === 1 ? (
+                        <span className="text-red-500"> *</span>
+                      ) : null}
                     </Label>
                     <Input
                       id="inscricaoestadual"
                       className=""
+                      // Só contribuinte do ICMS manda IE na nota; nos demais o
+                      // campo trava sem apagar o que já estava cadastrado.
+                      disabled={
+                        newCustomer.ind_ie_dest === 2 || newCustomer.ind_ie_dest === 9
+                      }
                       value={newCustomer.inscricaoestadual || ""}
                       onChange={(e) =>
                         handleInputChange("inscricaoestadual", e.target.value)
                       }
                       placeholder="123456789"
                     />
+                    {newCustomer.ind_ie_dest === 1 &&
+                    !String(newCustomer.inscricaoestadual ?? "").trim() ? (
+                      <p className="text-xs text-destructive">
+                        Obrigatória para contribuinte do ICMS.
+                      </p>
+                    ) : newCustomer.ind_ie_dest === 9 ? (
+                      <p className="text-xs text-muted-foreground">
+                        Não será enviada na NF-e.
+                      </p>
+                    ) : null}
                   </div>
 
                   <div className="space-y-2">

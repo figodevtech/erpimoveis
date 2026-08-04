@@ -16,6 +16,7 @@ import { getCodigoUF } from './ufUtils';
 import { calcularTotaisNFe, normalizarCRT, valorLiquidoItem } from './fiscal';
 import { cfopDispensaDifal, deveGerarICMSUFDest, montarICMSUFDest } from './difal';
 import { escapeXml } from './xmlUtils';
+import { validarInscricaoEstadualDestinatario } from './indIEDest';
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from './constants';
 
 /**
@@ -416,6 +417,14 @@ export function buildNFePreviewXml(
     // Aqui estamos alterando a PROPRIEDADE do objeto referenciado por dest.
     dest = { ...dest, razaoSocial: NFE_HOMOLOGACAO_DESTINATARIO_NOME };
   }
+
+  // Barreira única: nenhum XML sai daqui sem a situação fiscal do destinatário
+  // definida no cadastro. Fica depois do ajuste de homologação para validar
+  // exatamente o objeto que vai ser serializado.
+  validarInscricaoEstadualDestinatario({
+    indIEDest: dest.indIEDest,
+    inscricaoEstadual: dest.inscricaoEstadual,
+  });
 
 
   // Se itensOverride não for passado, usa o item de teste (compatibilidade)

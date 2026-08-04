@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
+import { IndicadorIeSelect } from "@/components/fiscal/indicador-ie-select";
 import {
   Car,
   ClipboardList,
@@ -163,7 +164,8 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
     return regex.test(valor);
   }
 
-  const handleInputChange = (field: keyof Customer, value: string) => {
+  // `ind_ie_dest` é numérico; os demais campos do cadastro são texto.
+  const handleInputChange = (field: keyof Customer, value: string | number | null) => {
     if (selectedCustomer) {
       setselectedCustomer({ ...selectedCustomer, [field]: value });
     }
@@ -938,18 +940,43 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                         <h3 className="text-base sm:text-lg font-semibold">Dados Fiscais</h3>
                       </div>
 
+                      <IndicadorIeSelect
+                        value={selectedCustomer.ind_ie_dest}
+                        onChange={(indicador) => handleInputChange("ind_ie_dest", indicador)}
+                      />
+
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                         <div className="space-y-2">
                           <Label htmlFor="inscricaoestadual" className="text-sm">
                             Inscrição Estadual
+                            {selectedCustomer.ind_ie_dest === 1 ? (
+                              <span className="text-red-500"> *</span>
+                            ) : null}
                           </Label>
                           <Input
                             id="inscricaoestadual"
                             className=""
+                            // Só contribuinte do ICMS manda IE na nota. Nos demais
+                            // o campo fica travado, mas o valor cadastrado é
+                            // preservado — trocar o indicador não apaga histórico.
+                            disabled={
+                              selectedCustomer.ind_ie_dest === 2 ||
+                              selectedCustomer.ind_ie_dest === 9
+                            }
                             value={selectedCustomer.inscricaoestadual || ""}
                             onChange={(e) => handleInputChange("inscricaoestadual", e.target.value)}
                             placeholder="123456789"
                           />
+                          {selectedCustomer.ind_ie_dest === 1 &&
+                          !String(selectedCustomer.inscricaoestadual ?? "").trim() ? (
+                            <p className="text-xs text-destructive">
+                              Obrigatória para contribuinte do ICMS.
+                            </p>
+                          ) : selectedCustomer.ind_ie_dest === 9 ? (
+                            <p className="text-xs text-muted-foreground">
+                              Não será enviada na NF-e.
+                            </p>
+                          ) : null}
                         </div>
 
                         <div className="space-y-2">

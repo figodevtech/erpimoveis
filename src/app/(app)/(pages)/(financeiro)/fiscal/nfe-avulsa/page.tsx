@@ -56,6 +56,7 @@ import ProductSelect from "@/app/(app)/components/productSelect";
 import type { Customer } from "@/app/(app)/(pages)/clientes/types";
 import type { Produto } from "@/app/(app)/(pages)/estoque/types";
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
+import { normalizarIndIEDest, sugerirIndIEDest } from "@/lib/nfe/indIEDest";
 import { normalizeCfopForOperation } from "@/lib/nfe/cfopOperation";
 import { getRequiredPisCofinsMode, PIS_COFINS_CST_OPTIONS } from "@/lib/nfe/taxRules";
 import { aplicarSugestaoDifal } from "@/lib/nfe/difal-sugestao";
@@ -1211,7 +1212,13 @@ export default function NFeAvulsaPage() {
         tipoPessoa: cliente.tipopessoa === "FISICA" ? "FISICA" : "JURIDICA",
         cpfCnpj: cliente.cpfcnpj ?? "",
         nomeRazaoSocial: isHomologacao ? NFE_HOMOLOGACAO_DESTINATARIO_NOME : cliente.nomerazaosocial ?? "",
-        indicadorIe: cliente.inscricaoestadual ? "1" : "9",
+        // Vem do cadastro. Cliente ainda não classificado abre na sugestão, que
+        // o usuário confirma no seletor logo abaixo — deduzir e emitir direto é
+        // o que produzia a rejeição 306.
+        indicadorIe: String(
+          normalizarIndIEDest(cliente.ind_ie_dest) ??
+            sugerirIndIEDest(cliente.inscricaoestadual),
+        ),
         inscricaoEstadual: cliente.inscricaoestadual ?? "",
         inscricaoMunicipal: cliente.inscricaomunicipal ?? "",
         email: cliente.email ?? "",

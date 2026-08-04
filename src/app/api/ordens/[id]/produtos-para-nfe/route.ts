@@ -334,7 +334,7 @@ export async function GET(req: Request) {
     const { data: cliente } = os.clienteid
       ? await supabaseAdmin
           .from("cliente")
-          .select("id, tipopessoa, cpfcnpj, nomerazaosocial, email, telefone, endereco, endereconumero, enderecocomplemento, bairro, cidade, estado, cep, inscricaoestadual, inscricaomunicipal, codigomunicipio")
+          .select("id, tipopessoa, cpfcnpj, nomerazaosocial, email, telefone, endereco, endereconumero, enderecocomplemento, bairro, cidade, estado, cep, inscricaoestadual, ind_ie_dest, inscricaomunicipal, codigomunicipio")
           .eq("id", os.clienteid)
           .maybeSingle()
       : { data: null };

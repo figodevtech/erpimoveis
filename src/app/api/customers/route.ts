@@ -2,6 +2,7 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
+import { normalizarIndIEDest } from "@/lib/nfe/indIEDest";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireClientesAccess, requireClientesCreate } from "@/app/api/_authz/perms";
 
@@ -11,6 +12,7 @@ const STATUS_SET = new Set<Status>(["ATIVO", "INATIVO", "PENDENTE"]);
 const CLIENTE_FIELDS = `
   id, tipopessoa, cpfcnpj, nomerazaosocial, email, telefone, endereco,
   cidade, estado, bairro, cep, inscricaoestadual, inscricaomunicipal, codigomunicipio,
+  ind_ie_dest,
   createdat, updatedat, endereconumero, enderecocomplemento, status, rank, foto_url
 `;
 
@@ -74,6 +76,7 @@ export async function GET(req: Request) {
         `
         id, tipopessoa, cpfcnpj, nomerazaosocial, email, telefone, endereco,
         cidade, estado, bairro, cep, inscricaoestadual, inscricaomunicipal, codigomunicipio,
+  ind_ie_dest,
         createdat, updatedat,endereconumero, enderecocomplemento, status, rank, foto_url
         `,
         { count: "exact" }
@@ -196,6 +199,9 @@ export async function POST(req: Request) {
       cep: onlyDigits(json.cep ?? null) || null,
       inscricaoestadual: normalizeString(json.inscricaoestadual ?? null),
       inscricaomunicipal: normalizeString(json.inscricaomunicipal ?? null),
+      // Fica NULL quando não informado: quem não foi classificado precisa ser
+      // confirmado na emissão, não virar contribuinte por omissão.
+      ind_ie_dest: normalizarIndIEDest(json.ind_ie_dest),
       status: (normalizeString(json.status ?? null) as Status | null) ?? null,
     };
 

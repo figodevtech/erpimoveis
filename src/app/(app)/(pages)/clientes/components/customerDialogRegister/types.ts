@@ -16,6 +16,8 @@ export interface NewCustomer {
   estado: string;
   cep: string;
   inscricaoestadual: string;
+  /** indIEDest da NF-e: 1 contribuinte, 2 isento, 9 não contribuinte. */
+  ind_ie_dest?: number | null;
   inscricaomunicipal: string;
   codigomunicipio: string;
   status: StatusCliente;

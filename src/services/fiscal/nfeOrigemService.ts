@@ -1,5 +1,6 @@
 import { isCfopCompatibleWithOperation } from "@/lib/nfe/cfopOperation";
 import { descontoPorItem, distribuirDinheiro } from "@/lib/nfe/descontoOrigem";
+import { normalizarIndIEDest } from "@/lib/nfe/indIEDest";
 import { normalizeFiscalRecipient } from "@/lib/nfe/recipientNormalization";
 import {
   mapSalesChannelToPresence,
@@ -114,7 +115,10 @@ function clienteToDraft(cliente: ClienteRow): NFeAvulsaDraftInput["destinatario"
           : "FISICA",
     cpfCnpj: documento,
     nomeRazaoSocial: cliente.nomerazaosocial,
-    indicadorIe: cliente.inscricaoestadual ? "1" : "9",
+    // Só o cadastro classifica. Cliente sem `ind_ie_dest` chega vazio aqui e a
+    // validação do draft cobra a escolha — deduzir pela IE preenchida é o que
+    // mandava <indIEDest>1</indIEDest> para inscrição baixada (rejeição 306).
+    indicadorIe: normalizarIndIEDest(cliente.ind_ie_dest)?.toString() ?? "",
     inscricaoEstadual: cliente.inscricaoestadual,
     inscricaoMunicipal: cliente.inscricaomunicipal,
     email: cliente.email,
@@ -158,7 +162,7 @@ async function getCliente(clienteId: number) {
   const { data, error } = await supabaseAdmin
     .from("cliente")
     .select(
-      "id, tipopessoa, cpfcnpj, nomerazaosocial, email, telefone, endereco, endereconumero, enderecocomplemento, bairro, cidade, estado, cep, inscricaoestadual, inscricaomunicipal, codigomunicipio",
+      "id, tipopessoa, cpfcnpj, nomerazaosocial, email, telefone, endereco, endereconumero, enderecocomplemento, bairro, cidade, estado, cep, inscricaoestadual, ind_ie_dest, inscricaomunicipal, codigomunicipio",
     )
     .eq("id", clienteId)
     .maybeSingle<ClienteRow>();

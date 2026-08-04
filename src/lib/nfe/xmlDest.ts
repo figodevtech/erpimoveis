@@ -1,4 +1,5 @@
 // src/lib/nfe/xmlDest.ts
+import { deveEnviarIeDoDestinatario } from './indIEDest';
 import type { NFeDestinatario } from './types';
 import { escapeXml } from './xmlUtils';
 
@@ -33,8 +34,14 @@ export function buildDestXml(dest: NFeDestinatario): string {
   p.push('</enderDest>');
 
   p.push(`<indIEDest>${dest.indIEDest}</indIEDest>`);
-  if (dest.inscricaoEstadual) {
-    p.push(`<IE>${dest.inscricaoEstadual}</IE>`);
+
+  // A IE só acompanha o destinatário contribuinte do ICMS. Para isento (2) e
+  // não contribuinte (9) a tag é omitida — mandar uma IE numérica nesses casos
+  // é o que produz a rejeição 306 quando a inscrição não está ativa na UF.
+  // A guarda fica aqui, e não só em quem monta o destinatário, porque este é o
+  // único ponto por onde todo XML passa.
+  if (deveEnviarIeDoDestinatario(dest.indIEDest, dest.inscricaoEstadual)) {
+    p.push(`<IE>${escapeXml(String(dest.inscricaoEstadual).trim())}</IE>`);
   }
 
   p.push('</dest>');

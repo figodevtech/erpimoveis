@@ -6,6 +6,7 @@ import {
 } from "@/lib/nfe/buildNFe";
 import { carregarCertificadoA1 } from "@/lib/nfe/certificado";
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
+import { normalizarIndIEDest } from "@/lib/nfe/indIEDest";
 import type { CRT, ClassificacaoTributariaRtc, EmpresaRow, NFeDestinatario, NFeItem } from "@/lib/nfe/types";
 import { getNFeFiscalFieldRules, NFE_FISCAL_RULE_VERSION, validateNFeItemTax } from "@/lib/nfe/taxRules";
 import { resolverNomeMunicipioIbge } from "@/lib/ibge/municipio";
@@ -304,7 +305,10 @@ function getDestinatarioSnapshot(input: NFeAvulsaDraftInput, empresa: EmpresaRow
   const isCnpj = tipoPessoa === "JURIDICA" || documento.length === 14;
   const isCpf = tipoPessoa === "FISICA" || documento.length === 11;
   const ie = onlyDigits(dest.inscricaoEstadual);
-  const indicadorIe = cleanText(dest.indicadorIe) || (ie ? "1" : "9");
+  // Sem dedução pela existência da IE: `validateDraft` já exige 1, 2 ou 9, e
+  // deduzir aqui reintroduziria o <indIEDest>1</indIEDest> que gera a rejeição
+  // 306 para inscrição inativa. O `?? ""` só mantém o tipo; a validação barra.
+  const indicadorIe = cleanText(dest.indicadorIe);
 
   return {
     cnpj: isCnpj && documento ? documento : undefined,
@@ -313,7 +317,7 @@ function getDestinatarioSnapshot(input: NFeAvulsaDraftInput, empresa: EmpresaRow
       empresa.ambiente === "PRODUCAO"
         ? cleanText(dest.nomeRazaoSocial)
         : NFE_HOMOLOGACAO_DESTINATARIO_NOME,
-    indIEDest: indicadorIe,
+    indIEDest: normalizarIndIEDest(indicadorIe) as NFeDestinatario["indIEDest"],
     inscricaoEstadual: indicadorIe === "1" ? ie || undefined : undefined,
     endereco: {
       logradouro: cleanText(dest.endereco) || "NAO INFORMADO",

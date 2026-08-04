@@ -18,6 +18,11 @@ import { supabase } from "@/lib/supabase";
 import { Loader2, Receipt, AlertCircle, CheckCircle2, XCircle, Info, X, Plus, RotateCw, Ellipsis, Download, Package, Paperclip, Wrench } from "lucide-react";
 import { AutorizarNfeButton } from "./autorizarNfe-button";
 import { GerarNotaDeOsDialog } from "./gerarNotaDeOsDialog/gerarNotaDeOsDialog";
+import { CustomerDialog } from "@/app/(app)/(pages)/clientes/components/customerDialogRegister/customerDialog";
+import {
+  ehRejeicaoIeDestinatarioInativa,
+  MENSAGEM_REJEICAO_306,
+} from "@/lib/nfe/indIEDest";
 import { EmissaoNfseDialog } from "./emissao-nfse-dialog/emissao-nfse-dialog";
 import { CancelarNfeButton } from "./cancelarNfeButton";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -180,6 +185,7 @@ export function EmissaoNotaDialog({
   const [selectedNfseId, setSelectedNfseId] = useState<number | null>(null);
   const [downloadingXmlId, setDownloadingXmlId] = useState<number | null>(null);
   const [anexandoDanfeId, setAnexandoDanfeId] = useState<number | null>(null);
+  const [clienteEmRevisao, setClienteEmRevisao] = useState<number | null>(null);
 
   const origem = osId ? "OS" : vendaId ? "VENDA" : entradaId ? "ENTRADA" : null;
   const origemId = osId ?? vendaId ?? entradaId ?? null;
@@ -1002,6 +1008,24 @@ export function EmissaoNotaDialog({
                                     {nfe.motivo_rejeicao?.trim()
                                       || "Não registrado. Reenvie a nota para obter o retorno atualizado da SEFAZ."}
                                   </p>
+                                  {ehRejeicaoIeDestinatarioInativa(nfe.codigo_rejeicao) ? (
+                                    <div className="mt-2 space-y-2 border-l-2 border-l-amber-500 bg-amber-500/5 p-2">
+                                      <p className="whitespace-pre-line text-[11px]">
+                                        {MENSAGEM_REJEICAO_306}
+                                      </p>
+                                      {nfe.clienteid ? (
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-7 text-xs"
+                                          onClick={() => setClienteEmRevisao(nfe.clienteid)}
+                                        >
+                                          Revisar dados fiscais do destinatário
+                                        </Button>
+                                      ) : null}
+                                    </div>
+                                  ) : null}
                                   <p className="mt-1 text-[11px] text-muted-foreground">
                                     Corrija os dados e reenvie — a NF-e mantém o número {nfe.numero ?? "—"}
                                     {nfe.serie ? `/série ${nfe.serie}` : ""}. Rejeição não consome numeração.
@@ -1030,6 +1054,23 @@ export function EmissaoNotaDialog({
             )}
           </div>
         </div>
+
+        {/* Atalho da rejeição 306: leva direto aos dados fiscais do destinatário. */}
+        {clienteEmRevisao ? (
+          <CustomerDialog
+            customerId={clienteEmRevisao}
+            isOpen
+            setIsOpen={(aberto) => {
+              if (!aberto) setClienteEmRevisao(null);
+            }}
+            onUpdate={() => {
+              setClienteEmRevisao(null);
+              fetchNfes();
+            }}
+          >
+            <span className="hidden" />
+          </CustomerDialog>
+        ) : null}
 
         {!!origemId && (
           <GerarNotaDeOsDialog

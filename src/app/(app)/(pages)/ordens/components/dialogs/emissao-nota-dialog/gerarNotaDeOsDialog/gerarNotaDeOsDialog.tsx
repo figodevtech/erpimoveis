@@ -57,6 +57,8 @@ import {
   NFE_PRESENCE_OPTIONS,
 } from "@/lib/nfe/originFiscalDefaults";
 import { isValidCnpj, isValidCpf, normalizeFiscalRecipient } from "@/lib/nfe/recipientNormalization";
+import { normalizarIndIEDest, sugerirIndIEDest } from "@/lib/nfe/indIEDest";
+import { ConfirmarIndicadorIe } from "@/components/fiscal/confirmar-indicador-ie";
 
 import {
   aplicarSugestaoDifal,
@@ -141,12 +143,30 @@ type FiscalCustomer = {
   estado?: string | null;
   cep?: string | null;
   inscricaoestadual?: string | null;
+  /** indIEDest gravado no cadastro. `null` = ainda não classificado. */
+  ind_ie_dest?: number | null;
   inscricaomunicipal?: string | null;
   codigomunicipio?: string | null;
 };
 
 function onlyDigits(value: unknown) {
   return String(value ?? "").replace(/\D/g, "");
+}
+
+/**
+ * Indicador usado apenas na PRÉVIA (contexto do DIFAL e sugestão de tributação).
+ *
+ * Cliente ainda não classificado cai na sugestão para a tela não ficar vazia —
+ * a emissão de verdade é barrada por `validarInscricaoEstadualDestinatario`
+ * até o usuário confirmar a situação fiscal e ela ir para o cadastro.
+ */
+function indicadorDoCliente(
+  cliente?: { ind_ie_dest?: number | null; inscricaoestadual?: string | null } | null,
+) {
+  return (
+    normalizarIndIEDest(cliente?.ind_ie_dest) ??
+    sugerirIndIEDest(cliente?.inscricaoestadual)
+  );
 }
 
 function validateFiscalCustomer(cliente?: FiscalCustomer | null) {
@@ -240,7 +260,7 @@ export function GerarNotaDeOsDialog({
       ufDestinatario: parceiro?.uf ?? null,
       tipoOperacao: source?.tipo_operacao ?? "SAIDA",
       indFinal: fiscalConfig.consumidorFinal ? 1 : 0,
-      indIEDest: String(source?.cliente?.inscricaoestadual ?? "").trim() ? 1 : 9,
+      indIEDest: indicadorDoCliente(source?.cliente),
     } satisfies DifalContexto;
   }, [
     setup?.empresa?.uf,
@@ -303,9 +323,7 @@ export function GerarNotaDeOsDialog({
 
       const fiscalSetup = setupJson as FiscalSetup;
       const parceiro = productsJson.fornecedor ?? productsJson.cliente;
-      // Sem inscrição estadual o destinatário é não contribuinte (indIEDest 9),
-      // que junto com consumidor final e operação interestadual aciona o DIFAL.
-      const indIEDest = String(productsJson.cliente?.inscricaoestadual ?? "").trim() ? 1 : 9;
+      const indIEDest = indicadorDoCliente(productsJson.cliente);
       const mapped = productsJson.itens.map((item) =>
         createAssistedItem(item, fiscalSetup, {
           tipoOperacao: productsJson.tipo_operacao ?? "SAIDA",
@@ -570,7 +588,7 @@ export function GerarNotaDeOsDialog({
         tipoOperacao: json.tipo_operacao ?? "SAIDA",
         parceiroUf: parceiro?.uf,
         indFinal: fiscalConfig.consumidorFinal ? 1 : 0,
-        indIEDest: String(json.cliente?.inscricaoestadual ?? "").trim() ? 1 : 9,
+        indIEDest: indicadorDoCliente(json.cliente),
       });
       setSource(json);
       setItems((current) =>
@@ -784,6 +802,20 @@ export function GerarNotaDeOsDialog({
                         </AlertDescription>
                       </Alert>
                     ) : null}
+
+                    <ConfirmarIndicadorIe
+                      clienteId={source.cliente.id}
+                      nomeCliente={source.cliente.nomerazaosocial || source.cliente.nome}
+                      inscricaoEstadual={source.cliente.inscricaoestadual}
+                      indIeDest={source.cliente.ind_ie_dest}
+                      onConfirmado={(indicador) =>
+                        setSource((atual) =>
+                          atual?.cliente
+                            ? { ...atual, cliente: { ...atual.cliente, ind_ie_dest: indicador } }
+                            : atual,
+                        )
+                      }
+                    />
                   </section>
                 ) : null}
 

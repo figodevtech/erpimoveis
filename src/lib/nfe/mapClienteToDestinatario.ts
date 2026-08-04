@@ -1,4 +1,5 @@
 // src/lib/nfe/mapClienteToDestinatario.ts
+import { IND_IE_DEST_CONTRIBUINTE, normalizarIndIEDest } from "./indIEDest";
 import type { ClienteRow, EmpresaRow, NFeDestinatario } from "./types";
 
 function soNumeros(value: string | null | undefined): string {
@@ -27,12 +28,19 @@ export function mapClienteToDestinatario(
   const telefone = soNumeros(cliente.telefone);
   const ie = soNumeros(cliente.inscricaoestadual);
 
+  // A situação fiscal vem do cadastro. Deduzir da existência da IE (o que era
+  // feito aqui) manda <indIEDest>1</indIEDest> para quem tem inscrição baixada
+  // na UF, e a SEFAZ devolve a rejeição 306. Sem classificação, a validação em
+  // buildNFe barra a emissão e pede a confirmação do usuário.
+  const indIEDest = normalizarIndIEDest(cliente.ind_ie_dest);
+
   const dest: NFeDestinatario = {
     cnpj: isCnpj ? documento : undefined,
     cpf: !isCnpj ? documento : undefined,
     razaoSocial: cliente.nomerazaosocial,
-    indIEDest: cliente.inscricaoestadual ? "1" : "9",
-    inscricaoEstadual: cliente.inscricaoestadual ? ie : undefined,
+    indIEDest: indIEDest as NFeDestinatario["indIEDest"],
+    inscricaoEstadual:
+      indIEDest === IND_IE_DEST_CONTRIBUINTE && ie ? ie : undefined,
     endereco: {
       logradouro: cliente.endereco || "NAO INFORMADO",
       numero: cliente.endereconumero || "S/N",

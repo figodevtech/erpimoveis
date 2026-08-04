@@ -2,6 +2,7 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
+import { normalizarIndIEDest } from "@/lib/nfe/indIEDest";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireClientesAccess, requireClientesDelete, requireClientesEdit } from "@/app/api/_authz/perms";
 
@@ -10,6 +11,7 @@ type Params = { params: Promise<{ id: string }> };
 const CLIENTE_FIELDS = `
   id, tipopessoa, cpfcnpj, nomerazaosocial, email, telefone, endereco,
   cidade, estado, bairro, cep, inscricaoestadual, inscricaomunicipal, codigomunicipio,
+  ind_ie_dest,
   createdat, updatedat, endereconumero, enderecocomplemento, status, rank, foto_url
 `;
 
@@ -56,6 +58,7 @@ const WRITABLE_FIELDS = new Set([
   "inscricaoestadual",
   "inscricaomunicipal",
   "codigomunicipio",
+  "ind_ie_dest",
   "status",
   "rank",
 ]);
@@ -77,6 +80,12 @@ function sanitizePayload(body: any, { strict }: { strict: boolean }) {
   for (const key of Object.keys(body ?? {})) {
     if (!WRITABLE_FIELDS.has(key)) continue;
     out[key] = toNullIfEmpty(body[key]);
+  }
+
+  // O CHECK da coluna só aceita 1, 2 ou 9. Qualquer outra coisa vira NULL
+  // (não classificado) em vez de estourar erro de constraint no banco.
+  if ("ind_ie_dest" in out) {
+    out.ind_ie_dest = normalizarIndIEDest(out.ind_ie_dest);
   }
 
   if (out.status != null) {

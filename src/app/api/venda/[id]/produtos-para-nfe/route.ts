@@ -279,7 +279,7 @@ export async function GET(
     const { data: cliente } = venda.clienteid
       ? await supabaseAdmin
           .from("cliente")
-          .select("id, tipopessoa, cpfcnpj, nomerazaosocial, email, telefone, endereco, endereconumero, enderecocomplemento, bairro, cidade, estado, cep, inscricaoestadual, inscricaomunicipal, codigomunicipio")
+          .select("id, tipopessoa, cpfcnpj, nomerazaosocial, email, telefone, endereco, endereconumero, enderecocomplemento, bairro, cidade, estado, cep, inscricaoestadual, ind_ie_dest, inscricaomunicipal, codigomunicipio")
           .eq("id", venda.clienteid)
           .maybeSingle()
       : { data: null };

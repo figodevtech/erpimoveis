@@ -38,6 +38,8 @@ export interface Customer {
   foto_url?: string | null
   cep: string | null
   inscricaoestadual: string | null
+  /** indIEDest da NF-e: 1 contribuinte, 2 isento, 9 não contribuinte. */
+  ind_ie_dest?: number | null
   inscricaomunicipal: string | null
   codigomunicipio: string | null
   createdat: string

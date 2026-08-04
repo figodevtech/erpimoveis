@@ -1,6 +1,7 @@
 // src/lib/nfe/types.ts
 
 import type { ICMSUFDest } from './difal';
+import type { IndIEDest } from './indIEDest';
 
 export type { ICMSUFDest };
 
@@ -127,6 +128,8 @@ export type ClienteRow = {
   inscricaoestadual?: string | null;
   inscricaomunicipal?: string | null;
   codigomunicipio?: string | null;
+  /** indIEDest escolhido no cadastro. `null` = ainda não classificado. */
+  ind_ie_dest?: number | null;
 };
 
 // =====================
@@ -185,7 +188,12 @@ export type NFeDestinatario = {
   cpf?: string;
   cnpj?: string;
   razaoSocial: string;
-  indIEDest: "1" | "2" | "3" | "9" | string;
+  /**
+   * indIEDest: 1 contribuinte do ICMS, 2 contribuinte isento, 9 não contribuinte.
+   * Vem do cadastro do cliente — nunca deduzido da existência da IE.
+   */
+  indIEDest: IndIEDest | "1" | "2" | "9";
+  /** Só é enviada ao XML quando `indIEDest` é 1. Ver `buildDestXml`. */
   inscricaoEstadual?: string;
   endereco: NFeEndereco;
 };
