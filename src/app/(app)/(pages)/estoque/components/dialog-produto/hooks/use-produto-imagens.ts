@@ -4,6 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import axios, { isAxiosError } from "axios";
 import { toast } from "@/lib/toast";
 import type { ProdutoImagemPendente } from "../tabs/produto-imagens-gallery";
+import {
+  prepareProductImageForUpload,
+  productImageUploadError,
+} from "@/lib/product-image-upload";
 
 export type ProdutoImagem = {
   id: number;
@@ -173,44 +177,61 @@ export function useProdutoImagens(params: {
     setSubindoImagens(true);
     let nextOrder = [...ordemItensRef.current];
     const uploadedImages: ProdutoImagem[] = [];
+    const uploadErrors: string[] = [];
 
     try {
       for (const key of pendingKeysInOrder) {
         const pending = pendingByKey.get(key);
         if (!pending) continue;
 
-        const fd = new FormData();
-        fd.append("files", pending.file);
+        try {
+          const arquivoPreparado = await prepareProductImageForUpload(pending.file);
+          const fd = new FormData();
+          fd.append("files", arquivoPreparado);
 
-        const res = await axios.post(`/api/products/${productId}/images`, fd, {
-          headers: { "Content-Type": "multipart/form-data" },
-          onUploadProgress: (event) => {
-            const total = event.total ?? pending.file.size;
-            const pct = total > 0 ? Math.min(100, Math.round((event.loaded / total) * 100)) : 0;
-            setUploadProgressByPendingId((current) => ({ ...current, [pending.id]: pct }));
-          },
-        });
+          const res = await axios.post(`/api/products/${productId}/images`, fd, {
+            onUploadProgress: (event) => {
+              const total = event.total ?? arquivoPreparado.size;
+              const pct = total > 0 ? Math.min(100, Math.round((event.loaded / total) * 100)) : 0;
+              setUploadProgressByPendingId((current) => ({ ...current, [pending.id]: pct }));
+            },
+          });
 
-        const saved = (res.data?.imagens?.[0] ?? null) as ProdutoImagem | null;
-        if (!saved) throw new Error("Upload concluido sem retorno da imagem.");
-        await applyCoverPatch(res.data?.product);
+          const saved = (res.data?.imagens?.[0] ?? null) as ProdutoImagem | null;
+          if (!saved) throw new Error("Upload concluído sem retorno da imagem.");
+          await applyCoverPatch(res.data?.product);
 
-        URL.revokeObjectURL(pending.previewUrl);
-        uploadedImages.push(saved);
-        imagensPendentesRef.current = imagensPendentesRef.current.filter((img) => img.id !== pending.id);
-        setImagensPendentes(imagensPendentesRef.current);
-        setImagens((current) => [...current, saved]);
-        nextOrder = nextOrder.map((itemKey) => (itemKey === key ? imageKey(saved.id) : itemKey));
-        setOrdem(nextOrder, true);
-        setUploadProgressByPendingId((current) => ({ ...current, [pending.id]: 100 }));
+          URL.revokeObjectURL(pending.previewUrl);
+          uploadedImages.push(saved);
+          imagensPendentesRef.current = imagensPendentesRef.current.filter((img) => img.id !== pending.id);
+          setImagensPendentes(imagensPendentesRef.current);
+          setImagens((current) => [...current, saved]);
+          nextOrder = nextOrder.map((itemKey) => (itemKey === key ? imageKey(saved.id) : itemKey));
+          setOrdem(nextOrder, true);
+          setUploadProgressByPendingId((current) => ({ ...current, [pending.id]: 100 }));
+        } catch (error) {
+          console.error(`Erro ao enviar a imagem ${pending.file.name}:`, error);
+          uploadErrors.push(productImageUploadError(error, pending.file.name));
+          setUploadProgressByPendingId((current) => ({ ...current, [pending.id]: 0 }));
+        }
       }
 
-      setUploadProgressByPendingId({});
-      await salvarOrdem(nextOrder);
-      toast.success("Sucesso!", { description: "Imagens enviadas e ordem atualizada.", duration: 2000 });
+      if (uploadedImages.length > 0) await salvarOrdem(nextOrder);
+      if (uploadErrors.length > 0) {
+        toast.error("Algumas imagens não foram enviadas", {
+          description: `${uploadErrors.length} imagem(ns) continuam pendentes. ${uploadErrors[0]}`,
+          duration: 6000,
+        });
+      } else {
+        setUploadProgressByPendingId({});
+        toast.success("Sucesso!", { description: "Imagens enviadas e ordem atualizada.", duration: 2000 });
+      }
     } catch (err) {
       console.error("Erro ao enviar imagens:", err);
-      toast.error("Erro", { description: "Nao foi possivel enviar todas as imagens.", duration: 2500 });
+      toast.error("Falha ao concluir o envio", {
+        description: productImageUploadError(err),
+        duration: 5000,
+      });
       if (uploadedImages.length > 0) await salvarOrdem(nextOrder);
     } finally {
       setSubindoImagens(false);

@@ -8,6 +8,13 @@ import { requireEstoqueAccess, requireEstoqueEdit } from "@/app/api/_authz/perms
 type Params = { id: string };
 
 const BUCKET = "produto_imagem";
+const MAX_FILE_SIZE = 12 * 1024 * 1024;
+
+async function cleanupUploadedPaths(paths: string[]) {
+  if (paths.length === 0) return;
+  const { error } = await supabaseAdmin.storage.from(BUCKET).remove(paths);
+  if (error) console.error("[POST images] rollback storage error:", error);
+}
 
 async function parseId(context: { params: Promise<Params> }) {
   const { id: idStr } = await context.params;
@@ -119,6 +126,16 @@ export async function POST(req: NextRequest, context: { params: Promise<Params> 
     await requireEstoqueEdit();
     const produtoId = await parseId(context);
 
+    const { data: produto, error: produtoError } = await supabaseAdmin
+      .from("produto")
+      .select("id")
+      .eq("id", produtoId)
+      .maybeSingle();
+    if (produtoError) throw produtoError;
+    if (!produto) {
+      return NextResponse.json({ error: "Produto não encontrado." }, { status: 404 });
+    }
+
     const form = await req.formData();
     const files = form.getAll("files").filter((f) => f instanceof File) as File[];
 
@@ -128,6 +145,21 @@ export async function POST(req: NextRequest, context: { params: Promise<Params> 
 
     if (files.length > 10) {
       return NextResponse.json({ error: "Máximo de 10 imagens por envio." }, { status: 400 });
+    }
+
+    for (const file of files) {
+      if (!file.type.startsWith("image/")) {
+        return NextResponse.json({ error: `${file.name}: o arquivo não é uma imagem.` }, { status: 400 });
+      }
+      if (file.size <= 0) {
+        return NextResponse.json({ error: `${file.name}: o arquivo está vazio.` }, { status: 400 });
+      }
+      if (file.size > MAX_FILE_SIZE) {
+        return NextResponse.json(
+          { error: `${file.name}: a imagem excede o limite de 12 MB.` },
+          { status: 413 },
+        );
+      }
     }
 
     // importa sharp só aqui (evita quebrar rota inteira se sharp falhar)
@@ -152,12 +184,9 @@ export async function POST(req: NextRequest, context: { params: Promise<Params> 
     let ordemBase = Math.max(Number(ult?.[0]?.ordem ?? 0), 0);
 
     const inserts: { produto_id: number; url: string; path: string; ordem: number }[] = [];
+    const uploadedPaths: string[] = [];
 
     for (const file of files) {
-      if (!file.type.startsWith("image/")) {
-        return NextResponse.json({ error: "Todos os arquivos precisam ser imagem." }, { status: 400 });
-      }
-
       // processa com sharp (webp + resize)
       let webp: Buffer;
       try {
@@ -169,9 +198,10 @@ export async function POST(req: NextRequest, context: { params: Promise<Params> 
           .toBuffer();
       } catch (err: any) {
         console.error("[POST images] sharp error:", err);
+        await cleanupUploadedPaths(uploadedPaths);
         return NextResponse.json(
-          { error: String(err?.message ?? "Falha ao processar imagem (sharp)"), where: "sharp" },
-          { status: 500 }
+          { error: `${file.name}: imagem inválida ou formato não suportado.`, where: "sharp" },
+          { status: 400 }
         );
       }
 
@@ -184,11 +214,13 @@ export async function POST(req: NextRequest, context: { params: Promise<Params> 
 
       if (upErr) {
         console.error("[POST images] upload error:", upErr);
+        await cleanupUploadedPaths(uploadedPaths);
         return NextResponse.json(
           { error: String(upErr.message), where: "storage.upload", bucket: BUCKET },
           { status: 500 }
         );
       }
+      uploadedPaths.push(path);
 
       const { data: pub } = supabaseAdmin.storage.from(BUCKET).getPublicUrl(path);
 
@@ -208,6 +240,7 @@ export async function POST(req: NextRequest, context: { params: Promise<Params> 
 
     if (insErr) {
       console.error("[POST images] insert error:", insErr);
+      await cleanupUploadedPaths(uploadedPaths);
       return NextResponse.json({ error: String(insErr.message), where: "insert produto_imagem" }, { status: 500 });
     }
 

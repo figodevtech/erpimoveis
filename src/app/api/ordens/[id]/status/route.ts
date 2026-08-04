@@ -7,6 +7,7 @@ import {
   mensagemEstoqueInsuficienteOS,
 } from "@/lib/ordens/estoque-os";
 import type { PlannedPayment } from "@/lib/payment-methods";
+import { getPaymentMethodValues } from "@/lib/payment-methods-server";
 
 type DBStatusOS =
   | "AGUARDANDO_CHECKLIST"
@@ -21,7 +22,7 @@ type DBStatusOS =
   | "CANCELADO";
 
 type DBAprovacao = "PENDENTE" | "APROVADA" | "REPROVADA";
-type FormaPagamento = "CREDITO" | "DEBITO" | "DINHEIRO" | "PIX" | "BOLETO";
+type FormaPagamento = PlannedPayment["metodo"];
 
 type Body = {
   status: DBStatusOS;
@@ -67,6 +68,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
       : null;
     const descricaoFinanceiro = (body.descricaoFinanceiro ?? "").trim() || null;
     const garantia = (body.garantia ?? "").trim() || null;
+    const formasPagamentoValidas = new Set(await getPaymentMethodValues());
 
     if (!status) {
       return NextResponse.json({ error: "Status é obrigatório." }, { status: 400 });
@@ -100,7 +102,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
 
     if (
       formaPagamento !== null &&
-      !["CREDITO", "DEBITO", "DINHEIRO", "PIX", "BOLETO"].includes(formaPagamento)
+      !formasPagamentoValidas.has(formaPagamento)
     ) {
       return NextResponse.json({ error: "Forma de pagamento inválida." }, { status: 400 });
     }
@@ -122,18 +124,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
       );
     }
     if (pagamentosPrevistos) {
-      const metodosValidos = new Set([
-        "CREDITO",
-        "DEBITO",
-        "DINHEIRO",
-        "PIX",
-        "BOLETO",
-      ]);
       const metodosInformados = new Set<string>();
 
       for (const pagamento of pagamentosPrevistos) {
         if (
-          !metodosValidos.has(pagamento.metodo) ||
+          !formasPagamentoValidas.has(pagamento.metodo) ||
           metodosInformados.has(pagamento.metodo)
         ) {
           return NextResponse.json(

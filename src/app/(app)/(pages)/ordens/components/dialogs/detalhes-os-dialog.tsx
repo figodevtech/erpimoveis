@@ -92,7 +92,7 @@ import TransactionDialog from "../../../(financeiro)/fluxodecaixa/components/tra
 import ValueInput from "../../../(financeiro)/fluxodecaixa/components/transactionDialog/valueInput";
 import { DialogProduto } from "../../../estoque/components/dialog-produto/dialog-produto";
 import { Tipo_transacao, type Transaction } from "../../../(financeiro)/fluxodecaixa/types";
-import { PAYMENT_METHOD_OPTIONS, type PlannedPayment } from "@/lib/payment-methods";
+import { formatPaymentMethodLabel, type PlannedPayment } from "@/lib/payment-methods";
 import { ChecklistImagePreview } from "./checklist-image-preview";
 
 const PUBLIC_APPROVAL_BASE = "/aprovacao";
@@ -1264,9 +1264,7 @@ export function OSDetalhesDialog({
                     <div className="space-y-1 text-sm">
                       {data.os.pagamentos_previstos.map((pagamento) => (
                         <div key={pagamento.metodo}>
-                          {PAYMENT_METHOD_OPTIONS.find(
-                            (method) => method.value === pagamento.metodo,
-                          )?.label ?? pagamento.metodo}
+                          {formatPaymentMethodLabel(pagamento.metodo)}
                           {pagamento.parcelas ? ` em ${pagamento.parcelas}x` : ""}
                           {" — "}
                           {fmtMoney(pagamento.valor)}
@@ -1275,9 +1273,9 @@ export function OSDetalhesDialog({
                     </div>
                   ) : (
                     <div className="text-sm">
-                      {PAYMENT_METHOD_OPTIONS.find(
-                        (method) => method.value === data.os.forma_pagamento,
-                      )?.label ?? "Não informada"}
+                      {data.os.forma_pagamento
+                        ? formatPaymentMethodLabel(data.os.forma_pagamento)
+                        : "Não informada"}
                       {data.os.parcelas_pagamento
                         ? ` em ${data.os.parcelas_pagamento}x`
                         : ""}

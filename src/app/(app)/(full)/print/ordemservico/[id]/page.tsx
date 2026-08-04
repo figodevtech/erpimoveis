@@ -13,7 +13,6 @@ import { PrintFilterToggles } from "../../../components/PrintFilterToggles";
 import { PrintShareMenu } from "../../../components/PrintShareMenu";
 import { fetchPrimeiroLogoEmpresa } from "@/lib/empresa-logo";
 import { fetchPrintColors } from "@/lib/print-config";
-import { PAYMENT_METHOD_OPTIONS } from "@/lib/payment-methods";
 import { getTermoAceiteOS, type AceiteAlvo } from "@/lib/print-aceite";
 
 export const runtime = "nodejs";

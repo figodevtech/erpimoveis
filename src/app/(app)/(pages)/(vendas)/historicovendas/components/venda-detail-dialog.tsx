@@ -61,7 +61,8 @@ import CustomerSelect from "@/app/(app)/components/customerSelect"
 import ProductSelect from "@/app/(app)/components/productSelect"
 import type { Customer } from "@/app/(app)/(pages)/clientes/types"
 import type { Produto as EstoqueProduto } from "@/app/(app)/(pages)/estoque/types"
-import { PAYMENT_METHOD_OPTIONS, type PaymentMethodOption } from "@/lib/payment-methods"
+import { formatPaymentMethodLabel, type PaymentMethodOption } from "@/lib/payment-methods"
+import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options"
 import { calculateFinancialSurcharge, calculateFinancialTotal } from "@/lib/financial-surcharge"
 import {
   VENDA_ANEXO_CATEGORIAS,
@@ -287,8 +288,6 @@ const amountInputToCents = (value: string): number | null => {
 const formatCentsToPaymentInput = (value: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(centsToNumber(Math.max(0, value)))
 
-const PAYMENT_METHOD_VALUES = new Set<string>(PAYMENT_METHOD_OPTIONS.map((option) => option.value))
-
 /**
  * Separa os métodos de forma_pagamento.
  *
@@ -298,22 +297,9 @@ const PAYMENT_METHOD_VALUES = new Set<string>(PAYMENT_METHOD_OPTIONS.map((option
  * conhecido — vírgula dentro de valor fica onde está.
  */
 function splitFormaPagamento(text: string): string[] {
-  const entries: string[] = []
-  let current = ""
-
-  for (const chunk of text.split(",")) {
-    const candidate = chunk.trim().split(":")[0].trim().toUpperCase()
-
-    if (current && PAYMENT_METHOD_VALUES.has(candidate)) {
-      entries.push(current.trim())
-      current = chunk
-    } else {
-      current = current ? `${current},${chunk}` : chunk
-    }
-  }
-
-  if (current.trim()) entries.push(current.trim())
-  return entries
+  return text.includes(":")
+    ? text.split(/,\s*(?=[A-Z][A-Z0-9_]*\s*:)/).map((entry) => entry.trim()).filter(Boolean)
+    : text.split(",").map((entry) => entry.trim()).filter(Boolean)
 }
 
 /**
@@ -338,7 +324,7 @@ function parseFormaPagamento(raw: string | null | undefined): {
   for (const part of parts) {
     const [methodRaw, ...valueParts] = part.split(":")
     const method = methodRaw.trim().toUpperCase()
-    if (!PAYMENT_METHOD_VALUES.has(method)) return { methods: [], amounts: {} }
+    if (!/^[A-Z][A-Z0-9_]*$/.test(method)) return { methods: [], amounts: {} }
 
     methods.push(method as PaymentMethodOption)
     const valueText = valueParts.join(":").trim()
@@ -352,6 +338,12 @@ function parseFormaPagamento(raw: string | null | undefined): {
 }
 
 export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: VendaDetailsDialogProps) {
+  const {
+    options: paymentMethodOptions,
+    isLoading: isLoadingPaymentMethods,
+    error: paymentMethodsError,
+    reload: reloadPaymentMethods,
+  } = usePaymentMethodOptions()
   const [venda, setVenda] = useState<Venda | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -411,14 +403,14 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
   const hasAnyPaymentAmount = selectedPaymentMethods.some((method) => Boolean(paymentAmounts[method]?.trim()))
   const paymentAmountEntries = selectedPaymentMethods.map((method) => ({
     method,
-    label: PAYMENT_METHOD_OPTIONS.find((option) => option.value === method)?.label ?? method,
+    label: paymentMethodOptions.find((option) => option.value === method)?.label ?? formatPaymentMethodLabel(method),
     cents: amountInputToCents(paymentAmounts[method] ?? ""),
   }))
   const paymentAmountsTotalCents = paymentAmountEntries.reduce((sum, item) => sum + (item.cents ?? 0), 0)
   const soleSelectedPaymentMethod = selectedPaymentMethods.length === 1 ? selectedPaymentMethods[0] : null
   const paymentMethodsLabel = !hasPaymentMethodSelected
     ? "Não informar"
-    : PAYMENT_METHOD_OPTIONS.filter((method) => selectedPaymentMethods.includes(method.value))
+    : paymentMethodOptions.filter((method) => selectedPaymentMethods.includes(method.value))
         .map((method) => method.label)
         .join(", ")
 
@@ -1206,7 +1198,15 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                                             <Checkbox checked={!hasPaymentMethodSelected} />
                                             <span>Não informar</span>
                                           </CommandItem>
-                                          {PAYMENT_METHOD_OPTIONS.map((method) => (
+                                          {isLoadingPaymentMethods ? (
+                                            <CommandItem disabled>Carregando formas de pagamento...</CommandItem>
+                                          ) : paymentMethodsError ? (
+                                            <CommandItem onSelect={() => void reloadPaymentMethods()}>
+                                              Falha ao carregar. Clique para tentar novamente.
+                                            </CommandItem>
+                                          ) : paymentMethodOptions.length === 0 ? (
+                                            <CommandItem disabled>Nenhuma forma de pagamento cadastrada.</CommandItem>
+                                          ) : paymentMethodOptions.map((method) => (
                                             <CommandItem
                                               key={method.value}
                                               value={method.value}
@@ -1236,7 +1236,7 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
 
                                     <div className="space-y-2">
                                       {selectedPaymentMethods.map((method) => {
-                                        const label = PAYMENT_METHOD_OPTIONS.find((option) => option.value === method)?.label ?? method
+                                        const label = paymentMethodOptions.find((option) => option.value === method)?.label ?? formatPaymentMethodLabel(method)
                                         return (
                                           <div key={method} className="grid grid-cols-[minmax(0,1fr)_minmax(7rem,9rem)] items-center gap-2">
                                             <span className="truncate text-sm text-foreground">{label}</span>

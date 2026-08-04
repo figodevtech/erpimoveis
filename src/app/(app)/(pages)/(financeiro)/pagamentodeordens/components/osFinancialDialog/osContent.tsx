@@ -31,7 +31,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { PAYMENT_METHOD_OPTIONS } from "@/lib/payment-methods";
+import { formatPaymentMethodLabel } from "@/lib/payment-methods";
 
 interface OsContentProps {
   osId: number;
@@ -656,9 +656,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                     <div className="mt-1 space-y-1 text-sm font-medium">
                       {ordem.pagamentos_previstos.map((pagamento) => (
                         <p key={pagamento.metodo}>
-                          {PAYMENT_METHOD_OPTIONS.find(
-                            (method) => method.value === pagamento.metodo,
-                          )?.label ?? pagamento.metodo}
+                          {formatPaymentMethodLabel(pagamento.metodo)}
                           {pagamento.parcelas ? ` em ${pagamento.parcelas}x` : ""}
                           {" — "}
                           {formatarEmReal(pagamento.valor)}

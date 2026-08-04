@@ -30,20 +30,23 @@ export function TabMarketplace({ produto, onChange }: Props) {
 
   useEffect(() => {
     if (!produtoId) return;
-    const controller = new AbortController();
-    fetch(`/api/integracoes/mercadolivre/products/${produtoId}/performance`, { cache: "no-store", signal: controller.signal })
+    let active = true;
+
+    fetch(`/api/integracoes/mercadolivre/products/${produtoId}/performance`, { cache: "no-store" })
       .then(async (response) => {
         const json = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(json?.error || "Falha ao consultar o Mercado Livre.");
-        setIntegration(json?.linked ? json.data : null);
+        if (active) setIntegration(json?.linked ? json.data : null);
       })
       .catch((error) => {
-        if (error?.name !== "AbortError") setIntegrationError(error?.message || "Falha ao consultar o Mercado Livre.");
+        if (active) setIntegrationError(error?.message || "Falha ao consultar o Mercado Livre.");
       })
       .finally(() => {
-        if (!controller.signal.aborted) setLoadingIntegration(false);
+        if (active) setLoadingIntegration(false);
       });
-    return () => controller.abort();
+    return () => {
+      active = false;
+    };
   }, [produtoId]);
 
   return (

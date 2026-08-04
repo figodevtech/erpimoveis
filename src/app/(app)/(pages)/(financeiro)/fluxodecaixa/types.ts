@@ -21,6 +21,8 @@ export enum Metodo_pagamento {
   DEBITO = "DEBITO",
   BOLETO = "BOLETO",
   TRANSFERENCIA = "TRANSFERENCIA",
+  TED = "TED",
+  DOC = "DOC",
   DINHEIRO = "DINHEIRO",
 }
 

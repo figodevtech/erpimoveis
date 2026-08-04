@@ -18,6 +18,10 @@ import { Unidade_medida } from "../../types";
 import { useGruposProduto } from "./hooks/use-grupo-produtos";
 import type { LoteSelectItem } from "@/app/(app)/components/loteSelect";
 import { useConfig } from "../../../config-context";
+import {
+  prepareProductImageForUpload,
+  productImageUploadError,
+} from "@/lib/product-image-upload";
 
 interface ConteudoCadastroProdutoProps {
   setSelectedProductId?: (value: number | undefined) => void;
@@ -148,6 +152,25 @@ export default function CadastroProduto({
         return;
       }
 
+      // Valida e reduz todas as imagens antes de criar o produto. Assim um
+      // arquivo inválido não deixa um cadastro novo sem as imagens escolhidas.
+      const imagensPreparadas = new Map<string, File>();
+      try {
+        for (const imagem of imagensPendentes) {
+          imagensPreparadas.set(
+            imagem.id,
+            await prepareProductImageForUpload(imagem.file),
+          );
+        }
+      } catch (imageError) {
+        setCurrentTab("Imagens");
+        toast.error("Revise as imagens selecionadas", {
+          description: productImageUploadError(imageError),
+          duration: 6000,
+        });
+        return;
+      }
+
       const payload = { ...newProduct } as any;
       if (!payload.tituloMarketplace) payload.tituloMarketplace = payload.titulo;
 
@@ -158,34 +181,34 @@ export default function CadastroProduto({
 
       if (response.status === 201) {
         const produtoId = response.data.data.id as number;
-        let falhaNoEnvioDasImagens = false;
+        const falhasNoEnvio: string[] = [];
 
         // envia imagens se selecionadas
         if (imagensPendentes.length > 0) {
-          try {
-            const pendentesPorId = new Map(imagensPendentes.map((img) => [`pending-${img.id}`, img]));
-            const ordenadas = ordemImagensPendentes
-              .map((key) => pendentesPorId.get(key))
-              .filter(Boolean) as ProdutoImagemPendente[];
+          const pendentesPorId = new Map(imagensPendentes.map((img) => [`pending-${img.id}`, img]));
+          const ordenadas = ordemImagensPendentes
+            .map((key) => pendentesPorId.get(key))
+            .filter(Boolean) as ProdutoImagemPendente[];
 
-            for (const img of ordenadas) {
+          for (const img of ordenadas) {
+            try {
+              const arquivoPreparado = imagensPreparadas.get(img.id) ?? img.file;
               const fd = new FormData();
-              fd.append("files", img.file);
+              fd.append("files", arquivoPreparado);
 
               await axios.post(`/api/products/${produtoId}/images`, fd, {
-                headers: { "Content-Type": "multipart/form-data" },
                 onUploadProgress: (event) => {
-                  const total = event.total ?? img.file.size;
+                  const total = event.total ?? arquivoPreparado.size;
                   const pct = total > 0 ? Math.min(100, Math.round((event.loaded / total) * 100)) : 0;
                   setProgressoUploadImagens((current) => ({ ...current, [img.id]: pct }));
                 },
               });
 
               setProgressoUploadImagens((current) => ({ ...current, [img.id]: 100 }));
+            } catch (error) {
+              console.error(`Erro ao enviar a imagem ${img.file.name}:`, error);
+              falhasNoEnvio.push(productImageUploadError(error, img.file.name));
             }
-          } catch (err) {
-            console.error("Erro ao enviar imagens:", err);
-            falhaNoEnvioDasImagens = true;
           }
         }
 
@@ -208,10 +231,10 @@ export default function CadastroProduto({
           await onAfterSaveProduct?.();
         }
 
-        if (falhaNoEnvioDasImagens) {
-          toast.error("Cadastro concluído com erro", {
-            description: "Produto criado, mas não foi possível enviar todas as imagens.",
-            duration: 3500,
+        if (falhasNoEnvio.length > 0) {
+          toast.error("Produto criado; imagens pendentes", {
+            description: `${falhasNoEnvio.length} imagem(ns) falharam. ${falhasNoEnvio[0]}`,
+            duration: 6000,
           });
         } else if (response.data.warning) {
           toast.warning("Cadastro concluído com ressalvas", {

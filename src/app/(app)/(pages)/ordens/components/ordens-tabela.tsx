@@ -73,11 +73,8 @@ import { OrdensFilterSheet } from "./ordens-filtros";
 import { EmissaoNotaDialog } from "./dialogs/emissao-nota-dialog/emissao-nota-dialog";
 import { Label } from "@/components/ui/label";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
-import {
-  PAYMENT_METHOD_OPTIONS,
-  type PaymentMethodOption,
-  type PlannedPayment,
-} from "@/lib/payment-methods";
+import type { PaymentMethodOption, PlannedPayment } from "@/lib/payment-methods";
+import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
 
 const MAX_ALVO_CHARS = 48;
 
@@ -147,6 +144,12 @@ export function OrdensTabela({
   onNovaOS: () => void;
 }) {
   const { data: session } = useSession();
+  const {
+    options: paymentMethodOptions,
+    isLoading: isLoadingPaymentMethods,
+    error: paymentMethodsError,
+    reload: reloadPaymentMethods,
+  } = usePaymentMethodOptions();
   const [rows, setRows] = useState<OrdemComDatas[]>([]);
   const canCreate = permissionSetHas((session?.user as any)?.permissoes, PERMS.ORDENS_CRIAR);
 
@@ -456,7 +459,7 @@ export function OrdensTabela({
   const confirmPaymentMethodsLabel =
     confirmPaymentMethods.length === 0
       ? "Não informar"
-      : PAYMENT_METHOD_OPTIONS.filter((method) =>
+      : paymentMethodOptions.filter((method) =>
           confirmPaymentMethods.includes(method.value),
         )
           .map((method) => method.label)
@@ -1247,7 +1250,15 @@ export function OrdensTabela({
                     <Command>
                       <CommandList>
                         <CommandGroup>
-                          {PAYMENT_METHOD_OPTIONS.map((method) => (
+                          {isLoadingPaymentMethods ? (
+                            <CommandItem disabled>Carregando formas de pagamento...</CommandItem>
+                          ) : paymentMethodsError ? (
+                            <CommandItem onSelect={() => void reloadPaymentMethods()}>
+                              Falha ao carregar. Clique para tentar novamente.
+                            </CommandItem>
+                          ) : paymentMethodOptions.length === 0 ? (
+                            <CommandItem disabled>Nenhuma forma de pagamento cadastrada.</CommandItem>
+                          ) : paymentMethodOptions.map((method) => (
                             <CommandItem
                               key={method.value}
                               value={method.value}
@@ -1285,7 +1296,7 @@ export function OrdensTabela({
                     <div className="space-y-2">
                       {confirmPaymentMethods.map((method) => {
                         const methodLabel =
-                          PAYMENT_METHOD_OPTIONS.find(
+                          paymentMethodOptions.find(
                             (option) => option.value === method,
                           )?.label ?? method;
                         const hasInstallments =

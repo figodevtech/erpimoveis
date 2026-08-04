@@ -19,8 +19,9 @@ import {
   Palette,
   Boxes,
   Building2,
-  CheckCircle2,
   Store,
+  ShoppingBag,
+  KeyRound,
   Unplug,
 } from "lucide-react";
 
@@ -73,6 +74,96 @@ type MercadoLivreAccount = {
   } | null;
 };
 
+type ShopeeAccount = {
+  id: number;
+  shopId: number;
+  shopName: string | null;
+  region: string;
+  needsReconnect: boolean;
+  updatedAt: string | null;
+};
+
+type ShopeeIntegration = {
+  configured: boolean;
+  missing: string[];
+  account: ShopeeAccount | null;
+};
+
+function MarketplaceConnectionCard({
+  icon,
+  iconClass,
+  name,
+  connected,
+  title,
+  description,
+  details,
+  connectHref,
+  connectLabel,
+  connectDisabled,
+  onDisconnect,
+  disconnecting,
+  disconnectTitle,
+  disconnectDescription,
+}: {
+  icon: React.ReactNode;
+  iconClass: string;
+  name: string;
+  connected: boolean;
+  title: string;
+  description: string;
+  details?: string | null;
+  connectHref: string;
+  connectLabel: string;
+  connectDisabled?: boolean;
+  onDisconnect?: () => void;
+  disconnecting?: boolean;
+  disconnectTitle: string;
+  disconnectDescription: string;
+}) {
+  return (
+    <section className="flex min-h-44 flex-col justify-between gap-5 border-b p-5 last:border-b-0 lg:border-b-0 lg:border-r lg:last:border-r-0">
+      <div className="flex items-start gap-3">
+        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${iconClass}`}>{icon}</span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{name}</p>
+            <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${connected ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-500" : "bg-muted-foreground/50"}`} />
+              {connected ? "Conectada" : "Desconectada"}
+            </span>
+          </div>
+          <p className="mt-1 truncate text-base font-semibold">{title}</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{description}</p>
+          {details ? <p className="mt-2 flex items-center gap-1.5 text-xs text-foreground/70"><KeyRound className="h-3 w-3" />{details}</p> : null}
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {connectDisabled ? (
+          <Button size="sm" disabled>{connectLabel}</Button>
+        ) : (
+          <Button asChild size="sm" variant={connected ? "outline" : "default"}><a href={connectHref}>{connectLabel}</a></Button>
+        )}
+        {onDisconnect ? (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive"><Unplug className="h-4 w-4" />Desconectar</Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader><AlertDialogTitle>{disconnectTitle}</AlertDialogTitle><AlertDialogDescription>{disconnectDescription}</AlertDialogDescription></AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction onClick={onDisconnect} disabled={disconnecting}>
+                  {disconnecting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}Desconectar
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 const DIAS_SEMANA = [
   { value: 0, label: "Dom" },
   { value: 1, label: "Seg" },
@@ -97,9 +188,11 @@ export default function ConfigGeralPage() {
   const [salvando, setSalvando] = useState(false);
   const [carregando, setCarregando] = useState(true);
   const [desconectandoMercadoLivre, setDesconectandoMercadoLivre] = useState(false);
+  const [desconectandoShopee, setDesconectandoShopee] = useState(false);
   const [usoConsultasPlaca, setUsoConsultasPlaca] = useState<UsoConsultasPlaca | null>(null);
   const [empresaResumo, setEmpresaResumo] = useState<EmpresaResumo | null>(null);
   const [mercadoLivreAccount, setMercadoLivreAccount] = useState<MercadoLivreAccount | null>(null);
+  const [shopeeIntegration, setShopeeIntegration] = useState<ShopeeIntegration>({ configured: false, missing: [], account: null });
   const [empresaFiscal, setEmpresaFiscal] = useState({ codigomunicipio: "", regimetributario: "" });
   const [nfseConfig, setNfseConfig] = useState<Record<string, unknown> | null>(null);
   const [padraoFiscalForm, setPadraoFiscalForm] = useState<Partial<CodigosFiscaisForm>>({});
@@ -130,15 +223,17 @@ export default function ConfigGeralPage() {
   const carregarConfig = useCallback(async () => {
     setCarregando(true);
     try {
-      const [response, empresaResponse, mercadoLivreResponse, nfseConfigResponse] = await Promise.all([
+      const [response, empresaResponse, mercadoLivreResponse, shopeeResponse, nfseConfigResponse] = await Promise.all([
         fetch("/api/config", { cache: "no-store" }),
         fetch("/api/config/empresa", { cache: "no-store" }),
         fetch("/api/config/integracoes/mercadolivre", { cache: "no-store" }),
+        fetch("/api/config/integracoes/shopee", { cache: "no-store" }),
         fetch("/api/config/nfse", { cache: "no-store" }),
       ]);
       const data = await response.json();
       const empresaData = await empresaResponse.json().catch(() => ({}));
       const mercadoLivreData = await mercadoLivreResponse.json().catch(() => ({}));
+      const shopeeData = await shopeeResponse.json().catch(() => ({}));
       const nfseConfigData = await nfseConfigResponse.json().catch(() => ({}));
       if (response.ok && data.config) {
         reset(data.config);
@@ -168,6 +263,11 @@ export default function ConfigGeralPage() {
         setEmpresaFiscal({ codigomunicipio: "", regimetributario: "" });
       }
       setMercadoLivreAccount(mercadoLivreResponse.ok ? mercadoLivreData?.account ?? null : null);
+      setShopeeIntegration(shopeeResponse.ok ? {
+        configured: Boolean(shopeeData?.configured),
+        missing: shopeeData?.missing ?? [],
+        account: shopeeData?.account ?? null,
+      } : { configured: false, missing: [], account: null });
       setNfseConfig(nfseConfigResponse.ok ? nfseConfigData : null);
     } catch (error) {
       console.error(error);
@@ -256,6 +356,21 @@ export default function ConfigGeralPage() {
     }
   };
 
+  const desconectarShopee = async () => {
+    setDesconectandoShopee(true);
+    try {
+      const response = await fetch("/api/config/integracoes/shopee", { method: "DELETE" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || "Falha ao desconectar a loja.");
+      setShopeeIntegration((current) => ({ ...current, account: null }));
+      toast.success("Loja Shopee desconectada.");
+    } catch (error: any) {
+      toast.error(error?.message || "Falha ao desconectar a loja Shopee.");
+    } finally {
+      setDesconectandoShopee(false);
+    }
+  };
+
   if (carregando) {
     return (
       <div className="flex h-[80vh] w-full items-center justify-center bg-background">
@@ -304,18 +419,20 @@ export default function ConfigGeralPage() {
       <Card className="overflow-hidden border-primary/10 p-0 shadow-sm">
         <CardHeader className="bg-primary/5 py-4">
           <div className="flex items-center gap-2">
-            <Building2 className="h-5 w-5 text-primary" />
-            <CardTitle>Empresa e marketplace</CardTitle>
+            <Store className="h-5 w-5 text-primary" />
+            <CardTitle>Empresa e integrações de marketplace</CardTitle>
           </div>
-          <CardDescription>Dados da empresa desta instalação e conta vendedora vinculada.</CardDescription>
+          <CardDescription>Conecte as contas vendedoras que serão operadas pelo ERP.</CardDescription>
         </CardHeader>
-        <CardContent className="grid p-0 md:grid-cols-2">
-          <section className="flex min-h-32 flex-col justify-between gap-4 p-5 md:border-r">
+        <CardContent className="grid gap-0 p-0 lg:grid-cols-3">
+          <section className="flex min-h-44 flex-col justify-between gap-5 border-b p-5 lg:border-b-0 lg:border-r">
             <div className="flex items-start gap-3">
-              <Building2 className="mt-0.5 h-5 w-5 text-muted-foreground" />
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Building2 className="h-5 w-5" />
+              </span>
               <div className="min-w-0">
-                <p className="text-sm font-medium">Empresa do ERP</p>
-                <p className="truncate text-base font-semibold">{empresaResumo?.nome || "Não configurada"}</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Empresa do ERP</p>
+                <p className="mt-1 truncate text-base font-semibold">{empresaResumo?.nome || "Não configurada"}</p>
                 <p className="text-xs text-muted-foreground">{empresaResumo?.cnpj || "CNPJ não informado"}</p>
               </div>
             </div>
@@ -324,70 +441,42 @@ export default function ConfigGeralPage() {
             </Button>
           </section>
 
-          <section className="flex min-h-32 flex-col justify-between gap-4 p-5">
-            <div className="flex items-start gap-3">
-              <Store className="mt-0.5 h-5 w-5 text-muted-foreground" />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium">Conta Mercado Livre</p>
-                  {mercadoLivreAccount && !mercadoLivreAccount.needsReconnect ? (
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                  ) : null}
-                </div>
-                <p className="truncate text-base font-semibold">
-                  {mercadoLivreAccount?.nickname || (mercadoLivreAccount ? `Usuário ${mercadoLivreAccount.userId}` : "Não conectada")}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {mercadoLivreAccount
-                    ? mercadoLivreAccount.needsReconnect
-                      ? "Reconexão necessária"
-                      : `User ID ${mercadoLivreAccount.userId}`
-                    : "Nenhuma conta vendedora vinculada"}
-                </p>
-                {mercadoLivreAccount?.shipping && !mercadoLivreAccount.needsReconnect ? (
-                  <p className={`mt-1 text-xs ${mercadoLivreAccount.shipping.mercadoEnviosEnabled ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
-                    {mercadoLivreAccount.shipping.mercadoEnviosEnabled
-                      ? "Mercado Envios habilitado para esta conta"
-                      : "Mercado Envios não habilitado para esta conta"}
-                  </p>
-                ) : null}
-              </div>
-            </div>
+          <MarketplaceConnectionCard
+            icon={<Store className="h-5 w-5" />}
+            iconClass="bg-amber-500/15 text-amber-700 dark:text-amber-400"
+            name="Mercado Livre"
+            connected={Boolean(mercadoLivreAccount && !mercadoLivreAccount.needsReconnect)}
+            title={mercadoLivreAccount?.nickname || (mercadoLivreAccount ? `Usuário ${mercadoLivreAccount.userId}` : "Nenhuma conta conectada")}
+            description={mercadoLivreAccount ? (mercadoLivreAccount.needsReconnect ? "Reconexão necessária" : `User ID ${mercadoLivreAccount.userId}`) : "Autorize uma conta vendedora para publicar e receber pedidos."}
+            details={mercadoLivreAccount?.shipping && !mercadoLivreAccount.needsReconnect
+              ? (mercadoLivreAccount.shipping.mercadoEnviosEnabled ? "Mercado Envios habilitado" : "Mercado Envios não habilitado")
+              : null}
+            connectHref="/api/integracoes/mercadolivre/auth"
+            connectLabel={mercadoLivreAccount ? (mercadoLivreAccount.needsReconnect ? "Reconectar" : "Trocar conta") : "Conectar conta"}
+            onDisconnect={mercadoLivreAccount ? desconectarMercadoLivre : undefined}
+            disconnecting={desconectandoMercadoLivre}
+            disconnectTitle="Desconectar conta Mercado Livre?"
+            disconnectDescription="Os pedidos históricos serão preservados. Os vínculos dos anúncios serão removidos e precisarão ser refeitos ao conectar outra conta."
+          />
 
-            <div className="flex flex-wrap gap-2">
-              <Button asChild size="sm" variant={mercadoLivreAccount && !mercadoLivreAccount.needsReconnect ? "outline" : "default"}>
-                <a href="/api/integracoes/mercadolivre/auth">
-                  {mercadoLivreAccount ? (mercadoLivreAccount.needsReconnect ? "Reconectar" : "Trocar conta") : "Conectar conta"}
-                </a>
-              </Button>
-
-              {mercadoLivreAccount ? (
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="outline" size="sm" className="bg-transparent text-destructive hover:text-destructive">
-                      <Unplug className="h-4 w-4" />
-                      Desconectar
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Desconectar conta Mercado Livre?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        Os pedidos históricos serão preservados. Os vínculos dos anúncios serão removidos e precisarão ser refeitos ao conectar outra conta.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                      <AlertDialogAction onClick={desconectarMercadoLivre} disabled={desconectandoMercadoLivre}>
-                        {desconectandoMercadoLivre ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                        Desconectar
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              ) : null}
-            </div>
-          </section>
+          <MarketplaceConnectionCard
+            icon={<ShoppingBag className="h-5 w-5" />}
+            iconClass="bg-orange-500/15 text-orange-700 dark:text-orange-400"
+            name="Shopee"
+            connected={Boolean(shopeeIntegration.account && !shopeeIntegration.account.needsReconnect)}
+            title={shopeeIntegration.account?.shopName || (shopeeIntegration.account ? `Loja ${shopeeIntegration.account.shopId}` : "Nenhuma loja conectada")}
+            description={shopeeIntegration.account
+              ? (shopeeIntegration.account.needsReconnect ? "Reconexão necessária" : `Shop ID ${shopeeIntegration.account.shopId} · ${shopeeIntegration.account.region}`)
+              : shopeeIntegration.configured ? "Autorize a loja para importar pedidos e sincronizar o catálogo." : "Credenciais do aplicativo ainda não configuradas."}
+            details={!shopeeIntegration.configured ? `${shopeeIntegration.missing.length || 3} variável(is) de ambiente pendente(s)` : "Aplicativo Shopee configurado"}
+            connectHref="/api/integracoes/shopee/auth"
+            connectLabel={shopeeIntegration.account ? (shopeeIntegration.account.needsReconnect ? "Reconectar" : "Trocar loja") : "Conectar loja"}
+            connectDisabled={!shopeeIntegration.configured}
+            onDisconnect={shopeeIntegration.account ? desconectarShopee : undefined}
+            disconnecting={desconectandoShopee}
+            disconnectTitle="Desconectar loja Shopee?"
+            disconnectDescription="Os pedidos históricos serão preservados. Os vínculos de produtos Shopee serão removidos."
+          />
         </CardContent>
       </Card>
 
