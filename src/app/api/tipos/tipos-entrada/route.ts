@@ -34,10 +34,11 @@ function mapItem(row: any) {
     escopo: String(row.escopo ?? "AMBOS"),
     exigeValor: typeof row.exige_valor === "boolean" ? row.exige_valor : true,
     ativo: typeof row.ativo === "boolean" ? row.ativo : true,
+    sistema: row.sistema === true,
   };
 }
 
-const SELECT = "id, codigo, nome, descricao, escopo, exige_valor, ativo";
+const SELECT = "id, codigo, nome, descricao, escopo, exige_valor, ativo, sistema";
 
 export async function GET(req: NextRequest) {
   try {
@@ -45,10 +46,16 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const ativo = searchParams.get("ativo");
     const escopo = searchParams.get("escopo");
+    // Tipos do sistema (ex.: SALDO_INICIAL) existem para a tela de Configurações
+    // mostrar de onde vem a entrada, mas não podem ser escolhidos numa entrada
+    // manual: quem monta o seletor pede `sistema=false`.
+    const sistema = searchParams.get("sistema");
 
     let query = supabaseAdmin.from("tipos_entrada").select(SELECT).order("nome", { ascending: true });
     if (ativo === "true") query = query.eq("ativo", true);
     if (ativo === "false") query = query.eq("ativo", false);
+    if (sistema === "true") query = query.eq("sistema", true);
+    if (sistema === "false") query = query.eq("sistema", false);
     if (escopo === "PRODUTO" || escopo === "USOCONSUMO") {
       query = query.in("escopo", [escopo, "AMBOS"]);
     }

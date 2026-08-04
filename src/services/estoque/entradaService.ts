@@ -58,6 +58,13 @@ function digits(value: unknown) {
 
 type OrigemEntrada = "AJUSTE_RAPIDO" | "MANUAL" | "NFE_TERCEIRO";
 
+/**
+ * Tipo da entrada gerada quando um produto/item nasce com estoque informado no
+ * cadastro. É um tipo do sistema (tipos_entrada.sistema): aceita valor zero e
+ * não pode ser desativado em Configurações > Tipos.
+ */
+export const TIPO_ENTRADA_SALDO_INICIAL = "SALDO_INICIAL";
+
 export async function registrarEntradaConfirmada(
   body: any,
   origem: OrigemEntrada,

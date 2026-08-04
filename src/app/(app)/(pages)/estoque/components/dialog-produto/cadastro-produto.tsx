@@ -18,7 +18,6 @@ import { Unidade_medida } from "../../types";
 import { useGruposProduto } from "./hooks/use-grupo-produtos";
 import type { LoteSelectItem } from "@/app/(app)/components/loteSelect";
 import { useConfig } from "../../../config-context";
-import { crossInventoryLabelMessage, lookupInventoryLabel } from "@/lib/inventory-labels";
 
 interface ConteudoCadastroProdutoProps {
   setSelectedProductId?: (value: number | undefined) => void;
@@ -135,38 +134,23 @@ export default function CadastroProduto({
   }, []);
 
   const cadastrarProduto = async (registerAgain?: boolean) => {
-    if (precoMedioCompraObrigatorio && !(Number(newProduct.precocompra) > 0)) {
-      setCurrentTab("Geral");
-      toast.error("Valor médio de compra obrigatório", {
-        description: "Informe um valor médio de compra maior que zero.",
-      });
-      return;
-    }
+    // Só há uma ida à rede aqui: o POST. A etiqueta duplicada é detectada pelo
+    // trigger validar_etiqueta_inventario_global, que responde 409 — conferir
+    // antes custava uma consulta inteira e ainda deixava janela de corrida.
+    setSalvando(true);
 
-    const etiqueta = String(newProduct.etiqueta ?? "").trim();
-    if (etiqueta) {
-      try {
-        const lookup = await lookupInventoryLabel(etiqueta);
-        const conflict = crossInventoryLabelMessage("PRODUTO", lookup);
-        if (conflict) {
-          setCurrentTab("Etiquetas");
-          toast.error("Etiqueta já utilizada", { description: conflict });
-          return;
-        }
-      } catch (error) {
-        toast.error("Não foi possível validar a etiqueta", {
-          description: error instanceof Error ? error.message : "Tente novamente.",
+    try {
+      if (precoMedioCompraObrigatorio && !(Number(newProduct.precocompra) > 0)) {
+        setCurrentTab("Geral");
+        toast.error("Valor médio de compra obrigatório", {
+          description: "Informe um valor médio de compra maior que zero.",
         });
         return;
       }
-    }
 
-    setSalvando(true);
+      const payload = { ...newProduct } as any;
+      if (!payload.tituloMarketplace) payload.tituloMarketplace = payload.titulo;
 
-    const payload = { ...newProduct } as any;
-    if (!payload.tituloMarketplace) payload.tituloMarketplace = payload.titulo;
-
-    try {
       const response = await axios.post("/api/products", {
         newProduct: payload,
         loteId: lotePendente?.id,
@@ -243,9 +227,15 @@ export default function CadastroProduto({
       }
     } catch (error) {
       if (isAxiosError(error)) {
-        toast.error("Erro", {
-          description: error.response?.data?.error ?? "Erro ao criar produto",
-          duration: 2000,
+        const apiMessage = String(error.response?.data?.error ?? "");
+        // 409 de etiqueta vem do trigger com a mensagem já pronta ("Já existe um
+        // produto/item de uso e consumo com esta etiqueta"). Abrir a aba deixa o
+        // campo à vista, como fazia a checagem que rodava antes do POST.
+        const etiquetaEmUso = error.response?.status === 409 && /etiqueta/i.test(apiMessage);
+        if (etiquetaEmUso) setCurrentTab("Etiquetas");
+        toast.error(etiquetaEmUso ? "Etiqueta já utilizada" : "Erro", {
+          description: apiMessage || "Erro ao criar produto",
+          duration: etiquetaEmUso ? 3500 : 2000,
         });
       } else {
         toast.error("Erro", {

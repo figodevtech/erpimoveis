@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireEstoqueAccess, requireEstoqueCreate } from "@/app/api/_authz/perms";
 import { getProductSearchTokens, matchesProductSearch } from "@/lib/product-search";
-import { registrarEntradaConfirmada } from "@/services/estoque/entradaService";
+import { registrarEntradaConfirmada, TIPO_ENTRADA_SALDO_INICIAL } from "@/services/estoque/entradaService";
 import { auth } from "@/lib/auth";
 
 /** Status de estoque (para filtros do GET) */
@@ -540,7 +540,10 @@ export async function POST(req: Request) {
             valor_unitario_compra:
               ultimoValorDeCompra ?? toNumberOrNull(payload.precocompra) ?? 0,
             fornecedorId: fornecedorId ?? null,
-            entradaTipo: "COMPRA_FORNECEDOR",
+            // O saldo digitado no cadastro não veio de compra: usar
+            // COMPRA_FORNECEDOR aqui, além de rotular errado, barrava o
+            // cadastro sem valor de compra (aquele tipo exige valor > 0).
+            entradaTipo: TIPO_ENTRADA_SALDO_INICIAL,
             fiscal: false,
           },
           "AJUSTE_RAPIDO",

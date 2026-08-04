@@ -5,7 +5,7 @@ import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 const ESCOPOS = new Set(["PRODUTO", "USOCONSUMO", "AMBOS"]);
-const SELECT = "id, codigo, nome, descricao, escopo, exige_valor, ativo";
+const SELECT = "id, codigo, nome, descricao, escopo, exige_valor, ativo, sistema";
 
 function isOpen() {
   const value = String(process.env.OPEN_PERMISSIONS ?? "").trim().toLowerCase();
@@ -30,6 +30,7 @@ function mapItem(row: any) {
     escopo: String(row.escopo ?? "AMBOS"),
     exigeValor: typeof row.exige_valor === "boolean" ? row.exige_valor : true,
     ativo: typeof row.ativo === "boolean" ? row.ativo : true,
+    sistema: row.sistema === true,
   };
 }
 
@@ -45,6 +46,24 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
     const body = await req.json().catch(() => ({}));
     const nome = String(body.nome ?? "").trim();
     if (!nome) return NextResponse.json({ error: "Nome do tipo é obrigatório." }, { status: 400 });
+
+    // Tipos do sistema são gerados por rotinas que dependem das regras deles:
+    // desativar SALDO_INICIAL, por exemplo, quebraria o cadastro de produto com
+    // estoque inicial. O trigger tipos_entrada_protege_sistema é a garantia
+    // final; aqui só devolvemos uma mensagem melhor antes de tentar gravar.
+    const { data: atual, error: atualError } = await supabaseAdmin
+      .from("tipos_entrada")
+      .select("sistema")
+      .eq("id", id)
+      .maybeSingle();
+    if (atualError) throw atualError;
+    if (!atual) return NextResponse.json({ error: "Tipo de entrada não encontrado." }, { status: 404 });
+    if (atual.sistema === true) {
+      return NextResponse.json(
+        { error: "Este é um tipo do sistema e não pode ser alterado." },
+        { status: 409 },
+      );
+    }
 
     const payload: Record<string, unknown> = {
       nome,

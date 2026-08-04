@@ -45,6 +45,8 @@ type TipoEntrada = {
   escopo: Escopo;
   exigeValor: boolean;
   ativo?: boolean | null;
+  /** Gerado pelo sistema (ex.: saldo inicial). Regras imutáveis. */
+  sistema: boolean;
 };
 
 type TipoEntradaForm = {
@@ -139,6 +141,7 @@ export default function TiposEntradaSection() {
         escopo: (t.escopo as Escopo) ?? "AMBOS",
         exigeValor: typeof t.exigeValor === "boolean" ? t.exigeValor : true,
         ativo: typeof t.ativo === "boolean" ? (t.ativo as boolean) : true,
+        sistema: t.sistema === true,
       }));
 
       setTipos(items);
@@ -389,7 +392,16 @@ export default function TiposEntradaSection() {
             ) : (
               pageItems.map((t) => (
                 <TableRow key={t.id} className="hover:cursor-default">
-                  <TableCell className="font-medium">{t.nome || "-"}</TableCell>
+                  <TableCell className="font-medium">
+                    <span className="flex items-center gap-2">
+                      {t.nome || "-"}
+                      {t.sistema ? (
+                        <Badge variant="outline" className="text-[10px] font-normal">
+                          Sistema
+                        </Badge>
+                      ) : null}
+                    </span>
+                  </TableCell>
                   <TableCell>
                     <Badge variant="secondary" className="font-mono text-[10px]">
                       {t.codigo}
@@ -415,7 +427,11 @@ export default function TiposEntradaSection() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-32">
-                        <DropdownMenuItem onClick={() => openEditar(t)}>Editar</DropdownMenuItem>
+                        {t.sistema ? (
+                          <DropdownMenuItem disabled>Tipo do sistema</DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem onClick={() => openEditar(t)}>Editar</DropdownMenuItem>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>

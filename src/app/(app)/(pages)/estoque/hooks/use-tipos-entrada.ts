@@ -8,7 +8,8 @@ import { toast } from "@/lib/toast";
 export type TipoEntradaOption = { codigo: string; nome: string; exigeValor: boolean };
 
 /**
- * Carrega os tipos de entrada ativos do escopo informado.
+ * Carrega os tipos de entrada ativos do escopo informado, exceto os do sistema
+ * (ex.: SALDO_INICIAL), que são gerados por rotinas e não se escolhem à mão.
  * `enabled` evita buscar enquanto o dialog que consome ainda está fechado.
  */
 export function useTiposEntrada(enabled: boolean, inventory: "produto" | "usoconsumo" = "produto") {
@@ -26,7 +27,7 @@ export function useTiposEntrada(enabled: boolean, inventory: "produto" | "usocon
       .then(() => {
         if (!ativo) return null;
         setLoadingTipos(true);
-        return axios.get(`/api/tipos/tipos-entrada?ativo=true&escopo=${escopo}`);
+        return axios.get(`/api/tipos/tipos-entrada?ativo=true&sistema=false&escopo=${escopo}`);
       })
       .then((response) => {
         if (!ativo || !response) return;
