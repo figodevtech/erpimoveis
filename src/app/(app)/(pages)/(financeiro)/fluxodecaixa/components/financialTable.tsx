@@ -52,6 +52,7 @@ import { TransactionDeleteAlert } from "../../components/transaction-delete-aler
 import { toast } from "@/lib/toast";
 import axios, { isAxiosError } from "axios";
 import {
+  type FluxoViewMode,
   Pagination,
   Tipo_transacao,
   Transaction,
@@ -65,7 +66,12 @@ import SearchFilter from "./searchFilter";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { useConfig } from "@/app/(app)/(pages)/config-context";
 
-type FluxoViewMode = "TODAS" | "A_RECEBER" | "A_PAGAR";
+const VIEW_MODE_TABS: { value: FluxoViewMode; label: string }[] = [
+  { value: "TODAS", label: "Todas" },
+  { value: "A_PAGAR", label: "A Pagar" },
+  { value: "A_RECEBER", label: "A Receber" },
+  { value: "LIQUIDADAS", label: "Liquidadas" },
+];
 
 interface FinancialTableProps {
   dateTo: string;
@@ -193,13 +199,15 @@ export default function FinancialTable({
       ? "Contas a Receber"
       : viewMode === "A_PAGAR"
         ? "Contas a Pagar"
-        : "Lista de Transações";
+        : viewMode === "LIQUIDADAS"
+          ? "Transações Liquidadas"
+          : "Lista de Transações";
 
   return (
     <Card className="bg-card">
       <CardHeader className="border-b-2 pb-4">
-        <div className="relative flex min-w-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
+        <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="min-w-0 shrink-0">
             <CardTitle>{title}</CardTitle>
             <CardDescription className="flex items-center gap-2">
               <button
@@ -227,32 +235,37 @@ export default function FinancialTable({
             </CardDescription>
           </div>
 
-          <div className="flex flex-1 items-center justify-center xl:absolute xl:left-1/2 xl:top-1/2 xl:-translate-x-1/2 xl:-translate-y-1/2">
-            <div className="inline-flex h-auto items-center justify-center gap-1.5 rounded-2xl border bg-muted/40 p-1 backdrop-blur-sm">
-              <button
-                type="button"
-                onClick={() => setViewMode(viewMode === "A_PAGAR" ? "TODAS" : "A_PAGAR")}
-                className={`inline-flex h-8 items-center justify-center whitespace-nowrap rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground ${viewMode === "A_PAGAR"
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "hover:bg-background/50 hover:text-foreground"
-                  }`}
-              >
-                A Pagar
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode(viewMode === "A_RECEBER" ? "TODAS" : "A_RECEBER")}
-                className={`inline-flex h-8 items-center justify-center whitespace-nowrap rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground ${viewMode === "A_RECEBER"
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "hover:bg-background/50 hover:text-foreground"
-                  }`}
-              >
-                A Receber
-              </button>
+          {/* Fica no fluxo: centralizar com position:absolute fazia as abas
+              passarem por cima dos botões da direita quando a largura apertava. */}
+          <div className="flex min-w-0 flex-1 items-center justify-start md:justify-center">
+            <div
+              role="tablist"
+              aria-label="Visualização do fluxo de caixa"
+              className="inline-flex h-auto max-w-full items-center gap-1.5 overflow-x-auto rounded-2xl border bg-muted/40 p-1 backdrop-blur-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            >
+              {VIEW_MODE_TABS.map((tab) => {
+                const ativo = viewMode === tab.value;
+
+                return (
+                  <button
+                    key={tab.value}
+                    type="button"
+                    role="tab"
+                    aria-selected={ativo}
+                    onClick={() => setViewMode(tab.value)}
+                    className={`inline-flex h-8 shrink-0 items-center justify-center whitespace-nowrap rounded-xl border border-transparent px-3 text-xs font-medium transition-all hover:cursor-pointer ${ativo
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-background/50 hover:text-foreground"
+                      }`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          <div className="flex w-full flex-col gap-2 md:w-auto md:items-end">
+          <div className="flex w-full shrink-0 flex-col gap-2 md:w-auto md:items-end">
             <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
               <SearchFilter
                 renderOnlyTrigger
@@ -268,7 +281,6 @@ export default function FinancialTable({
                 dateTo={dateTo}
                 setDateFrom={setDateFrom}
                 setDateTo={setDateTo}
-                disableTipo={viewMode !== "TODAS"}
                 lockedTipoLabel={
                   viewMode === "A_RECEBER"
                     ? "Somente receitas pendentes"

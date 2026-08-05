@@ -6,11 +6,15 @@ import { Card } from "@/components/ui/card";
 import {
   BadgeDollarSign,
   ChartNoAxesCombined,
+  ClipboardCheck,
   Package,
   Users,
   Wrench,
 } from "lucide-react";
+import DialogRelatorioDiario from "./dialogs/dialog-relatorio-diario";
 import DialogFluxo from "./dialogs/dialog-fluxo";
+import DialogContasMovimentacao from "./dialogs/dialog-contas-movimentacao";
+import DialogMetodosMovimentacao from "./dialogs/dialog-metodos-movimentacao";
 import DialogDespesaCategoria from "./dialogs/dialog-despesa-categoria";
 import DialogReceitaCategoria from "./dialogs/dialog-receita-categoria";
 import { ProdutosEstoqueBaixo } from "./produtosEstoqueBaixo";
@@ -33,6 +37,24 @@ export function ReportsGrid() {
       <Card className="p-4 sm:p-6">
         <div className="mb-6 flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <ClipboardCheck />
+          </div>
+          <div>
+            <h2 className="text-xl font-semibold text-card-foreground">Gerenciais</h2>
+            <p className="text-sm text-muted-foreground">
+              Visões consolidadas que cruzam todas as áreas do sistema
+            </p>
+          </div>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <DialogRelatorioDiario/>
+        </div>
+      </Card>
+
+      <Card className="p-4 sm:p-6">
+        <div className="mb-6 flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <BadgeDollarSign />
           </div>
           <div>
@@ -48,6 +70,8 @@ export function ReportsGrid() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           
           <DialogFluxo/>
+          <DialogContasMovimentacao/>
+          <DialogMetodosMovimentacao/>
           <DialogDespesaCategoria/>
           <DialogReceitaCategoria/>
           

@@ -205,6 +205,10 @@ export async function GET(req: Request) {
     const dateFrom = searchParams.get("dateFrom");
     const dateTo = searchParams.get("dateTo");
 
+    // Padrão: mais novo primeiro (extrato). "asc" serve às visões de contas a
+    // pagar/receber, onde o que vence antes precisa aparecer antes.
+    const ascending = (searchParams.get("ordem") ?? "desc").trim().toLowerCase() === "asc";
+
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
@@ -222,8 +226,8 @@ export async function GET(req: Request) {
         { count: "exact" }
       )
       .eq("is_deleted", false)
-      .order("data", { ascending: false })
-      .order("id", { ascending: false })
+      .order("data", { ascending })
+      .order("id", { ascending })
       .range(from, to);
 
     if (search) query = query.ilike("descricao", `%${search}%`);
@@ -273,6 +277,7 @@ export async function GET(req: Request) {
         pendente: pendenteBool,
         dateFrom: dateFrom ?? null,
         dateTo: dateTo ?? null,
+        ordem: ascending ? "asc" : "desc",
       },
     });
   } catch (error: any) {

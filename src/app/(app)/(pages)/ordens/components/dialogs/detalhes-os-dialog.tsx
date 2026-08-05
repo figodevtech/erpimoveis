@@ -85,7 +85,7 @@ type OsAnexoCategoria,
 import { useSession } from "next-auth/react";
 
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
-import { carregarDetalhesOS,listarUsuariosAtivos,type UsuarioAtivo } from "../../lib/api";
+import { carregarDetalhesOS,listarRealizadoresDisponiveis,type UsuarioAtivo } from "../../lib/api";
 import {
   arredondarMoeda,
   calcularDescontoAplicado,
@@ -770,7 +770,7 @@ export function OSDetalhesDialog({
     (async () => {
       setLoadingResponsaveis(true);
       try {
-        const lista = await listarUsuariosAtivos();
+        const lista = await listarRealizadoresDisponiveis();
         if (!cancelled) setResponsaveis(lista);
       } catch (e: any) {
         if (!cancelled) {

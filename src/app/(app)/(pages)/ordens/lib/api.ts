@@ -82,18 +82,19 @@ export type UsuarioAtivo = {
 };
 
 /**
- * Lista TODOS os usuários ativos do sistema
- * (rota /api/users?ativos=1)
+ * Lista os usuários que podem ser realizadores de um serviço da OS.
+ * Usa a rota própria de ordens (permissão de OS) em vez de /api/users,
+ * que exige a permissão de Usuários.
  */
-export async function listarUsuariosAtivos(): Promise<UsuarioAtivo[]> {
-  const r = await fetch("/api/users?ativos=1", { cache: "no-store" });
-  const j = await handleJson<any>(r, "Falha ao listar usuários ativos");
+export async function listarRealizadoresDisponiveis(): Promise<UsuarioAtivo[]> {
+  const r = await fetch("/api/ordens/realizadores", { cache: "no-store" });
+  const j = await handleJson<any>(r, "Falha ao listar realizadores");
 
-  const items = Array.isArray(j) ? j : j.users ?? [];
+  const items = Array.isArray(j) ? j : j.realizadores ?? [];
   return items.map((u: any) => ({
     id: String(u.id),
     nome: u.nome ?? u.email ?? null,
-    email: u.email,
+    email: u.email ?? undefined,
     setor: u.setor ?? null,
     perfil: u.perfil ?? null,
     comissao_percent: u.comissao_percent ?? null,
@@ -105,6 +106,7 @@ export type AtualizarResponsaveisServicoResponse = {
   ordemservicoid: number;
   servicoid: number;
   usuarioIds: string[];
+  idusuariorealizador: string | null;
   realizadores: Array<{ id: string; nome: string | null }>;
 };
 
@@ -123,32 +125,6 @@ export async function atualizarResponsaveisServico(
   });
 
   return handleJson<AtualizarResponsaveisServicoResponse>(r, "Falha ao salvar realizadores");
-}
-
-/**
- * Wrapper LEGADO (1 responsável) - mantém compatibilidade temporária
- */
-export type AtualizarResponsavelServicoResponse = {
-  ordemservicoid: number;
-  servicoid: number;
-  idusuariorealizador: string | null;
-  realizador?: { id: string; nome: string | null } | null;
-};
-
-export async function atualizarResponsavelServico(
-  osId: number,
-  servicoId: number,
-  idusuariorealizador: string | null
-): Promise<AtualizarResponsavelServicoResponse> {
-  const usuarioIds = idusuariorealizador ? [idusuariorealizador] : [];
-  const j = await atualizarResponsaveisServico(osId, servicoId, usuarioIds);
-
-  return {
-    ordemservicoid: j.ordemservicoid,
-    servicoid: j.servicoid,
-    idusuariorealizador: j.usuarioIds[0] ?? null,
-    realizador: j.realizadores?.[0] ?? null,
-  };
 }
 
 /* =========================================================================

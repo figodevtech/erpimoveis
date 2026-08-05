@@ -16,6 +16,8 @@ import { SpreadsheetPdfButton } from "../spreadsheet-pdf-button";
 
 type Mode = "simples" | "financeiro";
 type Sector = { id: number; nome: string };
+/** Como as OS se distribuem nas folhas do PDF. */
+type PrintLayout = "VARIAS_OS" | "UMA_OS";
 
 const STATUS_OPTIONS = [
   ["TODAS", "Todos os status"],
@@ -40,6 +42,7 @@ export function DialogRelatorioOrdens({ mode }: { mode: Mode }) {
   const [orderId, setOrderId] = useState("");
   const [nature, setNature] = useState("TODAS");
   const [eventStatus, setEventStatus] = useState("TODOS");
+  const [printLayout, setPrintLayout] = useState<PrintLayout>("VARIAS_OS");
   const [customer, setCustomer] = useState<Customer>();
   const [customerOpen, setCustomerOpen] = useState(false);
   const [sectors, setSectors] = useState<Sector[]>([]);
@@ -73,7 +76,7 @@ export function DialogRelatorioOrdens({ mode }: { mode: Mode }) {
   const endpoint = `/api/reports/ordens/export?${params.toString()}`;
   const title = financial ? "Eventos financeiros por OS" : "Relação de ordens de serviço";
   const openFinancialPdf = () => {
-    const printParams = new URLSearchParams({ endpoint });
+    const printParams = new URLSearchParams({ endpoint, layout: printLayout });
     window.open(`/print/relatorios/ordens-financeiro?${printParams.toString()}`, "_blank", "noopener,noreferrer");
   };
 
@@ -156,6 +159,18 @@ export function DialogRelatorioOrdens({ mode }: { mode: Mode }) {
                 </Field>
                 <Field label="Estado do evento">
                   <Select value={eventStatus} onValueChange={setEventStatus}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="TODOS">Todos os eventos</SelectItem><SelectItem value="ATIVO">Ativos</SelectItem><SelectItem value="CONVERTIDO">Convertidos</SelectItem><SelectItem value="CANCELADO">Cancelados</SelectItem></SelectContent></Select>
+                </Field>
+                <Field label="Modo de impressão">
+                  <Select value={printLayout} onValueChange={(value) => setPrintLayout(value as PrintLayout)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="VARIAS_OS">Várias OS por página</SelectItem>
+                      <SelectItem value="UMA_OS">Uma OS por página</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Vale só para o PDF. Uma OS por página gasta mais papel, mas cada ordem sai numa folha destacável.
+                  </p>
                 </Field>
               </>
             )}

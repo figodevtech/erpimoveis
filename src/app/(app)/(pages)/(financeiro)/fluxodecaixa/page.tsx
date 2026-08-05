@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import axios from "axios";
 import {
+  type FluxoViewMode,
   StatusInfo,
   Tipo_transacao,
   Transaction,
@@ -9,8 +10,6 @@ import {
 } from "./types";
 import Cards from "./components/cards";
 import FinancialTable from "./components/financialTable";
-
-type FluxoViewMode = "TODAS" | "A_RECEBER" | "A_PAGAR";
 
 export default function FinanceiroPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -36,6 +35,11 @@ export default function FinanceiroPage() {
     planoContaId: "",
     centroCustoId: "",
   });
+  // Contas a pagar/receber se leem por vencimento: o que vence antes vem antes.
+  // O extrato geral continua do lançamento mais novo para o mais antigo.
+  const ordemData =
+    viewMode === "A_PAGAR" || viewMode === "A_RECEBER" ? "asc" : "desc";
+
   const handleGetTransactions = useCallback(async (
     pageNumber?: number,
     limit?: number,
@@ -60,6 +64,7 @@ export default function FinanceiroPage() {
           bancoId: relationFilters.bancoId || undefined,
           planoContaId: relationFilters.planoContaId || undefined,
           centroCustoId: relationFilters.centroCustoId || undefined,
+          ordem: ordemData,
         },
       });
       if (response.status === 200) {
@@ -71,7 +76,7 @@ export default function FinanceiroPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [pagination.limit, relationFilters]);
+  }, [ordemData, pagination.limit, relationFilters]);
 
   const handleGetStatusCounter = useCallback(async () => {
     setIsLoadingStatus(true);
@@ -100,8 +105,8 @@ export default function FinanceiroPage() {
       ? Tipo_transacao.DESPESA
       : tipo;
 
-  const effectivePendente =
-    viewMode === "TODAS" ? "" : true;
+  const effectivePendente: boolean | "" =
+    viewMode === "TODAS" ? "" : viewMode === "LIQUIDADAS" ? false : true;
 
   useEffect(() => {
     handleGetTransactions(
@@ -124,7 +129,8 @@ export default function FinanceiroPage() {
   ]);
 
   useEffect(() => {
-    if (viewMode !== "TODAS" && tipo) {
+    // A_PAGAR/A_RECEBER já fixam o tipo; Liquidadas aceita filtrar por tipo.
+    if ((viewMode === "A_PAGAR" || viewMode === "A_RECEBER") && tipo) {
       setTipo("");
     }
   }, [tipo, viewMode]);

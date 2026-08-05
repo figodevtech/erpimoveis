@@ -15,15 +15,13 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { Calendar as CalendarIcon, SlidersHorizontal } from "lucide-react";
-import type { Banco, TransactionRelationFilters } from "../types";
+import type { Banco, FluxoViewMode, TransactionRelationFilters } from "../types";
 import { Tipo_transacao } from "../types";
 import { useCategoriasTransacao } from "../hooks/use-categoria-transacao";
 import { useCentrosCusto } from "../hooks/use-centros-custo";
 import { usePlanosDeConta } from "../hooks/use-planos-de-conta";
 import { PlanoContaCombobox } from "./plano-conta-combobox";
 import { SearchCombobox } from "./search-combobox";
-
-type FluxoViewMode = "TODAS" | "A_RECEBER" | "A_PAGAR";
 
 interface SearchFilterProps {
   setDateFrom: (value: string) => void;
@@ -38,7 +36,6 @@ interface SearchFilterProps {
   setViewMode: (value: FluxoViewMode) => void;
   relationFilters: TransactionRelationFilters;
   setRelationFilters: (value: TransactionRelationFilters) => void;
-  disableTipo?: boolean;
   lockedTipoLabel?: string;
   renderOnlyTrigger?: boolean;
 }
@@ -66,7 +63,6 @@ export default function SearchFilter({
   setViewMode,
   relationFilters,
   setRelationFilters,
-  disableTipo = false,
   lockedTipoLabel,
   renderOnlyTrigger = false,
 }: SearchFilterProps) {
@@ -155,9 +151,14 @@ export default function SearchFilter({
     return "Período";
   }, [range?.from, range?.to]);
 
+  // A_PAGAR/A_RECEBER derivam o tipo da própria visualização; Liquidadas não.
+  // Vale o modo em rascunho, não o aplicado: o usuário pode trocar os dois no
+  // mesmo passe pelo sheet.
+  const tipoBloqueado = draftViewMode === "A_RECEBER" || draftViewMode === "A_PAGAR";
+
   const applyFilters = () => {
     setSearch(draftSearch);
-    setTipo(disableTipo ? "" : draftTipo);
+    setTipo(tipoBloqueado ? "" : draftTipo);
     setDateFrom(draftDateFrom);
     setDateTo(draftDateTo);
     setViewMode(draftViewMode);
@@ -224,11 +225,14 @@ export default function SearchFilter({
 
             <div className="grid flex-1 auto-rows-min gap-5 overflow-y-auto p-4">
               <div className="space-y-2">
-                <Label>Lançamentos futuros</Label>
+                <Label>Visualização</Label>
                 <Tabs value={draftViewMode} onValueChange={(value) => setDraftViewMode(value as FluxoViewMode)}>
-                  <TabsList className="grid h-auto w-full grid-cols-3">
+                  <TabsList className="grid h-auto w-full grid-cols-2">
                     <TabsTrigger value="TODAS" className="px-2 text-xs sm:text-sm">
                       Todas
+                    </TabsTrigger>
+                    <TabsTrigger value="LIQUIDADAS" className="px-2 text-xs sm:text-sm">
+                      Liquidadas
                     </TabsTrigger>
                     <TabsTrigger value="A_RECEBER" className="px-2 text-xs sm:text-sm">
                       A receber
@@ -254,7 +258,7 @@ export default function SearchFilter({
                 <div className="space-y-2">
                   <Label>Tipo</Label>
                   <Select
-                    disabled={disableTipo || draftViewMode !== "TODAS"}
+                    disabled={tipoBloqueado}
                     value={draftTipo || ""}
                     onValueChange={(value) => {
                       if (value === "TODOS") setDraftTipo("");
@@ -264,7 +268,7 @@ export default function SearchFilter({
                     <SelectTrigger className="w-full" aria-controls={listboxId}>
                       <SelectValue
                         placeholder={
-                          draftViewMode !== "TODAS"
+                          tipoBloqueado
                             ? lockedTipoLabel || "Tipo definido pela visualização"
                             : "Todos"
                         }

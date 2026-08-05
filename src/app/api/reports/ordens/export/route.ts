@@ -54,12 +54,22 @@ function targetLabel(os: any) {
   return "Sem alvo informado";
 }
 
-function makeWorkbook(headers: string[], rows: unknown[][], widths: number[]) {
+type SheetSpec = { name: string; headers: string[]; rows: unknown[][]; widths: number[] };
+
+function makeWorkbookFrom(sheets: SheetSpec[]) {
   const workbook = XLSX.utils.book_new();
-  const sheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-  sheet["!cols"] = widths.map((wch) => ({ wch }));
-  XLSX.utils.book_append_sheet(workbook, sheet, "Relatório");
+
+  sheets.forEach((spec) => {
+    const sheet = XLSX.utils.aoa_to_sheet([spec.headers, ...spec.rows]);
+    sheet["!cols"] = spec.widths.map((wch) => ({ wch }));
+    XLSX.utils.book_append_sheet(workbook, sheet, spec.name);
+  });
+
   return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+}
+
+function makeWorkbook(headers: string[], rows: unknown[][], widths: number[]) {
+  return makeWorkbookFrom([{ name: "Relatório", headers, rows, widths }]);
 }
 
 export async function GET(request: Request) {
@@ -143,7 +153,7 @@ export async function GET(request: Request) {
     for (let index = 0; index < ids.length; index += 200) {
       const query = supabaseAdmin
         .from("eventos_financeiros")
-        .select("id, ordemservicoid, origem, natureza, status, descricao, detalhe, valor, data_evento, quantidade_snapshot, valor_unitario_snapshot, percentual_snapshot, valor_base_snapshot, pode_gerar_transacao, transacaoid")
+        .select("id, ordemservicoid, origem, chave_origem, natureza, status, descricao, detalhe, valor, data_evento, quantidade_snapshot, valor_unitario_snapshot, percentual_snapshot, valor_base_snapshot, pode_gerar_transacao, transacaoid")
         .in("ordemservicoid", ids.slice(index, index + 200))
         .order("ordemservicoid", { ascending: true })
         .order("data_evento", { ascending: true })
@@ -151,6 +161,22 @@ export async function GET(request: Request) {
       const { data, error } = await query;
       if (error) throw error;
       allEvents.push(...(data ?? []));
+    }
+
+    // Pagamentos de cada OS. Vão numa aba própria porque a granularidade é
+    // outra: a aba principal tem uma linha por evento financeiro.
+    const transacoes: any[] = [];
+    for (let index = 0; index < ids.length; index += 200) {
+      const { data, error } = await supabaseAdmin
+        .from("transacao")
+        .select("id, ordemservicoid, descricao, descricao_pagamento, data, metodopagamento, tipo, valor, valorLiquido, pendente")
+        .in("ordemservicoid", ids.slice(index, index + 200))
+        .eq("is_deleted", false)
+        .order("ordemservicoid", { ascending: true })
+        .order("data", { ascending: true })
+        .order("id", { ascending: true });
+      if (error) throw error;
+      transacoes.push(...(data ?? []));
     }
 
     const totals = new Map<number, { receita: number; despesa: number }>();
@@ -174,11 +200,17 @@ export async function GET(request: Request) {
       return [
         evento.ordemservicoid,
         os?.status ?? "",
+        formatDate(os?.dataentrada),
+        formatDate(os?.datasaida),
+        os?.usuario?.nome ?? "Não informado",
         os?.cliente?.nomerazaosocial ?? "Sem cliente",
         targetLabel(os ?? {}),
         evento.id,
         formatDate(evento.data_evento),
         evento.origem,
+        // Par (origem, chave_origem) identifica o item: é o que permite casar a
+        // despesa com a receita do mesmo produto/serviço na impressão.
+        evento.chave_origem ?? "",
         evento.natureza,
         evento.descricao,
         evento.detalhe ?? "",
@@ -194,11 +226,34 @@ export async function GET(request: Request) {
         total.receita - total.despesa,
       ];
     });
-    const buffer = makeWorkbook(
-      ["OS", "Status da OS", "Cliente", "Alvo atendido", "Evento", "Data do evento", "Origem", "Natureza", "Descrição", "Detalhe", "Valor (R$)", "Status do evento", "Transação", "Quantidade snapshot", "Valor unitário snapshot", "Percentual snapshot", "Base snapshot", "Receitas da OS", "Despesas da OS", "Resultado da OS"],
-      rows,
-      [9, 22, 32, 32, 10, 20, 14, 12, 42, 32, 16, 18, 12, 18, 22, 20, 18, 18, 18, 18],
-    );
+    const transacaoRows = transacoes.map((transacao) => [
+      transacao.ordemservicoid,
+      transacao.id,
+      formatDate(transacao.data),
+      transacao.descricao ?? "",
+      transacao.descricao_pagamento ?? "",
+      transacao.metodopagamento ?? "",
+      transacao.tipo ?? "",
+      transacao.pendente ? "Pendente" : "Liquidada",
+      // O que de fato circulou: bruto só quando não há líquido registrado.
+      Number(transacao.valorLiquido ?? transacao.valor ?? 0),
+      Number(transacao.valor ?? 0),
+    ]);
+
+    const buffer = makeWorkbookFrom([
+      {
+        name: "Relatório",
+        headers: ["OS", "Status da OS", "Entrada da OS", "Conclusão da OS", "Criador da OS", "Cliente", "Alvo atendido", "Evento", "Data do evento", "Origem", "Chave origem", "Natureza", "Descrição", "Detalhe", "Valor (R$)", "Status do evento", "Transação", "Quantidade snapshot", "Valor unitário snapshot", "Percentual snapshot", "Base snapshot", "Receitas da OS", "Despesas da OS", "Resultado da OS"],
+        rows,
+        widths: [9, 22, 20, 20, 26, 32, 32, 10, 20, 14, 16, 12, 42, 32, 16, 18, 12, 18, 22, 20, 18, 18, 18, 18],
+      },
+      {
+        name: "Transações",
+        headers: ["OS", "Transação", "Data", "Descrição", "Descrição do pagamento", "Método", "Tipo", "Situação", "Valor (R$)", "Valor bruto (R$)"],
+        rows: transacaoRows,
+        widths: [9, 12, 20, 42, 32, 22, 14, 14, 16, 18],
+      },
+    ]);
     return new NextResponse(buffer, {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

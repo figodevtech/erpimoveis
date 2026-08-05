@@ -91,6 +91,12 @@ export type TransactionRelationFilters = {
   centroCustoId: string;
 };
 
+/**
+ * Visualização do fluxo de caixa.
+ * A_PAGAR / A_RECEBER = pendentes; LIQUIDADAS = já baixadas.
+ */
+export type FluxoViewMode = "TODAS" | "A_RECEBER" | "A_PAGAR" | "LIQUIDADAS";
+
 export interface Transaction {
   id: number;
   descricao: string;
