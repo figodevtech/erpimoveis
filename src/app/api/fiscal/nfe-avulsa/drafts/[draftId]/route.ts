@@ -5,6 +5,7 @@ import {
   buscarNFeAvulsaDraft,
   salvarNFeAvulsaDraft,
 } from "@/services/fiscal/nfeAvulsaService";
+import { liberarNumeroNfe } from "@/services/fiscal/nfeNumeracaoService";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -101,12 +102,15 @@ export async function DELETE(_req: NextRequest, context: Context) {
     if (!nfe) {
       return NextResponse.json({ ok: false, error: "Rascunho não encontrado." }, { status: 404 });
     }
-    if (String(nfe.status).toUpperCase() !== "RASCUNHO") {
+    if (!["RASCUNHO", "REJEITADA"].includes(String(nfe.status).toUpperCase())) {
       return NextResponse.json(
-        { ok: false, error: "Somente rascunhos podem ser descartados." },
+        { ok: false, error: "Somente rascunhos ou notas rejeitadas podem ser descartados." },
         { status: 409 },
       );
     }
+
+    // O número reservado volta para a fila antes de a linha sumir.
+    await liberarNumeroNfe(id, "Rascunho descartado");
 
     const { error: deleteError } = await supabaseAdmin.from("nfe").delete().eq("id", id);
     if (deleteError) throw deleteError;

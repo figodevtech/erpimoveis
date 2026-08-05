@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { liberarNumeroNfe } from '@/services/fiscal/nfeNumeracaoService';
 
 export const runtime = 'nodejs';
 
@@ -8,6 +9,13 @@ type NfeRow = {
   status: string;
   empresaid: number | null;
 };
+
+/**
+ * Nota que a SEFAZ nunca registrou pode ser apagada. Rejeitada entra junto:
+ * ela não existe lá, e o usuário precisa poder descartá-la em vez de deixar a
+ * numeração presa a um documento que não vai ser emitido.
+ */
+const STATUS_EXCLUIVEIS = ['RASCUNHO', 'REJEITADA'];
 
 async function deletarRascunhoHandler(_req: Request, nfeIdParam: string) {
   try {
@@ -46,20 +54,23 @@ async function deletarRascunhoHandler(_req: Request, nfeIdParam: string) {
       );
     }
 
-    // 2) Só permite excluir se estiver em RASCUNHO
-    if ((nfe.status || '').toUpperCase() !== 'RASCUNHO') {
+    // 2) Só permite excluir o que nunca virou documento na SEFAZ
+    if (!STATUS_EXCLUIVEIS.includes((nfe.status || '').toUpperCase())) {
       return NextResponse.json(
         {
           ok: false,
           mensagem:
-            'Somente NF-e com status RASCUNHO pode ser excluída do banco.',
+            'Somente NF-e em rascunho ou rejeitada pode ser excluída do banco.',
           statusAtual: nfe.status,
         },
         { status: 400 },
       );
     }
 
-    // 3) Excluir de fato
+    // 3) Devolver o número para a fila antes de perder a linha
+    await liberarNumeroNfe(nfeId, 'Nota excluida');
+
+    // 4) Excluir de fato
     const { error: deleteError } = await supabaseAdmin
       .from('nfe')
       .delete()

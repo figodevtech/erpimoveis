@@ -5,6 +5,10 @@ import https from "https";
 import { XMLParser } from "fast-xml-parser";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import {
+  garantirNumeroDefinitivo,
+  liberarNumeroNfe,
+} from "@/services/fiscal/nfeNumeracaoService";
 import { carregarCertificadoA1 } from "@/lib/nfe/certificado";
 import { assinarNFeXml } from "@/lib/nfe/assinatura";
 import { buildEnviNFeXml } from "@/lib/nfe/enviNFe";
@@ -358,10 +362,8 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
       if (extraida.id) idNFeXml = extraida.id;
     }
 
-    const xmlSemAssinatura = xmlRascunhoSalvo;
-
     // Se nÃ£o houver XML salvo, retorna erro ou poderia gerar um novo (descomente se desejar)
-    if (!xmlSemAssinatura) {
+    if (!xmlRascunhoSalvo) {
       return NextResponse.json(
         {
           ok: false,
@@ -369,6 +371,22 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
         },
         { status: 400 }
       );
+    }
+
+    // -------------------------------------------------------------------
+    // 6.1) Numeração definitiva
+    //
+    // O rascunho carrega número provisório; é aqui, na beira do envio, que o
+    // número real é alocado e entra no XML (nNF, cDV, chave). Retransmissão de
+    // nota que já foi numerada repete o mesmo número.
+    // -------------------------------------------------------------------
+    const numeracao = await garantirNumeroDefinitivo(nfeId, xmlRascunhoSalvo);
+    const xmlSemAssinatura = numeracao.xml;
+
+    if (numeracao.alocadoAgora) {
+      const extraida = extrairChaveEIdDoXml(xmlSemAssinatura);
+      chave = extraida.chave ?? numeracao.chave ?? chave;
+      idNFeXml = extraida.id ?? idNFeXml;
     }
 
     // -------------------------------------------------------------------
@@ -594,6 +612,16 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
       console.warn(
         "[nfe] falha ao atualizar status/infos da NF-e:",
         updateErr
+      );
+    }
+
+    // Rejeitada é nota que não existe na SEFAZ: o número volta para a fila e é
+    // reaproveitado na próxima transmissão. Denegada e autorizada consomem o
+    // número; retorno de lote em aberto também o mantém reservado.
+    if (statusFinal === "REJEITADA") {
+      await liberarNumeroNfe(
+        nfeId,
+        `Rejeicao ${prot_cStat ?? lote_cStat ?? "sem codigo"}`,
       );
     }
 

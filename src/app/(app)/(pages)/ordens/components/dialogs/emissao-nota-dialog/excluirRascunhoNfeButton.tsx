@@ -23,16 +23,19 @@ export function ExcluirRascunhoNfeButton({
   const [loading, setLoading] = useState(false);
 
   const statusUpper = (status || "").toUpperCase();
-  const disabled = statusUpper !== "RASCUNHO" || loading;
+  // Rejeitada nunca virou documento na SEFAZ: pode ser descartada, e o número
+  // reservado volta para a fila de numeração.
+  const podeExcluir = statusUpper === "RASCUNHO" || statusUpper === "REJEITADA";
+  const disabled = !podeExcluir || loading;
 
   async function handleClick() {
-    if (statusUpper !== "RASCUNHO") {
-      toast.error("Apenas NF-e em RASCUNHO pode ser excluída.");
+    if (!podeExcluir) {
+      toast.error("Apenas NF-e em rascunho ou rejeitada pode ser excluída.");
       return;
     }
 
     const confirmado = window.confirm(
-      "Tem certeza que deseja excluir este rascunho de NF-e?\nEssa ação não poderá ser desfeita."
+      `Tem certeza que deseja excluir esta NF-e ${statusUpper === "REJEITADA" ? "rejeitada" : "em rascunho"}?\nEssa ação não poderá ser desfeita.`
     );
 
     if (!confirmado) return;
@@ -84,7 +87,7 @@ export function ExcluirRascunhoNfeButton({
       ) : (
         <>
           <Trash2 className="h-3 w-3" />
-          Excluir rascunho
+          {statusUpper === "REJEITADA" ? "Excluir nota" : "Excluir rascunho"}
         </>
       )}
     </Button>

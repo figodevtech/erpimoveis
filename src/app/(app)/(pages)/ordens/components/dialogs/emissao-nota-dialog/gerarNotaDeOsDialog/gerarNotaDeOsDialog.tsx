@@ -5,6 +5,7 @@ import {
   AlertCircle,
   CheckCircle2,
   ChevronsUpDown,
+  Hash,
   Info,
   Loader2,
   Package,
@@ -768,6 +769,19 @@ export function GerarNotaDeOsDialog({
                       {setup.versaoRegraFiscal}
                     </Badge> */}
                 </section>
+
+                <Alert>
+                  <Hash className="h-4 w-4" />
+                  <AlertTitle>
+                    Esta nota será a de número {setup.config?.proximoNumero ?? "—"}, série{" "}
+                    {setup.config?.serie ?? "—"}
+                  </AlertTitle>
+                  <AlertDescription>
+                    O número é atribuído no envio para a SEFAZ, e não ao gerar o rascunho:
+                    enquanto a nota não for autorizada, ele continua livre. Se outra nota for
+                    transmitida antes desta, o número desta será o seguinte.
+                  </AlertDescription>
+                </Alert>
 
                 {origin === "ENTRADA" ? (
                   <NfeEntrySupplierEditor

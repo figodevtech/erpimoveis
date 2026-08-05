@@ -15,7 +15,8 @@
     "db:test:sql": "tsx scripts/db/test-sql.ts",
     "db:deploy": "tsx scripts/db/deploy.ts",
     "db:deploy:demo": "tsx scripts/db/deploy-demo.ts",
-    "db:deploy:clients": "tsx scripts/db/deploy-clients.ts"
+    "db:deploy:clients": "tsx scripts/db/deploy-clients.ts",
+    "test:fiscal": "tsx --test src/services/fiscal/*.test.ts"
   },
   "overrides": {
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"

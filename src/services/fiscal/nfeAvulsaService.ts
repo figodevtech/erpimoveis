@@ -11,6 +11,7 @@ import type { CRT, ClassificacaoTributariaRtc, EmpresaRow, NFeDestinatario, NFeI
 import { getNFeFiscalFieldRules, NFE_FISCAL_RULE_VERSION, validateNFeItemTax } from "@/lib/nfe/taxRules";
 import { resolverNomeMunicipioIbge } from "@/lib/ibge/municipio";
 import { isCfopCompatibleWithOperation } from "@/lib/nfe/cfopOperation";
+import { preverProximoNumero } from "@/services/fiscal/nfeNumeracaoService";
 import {
   isValidCnpj,
   isValidCpf,
@@ -365,15 +366,20 @@ function getPagamentosFiscais(input: NFeAvulsaDraftInput): NFePagamentoOptions[]
   if (finNFe === 3 || finNFe === 4) return [{ tPag: "90", valor: 0, tpIntegra: "2" }];
   if (!input.pagamentos?.length) return [getPagamentoFiscal(input)];
 
-  return input.pagamentos.map((pagamento) => ({
-    tPag: onlyDigits(pagamento.meio).padStart(2, "0").slice(0, 2),
-    valor: toDecimalNumber(pagamento.valor),
+  return input.pagamentos.map((pagamento) => {
+    const tPag = onlyDigits(pagamento.meio).padStart(2, "0").slice(0, 2);
+    return {
+    tPag,
+    // "Sem pagamento" é sempre vPag 0: mandar o total da nota num detPag 90
+    // contradiz o próprio código e a SEFAZ rejeita.
+    valor: tPag === "90" ? 0 : toDecimalNumber(pagamento.valor),
     tpIntegra: pagamento.tipoIntegracao === "1" ? "1" : "2",
     cnpjCredenciadora: onlyDigits(pagamento.cnpjCredenciadora),
     bandeira: onlyDigits(pagamento.bandeira),
     autorizacao: cleanText(pagamento.autorizacao),
     xPag: cleanText(pagamento.descricao),
-  }));
+    };
+  });
 }
 
 function getPagamentoDadosAvulsos(input: NFeAvulsaDraftInput) {
@@ -661,7 +667,12 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
       (total, pagamento) => total + toDecimalNumber(pagamento.valor),
       0,
     );
-    const exigePagamento = ![3, 4].includes(finalidadeToFinNFe(input.operacao.finalidade));
+    // Nota de ajuste/devolução não tem pagamento, e "sem pagamento" (90) é a
+    // declaração de que nada foi pago — nos dois casos não há soma para fechar.
+    const semPagamento =
+      pagamentosFiscais.length === 1 && pagamentosFiscais[0]?.tPag === "90";
+    const exigePagamento =
+      !semPagamento && ![3, 4].includes(finalidadeToFinNFe(input.operacao.finalidade));
     if (exigePagamento && Math.abs(totalPagamentos - totalNota) > 0.01) {
       errors.push({
         step: "payment",
@@ -782,10 +793,14 @@ export async function getNFeAvulsaSetup() {
     .filter((row: any) => Number(row.indicadores?.ind_gIBSCBS) === 1 && Number(row.indicadores?.ind_gDif) === 0)
     .map((row: any) => row.cst));
   const crt = empresa?.regimetributario ? Number(empresa.regimetributario) as CRT : null;
+  // Com que número a próxima nota deve sair. Previsão, não reserva: o número é
+  // alocado de fato na transmissão.
+  const proximoNumero = config ? await preverProximoNumero(config) : null;
 
   return {
     empresa,
     config,
+    proximoNumero,
     empresaErros: validarEmpresa(empresa, config),
     certificadoStatus,
     clientes: clientes ?? [],
@@ -835,20 +850,6 @@ async function getConfigAndEmpresa() {
   }
 
   return { config, empresa };
-}
-
-async function alocarNumero(configId: number) {
-  const { data, error } = await supabaseAdmin.rpc("nfe_alocar_numero", { p_config_id: configId });
-  if (error) throw error;
-  const row = Array.isArray(data) ? data[0] : data;
-  if (!row) throw new Error("Não foi possível alocar número de NF-e.");
-  return row as {
-    numero: number;
-    serie: number;
-    empresaid: number;
-    modelo: string;
-    ambiente: string;
-  };
 }
 
 function mapItemToInsert(item: NFeAvulsaItemInput, index: number, nfeId: number, fiscalItem?: NFeItem) {
@@ -1046,10 +1047,14 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
   );
   const now = new Date().toISOString();
   const itensInsertBase = input.itens.map((item, index) => mapItemToInsert(item, index, 0, itensXml[index]));
-  const fornecedorId = input.origem?.fornecedorId ?? null;
-  const clienteId = fornecedorId
+  // Vínculo com a origem. O motor fiscal reabre a nota sem esse bloco — ele é
+  // recuperado do que já está gravado no branch de atualização, senão salvar
+  // uma nota de OS/venda por lá a transformaria numa nota solta.
+  let origem = input.origem ?? null;
+  let fornecedorId = origem?.fornecedorId ?? null;
+  let clienteId = fornecedorId
     ? null
-    : input.origem?.clienteId ?? input.destinatario.clienteId ?? null;
+    : input.destinatario.clienteId ?? origem?.clienteId ?? null;
 
   let nfeId = Number(input.nfeId ?? 0);
   let numero: number;
@@ -1058,9 +1063,12 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
   let xml: string;
 
   if (!nfeId) {
-    const allocated = await alocarNumero(Number(config.id));
-    numero = Number(allocated.numero);
-    serie = Number(allocated.serie);
+    // Número provisório: serve só para a prévia do XML e do DANFE terem uma
+    // chave de acesso. O definitivo é alocado na transmissão
+    // (`garantirNumeroDefinitivo`), para rascunho excluído ou nota rejeitada
+    // não furarem a sequência da SEFAZ.
+    numero = Number(config.ultimo_numero ?? 0) + 1;
+    serie = Number(config.serie);
     ({ xml, chave } = buildNFePreviewXml(empresa, numero, serie, itensXml, destinatario, {
       tpNF: input.operacao.tipoOperacao === "ENTRADA" ? 0 : 1,
       nomeMunicipioEmitente,
@@ -1081,11 +1089,12 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
         serie,
         numero,
         chave_acesso: chave,
-        ambiente: allocated.ambiente ?? config.ambiente ?? "HOMOLOGACAO",
+        numero_definitivo: false,
+        ambiente: config.ambiente ?? "HOMOLOGACAO",
         status: "RASCUNHO",
-        ordemservicoid: input.origem?.ordemServicoId ?? null,
-        vendaid: input.origem?.vendaId ?? null,
-        entradaid: input.origem?.entradaId ?? null,
+        ordemservicoid: origem?.ordemServicoId ?? null,
+        vendaid: origem?.vendaId ?? null,
+        entradaid: origem?.entradaId ?? null,
         fornecedorid: fornecedorId,
         clienteid: clienteId,
         destinatario_snapshot: destinatario,
@@ -1104,7 +1113,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
           regimetributario: empresa.regimetributario,
         },
         dados_avulsos: {
-          origem: input.origem ?? { tipo: "AVULSA" },
+          origem: origem ?? { tipo: "AVULSA" },
           operacao: input.operacao,
           pagamento: pagamentoDadosAvulsos,
           pagamentos: pagamentosDadosAvulsos,
@@ -1127,7 +1136,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
             versaoFonte: classificationsByCode.get(item.rtc?.cClassTrib ?? "")?.versaoFonte,
           })),
         },
-        empresaid: Number(allocated.empresaid ?? config.empresaid),
+        empresaid: Number(config.empresaid),
         dataemissao: now,
         total_produtos: 0,
         total_servicos: 0,
@@ -1148,7 +1157,9 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
   } else {
     const { data: nfe, error: nfeError } = await supabaseAdmin
       .from("nfe")
-      .select("id, status, numero, serie")
+      .select(
+        "id, status, numero, serie, ordemservicoid, vendaid, entradaid, clienteid, fornecedorid, dados_avulsos",
+      )
       .eq("id", nfeId)
       .maybeSingle();
 
@@ -1156,6 +1167,27 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
     if (!nfe) throw new Error("Rascunho de NF-e não encontrado.");
     if (!["RASCUNHO", "REJEITADA"].includes(String(nfe.status))) {
       throw new Error("Somente NF-e em rascunho ou rejeitada pode ser alterada.");
+    }
+
+    // O motor fiscal reabre a nota e devolve o rascunho sem o bloco de origem.
+    // Nesse caso vale o que já está gravado: são as colunas que ligam a nota à
+    // OS, à venda ou à entrada, e perdê-las desvincula a nota da origem.
+    if (!input.origem) {
+      const origemGravada = (nfe.dados_avulsos as { origem?: typeof origem } | null)?.origem ?? null;
+      origem = {
+        tipo:
+          origemGravada?.tipo ??
+          (nfe.ordemservicoid ? "OS" : nfe.vendaid ? "VENDA" : nfe.entradaid ? "ENTRADA" : "AVULSA"),
+        ordemServicoId: nfe.ordemservicoid ?? origemGravada?.ordemServicoId ?? null,
+        vendaId: nfe.vendaid ?? origemGravada?.vendaId ?? null,
+        entradaId: nfe.entradaid ?? origemGravada?.entradaId ?? null,
+        clienteId: nfe.clienteid ?? origemGravada?.clienteId ?? null,
+        fornecedorId: nfe.fornecedorid ?? origemGravada?.fornecedorId ?? null,
+      };
+      fornecedorId = origem.fornecedorId ?? null;
+      clienteId = fornecedorId
+        ? null
+        : input.destinatario.clienteId ?? origem.clienteId ?? null;
     }
 
     numero = Number(nfe.numero);
@@ -1177,14 +1209,14 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
       .from("nfe")
       .update({
         chave_acesso: chave,
-        ordemservicoid: input.origem?.ordemServicoId ?? null,
-        vendaid: input.origem?.vendaId ?? null,
-        entradaid: input.origem?.entradaId ?? null,
+        ordemservicoid: origem?.ordemServicoId ?? null,
+        vendaid: origem?.vendaId ?? null,
+        entradaid: origem?.entradaId ?? null,
         fornecedorid: fornecedorId,
         clienteid: clienteId,
         destinatario_snapshot: destinatario,
         dados_avulsos: {
-          origem: input.origem ?? { tipo: "AVULSA" },
+          origem: origem ?? { tipo: "AVULSA" },
           operacao: input.operacao,
           pagamento: pagamentoDadosAvulsos,
           pagamentos: pagamentosDadosAvulsos,

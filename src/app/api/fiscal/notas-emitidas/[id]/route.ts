@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireFinanceirosAccess } from "@/app/api/_authz/perms";
+import { liberarNumeroNfe } from "@/services/fiscal/nfeNumeracaoService";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -31,12 +32,16 @@ export async function DELETE(_req: NextRequest, { params }: Context) {
       return NextResponse.json({ ok: false, error: "Nota fiscal não encontrada." }, { status: 404 });
     }
 
-    if (String(nota.status).toUpperCase() !== "RASCUNHO") {
+    // Rejeitada nunca virou documento na SEFAZ, então também pode ser descartada.
+    if (!["RASCUNHO", "REJEITADA"].includes(String(nota.status).toUpperCase())) {
       return NextResponse.json(
-        { ok: false, error: "Somente notas fiscais em rascunho podem ser excluídas." },
+        { ok: false, error: "Somente notas em rascunho ou rejeitadas podem ser excluídas." },
         { status: 409 },
       );
     }
+
+    // O número reservado volta para a fila antes de a linha sumir.
+    await liberarNumeroNfe(notaId, "Nota excluida");
 
     const { error: deleteItemsError } = await supabaseAdmin
       .from("nfe_item")

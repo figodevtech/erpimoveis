@@ -755,10 +755,10 @@ export function EmissaoNotaDialog({
                               ) : (
                                 <>
                                   {/*
-                                    Rejeição não consome a numeração: a nota pode ser
-                                    corrigida e retransmitida com o mesmo número/série.
-                                    Denegada, ao contrário, consome o número e não é
-                                    reaproveitável — por isso fica de fora.
+                                    Rascunho e rejeitada não têm número definitivo: ele é
+                                    alocado no envio e devolvido para a fila quando a SEFAZ
+                                    rejeita. Denegada, ao contrário, consome o número e não
+                                    é reaproveitável — por isso fica de fora.
                                   */}
                                   {(nfe.status === "RASCUNHO" || isRejeitada) && (
                                     <div className="flex flex-col gap-1">
@@ -960,6 +960,11 @@ export function EmissaoNotaDialog({
                               <div className="font-medium">
                                 {nfe.modelo === "NFSE" ? "NFS-e" : "NF-e"} {nfe.numero ?? "—"}
                                 {nfe.serie ? `/Série ${nfe.serie}` : ""}
+                                {nfe.modelo !== "NFSE" && (statusUpper === "RASCUNHO" || isRejeitada) ? (
+                                  <span className="ml-1 text-xs font-normal text-muted-foreground">
+                                    (nº provisório)
+                                  </span>
+                                ) : null}
                               </div>
 
                               <Badge className={statusClass}>{statusUpper || "—"}</Badge>
@@ -1027,8 +1032,8 @@ export function EmissaoNotaDialog({
                                     </div>
                                   ) : null}
                                   <p className="mt-1 text-[11px] text-muted-foreground">
-                                    Corrija os dados e reenvie — a NF-e mantém o número {nfe.numero ?? "—"}
-                                    {nfe.serie ? `/série ${nfe.serie}` : ""}. Rejeição não consome numeração.
+                                    Corrija os dados e reenvie. Rejeição não consome numeração: o número
+                                    voltou para a fila e será atribuído de novo no próximo envio.
                                   </p>
                                 </div>
                               </div>

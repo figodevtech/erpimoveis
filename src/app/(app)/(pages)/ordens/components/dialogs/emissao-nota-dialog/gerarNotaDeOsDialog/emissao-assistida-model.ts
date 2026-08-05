@@ -30,7 +30,12 @@ export type FiscalSetup = {
     crt?: string | number | null;
     ambiente?: string | null;
   } | null;
-  config: { serie: number; ambiente: string } | null;
+  config: {
+    serie: number;
+    ambiente: string;
+    /** Número previsto para esta emissão; o definitivo sai na transmissão. */
+    proximoNumero?: number | null;
+  } | null;
   empresaErros: string[];
   unidades: string[];
   regrasFiscais: NFeFiscalFieldRules | null;

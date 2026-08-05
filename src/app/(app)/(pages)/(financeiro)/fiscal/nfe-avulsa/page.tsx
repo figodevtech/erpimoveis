@@ -8,12 +8,15 @@ import {
   AlertTriangle,
   CheckCircle2,
   ChevronsUpDown,
+  Eraser,
   FileText,
   Download,
+  Hash,
   Loader2,
   Plus,
   Printer,
   Save,
+  Search,
   Send,
   X,
 } from "lucide-react";
@@ -56,6 +59,7 @@ import ProductSelect from "@/app/(app)/components/productSelect";
 import type { Customer } from "@/app/(app)/(pages)/clientes/types";
 import type { Produto } from "@/app/(app)/(pages)/estoque/types";
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
+import { isValidCnpj } from "@/lib/nfe/recipientNormalization";
 import { normalizarIndIEDest, sugerirIndIEDest } from "@/lib/nfe/indIEDest";
 import { normalizeCfopForOperation } from "@/lib/nfe/cfopOperation";
 import { getRequiredPisCofinsMode, PIS_COFINS_CST_OPTIONS } from "@/lib/nfe/taxRules";
@@ -125,6 +129,8 @@ type SetupResponse = {
     ultimo_numero: number;
     ambiente: string;
   } | null;
+  /** Número previsto para a próxima emissão; o definitivo sai na transmissão. */
+  proximoNumero?: number | null;
   empresaErros: string[];
   certificadoStatus: string;
   clientes: ClienteSetup[];
@@ -301,6 +307,8 @@ type NFeDocumentState = {
   numero: number | null;
   serie: number | null;
   dataAutorizacao: string | null;
+  /** OS, venda ou entrada que originou a nota. Editar aqui não desfaz o vínculo. */
+  origemLabel: string | null;
 };
 
 const storageKey = "fiscal:nfe-avulsa:draft";
@@ -787,6 +795,13 @@ function mapServerDraftToPayload(value: any): { draft: DraftPayload; document: N
       numero: nfe.numero == null ? null : Number(nfe.numero),
       serie: nfe.serie == null ? null : Number(nfe.serie),
       dataAutorizacao: nfe.dataautorizacao ?? null,
+      origemLabel: nfe.ordemservicoid
+        ? `OS #${nfe.ordemservicoid}`
+        : nfe.vendaid
+          ? `Venda #${nfe.vendaid}`
+          : nfe.entradaid
+            ? `Entrada #${nfe.entradaid}`
+            : null,
     },
   };
 }
@@ -804,6 +819,7 @@ export default function NFeAvulsaPage() {
     numero: null,
     serie: null,
     dataAutorizacao: null,
+    origemLabel: null,
   });
   const [errors, setErrors] = React.useState<ValidationError[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -844,6 +860,13 @@ export default function NFeAvulsaPage() {
   const [openProductSelect, setOpenProductSelect] = React.useState(false);
   const [paymentMethodsOpen, setPaymentMethodsOpen] = React.useState(false);
   const [confirmAuthorizeOpen, setConfirmAuthorizeOpen] = React.useState(false);
+  const [buscandoCnpj, setBuscandoCnpj] = React.useState(false);
+  // O que a última consulta de CNPJ disse sobre a inscrição estadual. É aviso,
+  // não trava: os campos continuam editáveis.
+  const [ieConsultada, setIeConsultada] = React.useState<
+    { inscricao: string; ativa: boolean; uf: string } | null
+  >(null);
+  const ultimoCnpjConsultado = React.useRef("");
 
   // Total já líquido do desconto: é o que vira vNF e o que os pagamentos
   // precisam fechar.
@@ -972,6 +995,7 @@ export default function NFeAvulsaPage() {
   const isRegimeNormal = crtEmitente === "3";
   const isSublimite = crtEmitente === "2";
   const isDestinatarioExterior = draft.destinatario.tipoPessoa === "ESTRANGEIRO";
+  const isDestinatarioJuridica = draft.destinatario.tipoPessoa === "JURIDICA";
 
   React.useEffect(() => {
     let cancelled = false;
@@ -984,7 +1008,14 @@ export default function NFeAvulsaPage() {
           if (stored) {
             try {
               const parsed = normalizePersistedDraft(JSON.parse(stored));
-              if (parsed && !cancelled) setDraft(parsed);
+              // Cópia que já tem id é resto de nota gravada no banco (inclusive
+              // emitida): ela vive na listagem fiscal, e restaurar aqui abriria
+              // uma emissão nova com os dados da anterior.
+              if (parsed?.nfeId) {
+                window.localStorage.removeItem(storageKey);
+              } else if (parsed && !cancelled) {
+                setDraft(parsed);
+              }
             } catch {
               window.localStorage.removeItem(storageKey);
             }
@@ -1021,7 +1052,11 @@ export default function NFeAvulsaPage() {
   }, [draftIdParam]);
 
   React.useEffect(() => {
-    if (draftIdParam) return;
+    // A cópia local só serve para nota que ainda não existe no banco. Assim que
+    // ela é gravada — e mais ainda depois de transmitida — quem manda é o
+    // servidor: sem o corte por `nfeId`, uma nota já emitida continuava sendo
+    // regravada no navegador e voltava sozinha na próxima emissão avulsa.
+    if (draftIdParam || draft.nfeId) return;
     window.localStorage.setItem(storageKey, JSON.stringify(draft));
   }, [draft, draftIdParam]);
 
@@ -1091,9 +1126,13 @@ export default function NFeAvulsaPage() {
       ? [{ ...initialDraft.pagamento, meio: "90", valor: 0 }]
       : current.pagamentos.map((pagamento) => ({
           ...pagamento,
-          valor: current.pagamentos.length === 1
-            ? Number(totalNota.toFixed(2))
-            : Number(pagamento.valor.toFixed(2)),
+          // "Sem pagamento" declara que nada foi pago: vPag é sempre 0, mesmo
+          // sendo o único método da nota.
+          valor: pagamento.meio === "90"
+            ? 0
+            : current.pagamentos.length === 1
+              ? Number(totalNota.toFixed(2))
+              : Number(pagamento.valor.toFixed(2)),
         }));
 
     return {
@@ -1263,6 +1302,118 @@ export default function NFeAvulsaPage() {
     }));
   }
 
+  /**
+   * Preenche o destinatário a partir do CNPJ digitado.
+   *
+   * Dispara sozinha quando o campo fecha 14 dígitos válidos e também pelo botão
+   * de lupa. O `ultimoCnpjConsultado` evita repetir a consulta a cada tecla —
+   * a API pública tem limite por minuto.
+   */
+  async function buscarPorCnpj(documento?: string) {
+    const cnpj = onlyDigits(documento ?? draft.destinatario.cpfCnpj);
+    if (!isValidCnpj(cnpj)) {
+      toast.error("Informe um CNPJ válido para consultar.");
+      return;
+    }
+
+    ultimoCnpjConsultado.current = cnpj;
+    setBuscandoCnpj(true);
+    try {
+      const response = await fetch(`https://publica.cnpj.ws/cnpj/${cnpj}`, { cache: "no-store" });
+      if (!response.ok) {
+        if (response.status === 429) {
+          throw new Error("Muitas consultas em sequência. Aguarde um pouco e tente de novo.");
+        }
+        if (response.status === 400 || response.status === 404) {
+          throw new Error("CNPJ não encontrado. Confira o número informado.");
+        }
+        throw new Error("Não foi possível consultar os dados do CNPJ.");
+      }
+
+      const empresaConsultada = await response.json();
+      const estabelecimento = empresaConsultada?.estabelecimento;
+      const uf = String(estabelecimento?.estado?.sigla ?? "").trim().toUpperCase();
+      const cidade = String(estabelecimento?.cidade?.nome ?? "").trim();
+      const codigoMunicipio = onlyDigits(estabelecimento?.cidade?.ibge_id).slice(0, 7);
+      if (!empresaConsultada?.razao_social || !estabelecimento || !uf || !cidade || !codigoMunicipio) {
+        throw new Error("A consulta não retornou dados cadastrais suficientes.");
+      }
+
+      const inscricoes = Array.isArray(estabelecimento.inscricoes_estaduais)
+        ? estabelecimento.inscricoes_estaduais
+        : [];
+      const inscricaoDaUf =
+        inscricoes.find(
+          (entrada: any) =>
+            entrada?.ativo !== false && String(entrada?.estado?.sigla ?? "").toUpperCase() === uf,
+        ) ??
+        inscricoes.find((entrada: any) => entrada?.ativo !== false) ??
+        inscricoes.find(
+          (entrada: any) => String(entrada?.estado?.sigla ?? "").toUpperCase() === uf,
+        ) ??
+        inscricoes[0];
+      const inscricaoEstadual = onlyDigits(inscricaoDaUf?.inscricao_estadual);
+      const inscricaoAtiva = Boolean(inscricaoDaUf) && inscricaoDaUf?.ativo !== false;
+      const telefone = onlyDigits(
+        `${estabelecimento.ddd1 ?? estabelecimento.ddd2 ?? ""}${estabelecimento.telefone1 ?? estabelecimento.telefone2 ?? ""}`,
+      ).slice(0, 14);
+
+      updateDraft((current) => ({
+        ...current,
+        itens: current.itens.map((item) => ({
+          ...item,
+          cfop: normalizeCfopForOperation(
+            item.cfop,
+            current.operacao.tipoOperacao,
+            setup?.empresa?.uf,
+            uf,
+          ),
+        })),
+        destinatario: {
+          ...current.destinatario,
+          // A consulta traz um destinatário avulso: nada aqui vira cadastro.
+          clienteId: null,
+          tipoPessoa: "JURIDICA",
+          cpfCnpj: cnpj,
+          nomeRazaoSocial: String(empresaConsultada.razao_social ?? "").trim(),
+          // O que a Receita devolveu entra preenchido, inclusive IE baixada: a
+          // consulta informa, não decide. Os dois campos seguem editáveis e o
+          // aviso abaixo do formulário diz o que veio.
+          indicadorIe: inscricaoEstadual ? "1" : "9",
+          inscricaoEstadual,
+          email: String(estabelecimento.email ?? "").trim().toLowerCase(),
+          telefone,
+          endereco: String(estabelecimento.logradouro ?? "").trim(),
+          numero: String(estabelecimento.numero ?? "").trim(),
+          complemento: String(estabelecimento.complemento ?? "").trim(),
+          bairro: String(estabelecimento.bairro ?? "").trim(),
+          cidade,
+          estado: uf,
+          cep: onlyDigits(estabelecimento.cep).slice(0, 8),
+          codigoMunicipio,
+          codigoPais: "1058",
+          nomePais: "BRASIL",
+        },
+      }));
+      setIeConsultada({
+        inscricao: inscricaoEstadual,
+        ativa: inscricaoAtiva,
+        uf,
+      });
+      toast.success("Dados do CNPJ preenchidos.", {
+        description: inscricaoEstadual
+          ? inscricaoAtiva
+            ? `IE ${inscricaoEstadual} ativa em ${uf}. Confira antes de emitir.`
+            : `IE ${inscricaoEstadual} consta como baixada/inativa. Confira antes de emitir.`
+          : "A Receita não retornou inscrição estadual. Ajuste o indicador se o destinatário for contribuinte.",
+      });
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao consultar o CNPJ.");
+    } finally {
+      setBuscandoCnpj(false);
+    }
+  }
+
   function tornarDestinatarioAvulso() {
     updateDraft((current) => ({
       ...current,
@@ -1315,8 +1466,12 @@ export default function NFeAvulsaPage() {
           description: response.data?.chave ? `Chave gerada: ${response.data.chave}` : undefined,
         });
       }
-      if (!wasEditing && finalNfeId && options?.replaceUrl !== false) {
+      // Gravou no banco: a cópia local perde a função, mesmo quando a URL não é
+      // trocada (é o caso do salvamento que antecede a transmissão).
+      if (finalNfeId) {
         window.localStorage.removeItem(storageKey);
+      }
+      if (!wasEditing && finalNfeId && options?.replaceUrl !== false) {
         router.replace(`/fiscal/nfe-avulsa?id=${finalNfeId}`);
       }
       return finalNfeId ?? null;
@@ -1348,6 +1503,40 @@ export default function NFeAvulsaPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  /**
+   * Zera o formulário e a cópia local do navegador.
+   *
+   * Não apaga nada no banco: nota já gravada continua na listagem fiscal. Serve
+   * para começar uma emissão do zero sem herdar campo nenhum da anterior.
+   */
+  function limparTudo() {
+    const confirmado = window.confirm(
+      "Limpar todos os campos desta emissão?\nO que já foi salvo continua na listagem de notas fiscais.",
+    );
+    if (!confirmado) return;
+
+    window.localStorage.removeItem(storageKey);
+    ultimoCnpjConsultado.current = "";
+    setIeConsultada(null);
+    setErrors([]);
+    setDirty(false);
+    setDocumentState({
+      status: null,
+      chave: null,
+      protocolo: null,
+      numero: null,
+      serie: null,
+      dataAutorizacao: null,
+      origemLabel: null,
+    });
+    setDraft({ ...initialDraft, currentStep: 0 });
+
+    if (draftIdParam) {
+      router.replace("/fiscal/nfe-avulsa");
+    }
+    toast.success("Formulário limpo.");
   }
 
   function irParaProximoPasso() {
@@ -1462,11 +1651,29 @@ export default function NFeAvulsaPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={limparTudo} title="Zera os campos e a cópia local do navegador">
+            <Eraser className="h-4 w-4" />
+            Limpar tudo
+          </Button>
           <Button variant="outline" asChild>
             <Link href="/fiscal">Sair</Link>
           </Button>
         </div>
       </div>
+
+      {setup?.config ? (
+        <Alert>
+          <Hash className="h-4 w-4" />
+          <AlertTitle>
+            Esta nota será a de número {setup.proximoNumero ?? "—"}, série {setup.config.serie}
+          </AlertTitle>
+          <AlertDescription>
+            O número é atribuído no envio para a SEFAZ, e não agora: enquanto a nota for
+            rascunho ou for rejeitada, ele continua livre. Se outra nota for transmitida
+            antes desta, o número desta será o seguinte.
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       {setup?.empresaErros && setup.empresaErros.length > 0 && (
         <Alert variant="destructive">
@@ -1718,15 +1925,59 @@ export default function NFeAvulsaPage() {
                     </Select>
                   </Field>
                   <Field label="CPF/CNPJ" required={!isDestinatarioExterior}>
-                    <Input
-                      value={draft.destinatario.cpfCnpj}
-                      onChange={(event) =>
-                        updateDraft((current) => ({
-                          ...current,
-                          destinatario: { ...current.destinatario, cpfCnpj: onlyDigits(event.target.value) },
-                        }))
-                      }
-                    />
+                    <div className="relative">
+                      <Input
+                        inputMode="numeric"
+                        className={isDestinatarioJuridica ? "pr-10" : undefined}
+                        value={draft.destinatario.cpfCnpj}
+                        onChange={(event) => {
+                          const documento = onlyDigits(event.target.value).slice(
+                            0,
+                            draft.destinatario.tipoPessoa === "FISICA" ? 11 : 14,
+                          );
+                          updateDraft((current) => ({
+                            ...current,
+                            destinatario: { ...current.destinatario, cpfCnpj: documento },
+                          }));
+                          // Fechou um CNPJ válido: busca os dados na hora. Fica
+                          // no onChange de propósito — preenchimento vindo do
+                          // cadastro de cliente não deve disparar consulta.
+                          if (
+                            draft.destinatario.tipoPessoa === "JURIDICA" &&
+                            documento.length === 14 &&
+                            isValidCnpj(documento) &&
+                            documento !== ultimoCnpjConsultado.current &&
+                            !buscandoCnpj
+                          ) {
+                            void buscarPorCnpj(documento);
+                          }
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" && isDestinatarioJuridica) {
+                            event.preventDefault();
+                            void buscarPorCnpj();
+                          }
+                        }}
+                      />
+                      {isDestinatarioJuridica ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="absolute right-0 top-0 h-9 w-9"
+                          disabled={buscandoCnpj}
+                          onClick={() => void buscarPorCnpj()}
+                          aria-label="Consultar CNPJ"
+                          title="Consultar CNPJ na Receita"
+                        >
+                          {buscandoCnpj ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Search className="h-4 w-4" />
+                          )}
+                        </Button>
+                      ) : null}
+                    </div>
                   </Field>
                   <Field label="Nome/Razão social" required>
                     <Input
@@ -1769,6 +2020,26 @@ export default function NFeAvulsaPage() {
                       }
                     />
                   </Field>
+                  {ieConsultada ? (
+                    // Informa o que a consulta trouxe e para por aí: indicador e
+                    // IE ficam como o usuário quiser deixar.
+                    <p
+                      className={`text-xs md:col-span-3 ${
+                        ieConsultada.inscricao && !ieConsultada.ativa
+                          ? "text-amber-600 dark:text-amber-400"
+                          : "text-muted-foreground"
+                      }`}
+                    >
+                      {ieConsultada.inscricao
+                        ? `Consulta do CNPJ: IE ${ieConsultada.inscricao} em ${ieConsultada.uf}, ${
+                            ieConsultada.ativa
+                              ? "ativa na Receita"
+                              : "constando como baixada/inativa — IE inativa costuma gerar a rejeição 306"
+                          }.`
+                        : "Consulta do CNPJ: nenhuma inscrição estadual retornada — preenchemos como não contribuinte."}{" "}
+                      Os campos acima continuam livres para edição.
+                    </p>
+                  ) : null}
                   <Field label="E-mail">
                     <Input
                       value={draft.destinatario.email}
@@ -2585,6 +2856,9 @@ export default function NFeAvulsaPage() {
             <Info label="Total dos produtos" value={formatarEmReal(totalProdutos)} />
             <Info label="Pagamento" value={paymentSummary} />
             <Info label="Status do documento" value={draft.nfeId ? `Rascunho #${draft.nfeId}` : "Não salvo"} />
+            {documentState.origemLabel ? (
+              <Info label="Origem" value={`${documentState.origemLabel} — vínculo mantido ao salvar`} />
+            ) : null}
           </CardContent>
         </Card>
       </div>
@@ -2603,6 +2877,9 @@ export default function NFeAvulsaPage() {
             <p className="font-medium">{draft.destinatario.nomeRazaoSocial || "Destinatário pendente"}</p>
             <p className="mt-1 text-muted-foreground">
               Total da NF-e: {formatarEmReal(totalNota)} - Ambiente: {ambienteLabel}
+            </p>
+            <p className="mt-1 text-muted-foreground">
+              Será a nota de número {setup?.proximoNumero ?? "—"}, série {setup?.config?.serie ?? "—"}.
             </p>
           </div>
           <AlertDialogFooter>
@@ -2941,6 +3218,13 @@ function NFeAutorizadaView({
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" asChild>
             <Link href="/fiscal">Sair</Link>
+          </Button>
+          {/* Formulário limpo, sem herdar nada da nota que acabou de sair. */}
+          <Button variant="outline" asChild>
+            <Link href="/fiscal/nfe-avulsa">
+              <Plus className="h-4 w-4" />
+              Emitir outra
+            </Link>
           </Button>
           <Button variant="outline" onClick={() => window.print()}>
             <Printer className="h-4 w-4" />

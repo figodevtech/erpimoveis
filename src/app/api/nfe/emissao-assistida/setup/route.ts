@@ -24,6 +24,8 @@ export async function GET() {
         ? {
             serie: setup.config.serie,
             ambiente: setup.config.ambiente,
+            // Com que número a nota deve sair. O definitivo é alocado no envio.
+            proximoNumero: setup.proximoNumero,
           }
         : null,
       empresaErros: setup.empresaErros,

@@ -416,13 +416,14 @@ export default function FiscalTable({
     }
   }
 
-  async function excluirRascunho(id: number) {
-    if (!window.confirm("Excluir este rascunho de NF-e?")) return;
+  async function excluirRascunho(id: number, rejeitada = false) {
+    const rotulo = rejeitada ? "esta NF-e rejeitada" : "este rascunho de NF-e";
+    if (!window.confirm(`Excluir ${rotulo}? O número reservado volta para a fila de numeração.`)) return;
 
-    const toastId = toast.loading("Excluindo rascunho...");
+    const toastId = toast.loading("Excluindo nota...");
     try {
       await axios.delete(`/api/fiscal/notas-emitidas/${id}`);
-      toast.success("Rascunho excluído", { id: toastId });
+      toast.success(rejeitada ? "Nota rejeitada excluída" : "Rascunho excluído", { id: toastId });
       await handleGetNotas(pagination.page, pagination.limit);
     } catch (error) {
       const description = isAxiosError(error)
@@ -689,12 +690,17 @@ export default function FiscalTable({
               const podeVerDanfe =
                 viewMode !== "EMITIDAS_TERCEIROS" || nota.xmlStatus === "XML_COMPLETO";
               const isRascunho = String(nota.status).toUpperCase() === "RASCUNHO";
-              // Rejeição não consome a numeração: a nota pode ser corrigida e
-              // retransmitida com o mesmo número e série.
+              // Rejeição não consome a numeração: o número volta para a fila e é
+              // atribuído de novo no próximo envio, desta ou de outra nota.
               const isRejeitada = String(nota.status).toUpperCase() === "REJEITADA";
+              // Enquanto a nota não foi transmitida com sucesso, o número exibido
+              // é só uma prévia.
+              const numeroProvisorio =
+                viewMode !== "EMITIDAS_TERCEIROS" && (isRascunho || isRejeitada);
               const statusTraduzido = traduzStatusNfe(nota.status).toUpperCase();
               const podeConsultarSefaz = !isRascunho;
-              const podeExcluirRascunho = viewMode !== "EMITIDAS_TERCEIROS" && isRascunho;
+              const podeExcluirRascunho =
+                viewMode !== "EMITIDAS_TERCEIROS" && (isRascunho || isRejeitada);
               const podeEditar = viewMode !== "EMITIDAS_TERCEIROS" && (isRascunho || isRejeitada);
               const podeCancelarNota =
                 viewMode !== "EMITIDAS_TERCEIROS" &&
@@ -710,6 +716,14 @@ export default function FiscalTable({
                         <span className="font-medium ">
                           {nota.modelo} {nota.numero}
                         </span>
+                        {numeroProvisorio ? (
+                          <span
+                            className="text-xs text-muted-foreground"
+                            title="O número definitivo é atribuído no envio para a SEFAZ."
+                          >
+                            nº provisório
+                          </span>
+                        ) : null}
                         {nota.serie ? <Badge variant="outline">Série {nota.serie}</Badge> : null}
                         {nota.xmlStatusLabel ? (
                           <Badge variant="outline" className={xmlStatusClass(nota.xmlStatus)}>
@@ -851,10 +865,10 @@ export default function FiscalTable({
                         {podeExcluirRascunho ? (
                           <DropdownMenuItem
                             className="text-destructive focus:text-destructive"
-                            onClick={() => excluirRascunho(nota.id)}
+                            onClick={() => excluirRascunho(nota.id, isRejeitada)}
                           >
                             <Trash2 className="mr-2 h-4 w-4" />
-                            Excluir rascunho
+                            {isRejeitada ? "Excluir nota rejeitada" : "Excluir rascunho"}
                           </DropdownMenuItem>
                         ) : null}
                         {podeCancelarNota ? (

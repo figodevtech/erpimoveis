@@ -93,3 +93,27 @@ describe("desconto geral editado na emissão", () => {
     assert.equal(parcelaDoDescontoNaNota(40, [100, 300]), 40);
   });
 });
+
+// O frete cobrado na venda vira vFrete item a item: o leiaute 4.00 não tem
+// frete de nota. `salvarNFeDeOrigem` distribui o valor confirmado na tela sobre
+// os itens emitidos com a mesma função do desconto — o que precisa valer é a
+// conservação do total, senão o vFrete do ICMSTot sai diferente do combinado.
+describe("frete da venda rateado nos itens da nota", () => {
+  it("distribui proporcionalmente ao líquido de cada item", () => {
+    assert.deepEqual(distribuirDinheiro(30, [200, 100]), [20, 10]);
+  });
+
+  it("conserva o total do frete mesmo com sobra de centavos", () => {
+    const rateio = distribuirDinheiro(10, [100, 100, 100]);
+    assert.deepEqual(rateio, [3.33, 3.33, 3.34]);
+    assert.equal(rateio.reduce((soma, parte) => soma + parte, 0), 10);
+  });
+
+  it("mantém o frete inteiro quando só um item vai para a nota", () => {
+    assert.deepEqual(distribuirDinheiro(45.9, [80]), [45.9]);
+  });
+
+  it("não inventa frete quando a venda não cobrou nenhum", () => {
+    assert.deepEqual(distribuirDinheiro(0, [100, 50]), [0, 0]);
+  });
+});
