@@ -554,12 +554,20 @@ function EventTable({
       <caption className="bg-neutral-200 px-3 py-1 text-left text-[7px] font-bold uppercase tracking-wide text-neutral-700">
         {SECTION_LABEL[section]}
       </caption>
+      {/* O colgroup é quem fixa a largura sob table-fixed; classe no <th>
+          perde para o conteúdo quando o rótulo é maior que a coluna. */}
+      <colgroup>
+        <col style={{ width: "18mm" }} />
+        <col />
+        <col style={{ width: "20mm" }} />
+        <col style={{ width: "30mm" }} />
+      </colgroup>
       <thead>
         <tr className="bg-neutral-100 text-left uppercase">
-          <Th className="w-[18mm]">Código</Th>
+          <Th>Código</Th>
           <Th>Descrição</Th>
-          <Th className="w-[20mm] text-right">{SECTION_THIRD_COLUMN[section]}</Th>
-          <Th className="w-[30mm] text-right">Valor</Th>
+          <Th className="text-right">{SECTION_THIRD_COLUMN[section]}</Th>
+          <Th className="text-right">Valor</Th>
         </tr>
       </thead>
       <tbody>
@@ -643,7 +651,7 @@ function Kpi({ label, value, tone }: { label: string; value: string; tone: strin
   return <div><div className="uppercase text-neutral-500">{label}</div><div className={`font-bold ${tone}`}>{value}</div></div>;
 }
 function Th({ children, className = "" }: React.PropsWithChildren<{ className?: string }>) {
-  return <th className={`border-x border-neutral-200 px-2 py-1 ${className}`}>{children}</th>;
+  return <th className={`truncate border-x border-neutral-200 px-2 py-1 ${className}`}>{children}</th>;
 }
 function Td({ children, className = "", colSpan }: React.PropsWithChildren<{ className?: string; colSpan?: number }>) {
   return <td colSpan={colSpan} className={`border-x border-neutral-200 px-2 py-1 align-middle ${className}`}>{children}</td>;

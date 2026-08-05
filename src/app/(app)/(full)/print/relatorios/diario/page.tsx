@@ -240,11 +240,11 @@ export default async function RelatorioDiarioPrintPage({ searchParams }: PagePro
       vazio: "Nenhuma OS aberta no período.",
       aviso: cortada(osCriadas),
       colunas: [
-        { titulo: "OS", largura: "w-[14mm]" },
-        { titulo: "Abertura", largura: "w-[22mm]" },
+        { titulo: "OS", largura: "14mm" },
+        { titulo: "Abertura", largura: "22mm" },
         { titulo: "Cliente / veículo" },
-        { titulo: "Status", largura: "w-[30mm]" },
-        { titulo: "Orçamento", largura: "w-[28mm]", direita: true },
+        { titulo: "Status", largura: "30mm" },
+        { titulo: "Orçamento", largura: "28mm", direita: true },
       ],
       linhas: osCriadas.map((row: any) => {
         const cliente = relationOne<any>(row.cliente);
@@ -277,11 +277,11 @@ export default async function RelatorioDiarioPrintPage({ searchParams }: PagePro
       vazio: "Nenhuma OS concluída no período.",
       aviso: cortada(osConcluidas),
       colunas: [
-        { titulo: "OS", largura: "w-[14mm]" },
-        { titulo: "Conclusão", largura: "w-[22mm]" },
+        { titulo: "OS", largura: "14mm" },
+        { titulo: "Conclusão", largura: "22mm" },
         { titulo: "Cliente" },
-        { titulo: "Status", largura: "w-[30mm]" },
-        { titulo: "Orçamento", largura: "w-[28mm]", direita: true },
+        { titulo: "Status", largura: "30mm" },
+        { titulo: "Orçamento", largura: "28mm", direita: true },
       ],
       linhas: osConcluidas.map((row: any) => ({
         chave: `osc-${row.id}`,
@@ -307,11 +307,11 @@ export default async function RelatorioDiarioPrintPage({ searchParams }: PagePro
       vazio: "Nenhuma venda no período.",
       aviso: cortada(vendas),
       colunas: [
-        { titulo: "Venda", largura: "w-[16mm]" },
-        { titulo: "Data", largura: "w-[22mm]" },
+        { titulo: "Venda", largura: "16mm" },
+        { titulo: "Data", largura: "22mm" },
         { titulo: "Cliente / vendedor" },
-        { titulo: "Status", largura: "w-[28mm]" },
-        { titulo: "Valor", largura: "w-[28mm]", direita: true },
+        { titulo: "Status", largura: "28mm" },
+        { titulo: "Valor", largura: "28mm", direita: true },
       ],
       linhas: vendas.map((row: any) => ({
         chave: `venda-${row.id}`,
@@ -340,11 +340,11 @@ export default async function RelatorioDiarioPrintPage({ searchParams }: PagePro
       vazio: "Nenhuma transação no período.",
       aviso: cortada(transacoes),
       colunas: [
-        { titulo: "ID", largura: "w-[14mm]" },
-        { titulo: "Data", largura: "w-[22mm]" },
+        { titulo: "ID", largura: "14mm" },
+        { titulo: "Data", largura: "22mm" },
         { titulo: "Descrição" },
-        { titulo: "Situação", largura: "w-[24mm]" },
-        { titulo: "Valor", largura: "w-[30mm]", direita: true },
+        { titulo: "Situação", largura: "24mm" },
+        { titulo: "Valor", largura: "30mm", direita: true },
       ],
       linhas: transacoes.map((row: any) => {
         const entrada = isEntrada(row);
@@ -366,8 +366,11 @@ export default async function RelatorioDiarioPrintPage({ searchParams }: PagePro
       rodape: [
         { principal: "Realizadas", forte: true },
         { principal: "" },
-        { principal: `${realizadas.length} de ${transacoes.length} lançamento(s)` },
-        { principal: `+ ${money(receitas)}`, tom: "positivo", forte: true },
+        {
+          principal: `${realizadas.length} de ${transacoes.length} lançamento(s)`,
+          apoio: `Receitas + ${money(receitas)} · Despesas - ${money(despesas)}`,
+        },
+        { principal: "Saldo" },
         { principal: money(receitas - despesas), tom: receitas - despesas >= 0 ? "destaque" : "negativo", forte: true },
       ],
     },
@@ -377,11 +380,11 @@ export default async function RelatorioDiarioPrintPage({ searchParams }: PagePro
       vazio: "Nenhuma entrada registrada no período.",
       aviso: cortada(entradas),
       colunas: [
-        { titulo: "Entrada", largura: "w-[16mm]" },
-        { titulo: "Data", largura: "w-[22mm]" },
+        { titulo: "Entrada", largura: "16mm" },
+        { titulo: "Data", largura: "22mm" },
         { titulo: "Fornecedor" },
-        { titulo: "Tipo", largura: "w-[30mm]" },
-        { titulo: "Situação", largura: "w-[26mm]", direita: true },
+        { titulo: "Tipo", largura: "30mm" },
+        { titulo: "Situação", largura: "26mm", direita: true },
       ],
       linhas: entradas.map((row: any) => ({
         chave: `entrada-${row.id}`,
@@ -410,11 +413,11 @@ export default async function RelatorioDiarioPrintPage({ searchParams }: PagePro
       vazio: "Nenhum produto cadastrado no período.",
       aviso: cortada(produtos),
       colunas: [
-        { titulo: "Código", largura: "w-[16mm]" },
-        { titulo: "Data", largura: "w-[22mm]" },
+        { titulo: "Código", largura: "16mm" },
+        { titulo: "Data", largura: "22mm" },
         { titulo: "Produto" },
-        { titulo: "Estoque", largura: "w-[24mm]", direita: true },
-        { titulo: "Mínimo", largura: "w-[24mm]", direita: true },
+        { titulo: "Estoque", largura: "24mm", direita: true },
+        { titulo: "Mínimo", largura: "24mm", direita: true },
       ],
       linhas: produtos.map((row: any) => ({
         chave: `prod-${row.id}`,
@@ -440,11 +443,11 @@ export default async function RelatorioDiarioPrintPage({ searchParams }: PagePro
       vazio: "Nenhum usuário cadastrado no período.",
       aviso: cortada(usuarios),
       colunas: [
-        { titulo: "Data", largura: "w-[22mm]" },
+        { titulo: "Data", largura: "22mm" },
         { titulo: "Usuário" },
-        { titulo: "Perfil", largura: "w-[30mm]" },
-        { titulo: "Setor", largura: "w-[30mm]" },
-        { titulo: "Situação", largura: "w-[22mm]", direita: true },
+        { titulo: "Perfil", largura: "30mm" },
+        { titulo: "Setor", largura: "30mm" },
+        { titulo: "Situação", largura: "22mm", direita: true },
       ],
       linhas: usuarios.map((row: any) => ({
         chave: `user-${row.id}`,
@@ -470,11 +473,11 @@ export default async function RelatorioDiarioPrintPage({ searchParams }: PagePro
       vazio: "Nenhum cliente cadastrado no período.",
       aviso: cortada(clientes),
       colunas: [
-        { titulo: "Código", largura: "w-[16mm]" },
-        { titulo: "Data", largura: "w-[22mm]" },
+        { titulo: "Código", largura: "16mm" },
+        { titulo: "Data", largura: "22mm" },
         { titulo: "Cliente" },
-        { titulo: "Cidade", largura: "w-[36mm]" },
-        { titulo: "Situação", largura: "w-[22mm]", direita: true },
+        { titulo: "Cidade", largura: "36mm" },
+        { titulo: "Situação", largura: "22mm", direita: true },
       ],
       linhas: clientes.map((row: any) => ({
         chave: `cli-${row.id}`,
@@ -500,11 +503,11 @@ export default async function RelatorioDiarioPrintPage({ searchParams }: PagePro
       vazio: "Nenhum agendamento criado no período.",
       aviso: cortada(agendamentos),
       colunas: [
-        { titulo: "ID", largura: "w-[14mm]" },
-        { titulo: "Criado em", largura: "w-[22mm]" },
+        { titulo: "ID", largura: "14mm" },
+        { titulo: "Criado em", largura: "22mm" },
         { titulo: "Título / cliente" },
-        { titulo: "Início", largura: "w-[26mm]" },
-        { titulo: "Status", largura: "w-[26mm]", direita: true },
+        { titulo: "Início", largura: "26mm" },
+        { titulo: "Status", largura: "26mm", direita: true },
       ],
       linhas: agendamentos.map((row: any) => {
         const cliente = relationOne<any>(row.cliente);
@@ -536,11 +539,11 @@ export default async function RelatorioDiarioPrintPage({ searchParams }: PagePro
       titulo: "Documentos fiscais emitidos",
       vazio: "Nenhum documento fiscal emitido no período.",
       colunas: [
-        { titulo: "Documento", largura: "w-[20mm]" },
-        { titulo: "Data", largura: "w-[22mm]" },
+        { titulo: "Documento", largura: "20mm" },
+        { titulo: "Data", largura: "22mm" },
         { titulo: "Número / origem" },
-        { titulo: "Status", largura: "w-[28mm]" },
-        { titulo: "Valor", largura: "w-[28mm]", direita: true },
+        { titulo: "Status", largura: "28mm" },
+        { titulo: "Valor", largura: "28mm", direita: true },
       ],
       linhas: [
         ...nfes.map((row: any) => ({
@@ -670,22 +673,35 @@ function TabelaSecao({ fatia }: { fatia: Fatia }) {
 
   return (
     <table className="w-full table-fixed border-collapse text-[7px]">
-      {/* Escala de cinza: faixa da seção > cabeçalho > linha ímpar > branco. */}
-      <caption className="flex items-baseline justify-between gap-2 bg-neutral-200 px-2 py-1 text-left text-[7px] font-bold uppercase tracking-wide text-neutral-700">
-        <span>
-          {secao.titulo}
-          {continuacao && <span className="font-normal normal-case text-neutral-500"> (continuação)</span>}
-        </span>
-        {secao.aviso && !continuacao && (
-          <span className="font-normal normal-case text-neutral-500">{secao.aviso}</span>
-        )}
-      </caption>
+      {/* O colgroup é quem fixa a largura sob table-fixed; classe no <th>
+          perde para o conteúdo quando o rótulo é maior que a coluna. */}
+      <colgroup>
+        {secao.colunas.map((coluna) => (
+          <col key={coluna.titulo} style={coluna.largura ? { width: coluna.largura } : undefined} />
+        ))}
+      </colgroup>
+      {/* Escala de cinza: faixa da seção > cabeçalho > linha ímpar > branco.
+          O título é uma linha de colSpan, e não um <caption>: caption estilizado
+          sai do fluxo da tabela e encolhe para a largura da primeira coluna. */}
       <thead>
+        <tr className="bg-neutral-200 text-left uppercase text-neutral-700">
+          <th colSpan={secao.colunas.length} className="px-2 py-1 font-bold tracking-wide">
+            <div className="flex items-baseline justify-between gap-2">
+              <span>
+                {secao.titulo}
+                {continuacao && <span className="font-normal normal-case text-neutral-500"> (continuação)</span>}
+              </span>
+              {secao.aviso && !continuacao && (
+                <span className="font-normal normal-case text-neutral-500">{secao.aviso}</span>
+              )}
+            </div>
+          </th>
+        </tr>
         <tr className="bg-neutral-100 text-left uppercase">
           {secao.colunas.map((coluna) => (
             <th
               key={coluna.titulo}
-              className={`border-x border-neutral-200 px-2 py-1 ${coluna.largura ?? ""} ${coluna.direita ? "text-right" : ""}`}
+              className={`truncate border-x border-neutral-200 px-2 py-1 ${coluna.direita ? "text-right" : ""}`}
             >
               {coluna.titulo}
             </th>

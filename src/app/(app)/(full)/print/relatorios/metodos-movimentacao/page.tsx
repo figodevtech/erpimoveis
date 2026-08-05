@@ -205,13 +205,22 @@ export default async function MetodosMovimentacaoPrintPage({ searchParams }: Pag
                 )}
 
                 <table className="w-full table-fixed border-collapse text-[7px]">
+                  {/* O colgroup é quem fixa a largura sob table-fixed; classe no
+                      <th> perde para o conteúdo quando o rótulo é maior. */}
+                  <colgroup>
+                    <col />
+                    <col style={{ width: "22mm" }} />
+                    <col style={{ width: "30mm" }} />
+                    <col style={{ width: "30mm" }} />
+                    <col style={{ width: "32mm" }} />
+                  </colgroup>
                   <thead>
                     <tr className="bg-neutral-100 text-left uppercase">
                       <Th>Método de pagamento</Th>
-                      <Th className="w-[22mm] text-right">Lançamentos</Th>
-                      <Th className="w-[30mm] text-right">Entradas</Th>
-                      <Th className="w-[30mm] text-right">Saídas</Th>
-                      <Th className="w-[32mm] text-right">Saldo</Th>
+                      <Th className="text-right">Lançamentos</Th>
+                      <Th className="text-right">Entradas</Th>
+                      <Th className="text-right">Saídas</Th>
+                      <Th className="text-right">Saldo</Th>
                     </tr>
                   </thead>
                   <tbody>
@@ -264,7 +273,7 @@ export default async function MetodosMovimentacaoPrintPage({ searchParams }: Pag
 }
 
 function Th({ children, className = "" }: React.PropsWithChildren<{ className?: string }>) {
-  return <th className={`border-x border-neutral-200 px-2 py-1 ${className}`}>{children}</th>;
+  return <th className={`truncate border-x border-neutral-200 px-2 py-1 ${className}`}>{children}</th>;
 }
 function Td({ children, className = "", colSpan }: React.PropsWithChildren<{ className?: string; colSpan?: number }>) {
   return <td colSpan={colSpan} className={`border-x border-neutral-200 px-2 py-1 align-middle ${className}`}>{children}</td>;

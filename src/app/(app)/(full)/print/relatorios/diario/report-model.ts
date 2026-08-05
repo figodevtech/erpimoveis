@@ -5,7 +5,11 @@ export type Tom = "neutro" | "positivo" | "negativo" | "destaque";
 
 export type Coluna = {
   titulo: string;
-  /** Largura fixa em mm; sem isso a coluna absorve a sobra da folha. */
+  /**
+   * Largura CSS (ex.: "22mm") aplicada no <colgroup>. Sem isso a coluna
+   * absorve a sobra da folha. Vai no colgroup, e não em classe no <th>,
+   * porque com table-fixed é o colgroup que manda de fato.
+   */
   largura?: string;
   direita?: boolean;
 };

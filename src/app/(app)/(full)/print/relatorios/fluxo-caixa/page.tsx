@@ -227,14 +227,24 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
                 )}
 
                 <table className="w-full table-fixed border-collapse text-[7px]">
+                  {/* O colgroup é quem fixa a largura sob table-fixed; classe no
+                      <th> perde para o conteúdo quando o rótulo é maior. */}
+                  <colgroup>
+                    <col style={{ width: "20mm" }} />
+                    <col />
+                    <col style={{ width: "28mm" }} />
+                    <col style={{ width: "24mm" }} />
+                    <col style={{ width: "22mm" }} />
+                    <col style={{ width: "28mm" }} />
+                  </colgroup>
                   <thead>
                     <tr className="bg-neutral-100 text-left uppercase">
-                      <Th className="w-[20mm]">Data</Th>
+                      <Th>Data</Th>
                       <Th>Descrição</Th>
-                      <Th className="w-[28mm]">Categoria</Th>
-                      <Th className="w-[24mm]">Origem</Th>
-                      <Th className="w-[22mm]">Situação</Th>
-                      <Th className="w-[28mm] text-right">Valor</Th>
+                      <Th>Categoria</Th>
+                      <Th>Origem</Th>
+                      <Th>Situação</Th>
+                      <Th className="text-right">Valor</Th>
                     </tr>
                   </thead>
                   <tbody>
@@ -329,7 +339,7 @@ function Sub({ children }: React.PropsWithChildren) {
   return <div className="truncate text-[6px] text-neutral-500">{children}</div>;
 }
 function Th({ children, className = "" }: React.PropsWithChildren<{ className?: string }>) {
-  return <th className={`border-x border-neutral-200 px-2 py-1 ${className}`}>{children}</th>;
+  return <th className={`truncate border-x border-neutral-200 px-2 py-1 ${className}`}>{children}</th>;
 }
 function Td({ children, className = "", colSpan }: React.PropsWithChildren<{ className?: string; colSpan?: number }>) {
   return <td colSpan={colSpan} className={`border-x border-neutral-200 px-2 py-1 align-middle ${className}`}>{children}</td>;
