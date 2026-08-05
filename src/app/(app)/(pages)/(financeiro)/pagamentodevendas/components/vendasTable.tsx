@@ -39,6 +39,8 @@ import {
   PaymentsFilterSheet,
 } from "../../components/payments-filter-sheet";
 import { resumirBaixas } from "../../components/payment-settler";
+import { resumirPagamentos } from "../../components/payment-totals";
+import { TotalPago } from "../../components/total-pago";
 
 interface OsTableProps {
   vendas: VendaComItens[];
@@ -197,6 +199,7 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
               <TableCell>Cliente</TableCell>
               <TableCell>Data</TableCell>
               <TableCell>Valor Total</TableCell>
+              <TableCell>Pago</TableCell>
               <TableCell>Baixa por</TableCell>
               <TableCell>Status</TableCell>
               <TableCell></TableCell>
@@ -214,6 +217,7 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
                   v.acrescimo_financeiro_tipo,
                   v.acrescimo_financeiro_valor,
                 );
+                const pagamentos = resumirPagamentos(v.transacoes);
                 const baixa = resumirBaixas(v.transacoes);
 
                 return (
@@ -224,6 +228,9 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
                     <TableCell>{v.cliente.nomerazaosocial}</TableCell>
                     <TableCell>{formatDate(v.datavenda)}</TableCell>
                     <TableCell>{formatarEmReal(totalFinanceiro)}</TableCell>
+                    <TableCell className="text-blue-300 not-dark:text-blue-700 font-bold">
+                      <TotalPago resumo={pagamentos} />
+                    </TableCell>
                     <TableCell
                       className="max-w-[160px] truncate"
                       title={baixa ? baixa.todos.join(", ") : undefined}
@@ -241,8 +248,10 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
                     </TableCell>
                     <TableCell>
                       {totalFinanceiro > 0 ? (
-                        (v.transacoes?.reduce((total, transaction) => total + Number(transaction?.valor ?? 0), 0) ?? 0) <
-                        totalFinanceiro ? (
+                        // Mesma base da coluna "Pago": o bruto dos recebimentos
+                        // reais. Antes somava toda transacao ligada a venda,
+                        // inclusive despesa, estorno apagado e evento financeiro.
+                        pagamentos.bruto < totalFinanceiro ? (
                           <Badge variant="secondary" className="font-bold text-amber-400">
                             Pagamento
                           </Badge>

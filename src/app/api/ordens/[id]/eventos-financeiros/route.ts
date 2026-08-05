@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { requireOSAccess, requireOSEdit } from "@/app/api/_authz/perms";
+import { requireOSAccess, requireOSEdit, requireOSEventosFinanceiros } from "@/app/api/_authz/perms";
 
 type Params = { id: string };
 
@@ -13,6 +13,7 @@ function idValido(value: string) {
 export async function GET(_: NextRequest, { params }: { params: Promise<Params> }) {
   try {
     await requireOSAccess();
+    await requireOSEventosFinanceiros();
     const osId = idValido((await params).id);
     if (!osId) return NextResponse.json({ error: "ID inválido." }, { status: 400 });
 
@@ -41,6 +42,7 @@ export async function GET(_: NextRequest, { params }: { params: Promise<Params> 
 export async function POST(req: NextRequest, { params }: { params: Promise<Params> }) {
   try {
     await requireOSEdit();
+    await requireOSEventosFinanceiros();
     const osId = idValido((await params).id);
     if (!osId) return NextResponse.json({ error: "ID inválido." }, { status: 400 });
     const { data: os, error: osError } = await supabaseAdmin

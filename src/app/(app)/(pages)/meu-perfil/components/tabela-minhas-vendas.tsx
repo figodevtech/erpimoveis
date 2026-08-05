@@ -129,7 +129,9 @@ export function TabelaMinhasVendas({ periodo, ativo }: { periodo: Periodo; ativo
                                   {item.unidade ? ` ${item.unidade}` : ""} ×{" "}
                                   {formatarMoeda(item.valorUnitario)}
                                 </span>
-                                <span className="w-28 text-right font-medium tabular-nums">
+                                {/* `ml-auto`: quando a linha quebra, o valor
+                                    continua ancorado a direita. */}
+                                <span className="ml-auto w-28 text-right font-medium tabular-nums">
                                   {formatarMoeda(item.valorTotal)}
                                 </span>
                               </li>

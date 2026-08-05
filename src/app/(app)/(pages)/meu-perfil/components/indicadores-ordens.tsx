@@ -56,7 +56,7 @@ function montar(dados: IndicadoresOrdens): Tile[] {
   ];
 }
 
-const GRADE = "grid gap-2 sm:grid-cols-2 xl:grid-cols-4";
+const GRADE = "grid grid-cols-2 gap-2 xl:grid-cols-4";
 
 export function IndicadoresDeOrdens({
   dados,
@@ -104,7 +104,7 @@ export function IndicadoresDeOrdens({
             <NumeroAnimado
               valor={tile.valor}
               formatar={formatarMoeda}
-              className="mt-0.5 block text-lg font-semibold tabular-nums"
+              className="mt-0.5 block truncate text-base font-semibold tabular-nums sm:text-lg"
             />
           </div>
         );

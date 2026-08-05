@@ -81,7 +81,7 @@ function BlocoDeItens({
                   {formatarQuantidade(item.quantidade)}
                   {item.unidade ? ` ${item.unidade}` : ""} × {formatarMoeda(item.valorUnitario)}
                 </span>
-                <span className="w-28 text-right font-medium tabular-nums">
+                <span className="ml-auto w-28 text-right font-medium tabular-nums">
                   {formatarMoeda(item.subtotal)}
                 </span>
               </motion.li>

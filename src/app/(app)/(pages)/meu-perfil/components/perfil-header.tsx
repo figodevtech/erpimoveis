@@ -16,8 +16,10 @@ function iniciais(nome: string | null): string {
   return `${primeira}${ultima}`.toUpperCase();
 }
 
+// Linha unica tambem no celular: empilhado, o avatar sozinho custava uma faixa
+// inteira de altura antes do primeiro dado util.
 const MOLDURA =
-  "relative flex flex-col gap-4 overflow-hidden rounded-lg border bg-card p-4 sm:flex-row sm:items-center";
+  "relative flex items-center gap-3 overflow-hidden rounded-lg border bg-card p-3 sm:gap-4 sm:p-4";
 
 export function PerfilHeader({ perfil, carregando }: { perfil: MeuPerfil | null; carregando: boolean }) {
   return (
@@ -30,10 +32,10 @@ export function PerfilHeader({ perfil, carregando }: { perfil: MeuPerfil | null;
           animate={{ opacity: 1 }}
           exit={{ opacity: 0, transition: SAIDA }}
         >
-          <Skeleton className="size-14 rounded-full" />
-          <div className="grid gap-2">
-            <Skeleton className="h-5 w-48" />
-            <Skeleton className="h-4 w-64" />
+          <Skeleton className="size-12 shrink-0 rounded-full sm:size-14" />
+          <div className="grid min-w-0 flex-1 gap-2">
+            <Skeleton className="h-5 w-full max-w-48" />
+            <Skeleton className="h-4 w-full max-w-64" />
           </div>
         </motion.header>
       ) : (
@@ -55,19 +57,19 @@ export function PerfilHeader({ perfil, carregando }: { perfil: MeuPerfil | null;
             initial={{ scale: 0.6, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={MOLA}
-            className="relative flex size-14 shrink-0 items-center justify-center rounded-full bg-primary/10 text-lg font-semibold text-primary ring-1 ring-primary/20"
+            className="relative flex size-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-base font-semibold text-primary ring-1 ring-primary/20 sm:size-14 sm:text-lg"
           >
             {iniciais(perfil?.nome ?? null)}
           </motion.div>
 
           <div className="relative min-w-0 flex-1">
-            <motion.h1 variants={itemQueSobe} className="truncate text-xl font-semibold">
+            <motion.h1 variants={itemQueSobe} className="truncate text-lg font-semibold sm:text-xl">
               {perfil?.nome ?? "Meu perfil"}
             </motion.h1>
 
             <motion.div
               variants={itemQueSobe}
-              className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground"
+              className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground sm:text-sm"
             >
               {perfil?.email && (
                 <span className="flex min-w-0 items-center gap-1.5">
@@ -95,7 +97,7 @@ export function PerfilHeader({ perfil, carregando }: { perfil: MeuPerfil | null;
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={MOLA_SUAVE}
-              className="relative"
+              className="relative shrink-0"
             >
               <Badge variant="destructive" className="w-fit">
                 Inativo

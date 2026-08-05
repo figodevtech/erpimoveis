@@ -298,6 +298,24 @@ export async function requireExecucaoOSAccess() {
 export async function requireOSCreate() {
   return requirePerm(PERMS.ORDENS_CRIAR);
 }
+export async function hasOSRentabilidade() {
+  return hasPerm(PERMS.ORDENS_RENTABILIDADE);
+}
+export async function requireOSRentabilidade() {
+  return requirePerm(PERMS.ORDENS_RENTABILIDADE);
+}
+export async function hasOSFinalizarSemCobranca() {
+  return hasPerm(PERMS.ORDENS_FINALIZAR_SEM_COBRANCA);
+}
+export async function requireOSFinalizarSemCobranca() {
+  return requirePerm(PERMS.ORDENS_FINALIZAR_SEM_COBRANCA);
+}
+export async function hasOSEventosFinanceiros() {
+  return hasPerm(PERMS.ORDENS_EVENTOS_FINANCEIROS);
+}
+export async function requireOSEventosFinanceiros() {
+  return requirePerm(PERMS.ORDENS_EVENTOS_FINANCEIROS);
+}
 export async function requireOSEdit() {
   return requirePerm(PERMS.ORDENS_EDITAR);
 }

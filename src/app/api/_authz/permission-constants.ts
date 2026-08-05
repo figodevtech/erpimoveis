@@ -14,6 +14,9 @@ export const PERMS = {
   ORDENS_CRIAR: "ordens:criar",
   ORDENS_EDITAR: "ordens:editar",
   ORDENS_EXCLUIR: "ordens:excluir",
+  ORDENS_RENTABILIDADE: "ordens:rentabilidade",
+  ORDENS_EVENTOS_FINANCEIROS: "ordens:eventos_financeiros",
+  ORDENS_FINALIZAR_SEM_COBRANCA: "ordens:finalizar_sem_cobranca",
 
   ESTOQUE: "estoque:visualizar",
   ESTOQUE_CRIAR: "estoque:criar",

@@ -72,7 +72,9 @@ function montarCartoes(resumo: MeuResumo): Cartao[] {
   ];
 }
 
-const GRADE = "grid gap-3 sm:grid-cols-2 xl:grid-cols-4";
+// Duas colunas ja no celular: em uma coluna os quatro cartoes empurravam as
+// abas para fora da primeira dobra.
+const GRADE = "grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4";
 
 export function ResumoCards({ resumo, carregando }: { resumo: MeuResumo | null; carregando: boolean }) {
   return (
@@ -87,8 +89,8 @@ export function ResumoCards({ resumo, carregando }: { resumo: MeuResumo | null; 
         >
           {Array.from({ length: 4 }).map((_, indice) => (
             <Card key={indice}>
-              <CardContent className="grid gap-2 p-4">
-                <Skeleton className="h-4 w-32" />
+              <CardContent className="grid gap-2 p-3 sm:p-4">
+                <Skeleton className="h-4 w-full max-w-32" />
                 <Skeleton className="h-7 w-16" />
                 <Skeleton className="h-4 w-24" />
               </CardContent>
@@ -130,17 +132,19 @@ export function ResumoCards({ resumo, carregando }: { resumo: MeuResumo | null; 
                     )}
                   />
 
-                  <CardContent className="relative grid gap-1 p-4">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm text-muted-foreground">{cartao.rotulo}</span>
+                  <CardContent className="relative grid gap-1 p-3 sm:p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-xs leading-snug text-muted-foreground sm:text-sm">
+                        {cartao.rotulo}
+                      </span>
                       <Icone className={cn("size-4 shrink-0", cartao.tom)} aria-hidden />
                     </div>
 
-                    <div className="flex items-baseline gap-2">
+                    <div className="flex flex-wrap items-baseline gap-x-2">
                       <NumeroAnimado
                         valor={cartao.quantidade}
                         formatar={inteiro}
-                        className="text-2xl font-semibold tabular-nums"
+                        className="text-xl font-semibold tabular-nums sm:text-2xl"
                       />
                       {cartao.parcial && (
                         <Tooltip>
@@ -157,12 +161,14 @@ export function ResumoCards({ resumo, carregando }: { resumo: MeuResumo | null; 
                     </div>
 
                     {cartao.valor === null ? (
-                      <span className="text-sm text-muted-foreground">{cartao.legenda}</span>
+                      <span className="text-xs leading-snug text-muted-foreground sm:text-sm">
+                        {cartao.legenda}
+                      </span>
                     ) : (
                       <NumeroAnimado
                         valor={cartao.valor}
                         formatar={formatarMoeda}
-                        className="text-sm text-muted-foreground tabular-nums"
+                        className="text-xs text-muted-foreground tabular-nums sm:text-sm"
                       />
                     )}
                   </CardContent>

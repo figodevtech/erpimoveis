@@ -48,14 +48,16 @@ export function PeriodoFilter({ periodo, onChange }: Props) {
       aria-label="Filtro de período"
       className="flex flex-col gap-3 rounded-lg border bg-card p-3 sm:flex-row sm:items-end sm:justify-between"
     >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-end">
         <div className="flex items-center gap-2 text-sm text-muted-foreground sm:mb-2">
           <CalendarRange className="size-4" aria-hidden />
           <span>Período</span>
         </div>
 
         <div className="grid grid-cols-2 gap-2 sm:flex sm:items-end">
-          <div className="grid gap-1.5">
+          {/* `min-w-0`: o input de data tem largura minima propria no iOS e sem
+              isso ele estoura a coluna da grade. */}
+          <div className="grid min-w-0 gap-1.5">
             <Label htmlFor="periodo-de" className="text-xs text-muted-foreground">
               De
             </Label>
@@ -69,7 +71,7 @@ export function PeriodoFilter({ periodo, onChange }: Props) {
             />
           </div>
 
-          <div className="grid gap-1.5">
+          <div className="grid min-w-0 gap-1.5">
             <Label htmlFor="periodo-ate" className="text-xs text-muted-foreground">
               Até
             </Label>
@@ -86,8 +88,10 @@ export function PeriodoFilter({ periodo, onChange }: Props) {
       </div>
 
       {/* Os atalhos formam um unico controle segmentado: a pilula do selecionado
-          desliza entre eles via layoutId, em vez de piscar de um para o outro. */}
-      <div className="flex flex-wrap gap-1 rounded-lg border bg-muted/40 p-1">
+          desliza entre eles via layoutId, em vez de piscar de um para o outro.
+          No celular viram uma grade 2x2 — em `flex-wrap` a ultima linha ficava
+          com sobras irregulares. */}
+      <div className="grid grid-cols-2 gap-1 rounded-lg border bg-muted/40 p-1 sm:flex sm:flex-wrap">
         {OPCOES.map((opcao) => {
           const alvo = opcao.calcular();
           const selecionado = periodo.de === alvo.de && periodo.ate === alvo.ate;

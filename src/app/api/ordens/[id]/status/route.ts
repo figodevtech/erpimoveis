@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { requireOSEdit } from "@/app/api/_authz/perms";
+import { requireOSEdit, requireOSFinalizarSemCobranca } from "@/app/api/_authz/perms";
 import {
   buscarModoBaixaEstoqueOS,
   consumirEstoqueOS,
@@ -72,6 +72,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
 
     if (!status) {
       return NextResponse.json({ error: "Status é obrigatório." }, { status: 400 });
+    }
+
+    // Finalizar sem cobranca exige permissao propria, alem de poder editar a OS.
+    if (semCobranca || status === "SEM_COBRANCA") {
+      await requireOSFinalizarSemCobranca();
     }
 
     const statusesBloqueadosPorAvulso: DBStatusOS[] = [
@@ -353,6 +358,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
     );
   } catch (err: any) {
     console.error("PUT /api/ordens/[id]/status", err);
-    return NextResponse.json({ error: err?.message || "Falha ao atualizar status" }, { status: 500 });
+    return NextResponse.json(
+      { error: err?.message || "Falha ao atualizar status" },
+      { status: err?.statusCode || 500 },
+    );
   }
 }

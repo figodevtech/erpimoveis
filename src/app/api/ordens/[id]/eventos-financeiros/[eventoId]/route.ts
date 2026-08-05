@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { requireOSEdit } from "@/app/api/_authz/perms";
+import { requireOSEdit, requireOSEventosFinanceiros } from "@/app/api/_authz/perms";
 
 type Params = { id: string; eventoId: string };
 const STATUS_FINAIS = new Set(["CONCLUIDO", "SEM_COBRANCA", "CANCELADO"]);
@@ -9,6 +9,7 @@ const STATUS_FINAIS = new Set(["CONCLUIDO", "SEM_COBRANCA", "CANCELADO"]);
 export async function PATCH(req: NextRequest, { params }: { params: Promise<Params> }) {
   try {
     await requireOSEdit();
+    await requireOSEventosFinanceiros();
     const { id, eventoId } = await params;
     const osId = Number(id);
     const eventId = Number(eventoId);

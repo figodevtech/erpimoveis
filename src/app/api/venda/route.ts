@@ -105,10 +105,12 @@ const VENDA_SELECT = `
   transacoes:transacao!transacao_vendaid_fkey (
     id,
     valor,
+    valorLiquido,
     data,
     tipo,
     pendente,
     is_deleted,
+    evento_financeiro_id,
     baixado_por
   ),
   itens:vendaproduto (

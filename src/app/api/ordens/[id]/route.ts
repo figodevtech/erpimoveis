@@ -5,7 +5,7 @@ export const revalidate = 0;
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
-import { requireOSEdit, requireOSAccess } from "@/app/api/_authz/perms";
+import { requireOSEdit, requireOSAccess, hasOSRentabilidade } from "@/app/api/_authz/perms";
 
 type Prioridade = "BAIXA" | "NORMAL" | "ALTA";
 type AlvoTipo = "VEICULO" | "PECA" | "EQUIPAMENTO";
@@ -70,7 +70,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
           "equipamento_ano",
           "equipamento_horimetro",
           "motivo_cancelamento",
-          "execucao_inicio_em"
+          "execucao_inicio_em",
+          "execucao_fim_em"
         ].join(",")
       )
       .eq("id", osId)
@@ -88,6 +89,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       statusaprovacao: string | null;
       descricao: string | null;
       execucao_inicio_em: string | null;
+      execucao_fim_em: string | null;
       dataentrada: string | null;
       datasaida: string | null;
       orcamentototal: number | null;
@@ -617,6 +619,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       statusaprovacao: osRow.statusaprovacao ?? null,
       prioridade: (osRow.prioridade ?? "NORMAL") as Prioridade,
       execucao_inicio_em: osRow.execucao_inicio_em ?? null,
+      // Fim do andamento: gravado quando o ultimo servico da execucao e
+      // finalizado e a OS vai para PAGAMENTO. E a "entrega" do cabecalho.
+      execucao_fim_em: osRow.execucao_fim_em ?? null,
       dataentrada: osRow.dataentrada ?? null,
       datasaida: osRow.datasaida ?? null,
       alvo_tipo: (osRow.alvo_tipo ?? "VEICULO") as AlvoTipo,
@@ -646,8 +651,22 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       })),
     };
 
+    // Rentabilidade (custos, margens e transacoes da OS) so vai no payload para
+    // quem tem a permissao dedicada; sem ela a aba nao e exibida no front.
+    const podeVerRentabilidade = await hasOSRentabilidade();
+
     return NextResponse.json(
-      { os, cliente: os.cliente, itensProduto, itensProdutoAvulso, itensServico, checklist, aprovacoes, orcamento, transacoes, rentabilidade },
+      {
+        os,
+        cliente: os.cliente,
+        itensProduto,
+        itensProdutoAvulso,
+        itensServico,
+        checklist,
+        aprovacoes,
+        orcamento,
+        ...(podeVerRentabilidade ? { transacoes, rentabilidade } : {}),
+      },
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch (e: any) {

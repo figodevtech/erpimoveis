@@ -198,6 +198,7 @@ export async function GET(req: Request) {
             id,
             descricao,
             valor,
+            valorLiquido,
             data,
             metodopagamento,
             categoria,
@@ -384,6 +385,9 @@ export async function GET(req: Request) {
         id: Number(t.id),
         descricao: t.descricao as string,
         valor: Number(t.valor),
+        // Pagamento por maquineta guarda o liquido separado; a lista mostra os
+        // dois para a taxa de recebimento nao sumir do total pago.
+        valorLiquido: t.valorLiquido == null ? null : Number(t.valorLiquido),
         data: t.data as string,
         metodoPagamento: t.metodopagamento as string,
         categoria: t.categoria as string,

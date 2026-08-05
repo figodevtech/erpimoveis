@@ -10,10 +10,19 @@ import { cn } from "@/lib/utils";
 import { MOLA, MOLA_SUAVE } from "../lib/motion";
 import type { AbaCentral } from "../types";
 
-export const ABAS: Array<{ chave: AbaCentral; rotulo: string; icone: LucideIcon }> = [
-  { chave: "vendas", rotulo: "Vendas", icone: ShoppingCart },
-  { chave: "ordens", rotulo: "Ordens finalizadas", icone: ClipboardList },
-  { chave: "servicos", rotulo: "Serviços realizados", icone: Wrench },
+/**
+ * `rotuloCurto` existe so por causa do celular: os tres rotulos completos somam
+ * mais que a largura de uma tela de 360px e faziam a barra estourar a pagina.
+ */
+export const ABAS: Array<{
+  chave: AbaCentral;
+  rotulo: string;
+  rotuloCurto: string;
+  icone: LucideIcon;
+}> = [
+  { chave: "vendas", rotulo: "Vendas", rotuloCurto: "Vendas", icone: ShoppingCart },
+  { chave: "ordens", rotulo: "Ordens finalizadas", rotuloCurto: "Ordens", icone: ClipboardList },
+  { chave: "servicos", rotulo: "Serviços realizados", rotuloCurto: "Serviços", icone: Wrench },
 ];
 
 /** Distancia lateral de repouso de um painel inativo, em pixels. */
@@ -21,7 +30,9 @@ const DESLOCAMENTO = 28;
 
 export function ListaDeAbas({ ativa }: { ativa: AbaCentral }) {
   return (
-    <TabsList className="h-auto p-1">
+    // No celular a barra ocupa a linha inteira e divide o espaco entre as tres
+    // abas; a partir de `sm` ela volta a ter a largura do conteudo.
+    <TabsList className="h-auto w-full justify-start p-1 sm:w-fit">
       {ABAS.map((aba) => {
         const Icone = aba.icone;
         const selecionada = aba.chave === ativa;
@@ -31,7 +42,7 @@ export function ListaDeAbas({ ativa }: { ativa: AbaCentral }) {
             key={aba.chave}
             value={aba.chave}
             className={cn(
-              "relative gap-1.5 px-3 py-1.5",
+              "relative min-w-0 flex-1 gap-1.5 px-2 py-1.5 sm:flex-none sm:px-3",
               // O realce fica por conta da pilula animada abaixo.
               "data-[state=active]:border-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none",
               "dark:data-[state=active]:bg-transparent",
@@ -45,9 +56,10 @@ export function ListaDeAbas({ ativa }: { ativa: AbaCentral }) {
                 transition={MOLA}
               />
             )}
-            <span className="relative flex items-center gap-1.5">
-              <Icone className="size-4" aria-hidden />
-              {aba.rotulo}
+            <span className="relative flex min-w-0 items-center gap-1.5">
+              <Icone className="size-4 shrink-0" aria-hidden />
+              <span className="truncate sm:hidden">{aba.rotuloCurto}</span>
+              <span className="hidden truncate sm:inline">{aba.rotulo}</span>
             </span>
           </TabsTrigger>
         );

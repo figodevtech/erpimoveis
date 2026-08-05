@@ -38,6 +38,9 @@ const ACTION_LABELS: Record<string, string> = {
   criar: "Criar",
   editar: "Editar",
   excluir: "Excluir",
+  rentabilidade: "Ver rentabilidade",
+  eventos_financeiros: "Ver eventos financeiros",
+  finalizar_sem_cobranca: "Finalizar sem cobrança",
 };
 
 function formatModulo(nome: string) {

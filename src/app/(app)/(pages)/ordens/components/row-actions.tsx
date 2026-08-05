@@ -117,6 +117,10 @@ export function RowActions<TRow extends RowBase>({
   const config = useConfig();
   const canEdit = permissionSetHas((session?.user as any)?.permissoes, PERMS.ORDENS_EDITAR);
   const canFinanceiroEdit = permissionSetHas((session?.user as any)?.permissoes, PERMS.FINANCEIRO_EDITAR);
+  const canFinishNoCharge = permissionSetHas(
+    (session?.user as any)?.permissoes,
+    PERMS.ORDENS_FINALIZAR_SEM_COBRANCA,
+  );
   const st = String(row.status ?? "").toUpperCase();
 
   // ✅ finais: sem reset/cancelar
@@ -154,7 +158,7 @@ export function RowActions<TRow extends RowBase>({
   const showStart = canEdit && policy.showStart && st === "ORCAMENTO_APROVADO";
   const showSendToPayment = canEdit && policy.showSendToPayment && st === "EM_ANDAMENTO";
   const showReceivePayment = canFinanceiroEdit && policy.showReceivePayment && st === "PAGAMENTO";
-  const showFinishNoCharge = canEdit && st === "EM_ANDAMENTO";
+  const showFinishNoCharge = canEdit && canFinishNoCharge && st === "EM_ANDAMENTO";
 
   return (
     <DropdownMenu>

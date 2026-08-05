@@ -12,6 +12,7 @@ DialogTitle,
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
 AlertTriangle,
@@ -81,6 +82,9 @@ getOsAnexoCategoriaLabel,
 type OsAnexoCategoria,
 } from "@/lib/os-anexo-categorias";
 
+import { useSession } from "next-auth/react";
+
+import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { carregarDetalhesOS,listarUsuariosAtivos,type UsuarioAtivo } from "../../lib/api";
 import {
   arredondarMoeda,
@@ -137,6 +141,54 @@ function fmtPercent(value: number | null | undefined) {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   });
+}
+
+function rentabilidadeBadgeClass(percentual: number | null) {
+  if (percentual == null || !Number.isFinite(percentual)) {
+    return "border-border bg-muted/60 text-muted-foreground";
+  }
+  if (percentual > 50) {
+    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+  }
+  if (percentual < 0) {
+    return "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300";
+  }
+  return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+}
+
+function RentabilidadePercentualBadge({
+  rotulo,
+  percentual,
+  explicacao,
+}: {
+  rotulo: string;
+  percentual: number | null;
+  explicacao: string;
+}) {
+  const valorFormatado = percentual == null ? "—" : `${fmtPercent(percentual)}%`;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge
+          variant="outline"
+          tabIndex={0}
+          className={`${rentabilidadeBadgeClass(percentual)} cursor-help focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2`}
+          aria-label={`${rotulo}: ${valorFormatado}. Acesse para entender o cálculo.`}
+        >
+          {rotulo}: {valorFormatado}
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent
+        side="top"
+        sideOffset={8}
+        className="w-80 max-w-[calc(100vw-2rem)] px-3 py-2.5 text-left leading-relaxed"
+      >
+        <p className="font-semibold">Como interpretar</p>
+        <p className="mt-1 text-primary-foreground/85">{explicacao}</p>
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 function auditDotClass(tipo: AuditoriaResumoItem["tipo"]) {
@@ -206,7 +258,10 @@ type OS = {
   prioridade?: "ALTA" | "NORMAL" | "BAIXA" | null;
   dataentrada?: string | null;
   datasaidaprevista?: string | null;
+  /** Fechamento da OS: gravada quando ela e concluida. */
   datasaida?: string | null;
+  /** Entrega: fim do andamento, quando o ultimo servico da execucao e finalizado. */
+  execucao_fim_em?: string | null;
   motivocancelamento?: string | null;
   motivosemcobranca?: string | null;
   setor?: { id: number; nome: string } | null;
@@ -577,6 +632,11 @@ export function OSDetalhesDialog({
   onOpenChange: (v: boolean) => void;
   osId: number | null;
 }) {
+  const { data: session } = useSession();
+  const permissoesUsuario = (session?.user as any)?.permissoes;
+  const podeVerRentabilidade = permissionSetHas(permissoesUsuario, PERMS.ORDENS_RENTABILIDADE);
+  const podeVerEventosFinanceiros = permissionSetHas(permissoesUsuario, PERMS.ORDENS_EVENTOS_FINANCEIROS);
+
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<OSDetalhesResponse | null>(null);
 
@@ -644,11 +704,15 @@ export function OSDetalhesDialog({
       setLoading(true);
       const [j, eventosResponse, auditoriaResponse] = await Promise.all([
         carregarDetalhesOS<OSDetalhesResponse>(osId),
-        fetch(`/api/ordens/${osId}/eventos-financeiros`, { cache: "no-store" }),
+        podeVerEventosFinanceiros
+          ? fetch(`/api/ordens/${osId}/eventos-financeiros`, { cache: "no-store" })
+          : null,
         fetch(`/api/ordens/${osId}/auditoria-resumo`, { cache: "no-store" }),
       ]);
-      const eventosPayload = await eventosResponse.json().catch(() => ({}));
-      if (!eventosResponse.ok) throw new Error(eventosPayload?.error || "Erro ao carregar eventos financeiros");
+      const eventosPayload = eventosResponse ? await eventosResponse.json().catch(() => ({})) : {};
+      if (eventosResponse && !eventosResponse.ok) {
+        throw new Error(eventosPayload?.error || "Erro ao carregar eventos financeiros");
+      }
       const auditoriaPayload = await auditoriaResponse.json().catch(() => ({}));
       setData({
         ...j,
@@ -663,7 +727,7 @@ export function OSDetalhesDialog({
     } finally {
       setLoading(false);
     }
-  }, [osId]);
+  }, [osId, podeVerEventosFinanceiros]);
 
   useEffect(() => {
     if (canFetch) void recarregarDetalhes();
@@ -726,6 +790,12 @@ export function OSDetalhesDialog({
   useEffect(() => {
     if (open) setCurrentTab("resumo");
   }, [open, osId]);
+
+  // Se a permissao cair enquanto o dialog esta aberto, volta para uma aba visivel.
+  useEffect(() => {
+    if (currentTab === "rentabilidade" && !podeVerRentabilidade) setCurrentTab("resumo");
+    if (currentTab === "fluxo-os" && !podeVerEventosFinanceiros) setCurrentTab("resumo");
+  }, [currentTab, podeVerRentabilidade, podeVerEventosFinanceiros]);
 
   const titulo = useMemo(() => (data?.os?.id ? `Detalhes da OS #${data.os.id}` : "Detalhes da OS"), [data?.os?.id]);
 
@@ -798,6 +868,11 @@ export function OSDetalhesDialog({
     const despesa = fluxoOs.filter((item) => item.tipo === "SAIDA").reduce((soma, item) => soma + item.valor, 0);
     return { receita, despesa, liquido: receita - despesa };
   }, [fluxoOs]);
+  const percentualLucroReal = totaisEventos.receita > 0
+    ? (totaisEventos.liquido / totaisEventos.receita) * 100
+    : 0;
+  const lucroRealAcimaDeCinquenta = totaisEventos.liquido > 0 && percentualLucroReal > 50;
+  const lucroRealNegativo = totaisEventos.liquido < 0;
 
   async function adicionarEventoAvulso() {
     if (!osId) return;
@@ -1094,16 +1169,28 @@ export function OSDetalhesDialog({
                 </DialogDescription>
               </div>
 
-              <span className="grid grid-cols-2 gap-2 text-left sm:ml-auto sm:min-w-[260px] sm:text-right">
+              {/* Ordem cronologica da OS: chegou, saiu do andamento, fechou. */}
+              <span className="grid grid-cols-3 gap-2 text-left sm:ml-auto sm:min-w-[330px] sm:text-right">
                 <span className="rounded-md border bg-card px-2.5 py-1.5">
                   <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                     Entrada
                   </span>
                   <span className="block text-xs font-semibold text-foreground">{fmtDate(data?.os?.dataentrada)}</span>
                 </span>
-                <span className="rounded-md border bg-card px-2.5 py-1.5">
+                <span
+                  className="rounded-md border bg-card px-2.5 py-1.5"
+                  title="Quando o andamento foi finalizado"
+                >
                   <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Saída real
+                    Entrega
+                  </span>
+                  <span className="block text-xs font-semibold text-foreground">
+                    {fmtDate(data?.os?.execucao_fim_em)}
+                  </span>
+                </span>
+                <span className="rounded-md border bg-card px-2.5 py-1.5" title="Quando a OS foi finalizada">
+                  <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Fechamento
                   </span>
                   <span className="block text-xs font-semibold text-foreground">{fmtDate(data?.os?.datasaida)}</span>
                 </span>
@@ -1151,18 +1238,22 @@ export function OSDetalhesDialog({
                         Checklist
                       </span>
                     </TabsTrigger>
-                    <TabsTrigger value="rentabilidade" className={tabTriggerClass}>
-                      <span className="flex items-center gap-2">
-                        <Calculator className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
-                        Rentabilidade
-                      </span>
-                    </TabsTrigger>
-                    <TabsTrigger value="fluxo-os" className={tabTriggerClass}>
-                      <span className="flex items-center gap-2">
-                        <ListTree className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
-                        Eventos Financeiros
-                      </span>
-                    </TabsTrigger>
+                    {podeVerRentabilidade ? (
+                      <TabsTrigger value="rentabilidade" className={tabTriggerClass}>
+                        <span className="flex items-center gap-2">
+                          <Calculator className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                          Rentabilidade
+                        </span>
+                      </TabsTrigger>
+                    ) : null}
+                    {podeVerEventosFinanceiros ? (
+                      <TabsTrigger value="fluxo-os" className={tabTriggerClass}>
+                        <span className="flex items-center gap-2">
+                          <ListTree className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                          Eventos Financeiros
+                        </span>
+                      </TabsTrigger>
+                    ) : null}
                     <TabsTrigger value="anexos" className={tabTriggerClass}>
                       <span className="flex items-center gap-2">
                         <Paperclip className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
@@ -1607,6 +1698,7 @@ export function OSDetalhesDialog({
 
                 </TabsContent>
 
+                {podeVerRentabilidade ? (
                 <TabsContent value="rentabilidade" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-4 sm:px-6 sm:py-5">
                   {data.rentabilidade ? (
                     <>
@@ -1644,7 +1736,7 @@ export function OSDetalhesDialog({
                         ))}
                       </div> */}
 
-                      <div className="grid gap-3 md:grid-cols-2">
+                      {/* <div className="grid gap-3 md:grid-cols-2">
                         <div className="rounded-xl border bg-card p-4">
                           <p className="text-xs text-muted-foreground">Lucro previsto</p>
                           <p className="mt-1 text-2xl font-semibold">{fmtMoney(data.rentabilidade.lucroPrevisto)}</p>
@@ -1655,7 +1747,7 @@ export function OSDetalhesDialog({
                           <p className="mt-1 text-2xl font-semibold">{fmtMoney(data.rentabilidade.lucroRealizado)}</p>
                           <p className="text-xs text-muted-foreground">Margem {data.rentabilidade.margemRealizada.toFixed(2)}%</p>
                         </div>
-                      </div>
+                      </div> */}
 
                       {data.rentabilidade.itensCustoEstimado > 0 ? (
                         <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
@@ -1675,61 +1767,173 @@ export function OSDetalhesDialog({
                         </div>
                       ) : null}
 
-                      <div className="rounded-xl border bg-card p-4">
-                        <p className="font-medium">Rentabilidade por produto</p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Lucro bruto do item após descontos, antes das demais despesas da OS.
-                        </p>
-                        <div className="mt-3 space-y-2">
+                      <div className="rounded-xl border bg-card p-4 sm:p-5">
+                        <div className="flex items-start gap-3">
+                          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                            <Package className="size-4" aria-hidden="true" />
+                          </span>
+                          <div>
+                            <h3 className="font-medium text-pretty">Rentabilidade por produto</h3>
+                            <p className="mt-0.5 text-pretty text-xs text-muted-foreground">
+                              Compare o lucro bruto com o valor vendido e com o custo de compra.
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mt-4 space-y-3">
                           {data.rentabilidade.produtos.length ? (
-                            data.rentabilidade.produtos.map((produto) => (
-                              <div key={produto.produtoid} className="rounded-lg border p-3">
-                                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                  <div className="min-w-0">
-                                    <p className="truncate text-sm font-medium">{produto.descricao}</p>
-                                    <p className="text-xs text-muted-foreground">
-                                      {produto.quantidade} un. · Venda {fmtMoney(produto.receitaLiquida)} · Custo {fmtMoney(produto.custoTotal)}
-                                    </p>
+                            data.rentabilidade.produtos.map((produto) => {
+                              const lucroSobreVenda = produto.receitaLiquida > 0
+                                ? (produto.lucroBruto / produto.receitaLiquida) * 100
+                                : null;
+                              const lucroSobreCompra = produto.custoTotal > 0
+                                ? (produto.lucroBruto / produto.custoTotal) * 100
+                                : null;
+                              const explicacaoLucroSobreVenda = lucroSobreVenda == null
+                                ? "Não é possível calcular porque o valor da venda líquida é zero."
+                                : lucroSobreVenda < 0
+                                  ? `Este cálculo mostra que o produto teve prejuízo de ${fmtPercent(Math.abs(lucroSobreVenda))}% sobre o valor da venda. Dos ${fmtMoney(produto.receitaLiquida)} da venda do produto, o resultado ficou negativo em ${fmtMoney(Math.abs(produto.lucroBruto))}.`
+                                  : `Este cálculo mostra que ${fmtPercent(lucroSobreVenda)}% do valor da venda do produto é lucro bruto. ${fmtMoney(produto.lucroBruto)} dos ${fmtMoney(produto.receitaLiquida)} da venda do produto correspondem ao lucro.`;
+                              const explicacaoLucroSobreCompra = lucroSobreCompra == null
+                                ? "Não é possível calcular porque o custo de compra está zerado ou não foi informado."
+                                : lucroSobreCompra < 0
+                                  ? `Este cálculo mostra que o produto teve prejuízo de ${fmtPercent(Math.abs(lucroSobreCompra))}% sobre o valor da compra. Sobre o custo de ${fmtMoney(produto.custoTotal)}, o resultado ficou negativo em ${fmtMoney(Math.abs(produto.lucroBruto))}.`
+                                  : `Este cálculo mostra que o lucro equivale a ${fmtPercent(lucroSobreCompra)}% do valor da compra do produto. Sobre o custo de ${fmtMoney(produto.custoTotal)}, o lucro bruto foi de ${fmtMoney(produto.lucroBruto)}.`;
+
+                              return (
+                                <div
+                                  key={produto.produtoid}
+                                  className="overflow-hidden rounded-xl border bg-background shadow-sm"
+                                >
+                                  <div className="flex flex-col items-start gap-2 border-b bg-muted/30 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                                    <div className="min-w-0 w-full">
+                                      <p className="break-words text-sm font-semibold sm:truncate">{produto.descricao}</p>
+                                      <p className="mt-0.5 text-xs text-muted-foreground">{produto.quantidade} un.</p>
+                                    </div>
+                                    {produto.custoNaoInformado ? (
+                                      <Badge variant="outline" className="shrink-0 border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300">
+                                        Custo ausente
+                                      </Badge>
+                                    ) : produto.custoEstimado ? (
+                                      <Badge variant="outline" className="shrink-0 border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
+                                        Custo estimado
+                                      </Badge>
+                                    ) : null}
                                   </div>
-                                  <div className="text-left sm:text-right">
-                                    <p className="font-semibold">{fmtMoney(produto.lucroBruto)}</p>
-                                    <p className="text-xs text-muted-foreground">Margem {produto.margemBruta.toFixed(2)}%</p>
+
+                                  <div className="grid items-center gap-2 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)]">
+                                    <div className="rounded-lg border bg-card px-3 py-2.5">
+                                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Custo de compra</p>
+                                      <p className="mt-1 font-semibold tabular-nums">{fmtMoney(produto.custoTotal)}</p>
+                                    </div>
+                                    <ArrowDown className="mx-auto size-4 text-muted-foreground/60 sm:-rotate-90" aria-hidden="true" />
+                                    <div className="rounded-lg border bg-card px-3 py-2.5">
+                                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Venda líquida</p>
+                                      <p className="mt-1 font-semibold tabular-nums">{fmtMoney(produto.receitaLiquida)}</p>
+                                    </div>
+                                    <ArrowDown className="mx-auto size-4 text-muted-foreground/60 sm:-rotate-90" aria-hidden="true" />
+                                    <div className="rounded-lg border bg-card px-3 py-2.5">
+                                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Lucro bruto</p>
+                                      <p className={`mt-1 font-semibold tabular-nums ${
+                                        produto.lucroBruto < 0
+                                          ? "text-red-600 dark:text-red-400"
+                                          : produto.lucroBruto > 0
+                                            ? "text-emerald-600 dark:text-emerald-400"
+                                            : "text-muted-foreground"
+                                      }`}>
+                                        {fmtMoney(produto.lucroBruto)}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex flex-wrap gap-2 border-t bg-muted/15 px-4 py-3">
+                                    <RentabilidadePercentualBadge
+                                      rotulo="Lucro sobre venda"
+                                      percentual={lucroSobreVenda}
+                                      explicacao={explicacaoLucroSobreVenda}
+                                    />
+                                    <RentabilidadePercentualBadge
+                                      rotulo="Lucro sobre compra"
+                                      percentual={lucroSobreCompra}
+                                      explicacao={explicacaoLucroSobreCompra}
+                                    />
                                   </div>
                                 </div>
-                                {produto.custoNaoInformado ? (
-                                  <p className="mt-2 text-xs text-red-500">Custo não informado; cálculo provisório.</p>
-                                ) : produto.custoEstimado ? (
-                                  <p className="mt-2 text-xs text-amber-500">Custo estimado pelo último valor de compra atual.</p>
-                                ) : null}
-                              </div>
-                            ))
+                              );
+                            })
                           ) : (
                             <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">Nenhum produto nesta OS.</p>
                           )}
                         </div>
                       </div>
 
-                      <div className="rounded-xl border bg-card p-4">
-                        <p className="font-medium">Comissões por serviço</p>
-                        <div className="mt-3 space-y-2">
+                      <div className="rounded-xl border bg-card p-4 sm:p-5">
+                        <div className="flex items-start gap-3">
+                          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                            <Users className="size-4" aria-hidden="true" />
+                          </span>
+                          <div>
+                            <h3 className="font-medium text-pretty">Comissões por serviço</h3>
+                            <p className="mt-0.5 text-pretty text-xs text-muted-foreground">
+                              Valor do serviço, base de cálculo e comissão de cada realizador.
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mt-4 space-y-3">
                           {data.rentabilidade.comissoesServicos.some(
                             (servico) => servico.realizadores.length > 0,
                           ) ? (
                             data.rentabilidade.comissoesServicos
                               .filter((servico) => servico.realizadores.length > 0)
                               .map((servico) => (
-                                <div key={servico.servicoid} className="rounded-lg border p-3">
-                                  <div className="flex items-center justify-between gap-3">
-                                    <p className="truncate text-sm font-medium">{servico.descricao}</p>
-                                    <span className="font-medium">{fmtMoney(servico.valorComissao)}</span>
+                                <div key={servico.servicoid} className="overflow-hidden rounded-xl border bg-background shadow-sm">
+                                  <div className="flex items-center gap-3 border-b bg-muted/30 px-4 py-3">
+                                    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border bg-card text-muted-foreground">
+                                      <Wrench className="size-4" aria-hidden="true" />
+                                    </span>
+                                    <p className="min-w-0 truncate text-sm font-semibold">{servico.descricao}</p>
                                   </div>
-                                  <div className="mt-2 space-y-1">
-                                    {servico.realizadores.map((realizador) => (
-                                      <div key={realizador.usuarioid} className="flex justify-between gap-3 text-xs text-muted-foreground">
-                                        <span className="truncate">{realizador.nome || "Realizador"} · {realizador.percentual.toFixed(2)}%</span>
-                                        <span>{fmtMoney(realizador.valorComissao)}</span>
-                                      </div>
-                                    ))}
+
+                                  <div className="grid gap-3 px-4 py-3 sm:grid-cols-2">
+                                    <div className="rounded-lg border bg-card px-3 py-2.5">
+                                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Valor do serviço</p>
+                                      <p className="mt-1 font-semibold tabular-nums">{fmtMoney(servico.valorServico)}</p>
+                                    </div>
+                                    <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2.5">
+                                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Total de comissões</p>
+                                      <p className="mt-1 font-semibold tabular-nums text-amber-700 dark:text-amber-300">
+                                        {fmtMoney(servico.valorComissao)}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  <div className="border-t px-4 py-3">
+                                    <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      Comissões calculadas
+                                    </p>
+                                    <div className="space-y-2">
+                                      {servico.realizadores.map((realizador) => (
+                                        <div
+                                          key={realizador.usuarioid}
+                                          className="flex flex-col gap-2 rounded-lg bg-muted/35 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"
+                                        >
+                                          <div className="min-w-0">
+                                            <p className="truncate text-sm font-medium">{realizador.nome || "Realizador"}</p>
+                                            <p className="text-xs text-muted-foreground">
+                                              Base de cálculo: {fmtMoney(realizador.valorBase)}
+                                            </p>
+                                          </div>
+                                          <div className="flex items-center justify-between gap-3 sm:justify-end">
+                                            <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary">
+                                              {fmtPercent(realizador.percentual)}%
+                                            </Badge>
+                                            <div className="text-right">
+                                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Comissão</p>
+                                              <p className="text-sm font-semibold tabular-nums">{fmtMoney(realizador.valorComissao)}</p>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
                                   </div>
                                 </div>
                               ))
@@ -1786,7 +1990,9 @@ export function OSDetalhesDialog({
                     <p className="text-sm text-muted-foreground">Não foi possível calcular a rentabilidade.</p>
                   )}
                 </TabsContent>
+                ) : null}
 
+                {podeVerEventosFinanceiros ? (
                 <TabsContent value="fluxo-os" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-4 sm:px-6 sm:py-5">
                   <div className="grid gap-3 sm:grid-cols-3">
                     <div className="rounded-xl border bg-card p-4">
@@ -1797,11 +2003,58 @@ export function OSDetalhesDialog({
                       <div className="flex items-center gap-2 text-sm text-muted-foreground"><ArrowDown className="size-4 text-red-600" /> Despesas</div>
                       <p className="mt-2 text-xl font-semibold text-red-600">{fmtMoney(totaisEventos.despesa)}</p>
                     </div>
-                    <div className="rounded-xl border bg-card p-4">
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground"><Calculator className="size-4 text-primary" /> {osFinalizada ? "Lucro Real" : "Resultado Previsto"}</div>
-                      <p className={`mt-2 text-xl font-semibold ${totaisEventos.liquido < 0 ? "text-red-600" : "text-primary"}`}>
+                    <div className={`relative overflow-hidden rounded-xl border p-4 transition-colors ${
+                      osFinalizada
+                        ? lucroRealAcimaDeCinquenta
+                          ? "border-emerald-500/30 bg-emerald-500/5"
+                          : lucroRealNegativo
+                            ? "border-red-500/30 bg-red-500/5"
+                            : "border-amber-500/30 bg-amber-500/5"
+                        : "bg-card"
+                    }`}>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <span className={`flex size-8 items-center justify-center rounded-lg ${
+                            osFinalizada
+                              ? lucroRealAcimaDeCinquenta
+                                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                                : lucroRealNegativo
+                                  ? "bg-red-500/15 text-red-600 dark:text-red-400"
+                                  : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                              : "bg-primary/10 text-primary"
+                          }`}>
+                            <Calculator className="size-4" />
+                          </span>
+                          <span>{osFinalizada ? "Lucro Real" : "Resultado Previsto"}</span>
+                        </div>
+                        {osFinalizada ? (
+                          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums ${
+                            lucroRealAcimaDeCinquenta
+                              ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                              : lucroRealNegativo
+                                ? "bg-red-500/15 text-red-700 dark:text-red-300"
+                                : "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                          }`}>
+                            {fmtPercent(percentualLucroReal)}%
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className={`mt-3 text-2xl font-bold tabular-nums ${
+                        osFinalizada
+                          ? lucroRealAcimaDeCinquenta
+                            ? "text-emerald-600 dark:text-emerald-400"
+                            : lucroRealNegativo
+                              ? "text-red-600 dark:text-red-400"
+                              : "text-amber-600 dark:text-amber-400"
+                          : totaisEventos.liquido < 0
+                            ? "text-red-600"
+                            : "text-primary"
+                      }`}>
                         {fmtMoney(totaisEventos.liquido)}
                       </p>
+                      {osFinalizada ? (
+                        <p className="mt-1 text-xs text-muted-foreground">Margem sobre as receitas</p>
+                      ) : null}
                     </div>
                   </div>
 
@@ -2005,6 +2258,7 @@ export function OSDetalhesDialog({
                     </AlertDialogContent>
                   </AlertDialog>
                 </TabsContent>
+                ) : null}
 
                 <TabsContent value="checklist" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 sm:px-6 sm:py-5">
               {/* Checklist */}

@@ -38,6 +38,8 @@ import {
   PaymentsFilterSheet,
 } from "../../components/payments-filter-sheet";
 import { resumirBaixas } from "../../components/payment-settler";
+import { resumirPagamentos } from "../../components/payment-totals";
+import { TotalPago } from "../../components/total-pago";
 
 interface OsTableProps {
   ordens: Ordem[];
@@ -218,13 +220,10 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
                   o.acrescimo_financeiro_tipo,
                   o.acrescimo_financeiro_valor,
                 );
-                const totalPago = o.transacoes
-                  ?.filter((transacao) =>
-                    transacao.tipo === "RECEITA" &&
-                    transacao.evento_financeiro_id == null &&
-                    transacao.is_deleted !== true
-                  )
-                  .reduce((acc, transacao) => acc + Number(transacao.valor ?? 0), 0) ?? 0;
+                const pagamentos = resumirPagamentos(o.transacoes);
+                // A situacao continua no bruto: e ele que quita a OS, a taxa de
+                // recebimento e custo nosso, nao saldo devedor do cliente.
+                const totalPago = pagamentos.bruto;
                 const baixa = resumirBaixas(o.transacoes);
 
                 return (
@@ -236,7 +235,7 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
                     <TableCell>{o.cliente?.nome}</TableCell>
                     <TableCell>{o.setor?.nome}</TableCell>
                     <TableCell className=" text-blue-300 not-dark:text-blue-700 font-bold">
-                      {formatarEmReal(totalPago)}
+                      <TotalPago resumo={pagamentos} />
                     </TableCell>
                     <TableCell
                       className="max-w-[160px] truncate"
