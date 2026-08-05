@@ -101,6 +101,8 @@ type AssistedFiscalConfig = {
   indicadorPresenca: string;
   pagamentos: Array<{ meio: string; valor: number }>;
   modFrete: string;
+  /** Frete da nota inteira (vai para vFrete, rateado nos itens pelo servidor). */
+  valorFrete: number;
   transportadora: {
     documento: string;
     nome: string;
@@ -116,6 +118,7 @@ const defaultFiscalConfig: AssistedFiscalConfig = {
   indicadorPresenca: "1",
   pagamentos: [],
   modFrete: "9",
+  valorFrete: 0,
   transportadora: {
     documento: "",
     nome: "",
@@ -341,6 +344,10 @@ export function GerarNotaDeOsDialog({
         ...defaultFiscalConfig,
         ...productsJson.configuracao_fiscal,
         pagamentos: [],
+        // Frete cobrado na origem (hoje só a venda guarda um). Fica editável na
+        // tela: a nota pode sair com outro valor, ou ganhar frete que a origem
+        // não tinha.
+        valorFrete: Math.max(0, Number(productsJson.configuracao_fiscal?.valorFrete ?? 0)),
         transportadora: {
           ...defaultFiscalConfig.transportadora,
           ...productsJson.configuracao_fiscal?.transportadora,
@@ -404,12 +411,14 @@ export function GerarNotaDeOsDialog({
     [issuesByItem, selectedItems],
   );
   const readyCount = items.filter((item) => (issuesByItem.get(item.sourceItemId) ?? []).length === 0).length;
-  // Total já líquido do desconto: é o que vai virar vNF e o que os pagamentos
-  // precisam fechar.
-  const selectedTotal = selectedItems.reduce(
+  const freteDaNota = Math.max(0, fiscalConfig.valorFrete);
+  const totalItensSelecionados = selectedItems.reduce(
     (total, item) => total + Math.max(0, item.quantidade * item.valorUnitario - item.valorDesconto),
     0,
   );
+  // Total já líquido do desconto e com o frete: é o que vai virar vNF e o que os
+  // pagamentos precisam fechar.
+  const selectedTotal = totalItensSelecionados + freteDaNota;
   const selectedBruto = selectedItems.reduce(
     (total, item) => total + item.quantidade * item.valorUnitario,
     0,
@@ -670,6 +679,7 @@ export function GerarNotaDeOsDialog({
                   })),
                   transporte: {
                     modFrete: fiscalConfig.modFrete,
+                    valorFrete: freteDaNota,
                     transportadora: fiscalConfig.transportadora,
                   },
                 },
@@ -933,6 +943,27 @@ export function GerarNotaDeOsDialog({
                           </SelectContent>
                         </Select>
                       </div>
+                      <div className="min-w-0 space-y-1.5">
+                        <Label>Valor do frete</Label>
+                        <ValueInput
+                          price={fiscalConfig.valorFrete}
+                          setPrice={(valor) => setFiscalConfig((current) => ({
+                            ...current,
+                            valorFrete: Math.max(0, valor),
+                          }))}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          {origin === "VENDA"
+                            ? "Veio da venda e entra no total da NF-e (vFrete), rateado entre os produtos."
+                            : "Entra no total da NF-e (vFrete), rateado entre os produtos."}
+                        </p>
+                        {freteDaNota > 0 && fiscalConfig.modFrete === "9" ? (
+                          <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                            Com frete na nota, escolha a modalidade de quem paga — &quot;sem
+                            ocorrência de transporte&quot; não descreve esta operação.
+                          </p>
+                        ) : null}
+                      </div>
                     </div>
 
                     {fiscalConfig.pagamentos.length > 1 ? (
@@ -1128,6 +1159,9 @@ export function GerarNotaDeOsDialog({
                       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                         <span>Produtos: <b>{fmtMoney(selectedBruto)}</b></span>
                         <span>Desconto (vDesc): <b>- {fmtMoney(descontoTotalDaNota)}</b></span>
+                        {freteDaNota > 0 ? (
+                          <span>Frete (vFrete): <b>+ {fmtMoney(freteDaNota)}</b></span>
+                        ) : null}
                         <span>Total da NF-e: <b>{fmtMoney(selectedTotal)}</b></span>
                       </div>
                     </div>
