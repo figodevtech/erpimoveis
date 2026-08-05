@@ -53,6 +53,7 @@ import { LinkAprovacaoDialog } from "./dialogs/link-aprovacao-dialog";
 import { OSDetalhesDialog } from "./dialogs/detalhes-os-dialog";
 import { ChecklistDialog } from "./dialogs/checklist-dialog";
 import { ChecklistEditDialog } from "./dialogs/checklist-edit-dialog";
+import { RegistrarSaidaDialog } from "./dialogs/registrar-saida-dialog";
 import { RealizadoresOSDialog } from "./dialogs/realizadores-os-dialog";
 import { statusClasses, prioClasses, fmtDate, fmtDuration, useNowTick, safeStatus } from "./ordens-utils";
 import { RowActions } from "./row-actions";
@@ -523,6 +524,7 @@ export function OrdensTabela({
 
   const [checklistOpen, setChecklistOpen] = useState(false);
   const [checklistRow, setChecklistRow] = useState<OrdemComDatas | null>(null);
+  const [saidaRow, setSaidaRow] = useState<OrdemComDatas | null>(null);
 
   const [stoneDialogOpen, setStoneDialogOpen] = useState(false);
   const [stoneDialogRow, setStoneDialogRow] = useState<OrdemComDatas | null>(null);
@@ -1073,7 +1075,13 @@ export function OrdensTabela({
                         </TableCell>
 
                         <TableCell>{fmtDate((r as any).dataEntrada ?? (r as any).dataentrada)}</TableCell>
-                        <TableCell>{fmtDate((r as any).dataSaida ?? (r as any).datasaida)}</TableCell>
+                        <TableCell>
+                          {((r as any).dataSaida ?? (r as any).datasaida)
+                            ? fmtDate((r as any).dataSaida ?? (r as any).datasaida)
+                            : ["PAGAMENTO", "CONCLUIDO", "SEM_COBRANCA"].includes(String(r.status ?? "").toUpperCase())
+                              ? <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300">Saída não registrada</Badge>
+                              : "—"}
+                        </TableCell>
 
                         <TableCell>
                           <Badge className={statusClasses[st] ?? ""}>{st.replaceAll("_", " ")}</Badge>
@@ -1114,6 +1122,7 @@ export function OrdensTabela({
                             setStoneOpen={setStoneDialogOpen}
                             setEmissaoId={setEmissaoId}
                             setEmissaoOpen={setEmissaoOpen}
+                            onRegistrarSaida={setSaidaRow}
                           />
                         </TableCell>
                       </TableRow>
@@ -1734,6 +1743,12 @@ export function OrdensTabela({
             osId={checklistRow?.id ?? 0}
           />
         )}
+        <RegistrarSaidaDialog
+          open={saidaRow !== null}
+          onOpenChange={(value) => !value && setSaidaRow(null)}
+          osId={saidaRow?.id ?? 0}
+          onSuccess={() => window.dispatchEvent(new CustomEvent("os:refresh"))}
+        />
       </Card>
     </TooltipProvider>
   );
