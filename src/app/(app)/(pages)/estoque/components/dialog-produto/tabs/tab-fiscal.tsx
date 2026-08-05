@@ -61,14 +61,18 @@ export function TabFiscal({ produto, onChange }: Props) {
   const [setup, setSetup] = useState<FiscalSetup | null>(null);
 
   useEffect(() => {
-    const controller = new AbortController();
-    fetch("/api/nfe/emissao-assistida/setup", { cache: "no-store", signal: controller.signal })
+    let active = true;
+    fetch("/api/nfe/emissao-assistida/setup", { cache: "no-store" })
       .then(async (response) => (response.ok ? response.json() : null))
-      .then((data) => setSetup(data))
-      .catch((error) => {
-        if (error?.name !== "AbortError") setSetup(null);
+      .then((data) => {
+        if (active) setSetup(data);
+      })
+      .catch(() => {
+        if (active) setSetup(null);
       });
-    return () => controller.abort();
+    return () => {
+      active = false;
+    };
   }, []);
 
   const cstIcms = onlyDigits(String(produto.cst ?? ""));

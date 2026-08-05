@@ -55,6 +55,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { toast } from "@/lib/toast";
+import { MarketplaceChannelSwitcher } from "./marketplace-channel";
 
 type Account = {
   id: number;
@@ -3481,17 +3482,20 @@ export default function MarketplacePage() {
             <p className="truncate text-sm text-muted-foreground">Produtos, vendas, atendimento e desempenho do Mercado Livre.</p>
           </div>
         </div>
-        <div className="flex min-w-0 items-center gap-3 rounded-md border bg-card px-3 py-2 shadow-sm">
-          <div className={`h-2 w-2 shrink-0 rounded-full ${connected ? "bg-emerald-500" : "bg-orange-500"}`} />
-          <div className="min-w-0">
-            <div className="truncate text-sm font-medium">
-              {requiresReconnect ? "Sessão inválida" : activeAccount ? activeAccount.nickname || activeAccount.ml_user_id : "Conta desconectada"}
+        <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+          <MarketplaceChannelSwitcher />
+          <div className="flex min-w-0 items-center gap-3 rounded-md border bg-card px-3 py-2 shadow-sm">
+            <div className={`h-2 w-2 shrink-0 rounded-full ${connected ? "bg-emerald-500" : "bg-orange-500"}`} />
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium">
+                {requiresReconnect ? "Sessão inválida" : activeAccount ? activeAccount.nickname || activeAccount.ml_user_id : "Conta desconectada"}
+              </div>
+              <div className="truncate text-xs text-muted-foreground">
+                {activeAccount ? `Mercado Livre · User ID ${activeAccount.ml_user_id}` : "Configure a integração em Configurações Gerais"}
+              </div>
             </div>
-            <div className="truncate text-xs text-muted-foreground">
-              {activeAccount ? `Mercado Livre · User ID ${activeAccount.ml_user_id}` : "Configure a integração em Configurações Gerais"}
-            </div>
+            {connected && <Check className="h-4 w-4 shrink-0 text-emerald-600" />}
           </div>
-          {connected && <Check className="h-4 w-4 shrink-0 text-emerald-600" />}
         </div>
       </header>
 

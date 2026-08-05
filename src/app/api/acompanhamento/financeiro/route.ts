@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { PAYMENT_METHOD_OPTIONS } from "@/lib/payment-methods";
+import { getPaymentMethodValues } from "@/lib/payment-methods-server";
 
 type Origem = "OS" | "VENDA";
 
@@ -75,8 +75,6 @@ function agruparPagamentosExecutados(
   }));
 }
 
-const PAYMENT_METHOD_VALUES = new Set<string>(PAYMENT_METHOD_OPTIONS.map((option) => option.value));
-
 function parseValorMonetario(texto: string): number | null {
   const limpo = texto.replace(/[^\d,.-]/g, "");
   if (!limpo) return null;
@@ -94,14 +92,14 @@ function parseValorMonetario(texto: string): number | null {
  * se fosse o nome do método. Só quebra quando o trecho seguinte começa com um
  * método conhecido.
  */
-function separarMetodosPagamento(texto: string): string[] {
+function separarMetodosPagamento(texto: string, metodosValidos: Set<string>): string[] {
   const entradas: string[] = [];
   let atual = "";
 
   for (const trecho of texto.split(",")) {
     const candidato = trecho.trim().split(":")[0].trim().toUpperCase();
 
-    if (atual && PAYMENT_METHOD_VALUES.has(candidato)) {
+    if (atual && metodosValidos.has(candidato)) {
       entradas.push(atual.trim());
       atual = trecho;
     } else {
@@ -122,18 +120,19 @@ function parseFormaPagamentoTexto(
   raw: string | null | undefined,
   totalFallback: number,
   parcelasFallback: number | null,
+  metodosValidos: Set<string>,
 ): MetodoPagamentoResumo[] | null {
   const texto = String(raw ?? "").trim();
   if (!texto) return null;
 
-  const partes = separarMetodosPagamento(texto);
+  const partes = separarMetodosPagamento(texto, metodosValidos);
   if (!partes.length) return null;
 
   const entradas: MetodoPagamentoResumo[] = [];
   for (const parte of partes) {
     const [metodoBruto, ...valorPartes] = parte.split(":");
     const metodo = metodoBruto.trim().toUpperCase();
-    if (!PAYMENT_METHOD_VALUES.has(metodo)) {
+    if (!metodosValidos.has(metodo)) {
       // Texto legado nao reconhecido: mostra como veio, sem tentar separar valor.
       return [{ metodo: texto, valor: totalFallback, parcelas: parcelasFallback }];
     }
@@ -171,6 +170,7 @@ function errorResponse(error: any) {
 export async function GET(req: NextRequest) {
   try {
     await requireFinanceirosAccess();
+    const metodosPagamentoValidos = new Set(await getPaymentMethodValues());
 
     const { searchParams } = new URL(req.url);
     const setorId = numero(searchParams.get("setorId")) || null;
@@ -288,7 +288,12 @@ export async function GET(req: NextRequest) {
             valor: moeda(numero(item?.valor)),
             parcelas: item?.parcelas ?? null,
           }))
-        : parseFormaPagamentoTexto(ordem.forma_pagamento, total, ordem.parcelas_pagamento ?? null);
+        : parseFormaPagamentoTexto(
+            ordem.forma_pagamento,
+            total,
+            ordem.parcelas_pagamento ?? null,
+            metodosPagamentoValidos,
+          );
 
       cobrancas.push({
         chave: `OS-${ordem.id}`,
@@ -323,7 +328,12 @@ export async function GET(req: NextRequest) {
       const setorVenda = venda.vendedor_rel?.setor ?? null;
       if (setorId && Number(setorVenda?.id) !== setorId) continue;
 
-      const pagamentosPrevistos: MetodoPagamentoResumo[] | null = parseFormaPagamentoTexto(venda.forma_pagamento, total, null);
+      const pagamentosPrevistos: MetodoPagamentoResumo[] | null = parseFormaPagamentoTexto(
+        venda.forma_pagamento,
+        total,
+        null,
+        metodosPagamentoValidos,
+      );
 
       cobrancas.push({
         chave: `VENDA-${venda.id}`,

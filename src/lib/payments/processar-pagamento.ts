@@ -12,19 +12,21 @@ const CATEGORIA_TRANSACAO_ORDEM_SERVICO = "ORDEM DE SERVIÇO";
  * Mapeia o método do pagamento (texto livre da tabela `pagamento.metodo`)
  * para um valor VÁLIDO do enum `metodo_pagamento` da tabela `transacao`.
  *
- * Enum no banco: PIX, DEBITO, CREDITO, TRANSFERENCIA, BOLETO, DINHEIRO
+ * Enum no banco: PIX, DEBITO, CREDITO, TRANSFERENCIA, TED, DOC, BOLETO, DINHEIRO
  */
 function mapearMetodoPagamentoEnum(metodoBruto: any): string | null {
   if (!metodoBruto) return null;
 
   const s = String(metodoBruto).toUpperCase();
 
-  // Se já vier pronto (PIX, DEBITO, CREDITO, TRANSFERENCIA, BOLETO, DINHEIRO)
+  // Se já vier pronto para o enum do banco.
   if (
     s === "PIX" ||
     s === "DEBITO" ||
     s === "CREDITO" ||
     s === "TRANSFERENCIA" ||
+    s === "TED" ||
+    s === "DOC" ||
     s === "BOLETO" ||
     s === "DINHEIRO"
   ) {
@@ -360,7 +362,7 @@ async function criarTransacaoReceitaParaPagamento(pagamento: any) {
       valor,
       valorLiquido: valor,
       data: agoraIso,
-      metodopagamento: metodoEnum, // enum válido: PIX, DEBITO, CREDITO, TRANSFERENCIA, BOLETO, DINHEIRO
+      metodopagamento: metodoEnum,
       categoria: categoriaEnum, // enum categoria_transacao = 'ORDEM_SERVICO'
       tipo: TIPO_TRANSACAO_RECEITA, // "RECEITA"
       cliente_id: cliente.id,

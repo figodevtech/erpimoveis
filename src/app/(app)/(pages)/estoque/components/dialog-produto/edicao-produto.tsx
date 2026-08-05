@@ -162,6 +162,14 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
       );
 
       if (Object.keys(changes).length === 0) {
+        if (imagensHook.imagensPendentes.length > 0) {
+          await imagensHook.uploadPendentes();
+          return;
+        }
+        if (imagensHook.ordemAlterada) {
+          await imagensHook.salvarOrdem();
+          return;
+        }
         toast.info("Nenhuma alteração para salvar.");
         return;
       }
@@ -173,7 +181,9 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
         const { data } = response;
         setSelectedProduct(data.data);
         originalProductRef.current = data.data;
-        if (imagensHook.ordemAlterada && imagensHook.imagensPendentes.length === 0) {
+        if (imagensHook.imagensPendentes.length > 0) {
+          await imagensHook.uploadPendentes();
+        } else if (imagensHook.ordemAlterada) {
           await imagensHook.salvarOrdem();
         }
         await handleGetProduct(data.data.id);

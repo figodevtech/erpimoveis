@@ -73,11 +73,8 @@ import { OrdensFilterSheet } from "./ordens-filtros";
 import { EmissaoNotaDialog } from "./dialogs/emissao-nota-dialog/emissao-nota-dialog";
 import { Label } from "@/components/ui/label";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
-import {
-  PAYMENT_METHOD_OPTIONS,
-  type PaymentMethodOption,
-  type PlannedPayment,
-} from "@/lib/payment-methods";
+import type { PaymentMethodOption, PlannedPayment } from "@/lib/payment-methods";
+import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
 
 const MAX_ALVO_CHARS = 48;
 
@@ -147,6 +144,12 @@ export function OrdensTabela({
   onNovaOS: () => void;
 }) {
   const { data: session } = useSession();
+  const {
+    options: paymentMethodOptions,
+    isLoading: isLoadingPaymentMethods,
+    error: paymentMethodsError,
+    reload: reloadPaymentMethods,
+  } = usePaymentMethodOptions();
   const [rows, setRows] = useState<OrdemComDatas[]>([]);
   const canCreate = permissionSetHas((session?.user as any)?.permissoes, PERMS.ORDENS_CRIAR);
 
@@ -456,7 +459,7 @@ export function OrdensTabela({
   const confirmPaymentMethodsLabel =
     confirmPaymentMethods.length === 0
       ? "Não informar"
-      : PAYMENT_METHOD_OPTIONS.filter((method) =>
+      : paymentMethodOptions.filter((method) =>
           confirmPaymentMethods.includes(method.value),
         )
           .map((method) => method.label)
@@ -821,10 +824,10 @@ export function OrdensTabela({
 
   return (
     <TooltipProvider>
-      <Card className="bg-card">
-        <CardHeader className="border-b-2 pb-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
+      <Card className="min-w-0 max-w-full overflow-hidden bg-card">
+        <CardHeader className="min-w-0 border-b-2 pb-4">
+          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
               <CardTitle>Ordens de Serviço</CardTitle>
               <CardDescription className="flex items-center gap-2">
                 <button
@@ -837,7 +840,7 @@ export function OrdensTabela({
               </CardDescription>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2 sm:flex-nowrap">
               <div className="relative hidden md:block w-[400px]">
                 <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input value={localSearch} onChange={(e) => setLocalSearch(e.target.value)} placeholder="Buscar..." className="pl-8 pr-9" />
@@ -857,7 +860,7 @@ export function OrdensTabela({
               <Button
                 variant={apenasMinhas ? "default" : "outline"}
                 size="sm"
-                className="gap-1 hover:cursor-pointer"
+                className="min-w-0 flex-1 gap-1 hover:cursor-pointer sm:flex-none"
                 aria-pressed={apenasMinhas}
                 title="Mostrar apenas as ordens de serviço criadas por mim"
                 onClick={() => setApenasMinhas((atual) => !atual)}
@@ -885,7 +888,7 @@ export function OrdensTabela({
               />
 
               {canCreate ? (
-              <Button onClick={onNovaOS} size="sm" className="hover:cursor-pointer">
+              <Button onClick={onNovaOS} size="sm" className="flex-1 hover:cursor-pointer sm:flex-none">
                 <Plus className="h-4 w-4 mr-1" />
                 Nova OS
               </Button>
@@ -893,7 +896,7 @@ export function OrdensTabela({
             </div>
           </div>
 
-          <div className="mt-3 md:hidden">
+          <div className="mt-3 min-w-0 md:hidden">
             <div className="relative w-full">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input value={localSearch} onChange={(e) => setLocalSearch(e.target.value)} placeholder="Buscar..." className="pl-8 pr-9" />
@@ -912,7 +915,7 @@ export function OrdensTabela({
           </div>
         </CardHeader>
 
-        <CardContent className="min-h-[300px] -mt-[24px] px-4 pb-4 pt-0 relative">
+        <CardContent className="relative -mt-[24px] min-h-[300px] min-w-0 px-3 pb-4 pt-0 sm:px-4">
           <div
             className={`${
               isLoading && " opacity-100"
@@ -925,7 +928,7 @@ export function OrdensTabela({
             />
           </div>
 
-          <div className="overflow-x-auto rounded-md border mt-6">
+          <div className="mt-6 min-w-0 max-w-full overflow-hidden rounded-md border">
             <Table className="text-xs">
               <TableHeader>
                 <TableRow className="bg-muted/40">
@@ -1128,7 +1131,7 @@ export function OrdensTabela({
             </Table>
           </div>
 
-          <div className="mt-4 flex items-center justify-between">
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-3 sm:justify-between">
             <div className="flex flex-nowrap text-xs text-muted-foreground">
               <span>{start || 0}</span> - <span>{end || 0}</span>
               <span className="ml-1 hidden sm:block">de {total}</span>
@@ -1165,7 +1168,7 @@ export function OrdensTabela({
               </Button>
             </div>
 
-            <div>
+            <div className="shrink-0">
               <Select
                 value={String(limit)}
                 onValueChange={(v) => {
@@ -1247,7 +1250,15 @@ export function OrdensTabela({
                     <Command>
                       <CommandList>
                         <CommandGroup>
-                          {PAYMENT_METHOD_OPTIONS.map((method) => (
+                          {isLoadingPaymentMethods ? (
+                            <CommandItem disabled>Carregando formas de pagamento...</CommandItem>
+                          ) : paymentMethodsError ? (
+                            <CommandItem onSelect={() => void reloadPaymentMethods()}>
+                              Falha ao carregar. Clique para tentar novamente.
+                            </CommandItem>
+                          ) : paymentMethodOptions.length === 0 ? (
+                            <CommandItem disabled>Nenhuma forma de pagamento cadastrada.</CommandItem>
+                          ) : paymentMethodOptions.map((method) => (
                             <CommandItem
                               key={method.value}
                               value={method.value}
@@ -1285,7 +1296,7 @@ export function OrdensTabela({
                     <div className="space-y-2">
                       {confirmPaymentMethods.map((method) => {
                         const methodLabel =
-                          PAYMENT_METHOD_OPTIONS.find(
+                          paymentMethodOptions.find(
                             (option) => option.value === method,
                           )?.label ?? method;
                         const hasInstallments =

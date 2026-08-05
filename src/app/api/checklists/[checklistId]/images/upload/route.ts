@@ -7,6 +7,8 @@ import crypto from "crypto";
 
 type Params = { checklistId: string };
 const BUCKET = "vistoria";
+const MAX_FILES = 10;
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
 function sanitizeFileName(name: string) {
   return (name || "imagem")
@@ -23,7 +25,7 @@ export async function POST(req: NextRequest, context: { params: Promise<Params> 
 
     const { checklistId } = await context.params;
     const checklistIdNum = Number(checklistId);
-    if (!Number.isFinite(checklistIdNum)) {
+    if (!Number.isInteger(checklistIdNum) || checklistIdNum <= 0) {
       return NextResponse.json({ error: "checklistId inválido" }, { status: 400 });
     }
 
@@ -38,8 +40,23 @@ export async function POST(req: NextRequest, context: { params: Promise<Params> 
     if (!ck.data) return NextResponse.json({ error: "Checklist não encontrado" }, { status: 404 });
 
     const form = await req.formData();
-    const files = form.getAll("files").filter(Boolean) as File[];
+    const files = form.getAll("files").filter((item) => item instanceof File) as File[];
     if (!files.length) return NextResponse.json({ error: "Nenhum arquivo enviado (files)" }, { status: 400 });
+    if (files.length > MAX_FILES) {
+      return NextResponse.json({ error: `Máximo de ${MAX_FILES} imagens por envio.` }, { status: 400 });
+    }
+
+    for (const file of files) {
+      if (!file.type.startsWith("image/")) {
+        return NextResponse.json({ error: `${file.name}: o arquivo não é uma imagem.` }, { status: 400 });
+      }
+      if (file.size <= 0) {
+        return NextResponse.json({ error: `${file.name}: o arquivo está vazio.` }, { status: 400 });
+      }
+      if (file.size > MAX_FILE_SIZE) {
+        return NextResponse.json({ error: `${file.name}: a imagem excede 5 MB.` }, { status: 413 });
+      }
+    }
 
     const inserted: any[] = [];
 
@@ -67,7 +84,11 @@ export async function POST(req: NextRequest, context: { params: Promise<Params> 
         .select("id, checklistid, url, descricao, createdat")
         .single();
 
-      if (ins.error) throw ins.error;
+      if (ins.error) {
+        const cleanup = await supabaseAdmin.storage.from(BUCKET).remove([path]);
+        if (cleanup.error) console.error("[POST checklist image] rollback storage error:", cleanup.error);
+        throw ins.error;
+      }
       inserted.push(ins.data);
     }
 

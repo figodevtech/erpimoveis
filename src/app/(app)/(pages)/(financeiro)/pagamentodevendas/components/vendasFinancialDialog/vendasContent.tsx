@@ -51,6 +51,8 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
   PIX: "Pix",
   BOLETO: "Boleto",
   TRANSFERENCIA: "Transferencia",
+  TED: "TED",
+  DOC: "DOC",
 };
 
 const tabTriggerClass =

@@ -1,4 +1,5 @@
 // Utilitários de imagem: EXIF, compressão, concorrência
+import { prepareProductImageForUpload } from "@/lib/product-image-upload";
 
 export type CompressOpts = {
   maxWidth?: number;
@@ -112,17 +113,20 @@ export async function compressImage(
     maxQuality = 0.95,
   }: CompressOpts = {}
 ): Promise<{ blob: Blob; ext: string; type: "image/webp" | "image/jpeg" }> {
-  const orientation = await readExifOrientation(file);
+  // Também cobre HEIC/HEIF do iPhone. Sem esta preparação, arquivos pequenos
+  // eram enviados crus e os grandes falhavam no createImageBitmap.
+  const preparedFile = await prepareProductImageForUpload(file);
+  const orientation = await readExifOrientation(preparedFile);
 
   // Pula compressão se já é pequeno e sem rotação necessária
-  if (file.size <= targetMaxBytes && orientation === 1) {
-    const ext = (file.name.split(".").pop() || "").toLowerCase();
+  if (preparedFile.size <= targetMaxBytes && orientation === 1) {
+    const ext = (preparedFile.name.split(".").pop() || "").toLowerCase();
     const normalizedExt = ext === "jpeg" ? "jpg" : ext || "jpg";
-    const type = (file.type as "image/webp" | "image/jpeg") || "image/jpeg";
-    return { blob: file, ext: normalizedExt, type };
+    const type = (preparedFile.type as "image/webp" | "image/jpeg") || "image/jpeg";
+    return { blob: preparedFile, ext: normalizedExt, type };
   }
 
-  const { src, w: srcW0, h: srcH0 } = await loadSource(file);
+  const { src, w: srcW0, h: srcH0 } = await loadSource(preparedFile);
   const swap = orientation >= 5 && orientation <= 8;
   const baseW = swap ? srcH0 : srcW0;
   const baseH = swap ? srcW0 : srcH0;

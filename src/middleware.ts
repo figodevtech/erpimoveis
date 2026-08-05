@@ -29,6 +29,7 @@ const PUBLIC_API_PREFIXES = [
   // Chamadas servidor-servidor. Cada rota aplica sua propria validacao.
   "/api/integracoes/mercadolivre/cron",
   "/api/integracoes/mercadolivre/webhook",
+  "/api/integracoes/shopee/cron",
 ];
 
 function isStaticAsset(pathname: string) {

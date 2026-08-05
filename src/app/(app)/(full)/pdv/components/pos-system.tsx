@@ -77,10 +77,8 @@ import { useGruposProduto } from "@/app/(app)/(pages)/estoque/components/dialog-
 import { useRouter } from "next/navigation";
 import { useConfig } from "@/app/(app)/(pages)/config-context";
 import { formatCurrencyBRL } from "@/app/(app)/(pages)/dashboard/components/dashboard-ordemservico/lib/format";
-import {
-  PAYMENT_METHOD_OPTIONS,
-  type PaymentMethodOption,
-} from "@/lib/payment-methods";
+import type { PaymentMethodOption } from "@/lib/payment-methods";
+import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
 
 interface CartItem {
   id: number;
@@ -126,6 +124,12 @@ const formatCentsToPaymentInput = (value: number) =>
   formatCurrencyBRL(centsToNumber(Math.max(0, value)));
 
 export function POSSystem() {
+  const {
+    options: paymentMethodOptions,
+    isLoading: isLoadingPaymentMethods,
+    error: paymentMethodsError,
+    reload: reloadPaymentMethods,
+  } = usePaymentMethodOptions();
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingProductsPage, setLoadingProductsPage] = useState(false);
@@ -345,7 +349,7 @@ export function POSSystem() {
   const paymentAmountEntries = selectedPaymentMethods.map((method) => ({
     method,
     label:
-      PAYMENT_METHOD_OPTIONS.find((option) => option.value === method)?.label ??
+      paymentMethodOptions.find((option) => option.value === method)?.label ??
       method,
     cents: amountInputToCents(paymentAmounts[method] ?? ""),
   }));
@@ -459,7 +463,7 @@ export function POSSystem() {
 
   const paymentMethodsLabel = !hasPaymentMethodSelected
     ? "Não informar"
-    : PAYMENT_METHOD_OPTIONS.filter((method) =>
+    : paymentMethodOptions.filter((method) =>
         paymentMethods.includes(method.value)
       )
         .map((method) => method.label)
@@ -1348,7 +1352,15 @@ export function POSSystem() {
                                       <Checkbox checked={!hasPaymentMethodSelected} />
                                       <span>Não informar</span>
                                     </CommandItem>
-                                    {PAYMENT_METHOD_OPTIONS.map((method) => (
+                                    {isLoadingPaymentMethods ? (
+                                      <CommandItem disabled>Carregando formas de pagamento...</CommandItem>
+                                    ) : paymentMethodsError ? (
+                                      <CommandItem onSelect={() => void reloadPaymentMethods()}>
+                                        Falha ao carregar. Clique para tentar novamente.
+                                      </CommandItem>
+                                    ) : paymentMethodOptions.length === 0 ? (
+                                      <CommandItem disabled>Nenhuma forma de pagamento cadastrada.</CommandItem>
+                                    ) : paymentMethodOptions.map((method) => (
                                       <CommandItem
                                         key={method.value}
                                         value={method.value}
@@ -1380,7 +1392,7 @@ export function POSSystem() {
                               <div className="space-y-2">
                                 {selectedPaymentMethods.map((method) => {
                                   const label =
-                                    PAYMENT_METHOD_OPTIONS.find((option) => option.value === method)?.label ??
+                                    paymentMethodOptions.find((option) => option.value === method)?.label ??
                                     method;
 
                                   return (

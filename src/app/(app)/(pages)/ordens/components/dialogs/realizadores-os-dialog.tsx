@@ -318,15 +318,15 @@ export function RealizadoresOSDialog({
       }}
     >
       {/* Importante: ScrollArea costuma precisar de height real (não só max-height). */}
-      <DialogContent className="w-[95vw] sm:max-w-5xl h-[85vh] supports-[height:100svh]:h-[85svh] p-0 overflow-hidden flex flex-col">
+      <DialogContent className="flex h-dvh w-screen max-w-none flex-col overflow-hidden rounded-none border-0 p-0 sm:h-[90svh] sm:w-[95vw] sm:max-w-5xl sm:rounded-lg">
         {/* Header fixo */}
-        <div className="shrink-0 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 p-5">
+        <div className="shrink-0 border-b bg-background/95 p-4 pr-11 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:p-5 sm:pr-11">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5" />
-              Realizadores dos serviços (OS #{osId ?? "—"})
+            <DialogTitle className="flex items-start gap-2 text-base leading-tight sm:items-center sm:text-lg">
+              <Users className="mt-0.5 h-5 w-5 shrink-0 sm:mt-0" />
+              <span>Realizadores dos serviços <span className="whitespace-nowrap">(OS #{osId ?? "—"})</span></span>
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="text-xs sm:text-sm">
               Selecione 1 ou mais usuários em cada serviço e salve todas as atribuições de uma só vez.
             </DialogDescription>
           </DialogHeader>
@@ -346,13 +346,13 @@ export function RealizadoresOSDialog({
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <div className="h-full min-h-0 grid grid-cols-1 lg:grid-cols-[360px_1fr]">
+            <div className="grid h-full min-h-0 grid-rows-[minmax(180px,38%)_minmax(0,1fr)] lg:grid-cols-[360px_1fr] lg:grid-rows-1">
               {/* Coluna esquerda (serviços): header + ScrollArea */}
-              <div className="min-h-0 overflow-hidden border-b lg:border-b-0 lg:border-r">
-                <div className="h-full min-h-0 flex flex-col p-4 gap-3">
+              <div className="min-h-0 overflow-hidden bg-muted/10 lg:border-r lg:border-border/50">
+                <div className="flex h-full min-h-0 flex-col gap-2 p-3 sm:gap-3 sm:p-4">
                   <div className="shrink-0 flex items-center justify-between gap-2">
                     <div className="text-sm font-medium">Serviços</div>
-                    <Badge variant={semRealizadorCount > 0 ? "destructive" : "outline"} className="text-xs">
+                    <Badge variant={semRealizadorCount > 0 ? "destructive" : "secondary"} className="text-xs">
                       {semRealizadorCount > 0 ? `${semRealizadorCount} pendente(s)` : "OK"}
                     </Badge>
                   </div>
@@ -362,15 +362,16 @@ export function RealizadoresOSDialog({
                       value={buscaServico}
                       onChange={(e) => setBuscaServico(e.target.value)}
                       placeholder="Buscar serviço..."
+                      className="text-base sm:text-sm"
                     />
-                    <Badge variant="outline" className="text-xs shrink-0">
+                    <Badge variant="secondary" className="shrink-0 text-xs">
                       {pendentesCount > 0 ? `${pendentesCount} alter.` : "salvo"}
                     </Badge>
                   </div>
 
-                  <div className="flex-1 min-h-0 overflow-hidden rounded-md border">
+                  <div className="min-h-0 flex-1 overflow-hidden rounded-lg bg-muted/25">
                     <ScrollArea className="h-full">
-                      <div className="p-2 space-y-2">
+                      <div className="space-y-1.5 p-1.5">
                         {servicosView.length === 0 ? (
                           <div className="text-sm text-muted-foreground p-2">Nenhum serviço encontrado.</div>
                         ) : (
@@ -383,8 +384,10 @@ export function RealizadoresOSDialog({
                                 type="button"
                                 onClick={() => setActiveKey(s.key)}
                                 className={[
-                                  "w-full text-left rounded-md border px-3 py-2 transition",
-                                  isActive ? "border-primary/50 bg-primary/5" : "hover:bg-muted/40",
+                                  "w-full rounded-md px-3 py-3 text-left transition sm:py-2",
+                                  isActive
+                                    ? "bg-primary/10 shadow-sm ring-1 ring-primary/30"
+                                    : "bg-background/75 shadow-sm hover:bg-background",
                                 ].join(" ")}
                               >
                                 <div className="flex items-start justify-between gap-2">
@@ -424,8 +427,8 @@ export function RealizadoresOSDialog({
                     Selecione um serviço à esquerda.
                   </div>
                 ) : (
-                  <div className="h-full min-h-0 flex flex-col p-4 gap-3">
-                    <div className="shrink-0 flex items-start justify-between gap-3">
+                  <div className="flex h-full min-h-0 flex-col gap-2 p-3 sm:gap-3 sm:p-4">
+                    <div className="flex shrink-0 items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="text-sm font-medium truncate">{active.titulo}</div>
                         <div className="text-xs text-muted-foreground">
@@ -438,6 +441,7 @@ export function RealizadoresOSDialog({
                         <Button
                           variant="outline"
                           size="sm"
+                          className="shrink-0"
                           onClick={() => limparSelecionados(active.key)}
                           disabled={busy}
                         >
@@ -451,15 +455,20 @@ export function RealizadoresOSDialog({
                         value={buscaUsuario}
                         onChange={(e) => setBuscaUsuario(e.target.value)}
                         placeholder="Buscar usuário por nome, e-mail ou id..."
+                        className="text-base sm:text-sm"
                       />
                     </div>
 
-                    <div className="flex-1 min-h-0 overflow-hidden rounded-md border">
+                    <div className="min-h-0 flex-1 overflow-hidden rounded-lg bg-muted/20">
                       <ScrollArea className="h-full">
-                        <div className="p-3 space-y-3">
+                        <div className="space-y-3 p-2 sm:p-3">
                           {/* Lista de usuários */}
-                          <div className="space-y-2">
-                            {usuariosFiltrados.map((u) => {
+                          <div className="space-y-1.5">
+                            {usuariosFiltrados.length === 0 ? (
+                              <div className="p-4 text-center text-sm text-muted-foreground">
+                                Nenhum usuário encontrado.
+                              </div>
+                            ) : usuariosFiltrados.map((u) => {
                               const checked = active.ids.includes(u.id);
                               const p = getComissaoPercentual(u);
 
@@ -467,8 +476,10 @@ export function RealizadoresOSDialog({
                                 <label
                                   key={u.id}
                                   className={[
-                                    "flex items-center gap-2 rounded-md border px-2 py-2 cursor-pointer select-none",
-                                    checked ? "bg-primary/5 border-primary/30" : "hover:bg-muted/40",
+                                    "flex min-h-12 cursor-pointer select-none items-center gap-3 rounded-md px-3 py-3 transition sm:min-h-0 sm:gap-2 sm:px-2 sm:py-2",
+                                    checked
+                                      ? "bg-primary/10 shadow-sm ring-1 ring-primary/30"
+                                      : "bg-background/75 shadow-sm hover:bg-background",
                                   ].join(" ")}
                                 >
                                   <Checkbox checked={checked} onCheckedChange={() => toggleUser(active.key, u.id)} />
@@ -484,7 +495,7 @@ export function RealizadoresOSDialog({
                           </div>
 
                           {/* Resumo / cálculos (fica no mesmo scroll da coluna direita) */}
-                          <div className="rounded-md border bg-muted/20 p-3 space-y-2">
+                          <div className="space-y-2 rounded-md bg-background/70 p-3">
                             <div className="flex items-center justify-between text-xs">
                               <span className="text-muted-foreground">Base do serviço</span>
                               <span className="font-medium">{money(active.baseTotal)}</span>
@@ -526,17 +537,17 @@ export function RealizadoresOSDialog({
         </div>
 
         {/* Footer fixo */}
-        <div className="shrink-0 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 p-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="text-xs text-muted-foreground">
+        <div className="shrink-0 border-t bg-background/95 p-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+            <div className="truncate text-center text-xs text-muted-foreground sm:text-left">
               {pendentesCount > 0 ? `${pendentesCount} serviço(s) com alterações pendentes` : "Nenhuma alteração pendente"}
             </div>
 
-            <div className="flex flex-wrap justify-end gap-2">
-              <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
+            <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
+              <Button className="order-2 sm:order-none" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
                 Fechar
               </Button>
-              <Button variant="outline" onClick={() => salvarTodos(false)} disabled={busy || pendentesCount === 0}>
+              <Button className="order-3 sm:order-none" variant="outline" onClick={() => salvarTodos(false)} disabled={busy || pendentesCount === 0}>
                 {savingAction === "save" ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
@@ -544,7 +555,7 @@ export function RealizadoresOSDialog({
                 )}
                 Salvar alterações
               </Button>
-              <Button onClick={() => salvarTodos(true)} disabled={busy || semRealizadorCount > 0}>
+              <Button className="order-1 col-span-2 sm:order-none" onClick={() => salvarTodos(true)} disabled={busy || semRealizadorCount > 0}>
                 {savingAction === "start" ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (

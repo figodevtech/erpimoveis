@@ -230,7 +230,7 @@ async function getAccounts(accountId?: number, empresaId?: number) {
 
 async function ensureValidAccessToken(account: MercadoLivreAccount) {
   const expiresAt = account.expires_at ? new Date(account.expires_at).getTime() : 0;
-  const shouldRefresh = Boolean(account.refresh_token && expiresAt && expiresAt - Date.now() < 5 * 60 * 1000);
+  const shouldRefresh = Boolean(account.refresh_token && (!expiresAt || expiresAt - Date.now() < 5 * 60 * 1000));
 
   if (!shouldRefresh) return account.access_token;
 
