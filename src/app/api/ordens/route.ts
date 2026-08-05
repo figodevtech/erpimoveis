@@ -166,6 +166,7 @@ export async function GET(req: Request) {
           status,
           dataentrada,
           datasaida,
+          pagamento_concluido_em,
           alvo_tipo,
           equipamento_nome,
           equipamento_patrimonio,
@@ -328,6 +329,7 @@ export async function GET(req: Request) {
       dataEntrada: r.dataentrada as string | null,
       orcamentototal: r.orcamentototal as number | null,
       dataSaida: r.datasaida as string | null,
+      pagamentoConcluidoEm: r.pagamento_concluido_em as string | null,
       notaNumero: null as number | null,
 
       alvo_tipo: (r.alvo_tipo as AlvoTipo) ?? null,

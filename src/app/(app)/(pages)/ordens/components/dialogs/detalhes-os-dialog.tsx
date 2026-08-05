@@ -11,6 +11,7 @@ DialogHeader,
 DialogTitle,
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -211,6 +212,8 @@ function auditDotClass(tipo: AuditoriaResumoItem["tipo"]) {
       return "bg-pink-500 ring-pink-500/20";
     case "estoque":
       return "bg-orange-500 ring-orange-500/20";
+    case "saida":
+      return "bg-teal-500 ring-teal-500/20";
     default:
       return "bg-muted-foreground ring-muted-foreground/20";
   }
@@ -258,8 +261,9 @@ type OS = {
   prioridade?: "ALTA" | "NORMAL" | "BAIXA" | null;
   dataentrada?: string | null;
   datasaidaprevista?: string | null;
-  /** Fechamento da OS: gravada quando ela e concluida. */
+  /** Saida fisica, registrada independentemente do pagamento. */
   datasaida?: string | null;
+  pagamento_concluido_em?: string | null;
   /** Entrega: fim do andamento, quando o ultimo servico da execucao e finalizado. */
   execucao_fim_em?: string | null;
   motivocancelamento?: string | null;
@@ -385,6 +389,7 @@ type AuditoriaResumoItem = {
     | "aprovacao"
     | "anexo"
     | "estoque"
+    | "saida"
     | "dados";
   titulo: string;
   detalhe: string | null;
@@ -397,6 +402,15 @@ type OSDetalhesResponse = {
   itensProdutoAvulso: ItemProdutoAvulso[];
   itensServico: ItemServico[];
   checklist: ChecklistItem[];
+  saida?: {
+    id: number;
+    saida_em: string;
+    retirado_por?: string | null;
+    documento_observacao?: string | null;
+    created_at?: string | null;
+    usuario?: { id: string; nome?: string | null } | null;
+    itens?: Array<{ id: number; titulo: string; descricao?: string | null; categoria?: string | null; status: string; observacao?: string | null; created_at?: string | null; imagens?: Array<{ id: number; url: string; descricao?: string | null; created_at?: string | null }> }>;
+  } | null;
   aprovacoes?: Aprovacao[];
   auditoriaResumo?: AuditoriaResumoItem[];
   eventosFinanceiros?: Array<{
@@ -714,12 +728,34 @@ export function OSDetalhesDialog({
         throw new Error(eventosPayload?.error || "Erro ao carregar eventos financeiros");
       }
       const auditoriaPayload = await auditoriaResponse.json().catch(() => ({}));
+      const auditoriaItens: AuditoriaResumoItem[] = auditoriaResponse.ok && Array.isArray(auditoriaPayload?.itens)
+        ? auditoriaPayload.itens
+        : [];
+      const temRegistroSaida = auditoriaItens.some(
+        (evento) => evento.tipo === "saida" && evento.titulo.toLocaleLowerCase("pt-BR").includes("saída"),
+      );
+      if (j.saida && !temRegistroSaida) {
+        const retiradaEm = fmtDate(j.saida.saida_em);
+        auditoriaItens.push({
+          id: `saida-${j.saida.id}`,
+          ocorridoEm: j.saida.created_at ?? j.saida.saida_em,
+          tipo: "saida",
+          titulo: "Registrou a saída da OS",
+          detalhe: [
+            retiradaEm !== "—" ? `Retirada em ${retiradaEm}` : null,
+            j.saida.retirado_por ? `Retirado por: ${j.saida.retirado_por}` : "Pessoa que retirou não informada",
+          ].filter(Boolean).join(" • "),
+          usuario: {
+            id: j.saida.usuario?.id ?? null,
+            nome: j.saida.usuario?.nome || "Usuário não identificado",
+          },
+        });
+      }
+      auditoriaItens.sort((a, b) => new Date(a.ocorridoEm).getTime() - new Date(b.ocorridoEm).getTime());
       setData({
         ...j,
         eventosFinanceiros: eventosPayload?.eventos ?? [],
-        auditoriaResumo: auditoriaResponse.ok && Array.isArray(auditoriaPayload?.itens)
-          ? auditoriaPayload.itens
-          : [],
+        auditoriaResumo: auditoriaItens,
       });
     } catch (e: any) {
       toast.error(e?.message || "Erro ao carregar detalhes");
@@ -1169,8 +1205,7 @@ export function OSDetalhesDialog({
                 </DialogDescription>
               </div>
 
-              {/* Ordem cronologica da OS: chegou, saiu do andamento, fechou. */}
-              <span className="grid grid-cols-3 gap-2 text-left sm:ml-auto sm:min-w-[330px] sm:text-right">
+              <span className="grid grid-cols-3 gap-2 text-left sm:ml-auto sm:min-w-[390px] sm:text-right">
                 <span className="rounded-md border bg-card px-2.5 py-1.5">
                   <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                     Entrada
@@ -1182,17 +1217,19 @@ export function OSDetalhesDialog({
                   title="Quando o andamento foi finalizado"
                 >
                   <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Entrega
+                    Pagamento concluído
                   </span>
                   <span className="block text-xs font-semibold text-foreground">
-                    {fmtDate(data?.os?.execucao_fim_em)}
+                    {fmtDate(data?.os?.pagamento_concluido_em)}
                   </span>
                 </span>
-                <span className="rounded-md border bg-card px-2.5 py-1.5" title="Quando a OS foi finalizada">
+                <span className="rounded-md border bg-card px-2.5 py-1.5" title="Quando ocorreu a retirada física">
                   <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Fechamento
+                    Saída
                   </span>
-                  <span className="block text-xs font-semibold text-foreground">{fmtDate(data?.os?.datasaida)}</span>
+                  <span className={`block text-xs font-semibold ${data?.os?.datasaida ? "text-foreground" : "text-amber-600"}`}>
+                    {data?.os?.datasaida ? fmtDate(data.os.datasaida) : ["PAGAMENTO", "CONCLUIDO", "SEM_COBRANCA"].includes(String(data?.os?.status ?? "")) ? "Saída não registrada" : "—"}
+                  </span>
                 </span>
               </span>
             </div>
@@ -1393,6 +1430,23 @@ export function OSDetalhesDialog({
                     {data.os.descricao_financeiro || "Não informada"}
                   </div>
                 </div>
+              </section>
+
+              <div>
+                <h3 className="text-sm font-semibold">Saída</h3>
+                <p className="text-xs text-muted-foreground">Informações da retirada física da ordem de serviço.</p>
+              </div>
+              <section className="rounded-lg border bg-card p-4">
+                {!data.saida ? (
+                  <p className="text-sm font-medium text-amber-600">Saída não registrada</p>
+                ) : (
+                  <div className="grid gap-3 text-sm sm:grid-cols-2">
+                    <p><span className="text-muted-foreground">Data e hora:</span> {fmtDate(data.saida.saida_em)}</p>
+                    <p><span className="text-muted-foreground">Quem retirou:</span> {data.saida.retirado_por || "Não informado"}</p>
+                    <p><span className="text-muted-foreground">Registrado por:</span> {data.saida.usuario?.nome || "Usuário não identificado"}</p>
+                    <p><span className="text-muted-foreground">Documento/observação:</span> {data.saida.documento_observacao || "—"}</p>
+                  </div>
+                )}
               </section>
 
               <div>
@@ -2261,18 +2315,76 @@ export function OSDetalhesDialog({
                 ) : null}
 
                 <TabsContent value="checklist" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 sm:px-6 sm:py-5">
+              <Accordion type="multiple" defaultValue={["entrada", "saida"]} className="space-y-4">
+              <AccordionItem value="saida" className="rounded-lg border bg-card px-4">
+                <AccordionTrigger className="hover:no-underline">
+                  <span className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center">
+                    <span className="flex items-center gap-2"><ListChecks className="h-4 w-4 text-primary" />Checklist de saída</span>
+                    {data.saida?.usuario?.nome ? <span className="text-xs font-normal text-muted-foreground sm:ml-auto sm:mr-3">Realizado por: <b>{data.saida.usuario.nome}</b></span> : null}
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent>
+                {!data.saida || !(data.saida.itens ?? []).length ? (
+                  <p className="text-sm text-muted-foreground">Checklist de saída não preenchido.</p>
+                ) : (
+                  <ul className="text-sm">
+                    {(data.saida.itens ?? []).map((item, index) => (
+                      <Fragment key={item.id}>
+                        {index > 0 && <Separator className="my-0" />}
+                        <li className="py-4">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="min-w-0">
+                              <div className="truncate font-medium">{item.titulo}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {fmtDate(item.created_at ?? data.saida?.saida_em)}
+                                {data.saida?.usuario?.nome ? ` • por ${data.saida.usuario.nome}` : ""}
+                                {item.observacao ? ` • ${item.observacao}` : ""}
+                              </div>
+                            </div>
+                            <Badge variant="outline" className={badgeClassForChecklistStatus(item.status)}>
+                              {item.status}
+                            </Badge>
+                          </div>
+                          {(item.imagens ?? []).length > 0 && (
+                            <div className="mt-3 space-y-1.5">
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <ImageIcon className="h-3.5 w-3.5" />
+                                Imagens anexadas
+                              </div>
+                              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+                                {(item.imagens ?? []).map((imagem) => {
+                                  const name = imagem.descricao || fileNameFromUrl(imagem.url) || item.titulo;
+                                  return (
+                                    <div key={imagem.id} className="group relative overflow-hidden rounded-md border bg-muted/20 transition-colors hover:bg-muted">
+                                      <div className="aspect-square w-full overflow-hidden bg-muted">
+                                        <ChecklistImagePreview src={imagem.url} alt={name} imageClassName="transition-transform group-hover:scale-[1.02]" />
+                                      </div>
+                                      <a href={imagem.url} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-1 px-2 py-1.5 text-[11px] text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary" title="Abrir imagem original em nova aba">
+                                        <span className="truncate">{name}</span><ExternalLink className="h-3 w-3 shrink-0 opacity-70" />
+                                      </a>
+                                      <button type="button" className="absolute bottom-8 right-2 inline-flex h-8 w-8 items-center justify-center rounded-full border bg-background/90 text-foreground shadow-sm backdrop-blur transition-colors hover:bg-background focus:outline-none focus:ring-2 focus:ring-primary" title="Baixar imagem" aria-label="Baixar imagem" onClick={() => void baixarImagem(imagem.url, name)}><Download className="h-4 w-4" /></button>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </li>
+                      </Fragment>
+                    ))}
+                  </ul>
+                )}
+                </AccordionContent>
+              </AccordionItem>
               {/* Checklist */}
-              <section className="rounded-lg border bg-card p-4">
-                <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2 mb-1.5">
-                  <ListChecks className="h-4 w-4 text-primary" />
-                  <span className="text-sm font-medium">Checklist</span>
-
-                  {checklistAutores.length ? (
-                    <span className="text-xs text-muted-foreground sm:ml-auto">
-                      Realizado por: <b>{checklistAutores.join(", ")}</b>
-                    </span>
-                  ) : null}
-                </div>
+              <AccordionItem value="entrada" className="rounded-lg border bg-card px-4">
+                <AccordionTrigger className="hover:no-underline">
+                  <span className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center">
+                    <span className="flex items-center gap-2"><ListChecks className="h-4 w-4 text-primary" />Checklist de entrada</span>
+                    {checklistAutores.length ? <span className="text-xs font-normal text-muted-foreground sm:ml-auto sm:mr-3">Realizado por: <b>{checklistAutores.join(", ")}</b></span> : null}
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent>
 
                 {(data.checklist ?? []).length === 0 ? (
                   <div className="text-sm text-muted-foreground">—</div>
@@ -2347,7 +2459,9 @@ export function OSDetalhesDialog({
                     ))}
                   </ul>
                 )}
-              </section>
+                </AccordionContent>
+              </AccordionItem>
+              </Accordion>
 
               {/* Links de aprovação */}
                 </TabsContent>

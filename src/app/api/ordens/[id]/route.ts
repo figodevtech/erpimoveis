@@ -44,6 +44,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
           "descricao",
           "dataentrada",
           "datasaida",
+          "pagamento_concluido_em",
           "orcamentototal",
           "subtotal",
           "desconto_tipo",
@@ -92,6 +93,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       execucao_fim_em: string | null;
       dataentrada: string | null;
       datasaida: string | null;
+      pagamento_concluido_em: string | null;
       orcamentototal: number | null;
       subtotal?: number | null;
       desconto_tipo?: string | null;
@@ -345,6 +347,19 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       usuario: ck.usuario ?? null,
       imagens: imgsMap.get(ck.id) ?? [],
     }));
+
+    const saidaRes = await supabase
+      .from("os_saida")
+      .select("id, saida_em, retirado_por, documento_observacao, checklist_modelo_id, registrado_por, created_at, itens:os_saida_checklist_item(id, titulo, descricao, categoria, status, observacao, ordem, created_at, imagens:os_saida_checklist_imagem(id, url, descricao, created_at))")
+      .eq("ordemservico_id", osId)
+      .maybeSingle();
+    if (saidaRes.error) throw saidaRes.error;
+    let saida: any = saidaRes.data ?? null;
+    if (saida?.registrado_por) {
+      const usuarioSaida = await supabase.from("usuario").select("id, nome").eq("id", saida.registrado_por).maybeSingle();
+      if (usuarioSaida.error) throw usuarioSaida.error;
+      saida = { ...saida, usuario: usuarioSaida.data ?? null };
+    }
 
     // Itens — produtos
     const prod_res = await supabase
@@ -624,6 +639,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       execucao_fim_em: osRow.execucao_fim_em ?? null,
       dataentrada: osRow.dataentrada ?? null,
       datasaida: osRow.datasaida ?? null,
+      pagamento_concluido_em: osRow.pagamento_concluido_em ?? null,
       alvo_tipo: (osRow.alvo_tipo ?? "VEICULO") as AlvoTipo,
       setor: setor ? { id: setor.id, nome: setor.nome } : null,
       cliente,
@@ -663,6 +679,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         itensProdutoAvulso,
         itensServico,
         checklist,
+        saida,
         aprovacoes,
         orcamento,
         ...(podeVerRentabilidade ? { transacoes, rentabilidade } : {}),

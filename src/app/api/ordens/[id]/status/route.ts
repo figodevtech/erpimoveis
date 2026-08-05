@@ -300,14 +300,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
       }
     }
 
-    // 👉 datasaida: quando a OS é concluída (com ou sem cobrança)
-    if (status === "CONCLUIDO" || status === "SEM_COBRANCA") {
-      updateData.datasaida = new Date().toISOString();
-
-      if (semCobranca || status === "SEM_COBRANCA") {
-        updateData.motivo_sem_cobranca = motivoSemCobranca;
-        updateData.status = "SEM_COBRANCA";
-      }
+    // Conclusao financeira e retirada fisica sao eventos independentes.
+    if (status === "CONCLUIDO") {
+      updateData.pagamento_concluido_em = new Date().toISOString();
+    }
+    if (semCobranca || status === "SEM_COBRANCA") {
+      updateData.motivo_sem_cobranca = motivoSemCobranca;
+      updateData.status = "SEM_COBRANCA";
     }
 
     const upd = await supabaseAdmin.from("ordemservico").update(updateData).eq("id", osId);

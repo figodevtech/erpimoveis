@@ -30,6 +30,7 @@ import {
   X,
   Printer,
   Gift,
+  LogOut,
 } from "lucide-react";
 import { useConfig } from "../../config-context";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
@@ -44,6 +45,8 @@ export type RowBase = {
   veiculo?: { placa?: string | null; modelo?: string | null; marca?: string | null } | null;
   alvo_tipo?: "VEICULO" | "PECA" | "EQUIPAMENTO" | null;
   setor?: { nome?: string | null } | null;
+  dataSaida?: string | null;
+  datasaida?: string | null;
 };
 
 type Policy = {
@@ -86,6 +89,7 @@ export function RowActions<TRow extends RowBase>({
   setChecklistOpen,
   setEmissaoId,
   setEmissaoOpen,
+  onRegistrarSaida,
 }: {
   row: TRow;
   policy: Policy;
@@ -112,6 +116,7 @@ export function RowActions<TRow extends RowBase>({
   setStoneOpen: (open: boolean) => void;
   setEmissaoId: (id: number) => void;
   setEmissaoOpen: (open: boolean) => void;
+  onRegistrarSaida: (row: TRow) => void;
 }) {
   const { data: session } = useSession();
   const config = useConfig();
@@ -159,6 +164,8 @@ export function RowActions<TRow extends RowBase>({
   const showSendToPayment = canEdit && policy.showSendToPayment && st === "EM_ANDAMENTO";
   const showReceivePayment = canFinanceiroEdit && policy.showReceivePayment && st === "PAGAMENTO";
   const showFinishNoCharge = canEdit && canFinishNoCharge && st === "EM_ANDAMENTO";
+  const showRegistrarSaida = canEdit && ["PAGAMENTO", "CONCLUIDO", "SEM_COBRANCA"].includes(st)
+    && !(row.dataSaida ?? row.datasaida);
 
   return (
     <DropdownMenu>
@@ -277,6 +284,13 @@ export function RowActions<TRow extends RowBase>({
           >
             <Wallet className="mr-2 h-4 w-4" />
             Registrar pagamento
+          </DropdownMenuItem>
+        )}
+
+        {showRegistrarSaida && (
+          <DropdownMenuItem onClick={() => onRegistrarSaida(row)}>
+            <LogOut className="mr-2 h-4 w-4" />
+            Registrar saída
           </DropdownMenuItem>
         )}
 

@@ -37,6 +37,7 @@ type ItemResumo = {
     | "aprovacao"
     | "anexo"
     | "estoque"
+    | "saida"
     | "dados";
   titulo: string;
   detalhe: string | null;
@@ -70,6 +71,30 @@ function textoStatus(valor: unknown) {
   const status = String(valor ?? "").toUpperCase();
   return STATUS_LABELS[status] ?? status.replaceAll("_", " ").toLocaleLowerCase("pt-BR");
 }
+
+function dataHoraAuditoria(valorData: unknown) {
+  const data = new Date(String(valorData ?? ""));
+  if (Number.isNaN(data.getTime())) return null;
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(data);
+}
+
+const CAMPOS_ORDEM_LABEL: Record<string, string> = {
+  descricao: "descrição",
+  observacoes: "observações internas",
+  observacoes_fiscais: "observações fiscais",
+  prioridade: "prioridade",
+  setorid: "setor",
+  clienteid: "cliente",
+  veiculoid: "veículo",
+  garantia: "garantia",
+  forma_pagamento: "forma de pagamento",
+  parcelas_pagamento: "parcelas",
+  descricao_financeiro: "descrição financeira",
+};
 
 function valor(dados: DadosAuditoria, campo: string) {
   return dados?.[campo];
@@ -345,7 +370,21 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
             .limit(500)
         : Promise.resolve({ data: [], error: null });
 
-    const [ordem, filhasNovas, filhasAnteriores, filhasPorOs, checklists, aprovacoes, anexos] =
+    const saidaAtual = await supabaseAdmin.from("os_saida").select("id").eq("ordemservico_id", osId).maybeSingle();
+    if (saidaAtual.error) throw saidaAtual.error;
+    const itensSaidaAtuais = saidaAtual.data
+      ? await supabaseAdmin.from("os_saida_checklist_item").select("id").eq("os_saida_id", saidaAtual.data.id)
+      : { data: [], error: null };
+    if (itensSaidaAtuais.error) throw itensSaidaAtuais.error;
+    const imagensSaidaAtuais = (itensSaidaAtuais.data ?? []).length
+      ? await supabaseAdmin
+          .from("os_saida_checklist_imagem")
+          .select("id")
+          .in("checklist_item_id", (itensSaidaAtuais.data ?? []).map((item) => item.id))
+      : { data: [], error: null };
+    if (imagensSaidaAtuais.error) throw imagensSaidaAtuais.error;
+
+    const [ordem, filhasNovas, filhasAnteriores, filhasPorOs, checklists, aprovacoes, anexos, saidas, itensSaida, imagensSaida] =
       await Promise.all([
       supabaseAdmin
         .from("auditoria_evento")
@@ -382,6 +421,9 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
       consultarRegistros("checklist", (checklistsAtuais.data ?? []).map((item) => item.id)),
       consultarRegistros("osaprovacao", (aprovacoesAtuais.data ?? []).map((item) => item.id)),
       consultarRegistros("osanexo", (anexosAtuais.data ?? []).map((item) => item.id)),
+      consultarRegistros("os_saida", saidaAtual.data ? [saidaAtual.data.id] : []),
+      consultarRegistros("os_saida_checklist_item", (itensSaidaAtuais.data ?? []).map((item) => item.id)),
+      consultarRegistros("os_saida_checklist_imagem", (imagensSaidaAtuais.data ?? []).map((item) => item.id)),
     ]);
 
     for (const resultado of [
@@ -392,6 +434,9 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
       checklists,
       aprovacoes,
       anexos,
+      saidas,
+      itensSaida,
+      imagensSaida,
     ]) {
       if (resultado.error) throw resultado.error;
     }
@@ -406,6 +451,9 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
           ...(checklists.data ?? []),
           ...(aprovacoes.data ?? []),
           ...(anexos.data ?? []),
+          ...(saidas.data ?? []),
+          ...(itensSaida.data ?? []),
+          ...(imagensSaida.data ?? []),
         ].map((evento) => [String(evento.id), evento as unknown as EventoAuditoria]),
       ).values(),
     )
@@ -539,7 +587,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
         const statusNovo = String(valor(novo, "status") ?? "").toUpperCase();
         const titulo =
           statusNovo === "CONCLUIDO"
-            ? "Finalizou a OS"
+            ? "Concluiu o pagamento da OS"
             : statusNovo === "SEM_COBRANCA"
               ? "Finalizou a OS sem cobrança"
               : statusNovo === "CANCELADO"
@@ -548,7 +596,12 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
         adicionar(evento, {
           tipo: "status",
           titulo,
-          detalhe: `${textoStatus(valor(anterior, "status"))} → ${textoStatus(valor(novo, "status"))}`,
+          detalhe: [
+            `${textoStatus(valor(anterior, "status"))} → ${textoStatus(valor(novo, "status"))}`,
+            statusNovo === "CONCLUIDO" && dataHoraAuditoria(valor(novo, "pagamento_concluido_em"))
+              ? `Pagamento concluído em ${dataHoraAuditoria(valor(novo, "pagamento_concluido_em"))}`
+              : null,
+          ].filter(Boolean).join(" • "),
         });
         continue;
       }
@@ -592,6 +645,42 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
           },
           true,
         );
+        continue;
+      }
+
+      if (evento.tabela === "os_saida") {
+        const dadosSaida = evento.operacao === "DELETE" ? anterior : novo;
+        const partes = [
+          dataHoraAuditoria(valor(dadosSaida, "saida_em"))
+            ? `Retirada em ${dataHoraAuditoria(valor(dadosSaida, "saida_em"))}`
+            : null,
+          valor(dadosSaida, "retirado_por")
+            ? `Retirado por: ${String(valor(dadosSaida, "retirado_por"))}`
+            : "Pessoa que retirou não informada",
+        ].filter(Boolean);
+        adicionar(evento, {
+          tipo: "saida",
+          titulo: evento.operacao === "INSERT" ? "Registrou a saída da OS" : evento.operacao === "DELETE" ? "Removeu o registro de saída da OS" : "Atualizou a saída da OS",
+          detalhe: partes.join(" • "),
+        });
+        continue;
+      }
+
+      if (evento.tabela === "os_saida_checklist_item") {
+        adicionar(evento, {
+          tipo: "saida",
+          titulo: "Registrou o checklist de saída",
+          detalhe: String(valor(novo, "titulo") ?? "Item do checklist de saída"),
+        }, true);
+        continue;
+      }
+
+      if (evento.tabela === "os_saida_checklist_imagem") {
+        adicionar(evento, {
+          tipo: "saida",
+          titulo: evento.operacao === "DELETE" ? "Removeu uma imagem do checklist de saída" : "Anexou uma imagem ao checklist de saída",
+          detalhe: String(valor(novo, "descricao") ?? valor(anterior, "descricao") ?? "Imagem do checklist de saída"),
+        }, true);
         continue;
       }
 
@@ -686,6 +775,17 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
       }
 
       if (evento.tabela === "ordemservico" && evento.operacao === "UPDATE") {
+        // A gravação de datasaida é parte técnica do registro detalhado em os_saida.
+        // Evita duplicar a atividade como um vago "Atualizou os dados da OS".
+        if (evento.campos_alterados?.includes("datasaida")) continue;
+        if (evento.campos_alterados?.includes("pagamento_concluido_em")) {
+          adicionar(evento, {
+            tipo: "status",
+            titulo: "Registrou a conclusão do pagamento",
+            detalhe: dataHoraAuditoria(valor(novo, "pagamento_concluido_em")),
+          });
+          continue;
+        }
         const condicoesOrcamento = detalheCondicoesOrcamento(evento);
         if (condicoesOrcamento.length) {
           adicionar(
@@ -704,8 +804,11 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
           evento,
           {
             tipo: "dados",
-            titulo: "Atualizou os dados da OS",
-            detalhe: null,
+            titulo: "Atualizou informações da OS",
+            detalhe: (evento.campos_alterados ?? [])
+              .filter((campo) => campo !== "updatedat")
+              .map((campo) => CAMPOS_ORDEM_LABEL[campo] ?? campo.replaceAll("_", " "))
+              .join(", ") || null,
           },
           true,
         );

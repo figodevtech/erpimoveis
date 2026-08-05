@@ -77,13 +77,6 @@ function brl(cents: number): string {
 const TARGET_STATUS_CONCLUIDA = "CONCLUIDO";
 const TARGET_VENDA_STATUS_CONCLUIDA = "FINALIZADA";
 
-const FORTALEZA_OFFSET_MS = 3 * 60 * 60 * 1000;
-
-function fortalezaNowIsoForTimestamp(): string {
-  const now = new Date(); // agora (momento em UTC)
-  const pseudoLocal = new Date(now.getTime() - FORTALEZA_OFFSET_MS);
-  return pseudoLocal.toISOString(); // ex: 2025-12-12T15:27:00.000Z
-}
 
 function centsToNumber(cents: number): number {
   return Number((cents / 100).toFixed(2));
@@ -594,20 +587,20 @@ export async function POST(req: Request) {
 
     // =================== Pós-inserção: fechar OS/Venda se bateu orçamento ===================
 
-    // 👉 OS: se total pago == orçamento, marca CONCLUIDO + datasaida
+    // OS: se total pago == orçamento, registra a conclusao financeira.
     const createdRows = data ?? [];
     const createdPayload = createdRows.length === 1 ? createdRows[0] : createdRows;
 
     if (osId != null && preSumCents != null && orcCents != null) {
       const novoTotal = preSumCents + valorCents!;
       if (novoTotal === orcCents) {
-        const nowIsoFortaleza = fortalezaNowIsoForTimestamp();
+        const nowIso = new Date().toISOString();
         const { error: updErr } = await supabaseAdmin
           .from("ordemservico")
           .update({
             status: TARGET_STATUS_CONCLUIDA,
-            datasaida: nowIsoFortaleza, // 👈 agora ajustado pro fuso de Fortaleza
-            updatedat: nowIsoFortaleza,
+            pagamento_concluido_em: nowIso,
+            updatedat: nowIso,
           })
           .eq("id", osId);
 

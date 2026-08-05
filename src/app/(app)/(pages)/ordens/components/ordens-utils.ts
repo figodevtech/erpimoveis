@@ -43,7 +43,9 @@ export function fmtDate(s?: string | null) {
     : d.toLocaleString("pt-BR", {
       day: "2-digit",
       month: "2-digit",
-      year: "numeric"
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     });
 }
 
