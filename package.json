@@ -16,6 +16,7 @@
     "db:deploy": "tsx scripts/db/deploy.ts",
     "db:deploy:demo": "tsx scripts/db/deploy-demo.ts",
     "db:deploy:clients": "tsx scripts/db/deploy-clients.ts",
+    "migracao:demir:financeiro": "tsx scripts/migracao/demir-financeiro.ts",
     "test:fiscal": "tsx --test src/services/fiscal/*.test.ts"
   },
   "overrides": {
