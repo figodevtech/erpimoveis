@@ -349,9 +349,26 @@ export async function PUT(
       ])
     );
 
+    // Quando o estoque acompanha o orçamento.
+    //
+    // No modo ORÇAMENTO, sempre: reservar é o próprio sentido do modo.
+    //
+    // No modo EXECUÇÃO, só depois que a OS entrou em execução. Antes disso
+    // editar o orçamento não pode mexer em saldo — a baixa acontece ao iniciar a
+    // OS. Depois disso tem que mexer, senão retirar um produto deixa o saldo
+    // preso e acrescentar um deixa a OS levando material que nunca foi baixado.
+    //
+    // O status é o sinal principal; a baixa registrada entra como reforço para
+    // OS que consumiu por outro caminho. Só a baixa não bastaria: uma OS em
+    // andamento que ficasse momentaneamente sem produtos voltaria a ser tratada
+    // como se ainda não tivesse consumido.
+    const osEmExecucao = ["EM_ANDAMENTO", "PAGAMENTO"].includes(statusAtual);
+    const sincronizarEstoque =
+      modoBaixaEstoqueOS === "ORCAMENTO" || osEmExecucao || baixaMap.size > 0;
+
     // Busca estoques/títulos dos produtos envolvidos
     const { data: prodInfos, error: prodInfoErr } = allProdIds.length
-      ? modoBaixaEstoqueOS === "ORCAMENTO"
+      ? sincronizarEstoque
         ? await supabase
             .from("produto")
             .select("id, estoque, titulo")
@@ -374,7 +391,7 @@ export async function PUT(
     // Mas como a baixa final == quantidade desejada, a reserva nova é (desejada - baixadaAtual). Se negativa, é estorno (ok).
     const faltantes: Array<{ id: number; titulo: string; disponivel: number; solicitado: number }> = [];
 
-    if (modoBaixaEstoqueOS === "ORCAMENTO") {
+    if (sincronizarEstoque) {
       allProdIds.forEach((pid) => {
       const desejada = desejadosMap.get(pid)?.quantidade ?? 0;
       const baixadaAtual = baixaMap.get(pid) ?? 0;
@@ -442,60 +459,44 @@ export async function PUT(
     }
 
     // 2) Ajusta osproduto_baixa e produto.estoque conforme deltas
-    if (modoBaixaEstoqueOS === "ORCAMENTO") {
+    //
+    // O ajuste roda no banco (sincronizar_baixa_estoque_os_produto): a RPC trava
+    // a linha do produto, calcula o delta contra a baixa vigente e carimba o
+    // movimento no razao de estoque. Antes isso era feito aqui lendo o saldo e
+    // regravando o valor absoluto, o que perdia atualizacao quando duas edicoes
+    // do mesmo produto aconteciam ao mesmo tempo.
+    if (sincronizarEstoque) {
       for (const pid of allProdIds) {
-      const desejada = desejadosMap.get(pid)?.quantidade ?? 0;
-      const baixadaAtual = baixaMap.get(pid) ?? 0;
-      const delta = desejada - baixadaAtual; // + => consumir estoque; - => devolver
-      if (delta === 0) {
-        // Garante que a baixa reflita a desejada (mesmo se 0 -> deletar)
-        if (desejada === 0 && baixadaAtual > 0) {
-          // remover controle de baixa
-          const delBaixa = await supabase
-            .from("osproduto_baixa")
-            .delete()
-            .eq("ordemservicoid", osId)
-            .eq("produtoid", pid);
-          if (delBaixa.error) throw delBaixa.error;
-        } else if (desejada > 0 && baixadaAtual !== desejada) {
-          // alinhar exatamente
-          const upBaixa = await supabase.from("osproduto_baixa").upsert(
-            [{ ordemservicoid: osId, produtoid: pid, quantidade: desejada }],
-            { onConflict: "ordemservicoid,produtoid" }
-          );
-          if (upBaixa.error) throw upBaixa.error;
+        const desejada = desejadosMap.get(pid)?.quantidade ?? 0;
+
+        const sync = await supabase.rpc("sincronizar_baixa_estoque_os_produto", {
+          p_os_id: osId,
+          p_produto_id: pid,
+          p_quantidade_alvo: desejada,
+        });
+
+        if (sync.error) {
+          const mensagem = sync.error.message ?? "";
+          if (/insuficiente/i.test(mensagem)) {
+            return NextResponse.json(
+              {
+                error: "Estoque insuficiente para um ou mais itens",
+                itens: [
+                  {
+                    id: pid,
+                    titulo: tituloMap.get(pid) ?? `Produto #${pid}`,
+                    disponivel: estoqueMap.get(pid) ?? 0,
+                    solicitado: desejada - (baixaMap.get(pid) ?? 0),
+                  },
+                ],
+              },
+              { status: 409 }
+            );
+          }
+          throw sync.error;
         }
-        continue;
-      }
 
-      // Atualiza controle de baixa
-      if (desejada === 0) {
-        const delBaixa = await supabase
-          .from("osproduto_baixa")
-          .delete()
-          .eq("ordemservicoid", osId)
-          .eq("produtoid", pid);
-        if (delBaixa.error) throw delBaixa.error;
-      } else {
-        const upBaixa = await supabase.from("osproduto_baixa").upsert(
-          [{ ordemservicoid: osId, produtoid: pid, quantidade: desejada }],
-          { onConflict: "ordemservicoid,produtoid" }
-        );
-        if (upBaixa.error) throw upBaixa.error;
-      }
-
-      // Atualiza estoque do produto (set absoluto com base no que lemos)
-      const estoqueAtual = estoqueMap.get(pid) ?? 0;
-      const novoEstoque = estoqueAtual - delta; // delta>0 consome; delta<0 devolve
-      const upEst = await supabase
-        .from("produto")
-        .update({ estoque: novoEstoque })
-        .eq("id", pid);
-      if (upEst.error) throw upEst.error;
-
-      // Atualiza cache local p/ próximo loop (evita inconsistências se mesmo id repetir)
-      estoqueMap.set(pid, novoEstoque);
-      baixaMap.set(pid, desejada);
+        baixaMap.set(pid, desejada);
       }
     }
 

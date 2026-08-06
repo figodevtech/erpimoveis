@@ -45,7 +45,9 @@ const WRITABLE_FIELDS = new Set([
   "precovenda",
   "precocompra",
   "ultimovalordecompra",
-  "estoque",
+  // "estoque" nao entra aqui de proposito: saldo so muda por entrada, saida,
+  // venda ou OS, que registram o movimento no razao de estoque. Gravar o campo
+  // direto criaria saldo sem movimento correspondente.
   "estoqueminimo",
   "ncm",
   "cfop",
@@ -327,7 +329,6 @@ function sanitizePayload(body: any, { strict }: { strict: boolean }) {
         out[key] = toNumberOrNull(body[key]);
         break;
       }
-      case "estoque":
       case "estoqueminimo": {
         const n = toNumberOrNull(body[key]);
         if (n == null) {
@@ -345,7 +346,9 @@ function sanitizePayload(body: any, { strict }: { strict: boolean }) {
 
   if (strict) {
     // Para PUT (substituição completa), alinhar com NOT NULL do schema
-    const required = ["titulo", "precovenda", "estoque", "estoqueminimo", "unidade"];
+    // estoque saiu da lista: o PUT nao grava mais o saldo, entao exigi-lo no corpo
+    // so faria o cliente enviar um valor que seria ignorado.
+    const required = ["titulo", "precovenda", "estoqueminimo", "unidade"];
     const missing = required.filter((k) => body[k] == null || String(body[k]).trim() === "");
     if (missing.length) {
       throw new Error(`Campos obrigatórios ausentes no PUT: ${missing.join(", ")}`);

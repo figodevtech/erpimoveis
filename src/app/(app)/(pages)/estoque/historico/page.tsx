@@ -68,6 +68,30 @@ type RawMovement = {
   itens?: MovementItem[] | null;
 };
 
+type Origem = "ENTRADA" | "SAIDA_MANUAL" | "VENDA" | "ORDEM_SERVICO" | "NAO_IDENTIFICADA";
+type OrigemFilter = "todas" | Origem;
+
+/** Linha do razao de estoque de produtos (/api/estoque/movimentos). */
+type RawLedgerMovement = {
+  id: number;
+  sentido: "ENTRADA" | "SAIDA";
+  origem: Origem;
+  acao: "REGISTRO" | "ESTORNO";
+  quantidade: number;
+  saldo_resultante: number | null;
+  entrada_id: number | null;
+  saida_id: number | null;
+  venda_id: number | null;
+  ordemservicoid: number | null;
+  documento_label: string | null;
+  reconstruido: boolean;
+  created_at: string;
+  produto?: { titulo?: string | null; unidade?: string | null } | null;
+  criador?: { nome?: string | null } | null;
+  entrada?: { status?: string | null; fornecedor?: { nomerazaosocial?: string | null } | null } | null;
+  saida?: { status?: string | null; motivo?: string | null; observacao?: string | null } | null;
+};
+
 type Movement = {
   key: string;
   id: number;
@@ -79,6 +103,32 @@ type Movement = {
   items: string;
   total: number | null;
   status: string;
+  /** Presentes apenas nas linhas vindas do razao de produtos. */
+  origem?: Origem;
+  acao?: "REGISTRO" | "ESTORNO";
+  /**
+   * Documento cancelavel por tras do movimento. Venda e OS ficam nulos de
+   * proposito: elas se desfazem no proprio modulo, nao pela tela de estoque.
+   */
+  documentKind?: Direction | null;
+  documentId?: number | null;
+  reconstruido?: boolean;
+};
+
+const ROTULO_ORIGEM: Record<Origem, string> = {
+  ENTRADA: "Entrada",
+  SAIDA_MANUAL: "Saída manual",
+  VENDA: "Venda",
+  ORDEM_SERVICO: "Ordem de serviço",
+  NAO_IDENTIFICADA: "Sem origem",
+};
+
+const COR_ORIGEM: Record<Origem, string> = {
+  ENTRADA: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20",
+  SAIDA_MANUAL: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20",
+  VENDA: "bg-sky-500/10 text-sky-700 dark:text-sky-400 border-sky-500/20",
+  ORDEM_SERVICO: "bg-violet-500/10 text-violet-700 dark:text-violet-400 border-violet-500/20",
+  NAO_IDENTIFICADA: "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20",
 };
 
 function errorText(error: unknown) {
@@ -131,6 +181,52 @@ function normalizeMovement(
   };
 }
 
+/**
+ * Converte uma linha do razao de produtos para o formato da tabela.
+ *
+ * O razao e por linha de produto, nao por documento: uma venda de tres itens
+ * rende tres movimentos. E a granularidade certa para conferir saldo, e a unica
+ * em que baixa de venda e de OS cabem junto com entrada e saida.
+ */
+function normalizeLedgerMovement(raw: RawLedgerMovement): Movement {
+  const cancelavel = raw.origem === "ENTRADA" || raw.origem === "SAIDA_MANUAL";
+  const documentId = raw.entrada_id ?? raw.saida_id ?? null;
+
+  const descricao =
+    raw.origem === "SAIDA_MANUAL"
+      ? [label(raw.saida?.motivo), raw.saida?.observacao?.trim()].filter(Boolean).join(" - ")
+      : raw.documento_label || ROTULO_ORIGEM[raw.origem];
+
+  const quantidade = Number(raw.quantidade ?? 0);
+  const unidade = raw.produto?.unidade ? ` ${raw.produto.unidade}` : "";
+
+  return {
+    key: `produtos-razao-${raw.id}`,
+    id: documentId ?? raw.venda_id ?? raw.ordemservicoid ?? raw.id,
+    inventory: "produtos",
+    direction: raw.sentido === "ENTRADA" ? "entrada" : "saida",
+    createdAt: raw.created_at,
+    description: raw.acao === "ESTORNO" ? `${descricao} (estorno)` : descricao,
+    party:
+      raw.entrada?.fornecedor?.nomerazaosocial ||
+      raw.criador?.nome ||
+      "—",
+    items: `${raw.produto?.titulo || "Produto"} (${quantidade}${unidade})`,
+    total: null,
+    // Entrada e saida trazem o status do documento; venda e OS nao tem status de
+    // movimento, entao a linha vale pelo que ela e: baixa ou devolucao.
+    status:
+      raw.entrada?.status ||
+      raw.saida?.status ||
+      (raw.acao === "ESTORNO" ? "ESTORNADA" : "CONFIRMADA"),
+    origem: raw.origem,
+    acao: raw.acao,
+    documentKind: cancelavel ? (raw.origem === "ENTRADA" ? "entrada" : "saida") : null,
+    documentId: cancelavel ? documentId : null,
+    reconstruido: raw.reconstruido,
+  };
+}
+
 function formatDateTime(value: string) {
   return new Date(value).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 }
@@ -162,7 +258,25 @@ function MovementRow({
             {isEntrada ? <ArrowDownToLine className="size-3.5" /> : <ArrowUpFromLine className="size-3.5" />}
           </div>
           <div className="flex min-w-0 flex-col">
-            <span className="truncate font-medium">{movement.description}</span>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span className="truncate font-medium">{movement.description}</span>
+              {movement.origem ? (
+                <Badge
+                  variant="outline"
+                  className={`shrink-0 px-1.5 py-0 text-[10px] font-normal ${COR_ORIGEM[movement.origem]}`}
+                >
+                  {ROTULO_ORIGEM[movement.origem]}
+                </Badge>
+              ) : null}
+              {movement.reconstruido ? (
+                <span
+                  className="shrink-0 text-[10px] uppercase text-muted-foreground"
+                  title="Linha reconstruída na migração do histórico; saldo da época não registrado."
+                >
+                  reconstruído
+                </span>
+              ) : null}
+            </div>
             <span className="truncate text-xs text-muted-foreground">{movement.party}</span>
             <span className="mt-0.5 truncate text-xs text-muted-foreground md:hidden">
               {formatDateTime(movement.createdAt)}
@@ -235,11 +349,13 @@ function MovementTable({
   const [search, setSearch] = useState("");
   const [directionFilter, setDirectionFilter] = useState<DirectionFilter>("todos");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("todos");
+  const [origemFilter, setOrigemFilter] = useState<OrigemFilter>("todas");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [draftDirection, setDraftDirection] = useState<DirectionFilter>("todos");
   const [draftStatus, setDraftStatus] = useState<StatusFilter>("todos");
+  const [draftOrigem, setDraftOrigem] = useState<OrigemFilter>("todas");
   const [draftDateFrom, setDraftDateFrom] = useState("");
   const [draftDateTo, setDraftDateTo] = useState("");
   const [page, setPage] = useState(1);
@@ -252,6 +368,7 @@ function MovementTable({
       sourceMovements.filter((movement) => {
         if (directionFilter !== "todos" && movement.direction !== directionFilter) return false;
         if (statusFilter !== "todos" && movement.status !== statusFilter) return false;
+        if (origemFilter !== "todas" && movement.origem !== origemFilter) return false;
 
         const movementDate = new Date(movement.createdAt);
         if (dateFrom && movementDate < new Date(`${dateFrom}T00:00:00`)) return false;
@@ -263,7 +380,7 @@ function MovementTable({
           .toLocaleLowerCase("pt-BR")
           .includes(normalizedSearch);
       }),
-    [dateFrom, dateTo, directionFilter, normalizedSearch, sourceMovements, statusFilter],
+    [dateFrom, dateTo, directionFilter, normalizedSearch, origemFilter, sourceMovements, statusFilter],
   );
   const totalPages = Math.max(1, Math.ceil(filteredMovements.length / limit));
   const start = (page - 1) * limit;
@@ -274,25 +391,30 @@ function MovementTable({
   const activeFilterCount =
     Number(directionFilter !== "todos") +
     Number(statusFilter !== "todos") +
+    Number(origemFilter !== "todas") +
     Number(Boolean(dateFrom)) +
     Number(Boolean(dateTo));
 
   useEffect(() => {
     setPage(1);
-  }, [dateFrom, dateTo, directionFilter, inventory, limit, normalizedSearch, statusFilter]);
+  }, [dateFrom, dateTo, directionFilter, inventory, limit, normalizedSearch, origemFilter, statusFilter]);
 
   useEffect(() => {
     setPage((current) => Math.min(current, totalPages));
   }, [totalPages]);
 
   function changeInventory(value: string) {
-    if (value === "produtos" || value === "uso-consumo") setInventory(value);
+    if (value !== "produtos" && value !== "uso-consumo") return;
+    setInventory(value);
+    // Uso e consumo nao tem origem: manter o filtro esvaziaria a lista inteira.
+    if (value === "uso-consumo") setOrigemFilter("todas");
   }
 
   function changeSheetOpen(open: boolean) {
     if (open) {
       setDraftDirection(directionFilter);
       setDraftStatus(statusFilter);
+      setDraftOrigem(origemFilter);
       setDraftDateFrom(dateFrom);
       setDraftDateTo(dateTo);
     }
@@ -302,6 +424,7 @@ function MovementTable({
   function applyFilters() {
     setDirectionFilter(draftDirection);
     setStatusFilter(draftStatus);
+    setOrigemFilter(draftOrigem);
     setDateFrom(draftDateFrom);
     setDateTo(draftDateTo);
     setSheetOpen(false);
@@ -310,6 +433,7 @@ function MovementTable({
   function clearDraftFilters() {
     setDraftDirection("todos");
     setDraftStatus("todos");
+    setDraftOrigem("todas");
     setDraftDateFrom("");
     setDraftDateTo("");
   }
@@ -397,6 +521,27 @@ function MovementTable({
                         </SelectContent>
                       </Select>
                     </div>
+
+                    {/* Origem so existe no razao de produtos; uso e consumo tem
+                        apenas entrada e saida. */}
+                    {inventory === "produtos" ? (
+                      <div className="space-y-2 border-t pt-4">
+                        <Label>Origem</Label>
+                        <Select value={draftOrigem} onValueChange={(value) => setDraftOrigem(value as OrigemFilter)}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="todas">Todas as origens</SelectItem>
+                            <SelectItem value="ENTRADA">Entrada</SelectItem>
+                            <SelectItem value="SAIDA_MANUAL">Saída manual</SelectItem>
+                            <SelectItem value="VENDA">Venda</SelectItem>
+                            <SelectItem value="ORDEM_SERVICO">Ordem de serviço</SelectItem>
+                            <SelectItem value="NAO_IDENTIFICADA">Sem origem</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ) : null}
 
                     <div className="space-y-2 border-t pt-4">
                       <Label>Status</Label>
@@ -617,18 +762,16 @@ export default function HistoricoEstoquePage() {
       const requests: Promise<void>[] = [];
 
       if (canProducts) {
+        // Produtos vem do razao de estoque, que reune as quatro origens numa
+        // consulta so. Antes esta aba juntava /api/entradas com
+        // /api/estoque/saidas, e por isso baixa de venda e de OS nunca aparecia.
         requests.push(
-          Promise.all([
-            axios.get("/api/entradas", { params: { page: 1, limit: 100 } }),
-            axios.get("/api/estoque/saidas", { params: { page: 1, limit: 100 } }),
-          ]).then(([entriesResponse, outputsResponse]) => {
-            const entries = (entriesResponse.data.data ?? []) as RawMovement[];
-            const outputs = (outputsResponse.data.data ?? []) as RawMovement[];
-            setProducts([
-              ...entries.map((entry) => normalizeMovement(entry, "produtos", "entrada")),
-              ...outputs.map((output) => normalizeMovement(output, "produtos", "saida")),
-            ].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)));
-          }),
+          axios
+            .get("/api/estoque/movimentos", { params: { page: 1, limit: 200 } })
+            .then((response) => {
+              const linhas = (response.data.data ?? []) as RawLedgerMovement[];
+              setProducts(linhas.map(normalizeLedgerMovement));
+            }),
         );
       } else {
         setProducts([]);
@@ -668,7 +811,13 @@ export default function HistoricoEstoquePage() {
   /** Produto usa a permissao de edicao de estoque; uso/consumo tem permissao propria. */
   function podeCancelar(movement: Movement) {
     if (movement.status !== "CONFIRMADA") return false;
-    return movement.inventory === "uso-consumo" ? canCancelUse : canCancelProducts;
+    if (movement.inventory === "uso-consumo") return canCancelUse;
+    // No razao de produtos so entrada e saida manual se cancelam por aqui, e so
+    // a linha original — nunca um estorno ja registrado. Venda e OS se desfazem
+    // no proprio modulo, que ja devolve o saldo e grava o movimento inverso.
+    if (!movement.documentKind || !movement.documentId) return false;
+    if (movement.acao === "ESTORNO") return false;
+    return canCancelProducts;
   }
 
   async function cancelMovement(motivo: string) {
@@ -677,13 +826,15 @@ export default function HistoricoEstoquePage() {
 
     setCanceling(movement.key);
     try {
-      const path = movement.direction === "entrada" ? "entradas" : "saidas";
+      const kind = movement.documentKind ?? movement.direction;
+      const documentId = movement.documentId ?? movement.id;
+      const path = kind === "entrada" ? "entradas" : "saidas";
       const endpoint =
         movement.inventory === "uso-consumo"
           ? `/api/usoconsumo/${path}/${movement.id}/cancelar`
-          : movement.direction === "entrada"
-            ? `/api/entradas/${movement.id}/cancelar`
-            : `/api/estoque/saidas/${movement.id}/cancelar`;
+          : kind === "entrada"
+            ? `/api/entradas/${documentId}/cancelar`
+            : `/api/estoque/saidas/${documentId}/cancelar`;
       await axios.post(endpoint, { motivo });
       toast.success("Movimentação cancelada.");
       setCancelTarget(null);
@@ -705,9 +856,12 @@ export default function HistoricoEstoquePage() {
         canceling={canceling}
         onReload={() => void load()}
         onCancel={(movement) => {
-          if (movement.direction === "entrada") {
+          const kind = movement.documentKind ?? movement.direction;
+          const documentId = movement.documentId ?? movement.id;
+
+          if (kind === "entrada") {
             setEntradaCancelamento({
-              id: movement.id,
+              id: documentId,
               origem: movement.inventory === "uso-consumo" ? "USOCONSUMO" : "ESTOQUE",
             });
             return;
@@ -715,8 +869,8 @@ export default function HistoricoEstoquePage() {
           setCancelTarget({
             movement,
             target: {
-              id: movement.id,
-              kind: movement.direction,
+              id: documentId,
+              kind,
               inventory: movement.inventory === "uso-consumo" ? "usoconsumo" : "produto",
             },
           });

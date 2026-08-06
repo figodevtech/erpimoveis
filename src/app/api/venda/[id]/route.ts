@@ -32,6 +32,9 @@ const STATUS_SET = new Set<Status>([
   "CANCELADO",
 ]);
 
+/** Estados em que a venda nao pode manter estoque baixado. */
+const STATUS_CANCELADOS = new Set<string>(["CANCELADA", "CANCELADO"]);
+
 /**
  * SELECT padrão da venda com cliente e itens (vendaproduto) + produto.
  * Atenção:
@@ -581,6 +584,10 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       updatePayload.clienteid = clienteId;
     }
 
+    // Guardado antes da atualizacao para decidir, depois dela, se o estoque
+    // precisa ser devolvido ou baixado de novo por causa da troca de status.
+    let statusAnterior: string | null = null;
+
     if (status !== undefined) {
       const upperStatus = String(status).toUpperCase();
       if (!STATUS_SET.has(upperStatus as Status)) {
@@ -591,6 +598,18 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
           { status: 400 }
         );
       }
+
+      const atual = await supabaseAdmin
+        .from("venda")
+        .select("status")
+        .eq("id", vendaId)
+        .maybeSingle();
+      if (atual.error) throw atual.error;
+      if (!atual.data) {
+        return NextResponse.json({ error: "Venda não encontrada." }, { status: 404 });
+      }
+      statusAnterior = String(atual.data.status ?? "").toUpperCase();
+
       updatePayload.status = upperStatus;
     }
 
@@ -783,6 +802,51 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       return NextResponse.json({ error: "Venda não encontrada." }, { status: 404 });
     }
 
+    // Cancelar uma venda devolve o estoque; tirar do cancelamento faz a baixa
+    // valer de novo. Sem isso o saldo ficava preso numa venda que nao existe
+    // mais para o negocio, e a unica forma de recuperar era excluir a venda.
+    //
+    // Roda depois da atualizacao porque e nela que moram as validacoes: se o
+    // movimento de estoque falhar, o status volta ao que era, para nao sobrar
+    // venda cancelada com saldo preso nem o contrario.
+    if (statusAnterior !== null && updatePayload.status) {
+      const statusNovo = String(updatePayload.status).toUpperCase();
+      const eraCancelada = STATUS_CANCELADOS.has(statusAnterior);
+      const ficouCancelada = STATUS_CANCELADOS.has(statusNovo);
+
+      let movimento: "fn_estornar_estoque_venda" | "fn_baixar_estoque_venda" | null = null;
+      if (!eraCancelada && ficouCancelada) {
+        movimento = "fn_estornar_estoque_venda";
+      } else if (eraCancelada && !ficouCancelada && statusNovo !== "ORCAMENTO") {
+        // Orcamento nao reserva estoque, entao voltar para ele nao rebaixa nada.
+        movimento = "fn_baixar_estoque_venda";
+      }
+
+      if (movimento) {
+        const { error: movimentoError } = await supabaseAdmin.rpc(movimento, {
+          p_venda_id: vendaId,
+        });
+
+        if (movimentoError) {
+          await supabaseAdmin
+            .from("venda")
+            .update({ status: statusAnterior })
+            .eq("id", vendaId);
+
+          console.error("Erro ao ajustar o estoque na troca de status da venda:", movimentoError);
+          return NextResponse.json(
+            {
+              error:
+                movimento === "fn_estornar_estoque_venda"
+                  ? "Erro ao estornar o estoque da venda. O status foi mantido."
+                  : `Erro ao rebaixar o estoque da venda: ${movimentoError.message ?? "falha desconhecida"}. O status foi mantido.`,
+            },
+            { status: 409 }
+          );
+        }
+      }
+    }
+
     if (normalizedItems) {
       const productIds = normalizedItems.map((item) => item.produtoId);
       await syncPendingMercadoLivreStock({
@@ -926,55 +990,45 @@ export async function DELETE(_req: NextRequest, ctx: ParamsCtx) {
 
     const produtoIds = Array.from(qtyPorProduto.keys());
 
-    // 3) Estornar estoque (produto.estoque += qty)
+    // 3) Estornar estoque
+    //
+    // O estorno roda em fn_estornar_estoque_venda, que devolve o saldo a partir da
+    // baixa registrada, trava a venda e carimba o movimento no razao de estoque.
+    // Antes isso era feito aqui lendo o saldo e regravando o valor absoluto, sem
+    // travar a linha e sem deixar rastro da devolucao.
+    //
+    // Vendas legadas, anteriores ao rastreamento, tem a baixa semeada a partir dos
+    // itens antes do estorno, para percorrerem exatamente o mesmo caminho.
     if (produtoIds.length > 0) {
-      const { data: produtos, error: produtosError } = await supabaseAdmin
-        .from("produto")
-        .select("id, estoque")
-        .in("id", produtoIds);
-
-      if (produtosError) {
-        console.error("Erro ao buscar produtos para estorno de estoque:", produtosError);
-        return NextResponse.json(
-          { error: "Erro ao buscar produtos para estornar estoque." },
-          { status: 500 }
+      if ((baixasRegistradas?.length ?? 0) === 0) {
+        const { error: seedError } = await supabaseAdmin.from("vendaproduto_baixa").upsert(
+          produtoIds.map((pid) => ({
+            venda_id: vendaId,
+            produtoid: pid,
+            quantidade: qtyPorProduto.get(pid) ?? 0,
+          })),
+          { onConflict: "venda_id,produtoid" }
         );
-      }
 
-      const estoqueAtualPorId = new Map<number, number>();
-      for (const p of produtos ?? []) {
-        const id = Number((p as any).id);
-        const est = Number((p as any).estoque ?? 0);
-        estoqueAtualPorId.set(id, Number.isFinite(est) ? est : 0);
-      }
-
-      for (const pid of produtoIds) {
-        if (!estoqueAtualPorId.has(pid)) {
+        if (seedError) {
+          console.error("Erro ao registrar a baixa legada da venda:", seedError);
           return NextResponse.json(
-            { error: `Produto ${pid} não encontrado para estorno de estoque. Exclusão abortada.` },
-            { status: 400 }
-          );
-        }
-
-        const estoqueAtual = estoqueAtualPorId.get(pid) ?? 0;
-        const estornar = qtyPorProduto.get(pid) ?? 0;
-        const novoEstoque = estoqueAtual + estornar;
-
-        const { error: updErr } = await supabaseAdmin
-          .from("produto")
-          .update({
-            estoque: novoEstoque,
-            updatedat: new Date().toISOString(),
-          })
-          .eq("id", pid);
-
-        if (updErr) {
-          console.error(`Erro ao atualizar estoque do produto ${pid}:`, updErr);
-          return NextResponse.json(
-            { error: `Erro ao estornar estoque do produto ${pid}. Exclusão abortada.` },
+            { error: "Erro ao preparar o estorno de estoque da venda. Exclusão abortada." },
             { status: 500 }
           );
         }
+      }
+
+      const { error: estornoError } = await supabaseAdmin.rpc("fn_estornar_estoque_venda", {
+        p_venda_id: vendaId,
+      });
+
+      if (estornoError) {
+        console.error("Erro ao estornar estoque da venda:", estornoError);
+        return NextResponse.json(
+          { error: "Erro ao estornar estoque da venda. Exclusão abortada." },
+          { status: 500 }
+        );
       }
     }
 

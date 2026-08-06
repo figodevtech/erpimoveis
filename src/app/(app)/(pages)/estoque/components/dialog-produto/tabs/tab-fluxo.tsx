@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TabsContent } from "@/components/ui/tabs";
-import { ChevronDown, Undo2, Receipt, ArrowRightLeft, Eye } from "lucide-react";
+import { ChevronDown, Undo2, Receipt, ArrowRightLeft, Eye, Loader2 } from "lucide-react";
 import { Produto } from "../../../types";
 import { formatDate } from "@/utils/formatDate";
 import { EmissaoNotaDialog } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/emissao-nota-dialog";
@@ -16,33 +16,79 @@ import { ExitDetailsDialog } from "../../exit-details-dialog";
 import { CancelMovementDialog, type CancelTarget } from "../../cancel-movement-dialog";
 import { CancelarEntradaDialog } from "@/components/entrada-fiscal/cancelar-entrada-dialog";
 
+/**
+ * Movimentacoes do produto, lidas do razao de estoque.
+ *
+ * A tela mostra as quatro origens que mexem em saldo — entrada, saida manual,
+ * venda e ordem de servico. Antes so entrada e saida apareciam, porque venda e
+ * OS nao deixavam registro de movimento em lugar nenhum.
+ */
+
+type Movimento = {
+  id: number;
+  produto_id: number;
+  sentido: "ENTRADA" | "SAIDA";
+  origem: "ENTRADA" | "SAIDA_MANUAL" | "VENDA" | "ORDEM_SERVICO" | "NAO_IDENTIFICADA";
+  acao: "REGISTRO" | "ESTORNO";
+  quantidade: number;
+  saldo_anterior: number | null;
+  saldo_resultante: number | null;
+  entrada_id: number | null;
+  saida_id: number | null;
+  venda_id: number | null;
+  ordemservicoid: number | null;
+  documento_label: string | null;
+  observacao: string | null;
+  reconstruido: boolean;
+  created_at: string;
+  criador: { nome: string | null } | null;
+  entrada: {
+    id: number;
+    status: string | null;
+    origem: string | null;
+    fiscal: boolean | null;
+    numero_nota: string | null;
+    fornecedor: { nomerazaosocial?: string | null } | null;
+  } | null;
+  saida: { id: number; status: string | null; motivo: string | null; observacao: string | null } | null;
+};
+
+const ROTULO_ORIGEM: Record<Movimento["origem"], string> = {
+  ENTRADA: "Entrada",
+  SAIDA_MANUAL: "Saída manual",
+  VENDA: "Venda",
+  ORDEM_SERVICO: "Ordem de serviço",
+  NAO_IDENTIFICADA: "Sem origem",
+};
+
+const COR_ORIGEM: Record<Movimento["origem"], string> = {
+  ENTRADA: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20",
+  SAIDA_MANUAL: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20",
+  VENDA: "bg-sky-500/10 text-sky-700 dark:text-sky-400 border-sky-500/20",
+  ORDEM_SERVICO: "bg-violet-500/10 text-violet-700 dark:text-violet-400 border-violet-500/20",
+  NAO_IDENTIFICADA: "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20",
+};
+
+function descricaoMovimento(movimento: Movimento) {
+  if (movimento.origem === "ENTRADA" && movimento.entrada) {
+    const fornecedor = movimento.entrada.fornecedor?.nomerazaosocial;
+    if (fornecedor) return fornecedor;
+    if (movimento.entrada.fiscal && movimento.entrada.numero_nota) {
+      return `NF ${movimento.entrada.numero_nota}`;
+    }
+  }
+  if (movimento.origem === "SAIDA_MANUAL" && movimento.saida) {
+    const motivo = String(movimento.saida.motivo ?? "").replace(/_/g, " ");
+    return movimento.saida.observacao || motivo || "Saída";
+  }
+  return movimento.documento_label || ROTULO_ORIGEM[movimento.origem];
+}
+
 export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfterChange?: () => void | Promise<void> }) {
-  const entradas = (produto as any).entrada ?? [];
-  const saidas = (produto as any).saidas ?? [];
-  const movimentacoes = [
-    ...entradas.map((item: any) => ({
-      id: item.entradainfo?.id ?? item.id,
-      key: `entrada-${item.id}`,
-      tipo: "ENTRADA" as const,
-      data: item.created_at,
-      descricao: item.entradainfo?.fornecedor?.nomerazaosocial || "Entrada sem fornecedor",
-      status: item.entradainfo?.status,
-      quantidade: item.quantidade,
-      entrada: item.entradainfo,
-      usuario: item.entradainfo?.criador?.nome ?? null,
-    })),
-    ...saidas.map((item: any) => ({
-      id: item.saida?.id ?? item.id,
-      key: `saida-${item.id}`,
-      tipo: "SAIDA" as const,
-      data: item.saida?.created_at ?? item.created_at,
-      descricao: String(item.saida?.observacao || item.saida?.motivo || "SAIDA").replace(/_/g, " "),
-      status: item.saida?.status,
-      quantidade: item.quantidade,
-      entrada: null,
-      usuario: item.saida?.criador?.nome ?? null,
-    })),
-  ].sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
+  const produtoId = Number((produto as any)?.id);
+
+  const [movimentacoes, setMovimentacoes] = useState<Movimento[]>([]);
+  const [carregando, setCarregando] = useState(true);
   const [nfeDialogEntradaId, setNfeDialogEntradaId] = useState<number | null>(null);
   const [detailsEntradaId, setDetailsEntradaId] = useState<number | null>(null);
   const [detailsSaidaId, setDetailsSaidaId] = useState<number | null>(null);
@@ -50,6 +96,35 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
   const [cancelando, setCancelando] = useState(false);
   /** Entradas usam o dialogo detalhado, que resolve nota mista e lista o que sera desfeito. */
   const [entradaCancelamentoId, setEntradaCancelamentoId] = useState<number | null>(null);
+
+  const carregar = useCallback(async () => {
+    if (!Number.isFinite(produtoId) || produtoId <= 0) {
+      setMovimentacoes([]);
+      setCarregando(false);
+      return;
+    }
+    setCarregando(true);
+    try {
+      const resposta = await fetch(`/api/estoque/movimentos?produtoId=${produtoId}&limit=200`);
+      const corpo = await resposta.json().catch(() => ({}));
+      if (!resposta.ok) throw new Error(corpo.error ?? "Não foi possível carregar as movimentações.");
+      setMovimentacoes((corpo.data ?? []) as Movimento[]);
+    } catch (error: any) {
+      toast.error("Movimentações não carregadas", { description: error?.message });
+      setMovimentacoes([]);
+    } finally {
+      setCarregando(false);
+    }
+  }, [produtoId]);
+
+  useEffect(() => {
+    void carregar();
+  }, [carregar]);
+
+  const aposMudanca = async () => {
+    await carregar();
+    await onAfterChange?.();
+  };
 
   const cancelarMovimento = async (motivo: string) => {
     if (!cancelTarget) return;
@@ -72,7 +147,7 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
           : "Saída cancelada e estoque devolvido.",
       );
       setCancelTarget(null);
-      await onAfterChange?.();
+      await aposMudanca();
     } catch (error: any) {
       toast.error("Erro ao cancelar movimentação", { description: error?.message });
     } finally {
@@ -80,8 +155,23 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
     }
   };
 
-  const getStatusBadge = (status: string) => {
-    if (!status) return <Badge variant="outline">Desconhecido</Badge>;
+  const getStatusBadge = (movimento: Movimento) => {
+    const status = movimento.entrada?.status ?? movimento.saida?.status ?? null;
+
+    if (!status) {
+      // Venda e OS nao tem status proprio de movimento: o que importa e se a
+      // linha e uma baixa ou a devolucao dela.
+      return movimento.acao === "ESTORNO" ? (
+        <Badge variant="outline" className="bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20">
+          Estornado
+        </Badge>
+      ) : (
+        <Badge variant="outline" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20">
+          Confirmada
+        </Badge>
+      );
+    }
+
     const upper = status.toUpperCase();
     const formatted = status.charAt(0).toUpperCase() + status.slice(1).toLowerCase().replace(/_/g, " ");
 
@@ -102,7 +192,7 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
 
   return (
     <TabsContent value="Fluxo" className="h-full min-h-0 overflow-auto dark:bg-muted-foreground/5 px-2 py-3 md:px-6 md:py-6 space-y-6">
-      <EmissaoNotaDialog 
+      <EmissaoNotaDialog
         open={!!nfeDialogEntradaId}
         onOpenChange={(v) => !v && setNfeDialogEntradaId(null)}
         entradaId={nfeDialogEntradaId}
@@ -130,7 +220,7 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
         onOpenChange={(open) => !open && setEntradaCancelamentoId(null)}
         entradaId={entradaCancelamentoId}
         origem="ESTOQUE"
-        onCancelada={() => onAfterChange?.()}
+        onCancelada={() => aposMudanca()}
       />
       <div className="space-y-4">
         {/* Header */}
@@ -143,7 +233,7 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
               </h3>
             </div>
             <p className="text-xs text-muted-foreground">
-              Histórico de entradas e saídas deste produto.
+              Entradas, saídas, vendas e ordens de serviço deste produto.
             </p>
           </div>
           <div className="flex items-center gap-2 rounded-md bg-background px-3 py-1.5 border shadow-sm">
@@ -152,49 +242,77 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
           </div>
         </div>
 
-        <div className="rounded-md border bg-card overflow-hidden">
+        <div className="rounded-md border bg-card overflow-x-auto">
           <Table className="text-xs">
             <TableHeader className="bg-muted/50">
               <TableRow>
-                <TableHead className="w-[80px]">ID</TableHead>
                 <TableHead>Data</TableHead>
-                <TableHead>Tipo</TableHead>
-                <TableHead>Origem / Descrição</TableHead>
+                <TableHead>Origem</TableHead>
+                <TableHead>Documento</TableHead>
                 <TableHead>Usuário</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Quantidade</TableHead>
+                <TableHead className="text-right">Saldo</TableHead>
                 <TableHead className="w-[50px]"></TableHead>
               </TableRow>
             </TableHeader>
 
             <TableBody>
-              {movimentacoes.length > 0 ? (
+              {carregando ? (
+                <TableRow>
+                  <TableCell className="text-center h-24 text-muted-foreground" colSpan={8}>
+                    <div className="flex items-center justify-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Carregando movimentações...
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : movimentacoes.length > 0 ? (
                 movimentacoes.map((movimento) => {
-                  const entradaInfo = movimento.entrada || {};
-                  
+                  const entradaInfo = movimento.entrada;
+                  const isEntrada = movimento.sentido === "ENTRADA";
+
                   return (
-                    <TableRow key={movimento.key} className="hover:bg-muted/50 transition-colors">
-                      <TableCell className="font-medium text-muted-foreground">
-                        #{movimento.id}
-                      </TableCell>
-                      <TableCell>{formatDate(movimento.data)}</TableCell>
+                    <TableRow key={movimento.id} className="hover:bg-muted/50 transition-colors">
+                      <TableCell className="whitespace-nowrap">{formatDate(movimento.created_at)}</TableCell>
+
                       <TableCell>
-                        <Badge variant="outline" className={movimento.tipo === "ENTRADA" ? "text-emerald-700 border-emerald-500/20" : "text-red-700 border-red-500/20"}>
-                          {movimento.tipo === "ENTRADA" ? "Entrada" : "Saída"}
+                        <Badge variant="outline" className={COR_ORIGEM[movimento.origem]}>
+                          {ROTULO_ORIGEM[movimento.origem]}
                         </Badge>
+                        {movimento.acao === "ESTORNO" ? (
+                          <span className="ml-1 text-[10px] uppercase text-muted-foreground">estorno</span>
+                        ) : null}
                       </TableCell>
-                      <TableCell className="max-w-[200px] truncate capitalize" title={movimento.descricao}>
-                        {movimento.descricao.toLowerCase()}
+
+                      <TableCell className="max-w-[220px] truncate" title={descricaoMovimento(movimento)}>
+                        {descricaoMovimento(movimento)}
+                        {movimento.reconstruido ? (
+                          <span
+                            className="ml-1 text-[10px] uppercase text-muted-foreground"
+                            title="Linha reconstruída na migração do histórico; saldo da época não registrado."
+                          >
+                            reconstruído
+                          </span>
+                        ) : null}
                       </TableCell>
-                      <TableCell className="max-w-[140px] truncate" title={movimento.usuario ?? undefined}>
-                        {movimento.usuario || <span className="text-muted-foreground">—</span>}
+
+                      <TableCell className="max-w-[140px] truncate" title={movimento.criador?.nome ?? undefined}>
+                        {movimento.criador?.nome || <span className="text-muted-foreground">—</span>}
                       </TableCell>
-                      <TableCell>{getStatusBadge(movimento.status)}</TableCell>
-                      <TableCell className={`text-right font-bold ${movimento.tipo === "ENTRADA" ? "text-green-600 dark:text-green-500" : "text-red-600 dark:text-red-500"}`}>
-                        {movimento.tipo === "ENTRADA" ? "+" : "-"} {movimento.quantidade}
+
+                      <TableCell>{getStatusBadge(movimento)}</TableCell>
+
+                      <TableCell className={`text-right font-bold ${isEntrada ? "text-green-600 dark:text-green-500" : "text-red-600 dark:text-red-500"}`}>
+                        {isEntrada ? "+" : "-"} {movimento.quantidade}
                       </TableCell>
+
+                      <TableCell className="text-right text-muted-foreground">
+                        {movimento.saldo_resultante ?? "—"}
+                      </TableCell>
+
                       <TableCell>
-                        {movimento.tipo === "SAIDA" ? (
+                        {movimento.origem === "SAIDA_MANUAL" && movimento.saida_id ? (
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button variant="ghost" className="h-8 w-8 p-0 cursor-pointer rounded-full">
@@ -202,15 +320,15 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-[180px]">
-                              <DropdownMenuItem onClick={() => setDetailsSaidaId(movimento.id)}>
+                              <DropdownMenuItem onClick={() => setDetailsSaidaId(movimento.saida_id!)}>
                                 <Eye className="mr-2 h-4 w-4" />
                                 Detalhes
                               </DropdownMenuItem>
-                              {movimento.status === "CONFIRMADA" ? (
+                              {movimento.saida?.status === "CONFIRMADA" && movimento.acao === "REGISTRO" ? (
                                 <DropdownMenuItem
                                   variant="destructive"
                                   onClick={() =>
-                                    setCancelTarget({ id: movimento.id, kind: "saida", inventory: "produto" })
+                                    setCancelTarget({ id: movimento.saida_id!, kind: "saida", inventory: "produto" })
                                   }
                                 >
                                   <Undo2 className="mr-2 h-4 w-4" />
@@ -220,39 +338,41 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
                             </DropdownMenuContent>
                           </DropdownMenu>
                         ) : null}
-                        {movimento.tipo === "ENTRADA" ? <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" className="h-8 w-8 p-0 cursor-pointer rounded-full">
-                              <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-[180px]">
-                            <DropdownMenuItem onClick={() => setDetailsEntradaId(movimento.id)}>
-                              <Eye className="mr-2 h-4 w-4" />
-                              Detalhes
-                            </DropdownMenuItem>
-                            {entradaInfo.status === "CONFIRMADA" && entradaInfo.origem !== "NFE_TERCEIRO" ? <Button onClick={()=>{
-                              if (entradaInfo.id) {
-                                setNfeDialogEntradaId(entradaInfo.id)
-                              }
-                            }} variant="ghost" className="w-full justify-start cursor-pointer px-2 text-xs">
-                              <Receipt className="mr-2 h-4 w-4 text-emerald-500" />
-                              Emitir Nota
-                            </Button> : null}
-                            
-                            {entradaInfo.status === "CONFIRMADA" ? (
-                              <DropdownMenuItem
-                                variant="destructive"
-                                onClick={() =>
-                                  setEntradaCancelamentoId(entradaInfo.id)
-                                }
-                              >
-                                <Undo2 className="mr-2 h-4 w-4" />
-                                Cancelar Entrada
+
+                        {movimento.origem === "ENTRADA" && movimento.entrada_id ? (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" className="h-8 w-8 p-0 cursor-pointer rounded-full">
+                                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-[180px]">
+                              <DropdownMenuItem onClick={() => setDetailsEntradaId(movimento.entrada_id!)}>
+                                <Eye className="mr-2 h-4 w-4" />
+                                Detalhes
                               </DropdownMenuItem>
-                            ) : null}
-                          </DropdownMenuContent>
-                        </DropdownMenu> : null}
+                              {entradaInfo?.status === "CONFIRMADA" && entradaInfo.origem !== "NFE_TERCEIRO" ? (
+                                <Button
+                                  onClick={() => setNfeDialogEntradaId(entradaInfo.id)}
+                                  variant="ghost"
+                                  className="w-full justify-start cursor-pointer px-2 text-xs"
+                                >
+                                  <Receipt className="mr-2 h-4 w-4 text-emerald-500" />
+                                  Emitir Nota
+                                </Button>
+                              ) : null}
+                              {entradaInfo?.status === "CONFIRMADA" && movimento.acao === "REGISTRO" ? (
+                                <DropdownMenuItem
+                                  variant="destructive"
+                                  onClick={() => setEntradaCancelamentoId(entradaInfo.id)}
+                                >
+                                  <Undo2 className="mr-2 h-4 w-4" />
+                                  Cancelar Entrada
+                                </DropdownMenuItem>
+                              ) : null}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        ) : null}
                       </TableCell>
                     </TableRow>
                   );
