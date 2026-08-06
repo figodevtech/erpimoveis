@@ -13,6 +13,8 @@ type BaseProps = {
   title?: string;
   children?: React.ReactNode;
   disabled?: boolean;
+  /** Dentro de um menu o botão precisa se parecer com um item, não com um botão. */
+  variant?: React.ComponentProps<typeof Button>["variant"];
 };
 
 /** --------- Clientes --------- */
@@ -52,6 +54,7 @@ export function ExportExcelButton({
   chunk,
   filename,
   className = "hover:cursor-pointer",
+  variant = "outline",
   title,
   children,
   disabled = false,
@@ -155,7 +158,7 @@ export function ExportExcelButton({
       onClick={handleExport}
       disabled={loading || disabled}
       size="sm"
-      variant="outline"
+      variant={variant}
       className={className}
       title={title ?? (kind === "customers"
         ? "Exportar todos os clientes do filtro atual em Excel"

@@ -7,7 +7,7 @@ import { requireFinanceiroDelete, requireFinanceiroEdit, requireFinanceirosAcces
 import { pediuEdicaoManual, respostaSeEdicaoBloqueada } from "@/app/api/transaction/_lib/edicao";
 import { calculateFinancialTotal } from "@/lib/financial-surcharge";
 import { paraCentavos } from "@/lib/financeiro/rateio";
-import { origemDaTransacao, rotuloDaOrigem } from "@/lib/financeiro/transacao";
+import { origemDaTransacao, rotuloDaOrigem, valorDeFace } from "@/lib/financeiro/transacao";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -26,7 +26,7 @@ async function revalidarStatusOrdem(osId: number) {
 
   const { data: pagamentos, error: pagamentosError } = await supabaseAdmin
     .from("transacao")
-    .select("valor")
+    .select("valor, valor_acrescimos")
     .eq("ordemservicoid", osId)
     .eq("tipo", "RECEITA")
     .is("evento_financeiro_id", null)
@@ -38,7 +38,12 @@ async function revalidarStatusOrdem(osId: number) {
     ordem.acrescimo_financeiro_tipo,
     ordem.acrescimo_financeiro_valor,
   ));
-  const totalPago = (pagamentos ?? []).reduce((total, pagamento) => total + toCents(pagamento.valor), 0);
+  // Face, nao bruto: juros e multa cobrados no pagamento nao abatem a OS, senao
+  // uma ordem paga com atraso fecharia como paga a mais.
+  const totalPago = (pagamentos ?? []).reduce(
+    (total, pagamento) => total + toCents(valorDeFace(pagamento)),
+    0,
+  );
   const status = String(ordem.status ?? "").toUpperCase();
 
   if (["CONCLUIDO", "FINALIZADA"].includes(status) && totalPago < totalDevido) {
@@ -60,7 +65,7 @@ async function revalidarStatusVenda(vendaId: number) {
 
   const { data: pagamentos, error: pagamentosError } = await supabaseAdmin
     .from("transacao")
-    .select("valor")
+    .select("valor, valor_acrescimos")
     .eq("vendaid", vendaId)
     .eq("tipo", "RECEITA")
     .eq("is_deleted", false);
@@ -71,7 +76,11 @@ async function revalidarStatusVenda(vendaId: number) {
     venda.acrescimo_financeiro_tipo,
     venda.acrescimo_financeiro_valor,
   ));
-  const totalPago = (pagamentos ?? []).reduce((total, pagamento) => total + toCents(pagamento.valor), 0);
+  // Mesma regra da OS: acrescimo e do pagamento, nao do documento.
+  const totalPago = (pagamentos ?? []).reduce(
+    (total, pagamento) => total + toCents(valorDeFace(pagamento)),
+    0,
+  );
   const status = String(venda.status ?? "").toUpperCase();
 
   if (["CONCLUIDO", "FINALIZADA"].includes(status) && totalPago < totalDevido) {
@@ -86,6 +95,7 @@ async function revalidarStatusVenda(vendaId: number) {
 const TRANSACAO_FIELDS = `
   id, descricao, descricao_pagamento, valor, data, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, fornecedor_id,
   banco_id, nomepagador, cpfcnpjpagador, pendente, ordemservicoid, valorLiquido, vendaid,
+  valor_base, valor_acrescimos, valor_descontos, adiantamento_id, eh_adiantamento,
   entrada_id, usoconsumo_entrada_id,
   created_at, updated_at
 `;

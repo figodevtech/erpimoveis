@@ -2,7 +2,10 @@
 import { useCallback, useEffect, useState } from "react";
 import axios from "axios";
 import {
+  type CampoOrdenacao,
+  DIRECAO_INICIAL,
   type FluxoViewMode,
+  type Ordenacao,
   StatusInfo,
   Tipo_transacao,
   Transaction,
@@ -22,7 +25,7 @@ export default function FinanceiroPage() {
   const [pagination, setPagination] = useState({
     total: 0,
     page: 1,
-    limit: 20,
+    limit: 50,
     totalPages: 0,
   });
   const [search, setSearch] = useState("");
@@ -35,10 +38,37 @@ export default function FinanceiroPage() {
     planoContaId: "",
     centroCustoId: "",
   });
+  // Só guarda o clique do usuário, junto da aba onde ele clicou. A ordenação
+  // em si é derivada abaixo — corrigi-la por efeito depois da troca de aba
+  // dispararia uma segunda busca só para desfazer a primeira.
+  const [ordenacaoManual, setOrdenacaoManual] = useState<{
+    viewMode: FluxoViewMode;
+    ordenacao: Ordenacao;
+  } | null>(null);
+
   // Contas a pagar/receber se leem por vencimento: o que vence antes vem antes.
   // O extrato geral continua do lançamento mais novo para o mais antigo.
-  const ordemData =
-    viewMode === "A_PAGAR" || viewMode === "A_RECEBER" ? "asc" : "desc";
+  // Trocar de aba volta para a ordem natural da visão.
+  const ordenacao: Ordenacao =
+    ordenacaoManual?.viewMode === viewMode
+      ? ordenacaoManual.ordenacao
+      : {
+          campo: "data",
+          direcao:
+            viewMode === "A_PAGAR" || viewMode === "A_RECEBER" ? "asc" : "desc",
+        };
+
+  // Uma ordenação por vez: clicar no mesmo cabeçalho inverte, clicar em outro
+  // troca de coluna e descarta a anterior.
+  const handleOrdenar = (campo: CampoOrdenacao) => {
+    setOrdenacaoManual({
+      viewMode,
+      ordenacao:
+        ordenacao.campo === campo
+          ? { campo, direcao: ordenacao.direcao === "asc" ? "desc" : "asc" }
+          : { campo, direcao: DIRECAO_INICIAL[campo] },
+    });
+  };
 
   const handleGetTransactions = useCallback(async (
     pageNumber?: number,
@@ -64,7 +94,8 @@ export default function FinanceiroPage() {
           bancoId: relationFilters.bancoId || undefined,
           planoContaId: relationFilters.planoContaId || undefined,
           centroCustoId: relationFilters.centroCustoId || undefined,
-          ordem: ordemData,
+          ordem: ordenacao.direcao,
+          ordenarPor: ordenacao.campo,
         },
       });
       if (response.status === 200) {
@@ -76,7 +107,16 @@ export default function FinanceiroPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [ordemData, pagination.limit, relationFilters]);
+    // Primitivos, não o objeto: `ordenacao` é recriado a cada render e
+    // derrubaria o memo (e a busca) sem nada ter mudado.
+  }, [ordenacao.campo, ordenacao.direcao, pagination.limit, relationFilters]);
+
+  // Trocar o tamanho da página volta para a primeira: a página atual pode
+  // ficar fora do novo total. Quem refaz a busca é o efeito que observa o
+  // limite — por isso aqui só mexe no estado.
+  const handleChangeLimit = useCallback((limit: number) => {
+    setPagination((current) => ({ ...current, limit, page: 1 }));
+  }, []);
 
   const handleGetStatusCounter = useCallback(async () => {
     setIsLoadingStatus(true);
@@ -162,6 +202,9 @@ export default function FinanceiroPage() {
         relationFilters={relationFilters}
         setRelationFilters={setRelationFilters}
         handleGetTransactions={handleGetTransactions}
+        setLimit={handleChangeLimit}
+        ordenacao={ordenacao}
+        onOrdenar={handleOrdenar}
         pagination={pagination}
         transactions={transactions}
       />

@@ -178,7 +178,7 @@ export async function salvarOrcamentoAPI(
     throw new Error(j?.error || "Falha ao salvar orçamento");
   }
 
-  return j as { ok: true; totalGeral: number };
+  return j as { ok: true; totalGeral: number; aviso?: string | null };
 }
 
 export async function vincularProdutoAvulsoAPI(osId: number, avulsoId: number, produtoId: number) {

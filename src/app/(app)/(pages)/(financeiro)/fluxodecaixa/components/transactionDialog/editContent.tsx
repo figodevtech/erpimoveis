@@ -1,6 +1,7 @@
 "use client";
 
-import { FileText, History, Layers, Link2, Loader2, User } from "lucide-react";
+import { useRef } from "react";
+import { Banknote, FileText, History, Layers, Link2, Loader2, Percent, User } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -28,6 +29,8 @@ import {
   RODAPE_FIXO,
   classesDoConteudo,
 } from "./shell";
+import { AdiantamentoTab } from "./tabs/adiantamento-tab";
+import { AjustesTab } from "./tabs/ajustes-tab";
 import { ClienteTab } from "./tabs/cliente-tab";
 import { DetalhesTab } from "./tabs/detalhes-tab";
 import { HistoricoTab } from "./tabs/historico-tab";
@@ -88,7 +91,25 @@ export default function EditContent({
     erro,
     salvar,
     recarregar,
+    descontos,
+    aplicarTotais,
+    recarregarContextoSilencioso,
   } = useTransacaoEdicao(selectedTransactionId);
+
+  /**
+   * Lançar acréscimo ou desconto muda o valor da transação, e a lista atrás do
+   * dialog mostra esse valor. Refazer a lista a cada linha faria a tela piscar,
+   * então a atualização é adiada para quando o dialog fechar — que é quando o
+   * usuário volta a olhar para ela.
+   */
+  const listaDesatualizada = useRef(false);
+
+  const fechar = () => {
+    if (listaDesatualizada.current) {
+      listaDesatualizada.current = false;
+      handleGetTransactions?.();
+    }
+  };
 
   const Content = isDesktop ? DialogContent : DrawerContent;
   const Header = isDesktop ? DialogHeader : DrawerHeader;
@@ -98,7 +119,14 @@ export default function EditContent({
   const Close = isDesktop ? DialogClose : DrawerClose;
 
   const origem = contexto?.relacionadas.origem ?? "NENHUM";
+  /**
+   * Em OS e venda o editor rateia mantendo a soma do documento. Em avulso — solto
+   * ou parcelado — nao ha soma a preservar: cada parcela e editada por conta
+   * propria e o total do parcelamento acompanha. Antes disso, avulso nao tinha
+   * nenhum caminho de correcao pela tela.
+   */
   const permiteRateio = origem === "OS" || origem === "VENDA";
+  const permiteEditarValor = editable && !permiteRateio;
 
   const salvarEFechar = async () => {
     const deuCerto = await salvar();
@@ -158,6 +186,20 @@ export default function EditContent({
                       Parcelas
                     </span>
                   </TabsTrigger>
+                  <TabsTrigger value="ajustes" className={tabTriggerClass}>
+                    <span className="flex items-center gap-2">
+                      <Percent className="h-3.5 w-3.5" aria-hidden />
+                      Acréscimos e descontos
+                    </span>
+                  </TabsTrigger>
+                  {form.eh_adiantamento || form.adiantamento_id ? (
+                    <TabsTrigger value="adiantamento" className={tabTriggerClass}>
+                      <span className="flex items-center gap-2">
+                        <Banknote className="h-3.5 w-3.5" aria-hidden />
+                        Adiantamento
+                      </span>
+                    </TabsTrigger>
+                  ) : null}
                   <TabsTrigger value="cliente" className={tabTriggerClass}>
                     <span className="flex items-center gap-2">
                       <User className="h-3.5 w-3.5" aria-hidden />
@@ -188,6 +230,8 @@ export default function EditContent({
                   setCampo={setCampo}
                   editavel={editable}
                   permiteRateio={permiteRateio}
+                  permiteEditarValor={permiteEditarValor}
+                  descontos={descontos}
                 />
               </TabsContent>
 
@@ -207,6 +251,32 @@ export default function EditContent({
                     }}
                   />
                 )}
+              </TabsContent>
+
+              <TabsContent value="ajustes" className="mt-0">
+                <AjustesTab
+                  transacaoId={form.id}
+                  totais={form}
+                  pendente={Boolean(form.pendente)}
+                  editavel={editable}
+                  onAlterado={(transacao, quantidadeDeDescontos) => {
+                    // Costura os totais no formulário em vez de recarregar: o
+                    // usuário continua na aba, e o que ele digitou nos outros
+                    // campos e ainda não salvou não se perde.
+                    aplicarTotais(transacao, quantidadeDeDescontos);
+                    // A aba Parcelas mostra bruto e líquido de cada irmã, e isso
+                    // vem do contexto, não do formulário. Sem esta releitura ela
+                    // seguiria com o valor velho — que foi o que apareceu na #87.
+                    recarregarContextoSilencioso();
+                    // A lista atrás só precisa saber no fim. Refazê-la a cada
+                    // linha lançada faria a tela inteira piscar.
+                    listaDesatualizada.current = true;
+                  }}
+                />
+              </TabsContent>
+
+              <TabsContent value="adiantamento" className="mt-0">
+                <AdiantamentoTab transacaoId={form.id} />
               </TabsContent>
 
               <TabsContent value="cliente" className="mt-0">
@@ -246,7 +316,7 @@ export default function EditContent({
         <Footer className={RODAPE_FIXO}>
           <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row sm:gap-3">
             <Close asChild>
-              <Button variant="outline" className="w-full sm:w-auto">
+              <Button variant="outline" className="w-full sm:w-auto" onClick={fechar}>
                 {form ? "Cancelar" : "Fechar"}
               </Button>
             </Close>

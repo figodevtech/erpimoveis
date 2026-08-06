@@ -3,19 +3,68 @@ import { isAxiosError } from "axios";
 const MAX_SOURCE_BYTES = 25 * 1024 * 1024;
 const MAX_REQUEST_BYTES = 3 * 1024 * 1024;
 const MAX_EDGE = 1600;
+const QUALITY_STEPS = [0.82, 0.7, 0.6, 0.5, 0.4];
+const RESIZE_STEPS = [1, 0.75, 0.55, 0.4];
+
+type EncodableType = "image/webp" | "image/jpeg";
 
 function isHeicFile(file: File) {
   return /image\/hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name);
 }
 
+let webpEncoderSupport: boolean | null = null;
+
+/**
+ * Codificar WebP em canvas não é universal (Safari antigo, WebViews de fábrica).
+ * Nesses navegadores o `toBlob` ignora o tipo pedido e devolve PNG.
+ */
+export function supportsWebpEncoding(): boolean {
+  if (webpEncoderSupport !== null) return webpEncoderSupport;
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    webpEncoderSupport = canvas.toDataURL("image/webp").startsWith("data:image/webp");
+  } catch {
+    webpEncoderSupport = false;
+  }
+  return webpEncoderSupport;
+}
+
 function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number) {
-  return new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => blob ? resolve(blob) : reject(new Error("Não foi possível compactar a imagem.")),
-      type,
-      quality,
-    );
+  return new Promise<Blob | null>((resolve) => {
+    try {
+      canvas.toBlob((blob) => resolve(blob), type, quality);
+    } catch {
+      resolve(null);
+    }
   });
+}
+
+/** Codifica confirmando o formato de saída: se o navegador devolveu outra coisa
+ * (PNG, tipicamente), reencoda em JPEG em vez de aceitar um arquivo enorme. */
+async function encodeCanvas(
+  canvas: HTMLCanvasElement,
+  preferred: EncodableType,
+  quality: number,
+): Promise<{ blob: Blob; type: EncodableType } | null> {
+  const blob = await canvasToBlob(canvas, preferred, quality);
+  if (blob && blob.type === preferred) return { blob, type: preferred };
+  if (preferred === "image/jpeg") return blob ? { blob, type: "image/jpeg" } : null;
+
+  const jpeg = await canvasToBlob(canvas, "image/jpeg", quality);
+  if (jpeg) return { blob: jpeg, type: "image/jpeg" };
+  return null;
+}
+
+function drawToCanvas(bitmap: ImageBitmap, scale: number) {
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Não foi possível preparar a imagem para envio.");
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  return canvas;
 }
 
 /**
@@ -55,28 +104,38 @@ export async function prepareProductImageForUpload(file: File): Promise<File> {
   }
 
   try {
-    const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("Não foi possível preparar a imagem para envio.");
-    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const baseScale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+    let preferred: EncodableType = supportsWebpEncoding() ? "image/webp" : "image/jpeg";
+    let smallest: { blob: Blob; type: EncodableType } | null = null;
 
-    let blob = await canvasToBlob(canvas, "image/webp", 0.82);
-    if (blob.size > MAX_REQUEST_BYTES) blob = await canvasToBlob(canvas, "image/webp", 0.68);
-    if (blob.size > MAX_REQUEST_BYTES) {
-      throw new Error(`${file.name}: não foi possível reduzir a imagem para o tamanho permitido.`);
+    // Reduz qualidade e, se ainda não couber, também as dimensões. Antes eram
+    // só duas tentativas de WebP na mesma resolução: quando o navegador não
+    // codificava WebP, as duas devolviam o mesmo PNG e o envio falhava.
+    for (const resize of RESIZE_STEPS) {
+      const canvas = drawToCanvas(bitmap, baseScale * resize);
+      for (const quality of QUALITY_STEPS) {
+        const encoded = await encodeCanvas(canvas, preferred, quality);
+        if (!encoded) continue;
+        preferred = encoded.type;
+        if (encoded.blob.size <= MAX_REQUEST_BYTES) return toUploadFile(file, encoded);
+        if (!smallest || encoded.blob.size < smallest.blob.size) smallest = encoded;
+      }
     }
 
-    const baseName = file.name.replace(/\.[^.]+$/, "") || "produto";
-    return new File([blob], `${baseName}.webp`, {
-      type: "image/webp",
-      lastModified: file.lastModified,
-    });
+    if (!smallest) throw new Error(`${file.name}: não foi possível compactar a imagem.`);
+    throw new Error(`${file.name}: não foi possível reduzir a imagem para o tamanho permitido.`);
   } finally {
-    bitmap.close();
+    bitmap.close?.();
   }
+}
+
+function toUploadFile(source: File, encoded: { blob: Blob; type: EncodableType }) {
+  const baseName = source.name.replace(/\.[^.]+$/, "") || "produto";
+  const ext = encoded.type === "image/webp" ? "webp" : "jpg";
+  return new File([encoded.blob], `${baseName}.${ext}`, {
+    type: encoded.type,
+    lastModified: source.lastModified,
+  });
 }
 
 export function productImageUploadError(error: unknown, fileName?: string): string {

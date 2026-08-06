@@ -86,6 +86,7 @@ type OsAnexoCategoria,
 import { useSession } from "next-auth/react";
 
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
+import { competenciaEmMesFechado } from "@/app/api/ordens/[id]/eventos-financeiros/_lib/competencia";
 import { carregarDetalhesOS,listarRealizadoresDisponiveis,type UsuarioAtivo } from "../../lib/api";
 import {
   arredondarMoeda,
@@ -426,6 +427,7 @@ type OSDetalhesResponse = {
     servicoid?: number | null;
     pode_gerar_transacao: boolean;
     transacaoid?: number | null;
+    competencia_em?: string | null;
   }>;
   transacoes?: Array<{
     id: number;
@@ -650,6 +652,10 @@ export function OSDetalhesDialog({
   const permissoesUsuario = (session?.user as any)?.permissoes;
   const podeVerRentabilidade = permissionSetHas(permissoesUsuario, PERMS.ORDENS_RENTABILIDADE);
   const podeVerEventosFinanceiros = permissionSetHas(permissoesUsuario, PERMS.ORDENS_EVENTOS_FINANCEIROS);
+  // As rotas de evento financeiro exigem as duas permissões; sem ambas o menu
+  // só ofereceria ações que voltam 403.
+  const podeEditarEventosFinanceiros =
+    podeVerEventosFinanceiros && permissionSetHas(permissoesUsuario, PERMS.ORDENS_EDITAR);
 
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<OSDetalhesResponse | null>(null);
@@ -885,6 +891,7 @@ export function OSDetalhesDialog({
         status: evento.status,
         produtoid: evento.produtoid ?? null,
         podeGerarTransacao: evento.pode_gerar_transacao,
+        competenciaFechada: competenciaEmMesFechado(evento.competencia_em),
         grupo:
           evento.origem === "PRODUTO"
             ? `0-produto-${evento.produtoid ?? evento.chave_origem ?? evento.id}`
@@ -978,6 +985,18 @@ export function OSDetalhesDialog({
       await recarregarDetalhes();
     } catch (error: any) { toast.error(error?.message || "Erro ao alterar snapshot"); }
     finally { setSalvandoSnapshot(false); }
+  }
+
+  /** Mês da competência já encerrado: o valor está congelado porque a DRE
+   * daquele período seria reescrita. Vale para editar e para sincronizar. */
+  function podeAlterarValor(lancamento: { competenciaFechada: boolean }) {
+    return !osFinalizada && podeEditarEventosFinanceiros && !lancamento.competenciaFechada;
+  }
+
+  /** Além disso, só snapshot de produto ainda não lançado: a transação
+   * vinculada não acompanharia o novo valor. */
+  function podeSincronizar(lancamento: { origem: string; status: string; competenciaFechada: boolean }) {
+    return podeAlterarValor(lancamento) && lancamento.origem === "PRODUTO" && lancamento.status === "ATIVO";
   }
 
   async function sincronizarUltimoCusto(eventoId: number) {
@@ -2116,7 +2135,7 @@ export function OSDetalhesDialog({
                     </div>
                   </div>
 
-                  {!osFinalizada ? <div className="flex justify-end">
+                  {!osFinalizada && podeEditarEventosFinanceiros ? <div className="flex justify-end">
                     <Button type="button" size="sm" onClick={() => setEventoDialogOpen(true)}>
                       Novo lançamento
                     </Button>
@@ -2151,6 +2170,14 @@ export function OSDetalhesDialog({
                                   <p className="truncate text-sm font-medium">{lancamento.descricao}</p>
                                   <Badge variant="outline">{lancamento.origem}</Badge>
                                   {lancamento.status === "CONVERTIDO" ? <Badge variant="secondary">Lançado</Badge> : null}
+                                  {lancamento.competenciaFechada ? (
+                                    <Badge
+                                      variant="outline"
+                                      title="A competência deste lançamento é de um mês anterior. O valor está travado para não reescrever a DRE daquele período."
+                                    >
+                                      Mês fechado
+                                    </Badge>
+                                  ) : null}
                                 </div>
                                 <p className="truncate text-xs text-muted-foreground">{lancamento.detalhe}</p>
                               </div>
@@ -2170,7 +2197,7 @@ export function OSDetalhesDialog({
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end" className="w-60">
-                                  {!osFinalizada ? (
+                                  {podeAlterarValor(lancamento) ? (
                                     <DropdownMenuItem onSelect={() => abrirEdicaoSnapshot(
                                       lancamento.id,
                                       lancamento.descricao,
@@ -2186,13 +2213,13 @@ export function OSDetalhesDialog({
                                       <Eye /> Visualizar produto
                                     </DropdownMenuItem>
                                   ) : null}
-                                  {!osFinalizada && lancamento.origem === "PRODUTO" && lancamento.tipo === "SAIDA" && lancamento.valor === 0 ? (
+                                  {podeSincronizar(lancamento) && lancamento.tipo === "SAIDA" ? (
                                     <DropdownMenuItem disabled={sincronizandoCustoId === lancamento.id} onSelect={() => void sincronizarUltimoCusto(lancamento.id)}>
                                       <RefreshCw className={sincronizandoCustoId === lancamento.id ? "animate-spin" : ""} />
                                       Sincronizar último valor de entrada
                                     </DropdownMenuItem>
                                   ) : null}
-                                  {!osFinalizada && lancamento.origem === "PRODUTO" && lancamento.tipo === "ENTRADA" ? (
+                                  {podeSincronizar(lancamento) && lancamento.tipo === "ENTRADA" ? (
                                     <DropdownMenuItem disabled={sincronizandoCustoId === lancamento.id} onSelect={() => void sincronizarValorVenda(lancamento.id)}>
                                       <RefreshCw className={sincronizandoCustoId === lancamento.id ? "animate-spin" : ""} />
                                       Sincronizar valor de venda

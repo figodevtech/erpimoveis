@@ -473,7 +473,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
     if (!ordem?.id) return;
     setIsSavingDiscount(true);
     try {
-      await axios.put(`/api/ordens/${ordem.id}/orcamento`, {
+      const resposta = await axios.put(`/api/ordens/${ordem.id}/orcamento`, {
         produtos: itensProduto.map((item) => ({
           produtoid: item.produtoid,
           quantidade: item.quantidade,
@@ -495,6 +495,10 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
         acrescimoFinanceiroValor: acrescimoTipo ? Math.max(0, acrescimo) : 0,
       });
       toast.success("Descontos e acréscimos salvos.");
+      // A reconciliação alcançou mês já fechado na DRE: exige conferência, por
+      // isso fica mais tempo em tela que o sucesso.
+      const aviso = resposta?.data?.aviso;
+      if (aviso) toast.warning(String(aviso), { duration: 10000 });
       await handleGetOrdem(ordem.id, { silent: true });
     } catch (error) {
       if (isAxiosError(error)) {

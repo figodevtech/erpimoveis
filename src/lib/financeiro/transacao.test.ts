@@ -5,6 +5,7 @@ import {
   origemDaTransacao,
   tipoEhEditavel,
   tipoTemValorLiquido,
+  valorDeFace,
   valorLiquidoEfetivo,
 } from "./transacao";
 
@@ -53,6 +54,35 @@ test("despesa vale o bruto mesmo com líquido gravado", () => {
   assert.equal(valorLiquidoEfetivo({ valor: 250, valorLiquido: 99, tipo: "DESPESA" }), 250);
 });
 
+test("despesa com desconto lançado sai pelo valor abatido", () => {
+  // Conta a pagar quitada com abatimento por antecipação: sai 900, não 1.000.
+  assert.equal(
+    valorLiquidoEfetivo({
+      valor: 1000,
+      valorLiquido: 900,
+      valor_descontos: 100,
+      tipo: "DESPESA",
+    }),
+    900,
+  );
+});
+
+test("desconto lançado sem líquido gravado cai na subtração", () => {
+  assert.equal(
+    valorLiquidoEfetivo({ valor: 1000, valor_descontos: 100, tipo: "DESPESA" }),
+    900,
+  );
+});
+
+test("desconto zerado não muda a regra antiga", () => {
+  // Sem linha de desconto, despesa continua valendo o bruto — o estado de tudo
+  // que existia antes dos ajustes.
+  assert.equal(
+    valorLiquidoEfetivo({ valor: 250, valorLiquido: 99, valor_descontos: 0, tipo: "DESPESA" }),
+    250,
+  );
+});
+
 test("receita sem líquido gravado cai no bruto", () => {
   // Registro antigo, ou criado fora do fluxo de caixa: exibir R$ 0,00 era o bug.
   assert.equal(valorLiquidoEfetivo({ valor: 850, valorLiquido: null, tipo: "RECEITA" }), 850);
@@ -70,4 +100,31 @@ test("valores em texto e lixo não viram NaN", () => {
   assert.equal(valorLiquidoEfetivo({ valor: "100", tipo: "DESPESA" }), 100);
   assert.equal(valorLiquidoEfetivo({ valor: undefined, tipo: "RECEITA" }), 0);
   assert.equal(valorLiquidoEfetivo({ valor: "abc", tipo: "RECEITA" }), 0);
+});
+
+test("face desconta os acréscimos do bruto", () => {
+  // OS de 1.000 paga com 30 de juros: o documento continua vendo 1.000.
+  assert.equal(valorDeFace({ valor: 1030, valor_acrescimos: 30 }), 1000);
+});
+
+test("transação sem acréscimo tem face igual ao bruto", () => {
+  // Estado de tudo que existia antes da coluna: não pode mudar de valor.
+  assert.equal(valorDeFace({ valor: 1000 }), 1000);
+  assert.equal(valorDeFace({ valor: 1000, valor_acrescimos: null }), 1000);
+  assert.equal(valorDeFace({ valor: 1000, valor_acrescimos: 0 }), 1000);
+});
+
+test("desconto não entra na face", () => {
+  // Desconto mexe só no líquido: para o documento, o cliente pagou o cheio.
+  assert.equal(valorDeFace({ valor: 1000, valor_acrescimos: 0 }), 1000);
+});
+
+test("face em texto e lixo não vira NaN", () => {
+  assert.equal(valorDeFace({ valor: "1030", valor_acrescimos: "30" }), 1000);
+  assert.equal(valorDeFace({ valor: undefined }), 0);
+  assert.equal(valorDeFace({ valor: "abc", valor_acrescimos: "xyz" }), 0);
+});
+
+test("face não sofre com ponto flutuante", () => {
+  assert.equal(valorDeFace({ valor: 1030.1, valor_acrescimos: 30.1 }), 1000);
 });

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireOSEdit, requireOSEventosFinanceiros } from "@/app/api/_authz/perms";
+import { MENSAGEM_COMPETENCIA_FECHADA, competenciaEmMesFechado } from "../../_lib/competencia";
 
 type Params = { id: string; eventoId: string };
 const STATUS_FINAIS = new Set(["CONCLUIDO", "SEM_COBRANCA", "CANCELADO"]);
@@ -18,7 +19,7 @@ export async function POST(_: NextRequest, { params }: { params: Promise<Params>
 
     const { data: os, error: osError } = await supabaseAdmin
       .from("ordemservico")
-      .select("status")
+      .select("id, status")
       .eq("id", osId)
       .eq("is_deleted", false)
       .maybeSingle();
@@ -30,16 +31,27 @@ export async function POST(_: NextRequest, { params }: { params: Promise<Params>
 
     const { data: evento, error: eventoError } = await supabaseAdmin
       .from("eventos_financeiros")
-      .select("id, produtoid, quantidade_snapshot, dados_snapshot, valor, origem, natureza, status")
+      .select("id, produtoid, quantidade_snapshot, dados_snapshot, valor, origem, natureza, status, transacaoid, competencia_em")
       .eq("id", eventId)
       .eq("ordemservicoid", osId)
       .maybeSingle();
     if (eventoError) throw eventoError;
-    if (!evento || evento.origem !== "PRODUTO" || evento.natureza !== "DESPESA" || evento.status !== "ATIVO") {
+    if (!evento || evento.origem !== "PRODUTO" || evento.natureza !== "DESPESA") {
       return NextResponse.json({ error: "Este evento não é um snapshot de custo de produto." }, { status: 409 });
     }
-    if (Number(evento.valor) !== 0) {
-      return NextResponse.json({ error: "A sincronização está disponível somente para snapshots zerados." }, { status: 409 });
+    if (evento.status === "CANCELADO") {
+      return NextResponse.json({ error: "Este evento financeiro está cancelado." }, { status: 409 });
+    }
+    if (competenciaEmMesFechado(evento.competencia_em)) {
+      return NextResponse.json({ error: MENSAGEM_COMPETENCIA_FECHADA }, { status: 409 });
+    }
+    // A transação já lançada não acompanharia o novo valor, e o vínculo exige
+    // que os dois sejam iguais.
+    if (evento.status === "CONVERTIDO" || evento.transacaoid) {
+      return NextResponse.json(
+        { error: "Exclua a transação vinculada antes de sincronizar este evento financeiro.", transacaoId: evento.transacaoid },
+        { status: 409 },
+      );
     }
 
     const { data: produto, error: produtoError } = await supabaseAdmin

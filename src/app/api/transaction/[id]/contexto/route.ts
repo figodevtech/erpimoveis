@@ -17,7 +17,7 @@ type Params = { params: Promise<{ id: string }> };
  */
 
 const RELACIONADA_FIELDS =
-  'id, descricao, descricao_pagamento, valor, "valorLiquido", data, vencimento_em, pago_em, pendente, tipo, metodopagamento, evento_financeiro_id, created_at, baixado_por, banco:bancoconta!transacao_banco_id_fkey ( id, titulo )';
+  'id, descricao, descricao_pagamento, valor, "valorLiquido", valor_base, valor_acrescimos, valor_descontos, data, vencimento_em, pago_em, pendente, tipo, metodopagamento, evento_financeiro_id, created_at, baixado_por, banco:bancoconta!transacao_banco_id_fkey ( id, titulo )';
 
 /** O sufixo que o POST acrescenta a cada parcela criada em lote. */
 const SUFIXO_PARCELA = / - Parcela \d+\/\d+$/;

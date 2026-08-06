@@ -97,6 +97,36 @@ export type TransactionRelationFilters = {
  */
 export type FluxoViewMode = "TODAS" | "A_RECEBER" | "A_PAGAR" | "LIQUIDADAS";
 
+/**
+ * Colunas por onde a listagem pode ser ordenada. Só entram colunas que existem
+ * de fato em `transacao` — banco vem de join e o Postgrest não ordena a tabela
+ * de cima por coluna de tabela embutida.
+ */
+export type CampoOrdenacao =
+  | "descricao"
+  | "competencia_em"
+  | "data"
+  | "tipo"
+  | "categoria"
+  | "metodopagamento"
+  | "valor";
+
+export type Ordenacao = { campo: CampoOrdenacao; direcao: "asc" | "desc" };
+
+/**
+ * Direção do primeiro clique em cada cabeçalho: texto começa em A→Z, data e
+ * valor começam pelo mais recente/maior, que é o que se quer ver primeiro.
+ */
+export const DIRECAO_INICIAL: Record<CampoOrdenacao, "asc" | "desc"> = {
+  descricao: "asc",
+  tipo: "asc",
+  categoria: "asc",
+  metodopagamento: "asc",
+  competencia_em: "desc",
+  data: "desc",
+  valor: "desc",
+};
+
 export interface Transaction {
   id: number;
   descricao: string;
@@ -104,7 +134,19 @@ export interface Transaction {
   descricao_pagamento?: string | null;
   valor: number;
   valorLiquido: number;
+  /** Valor antes dos acréscimos. `valor = valor_base + valor_acrescimos`. */
+  valor_base?: number | null;
+  /** Soma dos acréscimos lançados na transação (juros, multa). */
+  valor_acrescimos?: number | null;
+  /** Soma dos descontos lançados, incluindo a taxa de recebimento. */
+  valor_descontos?: number | null;
+  /** Nas parcelas liquidadas por antecipação, aponta para o adiantamento. */
+  adiantamento_id?: number | null;
+  /** `true` no lançamento que representa o movimento único da antecipação. */
+  eh_adiantamento?: boolean | null;
   data: Date;
+  /** Regime de competência: define o período na DRE, ao contrário de `data`, que é de caixa. */
+  competencia_em?: string | Date | null;
   metodopagamento: Metodo_pagamento | null;
   categoria: string;
   categoria_id?: number | null;

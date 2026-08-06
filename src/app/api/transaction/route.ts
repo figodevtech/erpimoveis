@@ -31,10 +31,21 @@ const WRITABLE_FIELDS = new Set([
   "evento_financeiro_id",
 ]);
 
+/** Colunas aceitas em `ordenarPor`. Ver `CampoOrdenacao` no fluxo de caixa. */
+const ORDENAVEIS = new Set([
+  "descricao",
+  "competencia_em",
+  "data",
+  "tipo",
+  "categoria",
+  "metodopagamento",
+  "valor",
+]);
+
 const FORTALEZA_OFFSET = "-03:00";
 
 const TRANSACAO_FIELDS =
-  "id, descricao, descricao_pagamento, valor, valorLiquido, nomepagador, cpfcnpjpagador, pendente, data, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, fornecedor_id, banco_id, created_at, updated_at";
+  "id, descricao, descricao_pagamento, valor, valorLiquido, valor_base, valor_acrescimos, valor_descontos, adiantamento_id, eh_adiantamento, nomepagador, cpfcnpjpagador, pendente, data, competencia_em, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, fornecedor_id, banco_id, created_at, updated_at";
 
 const BANCO_FIELDS =
   "id, titulo, tipo, agencia, contanumero, proprietario, valorinicial, empresa_id, created_at, updated_at";
@@ -208,6 +219,9 @@ export async function GET(req: Request) {
     // Padrão: mais novo primeiro (extrato). "asc" serve às visões de contas a
     // pagar/receber, onde o que vence antes precisa aparecer antes.
     const ascending = (searchParams.get("ordem") ?? "desc").trim().toLowerCase() === "asc";
+    // Allowlist: o nome vai direto para o ORDER BY, então nada de valor cru.
+    const ordenarPorRaw = (searchParams.get("ordenarPor") ?? "data").trim();
+    const ordenarPor = ORDENAVEIS.has(ordenarPorRaw) ? ordenarPorRaw : "data";
 
     const from = (page - 1) * limit;
     const to = from + limit - 1;
@@ -226,7 +240,11 @@ export async function GET(req: Request) {
         { count: "exact" }
       )
       .eq("is_deleted", false)
-      .order("data", { ascending })
+      // nullsFirst: false mantém linha sem competência sempre no fim, nos dois
+      // sentidos — o padrão do Postgres inverte junto com a direção.
+      .order(ordenarPor, { ascending, nullsFirst: false })
+      // Desempate estável: sem ele, duas linhas do mesmo dia podem trocar de
+      // lugar entre páginas e sumir/repetir na paginação.
       .order("id", { ascending })
       .range(from, to);
 
@@ -278,6 +296,7 @@ export async function GET(req: Request) {
         dateFrom: dateFrom ?? null,
         dateTo: dateTo ?? null,
         ordem: ascending ? "asc" : "desc",
+        ordenarPor,
       },
     });
   } catch (error: any) {
@@ -460,6 +479,49 @@ export async function POST(req: Request) {
         fornecedor:fornecedor!transacao_fornecedor_id_fkey ( id, nomerazaosocial, nomefantasia, cpfcnpj )
         `
       );
+
+    // A taxa de recebimento deixou de ser a diferenca implicita entre bruto e
+    // liquido e passou a ser uma linha com nome. O switch da tela continua
+    // pedindo o liquido; a linha nasce aqui, para o lancamento ja aparecer
+    // classificado na aba de acrescimos e descontos.
+    //
+    // Falha aqui nao derruba a criacao: a transacao ja existe e esta correta nos
+    // valores — o gatilho mantem bruto e liquido coerentes de qualquer forma.
+    // Perder a linha e perder o rotulo, nao o dinheiro.
+    if (!error && Array.isArray(data) && data.length) {
+      try {
+        const { data: tipoTaxa } = await supabaseAdmin
+          .from("tipos_ajuste_transacao")
+          .select("id")
+          .eq("codigo_sistema", "TAXA_RECEBIMENTO")
+          .maybeSingle();
+
+        if (tipoTaxa) {
+          const linhas = data
+            .map((linha: any) => {
+              const bruto = Math.round(Number(linha.valor ?? 0) * 100);
+              const liquido = Math.round(Number(linha.valorLiquido ?? 0) * 100);
+              const taxa = bruto - liquido;
+              if (liquido <= 0 || taxa <= 0) return null;
+              return {
+                transacao_id: linha.id,
+                tipo_id: tipoTaxa.id,
+                natureza: "DESCONTO",
+                modo: "FIXO",
+                valor_informado: taxa / 100,
+                valor_calculado: taxa / 100,
+              };
+            })
+            .filter(Boolean);
+
+          if (linhas.length) {
+            await supabaseAdmin.from("transacao_ajuste").insert(linhas as any[]);
+          }
+        }
+      } catch {
+        // Silencio proposital: ver comentario acima.
+      }
+    }
 
     if (error) {
       if ((error as any).code === "23503") {

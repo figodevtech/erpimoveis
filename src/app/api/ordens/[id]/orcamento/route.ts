@@ -10,6 +10,7 @@ import {
   calculateFinancialTotal,
   sanitizeFinancialSurchargeType,
 } from "@/lib/financial-surcharge";
+import { mesesDeCompetenciaFechada } from "../eventos-financeiros/_lib/competencia";
 
 type Num = number;
 const toNum = (v: unknown): number => {
@@ -656,15 +657,38 @@ export async function PUT(
       .eq("id", osId);
     if (updOS.error) throw updOS.error;
 
+    let aviso: string | null = null;
+
     if (["ORCAMENTO_APROVADO", "EM_ANDAMENTO", "PAGAMENTO"].includes(statusAtual)) {
+      // A reconciliacao reescreve o valor de todo evento nao convertido, sem
+      // olhar competencia. Se algum deles ja pertence a um mes fechado, a DRE
+      // daquele periodo muda junto — o usuario precisa saber qual.
+      const { data: competencias, error: competenciasError } = await supabase
+        .from("eventos_financeiros")
+        .select("competencia_em")
+        .eq("ordemservicoid", osId)
+        .neq("status", "CANCELADO")
+        .not("competencia_em", "is", null);
+      if (competenciasError) throw competenciasError;
+
+      const mesesAfetados = mesesDeCompetenciaFechada(
+        (competencias ?? []).map((row: any) => row.competencia_em),
+      );
+
       const { error: reconciliacaoError } = await supabase.rpc("reconciliar_eventos_financeiros_os", {
         p_ordemservicoid: osId,
         p_incluir_comissoes: ["EM_ANDAMENTO", "PAGAMENTO"].includes(statusAtual),
       });
       if (reconciliacaoError) throw reconciliacaoError;
+
+      if (mesesAfetados.length) {
+        aviso =
+          `Esta OS tem lançamentos com competência em ${mesesAfetados.join(", ")}. ` +
+          `A DRE desse período foi recalculada com os novos valores.`;
+      }
     }
 
-    return NextResponse.json({ ok: true, totalGeral });
+    return NextResponse.json({ ok: true, totalGeral, aviso });
   } catch (err: any) {
     console.error("PUT /api/ordens/[id]/orcamento", err);
     return NextResponse.json(

@@ -22,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { valorLiquidoEfetivo } from "@/lib/financeiro/transacao";
 import { toast } from "@/lib/toast";
 import { formatDate } from "@/utils/formatDate";
 import formatarEmReal from "@/utils/formatarEmReal";
@@ -153,6 +154,17 @@ export default function ConcluidoAlert({
 
   if (!transaction) return null;
 
+  const bruto = Number(transaction.valor ?? 0);
+  const liquido = valorLiquidoEfetivo(transaction);
+  const acrescimos = Number(transaction.valor_acrescimos ?? 0);
+  const descontos = Number(transaction.valor_descontos ?? 0);
+  // Sem acréscimo nem desconto, bruto e líquido são o mesmo número: repetir os
+  // dois seria ruído.
+  const temComposicao =
+    Math.round(bruto * 100) !== Math.round(liquido * 100) ||
+    acrescimos > 0 ||
+    descontos > 0;
+
   return (
     <Dialog
       open={isAlertOpen}
@@ -181,10 +193,45 @@ export default function ConcluidoAlert({
                 {transaction.descricao}
               </p>
             </div>
-            <p className="shrink-0 text-lg font-semibold text-primary">
-              {formatarEmReal(transaction.valor)}
-            </p>
+            {/*
+              O que importa na baixa é quanto entra na conta, não quanto foi
+              cobrado: é o líquido que bate com o extrato do banco. O bruto e a
+              composição ficam abaixo, menores, para conferência.
+            */}
+            <div className="shrink-0 text-right">
+              <p className="text-lg font-semibold text-primary">
+                {formatarEmReal(liquido)}
+              </p>
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                Entra na conta
+              </p>
+            </div>
           </div>
+
+          {temComposicao ? (
+            <div className="mt-3 space-y-1 border-t pt-3 text-xs">
+              <div className="flex items-center justify-between text-muted-foreground">
+                <span>Valor cobrado</span>
+                <span className="tabular-nums">{formatarEmReal(bruto)}</span>
+              </div>
+              {acrescimos > 0 ? (
+                <div className="flex items-center justify-between text-muted-foreground">
+                  <span>Acréscimos inclusos</span>
+                  <span className="tabular-nums text-emerald-600 dark:text-emerald-400">
+                    + {formatarEmReal(acrescimos)}
+                  </span>
+                </div>
+              ) : null}
+              {descontos > 0 ? (
+                <div className="flex items-center justify-between text-muted-foreground">
+                  <span>Descontos</span>
+                  <span className="tabular-nums text-destructive">
+                    − {formatarEmReal(descontos)}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="mt-3 grid gap-2 border-t pt-3 text-xs text-muted-foreground sm:grid-cols-2">
             <p>

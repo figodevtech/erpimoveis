@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
 import { requireOSEdit, requireOSAccess, hasOSRentabilidade } from "@/app/api/_authz/perms";
+import { valorDeFace } from "@/lib/financeiro/transacao";
 
 type Prioridade = "BAIXA" | "NORMAL" | "ALTA";
 type AlvoTipo = "VEICULO" | "PECA" | "EQUIPAMENTO";
@@ -504,7 +505,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
     const trans_res = await supabase
       .from("transacao")
-      .select("id, descricao, valor, valorLiquido, data, tipo, pendente, metodopagamento, categoria, plano_de_conta, plano_de_conta_id, banco_id")
+      .select("id, descricao, valor, valorLiquido, valor_acrescimos, valor_descontos, data, tipo, pendente, metodopagamento, categoria, plano_de_conta, plano_de_conta_id, banco_id")
       .eq("ordemservicoid", osId)
       .eq("is_deleted", false)
       .order("data", { ascending: false });
@@ -521,7 +522,16 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     const despesas = transacoes.filter((t: any) => t.tipo === "DESPESA");
     const despesasPagas = despesas.filter((t: any) => !t.pendente);
     const despesasPendentes = despesas.filter((t: any) => t.pendente);
-    const recebidoBruto = receitasPagas.reduce((acc: number, t: any) => acc + t.valor, 0);
+    // Duas leituras diferentes do mesmo pagamento, e nao da para usar uma so:
+    //   face    -> o que abateu a OS (juros e multa nao abatem);
+    //   cobrado -> o que saiu do bolso do cliente, base da taxa de recebimento.
+    // Sem acrescimo lancado as duas sao iguais, que e o estado de tudo que ja
+    // existia.
+    const recebidoBruto = receitasPagas.reduce(
+      (acc: number, t: any) => acc + valorDeFace(t),
+      0,
+    );
+    const recebidoCobrado = receitasPagas.reduce((acc: number, t: any) => acc + t.valor, 0);
     const recebidoLiquido = receitasPagas.reduce((acc: number, t: any) => acc + t.valorLiquido, 0);
     const valorFinalOs = toNum(osRow.orcamentototal);
     const subtotalItens = [...itensProduto, ...itensServico].reduce(
@@ -583,7 +593,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       valorFinalOs,
       recebidoBruto,
       recebidoLiquido,
-      taxasRecebimento: Math.max(0, recebidoBruto - recebidoLiquido),
+      taxasRecebimento: Math.max(0, recebidoCobrado - recebidoLiquido),
       saldoAReceber: Math.max(0, valorFinalOs - recebidoBruto),
       custoProdutos,
       itensCustoEstimado: produtosRentabilidade.filter((item) => item.custoEstimado).length,

@@ -1,5 +1,5 @@
 // Utilitários de imagem: EXIF, compressão, concorrência
-import { prepareProductImageForUpload } from "@/lib/product-image-upload";
+import { prepareProductImageForUpload, supportsWebpEncoding } from "@/lib/product-image-upload";
 
 export type CompressOpts = {
   maxWidth?: number;
@@ -65,22 +65,14 @@ async function loadSource(file: File): Promise<Source> {
   return { src: img, w: img.naturalWidth || img.width, h: img.naturalHeight || img.height };
 }
 
-function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("Falha ao gerar blob"))), type, quality);
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    try {
+      canvas.toBlob((blob) => resolve(blob), type, quality);
+    } catch {
+      resolve(null);
+    }
   });
-}
-
-let _supportsWebp: boolean | null = null;
-function supportsWebp(): boolean {
-  if (_supportsWebp !== null) return _supportsWebp;
-  try {
-    const c = document.createElement("canvas");
-    _supportsWebp = c.toDataURL("image/webp").startsWith("data:image/webp");
-  } catch {
-    _supportsWebp = false;
-  }
-  return _supportsWebp!;
 }
 
 function drawWithOrientation(
@@ -138,26 +130,47 @@ export async function compressImage(
   let outW = Math.max(1, Math.round(baseW * scale));
   let outH = Math.max(1, Math.round(baseH * scale));
 
-  const canWebp = supportsWebp();
+  const canWebp = supportsWebpEncoding();
   let outType: "image/webp" | "image/jpeg" = canWebp ? "image/webp" : "image/jpeg";
   let ext = canWebp ? "webp" : "jpg";
 
+  // Um canvas por rodada de resize: recriá-lo a cada tentativa de qualidade
+  // pressiona a memória do celular e faz o toBlob devolver null.
+  const renderCanvas = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = outW;
+    canvas.height = outH;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas 2D não suportado.");
+    ctx.save();
+    drawWithOrientation(ctx, src, orientation, outW, outH);
+    ctx.restore();
+    return canvas;
+  };
+
   for (let resizeRound = 0; resizeRound < 3; resizeRound++) {
+    const canvas = renderCanvas();
     let low = minQuality;
     let high = maxQuality;
     let best: Blob | null = null;
 
     for (let i = 0; i < 6; i++) {
       const q = (low + high) / 2;
-      const canvas = document.createElement("canvas");
-      canvas.width = outW;
-      canvas.height = outH;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Canvas 2D não suportado.");
-      ctx.save();
-      drawWithOrientation(ctx, src, orientation, outW, outH);
-      ctx.restore();
       const blob = await canvasToBlob(canvas, outType, q);
+      if (!blob) {
+        high = q;
+        continue;
+      }
+      // Se o navegador ignorou o formato pedido, desiste do WebP nas próximas.
+      if (blob.type !== outType && outType === "image/webp") {
+        outType = "image/jpeg";
+        ext = "jpg";
+        high = maxQuality;
+        low = minQuality;
+        best = null;
+        i = -1;
+        continue;
+      }
       if (blob.size <= targetMaxBytes) {
         best = blob; low = q;
       } else {
@@ -172,15 +185,8 @@ export async function compressImage(
   // fallback JPEG
   outType = "image/jpeg";
   ext = "jpg";
-  const canvas = document.createElement("canvas");
-  canvas.width = outW;
-  canvas.height = outH;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Canvas 2D não suportado.");
-  ctx.save();
-  drawWithOrientation(ctx, src, orientation, outW, outH);
-  ctx.restore();
-  const blob = await canvasToBlob(canvas, outType, 0.7);
+  const blob = await canvasToBlob(renderCanvas(), outType, 0.7);
+  if (!blob) throw new Error("Não foi possível compactar a imagem neste dispositivo.");
   return { blob, ext, type: outType };
 }
 

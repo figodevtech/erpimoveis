@@ -47,6 +47,16 @@ interface DetalhesTabProps {
   editavel: boolean;
   /** Há documento de origem, então o bruto pode ser redistribuído na aba Parcelas. */
   permiteRateio: boolean;
+  /**
+   * Lançamento avulso e editável: aqui não há total de documento a preservar, e
+   * o bruto pode ser digitado direto. O salvamento roteia pelo ajuste de valores.
+   */
+  permiteEditarValor: boolean;
+  /**
+   * Quantos descontos a transação tem. Com um só (a taxa), o campo de líquido
+   * manda nele; com mais de um, a edição sai daqui para a aba de ajustes.
+   */
+  descontos: number;
 }
 
 /**
@@ -66,7 +76,17 @@ function BlocoDeValores({
   setCampo,
   editavel,
   permiteRateio,
-}: Pick<DetalhesTabProps, "form" | "setCampo" | "editavel" | "permiteRateio">) {
+  permiteEditarValor,
+  descontos,
+}: Pick<
+  DetalhesTabProps,
+  | "form"
+  | "setCampo"
+  | "editavel"
+  | "permiteRateio"
+  | "permiteEditarValor"
+  | "descontos"
+>) {
   const bruto = Number(form.valor ?? 0);
   const temLiquido = tipoTemValorLiquido(form.tipo);
 
@@ -88,29 +108,50 @@ function BlocoDeValores({
   }
 
   const liquido = valorLiquidoEfetivo(form);
-  const taxa = Math.max(0, bruto - liquido);
+  // Havendo linha lançada, o número vem dela — é exato e diz o que era. A
+  // subtração continua valendo para o que foi criado antes de existirem linhas.
+  const descontosLancados = Number(form.valor_descontos ?? 0);
+  const temDescontoLancado = Number.isFinite(descontosLancados) && descontosLancados > 0;
+  const taxa = temDescontoLancado ? descontosLancados : Math.max(0, bruto - liquido);
   const excedeBruto = paraCentavos(liquido) > paraCentavos(bruto);
+  const liquidoTravado = descontos > 1;
 
   return (
     <div className="grid gap-3 sm:col-span-3 sm:grid-cols-3">
       <div className="space-y-2">
         <Label htmlFor="valor-bruto" className="flex items-center gap-1.5">
           Valor bruto
-          <Lock className="h-3 w-3 text-muted-foreground" aria-hidden />
+          {permiteEditarValor ? null : (
+            <Lock className="h-3 w-3 text-muted-foreground" aria-hidden />
+          )}
         </Label>
-        <ValueInput id="valor-bruto" disabled value={bruto} />
+        <ValueInput
+          id="valor-bruto"
+          disabled={!permiteEditarValor}
+          value={bruto}
+          onValueChange={
+            permiteEditarValor ? (valor) => setCampo("valor", valor) : undefined
+          }
+        />
         <p className="text-xs text-muted-foreground">
           {permiteRateio
             ? "É o que o cliente pagou. Para redividir entre as parcelas, use a aba Parcelas."
-            : "É o que o cliente pagou."}
+            : permiteEditarValor
+              ? "É o que o cliente pagou. Em parcelamento avulso, cada parcela é editada por conta própria."
+              : "É o que o cliente pagou."}
         </p>
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="valor-liquido">Líquido recebido</Label>
+        <Label htmlFor="valor-liquido" className="flex items-center gap-1.5">
+          Líquido recebido
+          {liquidoTravado ? (
+            <Lock className="h-3 w-3 text-muted-foreground" aria-hidden />
+          ) : null}
+        </Label>
         <ValueInput
           id="valor-liquido"
-          disabled={!editavel}
+          disabled={!editavel || liquidoTravado}
           aria-invalid={excedeBruto}
           className={excedeBruto ? "border-destructive" : undefined}
           value={liquido}
@@ -121,20 +162,26 @@ function BlocoDeValores({
         >
           {excedeBruto
             ? "Não pode ser maior que o bruto."
-            : "O que sobrou depois da taxa da maquineta."}
+            : liquidoTravado
+              ? "Há mais de um desconto. Edite pela aba Acréscimos e descontos."
+              : "O que sobrou depois da taxa de recebimento."}
         </p>
       </div>
 
       <div className="space-y-2">
-        <Label>Taxa de recebimento</Label>
+        <Label>Descontos</Label>
         <div className="flex h-9 items-center rounded-md border bg-muted/30 px-3 text-sm font-medium tabular-nums">
           {taxa > 0 ? (
             <span className="text-destructive">- {formatarEmReal(taxa)}</span>
           ) : (
-            <span className="text-muted-foreground">Sem taxa</span>
+            <span className="text-muted-foreground">Sem desconto</span>
           )}
         </div>
-        <p className="text-xs text-muted-foreground">Calculada: bruto menos líquido.</p>
+        <p className="text-xs text-muted-foreground">
+          {temDescontoLancado
+            ? "Somado das linhas da aba Acréscimos e descontos."
+            : "Calculado: bruto menos líquido."}
+        </p>
       </div>
     </div>
   );
@@ -146,6 +193,8 @@ export function DetalhesTab({
   setForm,
   editavel,
   permiteRateio,
+  permiteEditarValor,
+  descontos,
 }: DetalhesTabProps) {
   // Vem das colunas de vínculo da própria transação, não do contexto: o
   // contexto é uma consulta separada e pode ainda estar carregando.
@@ -277,6 +326,8 @@ export function DetalhesTab({
           setCampo={setCampo}
           editavel={editavel}
           permiteRateio={permiteRateio}
+          permiteEditarValor={permiteEditarValor}
+          descontos={descontos}
         />
 
         <div className="w-full space-y-2">

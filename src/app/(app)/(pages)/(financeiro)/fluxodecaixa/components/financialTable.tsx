@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,8 +26,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  ArrowDown,
+  ArrowUp,
   Calendar,
   Check,
+  CheckCircle2,
+  ChevronsUpDown,
   ChevronLeftIcon,
   ChevronRightIcon,
   ChevronsLeft,
@@ -46,13 +50,20 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Checkbox } from "@/components/ui/checkbox";
+import { BaixaMultiplaFooter } from "./baixa-multipla-footer";
+import { BaixaMultiplaDialog } from "./baixa-multipla-dialog";
+import { AdiantamentoDialog } from "./adiantamento-dialog";
 import { TransactionDeleteAlert } from "../../components/transaction-delete-alert";
 import { toast } from "@/lib/toast";
 import axios, { isAxiosError } from "axios";
 import {
+  type CampoOrdenacao,
   type FluxoViewMode,
+  type Ordenacao,
   Pagination,
   Tipo_transacao,
   Transaction,
@@ -112,6 +123,72 @@ function TextoTruncado({
   );
 }
 
+/** Data curta no fuso da oficina — o mesmo critério usado na coluna de caixa. */
+function formatarData(valor: string | Date) {
+  return Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Fortaleza",
+    dateStyle: "short",
+  }).format(new Date(valor));
+}
+
+/**
+ * Cabeçalho que ordena a listagem pela sua coluna. A ordenação é do servidor —
+ * reordenar só a página visível mentiria sobre o resto do resultado.
+ */
+function CabecalhoOrdenavel({
+  campo,
+  rotulo,
+  ordenacao,
+  onOrdenar,
+  className,
+  alinharADireita = false,
+}: {
+  campo: CampoOrdenacao;
+  rotulo: string;
+  ordenacao: Ordenacao;
+  onOrdenar: (campo: CampoOrdenacao) => void;
+  className?: string;
+  alinharADireita?: boolean;
+}) {
+  const ativo = ordenacao.campo === campo;
+  const Icone = !ativo
+    ? ChevronsUpDown
+    : ordenacao.direcao === "asc"
+      ? ArrowUp
+      : ArrowDown;
+
+  return (
+    <TableCell
+      className={className}
+      role="columnheader"
+      aria-sort={
+        ativo
+          ? ordenacao.direcao === "asc"
+            ? "ascending"
+            : "descending"
+          : "none"
+      }
+    >
+      <button
+        type="button"
+        onClick={() => onOrdenar(campo)}
+        title={`Ordenar por ${rotulo.toLowerCase()}`}
+        className={`group inline-flex items-center gap-1 font-bold hover:cursor-pointer hover:text-primary ${alinharADireita ? "flex-row-reverse" : ""
+          }`}
+      >
+        {rotulo}
+        {/* Seta apagada nas colunas inativas: mostra que dá para clicar sem
+            competir com a coluna que está ordenando de fato. */}
+        <Icone
+          className={`h-3 w-3 shrink-0 ${ativo ? "" : "opacity-30 group-hover:opacity-70"}`}
+        />
+      </button>
+    </TableCell>
+  );
+}
+
+const LIMIT_OPTIONS = [50, 100, 200];
+
 const VIEW_MODE_TABS: { value: FluxoViewMode; label: string }[] = [
   { value: "TODAS", label: "Todas" },
   { value: "A_PAGAR", label: "A Pagar" },
@@ -133,6 +210,10 @@ interface FinancialTableProps {
     tipo?: Tipo_transacao | "",
     pendente?: boolean | "",
   ) => void;
+  /** Troca o tamanho da página; quem refaz a busca é a página. */
+  setLimit: (limit: number) => void;
+  ordenacao: Ordenacao;
+  onOrdenar: (campo: CampoOrdenacao) => void;
   search: string;
   dateSearch: string;
   tipo: Tipo_transacao | "";
@@ -154,6 +235,9 @@ export default function FinancialTable({
   transactions,
   pagination,
   handleGetTransactions,
+  setLimit,
+  ordenacao,
+  onOrdenar,
   search,
   dateSearch,
   tipo,
@@ -180,6 +264,51 @@ export default function FinancialTable({
   const [isOpen, setIsOpen] = useState(false);
   const [selectedTransactionForPago, setSelectedTransactionForPago] =
     useState<Transaction | null>(null);
+
+  /**
+   * Baixa múltipla.
+   *
+   * Só faz sentido quando a lista está mostrando exclusivamente pendentes: dar
+   * baixa é operação sobre o que ainda não foi pago, e uma lista mista levaria o
+   * usuário a marcar linhas que a operação vai recusar. As abas "A pagar" e
+   * "A receber" já garantem isso; o filtro de situação também.
+   */
+  const [modoBaixaMultipla, setModoBaixaMultipla] = useState(false);
+  const [selecionadas, setSelecionadas] = useState<Set<number>>(new Set());
+  const [baixaEmLoteAberta, setBaixaEmLoteAberta] = useState(false);
+  const [baixandoEmLote, setBaixandoEmLote] = useState(false);
+  const [adiantamentoAberto, setAdiantamentoAberto] = useState(false);
+
+  const podeBaixaMultipla =
+    viewMode === "A_PAGAR" || viewMode === "A_RECEBER" || pendenteFilter === true;
+
+  // Trocar de aba ou de filtro pode trazer linhas liquidadas para a tela; sair
+  // do modo evita seleção sobre um conjunto que mudou debaixo do usuário.
+  useEffect(() => {
+    if (!podeBaixaMultipla && modoBaixaMultipla) {
+      setModoBaixaMultipla(false);
+      setSelecionadas(new Set());
+    }
+  }, [podeBaixaMultipla, modoBaixaMultipla]);
+
+  const alternarSelecao = useCallback((id: number) => {
+    setSelecionadas((atual) => {
+      const proximo = new Set(atual);
+      if (proximo.has(id)) proximo.delete(id);
+      else proximo.add(id);
+      return proximo;
+    });
+  }, []);
+
+  const sairDaBaixaMultipla = useCallback(() => {
+    setModoBaixaMultipla(false);
+    setSelecionadas(new Set());
+  }, []);
+
+  const transacoesSelecionadas = useMemo(
+    () => transactions.filter((t) => selecionadas.has(t.id)),
+    [transactions, selecionadas],
+  );
   const [isPagoDialogOpen, setIsPagoDialogOpen] = useState(false);
   const [, setIsDeleting] = useState(false);
   const canCreate = permissionSetHas(
@@ -335,17 +464,79 @@ export default function FinancialTable({
                       : undefined
                 }
               />
-              <ExportTransactionsButton
-                search={search}
-                tipo={tipo}
-                dateFrom={dateFrom}
-                dateTo={dateTo}
-                categoriaId={relationFilters.categoriaId ? Number(relationFilters.categoriaId) : null}
-                bancoId={relationFilters.bancoId ? Number(relationFilters.bancoId) : null}
-                planoContaId={relationFilters.planoContaId ? Number(relationFilters.planoContaId) : null}
-                centroCustoId={relationFilters.centroCustoId ? Number(relationFilters.centroCustoId) : null}
-                className="h-9 w-full hover:cursor-pointer sm:w-auto"
-              />
+              {/*
+                Exportar, nova transação e baixa múltipla vivem sob um menu só.
+                São ações sobre a lista, não filtros — separá-las do bloco de
+                filtros deixa claro o que altera a consulta e o que age sobre ela.
+              */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-9 w-full whitespace-nowrap hover:cursor-pointer sm:w-auto"
+                  >
+                    <MoreHorizontal className="h-4 w-4" />
+                    Ações
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-60">
+                  <DropdownMenuItem
+                    onSelect={(evento) => {
+                      // O menu fecha sozinho no clique e levaria o gatilho de
+                      // exportação junto; o próprio componente cuida do resto.
+                      evento.preventDefault();
+                    }}
+                    asChild
+                  >
+                    <ExportTransactionsButton
+                      search={search}
+                      tipo={tipo}
+                      dateFrom={dateFrom}
+                      dateTo={dateTo}
+                      categoriaId={relationFilters.categoriaId ? Number(relationFilters.categoriaId) : null}
+                      bancoId={relationFilters.bancoId ? Number(relationFilters.bancoId) : null}
+                      planoContaId={relationFilters.planoContaId ? Number(relationFilters.planoContaId) : null}
+                      centroCustoId={relationFilters.centroCustoId ? Number(relationFilters.centroCustoId) : null}
+                      variant="ghost"
+                      className="h-8 w-full justify-start px-2 font-normal hover:cursor-pointer"
+                    />
+                  </DropdownMenuItem>
+
+                  {canCreate ? (
+                    <DropdownMenuItem
+                      className="hover:cursor-pointer"
+                      onSelect={() => {
+                        setSelectedTransactionId(undefined);
+                        setIsOpen(true);
+                      }}
+                    >
+                      <Plus className="h-4 w-4" />
+                      Nova transação
+                    </DropdownMenuItem>
+                  ) : null}
+
+                  {canEdit ? (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        className="hover:cursor-pointer"
+                        disabled={!podeBaixaMultipla}
+                        onSelect={() => setModoBaixaMultipla(true)}
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                        Baixa múltipla
+                      </DropdownMenuItem>
+                      {!podeBaixaMultipla ? (
+                        <p className="px-2 pb-1.5 text-[11px] leading-snug text-muted-foreground">
+                          Disponível ao filtrar somente pendentes: use as abas
+                          A pagar, A receber ou o filtro de situação.
+                        </p>
+                      ) : null}
+                    </>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               {canCreate ? (
                 <TransactionDialog
@@ -358,16 +549,7 @@ export default function FinancialTable({
                     handleGetTransactions(pagination.page, pagination.limit, search, dateFrom, dateTo, tipo, pendenteFilter);
                     handleGetStatusCounter();
                   }}
-                >
-                  <Button
-                    size="sm"
-                    className="h-9 w-full whitespace-nowrap hover:cursor-pointer sm:w-auto"
-                    onClick={() => setSelectedTransactionId(undefined)}
-                  >
-                    <Plus className="h-4 w-4" />
-                    Transação
-                  </Button>
-                </TransactionDialog>
+                />
               ) : null}
             </div>
           </div>
@@ -389,13 +571,60 @@ export default function FinancialTable({
         <Table className="text-xs mt-6">
           <TableHeader>
             <TableRow className="font-bold">
-              <TableCell className="w-[440px] max-w-[440px]">Descrição</TableCell>
-              <TableCell className="hidden md:table-cell">Data</TableCell>
-              <TableCell className="hidden md:table-cell">Tipo</TableCell>
-              <TableCell className="hidden md:table-cell">Categoria</TableCell>
+              <CabecalhoOrdenavel
+                campo="descricao"
+                rotulo="Descrição"
+                ordenacao={ordenacao}
+                onOrdenar={onOrdenar}
+                className="w-[420px] max-w-[420px]"
+              />
+              <CabecalhoOrdenavel
+                campo="competencia_em"
+                rotulo="Competência"
+                ordenacao={ordenacao}
+                onOrdenar={onOrdenar}
+                className="hidden md:table-cell"
+              />
+              <CabecalhoOrdenavel
+                campo="data"
+                rotulo="Vencimento"
+                ordenacao={ordenacao}
+                onOrdenar={onOrdenar}
+                className="hidden md:table-cell"
+              />
+              <CabecalhoOrdenavel
+                campo="tipo"
+                rotulo="Tipo"
+                ordenacao={ordenacao}
+                onOrdenar={onOrdenar}
+                className="hidden md:table-cell"
+              />
+              <CabecalhoOrdenavel
+                campo="categoria"
+                rotulo="Categoria"
+                ordenacao={ordenacao}
+                onOrdenar={onOrdenar}
+                className="hidden md:table-cell"
+              />
+              {/* Banco fica de fora: o título vem de join e o Postgrest não
+                  ordena a tabela de cima por coluna embutida — sobraria
+                  ordenar por banco_id, que não é a ordem que se lê. */}
               <TableCell className="hidden md:table-cell">Banco</TableCell>
-              <TableCell className="hidden md:table-cell">Método</TableCell>
-              <TableCell className="text-right">Valor</TableCell>
+              <CabecalhoOrdenavel
+                campo="metodopagamento"
+                rotulo="Método"
+                ordenacao={ordenacao}
+                onOrdenar={onOrdenar}
+                className="hidden md:table-cell"
+              />
+              <CabecalhoOrdenavel
+                campo="valor"
+                rotulo="Valor"
+                ordenacao={ordenacao}
+                onOrdenar={onOrdenar}
+                className="text-right"
+                alinharADireita
+              />
               <TableCell className="text-right">Ações</TableCell>
             </TableRow>
           </TableHeader>
@@ -412,10 +641,26 @@ export default function FinancialTable({
                   onDoubleClick={() => setSelectedTransactionId(t.id)}
                   className="hover:cursor-pointer"
                 >
-                  <TableCell className="flex w-[440px] max-w-[440px] flex-row items-center gap-2">
-                    <div className="shrink-0 rounded-full p-2 bg-primary/50">
-                      {getCategoryIcon(t.categoria, t.categoria_dados?.icone)}
-                    </div>
+                  <TableCell className="flex w-[420px] max-w-[420px] flex-row items-center gap-2">
+                    {/*
+                      Na baixa múltipla o ícone de categoria dá lugar à caixa de
+                      seleção: ocupam o mesmo espaço, então a lista não se
+                      reorganiza ao entrar no modo — nada pula sob o cursor.
+                    */}
+                    {modoBaixaMultipla ? (
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center">
+                        <Checkbox
+                          checked={selecionadas.has(t.id)}
+                          onCheckedChange={() => alternarSelecao(t.id)}
+                          aria-label={`Selecionar transação ${t.id} — ${t.descricao}`}
+                          className="hover:cursor-pointer"
+                        />
+                      </div>
+                    ) : (
+                      <div className="shrink-0 rounded-full p-2 bg-primary/50">
+                        {getCategoryIcon(t.categoria, t.categoria_dados?.icone)}
+                      </div>
+                    )}
                     {/* min-w-0: sem isso o item flex nunca encolhe abaixo do
                         conteúdo e o truncate não corta nada. */}
                     <div className="flex min-w-0 flex-1 flex-col items-start">
@@ -438,19 +683,25 @@ export default function FinancialTable({
                       </span>
                       <span className="text-muted-foreground text-nowrap flex-nowrap flex justify-center items-center gap-2 md:hidden">
                         <Calendar className="w-[10px] h-[10px]" />
-                        {Intl.DateTimeFormat("pt-BR", {
-                          timeZone: "America/Fortaleza",
-                          dateStyle: "short",
-                        }).format(new Date(t.data))}
+                        {formatarData(t.data)}
+                        {t.competencia_em ? (
+                          <span className="text-muted-foreground">
+                            (comp. {formatarData(t.competencia_em)})
+                          </span>
+                        ) : null}
                       </span>
                     </div>
                   </TableCell>
 
+                  {/* Competência (regime econômico) — distinta da data de caixa
+                      ao lado. Registro sem competência mostra travessão. */}
                   <TableCell className="hidden md:table-cell">
-                    {Intl.DateTimeFormat("pt-BR", {
-                      timeZone: "America/Fortaleza",
-                      dateStyle: "short",
-                    }).format(new Date(t.data))}
+                    {t.competencia_em
+                      ? formatarData(t.competencia_em)
+                      : <span className="text-muted-foreground">—</span>}
+                  </TableCell>
+                  <TableCell className="hidden md:table-cell">
+                    {formatarData(t.data)}
                   </TableCell>
                   <TableCell
                     className={`hidden md:table-cell ${t.pendente && "text-primary font-semibold"}`}
@@ -668,18 +919,27 @@ export default function FinancialTable({
 
           {/* Select de itens por página com IDs estáveis */}
           <div>
-            <Select /* você pode controlar com value/onValueChange depois */>
+            <Select
+              value={String(pagination.limit)}
+              onValueChange={(value) => setLimit(Number(value))}
+            >
               <SelectTrigger
                 className="hover:cursor-pointer ml-2"
+                aria-label="Itens por página"
                 aria-controls={limitListboxId}
               >
-                <SelectValue placeholder={pagination.limit} />
+                <SelectValue placeholder={`${pagination.limit} / pág.`} />
               </SelectTrigger>
               <SelectContent id={limitListboxId}>
-                <SelectItem className="hover:cursor-pointer" value="20">
-                  {pagination.limit}
-                </SelectItem>
-                {/* adicione mais opções se quiser */}
+                {LIMIT_OPTIONS.map((opcao) => (
+                  <SelectItem
+                    key={opcao}
+                    className="hover:cursor-pointer"
+                    value={String(opcao)}
+                  >
+                    {opcao} / pág.
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -705,6 +965,67 @@ export default function FinancialTable({
           }}
         />
       )}
+
+      {modoBaixaMultipla ? (
+        <>
+          <BaixaMultiplaFooter
+            selecionadas={selecionadas}
+            transacoes={transactions}
+            processando={baixandoEmLote}
+            onCancelar={sairDaBaixaMultipla}
+            onConfirmar={() => setBaixaEmLoteAberta(true)}
+            onAdiantamento={() => setAdiantamentoAberto(true)}
+          />
+          <AdiantamentoDialog
+            aberto={adiantamentoAberto}
+            setAberto={setAdiantamentoAberto}
+            transacoes={transacoesSelecionadas}
+            processando={baixandoEmLote}
+            setProcessando={setBaixandoEmLote}
+            onConcluido={() => {
+              // Adiantamento é tudo ou nada: se chegou aqui, todas foram
+              // liquidadas e o modo não tem mais o que selecionar.
+              sairDaBaixaMultipla();
+              handleGetTransactions(
+                pagination.page,
+                pagination.limit,
+                search,
+                dateFrom,
+                dateTo,
+                tipo,
+                pendenteFilter,
+              );
+              handleGetStatusCounter();
+            }}
+          />
+          <BaixaMultiplaDialog
+            aberto={baixaEmLoteAberta}
+            setAberto={setBaixaEmLoteAberta}
+            transacoes={transacoesSelecionadas}
+            processando={baixandoEmLote}
+            setProcessando={setBaixandoEmLote}
+            onConcluido={(idsBaixados) => {
+              // As que passaram saem da seleção; as que falharam ficam marcadas
+              // para o usuário poder tentar de novo sem remarcar tudo.
+              setSelecionadas((atual) => {
+                const proximo = new Set(atual);
+                idsBaixados.forEach((id) => proximo.delete(id));
+                return proximo;
+              });
+              handleGetTransactions(
+                pagination.page,
+                pagination.limit,
+                search,
+                dateFrom,
+                dateTo,
+                tipo,
+                pendenteFilter,
+              );
+              handleGetStatusCounter();
+            }}
+          />
+        </>
+      ) : null}
     </Card>
   );
 }

@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { requireFinanceiroEdit } from "@/app/api/_authz/perms";
 import { respostaSeEdicaoBloqueada } from "@/app/api/transaction/_lib/edicao";
+import { sincronizarTaxaRecebimento } from "@/app/api/transaction/_lib/taxa";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -117,6 +118,38 @@ export async function POST(req: NextRequest, ctx: Params) {
         return NextResponse.json({ error: error.message }, { status: 409 });
       }
       throw error;
+    }
+
+    /*
+     * O líquido informado no rateio precisa virar linha de taxa.
+     *
+     * A RPC grava `valorLiquido` direto, mas desde que o desconto virou linha o
+     * gatilho `transacao_valor_coerente_trg` recalcula esse campo como
+     * `valor - descontos` em toda escrita. Sem esta etapa, mudar o líquido no
+     * rateio não fazia efeito nenhum — o número voltava sozinho e sem aviso.
+     *
+     * Roda depois da RPC de propósito: é ela que define o bruto de cada linha, e
+     * a taxa é a diferença até o líquido pedido. Uma falha aqui não corrompe
+     * nada — os brutos já estão certos e o líquido apenas continua o antigo, o
+     * que é visível e refazível.
+     */
+    const avisos: string[] = [];
+    for (const item of itens) {
+      const resultado = await sincronizarTaxaRecebimento(
+        item.id,
+        item.valorLiquido,
+        (session?.user as { id?: string } | undefined)?.id ?? null,
+      );
+      if (!resultado.ok) avisos.push(`#${item.id}: ${resultado.erro}`);
+    }
+
+    if (avisos.length) {
+      return NextResponse.json(
+        {
+          error: `Os valores brutos foram salvos, mas o líquido não pôde ser ajustado. ${avisos.join(" ")}`,
+        },
+        { status: 409 },
+      );
     }
 
     return NextResponse.json({ data });

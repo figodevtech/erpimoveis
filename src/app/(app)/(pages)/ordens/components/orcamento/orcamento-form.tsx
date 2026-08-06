@@ -106,8 +106,11 @@ export const OrcamentoForm = forwardRef<OrcamentoFormHandle, OrcamentoFormProps>
 
     try {
       setErrosEstoque({});
-      await salvarOrcamentoAPI(osId, itensProduto, itensProdutoAvulso, itensServico, descontoTipo, desconto);
+      const resposta = await salvarOrcamentoAPI(osId, itensProduto, itensProdutoAvulso, itensServico, descontoTipo, desconto);
       toast.success("Orçamento salvo com sucesso");
+      // A reconciliação alcançou mês já fechado na DRE: some depois do sucesso
+      // e fica mais tempo em tela, porque exige conferência.
+      if (resposta?.aviso) toast.warning(resposta.aviso, { duration: 10000 });
       window.dispatchEvent(new Event("os:refresh"));
     } catch (e: any) {
       if (e instanceof EstoqueInsuficienteError || e?.name === "EstoqueInsuficienteError") {

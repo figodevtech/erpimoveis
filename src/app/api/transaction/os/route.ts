@@ -34,7 +34,7 @@ const WRITABLE_FIELDS = new Set([
 
 /** Campos retornados no select padrão (transacao) */
 const TRANSACAO_FIELDS =
-  "id, descricao, descricao_pagamento, valor, valorLiquido, data, ordemservicoid, vendaid, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, pendente, cliente_id, fornecedor_id, banco_id, created_at, updated_at";
+  "id, descricao, descricao_pagamento, valor, valorLiquido, valor_base, valor_acrescimos, valor_descontos, adiantamento_id, eh_adiantamento, data, ordemservicoid, vendaid, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, pendente, cliente_id, fornecedor_id, banco_id, created_at, updated_at";
 
 /** Campos do banco (bancoconta) alinhados ao que você precisa no front */
 const BANCO_FIELDS =

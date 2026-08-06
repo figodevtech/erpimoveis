@@ -68,6 +68,35 @@ export function tipoTemValorLiquido(tipo: string | null | undefined): boolean {
 }
 
 /**
+ * Valor de face: o que a transação valia antes de juros, multa e afins.
+ *
+ * `valor` é o que o cliente paga, já com os acréscimos aplicados. Para abater um
+ * documento, porém, o que conta é a face — acréscimo e desconto são do
+ * pagamento, não da OS nem da venda. Somar o bruto faria a OS parecer paga a
+ * mais só porque o cliente atrasou e pagou juros.
+ *
+ * É a mesma separação que o sistema já faz em `acrescimo_financeiro`, que por
+ * definição "não altera itens ou valores fiscais".
+ *
+ * Transação sem ajuste nenhum tem face igual ao bruto, que é o estado de tudo
+ * que existia antes desta coluna.
+ */
+export function valorDeFace(transacao: {
+  valor?: number | string | null;
+  valor_acrescimos?: number | string | null;
+}): number {
+  const bruto = Number(transacao.valor ?? 0);
+  const brutoSeguro = Number.isFinite(bruto) ? bruto : 0;
+
+  const acrescimos = Number(transacao.valor_acrescimos ?? 0);
+  const acrescimosSeguros =
+    Number.isFinite(acrescimos) && acrescimos > 0 ? acrescimos : 0;
+
+  // Centavos para não deixar 1030.1 - 30.1 virar 999.9999999999999.
+  return Math.round((brutoSeguro - acrescimosSeguros) * 100) / 100;
+}
+
+/**
  * Líquido efetivo de uma transação.
  *
  * Registros antigos (e os criados fora do fluxo de caixa, como entrada fiscal)
@@ -77,13 +106,25 @@ export function tipoTemValorLiquido(tipo: string | null | undefined): boolean {
 export function valorLiquidoEfetivo(transacao: {
   valor?: number | string | null;
   valorLiquido?: number | string | null;
+  valor_descontos?: number | string | null;
   tipo?: string | null;
 }): number {
   const bruto = Number(transacao.valor ?? 0);
   const brutoSeguro = Number.isFinite(bruto) ? bruto : 0;
 
+  const liquido = Number(transacao.valorLiquido ?? 0);
+  const liquidoValido = Number.isFinite(liquido) && liquido > 0;
+
+  // Desconto lançado vale para qualquer tipo: uma conta a pagar quitada com
+  // abatimento por antecipação sai da conta pelo valor abatido, não pelo cheio.
+  // A regra de ignorar o líquido em despesa e depósito nasceu de registro antigo
+  // com lixo nesse campo — com linha de desconto não há dúvida sobre o número.
+  const descontos = Number(transacao.valor_descontos ?? 0);
+  if (Number.isFinite(descontos) && descontos > 0) {
+    return liquidoValido ? liquido : Math.round((brutoSeguro - descontos) * 100) / 100;
+  }
+
   if (!tipoTemValorLiquido(transacao.tipo)) return brutoSeguro;
 
-  const liquido = Number(transacao.valorLiquido ?? 0);
-  return Number.isFinite(liquido) && liquido > 0 ? liquido : brutoSeguro;
+  return liquidoValido ? liquido : brutoSeguro;
 }
