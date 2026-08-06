@@ -65,6 +65,52 @@ import ConcluidoAlert from "./concluidoAlert";
 import SearchFilter from "./searchFilter";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { useConfig } from "@/app/(app)/(pages)/config-context";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+
+/**
+ * Texto de uma linha só, cortado com reticências. O tooltip com o conteúdo
+ * completo só aparece quando o texto realmente foi cortado — medido no hover,
+ * porque a largura disponível muda conforme a janela.
+ */
+function TextoTruncado({
+  children,
+  className,
+}: {
+  children: string;
+  className?: string;
+}) {
+  const ref = React.useRef<HTMLSpanElement>(null);
+  const [truncado, setTruncado] = React.useState(false);
+
+  const verificarCorte = () => {
+    const el = ref.current;
+    if (el) setTruncado(el.scrollWidth > el.clientWidth);
+  };
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          ref={ref}
+          onMouseEnter={verificarCorte}
+          onFocus={verificarCorte}
+          className={`block w-full cursor-default truncate text-left ${className ?? ""}`}
+        >
+          {children}
+        </span>
+      </TooltipTrigger>
+      {truncado ? (
+        <TooltipContent side="top" align="start" className="max-w-[320px] text-pretty">
+          {children}
+        </TooltipContent>
+      ) : null}
+    </Tooltip>
+  );
+}
 
 const VIEW_MODE_TABS: { value: FluxoViewMode; label: string }[] = [
   { value: "TODAS", label: "Todas" },
@@ -343,7 +389,7 @@ export default function FinancialTable({
         <Table className="text-xs mt-6">
           <TableHeader>
             <TableRow className="font-bold">
-              <TableCell>Descrição</TableCell>
+              <TableCell className="w-[440px] max-w-[440px]">Descrição</TableCell>
               <TableCell className="hidden md:table-cell">Data</TableCell>
               <TableCell className="hidden md:table-cell">Tipo</TableCell>
               <TableCell className="hidden md:table-cell">Categoria</TableCell>
@@ -366,26 +412,28 @@ export default function FinancialTable({
                   onDoubleClick={() => setSelectedTransactionId(t.id)}
                   className="hover:cursor-pointer"
                 >
-                  <TableCell className="flex flex-row items-center gap-2">
-                    <div className="rounded-full p-2 bg-primary/50">
+                  <TableCell className="flex w-[440px] max-w-[440px] flex-row items-center gap-2">
+                    <div className="shrink-0 rounded-full p-2 bg-primary/50">
                       {getCategoryIcon(t.categoria, t.categoria_dados?.icone)}
                     </div>
-                    <div className="flex flex-col items-start">
-                      {t.descricao}
+                    {/* min-w-0: sem isso o item flex nunca encolhe abaixo do
+                        conteúdo e o truncate não corta nada. */}
+                    <div className="flex min-w-0 flex-1 flex-col items-start">
+                      <TextoTruncado>{t.descricao}</TextoTruncado>
                       {t.descricao_pagamento && (
-                        <span className="text-xs text-muted-foreground italic">
+                        <TextoTruncado className="text-xs text-muted-foreground italic">
                           {t.descricao_pagamento}
-                        </span>
+                        </TextoTruncado>
                       )}
                       {t.nomepagador && (
-                        <span className="text-xs text-muted-foreground">
+                        <TextoTruncado className="text-xs text-muted-foreground">
                           {t.nomepagador}
-                        </span>
+                        </TextoTruncado>
                       )}
                       <span className="text-xs text-muted-foreground">
                         ID: {t.id}
                       </span>
-                      <span className="text-xs text-muted-foreground md:hidden">
+                      <span className="w-full truncate text-xs text-muted-foreground md:hidden">
                         {t.banco?.titulo ?? "Sem banco"} - {t.metodopagamento ?? "Método não definido"}
                       </span>
                       <span className="text-muted-foreground text-nowrap flex-nowrap flex justify-center items-center gap-2 md:hidden">

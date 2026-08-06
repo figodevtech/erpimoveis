@@ -1833,7 +1833,7 @@ export function OSDetalhesDialog({
                             </p>
                           </div>
                         </div>
-                        <div className="mt-4 space-y-3">
+                        <div className="mt-3 space-y-2">
                           {data.rentabilidade.produtos.length ? (
                             data.rentabilidade.produtos.map((produto) => {
                               const lucroSobreVenda = produto.receitaLiquida > 0
@@ -1856,12 +1856,16 @@ export function OSDetalhesDialog({
                               return (
                                 <div
                                   key={produto.produtoid}
-                                  className="overflow-hidden rounded-xl border bg-background shadow-sm"
+                                  className="overflow-hidden rounded-lg border bg-background shadow-sm"
                                 >
-                                  <div className="flex flex-col items-start gap-2 border-b bg-muted/30 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                                  <div className="flex flex-col items-start gap-1 border-b bg-muted/30 px-3 py-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                                     <div className="min-w-0 w-full">
-                                      <p className="break-words text-sm font-semibold sm:truncate">{produto.descricao}</p>
-                                      <p className="mt-0.5 text-xs text-muted-foreground">{produto.quantidade} un.</p>
+                                      <p className="break-words text-sm font-semibold">
+                                        {produto.descricao}
+                                        <span className="ml-2 text-xs font-normal text-muted-foreground">
+                                          {produto.quantidade} un.
+                                        </span>
+                                      </p>
                                     </div>
                                     {produto.custoNaoInformado ? (
                                       <Badge variant="outline" className="shrink-0 border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300">
@@ -1874,20 +1878,20 @@ export function OSDetalhesDialog({
                                     ) : null}
                                   </div>
 
-                                  <div className="grid items-center gap-2 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)]">
-                                    <div className="rounded-lg border bg-card px-3 py-2.5">
+                                  <div className="grid items-center gap-1.5 px-3 py-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)]">
+                                    <div className="rounded-md border bg-card px-2.5 py-1.5">
                                       <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Custo de compra</p>
-                                      <p className="mt-1 font-semibold tabular-nums">{fmtMoney(produto.custoTotal)}</p>
+                                      <p className="font-semibold tabular-nums">{fmtMoney(produto.custoTotal)}</p>
                                     </div>
-                                    <ArrowDown className="mx-auto size-4 text-muted-foreground/60 sm:-rotate-90" aria-hidden="true" />
-                                    <div className="rounded-lg border bg-card px-3 py-2.5">
+                                    <ArrowDown className="mx-auto size-3.5 text-muted-foreground/60 sm:-rotate-90" aria-hidden="true" />
+                                    <div className="rounded-md border bg-card px-2.5 py-1.5">
                                       <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Venda líquida</p>
-                                      <p className="mt-1 font-semibold tabular-nums">{fmtMoney(produto.receitaLiquida)}</p>
+                                      <p className="font-semibold tabular-nums">{fmtMoney(produto.receitaLiquida)}</p>
                                     </div>
-                                    <ArrowDown className="mx-auto size-4 text-muted-foreground/60 sm:-rotate-90" aria-hidden="true" />
-                                    <div className="rounded-lg border bg-card px-3 py-2.5">
+                                    <ArrowDown className="mx-auto size-3.5 text-muted-foreground/60 sm:-rotate-90" aria-hidden="true" />
+                                    <div className="rounded-md border bg-card px-2.5 py-1.5">
                                       <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Lucro bruto</p>
-                                      <p className={`mt-1 font-semibold tabular-nums ${
+                                      <p className={`font-semibold tabular-nums ${
                                         produto.lucroBruto < 0
                                           ? "text-red-600 dark:text-red-400"
                                           : produto.lucroBruto > 0
@@ -1899,7 +1903,7 @@ export function OSDetalhesDialog({
                                     </div>
                                   </div>
 
-                                  <div className="flex flex-wrap gap-2 border-t bg-muted/15 px-4 py-3">
+                                  <div className="flex flex-wrap gap-2 border-t bg-muted/15 px-3 py-1.5">
                                     <RentabilidadePercentualBadge
                                       rotulo="Lucro sobre venda"
                                       percentual={lucroSobreVenda}
@@ -1932,43 +1936,43 @@ export function OSDetalhesDialog({
                             </p>
                           </div>
                         </div>
-                        <div className="mt-4 space-y-3">
+                        <div className="mt-3 space-y-2">
                           {data.rentabilidade.comissoesServicos.some(
                             (servico) => servico.realizadores.length > 0,
                           ) ? (
                             data.rentabilidade.comissoesServicos
                               .filter((servico) => servico.realizadores.length > 0)
                               .map((servico) => (
-                                <div key={servico.servicoid} className="overflow-hidden rounded-xl border bg-background shadow-sm">
-                                  <div className="flex items-center gap-3 border-b bg-muted/30 px-4 py-3">
-                                    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border bg-card text-muted-foreground">
-                                      <Wrench className="size-4" aria-hidden="true" />
+                                <div key={servico.servicoid} className="overflow-hidden rounded-lg border bg-background shadow-sm">
+                                  <div className="flex items-center gap-2 border-b bg-muted/30 px-3 py-1.5">
+                                    <span className="flex size-7 shrink-0 items-center justify-center rounded-md border bg-card text-muted-foreground">
+                                      <Wrench className="size-3.5" aria-hidden="true" />
                                     </span>
                                     <p className="min-w-0 truncate text-sm font-semibold">{servico.descricao}</p>
                                   </div>
 
-                                  <div className="grid gap-3 px-4 py-3 sm:grid-cols-2">
-                                    <div className="rounded-lg border bg-card px-3 py-2.5">
+                                  <div className="grid gap-1.5 px-3 py-2 sm:grid-cols-2">
+                                    <div className="rounded-md border bg-card px-2.5 py-1.5">
                                       <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Valor do serviço</p>
-                                      <p className="mt-1 font-semibold tabular-nums">{fmtMoney(servico.valorServico)}</p>
+                                      <p className="font-semibold tabular-nums">{fmtMoney(servico.valorServico)}</p>
                                     </div>
-                                    <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2.5">
+                                    <div className="rounded-md border border-amber-500/20 bg-amber-500/5 px-2.5 py-1.5">
                                       <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Total de comissões</p>
-                                      <p className="mt-1 font-semibold tabular-nums text-amber-700 dark:text-amber-300">
+                                      <p className="font-semibold tabular-nums text-amber-700 dark:text-amber-300">
                                         {fmtMoney(servico.valorComissao)}
                                       </p>
                                     </div>
                                   </div>
 
-                                  <div className="border-t px-4 py-3">
-                                    <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                  <div className="border-t px-3 py-2">
+                                    <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                                       Comissões calculadas
                                     </p>
-                                    <div className="space-y-2">
+                                    <div className="space-y-1.5">
                                       {servico.realizadores.map((realizador) => (
                                         <div
                                           key={realizador.usuarioid}
-                                          className="flex flex-col gap-2 rounded-lg bg-muted/35 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"
+                                          className="flex flex-col gap-1 rounded-md bg-muted/35 px-2.5 py-1.5 sm:flex-row sm:items-center sm:justify-between"
                                         >
                                           <div className="min-w-0">
                                             <p className="truncate text-sm font-medium">{realizador.nome || "Realizador"}</p>

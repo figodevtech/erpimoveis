@@ -246,6 +246,17 @@ const dataIso = (texto: string) => {
   return partes ? `${partes[3]}-${partes[2]}-${partes[1]}` : null;
 };
 
+/**
+ * Meia-noite no horario do Brasil, nao em UTC.
+ *
+ * A sessao do banco roda em UTC e as telas formatam em America/Fortaleza
+ * (UTC-3). Gravar "2024-12-23" vira 2024-12-23 00:00+00, que no Brasil e
+ * 2024-12-22 21:00 — e a tela mostra o dia anterior. As transacoes que ja
+ * existiam no Demir gravam 03:00 UTC, exatamente meia-noite daqui; o sufixo
+ * -03:00 reproduz essa convencao.
+ */
+const meiaNoiteBr = (iso: string | null) => (iso ? `${iso}T00:00:00-03:00` : null);
+
 const soDigitos = (texto: string) => (texto ?? "").replace(/\D/g, "");
 
 // "21/32" = parcela 21 de 32. "1/0" e "1/1" sao parcela unica.
@@ -755,6 +766,8 @@ async function main() {
       console.log("Regra do DRE aplicada apenas dentro desta transacao de teste.\n");
     }
 
+    let removidas = 0;
+
     // Trava por arquivo: so olha as linhas desta carga, para que carregar um
     // arquivo depois nao esbarre no outro nem o apague.
     for (const fonte of fontes) {
@@ -775,6 +788,25 @@ async function main() {
         [ORIGEM, `${marcador(fonte)}%`],
       );
       console.log(`Carga anterior de ${fonte} removida: ${existentes} transacoes.`);
+      removidas += existentes;
+    }
+
+    // Apagar nao devolve os ids consumidos: sem recuar a sequencia, a proxima
+    // carga comecaria centenas de numeros a frente e deixaria um buraco
+    // permanente na numeracao que o usuario ve na tela.
+    if (removidas > 0) {
+      const sequencia = await client.query<{ nome: string | null }>(
+        "select pg_get_serial_sequence('public.transacao', 'id') nome",
+      );
+      const nome = sequencia.rows[0]?.nome;
+      if (!nome) {
+        throw new Error("Nao encontrei a sequencia de public.transacao.id para reposicionar.");
+      }
+      const posicao = await client.query<{ proximo: string }>(
+        `select setval($1, coalesce((select max(id) from public.transacao), 0) + 1, false) proximo`,
+        [nome],
+      );
+      console.log(`Sequencia de id reposicionada: proximo id sera ${posicao.rows[0].proximo}.`);
     }
 
     // Cadastros de apoio, resolvidos por codigo/nome para nao depender de id.
@@ -889,16 +921,21 @@ async function main() {
             plano_de_conta_id, centro_custo_id, origem, descricao_pagamento,
             created_at)
          values
-           ($1, $2, $2, $3, $3, $4,
-            $5::public.metodo_pagamento, $6, $7::public.tipos_transacao, $8, $9,
-            $10, $11, true, $12,
-            $13, $14, $15, $16,
-            coalesce($17::timestamptz, now()))`,
+           ($1, $2, $2, $3, $4, $5,
+            $6::public.metodo_pagamento, $7, $8::public.tipos_transacao, $9, $10,
+            $11, $12, true, $13,
+            $14, $15, $16, $17,
+            coalesce($18::timestamptz, now()))`,
         [
           titulo.descricao.slice(0, 500),
           titulo.valor,
-          titulo.emissao,
-          titulo.vencimento,
+          // `data` e a data que a tela do financeiro exibe, e o proprio ERP grava
+          // nela o vencimento da parcela ao criar um parcelamento. Para um titulo
+          // em aberto e o vencimento que interessa, nao a emissao.
+          meiaNoiteBr(titulo.vencimento ?? titulo.emissao),
+          // A competencia continua sendo a emissao: e quando o fato aconteceu.
+          meiaNoiteBr(titulo.emissao),
+          meiaNoiteBr(titulo.vencimento),
           titulo.metodo,
           categoriaId,
           titulo.tipo,
@@ -1028,7 +1065,31 @@ async function main() {
           `sem plano: ${linha.sem_plano} | sem centro: ${linha.sem_centro} | sem cliente: ${linha.sem_cliente}`,
       );
     }
+    // As telas formatam em America/Fortaleza. Se a data gravada cair em outro dia
+    // ao ser convertida, o usuario ve um dia a menos — que foi o erro da primeira
+    // carga. Confere contra o vencimento que veio do CSV.
+    const esperado = new Map<string, string>();
+    for (const titulo of titulos) {
+      const chave = `${marcador(titulo.fonte)}${titulo.registro}${titulo.parcelaTexto ? ` parcela ${titulo.parcelaTexto}` : ""}`;
+      if (titulo.vencimento) esperado.set(chave, titulo.vencimento);
+    }
+
+    const datas = await client.query<{ chave: string; dia: string }>(
+      `select descricao_pagamento chave,
+              (data at time zone 'America/Fortaleza')::date::text dia
+         from public.transacao
+        where origem = $1 and descricao_pagamento like any($2)`,
+      [ORIGEM, padroes],
+    );
+
+    const diasErrados = datas.rows.filter(
+      (linha) => esperado.has(linha.chave) && esperado.get(linha.chave) !== linha.dia,
+    );
+
     const dre = eventos.rows[0];
+    console.log(
+      `Datas conferidas no fuso da tela: ${datas.rows.length - diasErrados.length} de ${datas.rows.length} no dia certo`,
+    );
     console.log(`Eventos de DRE gerados: ${dre.n} (tem que ser 0)`);
     if (Number(dre.n) > 0) {
       console.log(
@@ -1044,6 +1105,13 @@ async function main() {
     }
     if (Number(eventos.rows[0].n) !== 0) {
       problemas.push(`${eventos.rows[0].n} eventos de DRE gerados; deveriam ser 0`);
+    }
+    if (diasErrados.length) {
+      const amostra = diasErrados
+        .slice(0, 3)
+        .map((linha) => `${linha.chave} mostra ${linha.dia}, esperado ${esperado.get(linha.chave)}`)
+        .join("; ");
+      problemas.push(`${diasErrados.length} titulos com data em dia errado (${amostra})`);
     }
     // O que o script amarrou tem que ser exatamente o que o ERP vai enxergar.
     if (Number(grupos.rows[0].linhas) !== amarradas) {
