@@ -224,11 +224,12 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
           ano: number | null;
           cor: string | null;
           kmatual: number | null;
+          chassi: string | null;
         }
       | null = null;
 
     if (osRow.veiculoid) {
-      const v_res = await supabase.from("veiculo").select("id, placa, modelo, marca, ano, cor, kmatual").eq("id", osRow.veiculoid).maybeSingle();
+      const v_res = await supabase.from("veiculo").select("id, placa, modelo, marca, ano, cor, kmatual, chassi").eq("id", osRow.veiculoid).maybeSingle();
       if (v_res.error) throw v_res.error;
       if (v_res.data) {
         veiculo = {
@@ -239,6 +240,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
           ano: v_res.data.ano ?? null,
           cor: v_res.data.cor ?? null,
           kmatual: v_res.data.kmatual ?? null,
+          chassi: v_res.data.chassi ?? null,
         };
       }
     }

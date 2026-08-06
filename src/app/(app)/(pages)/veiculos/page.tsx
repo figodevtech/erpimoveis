@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Pagination, Veiculo, Veiculo_tipos } from "./types";
 import axios from "axios";
 import TabelaVeiculos from "./tabela-veiculos";
@@ -9,16 +9,18 @@ import TabelaVeiculos from "./tabela-veiculos";
 export default function EstoquePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [veiculos, setVeiculos] = useState<Veiculo[]>([]);
-  const [pagination] = useState<Pagination>({
+  const [pagination, setPagination] = useState<Pagination>({
     total: 0,
     page: 1,
     limit: 20,
     totalPages: 0,
   });
-  const [search] = useState("");
+  const [search, setSearch] = useState("");
   const [selectedTipo] = useState<Veiculo_tipos | undefined>(undefined);
+  const requestIdRef = useRef(0);
 
-const handleGetVehicles = async (pageNumber?: number, limit?: number, search?: string, tipo?: string) => {
+  const handleGetVehicles = useCallback(async (pageNumber = 1, limit = 20, search = "", tipo?: string) => {
+    const requestId = ++requestIdRef.current;
     setIsLoading(true);
     try {
       const response = await axios.get("/api/veiculos", {
@@ -29,21 +31,25 @@ const handleGetVehicles = async (pageNumber?: number, limit?: number, search?: s
           tipo
         },
       })
-      setVeiculos(response.data.data);
+      if (requestId !== requestIdRef.current) return;
+
+      setVeiculos(response.data.data ?? []);
+      setPagination(response.data.pagination);
     } catch {
-      
-    }finally{
-      setIsLoading(false);
-    }  
-  }
-  
-  useEffect(() => {
-    handleGetVehicles(1, pagination.limit, search, selectedTipo);
-  }, [search]);
+      if (requestId !== requestIdRef.current) return;
+      setVeiculos([]);
+    } finally {
+      if (requestId === requestIdRef.current) setIsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    handleGetVehicles(1, pagination.limit, search);
-  }, []);
+    const timeout = setTimeout(() => {
+      void handleGetVehicles(1, pagination.limit, search, selectedTipo);
+    }, 300);
+
+    return () => clearTimeout(timeout);
+  }, [handleGetVehicles, pagination.limit, search, selectedTipo]);
 
 
   return (
@@ -58,6 +64,7 @@ const handleGetVehicles = async (pageNumber?: number, limit?: number, search?: s
         veiculos={veiculos}
         pagination={pagination}
         search={search}
+        setSearch={setSearch}
       />
     </div>
   );

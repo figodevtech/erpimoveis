@@ -54,7 +54,7 @@ export async function GET(request: Request) {
     let query = supabase
       .from("veiculo")
       .select(
-        "id, clienteid, placa, placa_formatada, modelo, marca, ano, cor, kmatual, tipo, chassi, ano_modelo, versao, fipe, combustivel, transmissao, imgUrl, cliente:clienteid( id, nomerazaosocial, cpfcnpj, email, telefone )",
+        "id, clienteid, placa, placa_formatada, modelo, marca, ano, cor, kmatual, tipo, chassi, ano_modelo, versao, fipe, combustivel, transmissao, imgUrl, cliente:clienteid( id, nomerazaosocial, cpfcnpj, email, telefone ), proprietarioFilter:clienteid()",
         { count: "exact" }
       )
       .order("id", { ascending: false })
@@ -66,7 +66,15 @@ export async function GET(request: Request) {
     if (tipo) query = query.eq("tipo", tipo);
 
     if (q) {
-      query = query.or(`modelo.ilike.%${q}%,marca.ilike.%${q}%,placa.ilike.%${q}%,placa_formatada.ilike.%${q}%,chassi.ilike.%${q}%`);
+      const like = `%${q}%`;
+
+      query = query.or(
+        `nomerazaosocial.ilike.${like},cpfcnpj.ilike.${like},telefone.ilike.${like},email.ilike.${like}`,
+        { foreignTable: "proprietarioFilter" }
+      );
+      query = query.or(
+        `modelo.ilike.${like},marca.ilike.${like},placa.ilike.${like},placa_formatada.ilike.${like},chassi.ilike.${like},proprietarioFilter.not.is.null`
+      );
     }
 
     const { data, error, count } = await query;
