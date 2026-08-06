@@ -138,7 +138,7 @@ export function PrintShareMenu({
         <Button
           variant="outline"
           size="sm"
-          className="print:hidden hover:cursor-pointer hover:text-black"
+          className="print:hidden !border-slate-300 !bg-white !text-slate-900 hover:!bg-slate-100 hover:!text-slate-900 hover:cursor-pointer"
         >
           <Share2 className="w-4 h-4 mr-2" />
           Compartilhar
