@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { valorLiquidoEfetivo } from "@/lib/financeiro/transacao";
 
 const TIPO_RECEITA = "RECEITA";
 const TIPO_DESPESA = "DESPESA";
@@ -59,6 +60,11 @@ function resolveYearMonth({ tz, yearParam, monthParam, offsetParam }: { tz: stri
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
+    // Na aba Fluxo, os cards precisam obedecer ao mesmo recorte da tabela:
+    // somente liquidações que efetivamente passaram por uma conta bancária.
+    // Em Liquidadas o parâmetro não vem, preservando a visão geral (inclusive
+    // títulos quitados por adiantamento, que ficam sem banco de propósito).
+    const comBanco = searchParams.get("comBanco") === "true";
     const { year, month } = resolveYearMonth({
       tz: TIMEZONE,
       yearParam: searchParams.get("year"),
@@ -69,25 +75,40 @@ export async function GET(req: Request) {
     const { startISO, nextStartISO } = monthBoundsISO({ year, month, tz: TIMEZONE });
 
     // RECEITAS
-    const { data: receitas, error: recErr } = await supabaseAdmin
+    let receitasQuery = supabaseAdmin
       .from("transacao")
-      .select("valorLiquido")
+      .select('valor, "valorLiquido", valor_descontos, tipo')
       .eq("tipo", TIPO_RECEITA).eq("pendente", false).eq("is_deleted", false)
       .gte("data", startISO)
       .lt("data", nextStartISO);
+    if (comBanco) receitasQuery = receitasQuery.not("banco_id", "is", null);
+
+    const { data: receitas, error: recErr } = await receitasQuery;
     if (recErr) throw recErr;
 
     // DESPESAS
-    const { data: despesas, error: despErr } = await supabaseAdmin
+    let despesasQuery = supabaseAdmin
       .from("transacao")
-      .select("valorLiquido")
+      .select('valor, "valorLiquido", valor_descontos, tipo')
       .eq("tipo", TIPO_DESPESA).eq("pendente", false).eq("is_deleted", false)
       .gte("data", startISO)
       .lt("data", nextStartISO);
+    if (comBanco) despesasQuery = despesasQuery.not("banco_id", "is", null);
+
+    const { data: despesas, error: despErr } = await despesasQuery;
     if (despErr) throw despErr;
 
-    const somaReceitas = (receitas ?? []).reduce((acc, r: any) => acc + (Number(r.valorLiquido) || 0), 0);
-    const somaDespesas = (despesas ?? []).reduce((acc, d: any) => acc + (Number(d.valorLiquido) || 0), 0);
+    // Mesma regra exibida na coluna da tabela: líquido quando ele é aplicável e
+    // válido; bruto como fallback para registros antigos ou despesas sem taxa.
+    const somar = (transacoes: typeof receitas) =>
+      (transacoes ?? []).reduce(
+        (centavos, transacao) =>
+          centavos + Math.round(valorLiquidoEfetivo(transacao) * 100),
+        0,
+      ) / 100;
+
+    const somaReceitas = somar(receitas);
+    const somaDespesas = somar(despesas);
 
     return NextResponse.json({ somaReceitas, somaDespesas, year, month });
   } catch (e: any) {

@@ -169,9 +169,15 @@ export default function FinanceiroPage() {
   const handleGetStatusCounter = useCallback(async () => {
     setIsLoadingStatus(true);
     try {
-      const response = await axios.get("/api/transaction/status-counter", {});
+      // Os mesmos cards aparecem em Fluxo e Liquidadas, mas respondem a
+      // perguntas diferentes: Fluxo só soma dinheiro que passou por banco;
+      // Liquidadas mantém a visão geral, inclusive baixas por adiantamento.
+      const params = viewMode === "FLUXO" ? { comBanco: true } : undefined;
+      const response = await axios.get("/api/transaction/status-counter", {
+        params,
+      });
       const response2 = await axios.get("/api/transaction/status-counter", {
-        params: { offset: -1 },
+        params: { ...params, offset: -1 },
       });
       if (response.status === 200 && response2.status === 200) {
         setStatusInfo((current) => ({
@@ -184,7 +190,7 @@ export default function FinanceiroPage() {
     } finally {
       setIsLoadingStatus(false);
     }
-  }, []);
+  }, [viewMode]);
 
   // Mudou filtro, período ou busca? `handleGetTransactions` muda junto e o
   // efeito refaz a consulta a partir da primeira página — a atual pode nem
