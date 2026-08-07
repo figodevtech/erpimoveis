@@ -28,7 +28,10 @@ import {
   Plus,
   MoreHorizontal,
   ArrowLeftRight,
+  Search,
+  X,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -67,6 +70,7 @@ interface TabelaVeiculosProps {
   veiculos: Veiculo[];
   pagination: Pagination;
   search: string;
+  setSearch: (value: string) => void;
   handleGetVehicles: (
     pageNumber?: number,
     limit?: number,
@@ -82,6 +86,7 @@ export default function TabelaVeiculos({
   veiculos,
   pagination,
   search,
+  setSearch,
   selectedTipo,
 }: TabelaVeiculosProps) {
   const { data: session } = useSession();
@@ -244,7 +249,27 @@ export default function TabelaVeiculos({
             </CardDescription>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="relative hidden w-[360px] md:block">
+              <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Buscar veículo ou proprietário..."
+                className="pl-8 pr-9"
+              />
+              {search ? (
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  className="absolute right-2 top-2.5 text-muted-foreground hover:text-foreground"
+                  aria-label="Limpar busca"
+                  title="Limpar busca"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              ) : null}
+            </div>
 
             {canCreate ? (
             <Button onClick={() => setOpenVeiculo(true)} className="cursor-pointer">
@@ -255,6 +280,27 @@ export default function TabelaVeiculos({
 
 
           </div>
+        </div>
+
+        <div className="relative mt-3 w-full md:hidden">
+          <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Buscar veículo ou proprietário..."
+            className="pl-8 pr-9"
+          />
+          {search ? (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className="absolute right-2 top-2.5 text-muted-foreground hover:text-foreground"
+              aria-label="Limpar busca"
+              title="Limpar busca"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
         </div>
       </CardHeader>
 
@@ -324,7 +370,7 @@ export default function TabelaVeiculos({
                         {canEdit ? (
                         <DropdownMenuItem
                           onClick={() => { setOpenCustomerSelect(true); setVeiculoTransferId(v?.id) }}
-                          className="hover:cursor-pointer bg-blue-600/10 hover:bg-blue-600/20 data-[highlighted]:bg-blue-600/50 transition-all"
+                          className="hover:cursor-pointer"
                         >
                           <ArrowLeftRight />
                           Transferir Propriedade

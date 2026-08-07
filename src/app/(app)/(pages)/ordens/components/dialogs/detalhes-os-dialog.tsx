@@ -271,7 +271,13 @@ type OS = {
   motivosemcobranca?: string | null;
   setor?: { id: number; nome: string } | null;
   cliente?: { id: number; nomerazaosocial: string } | null;
-  veiculo?: { id: number; placa?: string | null; modelo?: string | null; marca?: string | null } | null;
+  veiculo?: {
+    id: number;
+    placa?: string | null;
+    modelo?: string | null;
+    marca?: string | null;
+    chassi?: string | null;
+  } | null;
   alvo_tipo?: "VEICULO" | "PECA" | "EQUIPAMENTO" | null;
   peca?: { id: number; titulo: string; lacre?: string | null; descricao?: string | null } | null;
   equipamento?: {
@@ -1386,10 +1392,15 @@ export function OSDetalhesDialog({
                       ) : null}
                     </div>
                   ) : (
-                    <div className="text-sm">
-                      {data.os.veiculo
-                        ? `${data.os.veiculo.marca ?? ""} ${data.os.veiculo.modelo ?? ""} • ${data.os.veiculo.placa ?? ""}`.trim()
-                        : "—"}
+                    <div className="space-y-1 text-sm">
+                      <div>
+                        {data.os.veiculo
+                          ? `${data.os.veiculo.marca ?? ""} ${data.os.veiculo.modelo ?? ""} • ${data.os.veiculo.placa ?? ""}`.trim()
+                          : "—"}
+                      </div>
+                      {data.os.veiculo?.chassi ? (
+                        <div className="text-xs text-muted-foreground">Chassi: {data.os.veiculo.chassi}</div>
+                      ) : null}
                     </div>
                   )}
                 </div>

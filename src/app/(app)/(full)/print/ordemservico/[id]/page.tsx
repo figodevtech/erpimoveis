@@ -475,46 +475,57 @@ export default async function OSFullPage({ params }: PageProps) {
     padding: 0 8px;
   }
 
-  /* ✅ wrapper que reserva exatamente o tamanho VISUAL do A4 escalado */
+  /* O preview usa zoom para a escala participar do layout. Assim a folha
+     cresce com o conteúdo sem precisar calcular a altura via JavaScript. */
   .folha-scaler{
     position: relative;
     width: calc(var(--a4w) * var(--os-scale));
-    height: calc(var(--a4h) * var(--os-scale));
+    min-height: calc(var(--a4h) * var(--os-scale));
+    height: auto;
     margin: 0 auto;
   }
 
   .folha{
     width: var(--a4w);
-    height: var(--a4h);
+    min-height: var(--a4h);
+    height: auto;
     background: var(--paper);
     border: 1px solid var(--border);
     box-shadow: 0 20px 60px rgba(15,23,42,.15);
-    overflow:hidden;
+    overflow:visible;
     display:flex;
     flex-direction:column;
 
-    /* ✅ fica fora do flow e escala sem causar “layout quebrado” */
-    position: absolute;
-    top: 0;
-    left: 0;
-    transform-origin: top left;
-    transform: scale(var(--os-scale));
-    will-change: transform;
+    position: static;
+    zoom: var(--os-scale);
   }
 
   .conteudo{
     padding: 9mm;
-    height: 100%;
+    height: auto;
+    flex: 1 0 auto;
     display:flex;
     flex-direction:column;
     gap: 7px;
   }
 
   @media print{
+    @page{
+      size: A4;
+      margin: 14mm 0 8mm;
+    }
+
+    @page :first{
+      margin-top: 8mm;
+    }
+
     html, body{
       margin:0 !important;
       padding:0 !important;
       background:#fff !important;
+      height:auto !important;
+      max-height:none !important;
+      overflow:visible !important;
     }
 
     .no-print{ display:none !important; }
@@ -530,14 +541,16 @@ export default async function OSFullPage({ params }: PageProps) {
     .folha-scaler{
       position: static !important;
       width: auto !important;
+      min-height: auto !important;
       height: auto !important;
       margin: 0 !important;
     }
 
     .folha{
       width: 210mm !important;
-      min-height: 297mm !important;
+      min-height: auto !important;
       height: auto !important;
+      max-height: none !important;
       margin: 0 !important;
 
       border:0 !important;
@@ -548,12 +561,65 @@ export default async function OSFullPage({ params }: PageProps) {
 
       position: static !important;
       transform: none !important;
+      zoom: 1 !important;
       inset: auto !important;
+      display: block !important;
     }
 
     .conteudo{
       padding: 8mm !important;
       height: auto !important;
+      min-height: auto !important;
+      max-height: none !important;
+      display: block !important;
+      overflow: visible !important;
+    }
+
+    .conteudo > * + *{
+      margin-top: 7px;
+    }
+
+    .header-os,
+    .meta-grid,
+    .grid-info,
+    .rodape,
+    .observacoes-box,
+    .totais-box,
+    .assinaturas,
+    .aceite-box{
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    .tabela-container{
+      overflow: visible !important;
+      border-radius: 0 !important;
+      break-inside: auto !important;
+      page-break-inside: auto !important;
+    }
+
+    table,
+    tbody{
+      break-inside: auto;
+      page-break-inside: auto;
+    }
+
+    thead{
+      display: table-header-group;
+    }
+
+    tbody{
+      display: table-row-group;
+    }
+
+    tr{
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    td, th{
+      orphans: 3;
+      widows: 3;
     }
 
     *{
@@ -963,7 +1029,7 @@ export default async function OSFullPage({ params }: PageProps) {
             Ordem de Serviço
           </div>
           <div className="text-[10px] md:text-xs" style={{ fontWeight: 700 }}>
-            Visualização de Impressão (1 página)
+            Visualização de Impressão
           </div>
         </div>
 
@@ -972,7 +1038,7 @@ export default async function OSFullPage({ params }: PageProps) {
             asChild
             size={"sm"}
             variant={"outline"}
-            className="hover:cursor-pointer hover:text-black"
+            className="!border-slate-300 !bg-white !text-slate-900 hover:!bg-slate-100 hover:!text-slate-900 hover:cursor-pointer"
           >
             <Link href="/ordens">
               <Power className="w-3 h-3" />
@@ -983,7 +1049,6 @@ export default async function OSFullPage({ params }: PageProps) {
           <PrintShareMenu
             documentId={os.id}
             filenamePrefix="ordem-servico"
-            fixedHeight={1123}
           />
         </div>
       </div>

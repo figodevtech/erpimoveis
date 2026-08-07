@@ -37,7 +37,7 @@ export async function GET(_req: NextRequest, ctx: RouteCtx) {
         observacoes,
         updatedat,
         cliente:clienteid ( id, nomerazaosocial ),
-        veiculo:veiculoid ( id, placa, modelo, marca, ano, cor, kmatual ),
+        veiculo:veiculoid ( id, placa, modelo, marca, ano, cor, kmatual, chassi ),
         setor:setorid ( id, nome ),
         checklist:checklist ( id, item, status, observacao, createdat )
       `)
@@ -73,6 +73,7 @@ export async function GET(_req: NextRequest, ctx: RouteCtx) {
               ano: veiculo.ano,
               cor: veiculo.cor,
               kmatual: veiculo.kmatual,
+              chassi: veiculo.chassi,
             }
           : null,
         setor: setor ? { id: setor.id, nome: setor.nome } : null,
