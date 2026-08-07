@@ -77,6 +77,10 @@ export type Ordem = {
   desconto?: number | null;
   acrescimo_financeiro_tipo?: "FIXO" | "PORCENTAGEM" | null;
   acrescimo_financeiro_valor?: number | null;
+  destacada?: boolean;
+  destaque_motivo?: string | null;
+  destacada_por?: string | null;
+  destacada_em?: string | null;
   transacoes: Transaction[] | null
   is_deleted?: boolean
   created_at?: Date

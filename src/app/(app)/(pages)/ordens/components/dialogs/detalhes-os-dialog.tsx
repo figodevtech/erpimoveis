@@ -3,6 +3,9 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
 Dialog,
 DialogContent,
@@ -217,6 +220,8 @@ function auditDotClass(tipo: AuditoriaResumoItem["tipo"]) {
       return "bg-teal-500 ring-teal-500/20";
     case "financeiro":
       return "bg-red-500 ring-red-500/20";
+    case "destaque":
+      return "bg-red-600 ring-red-600/20";
     default:
       return "bg-muted-foreground ring-muted-foreground/20";
   }
@@ -267,6 +272,10 @@ type OS = {
   /** Saida fisica, registrada independentemente do pagamento. */
   datasaida?: string | null;
   pagamento_concluido_em?: string | null;
+  destacada?: boolean;
+  destaque_motivo?: string | null;
+  destacada_por?: string | null;
+  destacada_em?: string | null;
   /** Entrega: fim do andamento, quando o ultimo servico da execucao e finalizado. */
   execucao_fim_em?: string | null;
   motivocancelamento?: string | null;
@@ -400,6 +409,7 @@ type AuditoriaResumoItem = {
     | "estoque"
     | "saida"
     | "financeiro"
+    | "destaque"
     | "dados";
   titulo: string;
   detalhe: string | null;
@@ -655,10 +665,12 @@ export function OSDetalhesDialog({
   open,
   onOpenChange,
   osId,
+  onDestaqueChange,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   osId: number | null;
+  onDestaqueChange?: () => void;
 }) {
   const { data: session } = useSession();
   const permissoesUsuario = (session?.user as any)?.permissoes;
@@ -668,9 +680,13 @@ export function OSDetalhesDialog({
   // só ofereceria ações que voltam 403.
   const podeEditarEventosFinanceiros =
     podeVerEventosFinanceiros && permissionSetHas(permissoesUsuario, PERMS.ORDENS_EDITAR);
+  const podeEditarOS = permissionSetHas(permissoesUsuario, PERMS.ORDENS_EDITAR);
 
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<OSDetalhesResponse | null>(null);
+  const [destaqueAtivo, setDestaqueAtivo] = useState(false);
+  const [destaqueMotivo, setDestaqueMotivo] = useState("");
+  const [salvandoDestaque, setSalvandoDestaque] = useState(false);
 
   const [responsaveis, setResponsaveis] = useState<UsuarioAtivo[]>([]);
   const [loadingResponsaveis, setLoadingResponsaveis] = useState(false);
@@ -729,6 +745,10 @@ export function OSDetalhesDialog({
   const [uploadingAnexo, setUploadingAnexo] = useState(false);
   const [deletingAnexoId, setDeletingAnexoId] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const destaqueSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const destaqueEdicaoVersaoRef = useRef(0);
+  const destaqueOsIdAtualRef = useRef<number | null>(osId);
+  destaqueOsIdAtualRef.current = osId;
 
   const canFetch = open && !!osId;
   const maxAnexosPorOs = 10;
@@ -862,8 +882,25 @@ export function OSDetalhesDialog({
   }, [open]);
 
   useEffect(() => {
+    if (destaqueSaveTimerRef.current) {
+      clearTimeout(destaqueSaveTimerRef.current);
+      destaqueSaveTimerRef.current = null;
+    }
+    destaqueEdicaoVersaoRef.current += 1;
     if (open) setCurrentTab("resumo");
+
+    return () => {
+      if (destaqueSaveTimerRef.current) {
+        clearTimeout(destaqueSaveTimerRef.current);
+        destaqueSaveTimerRef.current = null;
+      }
+    };
   }, [open, osId]);
+
+  useEffect(() => {
+    setDestaqueAtivo(data?.os?.destacada === true);
+    setDestaqueMotivo(data?.os?.destaque_motivo ?? "");
+  }, [data?.os?.destacada, data?.os?.destaque_motivo, data?.os?.id]);
 
   // Se a permissao cair enquanto o dialog esta aberto, volta para uma aba visivel.
   useEffect(() => {
@@ -1249,6 +1286,107 @@ export function OSDetalhesDialog({
     }
   }
 
+  function agendarSalvamentoDestaque(motivo: string) {
+    if (destaqueSaveTimerRef.current) clearTimeout(destaqueSaveTimerRef.current);
+
+    const versaoEdicao = ++destaqueEdicaoVersaoRef.current;
+    destaqueSaveTimerRef.current = setTimeout(() => {
+      destaqueSaveTimerRef.current = null;
+      void persistirDestaque(true, motivo, { silencioso: true, versaoEdicao });
+    }, 1000);
+  }
+
+  async function persistirDestaque(
+    destacada: boolean,
+    motivo: string,
+    opcoes?: { silencioso?: boolean; versaoEdicao?: number },
+  ) {
+    if (!osId) return false;
+
+    const osIdDaRequisicao = osId;
+    const motivoNormalizado = motivo.trim();
+    setSalvandoDestaque(true);
+    try {
+      const response = await fetch(`/api/ordens/${osId}/destaque`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ destacada, motivo: motivoNormalizado }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.error || "Erro ao atualizar o destaque da OS");
+      }
+
+      const destaque = payload?.destaque ?? {};
+      if (destaqueOsIdAtualRef.current !== osIdDaRequisicao) {
+        onDestaqueChange?.();
+        return true;
+      }
+      const podeAplicarMotivo =
+        opcoes?.versaoEdicao === undefined
+        || opcoes.versaoEdicao === destaqueEdicaoVersaoRef.current;
+      setData((prev) => !prev
+        ? prev
+        : {
+            ...prev,
+            os: {
+              ...prev.os,
+              destacada: destaque.destacada === true,
+              destaque_motivo: podeAplicarMotivo
+                ? destaque.destaque_motivo ?? null
+                : prev.os.destaque_motivo,
+              destacada_por: destaque.destacada_por ?? null,
+              destacada_em: destaque.destacada_em ?? null,
+            },
+          });
+      setDestaqueAtivo(destaque.destacada === true);
+      if (podeAplicarMotivo) setDestaqueMotivo(destaque.destaque_motivo ?? "");
+      if (!opcoes?.silencioso) {
+        toast.success(destacada ? "OS destacada." : "Destaque removido.");
+      }
+      onDestaqueChange?.();
+      return true;
+    } catch (error: any) {
+      toast.error(error?.message || "N\u00e3o foi poss\u00edvel atualizar o destaque da OS");
+      return false;
+    } finally {
+      if (destaqueOsIdAtualRef.current === osIdDaRequisicao) {
+        setSalvandoDestaque(false);
+      }
+    }
+  }
+
+  async function alterarDestaqueAtivo(ativo: boolean) {
+    if (destaqueSaveTimerRef.current) {
+      clearTimeout(destaqueSaveTimerRef.current);
+      destaqueSaveTimerRef.current = null;
+    }
+    const versaoEdicao = ++destaqueEdicaoVersaoRef.current;
+
+    if (ativo) {
+      setDestaqueAtivo(true);
+      const destacado = await persistirDestaque(true, destaqueMotivo, { versaoEdicao });
+      if (!destacado) {
+        if (destaqueSaveTimerRef.current) {
+          clearTimeout(destaqueSaveTimerRef.current);
+          destaqueSaveTimerRef.current = null;
+        }
+        destaqueEdicaoVersaoRef.current += 1;
+        setDestaqueAtivo(false);
+      }
+      return;
+    }
+
+    const motivoAnterior = destaqueMotivo;
+    setDestaqueAtivo(false);
+    setDestaqueMotivo("");
+    const removido = await persistirDestaque(false, "", { versaoEdicao });
+    if (!removido) {
+      setDestaqueAtivo(true);
+      setDestaqueMotivo(motivoAnterior);
+    }
+  }
+
   async function handleAnexoChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -1350,6 +1488,50 @@ export function OSDetalhesDialog({
                 <DialogDescription className="text-sm">
                   Informações completas da OS, itens, checklist, responsáveis e links de aprovação.
                 </DialogDescription>
+                {data?.os ? (
+                  <div
+                    className={`mt-2 flex min-h-9 flex-nowrap items-center gap-1.5 rounded-md border px-2.5 py-1.5 sm:gap-2 ${
+                      destaqueAtivo
+                        ? "border-red-500/40 bg-red-500/10"
+                        : "border-border bg-muted/25"
+                    }`}
+                  >
+                    <Switch
+                      id={`destacar-os-${data.os.id}`}
+                      checked={destaqueAtivo}
+                      onCheckedChange={(checked) => void alterarDestaqueAtivo(checked)}
+                      disabled={!podeEditarOS || salvandoDestaque}
+                      aria-label="Destacar ordem de servi\u00e7o"
+                      className="shrink-0"
+                    />
+                    <Label
+                      htmlFor={`destacar-os-${data.os.id}`}
+                      className={`shrink-0 ${destaqueAtivo ? "text-red-700 dark:text-red-300" : ""}`}
+                    >
+                      Destacar
+                    </Label>
+                    {destaqueAtivo ? (
+                      <>
+                        <Input
+                          value={destaqueMotivo}
+                          onChange={(event) => {
+                            const motivo = event.target.value;
+                            setDestaqueMotivo(motivo);
+                            agendarSalvamentoDestaque(motivo);
+                          }}
+                          maxLength={200}
+                          placeholder="Motivo do destaque"
+                          className="h-7 min-w-0 flex-1 text-xs sm:max-w-[280px]"
+                          disabled={!podeEditarOS}
+                          autoFocus={data.os.destacada !== true}
+                        />
+                        {salvandoDestaque ? (
+                          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-red-600 dark:text-red-400" />
+                        ) : null}
+                      </>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
 
               <span className="grid grid-cols-3 gap-2 text-left sm:ml-auto sm:min-w-[390px] sm:text-right">

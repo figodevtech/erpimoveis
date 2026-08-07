@@ -46,6 +46,10 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
           "dataentrada",
           "datasaida",
           "pagamento_concluido_em",
+          "destacada",
+          "destaque_motivo",
+          "destacada_por",
+          "destacada_em",
           "orcamentototal",
           "subtotal",
           "desconto_tipo",
@@ -95,6 +99,10 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       dataentrada: string | null;
       datasaida: string | null;
       pagamento_concluido_em: string | null;
+      destacada: boolean;
+      destaque_motivo: string | null;
+      destacada_por: string | null;
+      destacada_em: string | null;
       orcamentototal: number | null;
       subtotal?: number | null;
       desconto_tipo?: string | null;
@@ -652,6 +660,10 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       dataentrada: osRow.dataentrada ?? null,
       datasaida: osRow.datasaida ?? null,
       pagamento_concluido_em: osRow.pagamento_concluido_em ?? null,
+      destacada: osRow.destacada === true,
+      destaque_motivo: osRow.destaque_motivo ?? null,
+      destacada_por: osRow.destacada_por ?? null,
+      destacada_em: osRow.destacada_em ?? null,
       alvo_tipo: (osRow.alvo_tipo ?? "VEICULO") as AlvoTipo,
       setor: setor ? { id: setor.id, nome: setor.nome } : null,
       cliente,

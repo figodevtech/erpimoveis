@@ -39,6 +39,7 @@ type ItemResumo = {
     | "estoque"
     | "saida"
     | "financeiro"
+    | "destaque"
     | "dados";
   titulo: string;
   detalhe: string | null;
@@ -594,6 +595,30 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
           tipo: "criacao",
           titulo: "Criou a OS",
           detalhe: `Status inicial: ${textoStatus(valor(novo, "status"))}`,
+        });
+        continue;
+      }
+
+      if (
+        evento.tabela === "ordemservico"
+        && evento.operacao === "UPDATE"
+        && (
+          evento.campos_alterados?.includes("destacada")
+          || evento.campos_alterados?.includes("destaque_motivo")
+        )
+      ) {
+        const destacada = valor(novo, "destacada") === true;
+        const mudouEstado = evento.campos_alterados?.includes("destacada");
+        adicionar(evento, {
+          tipo: "destaque",
+          titulo: destacada
+            ? mudouEstado ? "Destacou a OS" : "Atualizou o destaque da OS"
+            : "Removeu o destaque da OS",
+          detalhe: destacada
+            ? `Motivo: ${String(valor(novo, "destaque_motivo") ?? "N\u00e3o informado")}`
+            : valor(anterior, "destaque_motivo")
+              ? `Motivo anterior: ${String(valor(anterior, "destaque_motivo"))}`
+              : null,
         });
         continue;
       }

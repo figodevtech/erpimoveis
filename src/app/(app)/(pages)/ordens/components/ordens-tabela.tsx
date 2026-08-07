@@ -152,6 +152,8 @@ export function OrdensTabela({
     reload: reloadPaymentMethods,
   } = usePaymentMethodOptions();
   const [rows, setRows] = useState<OrdemComDatas[]>([]);
+  const [destaqueTooltipId, setDestaqueTooltipId] = useState<number | null>(null);
+  const [usarPopoverDestaque, setUsarPopoverDestaque] = useState(false);
   const canCreate = permissionSetHas((session?.user as any)?.permissoes, PERMS.ORDENS_CRIAR);
 
   const [page, setPage] = useState(1);
@@ -177,6 +179,14 @@ export function OrdensTabela({
   const reqIdRef = useRef(0);
 
   const now = useNowTick(5000);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(hover: none), (pointer: coarse)");
+    const atualizarModoDestaque = () => setUsarPopoverDestaque(mediaQuery.matches);
+    atualizarModoDestaque();
+    mediaQuery.addEventListener("change", atualizarModoDestaque);
+    return () => mediaQuery.removeEventListener("change", atualizarModoDestaque);
+  }, []);
 
   const statusesKey = useMemo(() => (statuses?.length ? statuses.join("|") : ""), [statuses]);
 
@@ -1005,8 +1015,63 @@ export function OrdensTabela({
                     const policy = buildPolicy(st);
 
                     return (
-                      <TableRow key={r.id}>
-                        <TableCell className="font-mono">{r.id}</TableCell>
+                      <TableRow
+                        key={r.id}
+                        className={r.destacada
+                          ? "border-l-4 border-l-red-500 bg-red-500/10 hover:bg-red-500/15 dark:bg-red-950/25 dark:hover:bg-red-950/35"
+                          : undefined}
+                      >
+                        <TableCell className="font-mono">
+                          <div className="flex items-center gap-1.5">
+                            <span>{r.id}</span>
+                            {r.destacada ? (
+                              usarPopoverDestaque ? (
+                                <Popover
+                                  open={destaqueTooltipId === r.id}
+                                  onOpenChange={(aberto) =>
+                                    setDestaqueTooltipId((atual) =>
+                                      aberto ? r.id : atual === r.id ? null : atual,
+                                    )
+                                  }
+                                >
+                                  <PopoverTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className="inline-flex size-7 touch-manipulation items-center justify-center rounded-md text-red-600 outline-none hover:bg-red-500/10 focus-visible:ring-2 focus-visible:ring-red-500 dark:text-red-400"
+                                      aria-label={`OS destacada: ${r.destaque_motivo || "motivo n\u00e3o informado"}`}
+                                    >
+                                      <AlertTriangle className="h-4 w-4 fill-red-500/15" />
+                                    </button>
+                                  </PopoverTrigger>
+                                  <PopoverContent align="start" side="bottom" className="w-64">
+                                    <p className="font-semibold">OS destacada</p>
+                                    <p className="mt-1 whitespace-pre-wrap break-words text-sm">
+                                      {r.destaque_motivo || "Motivo n\u00e3o informado."}
+                                    </p>
+                                  </PopoverContent>
+                                </Popover>
+                              ) : (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className="inline-flex size-7 items-center justify-center rounded-md text-red-600 outline-none hover:bg-red-500/10 focus-visible:ring-2 focus-visible:ring-red-500 dark:text-red-400"
+                                      aria-label={`OS destacada: ${r.destaque_motivo || "motivo n\u00e3o informado"}`}
+                                    >
+                                      <AlertTriangle className="h-4 w-4 fill-red-500/15" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="max-w-xs">
+                                    <p className="font-semibold">OS destacada</p>
+                                    <p className="mt-1 whitespace-pre-wrap break-words">
+                                      {r.destaque_motivo || "Motivo n\u00e3o informado."}
+                                    </p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              )
+                            ) : null}
+                          </div>
+                        </TableCell>
 
                         <TableCell className="min-w-0">
                           <div className="flex items-center justify-center w-min bg-red-500/20 py-1 px-2 rounded-full">
@@ -1683,6 +1748,7 @@ export function OrdensTabela({
             if (!v) setDetailsId(null);
           }}
           osId={detailsId ?? 0}
+          onDestaqueChange={() => fetchNow(currentParamsRef.current, { silent: true })}
         />
 
         <RealizadoresOSDialog
