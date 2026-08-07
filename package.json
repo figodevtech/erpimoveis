@@ -17,7 +17,10 @@
     "db:deploy:demo": "tsx scripts/db/deploy-demo.ts",
     "db:deploy:clients": "tsx scripts/db/deploy-clients.ts",
     "migracao:demir:financeiro": "tsx scripts/migracao/demir-financeiro.ts",
-    "test:fiscal": "tsx --test src/services/fiscal/*.test.ts"
+    "test:fiscal": "tsx --test src/services/fiscal/*.test.ts",
+    "capture:all": "node scripts/captures/run-captures.mjs",
+    "capture:ui": "playwright test --ui --project=desktop",
+    "capture:seed:demo": "tsx scripts/captures/seed-demo.ts"
   },
   "overrides": {
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
@@ -87,6 +90,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4.1.13",
     "@types/node": "^20",
     "@types/node-forge": "^1.3.14",

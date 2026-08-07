@@ -12,9 +12,13 @@
 
 # testing
 /coverage
+/playwright/.auth/
+/artifacts/captures/
+/artifacts/playwright/
 
 # next.js
 /.next/
+/.next-capture/
 /.next-*/
 /out/
 /central.figosoftwares.com.br/
@@ -35,6 +39,7 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.migrations.example
+!.env.capture.example
 
 # vercel
 .vercel
