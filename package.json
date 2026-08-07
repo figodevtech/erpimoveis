@@ -9,7 +9,7 @@
     "lint": "eslint",
     "lint:unused": "eslint . --config eslint-unused.config.mjs --no-error-on-unmatched-pattern",
     "test:nfe": "tsx --test src/lib/nfe/*.test.ts",
-    "test:financeiro": "tsx --test src/lib/financeiro/*.test.ts",
+    "test:financeiro": "tsx --test src/lib/financeiro/*.test.ts src/app/api/transaction/_lib/*.test.ts",
     "localidades:gerar": "node scripts/localidades/gerar-municipios.mjs",
     "db:status": "tsx scripts/db/status.ts",
     "db:test:sql": "tsx scripts/db/test-sql.ts",
@@ -17,7 +17,8 @@
     "db:deploy:demo": "tsx scripts/db/deploy-demo.ts",
     "db:deploy:clients": "tsx scripts/db/deploy-clients.ts",
     "migracao:demir:financeiro": "tsx scripts/migracao/demir-financeiro.ts",
-    "test:fiscal": "tsx --test src/services/fiscal/*.test.ts"
+    "test:fiscal": "tsx --test src/services/fiscal/*.test.ts",
+    "db:remover-fantasma": "tsx scripts/db/remover-versao-fantasma.ts"
   },
   "overrides": {
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"

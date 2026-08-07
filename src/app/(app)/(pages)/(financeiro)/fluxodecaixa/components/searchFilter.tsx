@@ -16,7 +16,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { Calendar as CalendarIcon, SlidersHorizontal } from "lucide-react";
 import type { Banco, FluxoViewMode, TransactionRelationFilters } from "../types";
-import { Tipo_transacao } from "../types";
+import { Tipo_transacao, VIEW_MODE_TABS } from "../types";
 import { useCategoriasTransacao } from "../hooks/use-categoria-transacao";
 import { useCentrosCusto } from "../hooks/use-centros-custo";
 import { usePlanosDeConta } from "../hooks/use-planos-de-conta";
@@ -136,7 +136,7 @@ export default function SearchFilter({
     tipo,
     dateFrom,
     dateTo,
-    viewMode !== "TODAS" ? viewMode : "",
+    viewMode !== "FLUXO" ? viewMode : "",
     relationFilters.categoriaId,
     relationFilters.bancoId,
     relationFilters.planoContaId,
@@ -171,7 +171,7 @@ export default function SearchFilter({
     setDraftTipo("");
     setDraftDateFrom("");
     setDraftDateTo("");
-    setDraftViewMode("TODAS");
+    setDraftViewMode("FLUXO");
     const emptyRelations: TransactionRelationFilters = {
       categoriaId: "",
       bancoId: "",
@@ -183,7 +183,7 @@ export default function SearchFilter({
     setTipo("");
     setDateFrom("");
     setDateTo("");
-    setViewMode("TODAS");
+    setViewMode("FLUXO");
     setRelationFilters(emptyRelations);
   };
 
@@ -227,19 +227,17 @@ export default function SearchFilter({
               <div className="space-y-2">
                 <Label>Visualização</Label>
                 <Tabs value={draftViewMode} onValueChange={(value) => setDraftViewMode(value as FluxoViewMode)}>
+                  {/* Mesma lista das abas do cabeçalho da tabela, na mesma ordem. */}
                   <TabsList className="grid h-auto w-full grid-cols-2">
-                    <TabsTrigger value="TODAS" className="px-2 text-xs sm:text-sm">
-                      Todas
-                    </TabsTrigger>
-                    <TabsTrigger value="LIQUIDADAS" className="px-2 text-xs sm:text-sm">
-                      Liquidadas
-                    </TabsTrigger>
-                    <TabsTrigger value="A_RECEBER" className="px-2 text-xs sm:text-sm">
-                      A receber
-                    </TabsTrigger>
-                    <TabsTrigger value="A_PAGAR" className="px-2 text-xs sm:text-sm">
-                      A pagar
-                    </TabsTrigger>
+                    {VIEW_MODE_TABS.map((tab) => (
+                      <TabsTrigger
+                        key={tab.value}
+                        value={tab.value}
+                        className="px-2 text-xs sm:text-sm"
+                      >
+                        {tab.label}
+                      </TabsTrigger>
+                    ))}
                   </TabsList>
                 </Tabs>
               </div>
@@ -251,7 +249,7 @@ export default function SearchFilter({
                     id="fluxo-search"
                     value={draftSearch}
                     onChange={(e) => setDraftSearch(e.target.value)}
-                    placeholder="Buscar na descrição"
+                    placeholder="Descrição, pagador, CPF/CNPJ, nota ou nº"
                   />
                 </div>
 

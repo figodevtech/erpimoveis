@@ -4,7 +4,7 @@ export const runtime = "nodejs";
 import { NextResponse, NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireFinanceiroDelete, requireFinanceiroEdit, requireFinanceirosAccess } from "@/app/api/_authz/perms";
-import { pediuEdicaoManual, respostaSeEdicaoBloqueada } from "@/app/api/transaction/_lib/edicao";
+import { respostaSeEdicaoBloqueada } from "@/app/api/transaction/_lib/edicao";
 import { calculateFinancialTotal } from "@/lib/financial-surcharge";
 import { paraCentavos } from "@/lib/financeiro/rateio";
 import { origemDaTransacao, rotuloDaOrigem, valorDeFace } from "@/lib/financeiro/transacao";
@@ -93,7 +93,7 @@ async function revalidarStatusVenda(vendaId: number) {
 }
 
 const TRANSACAO_FIELDS = `
-  id, descricao, descricao_pagamento, valor, data, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, fornecedor_id,
+  id, descricao, descricao_pagamento, valor, data, competencia_em, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, fornecedor_id,
   banco_id, nomepagador, cpfcnpjpagador, pendente, ordemservicoid, valorLiquido, vendaid,
   valor_base, valor_acrescimos, valor_descontos, adiantamento_id, eh_adiantamento,
   entrada_id, usoconsumo_entrada_id,
@@ -126,6 +126,7 @@ const WRITABLE_FIELDS = new Set([
   "ordemservicoid",
   "valorLiquido",
   "vendaid",
+  "competencia_em",
 ]);
 
 /** Campos NOT NULL no banco (para validação local, principalmente no PATCH) */
@@ -359,7 +360,18 @@ export async function GET(_: Request, ctx: Params) {
 /* ========================= PATCH ========================= */
 
 /**
- * Guarda de PATCH/PUT quando a chamada vem do dialog de edição.
+ * Guarda de PATCH/PUT. Vale para toda chamada, sem exceção.
+ *
+ * Até aqui as travas abaixo só rodavam quando a requisição trazia o header
+ * `x-transaction-edit`, sob o argumento de que rotinas internas precisavam
+ * passar por fora. Nenhuma rotina dessas existe — o dialog de edição era o único
+ * emissor do header em todo o `src/`. Na prática, omitir um header que o próprio
+ * cliente escolhe mandar desligava a trava de configuração, a do `valor`, a do
+ * `pendente` e as de vínculo: dava para marcar um título como pago sem `pago_em`,
+ * sem autor, sem histórico e sem revalidar a OS.
+ *
+ * As demais rotas de edição (`/ajustes`, `/ajustar-valores`) já chamavam
+ * `respostaSeEdicaoBloqueada()` sem condição nenhuma. Esta passa a fazer igual.
  *
  * O `valor` (bruto) continua imutável por aqui: num pagamento de OS ou venda ele
  * é o que abate o documento, e mexer numa linha isolada quebraria o total.
@@ -370,9 +382,7 @@ export async function GET(_: Request, ctx: Params) {
  * quanto sobrou depois da taxa da maquineta, que costuma ser conhecida bem
  * depois de o pagamento ter sido registrado.
  */
-async function validarEdicaoManual(req: NextRequest, id: string, body: any) {
-  if (!pediuEdicaoManual(req)) return null;
-
+async function validarEdicaoDeTransacao(id: string, body: any) {
   const bloqueio = await respostaSeEdicaoBloqueada();
   if (bloqueio) return bloqueio;
 
@@ -384,6 +394,7 @@ async function validarEdicaoManual(req: NextRequest, id: string, body: any) {
   }
 
   const precisaDaLinhaAtual =
+    body?.competencia_em !== undefined ||
     body?.valorLiquido !== undefined ||
     body?.tipo !== undefined ||
     body?.pendente !== undefined ||
@@ -433,6 +444,24 @@ async function validarEdicaoManual(req: NextRequest, id: string, body: any) {
   const origem = origemDaTransacao(atual);
 
   if (origem) {
+    /*
+     * Competência de lançamento gerado por documento pertence ao documento.
+     *
+     * Uma receita de OS compete ao mês em que a ordem foi entregue, não ao mês
+     * que alguém digitar aqui; mudar por fora faria a DRE divergir do que a OS
+     * diz sobre si mesma. Em avulso não há documento a contradizer, e a
+     * competência passa a ser editável — é o caso de uma conta de energia que
+     * chega em agosto e pertence a julho.
+     */
+    if (body?.competencia_em !== undefined) {
+      return NextResponse.json(
+        {
+          error: `Esta transação foi gerada por uma ${rotuloDaOrigem(origem)}; a competência acompanha o documento.`,
+        },
+        { status: 400 },
+      );
+    }
+
     const mudouTipo =
       body?.tipo !== undefined &&
       String(body.tipo).toUpperCase() !== String(atual.tipo ?? "").toUpperCase();
@@ -490,7 +519,7 @@ export async function PATCH(req: NextRequest, ctx: Params) {
     await requireFinanceiroEdit();
     const id = await parseId(ctx);
     const body = await req.json().catch(() => ({}));
-    const edicaoBloqueada = await validarEdicaoManual(req, id, body);
+    const edicaoBloqueada = await validarEdicaoDeTransacao(id, body);
     if (edicaoBloqueada) return edicaoBloqueada;
     const payload = sanitizePayload(body, { strict: false });
 
@@ -564,7 +593,7 @@ export async function PUT(req: NextRequest, ctx: Params) {
     await requireFinanceiroEdit();
     const id = await parseId(ctx);
     const body = await req.json().catch(() => ({}));
-    const edicaoBloqueada = await validarEdicaoManual(req, id, body);
+    const edicaoBloqueada = await validarEdicaoDeTransacao(id, body);
     if (edicaoBloqueada) return edicaoBloqueada;
     const payload = sanitizePayload(body, { strict: true });
 
@@ -635,12 +664,49 @@ export async function DELETE(_: Request, ctx: Params) {
 
     const { data: transaction, error: transactionError } = await supabaseAdmin
       .from("transacao")
-      .select("id, tipo, ordemservicoid, vendaid, evento_financeiro_id")
+      .select("id, tipo, ordemservicoid, vendaid, evento_financeiro_id, adiantamento_id, eh_adiantamento")
       .eq("id", id)
       .maybeSingle();
     if (transactionError) throw transactionError;
     if (!transaction) {
       return NextResponse.json({ error: "Transação não encontrada." }, { status: 404 });
+    }
+
+    /*
+     * Antecipação trava a exclusão nas duas pontas.
+     *
+     * A FK `adiantamento_id` é RESTRICT, então excluir o lançamento da
+     * antecipação já falharia — só que com um erro cru de chave estrangeira, que
+     * não diz nada a quem está usando. E excluir uma das parcelas passaria, mas
+     * deixaria a antecipação cobrindo um valor que ninguém deve.
+     *
+     * Desfazer uma antecipação é outra operação, que ainda não existe. Até lá,
+     * recusar com o motivo é melhor que quebrar a conta em silêncio.
+     */
+    if (transaction.eh_adiantamento) {
+      const { count } = await supabaseAdmin
+        .from("transacao")
+        .select("id", { count: "exact", head: true })
+        .eq("adiantamento_id", id)
+        .eq("is_deleted", false);
+
+      if ((count ?? 0) > 0) {
+        return NextResponse.json(
+          {
+            error: `Esta antecipação liquidou ${count} título(s). Excluí-la deixaria esses títulos pagos por um dinheiro que não existe mais.`,
+          },
+          { status: 409 },
+        );
+      }
+    }
+
+    if (transaction.adiantamento_id != null) {
+      return NextResponse.json(
+        {
+          error: `Este título foi liquidado pela antecipação #${transaction.adiantamento_id} e não pode ser excluído isoladamente.`,
+        },
+        { status: 409 },
+      );
     }
 
     const { data, error } = await supabaseAdmin

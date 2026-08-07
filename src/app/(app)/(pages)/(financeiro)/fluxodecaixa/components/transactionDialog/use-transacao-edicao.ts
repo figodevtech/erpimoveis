@@ -279,6 +279,11 @@ export function useTransacaoEdicao(transacaoId: number | undefined) {
           // trabalho do ajuste de valores, que valida a soma do grupo.
           valorLiquido: liquido,
           data: form.data,
+          // Só vai quando é avulso: com documento, a rota recusa e o salvamento
+          // inteiro falharia por um campo que a tela nem deixou editar.
+          ...(origemDaTransacao(form) == null
+            ? { competencia_em: form.competencia_em ?? null }
+            : {}),
           tipo: form.tipo,
           metodopagamento: form.metodopagamento || null,
           categoria: form.categoria || null,
@@ -293,7 +298,6 @@ export function useTransacaoEdicao(transacaoId: number | undefined) {
           // `pendente` fica de fora: a rota recusa alterá-lo, e mandar o valor
           // atual só criaria risco de recusa falsa se o form dessincronizasse.
         },
-        { headers: { "X-Transaction-Edit": "true" } },
       );
 
       toast.success("Transação atualizada.");

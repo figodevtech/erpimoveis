@@ -39,6 +39,7 @@ import formatarEmReal from "@/utils/formatarEmReal";
 import { useCategoriasTransacao } from "../../hooks/use-categoria-transacao";
 import { usePlanosDeConta } from "../../hooks/use-planos-de-conta";
 import { useCentrosCusto } from "../../hooks/use-centros-custo";
+import { useTiposDocumento } from "../../hooks/use-tipos-documento";
 import { PlanoContaCombobox } from "../plano-conta-combobox";
 import { SearchCombobox } from "../search-combobox";
 import {
@@ -83,6 +84,26 @@ function toDateOnly(date: Date) {
 
 function formatDateLabel(date?: Date) {
   return date ? date.toLocaleDateString("pt-BR") : "Selecionar data";
+}
+
+/**
+ * Emissão do documento vai e volta como `AAAA-MM-DD`.
+ *
+ * Data de emissão não tem hora, então também não deveria ter fuso. Mandar um ISO
+ * completo faria o servidor guardar o dia em UTC e a tela mostrar um dia a menos
+ * — exatamente o que aconteceu na migração de dados do Demir.
+ */
+function diaParaData(dia?: string | null) {
+  if (!dia) return undefined;
+  const [ano, mes, data] = dia.split("-").map(Number);
+  if (!ano || !mes || !data) return undefined;
+  return new Date(ano, mes - 1, data);
+}
+
+function dataParaDia(data?: Date) {
+  if (!data) return null;
+  const doisDigitos = (valor: number) => String(valor).padStart(2, "0");
+  return `${data.getFullYear()}-${doisDigitos(data.getMonth() + 1)}-${doisDigitos(data.getDate())}`;
 }
 
 function DatePickerField({
@@ -168,10 +189,13 @@ export default function RegisterContent({
   const [parcelasDetalhadas, setParcelasDetalhadas] = useState<
     ParcelaFormulario[]
   >([]);
+  const [relacionarDocumento, setRelacionarDocumento] = useState(false);
   const { categorias, loadingCategorias, errorCategorias } =
     useCategoriasTransacao();
   const { gruposPlanosDeConta, loadingPlanos } = usePlanosDeConta();
   const { centrosCusto, loadingCentrosCusto, errorCentrosCusto } = useCentrosCusto();
+  const { tiposDocumento, loadingTiposDocumento, errorTiposDocumento } =
+    useTiposDocumento();
   const metodoPermiteParcelas =
     newTransaction.metodopagamento === Metodo_pagamento.BOLETO ||
     newTransaction.metodopagamento === Metodo_pagamento.CREDITO;
@@ -344,6 +368,29 @@ export default function RegisterContent({
     }
   }, [setNewTransaction, selectedFornecedor]);
 
+  /**
+   * Desligar a seção apaga o que foi digitado.
+   *
+   * Guardar campos de um documento que o usuário decidiu não relacionar gravaria
+   * dado que a tela não mostra — e o banco recusaria de qualquer forma, porque
+   * número sem tipo não passa no CHECK.
+   */
+  const alternarDocumento = (ligado: boolean) => {
+    setRelacionarDocumento(ligado);
+    if (ligado) return;
+
+    setNewTransaction((prev) => ({
+      ...prev,
+      documento_tipo_id: null,
+      documento_numero: null,
+      documento_serie: null,
+      documento_chave: null,
+      documento_emitido_em: null,
+      documento_valor: null,
+      documento_observacao: null,
+    }));
+  };
+
   const limparFornecedor = () => {
     setSelectedFornecedor(undefined);
     setNewTransaction((prev) => ({
@@ -454,6 +501,14 @@ export default function RegisterContent({
   const handleCreateTransaction = async () => {
     setIsSubmitting(true);
     try {
+      // O tipo é o único campo exigido do documento: os demais dependem do papel
+      // que se tem em mãos. É a mesma regra do CHECK no banco, dita antes para o
+      // usuário ver uma frase em vez de um erro de constraint.
+      if (relacionarDocumento && !newTransaction.documento_tipo_id) {
+        toast.error("Selecione o tipo do documento relacionado.");
+        return;
+      }
+
       let parcelasPayload: Array<{ data: Date; valor: number }> | undefined;
 
       if (canManageParcelas) {
@@ -537,6 +592,7 @@ export default function RegisterContent({
         setSelectedFornecedor(undefined);
         setParcelasDetalhadas([]);
         setParcelasIguais(false);
+        setRelacionarDocumento(false);
       }
     } catch (error) {
       if (isAxiosError(error)) {
@@ -1415,6 +1471,145 @@ export default function RegisterContent({
                   />
                 </div>
               </div>
+
+              {/* documento relacionado */}
+              <div>
+                <span className="text-xs text-muted-foreground">
+                  Documento relacionado
+                </span>
+                <Separator />
+              </div>
+
+              <div className="flex flex-row items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <Label
+                    htmlFor="relacionar-documento"
+                    className="cursor-pointer"
+                  >
+                    Relacionar com documento
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Nota, recibo, comprovante — o papel que justifica o
+                    lançamento.
+                  </p>
+                </div>
+                <Switch
+                  id="relacionar-documento"
+                  className="hover:cursor-pointer"
+                  checked={relacionarDocumento}
+                  onCheckedChange={alternarDocumento}
+                />
+              </div>
+
+              {relacionarDocumento && (
+                <div className="grid gap-4 sm:grid-cols-3 rounded-xl border bg-background/70 p-4">
+                  <div className="space-y-2 w-full">
+                    <Label htmlFor="documento-tipo">
+                      Tipo de documento <span className="text-red-500">*</span>
+                    </Label>
+                    <SearchCombobox
+                      disabled={loadingTiposDocumento || !!errorTiposDocumento}
+                      loading={loadingTiposDocumento}
+                      value={newTransaction.documento_tipo_id?.toString() || ""}
+                      onValueChange={(value) =>
+                        handleChange(
+                          "documento_tipo_id",
+                          value ? Number(value) : null,
+                        )
+                      }
+                      placeholder={
+                        errorTiposDocumento ? "Erro ao carregar" : "Selecione"
+                      }
+                      searchPlaceholder="Pesquisar documento..."
+                      emptyMessage="Nenhum tipo de documento encontrado."
+                      options={tiposDocumento.map((tipo) => ({
+                        value: String(tipo.id),
+                        label: tipo.nome,
+                        description: tipo.descricao ?? undefined,
+                      }))}
+                    />
+                  </div>
+                  <div className="space-y-2 w-full">
+                    <Label htmlFor="documento-numero">Número</Label>
+                    <Input
+                      id="documento-numero"
+                      maxLength={60}
+                      value={newTransaction.documento_numero || ""}
+                      onChange={(e) =>
+                        handleChange("documento_numero", e.target.value)
+                      }
+                      placeholder="Ex.: 1234"
+                      className="w-full"
+                    />
+                  </div>
+                  <div className="space-y-2 w-full">
+                    <Label htmlFor="documento-serie">Série</Label>
+                    <Input
+                      id="documento-serie"
+                      maxLength={20}
+                      value={newTransaction.documento_serie || ""}
+                      onChange={(e) =>
+                        handleChange("documento_serie", e.target.value)
+                      }
+                      placeholder="Ex.: 1"
+                      className="w-full"
+                    />
+                  </div>
+                  <div className="space-y-2 w-full">
+                    <Label htmlFor="documento-emissao">Data de emissão</Label>
+                    <DatePickerField
+                      value={diaParaData(newTransaction.documento_emitido_em)}
+                      onChange={(selecionada) =>
+                        handleChange(
+                          "documento_emitido_em",
+                          dataParaDia(selecionada),
+                        )
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2 w-full">
+                    <Label htmlFor="documento-valor">Valor do documento</Label>
+                    <ValueInput
+                      price={newTransaction.documento_valor || 0}
+                      setPrice={(v) => handleChange("documento_valor", v)}
+                    />
+                    {/* O documento pode valer mais que a transação: uma nota
+                        paga em parcelas, ou em parte à vista. Por isso não há
+                        conferência contra o valor lançado. */}
+                    <p className="text-xs text-muted-foreground">
+                      Só referência. Não altera o valor da transação.
+                    </p>
+                  </div>
+                  <div className="space-y-2 w-full sm:col-span-3">
+                    <Label htmlFor="documento-chave">
+                      Chave de acesso ou código de verificação
+                    </Label>
+                    <Input
+                      id="documento-chave"
+                      maxLength={120}
+                      value={newTransaction.documento_chave || ""}
+                      onChange={(e) =>
+                        handleChange("documento_chave", e.target.value)
+                      }
+                      placeholder="Chave da NF-e/NFS-e, ou o código do comprovante"
+                      className="w-full"
+                    />
+                  </div>
+                  <div className="space-y-2 w-full sm:col-span-3">
+                    <Label htmlFor="documento-observacao">Observação</Label>
+                    <Input
+                      id="documento-observacao"
+                      maxLength={500}
+                      value={newTransaction.documento_observacao || ""}
+                      onChange={(e) =>
+                        handleChange("documento_observacao", e.target.value)
+                      }
+                      placeholder="Ex.: nota do fornecedor referente à peça trocada"
+                      className="w-full"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         <Footer className={RODAPE_FIXO}>

@@ -5,6 +5,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
 import { requireFinanceiroCreate, requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { calculateFinancialTotal } from "@/lib/financial-surcharge";
+import { aplicarCamposDocumento, erroDeDocumento } from "../_lib/documento";
 
 /** Campos graváveis em transacao */
 const WRITABLE_FIELDS = new Set([
@@ -34,7 +35,7 @@ const WRITABLE_FIELDS = new Set([
 
 /** Campos retornados no select padrão (transacao) */
 const TRANSACAO_FIELDS =
-  "id, descricao, descricao_pagamento, valor, valorLiquido, valor_base, valor_acrescimos, valor_descontos, adiantamento_id, eh_adiantamento, data, ordemservicoid, vendaid, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, pendente, cliente_id, fornecedor_id, banco_id, created_at, updated_at";
+  "id, descricao, descricao_pagamento, valor, valorLiquido, valor_base, valor_acrescimos, valor_descontos, adiantamento_id, eh_adiantamento, data, ordemservicoid, vendaid, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, pendente, cliente_id, fornecedor_id, banco_id, documento_tipo_id, documento_numero, documento_serie, documento_chave, documento_emitido_em, documento_valor, documento_observacao, created_at, updated_at";
 
 /** Campos do banco (bancoconta) alinhados ao que você precisa no front */
 const BANCO_FIELDS =
@@ -171,6 +172,10 @@ function sanitizeTransacaoPayload(body: any, { strict }: { strict: boolean }) {
       }
     }
   }
+
+  // Fora do laço: os campos de documento têm coerção própria e compartilhada com
+  // /api/transaction, para o pagamento de OS gravar igual ao lançamento avulso.
+  aplicarCamposDocumento(body, out);
 
   if (strict) {
     const required = ["descricao", "valor", "data", "tipo"];
@@ -311,6 +316,11 @@ export async function POST(req: Request) {
     }
 
     const payload = sanitizeTransacaoPayload(json, { strict: true });
+
+    const problemaNoDocumento = erroDeDocumento(payload);
+    if (problemaNoDocumento) {
+      return NextResponse.json({ error: problemaNoDocumento }, { status: 400 });
+    }
 
     if (!payload.pendente && (payload.banco_id == null || payload.metodopagamento == null)) {
       return NextResponse.json(

@@ -1609,6 +1609,21 @@ export function OrdensTabela({
               </AlertDialogDescription>
             </AlertDialogHeader>
 
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
+              <p className="font-medium text-amber-700 dark:text-amber-400">
+                Esta ação não pode ser desfeita. Ao confirmar:
+              </p>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
+                <li>o orçamento é zerado — o total da OS passa a ser R$ 0,00;</li>
+                <li>as receitas de produtos e serviços saem do financeiro da OS;</li>
+                <li>
+                  os custos são mantidos: as peças aplicadas continuam lançadas como despesa;
+                </li>
+                <li>as comissões são recalculadas sobre o total zerado;</li>
+                <li>a OS é finalizada e seus valores ficam travados para edição.</li>
+              </ul>
+            </div>
+
             <div className="mt-2 space-y-2">
               <Label>Motivo</Label>
               <Input

@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { calculateFinancialTotal } from "@/lib/financial-surcharge";
 import { carregarAutores } from "@/lib/movement-authors";
+import { valorDeFace } from "@/lib/financeiro/transacao";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 type Params = { params: Promise<{ id: string }> };
@@ -25,25 +26,41 @@ const SUFIXO_PARCELA = / - Parcela \d+\/\d+$/;
 const toCents = (value: unknown) => Math.round((Number(value) || 0) * 100);
 const fromCents = (cents: number) => Number((cents / 100).toFixed(2));
 
+type OrigemDoContexto = "OS" | "VENDA" | "PARCELAMENTO" | "NENHUM";
+
 /**
- * Um lancamento entra no somatorio de "quanto falta" quando é uma receita de
- * pagamento — a mesma regra que /delete-impact usa para reabrir OS e venda.
- * Despesas vinculadas (custo interno da OS) aparecem na lista, mas nao abatem.
+ * Um lancamento entra no somatorio de "quanto falta".
+ *
+ * Com documento (OS ou venda), so receita de pagamento abate — a mesma regra que
+ * /delete-impact usa para reabrir OS e venda. Despesa vinculada (custo interno
+ * da ordem) aparece na lista, mas nao desconta do que o cliente deve.
+ *
+ * Num parcelamento avulso nao existe documento a abater: o grupo E o total. Aqui
+ * toda parcela conta, inclusive de despesa — senao um parcelamento de conta a
+ * pagar mostra "pago R$ 0,00" com todas as parcelas quitadas, que era o que
+ * acontecia enquanto a regra de receita valia para os dois casos.
  */
-function contaParaTotal(transacao: any) {
-  return (
-    String(transacao?.tipo ?? "").toUpperCase() === "RECEITA" &&
-    transacao?.evento_financeiro_id == null
-  );
+function contaParaTotal(transacao: any, origem: OrigemDoContexto) {
+  if (transacao?.evento_financeiro_id != null) return false;
+  if (origem === "PARCELAMENTO") return true;
+  return String(transacao?.tipo ?? "").toUpperCase() === "RECEITA";
 }
 
-function resumirLancamentos(itens: any[], totalDevidoCents: number | null) {
+function resumirLancamentos(
+  itens: any[],
+  totalDevidoCents: number | null,
+  origem: OrigemDoContexto,
+) {
   let pagoCents = 0;
   let pendenteCents = 0;
 
   for (const item of itens) {
-    if (!contaParaTotal(item)) continue;
-    const cents = toCents(item.valor);
+    if (!contaParaTotal(item, origem)) continue;
+    // Face, nao bruto: acrescimo e do pagamento, nao do documento.
+    // `revalidarStatusOrdem`, `resumirPagamentos` e /delete-impact ja somam a
+    // face. Somar o bruto aqui fazia esta aba discordar da propria OS: pague uma
+    // parcela com juros e a barra enchia enquanto a ordem seguia em aberto.
+    const cents = toCents(valorDeFace(item));
     if (item.pendente) pendenteCents += cents;
     else pagoCents += cents;
   }
@@ -86,7 +103,7 @@ export async function GET(_: Request, { params }: Params) {
 
     /* ---------- Lancamentos relacionados ---------- */
 
-    let origem: "OS" | "VENDA" | "PARCELAMENTO" | "NENHUM" = "NENHUM";
+    let origem: OrigemDoContexto = "NENHUM";
     let relacionadas: any[] = [];
     let totalDevidoCents: number | null = null;
     let vinculo: Record<string, any> | null = null;
@@ -262,10 +279,10 @@ export async function GET(_: Request, { params }: Params) {
         origem,
         itens: relacionadas.map((item) => ({
           ...item,
-          contaParaTotal: contaParaTotal(item),
+          contaParaTotal: contaParaTotal(item, origem),
           baixadoPor: autor(item.baixado_por),
         })),
-        resumo: resumirLancamentos(relacionadas, totalDevidoCents),
+        resumo: resumirLancamentos(relacionadas, totalDevidoCents, origem),
       },
       cliente: cliente ?? null,
       fornecedor: fornecedor ?? null,

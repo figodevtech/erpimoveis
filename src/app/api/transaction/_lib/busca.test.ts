@@ -1,0 +1,67 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import { filtroDeBusca } from "./busca";
+
+test("termo vazio nao filtra nada", () => {
+  assert.equal(filtroDeBusca(""), null);
+  assert.equal(filtroDeBusca("   "), null);
+});
+
+test("varre descricao, pagador e documento com o mesmo termo", () => {
+  const filtro = filtroDeBusca("bosch") ?? "";
+  for (const campo of [
+    "descricao",
+    "descricao_pagamento",
+    "nomepagador",
+    "cpfcnpjpagador",
+    "documento_numero",
+    "documento_chave",
+    "documento_observacao",
+  ]) {
+    assert.ok(filtro.includes(`${campo}.ilike.`), `faltou ${campo}`);
+  }
+});
+
+test("numero puro tambem procura o id, e por igualdade", () => {
+  const filtro = filtroDeBusca("87") ?? "";
+  // Igualdade, nao ilike: "87" nao pode trazer #187 e #870 junto.
+  assert.ok(filtro.includes("id.eq.87"));
+  assert.ok(!filtro.includes("id.ilike"));
+});
+
+test("texto nao vira condicao de id", () => {
+  assert.ok(!(filtroDeBusca("nota 87") ?? "").includes("id.eq"));
+  assert.ok(!(filtroDeBusca("87a") ?? "").includes("id.eq"));
+});
+
+test("numero longo demais nao vai para o id", () => {
+  // Chave de acesso tem 44 digitos: estourar o bigint derrubaria a consulta.
+  const chave = "3".repeat(44);
+  assert.ok(!(filtroDeBusca(chave) ?? "").includes("id.eq"));
+});
+
+test("documento com pontuacao tambem procura so os digitos", () => {
+  const filtro = filtroDeBusca("12.345.678/0001-99") ?? "";
+  assert.ok(filtro.includes('cpfcnpjpagador.ilike."*12345678000199*"'));
+});
+
+test("termo ja sem pontuacao nao duplica a condicao", () => {
+  const filtro = filtroDeBusca("12345678000199") ?? "";
+  const ocorrencias = filtro.split("cpfcnpjpagador.ilike").length - 1;
+  assert.equal(ocorrencias, 1);
+});
+
+test("virgula e aspas nao escapam da expressao do PostgREST", () => {
+  // Virgula separa condicoes e aspas delimitam o valor: sem escape, o termo
+  // viraria sintaxe e a consulta inteira mudaria de sentido.
+  const filtro = filtroDeBusca('a,b"c') ?? "";
+  assert.ok(filtro.includes('descricao.ilike."*a,b\\"c*"'));
+  // Uma condicao por campo, nenhuma criada pela virgula do usuario.
+  assert.equal(filtro.split(".ilike.").length - 1, 7);
+});
+
+test("barra invertida e neutralizada antes das aspas", () => {
+  const filtro = filtroDeBusca('c:\\nota') ?? "";
+  assert.ok(filtro.includes('descricao.ilike."*c:\\\\nota*"'));
+});

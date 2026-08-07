@@ -93,9 +93,30 @@ export type TransactionRelationFilters = {
 
 /**
  * Visualização do fluxo de caixa.
- * A_PAGAR / A_RECEBER = pendentes; LIQUIDADAS = já baixadas.
+ *
+ * FLUXO = movimentação bancária de verdade: liquidada **e** com conta. Título
+ * quitado por antecipação fica de fora, porque o dinheiro entrou pelo lançamento
+ * da antecipação e não por ele — contá-lo aqui dobraria o extrato.
+ * A_PAGAR / A_RECEBER = pendentes; LIQUIDADAS = tudo que foi baixado, com conta
+ * ou sem.
  */
-export type FluxoViewMode = "TODAS" | "A_RECEBER" | "A_PAGAR" | "LIQUIDADAS";
+export type FluxoViewMode = "FLUXO" | "A_RECEBER" | "A_PAGAR" | "LIQUIDADAS";
+
+/**
+ * As visualizações e seus rótulos, na ordem em que aparecem.
+ *
+ * Fonte única: as abas do cabeçalho da tabela e o seletor do painel de filtros
+ * mostram a mesma lista. Enquanto cada um tinha a sua cópia, o painel continuou
+ * oferecendo "Todas" depois que a visão virou "Fluxo" — e "TODAS" não é um
+ * `FluxoViewMode`, então escolher ali deixava a tabela sem aba acesa mostrando
+ * um recorte que ninguém pediu.
+ */
+export const VIEW_MODE_TABS: { value: FluxoViewMode; label: string }[] = [
+  { value: "FLUXO", label: "Fluxo" },
+  { value: "A_PAGAR", label: "A Pagar" },
+  { value: "A_RECEBER", label: "A Receber" },
+  { value: "LIQUIDADAS", label: "Liquidadas" },
+];
 
 /**
  * Colunas por onde a listagem pode ser ordenada. Só entram colunas que existem
@@ -206,6 +227,21 @@ export interface NewTransaction {
   cpfcnpjpagador?: string;
   pendente?: boolean
   evento_financeiro_id?: number | null
+  /**
+   * Documento relacionado ao lançamento — nota, recibo, comprovante.
+   *
+   * Só o tipo é exigido quando a seção está ligada; o resto é preenchido do
+   * jeito que o papel permitir. `documento_emitido_em` vai como `AAAA-MM-DD`,
+   * sem hora: data de emissão não tem fuso, e mandar ISO traria de volta o
+   * "um dia a menos".
+   */
+  documento_tipo_id?: number | null
+  documento_numero?: string | null
+  documento_serie?: string | null
+  documento_chave?: string | null
+  documento_emitido_em?: string | null
+  documento_valor?: number | null
+  documento_observacao?: string | null
 }
 
 export interface Pagination {

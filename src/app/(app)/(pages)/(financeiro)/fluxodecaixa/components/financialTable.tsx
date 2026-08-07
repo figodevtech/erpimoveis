@@ -63,6 +63,7 @@ import axios, { isAxiosError } from "axios";
 import {
   type CampoOrdenacao,
   type FluxoViewMode,
+  VIEW_MODE_TABS,
   type Ordenacao,
   Pagination,
   Tipo_transacao,
@@ -189,27 +190,17 @@ function CabecalhoOrdenavel({
 
 const LIMIT_OPTIONS = [50, 100, 200];
 
-const VIEW_MODE_TABS: { value: FluxoViewMode; label: string }[] = [
-  { value: "TODAS", label: "Todas" },
-  { value: "A_PAGAR", label: "A Pagar" },
-  { value: "A_RECEBER", label: "A Receber" },
-  { value: "LIQUIDADAS", label: "Liquidadas" },
-];
-
 interface FinancialTableProps {
   dateTo: string;
   dateFrom: string;
   transactions: Transaction[];
   pagination: Pagination;
-  handleGetTransactions: (
-    pageNumber?: number,
-    limit?: number,
-    search?: string,
-    dateFrom?: string,
-    dateTo?: string,
-    tipo?: Tipo_transacao | "",
-    pendente?: boolean | "",
-  ) => void;
+  /**
+   * Recarrega a lista. Só a página e o tamanho vêm daqui — busca, período,
+   * tipo, pendente e a exigência de conta bancária são estado da página, e
+   * repassá-los era como esta tela perdia o filtro do Fluxo ao recarregar.
+   */
+  handleGetTransactions: (pageNumber?: number, limit?: number) => void;
   /** Troca o tamanho da página; quem refaz a busca é a página. */
   setLimit: (limit: number) => void;
   ordenacao: Ordenacao;
@@ -243,7 +234,7 @@ export default function FinancialTable({
   tipo,
   rawTipo,
   pendenteFilter = "",
-  viewMode = "TODAS",
+  viewMode = "FLUXO",
   isLoading,
   setSearch,
   setTipo,
@@ -341,15 +332,7 @@ export default function FinancialTable({
       const response = await axios.delete(`/api/transaction/${id}`, {});
       if (response.status === 204) {
         toast("Transação deletada!");
-        handleGetTransactions(
-          pagination.page,
-          pagination.limit,
-          search,
-          dateFrom,
-          dateTo,
-          tipo,
-          pendenteFilter,
-        );
+        handleGetTransactions(pagination.page, pagination.limit);
         handleGetStatusCounter();
       } else {
         toast.warning(`Status inesperado: ${response.status}`);
@@ -388,15 +371,7 @@ export default function FinancialTable({
               <button
                 type="button"
                 onClick={() => {
-                  handleGetTransactions(
-                    pagination.page,
-                    pagination.limit,
-                    search,
-                    dateFrom,
-                    dateTo,
-                    tipo,
-                    pendenteFilter,
-                  );
+                  handleGetTransactions(pagination.page, pagination.limit);
                   handleGetStatusCounter();
                 }}
                 className="inline-flex items-center gap-1 text-foreground/50 hover:text-foreground/70 hover:cursor-pointer"
@@ -546,7 +521,7 @@ export default function FinancialTable({
                   setSelectedTransactionId={setSelectedTransactionId}
                   editable={canEdit && config?.habilitar_edicao_transacoes === true}
                   handleGetTransactions={() => {
-                    handleGetTransactions(pagination.page, pagination.limit, search, dateFrom, dateTo, tipo, pendenteFilter);
+                    handleGetTransactions(pagination.page, pagination.limit);
                     handleGetStatusCounter();
                   }}
                 />
@@ -576,18 +551,39 @@ export default function FinancialTable({
                 rotulo="Descrição"
                 ordenacao={ordenacao}
                 onOrdenar={onOrdenar}
-                className="w-[420px] max-w-[420px]"
+                className="w-[380px] max-w-[380px]"
               />
-              <CabecalhoOrdenavel
-                campo="competencia_em"
-                rotulo="Competência"
-                ordenacao={ordenacao}
-                onOrdenar={onOrdenar}
-                className="hidden md:table-cell"
-              />
+              {/*
+                Competência é regime econômico — a que mês o fato pertence. No
+                Fluxo isso não tem lugar: ali só interessa quando o dinheiro
+                andou. Manter as duas datas lado a lado num extrato só convida a
+                somar a coluna errada.
+              */}
+              {viewMode !== "FLUXO" ? (
+                <CabecalhoOrdenavel
+                  campo="competencia_em"
+                  rotulo="Competência"
+                  ordenacao={ordenacao}
+                  onOrdenar={onOrdenar}
+                  className="hidden md:table-cell"
+                />
+              ) : null}
+              {/*
+                A coluna é sempre `data`, mas o que ela significa muda com a
+                situação: num título em aberto é quando vence; num liquidado, a
+                baixa sobrescreve `data` com o dia do pagamento. Manter o rótulo
+                "Vencimento" na aba Liquidadas mostraria uma data que não é
+                vencimento nenhum.
+              */}
               <CabecalhoOrdenavel
                 campo="data"
-                rotulo="Vencimento"
+                rotulo={
+                  viewMode === "FLUXO"
+                    ? "Movimentado em"
+                    : viewMode === "LIQUIDADAS"
+                      ? "Liquidado em"
+                      : "Vencimento"
+                }
                 ordenacao={ordenacao}
                 onOrdenar={onOrdenar}
                 className="hidden md:table-cell"
@@ -641,7 +637,7 @@ export default function FinancialTable({
                   onDoubleClick={() => setSelectedTransactionId(t.id)}
                   className="hover:cursor-pointer"
                 >
-                  <TableCell className="flex w-[420px] max-w-[420px] flex-row items-center gap-2">
+                  <TableCell className="flex w-[380px] max-w-[380px] flex-row items-center gap-2">
                     {/*
                       Na baixa múltipla o ícone de categoria dá lugar à caixa de
                       seleção: ocupam o mesmo espaço, então a lista não se
@@ -675,8 +671,40 @@ export default function FinancialTable({
                           {t.nomepagador}
                         </TextoTruncado>
                       )}
-                      <span className="text-xs text-muted-foreground">
+                      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         ID: {t.id}
+                        {/*
+                          Os dois lados da antecipação se identificam na lista, em
+                          cores diferentes: o lançamento que trouxe o dinheiro
+                          (azul) e os títulos que ele quitou (verde). Sem isso, os
+                          títulos parecem pagamentos que sumiram do caixa — eles
+                          aparecem como pagos e sem banco.
+                        */}
+                        {t.eh_adiantamento ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="inline-flex cursor-default items-center rounded-sm border border-sky-600/40 bg-sky-600/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-sky-700 dark:text-sky-400">
+                                Antecipação
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" align="start">
+                              Liquidou vários títulos de uma vez. Veja quais na aba
+                              Adiantamento.
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : t.adiantamento_id != null ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="inline-flex cursor-default items-center rounded-sm border border-emerald-600/40 bg-emerald-600/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+                                Antecipado
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" align="start">
+                              Liquidado pela antecipação #{t.adiantamento_id}. O dinheiro
+                              entrou por ela, não por este título.
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : null}
                       </span>
                       <span className="w-full truncate text-xs text-muted-foreground md:hidden">
                         {t.banco?.titulo ?? "Sem banco"} - {t.metodopagamento ?? "Método não definido"}
@@ -684,7 +712,9 @@ export default function FinancialTable({
                       <span className="text-muted-foreground text-nowrap flex-nowrap flex justify-center items-center gap-2 md:hidden">
                         <Calendar className="w-[10px] h-[10px]" />
                         {formatarData(t.data)}
-                        {t.competencia_em ? (
+                        {/* Mesmo critério da coluna: no Fluxo só a data do
+                            movimento, sem a competência ao lado. */}
+                        {viewMode !== "FLUXO" && t.competencia_em ? (
                           <span className="text-muted-foreground">
                             (comp. {formatarData(t.competencia_em)})
                           </span>
@@ -695,11 +725,13 @@ export default function FinancialTable({
 
                   {/* Competência (regime econômico) — distinta da data de caixa
                       ao lado. Registro sem competência mostra travessão. */}
-                  <TableCell className="hidden md:table-cell">
-                    {t.competencia_em
-                      ? formatarData(t.competencia_em)
-                      : <span className="text-muted-foreground">—</span>}
-                  </TableCell>
+                  {viewMode !== "FLUXO" ? (
+                    <TableCell className="hidden md:table-cell">
+                      {t.competencia_em
+                        ? formatarData(t.competencia_em)
+                        : <span className="text-muted-foreground">—</span>}
+                    </TableCell>
+                  ) : null}
                   <TableCell className="hidden md:table-cell">
                     {formatarData(t.data)}
                   </TableCell>
@@ -728,7 +760,23 @@ export default function FinancialTable({
                     {t.metodopagamento ?? "Não definido"}
                   </TableCell>
 
-                  <TableCell className={`text-right ${getTypeColor(t.tipo)}`}>
+                  {/*
+                    Título antecipado sai da cor do tipo e vai para amarelo: o
+                    valor está lá, mas não entrou no caixa por esta linha — quem
+                    trouxe o dinheiro foi a antecipação. Somar esta coluna de
+                    olho, nas abas que os listam, daria o dobro.
+
+                    No Fluxo o amarelo não tem função: aquela aba só mostra o que
+                    passou por conta, então tudo ali moveu caixa de verdade e a
+                    cor volta a significar apenas entrada ou saída.
+                  */}
+                  <TableCell
+                    className={`text-right ${
+                      viewMode !== "FLUXO" && t.adiantamento_id != null
+                        ? "text-amber-600 dark:text-amber-400"
+                        : getTypeColor(t.tipo)
+                    }`}
+                  >
                     <div className="flex flex-col items-end">
                       {(t.tipo === "RECEITA" || t.tipo === "DEPOSITO") && "+ "}
                       {(t.tipo === "DESPESA" || t.tipo === "SAQUE") && "- "}
@@ -831,15 +879,7 @@ export default function FinancialTable({
               size="icon"
               className="hover:cursor-pointer"
               onClick={() =>
-                handleGetTransactions(
-                  1,
-                  pagination.limit,
-                  search,
-                  dateFrom,
-                  dateTo,
-                  tipo,
-                  pendenteFilter,
-                )
+                handleGetTransactions(1, pagination.limit)
               }
               disabled={pagination.page === 1}
             >
@@ -851,15 +891,7 @@ export default function FinancialTable({
               size="icon"
               className="hover:cursor-pointer"
               onClick={() =>
-                handleGetTransactions(
-                  pagination.page - 1,
-                  pagination.limit,
-                  search,
-                  dateFrom,
-                  dateTo,
-                  tipo,
-                  pendenteFilter,
-                )
+                handleGetTransactions(pagination.page - 1, pagination.limit)
               }
               disabled={pagination.page === 1}
             >
@@ -875,15 +907,7 @@ export default function FinancialTable({
               variant="outline"
               size="icon"
               onClick={() =>
-                handleGetTransactions(
-                  pagination.page + 1,
-                  pagination.limit,
-                  search,
-                  dateFrom,
-                  dateTo,
-                  tipo,
-                  pendenteFilter,
-                )
+                handleGetTransactions(pagination.page + 1, pagination.limit)
               }
               disabled={
                 pagination.page === pagination.totalPages ||
@@ -898,15 +922,7 @@ export default function FinancialTable({
               variant="outline"
               size="icon"
               onClick={() =>
-                handleGetTransactions(
-                  pagination.totalPages,
-                  pagination.limit,
-                  search,
-                  dateFrom,
-                  dateTo,
-                  tipo,
-                  pendenteFilter,
-                )
+                handleGetTransactions(pagination.totalPages, pagination.limit)
               }
               disabled={
                 pagination.page === pagination.totalPages ||
@@ -952,15 +968,7 @@ export default function FinancialTable({
           setIsAlertOpen={setIsPagoDialogOpen}
           transaction={selectedTransactionForPago}
           onSuccess={() => {
-            handleGetTransactions(
-              pagination.page,
-              pagination.limit,
-              search,
-              dateFrom,
-              dateTo,
-              tipo,
-              pendenteFilter,
-            );
+            handleGetTransactions(pagination.page, pagination.limit);
             handleGetStatusCounter();
           }}
         />
@@ -986,15 +994,7 @@ export default function FinancialTable({
               // Adiantamento é tudo ou nada: se chegou aqui, todas foram
               // liquidadas e o modo não tem mais o que selecionar.
               sairDaBaixaMultipla();
-              handleGetTransactions(
-                pagination.page,
-                pagination.limit,
-                search,
-                dateFrom,
-                dateTo,
-                tipo,
-                pendenteFilter,
-              );
+              handleGetTransactions(pagination.page, pagination.limit);
               handleGetStatusCounter();
             }}
           />
@@ -1012,15 +1012,7 @@ export default function FinancialTable({
                 idsBaixados.forEach((id) => proximo.delete(id));
                 return proximo;
               });
-              handleGetTransactions(
-                pagination.page,
-                pagination.limit,
-                search,
-                dateFrom,
-                dateTo,
-                tipo,
-                pendenteFilter,
-              );
+              handleGetTransactions(pagination.page, pagination.limit);
               handleGetStatusCounter();
             }}
           />

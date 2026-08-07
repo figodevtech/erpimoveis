@@ -185,7 +185,7 @@ export function BaixaMultiplaDialog({
           </div>
         </div>
 
-        <div className="grid gap-4">
+        <div className="grid gap-4 p-4 bg-card rounded-xl">
           <div className="space-y-2">
             <Label>
               Data do pagamento <span className="text-destructive">*</span>

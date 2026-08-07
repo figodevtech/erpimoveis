@@ -1,5 +1,6 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import axios from "axios";
 import {
   type CampoOrdenacao,
@@ -12,6 +13,7 @@ import {
   type TransactionRelationFilters,
 } from "./types";
 import Cards from "./components/cards";
+import { KpisFluxo } from "./components/kpis-fluxo";
 import FinancialTable from "./components/financialTable";
 
 export default function FinanceiroPage() {
@@ -31,7 +33,7 @@ export default function FinanceiroPage() {
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
-  const [viewMode, setViewMode] = useState<FluxoViewMode>("TODAS");
+  const [viewMode, setViewMode] = useState<FluxoViewMode>("FLUXO");
   const [relationFilters, setRelationFilters] = useState<TransactionRelationFilters>({
     categoriaId: "",
     bancoId: "",
@@ -70,15 +72,44 @@ export default function FinanceiroPage() {
     });
   };
 
+  /**
+   * Cada busca leva um número; só a mais recente pode escrever na tela.
+   *
+   * Trocar de aba dispara uma busca nova sem cancelar a anterior. Quando a
+   * antiga responde depois — o que acontece sempre que ela é mais pesada — ela
+   * sobrescrevia a lista, e a aba ficava marcada numa visão exibindo a outra.
+   * Comparar contra o último número emitido descarta a resposta atrasada.
+   */
+  const buscaAtual = useRef(0);
+
+  /** Só o Fluxo exige conta: é o que separa extrato de título liquidado. */
+  const effectiveComBanco = viewMode === "FLUXO" ? true : undefined;
+
+  const effectiveTipo =
+    viewMode === "A_RECEBER"
+      ? Tipo_transacao.RECEITA
+      : viewMode === "A_PAGAR"
+      ? Tipo_transacao.DESPESA
+      : tipo;
+
+  // Sempre definido: toda aba tem uma resposta para "já andou ou não".
+  const effectivePendente =
+    viewMode === "LIQUIDADAS" || viewMode === "FLUXO" ? false : true;
+
+  /**
+   * Os filtros vêm do estado da página, não de quem chama.
+   *
+   * Eram parâmetros, e todo botão que recarregava a lista precisava lembrar de
+   * repassar os oito. Nenhum repassava `comBanco`: recarregar ou paginar dentro
+   * do Fluxo derrubava a exigência de conta e trazia de volta título liquidado
+   * por antecipação, que não é movimentação bancária. Quem chama diz só qual
+   * página quer; o que está filtrado é assunto da página.
+   */
   const handleGetTransactions = useCallback(async (
     pageNumber?: number,
     limit?: number,
-    search?: string,
-    dateFrom?: string,
-    dateTo?: string,
-    tipo?: Tipo_transacao | "",
-    pendente?: boolean | ""
   ) => {
+    const estaBusca = ++buscaAtual.current;
     setIsLoading(true);
     try {
       const response = await axios.get("/api/transaction", {
@@ -86,10 +117,11 @@ export default function FinanceiroPage() {
           page: pageNumber || 1,
           limit: limit || pagination.limit,
           search: search || undefined,
-          tipo: tipo,
-          pendente: pendente === "" ? undefined : pendente,
-          dateFrom: dateFrom,
-          dateTo: dateTo,
+          tipo: effectiveTipo,
+          pendente: effectivePendente,
+          comBanco: effectiveComBanco,
+          dateFrom,
+          dateTo,
           categoriaId: relationFilters.categoriaId || undefined,
           bancoId: relationFilters.bancoId || undefined,
           planoContaId: relationFilters.planoContaId || undefined,
@@ -98,6 +130,9 @@ export default function FinanceiroPage() {
           ordenarPor: ordenacao.campo,
         },
       });
+      // Resposta de uma busca que já foi superada não entra na tela.
+      if (estaBusca !== buscaAtual.current) return;
+
       if (response.status === 200) {
         const { data } = response;
         setTransactions(data.data);
@@ -105,11 +140,24 @@ export default function FinanceiroPage() {
       }
     } catch {
     } finally {
-      setIsLoading(false);
+      // O "carregando" também é da busca mais recente: desligá-lo na resposta
+      // atrasada apagaria o indicador enquanto a atual ainda está em voo.
+      if (estaBusca === buscaAtual.current) setIsLoading(false);
     }
     // Primitivos, não o objeto: `ordenacao` é recriado a cada render e
     // derrubaria o memo (e a busca) sem nada ter mudado.
-  }, [ordenacao.campo, ordenacao.direcao, pagination.limit, relationFilters]);
+  }, [
+    dateFrom,
+    dateTo,
+    effectiveComBanco,
+    effectivePendente,
+    effectiveTipo,
+    ordenacao.campo,
+    ordenacao.direcao,
+    pagination.limit,
+    relationFilters,
+    search,
+  ]);
 
   // Trocar o tamanho da página volta para a primeira: a página atual pode
   // ficar fora do novo total. Quem refaz a busca é o efeito que observa o
@@ -138,35 +186,12 @@ export default function FinanceiroPage() {
     }
   }, []);
 
-  const effectiveTipo =
-    viewMode === "A_RECEBER"
-      ? Tipo_transacao.RECEITA
-      : viewMode === "A_PAGAR"
-      ? Tipo_transacao.DESPESA
-      : tipo;
-
-  const effectivePendente: boolean | "" =
-    viewMode === "TODAS" ? "" : viewMode === "LIQUIDADAS" ? false : true;
-
+  // Mudou filtro, período ou busca? `handleGetTransactions` muda junto e o
+  // efeito refaz a consulta a partir da primeira página — a atual pode nem
+  // existir no novo resultado.
   useEffect(() => {
-    handleGetTransactions(
-      1,
-      pagination.limit,
-      search,
-      dateFrom,
-      dateTo,
-      effectiveTipo,
-      effectivePendente,
-    );
-  }, [
-    dateFrom,
-    dateTo,
-    effectivePendente,
-    effectiveTipo,
-    handleGetTransactions,
-    pagination.limit,
-    search,
-  ]);
+    handleGetTransactions(1, pagination.limit);
+  }, [handleGetTransactions, pagination.limit]);
 
   useEffect(() => {
     // A_PAGAR/A_RECEBER já fixam o tipo; Liquidadas aceita filtrar por tipo.
@@ -182,7 +207,42 @@ export default function FinanceiroPage() {
   return (
     <div className="p-y-4 space-y-4">
       {/* <Header /> */}
-      <Cards isLoadingStatus={isLoadingStatus} statusInfo={statusInfo} />
+      {/*
+        Uma fileira de indicadores por vez, nunca as duas.
+        Fluxo e Liquidadas olham dinheiro que já andou, e a comparação mensal
+        responde bem a isso. A pagar e A receber olham o que ainda não andou —
+        ali o mês passado não diz nada, e o que importa é o que vence.
+      */}
+      {/*
+        Piso de altura no contêiner, não nos cartões: as duas fileiras têm
+        conteúdo diferente e sempre teriam alturas um pouco distintas. Reservando
+        o espaço aqui, a tabela abaixo fica parada durante a troca.
+      */}
+      <div className="min-h-[9.5rem]">
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.div
+          key={
+            viewMode === "A_PAGAR" || viewMode === "A_RECEBER" ? "periodo" : "gerais"
+          }
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          transition={{ duration: 0.2, ease: "easeOut" }}
+        >
+          {viewMode === "A_PAGAR" || viewMode === "A_RECEBER" ? (
+            <KpisFluxo
+              viewMode={viewMode}
+              dateFrom={dateFrom}
+              dateTo={dateTo}
+              search={search}
+              relationFilters={relationFilters}
+            />
+          ) : (
+            <Cards isLoadingStatus={isLoadingStatus} statusInfo={statusInfo} />
+          )}
+        </motion.div>
+      </AnimatePresence>
+      </div>
       <FinancialTable
         dateFrom={dateFrom}
         dateTo={dateTo}

@@ -5,6 +5,8 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import * as XLSX from "xlsx";
 
+import { filtroDeBusca } from "../_lib/busca";
+
 /** ====== Constantes e helpers ====== */
 
 const FORTALEZA_TZ = "America/Fortaleza";
@@ -173,7 +175,10 @@ export async function GET(req: Request) {
         .order("data", { ascending: true })
         .order("id", { ascending: true });
 
-      if (q) query = query.ilike("descricao", `%${q}%`);
+      // Mesma varredura da lista: o arquivo exportado tem que ser o que o
+      // usuário estava vendo, não um recorte mais estreito.
+      const buscaEm = filtroDeBusca(q ?? "");
+      if (buscaEm) query = query.or(buscaEm);
       if (ordemservicoid != null) query = query.eq("ordemservicoid", ordemservicoid);
       if (vendaid != null) query = query.eq("vendaid", vendaid);
       if (tipo) query = query.eq("tipo", tipo);

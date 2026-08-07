@@ -307,6 +307,28 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
     if (semCobranca || status === "SEM_COBRANCA") {
       updateData.motivo_sem_cobranca = motivoSemCobranca;
       updateData.status = "SEM_COBRANCA";
+
+      // Nao ha o que cobrar: o total vai a zero como desconto integral, para o
+      // orcamento continuar coerente (subtotal - desconto = total) na tela e na
+      // impressao.
+      //
+      // Precisa ser um UPDATE separado e anterior ao do status. Zerar o
+      // orcamentototal dispara `trg_recalc_comissao_os_total` (AFTER), que
+      // recalcula a comissao sobre a base zerada; a reconciliacao dos eventos
+      // dispara `trg_reconciliar_eventos_ao_finalizar_os` (BEFORE UPDATE OF
+      // status). Numa unica instrucao o BEFORE rodaria primeiro e publicaria os
+      // eventos de comissao com o valor antigo.
+      const zeragem = await supabaseAdmin
+        .from("ordemservico")
+        .update({
+          desconto_tipo: "PORCENTAGEM",
+          desconto: 100,
+          orcamentototal: 0,
+          acrescimo_financeiro_tipo: null,
+          acrescimo_financeiro_valor: 0,
+        })
+        .eq("id", osId);
+      if (zeragem.error) throw zeragem.error;
     }
 
     const upd = await supabaseAdmin.from("ordemservico").update(updateData).eq("id", osId);

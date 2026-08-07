@@ -5,6 +5,8 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
 import { requireFinanceiroCreate, requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { calculateFinancialTotal } from "@/lib/financial-surcharge";
+import { aplicarCamposDocumento, erroDeDocumento } from "./_lib/documento";
+import { filtroDeBusca } from "./_lib/busca";
 
 const WRITABLE_FIELDS = new Set([
   "ordemservicoid",
@@ -45,7 +47,7 @@ const ORDENAVEIS = new Set([
 const FORTALEZA_OFFSET = "-03:00";
 
 const TRANSACAO_FIELDS =
-  "id, descricao, descricao_pagamento, valor, valorLiquido, valor_base, valor_acrescimos, valor_descontos, adiantamento_id, eh_adiantamento, nomepagador, cpfcnpjpagador, pendente, data, competencia_em, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, fornecedor_id, banco_id, created_at, updated_at";
+  "id, descricao, descricao_pagamento, valor, valorLiquido, valor_base, valor_acrescimos, valor_descontos, adiantamento_id, eh_adiantamento, nomepagador, cpfcnpjpagador, pendente, data, competencia_em, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, fornecedor_id, banco_id, documento_tipo_id, documento_numero, documento_serie, documento_chave, documento_emitido_em, documento_valor, documento_observacao, created_at, updated_at";
 
 const BANCO_FIELDS =
   "id, titulo, tipo, agencia, contanumero, proprietario, valorinicial, empresa_id, created_at, updated_at";
@@ -175,6 +177,11 @@ function sanitizeTransacaoPayload(body: any, { strict }: { strict: boolean }) {
     }
   }
 
+  // Fora do laço porque os campos de documento não estão em WRITABLE_FIELDS: a
+  // coerção deles é própria (dia sem fuso, valor não negativo, texto com teto) e
+  // vive compartilhada com a rota de pagamento de OS.
+  aplicarCamposDocumento(body, output);
+
   if (strict) {
     const required = ["descricao", "valor", "data", "tipo"];
     const missing = required.filter((key) => output[key] == null);
@@ -208,6 +215,15 @@ export async function GET(req: Request) {
     const vendaid = searchParams.get("vendaid");
     const metodo = (searchParams.get("metodo") ?? searchParams.get("metodopagamento") ?? "").trim();
     const bancoId = toNumberOrNull(searchParams.get("bancoId"));
+    /*
+     * `comBanco=true` restringe ao que de fato passou por uma conta.
+     *
+     * Não basta filtrar por liquidadas: título quitado por antecipação fica
+     * pendente=false e banco_id nulo de propósito — o dinheiro entrou pela
+     * antecipação, não por ele. Sem esta separação, o extrato mistura os títulos
+     * com o lançamento que os pagou e soma o mesmo dinheiro duas vezes.
+     */
+    const comBanco = parseBooleanParam(searchParams.get("comBanco"));
     const planoContaId = toNumberOrNull(searchParams.get("planoContaId"));
     const centroCustoId = toNumberOrNull(searchParams.get("centroCustoId"));
     const clienteId = toNumberOrNull(searchParams.get("clienteId"));
@@ -248,7 +264,8 @@ export async function GET(req: Request) {
       .order("id", { ascending })
       .range(from, to);
 
-    if (search) query = query.ilike("descricao", `%${search}%`);
+    const buscaEm = filtroDeBusca(search);
+    if (buscaEm) query = query.or(buscaEm);
     if (ordemservicoid) query = query.eq("ordemservicoid", ordemservicoid);
     if (excluirEventosFinanceiros === true) query = query.is("evento_financeiro_id", null);
     if (vendaid) query = query.eq("vendaid", vendaid);
@@ -257,6 +274,8 @@ export async function GET(req: Request) {
     if (categoriaId != null) query = query.eq("categoria_id", categoriaId);
     if (metodo) query = query.eq("metodopagamento", metodo);
     if (bancoId != null) query = query.eq("banco_id", bancoId);
+    if (comBanco === true) query = query.not("banco_id", "is", null);
+    if (comBanco === false) query = query.is("banco_id", null);
     if (planoContaId != null) query = query.eq("plano_de_conta_id", planoContaId);
     if (centroCustoId != null) query = query.eq("centro_custo_id", centroCustoId);
     if (clienteId != null) query = query.eq("cliente_id", clienteId);
@@ -319,6 +338,11 @@ export async function POST(req: Request) {
     }
 
     const payload = sanitizeTransacaoPayload(json, { strict: true });
+
+    const problemaNoDocumento = erroDeDocumento(payload);
+    if (problemaNoDocumento) {
+      return NextResponse.json({ error: problemaNoDocumento }, { status: 400 });
+    }
 
     if (payload.vendaid != null) {
       const { data: categoriaSistema, error: categoriaError } = await supabaseAdmin
@@ -446,6 +470,9 @@ export async function POST(req: Request) {
     }
 
     const baseDescricao = String(payload.descricao ?? "").trim();
+    // O documento vem no spread do payload e por isso se repete em toda parcela.
+    // É o que se quer: uma nota paga em três vezes continua sendo uma nota só, e
+    // cada parcela precisa apontar para ela.
     const rowsToInsert = (hasParcelamento ? parcelasDetalhadas : [{ valor: payload.valor, data: payload.data }]).map(
       (_, index) => {
         const pendenteLinha = hasParcelamento ? Boolean(payload.pendente) : payload.pendente;
@@ -529,6 +556,7 @@ export async function POST(req: Request) {
         const detail = (error as any).details || (error as any).hint || "";
         const isBanco = /banco/i.test(msg + " " + detail);
         const isCliente = /cliente/i.test(msg + " " + detail);
+        const isDocumento = /documento/i.test(msg + " " + detail);
 
         return NextResponse.json(
           {
@@ -536,7 +564,9 @@ export async function POST(req: Request) {
               ? "Conta bancária (banco_id) inexistente."
               : isCliente
                 ? "Cliente (cliente_id) inexistente."
-                : "Referência inválida: banco_id/cliente_id.",
+                : isDocumento
+                  ? "Tipo de documento inexistente."
+                  : "Referência inválida: banco_id/cliente_id.",
           },
           { status: 409 }
         );

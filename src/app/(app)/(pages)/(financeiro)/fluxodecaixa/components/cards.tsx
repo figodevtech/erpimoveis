@@ -54,8 +54,8 @@ export default function Cards({ statusInfo, isLoadingStatus }: CardsProps) {
   }
 
   return (
-    <div className="text-nowrap grid gap-4 grid-cols-1 lg:grid-cols-3">
-      <Card className="gap-1 py-4 h-fit ">
+    <div className="text-nowrap grid gap-4 grid-cols-1 lg:grid-cols-3 items-stretch">
+      <Card className="gap-1 py-4 h-full">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-xs lg:text-sm font-medium">
             Receita total{" "}
@@ -145,7 +145,7 @@ export default function Cards({ statusInfo, isLoadingStatus }: CardsProps) {
           </div>
         </CardContent>
       </Card>
-      <Card className="gap-1 py-4 h-fit ">
+      <Card className="gap-1 py-4 h-full">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-xs lg:text-sm font-medium">
             Despesa total{" "}
@@ -236,7 +236,7 @@ export default function Cards({ statusInfo, isLoadingStatus }: CardsProps) {
           </div>
         </CardContent>
       </Card>
-      <Card className="gap-1 py-4 h-fit ">
+      <Card className="gap-1 py-4 h-full">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-xs lg:text-sm font-medium">
             Renda Líquida total{" "}

@@ -189,7 +189,7 @@ export function AdiantamentoDialog({
           </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2 p-4 rounded-xl bg-card ">
           <div className="space-y-2 sm:col-span-2">
             <Label htmlFor="adi-descricao">Descrição</Label>
             <Input

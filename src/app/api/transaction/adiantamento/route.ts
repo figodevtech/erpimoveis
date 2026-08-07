@@ -70,6 +70,22 @@ export async function POST(req: NextRequest) {
 
     const session = await auth().catch(() => null);
 
+    /*
+     * Sem categoria informada, o lançamento cai na de sistema da antecipação —
+     * a mesma ideia das categorias de OS e venda. Deixar em branco jogaria em
+     * "NÃO RELACIONADO" justamente o lançamento que concentra o dinheiro de
+     * vários títulos, e ele sumiria no meio dos avulsos.
+     */
+    let categoriaId = body?.categoriaId ?? null;
+    if (categoriaId == null) {
+      const { data: categoria } = await supabaseAdmin
+        .from("categoriatransacao")
+        .select("id")
+        .eq("codigo_sistema", "ADIANTAMENTO")
+        .maybeSingle();
+      categoriaId = categoria?.id ?? null;
+    }
+
     const { data, error } = await supabaseAdmin.rpc("baixar_por_adiantamento", {
       p_ids: limpos,
       p_adiantamento: {
@@ -79,7 +95,7 @@ export async function POST(req: NextRequest) {
         taxa,
         descricao: body?.descricao ?? null,
         descricao_pagamento: body?.descricaoPagamento ?? null,
-        categoria_id: body?.categoriaId ?? null,
+        categoria_id: categoriaId,
         plano_de_conta_id: body?.planoContaId ?? null,
         centro_custo_id: body?.centroCustoId ?? null,
         cliente_id: body?.clienteId ?? null,

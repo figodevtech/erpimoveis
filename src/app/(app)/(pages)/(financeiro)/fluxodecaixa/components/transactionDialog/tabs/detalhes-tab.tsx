@@ -211,6 +211,36 @@ export function DetalhesTab({
         ? "LANÇAMENTO A PAGAR"
         : null;
 
+  /**
+   * Competência é regime econômico: a que mês o fato pertence, ao contrário da
+   * data, que é de caixa. Só faz sentido editar em lançamento avulso — quando
+   * há documento, ela pertence ao documento, e o servidor recusa a alteração.
+   */
+  const competenciaEditavel = editavel && origem == null;
+
+  /**
+   * Qual documento manda na competência, com o número. Sem o número, o aviso
+   * dizia que a data "vem do documento" e deixava o usuário procurando qual.
+   */
+  const documentoDaCompetencia = (() => {
+    if (origem === "OS" && form.ordemservicoid != null) {
+      return `ordem de serviço #${form.ordemservicoid}`;
+    }
+    if (origem === "VENDA" && form.vendaid != null) return `venda #${form.vendaid}`;
+    if (origem === "ENTRADA" && form.entrada_id != null) {
+      return `entrada de estoque #${form.entrada_id}`;
+    }
+    if (origem === "USOCONSUMO" && form.usoconsumo_entrada_id != null) {
+      return `entrada de uso e consumo #${form.usoconsumo_entrada_id}`;
+    }
+    return origem ? rotuloDaOrigem(origem) : null;
+  })();
+
+  const alterarCompetencia = (valor: string) => {
+    const selecionada = valor ? parseLocalDateTime(`${valor}T00:00`) : undefined;
+    setCampo("competencia_em", selecionada ? selecionada.toISOString() : null);
+  };
+
   const alterarData = (valor: string) => {
     const selecionada = valor ? parseLocalDateTime(`${valor}T00:00`) : undefined;
 
@@ -451,6 +481,30 @@ export function DetalhesTab({
             max={!form.pendente ? paraValorDeInputDate(new Date()) : undefined}
             onChange={alterarData}
           />
+        </div>
+
+        <div className="w-full space-y-2 sm:col-span-3">
+          <Label htmlFor="competencia" className="flex items-center gap-1.5">
+            Competência
+            {competenciaEditavel ? null : (
+              <Lock className="h-3 w-3 text-muted-foreground" aria-hidden />
+            )}
+          </Label>
+          <DatePicker
+            disabled={!competenciaEditavel}
+            value={paraValorDeInputDate(
+              form.competencia_em ? new Date(form.competencia_em) : undefined,
+            )}
+            className="w-full sm:max-w-xs"
+            onChange={alterarCompetencia}
+          />
+          <p className="text-xs text-muted-foreground">
+            {competenciaEditavel
+              ? "A que mês o fato pertence na DRE. Conta de julho paga em agosto pertence a julho."
+              : documentoDaCompetencia
+                ? `Definida pela ${documentoDaCompetencia} e acompanha ela. Para mudar o mês na DRE, altere no próprio documento.`
+                : "Vem do documento de origem e acompanha ele."}
+          </p>
         </div>
 
         <div className="w-full space-y-2 sm:col-span-3">
