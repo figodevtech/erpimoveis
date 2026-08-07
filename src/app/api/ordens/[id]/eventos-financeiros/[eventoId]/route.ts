@@ -38,7 +38,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
 
     const { data: evento, error: eventoError } = await supabaseAdmin
       .from("eventos_financeiros")
-      .select("id, status, transacaoid, dados_snapshot, competencia_em")
+      .select("id, natureza, descricao, detalhe, status, transacaoid, dados_snapshot, competencia_em, is_manual")
       .eq("id", eventId)
       .eq("ordemservicoid", osId)
       .neq("status", "CANCELADO")
@@ -57,18 +57,39 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
       );
     }
 
+    const editandoDespesa = evento.natureza === "DESPESA";
+    if (editandoDespesa && !evento.is_manual) {
+      return NextResponse.json(
+        { error: "Despesas automáticas devem ser corrigidas na origem que gerou o evento." },
+        { status: 409 },
+      );
+    }
+    const descricao = editandoDespesa
+      ? String(body?.descricao ?? evento.descricao ?? "").trim()
+      : evento.descricao;
+    const detalhe = editandoDespesa && body?.detalhe !== undefined
+      ? String(body.detalhe ?? "").trim() || null
+      : evento.detalhe;
+    if (editandoDespesa && !descricao) {
+      return NextResponse.json({ error: "O título da despesa é obrigatório." }, { status: 400 });
+    }
+
     const session = await auth();
+    const usuarioId = (session?.user as any)?.id ?? null;
     const ajustadoEm = new Date().toISOString();
     const { data, error } = await supabaseAdmin
       .from("eventos_financeiros")
       .update({
+        descricao,
+        detalhe,
         valor: Math.round(valor * 100) / 100,
+        is_manual: evento.is_manual,
         updated_at: ajustadoEm,
         dados_snapshot: {
           ...((evento.dados_snapshot as Record<string, unknown> | null) ?? {}),
           ajuste_manual: true,
           ajustado_em: ajustadoEm,
-          ajustado_por: (session?.user as any)?.id ?? null,
+          ajustado_por: usuarioId,
         },
       })
       .eq("id", eventId)

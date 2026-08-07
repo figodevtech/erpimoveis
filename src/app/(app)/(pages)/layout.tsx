@@ -32,6 +32,7 @@ const DEFAULT_CONFIG: Config = {
   produto_preco_medio_compra_obrigatorio: false,
   habilitar_edicao_transacoes: false,
   permitir_produto_avulso_os: false,
+  setor_padrao_os_id: null,
   created_at: "",
 };
 

@@ -80,8 +80,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
     }
 
     const statusesBloqueadosPorAvulso: DBStatusOS[] = [
-      "APROVACAO_ORCAMENTO",
-      "ORCAMENTO_APROVADO",
       "EM_ANDAMENTO",
       "PAGAMENTO",
       "SEM_COBRANCA",
@@ -96,7 +94,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
       if ((pendentes ?? 0) > 0) {
         return NextResponse.json(
           {
-            error: `Existem ${pendentes} produto(s) avulso(s) pendente(s). Vincule ou cadastre esses produtos antes de avançar a OS.`,
+            error: `Existem ${pendentes} produto(s) avulso(s) pendente(s). Vincule ou cadastre esses produtos antes de iniciar ou finalizar a OS.`,
             codigo: "PRODUTOS_AVULSOS_PENDENTES",
             quantidade: pendentes,
           },

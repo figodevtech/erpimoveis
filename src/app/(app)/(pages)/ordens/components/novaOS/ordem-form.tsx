@@ -202,6 +202,21 @@ export function FormularioNovaOS({
         setSetoresError(null);
         const items = await listarSetores();
         setSetores(items);
+
+        try {
+          const configResponse = await fetch("/api/config", { cache: "no-store" });
+          const configData = await configResponse.json().catch(() => ({}));
+          const setorPadraoId = Number(configData?.config?.setor_padrao_os_id);
+          if (
+            configResponse.ok
+            && Number.isInteger(setorPadraoId)
+            && items.some((item) => item.id === setorPadraoId)
+          ) {
+            setSetor((atual) => atual || String(setorPadraoId));
+          }
+        } catch (configError) {
+          console.warn("N\u00e3o foi poss\u00edvel carregar o setor padr\u00e3o da OS.", configError);
+        }
       } catch (e: any) {
         setSetoresError(e?.message ?? "Não foi possível carregar os setores.");
         setSetores([]);

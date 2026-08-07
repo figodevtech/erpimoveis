@@ -30,6 +30,9 @@ export async function POST(_: NextRequest, { params }: { params: Promise<Params>
     if (!evento || evento.origem !== "PRODUTO" || evento.natureza !== "RECEITA") {
       return NextResponse.json({ error: "Este evento não é um snapshot de venda de produto." }, { status: 409 });
     }
+    if (!evento.produtoid) {
+      return NextResponse.json({ error: "Vincule o produto avulso ao cadastro antes de sincronizar o valor de venda." }, { status: 409 });
+    }
     if (evento.status === "CANCELADO") {
       return NextResponse.json({ error: "Este evento financeiro está cancelado." }, { status: 409 });
     }

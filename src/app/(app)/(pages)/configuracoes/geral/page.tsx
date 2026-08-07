@@ -89,6 +89,11 @@ type ShopeeIntegration = {
   account: ShopeeAccount | null;
 };
 
+type SetorOption = {
+  id: number;
+  nome: string;
+};
+
 function MarketplaceConnectionCard({
   icon,
   iconClass,
@@ -197,6 +202,8 @@ export default function ConfigGeralPage() {
   const [nfseConfig, setNfseConfig] = useState<Record<string, unknown> | null>(null);
   const [padraoFiscalForm, setPadraoFiscalForm] = useState<Partial<CodigosFiscaisForm>>({});
   const [salvandoPadraoFiscal, setSalvandoPadraoFiscal] = useState(false);
+  const [setores, setSetores] = useState<SetorOption[]>([]);
+  const [carregandoSetores, setCarregandoSetores] = useState(true);
 
   const { handleSubmit, setValue, watch, reset } = useForm<Partial<Config>>({
     defaultValues: {
@@ -217,24 +224,27 @@ export default function ConfigGeralPage() {
       produto_preco_medio_compra_obrigatorio: false,
       habilitar_edicao_transacoes: false,
       permitir_produto_avulso_os: false,
+      setor_padrao_os_id: null,
     },
   });
 
   const carregarConfig = useCallback(async () => {
     setCarregando(true);
     try {
-      const [response, empresaResponse, mercadoLivreResponse, shopeeResponse, nfseConfigResponse] = await Promise.all([
+      const [response, empresaResponse, mercadoLivreResponse, shopeeResponse, nfseConfigResponse, setoresResponse] = await Promise.all([
         fetch("/api/config", { cache: "no-store" }),
         fetch("/api/config/empresa", { cache: "no-store" }),
         fetch("/api/config/integracoes/mercadolivre", { cache: "no-store" }),
         fetch("/api/config/integracoes/shopee", { cache: "no-store" }),
         fetch("/api/config/nfse", { cache: "no-store" }),
+        fetch("/api/tipos/setores", { cache: "no-store" }),
       ]);
       const data = await response.json();
       const empresaData = await empresaResponse.json().catch(() => ({}));
       const mercadoLivreData = await mercadoLivreResponse.json().catch(() => ({}));
       const shopeeData = await shopeeResponse.json().catch(() => ({}));
       const nfseConfigData = await nfseConfigResponse.json().catch(() => ({}));
+      const setoresData = await setoresResponse.json().catch(() => ({}));
       if (response.ok && data.config) {
         reset(data.config);
         window.dispatchEvent(new CustomEvent("erpoficina:config-updated", { detail: data.config }));
@@ -269,11 +279,17 @@ export default function ConfigGeralPage() {
         account: shopeeData?.account ?? null,
       } : { configured: false, missing: [], account: null });
       setNfseConfig(nfseConfigResponse.ok ? nfseConfigData : null);
+      setSetores(
+        setoresResponse.ok && Array.isArray(setoresData?.items)
+          ? setoresData.items.map((item: any) => ({ id: Number(item.id), nome: String(item.nome ?? "") }))
+          : [],
+      );
     } catch (error) {
       console.error(error);
       toast.error("Falha na comunicação com o servidor");
     } finally {
       setCarregando(false);
+      setCarregandoSetores(false);
     }
   }, [reset]);
 
@@ -973,11 +989,35 @@ export default function ConfigGeralPage() {
           <CardHeader>
             <div className="flex items-center gap-2">
               <Boxes className="h-5 w-5 text-primary" />
-              <CardTitle>Estoque em Ordens de Serviço</CardTitle>
+              <CardTitle>{"Ordens de Servi\u00e7o"}</CardTitle>
             </div>
-            <CardDescription>Defina quando os produtos da OS saem do estoque.</CardDescription>
+            <CardDescription>{"Defina os padr\u00f5es de cria\u00e7\u00e3o e o comportamento do estoque nas ordens."}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
+            <div className="space-y-2">
+              <Label>{"Setor padr\u00e3o para cria\u00e7\u00e3o de OS"}</Label>
+              <Select
+                value={watch("setor_padrao_os_id") ? String(watch("setor_padrao_os_id")) : "SEM_PADRAO"}
+                onValueChange={(value) =>
+                  setValue("setor_padrao_os_id", value === "SEM_PADRAO" ? null : Number(value), { shouldDirty: true })
+                }
+                disabled={carregandoSetores}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder={carregandoSetores ? "Carregando setores..." : "Selecione um setor"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="SEM_PADRAO">{"Sem setor padr\u00e3o"}</SelectItem>
+                  {setores.map((item) => (
+                    <SelectItem key={item.id} value={String(item.id)}>{item.nome}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {"Esse setor vir\u00e1 selecionado nas novas ordens de servi\u00e7o e poder\u00e1 ser alterado antes de salvar."}
+              </p>
+            </div>
+            <Separator />
             <div className="flex items-center justify-between gap-4">
               <div className="flex flex-col space-y-1">
                 <Label>Permitir produto avulso em OS</Label>

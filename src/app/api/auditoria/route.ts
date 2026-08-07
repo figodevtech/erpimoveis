@@ -38,7 +38,10 @@ async function carregarReferencias(eventos: EventoAuditoria[]): Promise<Referenc
     pecaid: coletarIds(eventos, "pecaid"),
     clienteid: coletarIds(eventos, "clienteid"),
     veiculoid: coletarIds(eventos, "veiculoid"),
-    setorid: coletarIds(eventos, "setorid"),
+    setorid: Array.from(new Set([
+      ...coletarIds(eventos, "setorid"),
+      ...coletarIds(eventos, "setor_padrao_os_id"),
+    ])),
     servicoid: coletarIds(eventos, "servicoid"),
     produtoid: coletarIds(eventos, "produtoid"),
     checklist_modelo_id: coletarIds(eventos, "checklist_modelo_id"),
@@ -80,7 +83,10 @@ async function carregarReferencias(eventos: EventoAuditoria[]): Promise<Referenc
   for (const item of pecas.data ?? []) adicionar("pecaid", item.id, juntarPartes(item.titulo, item.descricao));
   for (const item of clientes.data ?? []) adicionar("clienteid", item.id, juntarPartes(item.nomerazaosocial));
   for (const item of veiculos.data ?? []) adicionar("veiculoid", item.id, juntarPartes(`${item.marca} ${item.modelo}`.trim(), item.placa));
-  for (const item of setores.data ?? []) adicionar("setorid", item.id, String(item.nome));
+  for (const item of setores.data ?? []) {
+    adicionar("setorid", item.id, String(item.nome));
+    adicionar("setor_padrao_os_id", item.id, String(item.nome));
+  }
   for (const item of servicos.data ?? []) adicionar("servicoid", item.id, juntarPartes(item.descricao, item.codigo));
   for (const item of produtos.data ?? []) adicionar("produtoid", item.id, juntarPartes(item.descricao, item.referencia));
   for (const item of modelosChecklist.data ?? []) adicionar("checklist_modelo_id", item.id, String(item.nome));

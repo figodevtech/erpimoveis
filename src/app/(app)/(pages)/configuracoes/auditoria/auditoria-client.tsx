@@ -219,6 +219,7 @@ const ROTULOS_CAMPOS: Record<string, string> = {
   precovenda: "Preço de venda",
   referencia: "Referência",
   setorid: "Setor",
+  setor_padrao_os_id: "Setor padr\u00e3o para cria\u00e7\u00e3o de OS",
   status: "Status",
   sub_total: "Subtotal",
   telefone: "Telefone",

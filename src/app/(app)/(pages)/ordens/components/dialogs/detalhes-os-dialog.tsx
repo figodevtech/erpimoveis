@@ -215,6 +215,8 @@ function auditDotClass(tipo: AuditoriaResumoItem["tipo"]) {
       return "bg-orange-500 ring-orange-500/20";
     case "saida":
       return "bg-teal-500 ring-teal-500/20";
+    case "financeiro":
+      return "bg-red-500 ring-red-500/20";
     default:
       return "bg-muted-foreground ring-muted-foreground/20";
   }
@@ -397,6 +399,7 @@ type AuditoriaResumoItem = {
     | "anexo"
     | "estoque"
     | "saida"
+    | "financeiro"
     | "dados";
   titulo: string;
   detalhe: string | null;
@@ -431,6 +434,9 @@ type OSDetalhesResponse = {
     chave_origem?: string | null;
     produtoid?: number | null;
     servicoid?: number | null;
+    is_manual?: boolean;
+    created_by?: string | null;
+    criado_por?: { id: string; nome: string } | null;
     pode_gerar_transacao: boolean;
     transacaoid?: number | null;
     competencia_em?: string | null;
@@ -672,16 +678,36 @@ export function OSDetalhesDialog({
   const [currentTab, setCurrentTab] = useState("resumo");
   const [eventoDialogOpen, setEventoDialogOpen] = useState(false);
   const [eventoNatureza, setEventoNatureza] = useState<"RECEITA" | "DESPESA">("DESPESA");
+  const [eventoTipo, setEventoTipo] = useState<"" | "PRODUTO" | "SERVICO">("");
   const [eventoDescricao, setEventoDescricao] = useState("");
   const [eventoDetalhe, setEventoDetalhe] = useState("");
   const [eventoValor, setEventoValor] = useState(0);
   const [salvandoEvento, setSalvandoEvento] = useState(false);
-  const [eventoEdicao, setEventoEdicao] = useState<{ id: number; descricao: string; valor: number } | null>(null);
+  const [receitaServicoParaDespesa, setReceitaServicoParaDespesa] = useState<{
+    id: number;
+    servicoid: number;
+    descricao: string;
+  } | null>(null);
+  const [despesaServicoTitulo, setDespesaServicoTitulo] = useState("");
+  const [despesaServicoDetalhe, setDespesaServicoDetalhe] = useState("");
+  const [despesaServicoValor, setDespesaServicoValor] = useState(0);
+  const [salvandoDespesaServico, setSalvandoDespesaServico] = useState(false);
+  const [eventoEdicao, setEventoEdicao] = useState<{
+    id: number;
+    descricao: string;
+    detalhe: string;
+    valor: number;
+    natureza: "RECEITA" | "DESPESA";
+  } | null>(null);
+  const [tituloEventoEdicao, setTituloEventoEdicao] = useState("");
+  const [detalheEventoEdicao, setDetalheEventoEdicao] = useState("");
   const [valorSnapshotEdicao, setValorSnapshotEdicao] = useState(0);
   const [eventoConvertidoParaEditar, setEventoConvertidoParaEditar] = useState<{
     id: number;
     descricao: string;
+    detalhe: string;
     valor: number;
+    natureza: "RECEITA" | "DESPESA";
     transacaoId: number;
   } | null>(null);
   const [excluindoTransacaoEvento, setExcluindoTransacaoEvento] = useState(false);
@@ -896,6 +922,9 @@ export function OSDetalhesDialog({
         origem: evento.origem,
         status: evento.status,
         produtoid: evento.produtoid ?? null,
+        servicoid: evento.servicoid ?? null,
+        isManual: evento.is_manual === true,
+        criadoPorNome: evento.criado_por?.nome ?? null,
         podeGerarTransacao: evento.pode_gerar_transacao,
         competenciaFechada: competenciaEmMesFechado(evento.competencia_em),
         grupo:
@@ -907,7 +936,9 @@ export function OSDetalhesDialog({
         ordemNoGrupo:
           evento.origem === "PRODUTO"
             ? evento.natureza === "DESPESA" ? 0 : 1
-            : evento.origem === "SERVICO" ? 0 : evento.origem === "COMISSAO" ? 1 : 0,
+            : evento.origem === "SERVICO"
+              ? evento.natureza === "RECEITA" ? 0 : 1
+              : evento.origem === "COMISSAO" ? 2 : 0,
       }));
 
     return lancamentos.sort((a, b) => a.grupo.localeCompare(b.grupo, "pt-BR", { numeric: true }) || a.ordemNoGrupo - b.ordemNoGrupo || a.id - b.id);
@@ -915,7 +946,27 @@ export function OSDetalhesDialog({
   const totaisEventos = useMemo(() => {
     const receita = fluxoOs.filter((item) => item.tipo === "ENTRADA").reduce((soma, item) => soma + item.valor, 0);
     const despesa = fluxoOs.filter((item) => item.tipo === "SAIDA").reduce((soma, item) => soma + item.valor, 0);
-    return { receita, despesa, liquido: receita - despesa };
+    const receitaProdutos = fluxoOs
+      .filter((item) => item.tipo === "ENTRADA" && item.origem === "PRODUTO")
+      .reduce((soma, item) => soma + item.valor, 0);
+    const receitaServicos = fluxoOs
+      .filter((item) => item.tipo === "ENTRADA" && item.origem === "SERVICO")
+      .reduce((soma, item) => soma + item.valor, 0);
+    const despesaProdutos = fluxoOs
+      .filter((item) => item.tipo === "SAIDA" && item.origem === "PRODUTO")
+      .reduce((soma, item) => soma + item.valor, 0);
+    const despesaServicos = fluxoOs
+      .filter((item) => item.tipo === "SAIDA" && item.origem === "SERVICO")
+      .reduce((soma, item) => soma + item.valor, 0);
+    return {
+      receita,
+      despesa,
+      liquido: receita - despesa,
+      receitaProdutos,
+      receitaServicos,
+      despesaProdutos,
+      despesaServicos,
+    };
   }, [fluxoOs]);
   const percentualLucroReal = totaisEventos.receita > 0
     ? (totaisEventos.liquido / totaisEventos.receita) * 100
@@ -930,28 +981,82 @@ export function OSDetalhesDialog({
       const response = await fetch(`/api/ordens/${osId}/eventos-financeiros`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ natureza: eventoNatureza, descricao: eventoDescricao, detalhe: eventoDetalhe, valor: eventoValor }),
+        body: JSON.stringify({
+          natureza: eventoNatureza,
+          tipo: eventoTipo,
+          descricao: eventoDescricao,
+          detalhe: eventoDetalhe,
+          valor: eventoValor,
+        }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || "Erro ao adicionar evento");
       setEventoDialogOpen(false);
-      setEventoDescricao(""); setEventoDetalhe(""); setEventoValor(0);
+      setEventoTipo(""); setEventoDescricao(""); setEventoDetalhe(""); setEventoValor(0);
       toast.success("Evento financeiro registrado.");
       await recarregarDetalhes();
     } catch (error: any) { toast.error(error?.message || "Erro ao adicionar evento"); }
     finally { setSalvandoEvento(false); }
   }
 
-  function abrirEdicaoSnapshot(id: number, descricao: string, valor: number, status: string, transacaoId?: number | null) {
+  function abrirDespesaServico(lancamento: { id: number; servicoid: number; descricao: string }) {
+    const nomeServico = lancamento.descricao.replace(/^Serviço\s*-\s*/i, "").trim();
+    setReceitaServicoParaDespesa(lancamento);
+    setDespesaServicoTitulo(nomeServico ? `Despesa - ${nomeServico}` : "Despesa do serviço");
+    setDespesaServicoDetalhe("");
+    setDespesaServicoValor(0);
+  }
+
+  async function adicionarDespesaServico() {
+    if (!osId || !receitaServicoParaDespesa) return;
+    setSalvandoDespesaServico(true);
+    try {
+      const response = await fetch(`/api/ordens/${osId}/eventos-financeiros`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          natureza: "DESPESA",
+          descricao: despesaServicoTitulo,
+          detalhe: despesaServicoDetalhe,
+          valor: despesaServicoValor,
+          eventoReceitaServicoId: receitaServicoParaDespesa.id,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Erro ao adicionar despesa ao serviço");
+      setReceitaServicoParaDespesa(null);
+      setDespesaServicoTitulo("");
+      setDespesaServicoDetalhe("");
+      setDespesaServicoValor(0);
+      toast.success("Despesa vinculada ao serviço.");
+      await recarregarDetalhes();
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao adicionar despesa ao serviço");
+    } finally {
+      setSalvandoDespesaServico(false);
+    }
+  }
+
+  function abrirEdicaoSnapshot(
+    id: number,
+    descricao: string,
+    detalhe: string,
+    valor: number,
+    natureza: "RECEITA" | "DESPESA",
+    status: string,
+    transacaoId?: number | null,
+  ) {
     if (status === "CONVERTIDO") {
       if (!transacaoId) {
         toast.error("A transação vinculada não foi localizada.");
         return;
       }
-      setEventoConvertidoParaEditar({ id, descricao, valor, transacaoId });
+      setEventoConvertidoParaEditar({ id, descricao, detalhe, valor, natureza, transacaoId });
       return;
     }
-    setEventoEdicao({ id, descricao, valor });
+    setEventoEdicao({ id, descricao, detalhe, valor, natureza });
+    setTituloEventoEdicao(descricao);
+    setDetalheEventoEdicao(detalhe);
     setValorSnapshotEdicao(valor);
   }
 
@@ -964,7 +1069,15 @@ export function OSDetalhesDialog({
       if (!response.ok) throw new Error(payload?.error || "Erro ao excluir a transação vinculada");
       const evento = eventoConvertidoParaEditar;
       setEventoConvertidoParaEditar(null);
-      setEventoEdicao({ id: evento.id, descricao: evento.descricao, valor: evento.valor });
+      setEventoEdicao({
+        id: evento.id,
+        descricao: evento.descricao,
+        detalhe: evento.detalhe,
+        valor: evento.valor,
+        natureza: evento.natureza,
+      });
+      setTituloEventoEdicao(evento.descricao);
+      setDetalheEventoEdicao(evento.detalhe);
       setValorSnapshotEdicao(evento.valor);
       toast.success("Transação excluída. O evento está disponível para edição e novo lançamento.");
       await recarregarDetalhes();
@@ -982,12 +1095,18 @@ export function OSDetalhesDialog({
       const response = await fetch(`/api/ordens/${osId}/eventos-financeiros/${eventoEdicao.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ valor: valorSnapshotEdicao }),
+        body: JSON.stringify({
+          valor: valorSnapshotEdicao,
+          ...(eventoEdicao.natureza === "DESPESA" ? {
+            descricao: tituloEventoEdicao,
+            detalhe: detalheEventoEdicao,
+          } : {}),
+        }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || "Erro ao alterar snapshot");
       setEventoEdicao(null);
-      toast.success("Valor do snapshot atualizado.");
+      toast.success(eventoEdicao.natureza === "DESPESA" ? "Despesa atualizada." : "Valor do snapshot atualizado.");
       await recarregarDetalhes();
     } catch (error: any) { toast.error(error?.message || "Erro ao alterar snapshot"); }
     finally { setSalvandoSnapshot(false); }
@@ -1001,8 +1120,11 @@ export function OSDetalhesDialog({
 
   /** Além disso, só snapshot de produto ainda não lançado: a transação
    * vinculada não acompanharia o novo valor. */
-  function podeSincronizar(lancamento: { origem: string; status: string; competenciaFechada: boolean }) {
-    return podeAlterarValor(lancamento) && lancamento.origem === "PRODUTO" && lancamento.status === "ATIVO";
+  function podeSincronizar(lancamento: { origem: string; status: string; competenciaFechada: boolean; produtoid?: number | null }) {
+    return podeAlterarValor(lancamento)
+      && lancamento.origem === "PRODUTO"
+      && lancamento.status === "ATIVO"
+      && Boolean(lancamento.produtoid);
   }
 
   async function sincronizarUltimoCusto(eventoId: number) {
@@ -2086,10 +2208,18 @@ export function OSDetalhesDialog({
                     <div className="rounded-xl border bg-card p-4">
                       <div className="flex items-center gap-2 text-sm text-muted-foreground"><ArrowUp className="size-4 text-emerald-600" /> Receitas</div>
                       <p className="mt-2 text-xl font-semibold text-emerald-600">{fmtMoney(totaisEventos.receita)}</p>
+                      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                        <span>Produtos: {fmtMoney(totaisEventos.receitaProdutos)}</span>
+                        <span>Serviços: {fmtMoney(totaisEventos.receitaServicos)}</span>
+                      </div>
                     </div>
                     <div className="rounded-xl border bg-card p-4">
                       <div className="flex items-center gap-2 text-sm text-muted-foreground"><ArrowDown className="size-4 text-red-600" /> Despesas</div>
                       <p className="mt-2 text-xl font-semibold text-red-600">{fmtMoney(totaisEventos.despesa)}</p>
+                      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                        <span>Produtos: {fmtMoney(totaisEventos.despesaProdutos)}</span>
+                        <span>Serviços: {fmtMoney(totaisEventos.despesaServicos)}</span>
+                      </div>
                     </div>
                     <div className={`relative overflow-hidden rounded-xl border p-4 transition-colors ${
                       osFinalizada
@@ -2191,6 +2321,15 @@ export function OSDetalhesDialog({
                                   ) : null}
                                 </div>
                                 <p className="truncate text-xs text-muted-foreground">{lancamento.detalhe}</p>
+                                {lancamento.isManual && lancamento.criadoPorNome ? (
+                                  <p className="mt-0.5 truncate text-[11px] text-muted-foreground/80">
+                                    Adicionado por {lancamento.criadoPorNome}
+                                  </p>
+                                ) : lancamento.tipo === "SAIDA" && !lancamento.isManual ? (
+                                  <p className="mt-0.5 truncate text-[11px] text-muted-foreground/80">
+                                    Gerado automaticamente
+                                  </p>
+                                ) : null}
                               </div>
                             </div>
                             <div className="flex items-center justify-between sm:block sm:text-right">
@@ -2208,20 +2347,36 @@ export function OSDetalhesDialog({
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end" className="w-60">
-                                  {podeAlterarValor(lancamento) ? (
+                                  {podeAlterarValor(lancamento)
+                                    && (lancamento.tipo === "ENTRADA" || lancamento.isManual) ? (
                                     <DropdownMenuItem onSelect={() => abrirEdicaoSnapshot(
                                       lancamento.id,
                                       lancamento.descricao,
+                                      lancamento.detalhe,
                                       lancamento.valor,
+                                      lancamento.tipo === "ENTRADA" ? "RECEITA" : "DESPESA",
                                       lancamento.status,
                                       data.eventosFinanceiros?.find((item) => item.id === lancamento.id)?.transacaoid,
                                     )}>
-                                      <Pencil /> Editar valor do lançamento
+                                      <Pencil /> {lancamento.tipo === "SAIDA" ? "Editar despesa" : "Editar valor do lançamento"}
                                     </DropdownMenuItem>
                                   ) : null}
                                   {lancamento.produtoid ? (
                                     <DropdownMenuItem onSelect={() => visualizarProduto(lancamento.produtoid!)}>
                                       <Eye /> Visualizar produto
+                                    </DropdownMenuItem>
+                                  ) : null}
+                                  {podeAlterarValor(lancamento)
+                                    && lancamento.origem === "SERVICO"
+                                    && lancamento.tipo === "ENTRADA"
+                                    && lancamento.status === "ATIVO"
+                                    && lancamento.servicoid ? (
+                                    <DropdownMenuItem onSelect={() => abrirDespesaServico({
+                                      id: lancamento.id,
+                                      servicoid: lancamento.servicoid!,
+                                      descricao: lancamento.descricao,
+                                    })}>
+                                      <ArrowDown /> Adicionar despesa ao serviço
                                     </DropdownMenuItem>
                                   ) : null}
                                   {podeSincronizar(lancamento) && lancamento.tipo === "SAIDA" ? (
@@ -2293,9 +2448,20 @@ export function OSDetalhesDialog({
                     <DialogContent className="sm:max-w-md">
                       <DialogHeader>
                         <DialogTitle>Novo evento financeiro</DialogTitle>
-                        <DialogDescription>Registre uma receita ou despesa avulsa vinculada à OS.</DialogDescription>
+                        <DialogDescription>Registre uma receita ou despesa manual e classifique-a como Produto ou Serviço.</DialogDescription>
                       </DialogHeader>
                       <div className="space-y-3 p-4 bg-card rounded-2xl">
+                        <label className="block text-sm font-medium">Tipo
+                          <select
+                            className="mt-1 h-10 w-full rounded-md border bg-background px-3"
+                            value={eventoTipo}
+                            onChange={(event) => setEventoTipo(event.target.value as "" | "PRODUTO" | "SERVICO")}
+                          >
+                            <option value="" disabled>Selecione o tipo</option>
+                            <option value="PRODUTO">Produto</option>
+                            <option value="SERVICO">Serviço</option>
+                          </select>
+                        </label>
                         <label className="block text-sm font-medium">Natureza
                           <select className="mt-1 h-10 w-full rounded-md border bg-background px-3" value={eventoNatureza} onChange={(e) => setEventoNatureza(e.target.value as "RECEITA" | "DESPESA")}>
                             <option value="DESPESA">Despesa</option><option value="RECEITA">Receita</option>
@@ -2310,26 +2476,105 @@ export function OSDetalhesDialog({
                         <label className="block text-sm font-medium">Valor
                           <ValueInput price={eventoValor} setPrice={setEventoValor} className="mt-1 h-10 w-full" />
                         </label>
-                        <Button className="w-full" disabled={salvandoEvento} onClick={() => void adicionarEventoAvulso()}>
+                        <Button
+                          className="w-full"
+                          disabled={salvandoEvento || !eventoTipo || !eventoDescricao.trim() || eventoValor <= 0}
+                          onClick={() => void adicionarEventoAvulso()}
+                        >
                           {salvandoEvento ? "Salvando..." : "Registrar evento"}
                         </Button>
                       </div>
                     </DialogContent>
                   </Dialog>
-                  <Dialog open={Boolean(eventoEdicao)} onOpenChange={(nextOpen) => { if (!nextOpen) setEventoEdicao(null); }}>
-                    <DialogContent className="sm:max-w-sm">
+                  <Dialog
+                    open={Boolean(receitaServicoParaDespesa)}
+                    onOpenChange={(nextOpen) => {
+                      if (!nextOpen && !salvandoDespesaServico) setReceitaServicoParaDespesa(null);
+                    }}
+                  >
+                    <DialogContent className="sm:max-w-md">
                       <DialogHeader>
-                        <DialogTitle>Editar valor do snapshot</DialogTitle>
-                        <DialogDescription>{eventoEdicao?.descricao}</DialogDescription>
+                        <DialogTitle>Adicionar despesa ao serviço</DialogTitle>
+                        <DialogDescription>
+                          Esta despesa ficará vinculada a {receitaServicoParaDespesa?.descricao ?? "este serviço"} e será separada da comissão automática.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-3 rounded-2xl bg-card p-4">
+                        <label className="block text-sm font-medium">Título da despesa
+                          <input
+                            className="mt-1 h-10 w-full rounded-md border bg-background px-3"
+                            value={despesaServicoTitulo}
+                            onChange={(event) => setDespesaServicoTitulo(event.target.value)}
+                            placeholder="Ex.: Serviço terceirizado"
+                          />
+                        </label>
+                        <label className="block text-sm font-medium">Detalhes
+                          <input
+                            className="mt-1 h-10 w-full rounded-md border bg-background px-3"
+                            value={despesaServicoDetalhe}
+                            onChange={(event) => setDespesaServicoDetalhe(event.target.value)}
+                            placeholder="Informação complementar (opcional)"
+                          />
+                        </label>
+                        <label className="block text-sm font-medium">Valor
+                          <ValueInput price={despesaServicoValor} setPrice={setDespesaServicoValor} className="mt-1 h-10 w-full" />
+                        </label>
+                        <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                          Tipo: Serviço · Natureza: Despesa · DRE: Custo dos serviços prestados
+                        </div>
+                        <Button
+                          className="w-full"
+                          disabled={salvandoDespesaServico || !despesaServicoTitulo.trim() || despesaServicoValor <= 0}
+                          onClick={() => void adicionarDespesaServico()}
+                        >
+                          {salvandoDespesaServico ? "Salvando..." : "Registrar despesa do serviço"}
+                        </Button>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                  <Dialog open={Boolean(eventoEdicao)} onOpenChange={(nextOpen) => { if (!nextOpen) setEventoEdicao(null); }}>
+                    <DialogContent className="sm:max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>{eventoEdicao?.natureza === "DESPESA" ? "Editar despesa" : "Editar valor do lançamento"}</DialogTitle>
+                        <DialogDescription>
+                          {eventoEdicao?.natureza === "DESPESA"
+                            ? "Altere o título, a descrição e o valor desta despesa."
+                            : eventoEdicao?.descricao}
+                        </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4">
+                        {eventoEdicao?.natureza === "DESPESA" ? (
+                          <>
+                            <label className="block text-sm font-medium">Título
+                              <input
+                                className="mt-1 h-10 w-full rounded-md border bg-background px-3"
+                                value={tituloEventoEdicao}
+                                onChange={(event) => setTituloEventoEdicao(event.target.value)}
+                              />
+                            </label>
+                            <label className="block text-sm font-medium">Descrição
+                              <input
+                                className="mt-1 h-10 w-full rounded-md border bg-background px-3"
+                                value={detalheEventoEdicao}
+                                onChange={(event) => setDetalheEventoEdicao(event.target.value)}
+                                placeholder="Informação complementar (opcional)"
+                              />
+                            </label>
+                          </>
+                        ) : null}
                         <label className="block text-sm font-medium">Valor
                           <div className="mt-1">
                             <ValueInput price={valorSnapshotEdicao} setPrice={setValorSnapshotEdicao} />
                           </div>
                         </label>
-                        <Button className="w-full" disabled={salvandoSnapshot} onClick={() => void salvarSnapshot()}>
-                          {salvandoSnapshot ? "Salvando..." : "Salvar novo valor"}
+                        <Button
+                          className="w-full"
+                          disabled={salvandoSnapshot || (eventoEdicao?.natureza === "DESPESA" && !tituloEventoEdicao.trim())}
+                          onClick={() => void salvarSnapshot()}
+                        >
+                          {salvandoSnapshot
+                            ? "Salvando..."
+                            : eventoEdicao?.natureza === "DESPESA" ? "Salvar alterações" : "Salvar novo valor"}
                         </Button>
                       </div>
                     </DialogContent>
@@ -2342,7 +2587,7 @@ export function OSDetalhesDialog({
                       <AlertDialogHeader>
                         <AlertDialogTitle>Excluir transação vinculada?</AlertDialogTitle>
                         <AlertDialogDescription>
-                          Este evento já foi lançado no financeiro. Para alterar seu valor, será necessário excluir a transação vinculada. Deseja continuar?
+                          Este evento já foi lançado no financeiro. Para alterar seus dados, será necessário excluir a transação vinculada. Deseja continuar?
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>

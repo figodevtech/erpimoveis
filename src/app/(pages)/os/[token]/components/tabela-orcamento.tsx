@@ -51,7 +51,16 @@ export function TabelaOrcamento({
             ) : (
               itens.map((item, i) => (
                 <TableRow key={i}>
-                  <TableCell className="pr-4">{item.descricao}</TableCell>
+                  <TableCell className="pr-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span>{item.descricao}</span>
+                      {item.avulso ? (
+                        <span className="rounded-sm border border-amber-600/40 bg-amber-600/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                          Avulso
+                        </span>
+                      ) : null}
+                    </div>
+                  </TableCell>
                   <TableCell className="text-center">{item.quantidade}</TableCell>
                   <TableCell className="text-right tabular-nums">{money(item.precounitario)}</TableCell>
                   {temDesconto ? (

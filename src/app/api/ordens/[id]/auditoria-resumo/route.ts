@@ -38,6 +38,7 @@ type ItemResumo = {
     | "anexo"
     | "estoque"
     | "saida"
+    | "financeiro"
     | "dados";
   titulo: string;
   detalhe: string | null;
@@ -52,6 +53,7 @@ const TABELAS_FILHAS = [
   "osanexo",
   "osaprovacao",
   "osproduto_baixa",
+  "eventos_financeiros",
 ];
 
 const STATUS_LABELS: Record<string, string> = {
@@ -344,19 +346,27 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
     const select =
       "id, ocorrido_em, operacao, tabela, registro_id, usuario_id, ator_nome, dados_anteriores, dados_novos, campos_alterados, transacao_id, origem, usuario:usuario_id ( id, nome, email )";
 
-    const [checklistsAtuais, aprovacoesAtuais, anexosAtuais] = await Promise.all([
+    const [checklistsAtuais, aprovacoesAtuais, anexosAtuais, eventosFinanceirosAtuais] = await Promise.all([
       supabaseAdmin.from("checklist").select("id").eq("ordemservicoid", osId),
       supabaseAdmin.from("osaprovacao").select("id").eq("ordemservicoid", osId),
       supabaseAdmin.from("osanexo").select("id").eq("ordemservicoid", osId),
+      supabaseAdmin
+        .from("eventos_financeiros")
+        .select("id, origem, natureza, descricao, detalhe, valor, is_manual, dados_snapshot, created_by, created_at")
+        .eq("ordemservicoid", osId),
     ]);
-    for (const resultado of [checklistsAtuais, aprovacoesAtuais, anexosAtuais]) {
+    for (const resultado of [checklistsAtuais, aprovacoesAtuais, anexosAtuais, eventosFinanceirosAtuais]) {
       if (resultado.error) throw resultado.error;
     }
     const idsAtuaisPorTabela = new Map<string, Set<string>>([
       ["checklist", new Set((checklistsAtuais.data ?? []).map((item) => String(item.id)))],
       ["osaprovacao", new Set((aprovacoesAtuais.data ?? []).map((item) => String(item.id)))],
       ["osanexo", new Set((anexosAtuais.data ?? []).map((item) => String(item.id)))],
+      ["eventos_financeiros", new Set((eventosFinanceirosAtuais.data ?? []).map((item) => String(item.id)))],
     ]);
+    const eventosFinanceirosPorId = new Map(
+      (eventosFinanceirosAtuais.data ?? []).map((evento) => [String(evento.id), evento]),
+    );
 
     const consultarRegistros = (tabela: string, ids: Array<number | string>) =>
       ids.length
@@ -384,7 +394,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
       : { data: [], error: null };
     if (imagensSaidaAtuais.error) throw imagensSaidaAtuais.error;
 
-    const [ordem, filhasNovas, filhasAnteriores, filhasPorOs, checklists, aprovacoes, anexos, saidas, itensSaida, imagensSaida] =
+    const [ordem, filhasNovas, filhasAnteriores, filhasPorOs, checklists, aprovacoes, anexos, auditoriaFinanceira, saidas, itensSaida, imagensSaida] =
       await Promise.all([
       supabaseAdmin
         .from("auditoria_evento")
@@ -421,6 +431,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
       consultarRegistros("checklist", (checklistsAtuais.data ?? []).map((item) => item.id)),
       consultarRegistros("osaprovacao", (aprovacoesAtuais.data ?? []).map((item) => item.id)),
       consultarRegistros("osanexo", (anexosAtuais.data ?? []).map((item) => item.id)),
+      consultarRegistros("eventos_financeiros", (eventosFinanceirosAtuais.data ?? []).map((item) => item.id)),
       consultarRegistros("os_saida", saidaAtual.data ? [saidaAtual.data.id] : []),
       consultarRegistros("os_saida_checklist_item", (itensSaidaAtuais.data ?? []).map((item) => item.id)),
       consultarRegistros("os_saida_checklist_imagem", (imagensSaidaAtuais.data ?? []).map((item) => item.id)),
@@ -434,6 +445,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
       checklists,
       aprovacoes,
       anexos,
+      auditoriaFinanceira,
       saidas,
       itensSaida,
       imagensSaida,
@@ -451,6 +463,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
           ...(checklists.data ?? []),
           ...(aprovacoes.data ?? []),
           ...(anexos.data ?? []),
+          ...(auditoriaFinanceira.data ?? []),
           ...(saidas.data ?? []),
           ...(itensSaida.data ?? []),
           ...(imagensSaida.data ?? []),
@@ -487,6 +500,9 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
       if (usuarioId !== null && usuarioId !== undefined) usuarioIds.add(String(usuarioId));
       if (servicoId !== null && servicoId !== undefined) servicoIds.add(String(servicoId));
       if (produtoId !== null && produtoId !== undefined) produtoIds.add(String(produtoId));
+    }
+    for (const evento of eventosFinanceirosAtuais.data ?? []) {
+      if (evento.created_by) usuarioIds.add(String(evento.created_by));
     }
 
     const [usuarios, servicos, produtos] = await Promise.all([
@@ -614,6 +630,79 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
           detalhe: `${textoStatus(valor(anterior, "statusaprovacao"))} → ${textoStatus(valor(novo, "statusaprovacao"))}`,
         });
         continue;
+      }
+
+      if (evento.tabela === "eventos_financeiros") {
+        const atual = eventosFinanceirosPorId.get(String(evento.registro_id));
+        const natureza = String(
+          valor(novo, "natureza") ?? valor(anterior, "natureza") ?? atual?.natureza ?? "",
+        ).toUpperCase();
+        const manual = Boolean(
+          valor(novo, "is_manual") ?? valor(anterior, "is_manual") ?? atual?.is_manual,
+        );
+        if (natureza !== "DESPESA") continue;
+
+        const origemEvento = String(
+          valor(novo, "origem") ?? valor(anterior, "origem") ?? atual?.origem ?? "AVULSO",
+        ).toUpperCase();
+        const tipoEvento =
+          origemEvento === "SERVICO"
+            ? "Serviço"
+            : origemEvento === "PRODUTO"
+              ? "Produto"
+              : origemEvento === "COMISSAO" ? "Comissão" : "Avulsa";
+        const descricaoAtual = String(
+          valor(novo, "descricao") ?? valor(anterior, "descricao") ?? atual?.descricao ?? "Despesa",
+        );
+        const valorAtual = valor(novo, "valor") ?? valor(anterior, "valor") ?? atual?.valor;
+
+        if (evento.operacao === "INSERT" && manual) {
+          adicionar(evento, {
+            tipo: "financeiro",
+            titulo: "Adicionou uma despesa nos eventos financeiros",
+            detalhe: `${descricaoAtual} • ${moedaFormatada(valorAtual)} • Tipo: ${tipoEvento}`,
+          });
+          continue;
+        }
+
+        if (evento.operacao === "UPDATE" && evento.campos_alterados?.includes("status")) {
+          const statusNovo = String(valor(novo, "status") ?? "").toUpperCase();
+          if (statusNovo === "CONVERTIDO") {
+            adicionar(evento, {
+              tipo: "financeiro",
+              titulo: "Lançou uma despesa no financeiro",
+              detalhe: `${descricaoAtual} • ${moedaFormatada(valorAtual)} • Tipo: ${tipoEvento}`,
+            });
+          }
+          continue;
+        }
+
+        if (evento.operacao === "UPDATE" && manual) {
+          const alteracoes: string[] = [];
+          if (evento.campos_alterados?.includes("descricao")) {
+            alteracoes.push(
+              `título “${String(valor(anterior, "descricao") ?? "")}” → “${String(valor(novo, "descricao") ?? "")}”`,
+            );
+          }
+          if (evento.campos_alterados?.includes("detalhe")) {
+            alteracoes.push(
+              `descrição “${String(valor(anterior, "detalhe") ?? "sem descrição")}” → “${String(valor(novo, "detalhe") ?? "sem descrição")}”`,
+            );
+          }
+          if (evento.campos_alterados?.includes("valor")) {
+            alteracoes.push(
+              `valor ${moedaFormatada(valor(anterior, "valor"))} → ${moedaFormatada(valor(novo, "valor"))}`,
+            );
+          }
+          if (alteracoes.length) {
+            adicionar(evento, {
+              tipo: "financeiro",
+              titulo: "Editou uma despesa dos eventos financeiros",
+              detalhe: `${descricaoAtual} • ${alteracoes.join("; ")} • Tipo: ${tipoEvento}`,
+            });
+          }
+          continue;
+        }
       }
 
       if (evento.tabela === "osproduto" || evento.tabela === "osservico") {
@@ -813,6 +902,50 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
           true,
         );
       }
+    }
+
+    // Eventos manuais criados antes desta tabela receber auditoria tambem
+    // aparecem no historico. O autor e a data vêm do proprio registro, sem
+    // fabricar uma alteracao que nao ocorreu.
+    const despesasComCriacaoAuditada = new Set(
+      eventos
+        .filter((evento) => evento.tabela === "eventos_financeiros" && evento.operacao === "INSERT")
+        .map((evento) => String(evento.registro_id)),
+    );
+    for (const evento of eventosFinanceirosAtuais.data ?? []) {
+      const snapshot = evento.dados_snapshot as Record<string, unknown> | null;
+      const criadoManualmente =
+        evento.origem === "AVULSO"
+        || snapshot?.despesa_servico_manual === true
+        || snapshot?.lancamento_avulso_manual === true;
+      if (
+        evento.natureza !== "DESPESA"
+        || !evento.is_manual
+        || !criadoManualmente
+        || despesasComCriacaoAuditada.has(String(evento.id))
+      ) continue;
+
+      const origemEvento = String(evento.origem ?? "AVULSO").toUpperCase();
+      const tipoEvento =
+        origemEvento === "SERVICO"
+          ? "Serviço"
+          : origemEvento === "PRODUTO"
+            ? "Produto"
+            : origemEvento === "COMISSAO" ? "Comissão" : "Avulsa";
+      const usuarioId = evento.created_by ? String(evento.created_by) : null;
+      itens.push({
+        id: `evento-financeiro-${evento.id}`,
+        ocorridoEm: String(evento.created_at),
+        tipo: "financeiro",
+        titulo: "Adicionou uma despesa nos eventos financeiros",
+        detalhe: `${evento.descricao || "Despesa"} • ${moedaFormatada(evento.valor)} • Tipo: ${tipoEvento}`,
+        usuario: {
+          id: usuarioId,
+          nome: usuarioId
+            ? nomesUsuarios.get(usuarioId) ?? "Usuário não identificado"
+            : "Usuário não identificado",
+        },
+      });
     }
 
     return NextResponse.json({

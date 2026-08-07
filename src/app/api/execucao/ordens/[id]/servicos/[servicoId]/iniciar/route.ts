@@ -75,6 +75,26 @@ export async function POST(_req: Request, ctx: { params: Promise<Params> }) {
     const now = new Date().toISOString();
 
     if (osStatus === "ORCAMENTO_APROVADO") {
+      // Produto avulso pode fazer parte do orçamento enviado e aprovado pelo
+      // cliente, mas precisa ser vinculado ao catálogo antes da execução para
+      // que exista um saldo de estoque concreto a consumir.
+      const { count: produtosAvulsos, error: produtosAvulsosError } =
+        await supabaseAdmin
+          .from("osproduto_avulso")
+          .select("id", { count: "exact", head: true })
+          .eq("ordemservicoid", ordemservicoid);
+      if (produtosAvulsosError) throw produtosAvulsosError;
+      if ((produtosAvulsos ?? 0) > 0) {
+        return NextResponse.json(
+          {
+            error: `Existem ${produtosAvulsos} produto(s) avulso(s) pendente(s). Vincule ou cadastre antes de iniciar a OS.`,
+            codigo: "PRODUTOS_AVULSOS_PENDENTES",
+            quantidade: produtosAvulsos,
+          },
+          { status: 409 },
+        );
+      }
+
       const modoBaixa = await buscarModoBaixaEstoqueOS();
       if (modoBaixa === "EXECUCAO") {
         const baixa = await consumirEstoqueOS(ordemservicoid);

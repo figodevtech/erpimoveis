@@ -24,6 +24,8 @@ type DBAprovacao = "PENDENTE" | "APROVADA" | "REPROVADA";
 
 type LinhaOrcamento = {
   descricao: string;
+  /** Item informado no orçamento que ainda não foi vinculado ao catálogo. */
+  avulso?: boolean;
   quantidade: number;
   precounitario: number;
   /** quantidade x preço unitário, antes do desconto do item */
@@ -134,6 +136,14 @@ async function carregarPorToken(token: string): Promise<Bundle | null> {
 
   if (prod.error) throw prod.error;
 
+  const avulsos = await supabaseAdmin
+    .from("osproduto_avulso")
+    .select("id, titulo, quantidade, precounitario, subtotal, desconto, desconto_tipo")
+    .eq("ordemservicoid", osId)
+    .order("id", { ascending: true });
+
+  if (avulsos.error) throw avulsos.error;
+
   const serv = await supabaseAdmin
     .from("osservico")
     .select(
@@ -145,7 +155,11 @@ async function carregarPorToken(token: string): Promise<Bundle | null> {
 
   // `subtotal` já é gravado líquido do desconto do item, mas recalculamos a partir do
   // bruto para o detalhamento nunca divergir do desconto que está sendo exibido.
-  function montarLinha(descricao: string, row: any): LinhaOrcamento {
+  function montarLinha(
+    descricao: string,
+    row: any,
+    avulso = false,
+  ): LinhaOrcamento {
     const quantidade = Number(row.quantidade) || 0;
     const precounitario = Number(row.precounitario) || 0;
     const valorBruto = arredondarMoeda(quantidade * precounitario);
@@ -155,6 +169,7 @@ async function carregarPorToken(token: string): Promise<Bundle | null> {
 
     return {
       descricao,
+      avulso,
       quantidade,
       precounitario,
       valorBruto,
@@ -165,9 +180,15 @@ async function carregarPorToken(token: string): Promise<Bundle | null> {
     };
   }
 
-  const produtos: LinhaProduto[] = (prod.data ?? []).map((row: any) =>
+  const produtosCadastrados: LinhaProduto[] = (prod.data ?? []).map((row: any) =>
     montarLinha(row.produto?.titulo || row.produto?.descricao || "Produto", row)
   );
+
+  const produtosAvulsos: LinhaProduto[] = (avulsos.data ?? []).map((row: any) =>
+    montarLinha(row.titulo || "Produto avulso", row, true)
+  );
+
+  const produtos = [...produtosCadastrados, ...produtosAvulsos];
 
   const servicos: LinhaServico[] = (serv.data ?? []).map((row: any) =>
     montarLinha(row.servico?.descricao ?? "Serviço", row)
@@ -377,19 +398,6 @@ export async function POST(
     const desiredOS: DBStatusOS =
       body.acao === "aprovar" ? "ORCAMENTO_APROVADO" : "ORCAMENTO_RECUSADO";
 
-    if (body.acao === "aprovar") {
-      const { count: produtosAvulsos, error: produtosAvulsosError } = await supabaseAdmin
-        .from("osproduto_avulso")
-        .select("id", { count: "exact", head: true })
-        .eq("ordemservicoid", ordemservicoid);
-      if (produtosAvulsosError) throw produtosAvulsosError;
-      if ((produtosAvulsos ?? 0) > 0) {
-        return NextResponse.json(
-          { error: "Este orçamento possui produtos avulsos pendentes e ainda não pode ser aprovado." },
-          { status: 409 },
-        );
-      }
-    }
     const auditActorName = auditHeaderValue(
       `Cliente: ${cliente.nomerazaosocial} (link de aprovacao)`,
     );

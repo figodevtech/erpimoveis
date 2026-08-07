@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
 const CONFIG_SELECT_BASE_LEGADO =
   "id, aviso_pagamento, checklist_obrigatorio, alerta_estoque_pdv, habilitar_emissao_nfe, emissao_nf_no_modulo_ordens, emissao_nf_no_modulo_vendas, emissao_nf_ordens_nao_pagas, emissao_nf_vendas_nao_pagas, modo_baixa_estoque_os, created_at, habilitar_drawers";
 
-const CONFIG_SELECT_BASE = `${CONFIG_SELECT_BASE_LEGADO}, produto_preco_medio_compra_obrigatorio, habilitar_edicao_transacoes, permitir_produto_avulso_os`;
+const CONFIG_SELECT_BASE_SEM_SETOR_PADRAO = `${CONFIG_SELECT_BASE_LEGADO}, produto_preco_medio_compra_obrigatorio, habilitar_edicao_transacoes, permitir_produto_avulso_os`;
+const CONFIG_SELECT_BASE = `${CONFIG_SELECT_BASE_SEM_SETOR_PADRAO}, setor_padrao_os_id`;
 
 const CONFIG_SELECT_BASE_SEM_MODO_BAIXA =
   "id, aviso_pagamento, checklist_obrigatorio, alerta_estoque_pdv, habilitar_emissao_nfe, emissao_nf_no_modulo_ordens, emissao_nf_no_modulo_vendas, emissao_nf_ordens_nao_pagas, emissao_nf_vendas_nao_pagas, created_at, habilitar_drawers";
@@ -22,6 +23,7 @@ const CONFIG_SELECT_IMPRESSAO =
   "impressao_cor_primaria, impressao_cor_secundaria";
 
 const CONFIG_SELECT_SEM_IMPRESSAO = `${CONFIG_SELECT_BASE}, ${CONFIG_SELECT_AGENDAMENTO}`;
+const CONFIG_SELECT_COMPLETO_SEM_SETOR_PADRAO = `${CONFIG_SELECT_BASE_SEM_SETOR_PADRAO}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
 const CONFIG_SELECT_COMPLETO_LEGADO = `${CONFIG_SELECT_BASE_LEGADO}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
 const CONFIG_SELECT_SEM_MODO_BAIXA = `${CONFIG_SELECT_BASE_SEM_MODO_BAIXA}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
 const CONFIG_SELECT_COMPLETO = `${CONFIG_SELECT_BASE}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
@@ -84,6 +86,10 @@ function comPadroesAgendamento(config: any) {
     produto_preco_medio_compra_obrigatorio: config.produto_preco_medio_compra_obrigatorio === true,
     habilitar_edicao_transacoes: config.habilitar_edicao_transacoes === true,
     permitir_produto_avulso_os: config.permitir_produto_avulso_os === true,
+    setor_padrao_os_id: Number.isInteger(Number(config.setor_padrao_os_id))
+      && Number(config.setor_padrao_os_id) > 0
+      ? Number(config.setor_padrao_os_id)
+      : null,
   };
 }
 
@@ -98,6 +104,16 @@ async function buscarConfigAtual() {
 
   if (!error) return comPadroesAgendamento(data);
   if (!colunaNaoExiste(error)) throw error;
+
+  const semSetorPadrao = await supabase
+    .from("config_geral")
+    .select(CONFIG_SELECT_COMPLETO_SEM_SETOR_PADRAO)
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!semSetorPadrao.error) return comPadroesAgendamento(semSetorPadrao.data);
+  if (!colunaNaoExiste(semSetorPadrao.error)) throw semSetorPadrao.error;
 
   const semPrecoMedioObrigatorio = await supabase
     .from("config_geral")
@@ -152,6 +168,16 @@ async function criarConfigPadraoSeNaoExistir() {
 
   if (!error) return comPadroesAgendamento(data);
   if (!colunaNaoExiste(error)) throw error;
+
+  const semSetorPadrao = await supabase
+    .from("config_geral")
+    .select(CONFIG_SELECT_COMPLETO_SEM_SETOR_PADRAO)
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!semSetorPadrao.error) return comPadroesAgendamento(semSetorPadrao.data);
+  if (!colunaNaoExiste(semSetorPadrao.error)) throw semSetorPadrao.error;
 
   const semPrecoMedioObrigatorio = await supabase
     .from("config_geral")
@@ -279,6 +305,30 @@ export async function PUT(request: Request) {
         return respostaJSON({ error: "Modo de baixa de estoque da OS invalido." }, 400);
       }
       patch.modo_baixa_estoque_os = val;
+    }
+
+    if (body.setor_padrao_os_id !== undefined) {
+      if (body.setor_padrao_os_id === null || body.setor_padrao_os_id === "") {
+        patch.setor_padrao_os_id = null;
+      } else {
+        const setorId = Number(body.setor_padrao_os_id);
+        if (!Number.isInteger(setorId) || setorId <= 0) {
+          return respostaJSON({ error: "Setor padr\u00e3o da OS inv\u00e1lido." }, 400);
+        }
+
+        const { data: setor, error: setorError } = await supabase
+          .from("setor")
+          .select("id")
+          .eq("id", setorId)
+          .eq("ativo", true)
+          .maybeSingle();
+
+        if (setorError) throw setorError;
+        if (!setor) {
+          return respostaJSON({ error: "O setor padr\u00e3o selecionado n\u00e3o existe ou est\u00e1 inativo." }, 400);
+        }
+        patch.setor_padrao_os_id = setorId;
+      }
     }
 
     if (Object.keys(patch).length === 0) {

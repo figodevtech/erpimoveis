@@ -19,5 +19,6 @@ export interface Config {
     produto_preco_medio_compra_obrigatorio: boolean;
     habilitar_edicao_transacoes: boolean;
     permitir_produto_avulso_os: boolean;
+    setor_padrao_os_id: number | null;
     created_at: string;
 }

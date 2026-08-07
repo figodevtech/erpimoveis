@@ -3,6 +3,8 @@ export type TipoDesconto = "FIXO" | "PORCENTAGEM" | null;
 /** Linha de produto ou serviço do orçamento, como devolvida por /api/ordens/aprovacao/[token]. */
 export type LinhaOrcamento = {
   descricao: string;
+  /** Item ainda não vinculado a um produto do catálogo/estoque. */
+  avulso?: boolean;
   quantidade: number;
   precounitario: number;
   /** quantidade x preço unitário, antes do desconto do item */
