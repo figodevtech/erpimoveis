@@ -101,7 +101,14 @@ type RawLedgerMovement = {
   created_at: string;
   produto?: { titulo?: string | null; unidade?: string | null } | null;
   criador?: { nome?: string | null } | null;
-  entrada?: { status?: string | null; fornecedor?: { nomerazaosocial?: string | null } | null } | null;
+  entrada?: {
+    id?: number | null;
+    status?: string | null;
+    origem?: string | null;
+    fiscal?: boolean | null;
+    numero_nota?: string | null;
+    fornecedor?: { nomerazaosocial?: string | null } | null;
+  } | null;
   saida?: { status?: string | null; motivo?: string | null; observacao?: string | null } | null;
 };
 
@@ -117,6 +124,7 @@ type Movement = {
   total: number | null;
   status: string;
   fiscal?: boolean;
+  numeroNota?: string | null;
   origem?: Origem;
   acao?: "REGISTRO" | "ESTORNO";
   documentKind?: Direction | null;
@@ -175,6 +183,12 @@ function normalizeMovement(
   inventory: InventoryKind,
   direction: Direction,
 ): Movement {
+  const isFiscal = Boolean(
+    raw.fiscal ||
+      raw.numero_nota ||
+      (raw.origem && ["MANUAL_COM_NF", "XML"].includes(raw.origem)),
+  );
+
   return {
     key: `${inventory}-${direction}-${raw.id}`,
     id: raw.id,
@@ -189,7 +203,8 @@ function normalizeMovement(
     items: movementItems(raw.itens),
     total: raw.valor_total ?? null,
     status: raw.status || "CONFIRMADA",
-    fiscal: Boolean(raw.fiscal),
+    fiscal: isFiscal,
+    numeroNota: raw.numero_nota ?? null,
   };
 }
 
@@ -212,6 +227,13 @@ function normalizeLedgerMovement(raw: RawLedgerMovement): Movement {
     documentId = raw.saida_id;
   }
 
+  const isFiscal = Boolean(
+    raw.entrada?.fiscal ||
+      raw.entrada?.numero_nota ||
+      (raw.entrada?.origem && ["MANUAL_COM_NF", "XML"].includes(raw.entrada.origem)),
+  );
+  const numeroNota = raw.entrada?.numero_nota ?? null;
+
   return {
     key: `ledger-${raw.id}`,
     id: raw.id,
@@ -220,11 +242,15 @@ function normalizeLedgerMovement(raw: RawLedgerMovement): Movement {
     createdAt: raw.created_at,
     description: isEstorno
       ? `Estorno — ${raw.documento_label || "movimentação"}`
-      : raw.documento_label || ROTULO_ORIGEM[raw.origem] || "Movimentação",
+      : raw.entrada?.numero_nota
+        ? `NF-e nº ${raw.entrada.numero_nota}`
+        : raw.documento_label || ROTULO_ORIGEM[raw.origem] || "Movimentação",
     party,
     items: movementItem,
     total: null,
     status: isEstorno ? "CANCELADA" : raw.entrada?.status || raw.saida?.status || "CONFIRMADA",
+    fiscal: isFiscal,
+    numeroNota,
     origem: raw.origem,
     acao: raw.acao,
     documentKind,
@@ -274,7 +300,7 @@ function MovementRow({
             {isEntrada ? <ArrowDownToLine className="size-3.5" /> : <ArrowUpFromLine className="size-3.5" />}
           </div>
           <div className="flex min-w-0 flex-col">
-            <div className="flex min-w-0 items-center gap-1.5">
+            <div className="flex min-w-0 items-center gap-1.5 flex-wrap">
               <span className="truncate font-medium">{movement.description}</span>
               {movement.origem ? (
                 <Badge
@@ -282,6 +308,16 @@ function MovementRow({
                   className={`shrink-0 px-1.5 py-0 text-[10px] font-normal ${COR_ORIGEM[movement.origem]}`}
                 >
                   {ROTULO_ORIGEM[movement.origem]}
+                </Badge>
+              ) : null}
+              {isEntrada && movement.fiscal ? (
+                <Badge
+                  variant="outline"
+                  className="shrink-0 gap-1 border-indigo-500/40 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 font-semibold px-1.5 py-0 text-[10px]"
+                  title={movement.numeroNota ? `Nota Fiscal Nº ${movement.numeroNota}` : "Entrada fiscal"}
+                >
+                  <FileText className="size-3 text-indigo-600 dark:text-indigo-400" />
+                  <span>Fiscal</span>
                 </Badge>
               ) : null}
               {movement.reconstruido ? (
@@ -374,6 +410,8 @@ function MovementRow({
   );
 }
 
+type FiscalFilter = "todos" | "com_nf" | "sem_nf";
+
 function MovementTable({
   products,
   useItems,
@@ -404,12 +442,14 @@ function MovementTable({
   const [directionFilter, setDirectionFilter] = useState<DirectionFilter>("todos");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("todos");
   const [origemFilter, setOrigemFilter] = useState<OrigemFilter>("todas");
+  const [fiscalFilter, setFiscalFilter] = useState<FiscalFilter>("todos");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [draftDirection, setDraftDirection] = useState<DirectionFilter>("todos");
   const [draftStatus, setDraftStatus] = useState<StatusFilter>("todos");
   const [draftOrigem, setDraftOrigem] = useState<OrigemFilter>("todas");
+  const [draftFiscal, setDraftFiscal] = useState<FiscalFilter>("todos");
   const [draftDateFrom, setDraftDateFrom] = useState("");
   const [draftDateTo, setDraftDateTo] = useState("");
   const [page, setPage] = useState(1);
@@ -423,18 +463,28 @@ function MovementTable({
         if (directionFilter !== "todos" && movement.direction !== directionFilter) return false;
         if (statusFilter !== "todos" && movement.status !== statusFilter) return false;
         if (origemFilter !== "todas" && movement.origem !== origemFilter) return false;
+        if (fiscalFilter === "com_nf" && !movement.fiscal) return false;
+        if (fiscalFilter === "sem_nf" && movement.fiscal) return false;
 
         const movementDate = new Date(movement.createdAt);
         if (dateFrom && movementDate < new Date(`${dateFrom}T00:00:00`)) return false;
         if (dateTo && movementDate > new Date(`${dateTo}T23:59:59.999`)) return false;
 
         if (!normalizedSearch) return true;
-        return [movement.id, movement.description, movement.party, movement.items, movement.status]
+        return [
+          movement.id,
+          movement.description,
+          movement.party,
+          movement.items,
+          movement.status,
+          movement.numeroNota ? `nf-e nº ${movement.numeroNota} nota fiscal` : "",
+          movement.fiscal ? "nf-e nota fiscal" : "",
+        ]
           .join(" ")
           .toLocaleLowerCase("pt-BR")
           .includes(normalizedSearch);
       }),
-    [dateFrom, dateTo, directionFilter, normalizedSearch, origemFilter, sourceMovements, statusFilter],
+    [dateFrom, dateTo, directionFilter, fiscalFilter, normalizedSearch, origemFilter, sourceMovements, statusFilter],
   );
   const totalPages = Math.max(1, Math.ceil(filteredMovements.length / limit));
   const start = (page - 1) * limit;
@@ -446,12 +496,13 @@ function MovementTable({
     Number(directionFilter !== "todos") +
     Number(statusFilter !== "todos") +
     Number(origemFilter !== "todas") +
+    Number(fiscalFilter !== "todos") +
     Number(Boolean(dateFrom)) +
     Number(Boolean(dateTo));
 
   useEffect(() => {
     setPage(1);
-  }, [dateFrom, dateTo, directionFilter, inventory, limit, normalizedSearch, origemFilter, statusFilter]);
+  }, [dateFrom, dateTo, directionFilter, fiscalFilter, inventory, limit, normalizedSearch, origemFilter, statusFilter]);
 
   useEffect(() => {
     setPage((current) => Math.min(current, totalPages));
@@ -468,6 +519,7 @@ function MovementTable({
       setDraftDirection(directionFilter);
       setDraftStatus(statusFilter);
       setDraftOrigem(origemFilter);
+      setDraftFiscal(fiscalFilter);
       setDraftDateFrom(dateFrom);
       setDraftDateTo(dateTo);
     }
@@ -478,6 +530,7 @@ function MovementTable({
     setDirectionFilter(draftDirection);
     setStatusFilter(draftStatus);
     setOrigemFilter(draftOrigem);
+    setFiscalFilter(draftFiscal);
     setDateFrom(draftDateFrom);
     setDateTo(draftDateTo);
     setSheetOpen(false);
@@ -487,6 +540,7 @@ function MovementTable({
     setDraftDirection("todos");
     setDraftStatus("todos");
     setDraftOrigem("todas");
+    setDraftFiscal("todos");
     setDraftDateFrom("");
     setDraftDateTo("");
   }
@@ -604,6 +658,20 @@ function MovementTable({
                           <SelectItem value="todos">Todos os status</SelectItem>
                           <SelectItem value="CONFIRMADA">Confirmadas</SelectItem>
                           <SelectItem value="CANCELADA">Canceladas</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2 border-t pt-4">
+                      <Label>Nota Fiscal (NF-e)</Label>
+                      <Select value={draftFiscal} onValueChange={(value) => setDraftFiscal(value as FiscalFilter)}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="todos">Todos os lançamentos</SelectItem>
+                          <SelectItem value="com_nf">Somente com Nota Fiscal (NF-e)</SelectItem>
+                          <SelectItem value="sem_nf">Sem Nota Fiscal</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

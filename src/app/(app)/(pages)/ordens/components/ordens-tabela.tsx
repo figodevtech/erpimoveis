@@ -44,7 +44,12 @@ import {
   UserRound,
   X,
   Wrench,
+  LayoutGrid,
+  List,
+  Calendar,
+  Clock,
 } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 
 import { toast } from "@/lib/toast";
 
@@ -174,6 +179,21 @@ export function OrdensTabela({
   const [dataInicio, setDataInicioState] = useState<Date | undefined>();
   const [dataFim, setDataFimState] = useState<Date | undefined>();
   const [setoresApiOptions, setSetoresApiOptions] = useState<Array<{ value: string; label: string }>>([]);
+
+  const [viewMode, setViewMode] = useState<"grid" | "table">(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("ordens_view_mode");
+      if (saved === "grid" || saved === "table") return saved;
+    }
+    return "grid";
+  });
+
+  const toggleViewMode = (mode: "grid" | "table") => {
+    setViewMode(mode);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("ordens_view_mode", mode);
+    }
+  };
 
   const [isLoading, setIsLoading] = useState(true);
   const reqIdRef = useRef(0);
@@ -853,9 +873,15 @@ export function OrdensTabela({
             </div>
 
             <div className="flex min-w-0 flex-wrap items-center gap-2 sm:flex-nowrap">
-              <div className="relative hidden md:block w-[400px]">
+              <div className="relative hidden md:block w-[280px] lg:w-[360px]">
                 <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input value={localSearch} onChange={(e) => setLocalSearch(e.target.value)} placeholder="Buscar..." className="pl-8 pr-9" />
+                <Input
+                  value={localSearch}
+                  onChange={(e) => setLocalSearch(e.target.value)}
+                  placeholder="Buscar... (use #ID para ID exato)"
+                  title="Digite para buscar. Use # para encontrar o ID exato (ex: #14)"
+                  className="pl-8 pr-9"
+                />
                 {localSearch?.length > 0 && (
                   <button
                     type="button"
@@ -869,18 +895,52 @@ export function OrdensTabela({
                 )}
               </div>
 
-              <Button
-                variant={apenasMinhas ? "default" : "outline"}
-                size="sm"
-                className="min-w-0 flex-1 gap-1 hover:cursor-pointer sm:flex-none"
-                aria-pressed={apenasMinhas}
-                title="Mostrar apenas as ordens de serviço criadas por mim"
-                onClick={() => setApenasMinhas((atual) => !atual)}
-              >
-                <UserRound className="h-4 w-4" />
-                <span className="hidden lg:inline">Minhas Ordens de Serviço</span>
-                <span className="lg:hidden">Minhas OS</span>
-              </Button>
+              {/* Alternador de Visualização Cards / Tabela */}
+              <div className="flex items-center rounded-xl border border-border p-0.5 bg-muted/30 shrink-0">
+                <Button
+                  type="button"
+                  variant={viewMode === "grid" ? "secondary" : "ghost"}
+                  size="icon"
+                  onClick={() => toggleViewMode("grid")}
+                  className="h-8 w-8 rounded-lg hover:cursor-pointer"
+                  title="Visualização em Cards"
+                  aria-label="Visualização em Cards"
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant={viewMode === "table" ? "secondary" : "ghost"}
+                  size="icon"
+                  onClick={() => toggleViewMode("table")}
+                  className="h-8 w-8 rounded-lg hover:cursor-pointer"
+                  title="Visualização em Tabela"
+                  aria-label="Visualização em Tabela"
+                >
+                  <List className="h-4 w-4" />
+                </Button>
+              </div>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={apenasMinhas ? "default" : "outline"}
+                    size="sm"
+                    className="shrink-0 gap-1.5 hover:cursor-pointer"
+                    aria-pressed={apenasMinhas}
+                    onClick={() => setApenasMinhas((atual) => !atual)}
+                  >
+                    <UserRound className="h-4 w-4" />
+                    <span className="hidden lg:inline">Minhas Ordens de Serviço</span>
+                    <span className="hidden sm:inline lg:hidden">Minhas OS</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs">
+                    {apenasMinhas ? "Exibindo apenas minhas OS (clique para ver todas)" : "Filtrar apenas minhas OS"}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
 
               <OrdensFilterSheet
                 open={filtroAberto}
@@ -900,10 +960,10 @@ export function OrdensTabela({
               />
 
               {canCreate ? (
-              <Button onClick={onNovaOS} size="sm" className="flex-1 hover:cursor-pointer sm:flex-none">
-                <Plus className="h-4 w-4 mr-1" />
-                Nova OS
-              </Button>
+                <Button onClick={onNovaOS} size="sm" className="shrink-0 whitespace-nowrap hover:cursor-pointer">
+                  <Plus className="h-4 w-4 mr-1" />
+                  <span>Nova OS</span>
+                </Button>
               ) : null}
             </div>
           </div>
@@ -911,7 +971,13 @@ export function OrdensTabela({
           <div className="mt-3 min-w-0 md:hidden">
             <div className="relative w-full">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input value={localSearch} onChange={(e) => setLocalSearch(e.target.value)} placeholder="Buscar..." className="pl-8 pr-9" />
+              <Input
+                value={localSearch}
+                onChange={(e) => setLocalSearch(e.target.value)}
+                placeholder="Buscar... (use #ID para ID exato)"
+                title="Digite para buscar. Use # para encontrar o ID exato (ex: #14)"
+                className="pl-8 pr-9"
+              />
               {localSearch?.length > 0 && (
                 <button
                   type="button"
@@ -940,7 +1006,265 @@ export function OrdensTabela({
             />
           </div>
 
-          <div className="mt-6 min-w-0 max-w-full overflow-hidden rounded-md border">
+          <AnimatePresence mode="wait">
+            {viewMode === "grid" ? (
+              <motion.div
+                key="grid-view"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.22, ease: "easeOut" }}
+                className="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 bg-muted/20 p-2 sm:p-3 rounded-2xl border border-border/40"
+              >
+                {rows.map((r) => {
+                  const st = safeStatus(r.status) as StatusOS;
+                  const clienteNome = r.cliente?.nome ?? "—";
+                  const whatsappUrl = getWhatsAppUrl(r.cliente?.telefone);
+
+                  const clienteFull = clienteNome || "—";
+                  const veiculoStr = r.veiculo
+                    ? `${r.veiculo.marca ?? ""} ${r.veiculo.modelo ?? ""} - ${r.veiculo.placa ?? ""}`.trim()
+                    : "";
+
+                  const isPeca = (r as any).alvo_tipo === "PECA" || (r as any).alvoTipo === "PECA";
+                  const isEquipamento =
+                    (r as any).alvo_tipo === "EQUIPAMENTO" ||
+                    (r as any).alvoTipo === "EQUIPAMENTO";
+                  const pecaTitulo = (r as any)?.peca?.titulo as string | undefined;
+                  const pecaDesc = (r as any)?.peca?.descricao as string | undefined;
+                  const pecaStr = isPeca ? pecaTitulo || pecaDesc || "Peça" : "";
+                  const equipamento = (r as any)?.equipamento;
+                  const equipamentoStr = isEquipamento
+                    ? [
+                        equipamento?.nome,
+                        equipamento?.patrimonio
+                          ? `Patrimônio ${equipamento.patrimonio}`
+                          : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" — ") || "Equipamento"
+                    : "";
+
+                  const alvoStr = isPeca ? pecaStr : isEquipamento ? equipamentoStr : veiculoStr;
+                  const descFull = r.descricao || "—";
+                  const policy = buildPolicy(st);
+                  const dataEntradaFmt = fmtDate((r as any).dataEntrada ?? (r as any).dataentrada);
+                  const dataSaidaRaw = (r as any).dataSaida ?? (r as any).datasaida;
+                  const isSaidaConcluida = ["PAGAMENTO", "CONCLUIDO", "SEM_COBRANCA"].includes(String(r.status ?? "").toUpperCase());
+
+                  return (
+                    <motion.div
+                      key={r.id}
+                      layout
+                      initial={{ opacity: 0, scale: 0.97 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      transition={{ duration: 0.2 }}
+                      className={`group relative flex h-full flex-col justify-between rounded-xl border p-4 sm:p-5 transition-all shadow-sm hover:shadow-md ${
+                        r.destacada
+                          ? "border-l-4 border-l-red-500 border-red-500/50 bg-red-500/10 hover:bg-red-500/15 dark:bg-red-950/30"
+                          : "bg-card border-slate-300 dark:border-slate-700/80 hover:border-primary/60 dark:hover:border-primary/50"
+                      }`}
+                    >
+                      {/* Topo do Card */}
+                      <div className="space-y-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge variant="outline" className="font-mono text-xs font-bold px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-700">
+                              #{r.id}
+                            </Badge>
+                            {r.setor?.nome ? (
+                              <Badge variant="outline" className="text-[11px] bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/30 font-semibold px-2 py-0.5">
+                                {r.setor.nome}
+                              </Badge>
+                            ) : null}
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            <Badge className={`${statusClasses[st] ?? ""} text-[11px] px-2 py-0.5`}>
+                              {st.replaceAll("_", " ")}
+                            </Badge>
+                            {r.destacada ? (
+                              usarPopoverDestaque ? (
+                                <Popover
+                                  open={destaqueTooltipId === r.id}
+                                  onOpenChange={(aberto) =>
+                                    setDestaqueTooltipId((atual) =>
+                                      aberto ? r.id : atual === r.id ? null : atual,
+                                    )
+                                  }
+                                >
+                                  <PopoverTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className="inline-flex size-7 touch-manipulation items-center justify-center rounded-md text-red-600 outline-none hover:bg-red-500/10 focus-visible:ring-2 focus-visible:ring-red-500 dark:text-red-400"
+                                      aria-label={`OS destacada: ${r.destaque_motivo || "motivo não informado"}`}
+                                    >
+                                      <AlertTriangle className="h-4 w-4 fill-red-500/15" />
+                                    </button>
+                                  </PopoverTrigger>
+                                  <PopoverContent align="end" side="bottom" className="w-64">
+                                    <p className="font-semibold text-xs">OS destacada</p>
+                                    <p className="mt-1 whitespace-pre-wrap break-words text-xs text-muted-foreground">
+                                      {r.destaque_motivo || "Motivo não informado."}
+                                    </p>
+                                  </PopoverContent>
+                                </Popover>
+                              ) : (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className="inline-flex size-7 items-center justify-center rounded-md text-red-600 outline-none hover:bg-red-500/10 focus-visible:ring-2 focus-visible:ring-red-500 dark:text-red-400"
+                                      aria-label={`OS destacada: ${r.destaque_motivo || "motivo não informado"}`}
+                                    >
+                                      <AlertTriangle className="h-4 w-4 fill-red-500/15" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="max-w-xs">
+                                    <p className="font-semibold text-xs">OS destacada</p>
+                                    <p className="mt-1 whitespace-pre-wrap break-words text-xs">
+                                      {r.destaque_motivo || "Motivo não informado."}
+                                    </p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              )
+                            ) : null}
+                          </div>
+                        </div>
+
+                        {/* Cliente & WhatsApp */}
+                        <div className="space-y-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <h3 className="font-semibold text-sm sm:text-base text-foreground leading-snug whitespace-normal break-words" title={clienteFull}>
+                              {clienteFull}
+                            </h3>
+                            {whatsappUrl ? (
+                              <a
+                                href={whatsappUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-emerald-600 dark:bg-emerald-700 px-2 py-1 text-[11px] font-medium text-white hover:bg-emerald-700 transition-colors shadow-2xs mt-0.5"
+                                title="Abrir conversa no WhatsApp"
+                              >
+                                <Send className="h-3 w-3" />
+                                <span>WhatsApp</span>
+                              </a>
+                            ) : null}
+                          </div>
+
+                          {/* Alvo / Veículo / Peça / Equipamento */}
+                          {alvoStr ? (
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-medium">
+                              {isPeca ? (
+                                <Package className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+                              ) : isEquipamento ? (
+                                <Wrench className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+                              ) : (
+                                <Car className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+                              )}
+                              <span className="truncate">{alvoStr}</span>
+                            </div>
+                          ) : null}
+                        </div>
+
+                        {/* Descrição da OS */}
+                        {descFull ? (
+                          <div className="h-20 w-full overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/80 p-2.5 text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap break-words scrollbar-thin">
+                            {descFull}
+                          </div>
+                        ) : null}
+
+                        {/* Prioridade & Tempo Duração */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs pt-2 border-t border-slate-200/80 dark:border-slate-800/80">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-muted-foreground text-[11px]">Prioridade:</span>
+                            {r.prioridade ? (
+                              <Badge className={`${prioClasses[(r.prioridade || "").toUpperCase()] ?? ""} text-[10px] px-1.5 py-0`}>
+                                {r.prioridade}
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+                            <Clock className="h-3 w-3" />
+                            <span>{renderTempo(r)}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Rodapé do Card: Datas & Ações */}
+                      <div className="mt-4 pt-3 border-t border-slate-200/80 dark:border-slate-800/80 space-y-2">
+                        <div className="flex flex-wrap items-center justify-between text-[11px] text-muted-foreground gap-2">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="h-3 w-3 text-muted-foreground/70" />
+                            <span>Entrada: <strong className="font-medium text-foreground">{dataEntradaFmt}</strong></span>
+                          </span>
+
+                          <span>
+                            Saída: {dataSaidaRaw ? (
+                              <strong className="font-medium text-foreground">{fmtDate(dataSaidaRaw)}</strong>
+                            ) : isSaidaConcluida ? (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300">
+                                Não registrada
+                              </Badge>
+                            ) : (
+                              "—"
+                            )}
+                          </span>
+                        </div>
+
+                        {/* Ações Row */}
+                        <div className="flex items-center justify-end pt-1">
+                          <RowActions
+                            row={r}
+                            policy={policy}
+                            onOpenOrcamento={onOpenOrcamento}
+                            onEditar={onEditar}
+                            setStatus={setStatus}
+                            onSendToApproval={handleSendToApproval}
+                            onResetOS={handleResetOS}
+                            onCancelarOS={handleCancelarOS}
+                            onFinalizeNoCharge={handleFinishNoCharge}
+                            setLinkRow={setLinkRow}
+                            setLinkDialogOpen={setLinkDialogOpen}
+                            setConfirmRow={setConfirmRow}
+                            setConfirmOpen={setConfirmOpen}
+                            setPayRow={setPayRow}
+                            setPayOpen={setPayOpen}
+                            setDetailsId={setDetailsId}
+                            setDetailsOpen={setDetailsOpen}
+                            setChecklistRow={setChecklistRow}
+                            setChecklistOpen={setChecklistOpen}
+                            setStoneRow={setStoneDialogRow}
+                            setStoneOpen={setStoneDialogOpen}
+                            setEmissaoId={setEmissaoId}
+                            setEmissaoOpen={setEmissaoOpen}
+                            onRegistrarSaida={setSaidaRow}
+                          />
+                        </div>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+
+                {!isLoading && rows.length === 0 && (
+                  <div className="col-span-full py-12 text-center text-muted-foreground rounded-2xl border border-dashed p-6 bg-card">
+                    Nenhuma Ordem de Serviço encontrada.
+                  </div>
+                )}
+              </motion.div>
+            ) : (
+              <motion.div
+                key="table-view"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.22, ease: "easeOut" }}
+                className="mt-6 min-w-0 max-w-full overflow-hidden rounded-md border"
+              >
             <Table className="text-xs">
               <TableHeader>
                 <TableRow className="bg-muted/40">
@@ -1203,7 +1527,9 @@ export function OrdensTabela({
                 )}
               </TableBody>
             </Table>
-          </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
           <div className="mt-4 flex flex-wrap items-center justify-center gap-3 sm:justify-between">
             <div className="flex flex-nowrap text-xs text-muted-foreground">

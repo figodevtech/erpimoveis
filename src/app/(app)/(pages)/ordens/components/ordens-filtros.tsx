@@ -84,10 +84,10 @@ export function OrdensFilterSheet({
         <Button
           variant="outline"
           size="sm"
-          className="gap-1 hover:cursor-pointer"
+          className="gap-1 shrink-0 whitespace-nowrap hover:cursor-pointer"
         >
           <SlidersHorizontal className="h-4 w-4" />
-          Filtros
+          <span>Filtros</span>
         </Button>
       </SheetTrigger>
       <SheetContent>
