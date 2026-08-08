@@ -83,7 +83,7 @@ export default function DialogEntrada({
   const [selectedType, setSelectedType] = useState<string | undefined>(undefined);
   const { tipos, loadingTipos } = useTiposEntrada(Boolean(isOpen), inventory);
   const [observacao, setObservacao] = useState("");
-  const [lancarFinanceiro, setLancarFinanceiro] = useState(false);
+  const [lancarFinanceiro, setLancarFinanceiro] = useState(true);
   const [pagamentoFuturo, setPagamentoFuturo] = useState(true);
   const [parcelas, setParcelas] = useState<Parcela[]>([]);
   const [banks, setBanks] = useState<Banco[]>([]);
@@ -106,7 +106,7 @@ export default function DialogEntrada({
     setSelectedType(undefined);
     setObservacao("");
     setOpenFornecedor(false);
-    setLancarFinanceiro(false);
+    setLancarFinanceiro(true);
     setPagamentoFuturo(true);
     setParcelas([]);
     setSelectedBankId("");

@@ -489,12 +489,26 @@ type OSDetalhesResponse = {
     despesasPagas: number;
     despesasPendentes: number;
     totalComissoesServicos: number;
+    totalOutrasDespesasServicos: number;
     comissoesServicos: Array<{
       servicoid: number;
       descricao: string;
       valorServico: number;
       receitaLiquida: number;
       valorComissao: number;
+      valorOutrasDespesas: number;
+      valorDespesasTotal: number;
+      resultadoServico: number;
+      margemServico: number;
+      despesas: Array<{
+        id: number;
+        descricao: string;
+        detalhe: string | null;
+        valor: number;
+        status: "ATIVO" | "CONVERTIDO";
+        situacao: "PREVISTA" | "A_PAGAR" | "PAGA" | "LANCADA";
+        transacaoid: number | null;
+      }>;
       realizadores: Array<{
         usuarioid: string;
         nome: string | null;
@@ -2264,18 +2278,15 @@ export function OSDetalhesDialog({
                             <Users className="size-4" aria-hidden="true" />
                           </span>
                           <div>
-                            <h3 className="font-medium text-pretty">Comissões por serviço</h3>
+                            <h3 className="font-medium text-pretty">Rentabilidade por serviço</h3>
                             <p className="mt-0.5 text-pretty text-xs text-muted-foreground">
-                              Valor do serviço, base de cálculo e comissão de cada realizador.
+                              Receita, comissões e outras despesas vinculadas a cada serviço.
                             </p>
                           </div>
                         </div>
                         <div className="mt-3 space-y-2">
-                          {data.rentabilidade.comissoesServicos.some(
-                            (servico) => servico.realizadores.length > 0,
-                          ) ? (
+                          {data.rentabilidade.comissoesServicos.length > 0 ? (
                             data.rentabilidade.comissoesServicos
-                              .filter((servico) => servico.realizadores.length > 0)
                               .map((servico) => (
                                 <div key={servico.servicoid} className="overflow-hidden rounded-lg border bg-background shadow-sm">
                                   <div className="flex items-center gap-2 border-b bg-muted/30 px-3 py-1.5">
@@ -2285,19 +2296,40 @@ export function OSDetalhesDialog({
                                     <p className="min-w-0 truncate text-sm font-semibold">{servico.descricao}</p>
                                   </div>
 
-                                  <div className="grid gap-1.5 px-3 py-2 sm:grid-cols-2">
+                                  <div className="grid gap-1.5 px-3 py-2 sm:grid-cols-2 lg:grid-cols-4">
                                     <div className="rounded-md border bg-card px-2.5 py-1.5">
                                       <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Valor do serviço</p>
                                       <p className="font-semibold tabular-nums">{fmtMoney(servico.valorServico)}</p>
                                     </div>
+                                    <div className="rounded-md border bg-card px-2.5 py-1.5">
+                                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Receita líquida</p>
+                                      <p className="font-semibold tabular-nums">{fmtMoney(servico.receitaLiquida)}</p>
+                                    </div>
                                     <div className="rounded-md border border-amber-500/20 bg-amber-500/5 px-2.5 py-1.5">
-                                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Total de comissões</p>
+                                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Comissões</p>
                                       <p className="font-semibold tabular-nums text-amber-700 dark:text-amber-300">
                                         {fmtMoney(servico.valorComissao)}
                                       </p>
                                     </div>
+                                    <div className="rounded-md border border-red-500/20 bg-red-500/5 px-2.5 py-1.5">
+                                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Outras despesas</p>
+                                      <p className="font-semibold tabular-nums text-red-700 dark:text-red-300">
+                                        {fmtMoney(servico.valorOutrasDespesas)}
+                                      </p>
+                                    </div>
                                   </div>
 
+                                  <div className="flex flex-col gap-1 border-t bg-muted/15 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Resultado do serviço</p>
+                                    <div className="flex items-center gap-2">
+                                      <Badge variant="outline">Margem {fmtPercent(servico.margemServico)}%</Badge>
+                                      <p className={`font-semibold tabular-nums ${servico.resultadoServico < 0 ? "text-destructive" : "text-emerald-600 dark:text-emerald-400"}`}>
+                                        {fmtMoney(servico.resultadoServico)}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  {servico.realizadores.length > 0 ? (
                                   <div className="border-t px-3 py-2">
                                     <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                                       Comissões calculadas
@@ -2327,16 +2359,63 @@ export function OSDetalhesDialog({
                                       ))}
                                     </div>
                                   </div>
+                                  ) : null}
+
+                                  {servico.despesas.length > 0 ? (
+                                    <div className="border-t px-3 py-2">
+                                      <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                        Outras despesas do serviço
+                                      </p>
+                                      <div className="space-y-1.5">
+                                        {servico.despesas.map((despesa) => (
+                                          <div
+                                            key={despesa.id}
+                                            className="flex flex-col gap-1 rounded-md bg-muted/35 px-2.5 py-1.5 sm:flex-row sm:items-center sm:justify-between"
+                                          >
+                                            <div className="min-w-0">
+                                              <p className="truncate text-sm font-medium">{despesa.descricao}</p>
+                                              {despesa.detalhe ? (
+                                                <p className="truncate text-xs text-muted-foreground">{despesa.detalhe}</p>
+                                              ) : null}
+                                            </div>
+                                            <div className="flex items-center justify-between gap-3 sm:justify-end">
+                                              <Badge variant="outline">
+                                                {despesa.situacao === "PREVISTA"
+                                                  ? "Prevista"
+                                                  : despesa.situacao === "A_PAGAR"
+                                                    ? "A pagar"
+                                                    : despesa.situacao === "PAGA"
+                                                      ? "Paga"
+                                                      : "Lançada"}
+                                              </Badge>
+                                              <p className="font-semibold tabular-nums text-red-700 dark:text-red-300">
+                                                {fmtMoney(despesa.valor)}
+                                              </p>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ) : null}
+
+                                  {servico.realizadores.length === 0 && servico.despesas.length === 0 ? (
+                                    <p className="border-t px-3 py-2 text-xs text-muted-foreground">
+                                      Nenhuma comissão ou outra despesa vinculada.
+                                    </p>
+                                  ) : null}
                                 </div>
                               ))
                           ) : (
-                            <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">Nenhuma comissão de serviço nesta OS.</p>
+                            <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">Nenhum serviço nesta OS.</p>
                           )}
                         </div>
                       </div>
 
                       <div className="rounded-xl border bg-card p-4">
-                        <p className="font-medium">Despesas vinculadas</p>
+                        <p className="font-medium">Despesas lançadas no financeiro</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          Contas a pagar e pagamentos vinculados à OS.
+                        </p>
                         <div className="mt-3 space-y-2">
                           {(data.transacoes ?? []).filter((t) => t.tipo === "DESPESA").length ? (
                             (data.transacoes ?? []).filter((t) => t.tipo === "DESPESA").map((t) => (

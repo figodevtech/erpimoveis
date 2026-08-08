@@ -20,8 +20,8 @@ function errorText(error:unknown){return isAxiosError(error)?error.response?.dat
 export function ManualEntryDialog({open,onOpenChange,fornecedores,onSaved}:Props){
   const [items,setItems]=useState<Option[]>([]);const [supplier,setSupplier]=useState("none");
   const [lines,setLines]=useState<Line[]>([{item_id:0,quantidade:1,valor_unitario_compra:0}]);
-  const [loading,setLoading]=useState(false);const [finance,setFinance]=useState(false);const [due,setDue]=useState(new Date().toISOString().slice(0,10));
-  useEffect(()=>{if(open){axios.get("/api/usoconsumo/itens/select").then(({data})=>setItems(data.data??[]));setLines([{item_id:0,quantidade:1,valor_unitario_compra:0}]);setSupplier("none");setFinance(false);}},[open]);
+  const [loading,setLoading]=useState(false);const [finance,setFinance]=useState(true);const [due,setDue]=useState(new Date().toISOString().slice(0,10));
+  useEffect(()=>{if(open){axios.get("/api/usoconsumo/itens/select").then(({data})=>setItems(data.data??[]));setLines([{item_id:0,quantidade:1,valor_unitario_compra:0}]);setSupplier("none");setFinance(true);}},[open]);
   const total=useMemo(()=>lines.reduce((sum,line)=>sum+line.quantidade*line.valor_unitario_compra,0),[lines]);
   function update(index:number,change:Partial<Line>){setLines((old)=>old.map((line,current)=>current===index?{...line,...change}:line));}
   async function save(){

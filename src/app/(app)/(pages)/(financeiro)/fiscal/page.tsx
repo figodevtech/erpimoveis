@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import axios from "axios";
 import { toast } from "@/lib/toast";
 
@@ -26,17 +27,26 @@ const initialPagination: Pagination = {
 };
 
 export default function FiscalPage() {
+  const searchParams = useSearchParams();
+  const paramSearch = searchParams.get("search") || "";
+  const paramViewMode = searchParams.get("viewMode") as FiscalViewMode | null;
+
   const [notas, setNotas] = useState<NotaFiscal[]>([]);
   const [kpis, setKpis] = useState<FiscalKpis | undefined>(undefined);
   const [pagination, setPagination] = useState<Pagination>(initialPagination);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingKpis, setIsLoadingKpis] = useState(false);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(paramSearch);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [status, setStatus] = useState("");
   const [modelo, setModelo] = useState("");
-  const [viewMode, setViewMode] = useState<FiscalViewMode>("EMITIDAS_POR_NOS");
+  const [viewMode, setViewMode] = useState<FiscalViewMode>(paramViewMode || "EMITIDAS_POR_NOS");
+
+  useEffect(() => {
+    if (paramSearch) setSearch(paramSearch);
+    if (paramViewMode) setViewMode(paramViewMode);
+  }, [paramSearch, paramViewMode]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [companyChange, setCompanyChange] = useState<{
     previousCnpj: string;

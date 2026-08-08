@@ -153,6 +153,8 @@ export async function GET(req: Request) {
   cest,
   csosn,
   codigobarras,
+  etiqueta,
+  local,
   createdat,
   updatedat,
   referencia,
@@ -189,10 +191,48 @@ export async function GET(req: Request) {
       .order('id', { ascending: false })
       .range(from, to);
 
-    if (q) {
-      query = query.or(
-        `referencia.ilike.%${q}%,titulo.ilike.%${q}%,fabricante.ilike.%${q}%`
-      );
+    const rawQ = (searchParams.get('search') ?? searchParams.get('q') ?? '').trim();
+    let isExactIdOnly = false;
+    let isExactEtiquetaOnly = false;
+    let cleanQ = rawQ;
+
+    if (/^#\s*\d+$/.test(rawQ)) {
+      isExactIdOnly = true;
+      cleanQ = rawQ.replace(/^#\s*/, '');
+    } else if (/^id:\s*\d+$/i.test(rawQ)) {
+      isExactIdOnly = true;
+      cleanQ = rawQ.replace(/^id:\s*/i, '');
+    } else if (/^id=\s*\d+$/i.test(rawQ)) {
+      isExactIdOnly = true;
+      cleanQ = rawQ.replace(/^id=\s*/i, '');
+    } else if (/^\/\s*\S+/i.test(rawQ)) {
+      isExactEtiquetaOnly = true;
+      cleanQ = rawQ.replace(/^\/\s*/, '');
+    } else if (/^etiqueta:\s*/i.test(rawQ)) {
+      isExactEtiquetaOnly = true;
+      cleanQ = rawQ.replace(/^etiqueta:\s*/i, '');
+    } else if (/^tag:\s*/i.test(rawQ)) {
+      isExactEtiquetaOnly = true;
+      cleanQ = rawQ.replace(/^tag:\s*/i, '');
+    }
+
+    if (cleanQ) {
+      if (isExactIdOnly) {
+        query = query.eq('id', Number(cleanQ));
+      } else if (isExactEtiquetaOnly) {
+        query = query.ilike('etiqueta', `%${cleanQ}%`);
+      } else {
+        const isNumeric = /^\d+$/.test(cleanQ);
+        if (isNumeric) {
+          query = query.or(
+            `id.eq.${cleanQ},referencia.ilike.%${cleanQ}%,titulo.ilike.%${cleanQ}%,fabricante.ilike.%${cleanQ}%,codigobarras.ilike.%${cleanQ}%,etiqueta.ilike.%${cleanQ}%,local.ilike.%${cleanQ}%,descricao.ilike.%${cleanQ}%,ncm.ilike.%${cleanQ}%`
+          );
+        } else {
+          query = query.or(
+            `referencia.ilike.%${cleanQ}%,titulo.ilike.%${cleanQ}%,fabricante.ilike.%${cleanQ}%,codigobarras.ilike.%${cleanQ}%,etiqueta.ilike.%${cleanQ}%,local.ilike.%${cleanQ}%,descricao.ilike.%${cleanQ}%,ncm.ilike.%${cleanQ}%`
+          );
+        }
+      }
     }
 
     if (statusFilter) {
@@ -202,7 +242,27 @@ export async function GET(req: Request) {
     const { data, error, count } = await query;
     if (error) throw error;
 
-    const items = data ?? [];
+    let items = data ?? [];
+
+    // Prioriza o produto com ID exato no topo da lista se a busca for por ID
+    if (cleanQ && /^\d+$/.test(cleanQ) && !isExactEtiquetaOnly) {
+      const targetId = Number(cleanQ);
+      const exactIndex = items.findIndex((item) => Number(item.id) === targetId);
+      if (exactIndex > 0) {
+        const [exactItem] = items.splice(exactIndex, 1);
+        items.unshift(exactItem);
+      }
+    }
+
+    // Prioriza correspondência exata de etiqueta no topo se a busca for por /etiqueta
+    if (isExactEtiquetaOnly && cleanQ) {
+      const targetTag = cleanQ.toLowerCase();
+      const exactIndex = items.findIndex((item) => String(item.etiqueta || '').toLowerCase() === targetTag);
+      if (exactIndex > 0) {
+        const [exactItem] = items.splice(exactIndex, 1);
+        items.unshift(exactItem);
+      }
+    }
     const total = count ?? 0;
     const totalPages = Math.max(1, Math.ceil(total / limit));
 

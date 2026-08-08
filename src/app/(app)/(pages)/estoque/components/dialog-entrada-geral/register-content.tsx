@@ -234,7 +234,7 @@ export default function RegisterContent({
   const [openFornecedor, setOpenFornecedor] = useState(false);
   const [openProduto, setOpenProduto] = useState(false);
   const [loadingConcluirEntrada, setLoadingConcluirEntrada] = useState(false);
-  const [lancarFinanceiro, setLancarFinanceiro] = useState(false);
+  const [lancarFinanceiro, setLancarFinanceiro] = useState(true);
   const [pagamentoFuturo, setPagamentoFuturo] = useState(true);
   const [parcelas, setParcelas] = useState<Parcela[]>([]);
   const [banks, setBanks] = useState<Banco[]>([]);
@@ -262,7 +262,7 @@ export default function RegisterContent({
     setOpenFornecedor(false);
     setOpenProduto(false);
     setLoadingConcluirEntrada(false);
-    setLancarFinanceiro(false);
+    setLancarFinanceiro(true);
     setPagamentoFuturo(true);
     setParcelas([]);
     setSelectedBankId("");

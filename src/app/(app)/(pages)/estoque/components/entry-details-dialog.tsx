@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Building2, CalendarClock, FileText, PackageOpen, Receipt, UserRound, Wallet } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Building2, CalendarClock, Download, Eye, FileText, Loader2, PackageOpen, Receipt, UserRound, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { toast } from "@/lib/toast";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { BalanceTrail, Field, Metric, MovementDialogShell, Section } from "./movement-dialog-shell";
 
@@ -180,13 +183,97 @@ export function EntryDetailsDialog({ entryId, inventory, open, onOpenChange }: P
     return () => controller.abort();
   }, [entryId, inventory, open]);
 
+  const router = useRouter();
+  const [downloadingXml, setDownloadingXml] = useState(false);
+  const [downloadingDanfe, setDownloadingDanfe] = useState(false);
+
   const items = entry?.itens ?? [];
   const transactions = entry?.transacoes ?? [];
-  const invoiceKey = entry?.notachave || entry?.chave_nfe;
+  const invoiceKey = (entry?.notachave || entry?.chave_nfe) ? String(entry?.notachave || entry?.chave_nfe) : null;
   const computedTotal = items.reduce((total, item) => total + numberValue(item.valor_total), 0);
   const entryTotal = numberValue(entry?.valor_total) || computedTotal;
   const totalUnits = items.reduce((total, item) => total + numberValue(item.quantidade), 0);
   const autor = entry?.criador?.nome;
+
+  function handleVerNfe() {
+    onOpenChange(false);
+    const query = invoiceKey || entry?.numero_nota || "";
+    router.push(`/fiscal?viewMode=EMITIDAS_TERCEIROS&search=${encodeURIComponent(query)}`);
+  }
+
+  async function handleBaixarXml() {
+    if (!entryId) return;
+    setDownloadingXml(true);
+    const toastId = toast.loading("Baixando XML da NF-e...");
+
+    try {
+      const response = await fetch(`/api/entradas/${entryId}/xml?inventory=${inventory}`);
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        throw new Error(errData?.error || errData?.detail || "Erro ao baixar XML da NF-e.");
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename="?([^"]+)"?/i);
+      const filename = match?.[1] || `nfe-entrada-${entryId}.xml`;
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      toast.success("XML baixado com sucesso!", { id: toastId });
+    } catch (err: any) {
+      toast.error("Não foi possível baixar o XML", {
+        id: toastId,
+        description: err?.message,
+      });
+    } finally {
+      setDownloadingXml(false);
+    }
+  }
+
+  async function handleBaixarDanfe() {
+    if (!entryId) return;
+    setDownloadingDanfe(true);
+    const toastId = toast.loading("Gerando PDF do DANFE...");
+
+    try {
+      const response = await fetch(`/api/entradas/${entryId}/danfe?inventory=${inventory}`);
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        throw new Error(errData?.error || errData?.detail || "Erro ao gerar PDF do DANFE.");
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename="?([^"]+)"?/i);
+      const filename = match?.[1] || `DANFE-entrada-${entryId}.pdf`;
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      toast.success("DANFE (PDF) baixado com sucesso!", { id: toastId });
+    } catch (err: any) {
+      toast.error("Não foi possível baixar o DANFE", {
+        id: toastId,
+        description: err?.message,
+      });
+    } finally {
+      setDownloadingDanfe(false);
+    }
+  }
 
   return (
     <MovementDialogShell
@@ -271,7 +358,56 @@ export function EntryDetailsDialog({ entryId, inventory, open, onOpenChange }: P
               </dl>
             </Section>
 
-            <Section title="Documento fiscal" icon={FileText}>
+            <Section
+              title="Documento fiscal"
+              icon={FileText}
+              action={
+                entry.fiscal || invoiceKey || entry.numero_nota ? (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleVerNfe}
+                      className="h-7 px-2 text-xs gap-1 hover:cursor-pointer shrink-0"
+                    >
+                      <Eye className="size-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                      <span>Ver NF-e</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleBaixarXml}
+                      disabled={downloadingXml}
+                      className="h-7 px-2 text-xs gap-1 hover:cursor-pointer shrink-0"
+                    >
+                      {downloadingXml ? (
+                        <Loader2 className="size-3.5 animate-spin shrink-0" />
+                      ) : (
+                        <Download className="size-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      )}
+                      <span>XML</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleBaixarDanfe}
+                      disabled={downloadingDanfe}
+                      className="h-7 px-2 text-xs gap-1 hover:cursor-pointer shrink-0"
+                    >
+                      {downloadingDanfe ? (
+                        <Loader2 className="size-3.5 animate-spin shrink-0" />
+                      ) : (
+                        <FileText className="size-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                      )}
+                      <span>DANFE</span>
+                    </Button>
+                  </div>
+                ) : null
+              }
+            >
               <dl className="grid bg-card gap-3 rounded-lg border p-4 sm:grid-cols-2">
                 <Field label="Nota">{entry.numero_nota || "Não informada"}</Field>
                 <Field label="Série">{entry.serie_nota || "Não informada"}</Field>

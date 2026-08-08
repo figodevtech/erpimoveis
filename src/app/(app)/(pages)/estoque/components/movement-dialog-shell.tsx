@@ -64,12 +64,14 @@ export function Section({
   children: ReactNode;
 }) {
   return (
-    <section className="space-y-3">
-      <div className="flex items-center gap-3">
-        {Icon ? <Icon className="size-3.5 shrink-0 text-muted-foreground" /> : null}
-        <h3 className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">{title}</h3>
-        <div className="h-px flex-1 bg-border" />
-        {action}
+    <section className="space-y-3 min-w-0">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
+        <div className="flex items-center gap-2 shrink-0">
+          {Icon ? <Icon className="size-3.5 shrink-0 text-muted-foreground" /> : null}
+          <h3 className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">{title}</h3>
+        </div>
+        <div className="h-px min-w-[16px] flex-1 bg-border" />
+        {action ? <div className="flex flex-wrap items-center gap-1.5 shrink-0">{action}</div> : null}
       </div>
       {children}
     </section>
@@ -162,16 +164,16 @@ export function MovementDialogShell({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] gap-0 overflow-hidden p-0 sm:max-w-4xl">
-        {/* Hero: faixa de acento + identificacao do movimento */}
-        <DialogHeader className="space-y-0 text-left">
+      <DialogContent className="flex flex-col w-screen h-[100dvh] max-w-full inset-0 top-0 left-0 translate-x-0 translate-y-0 sm:top-[50%] sm:left-[50%] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-full sm:max-w-4xl sm:h-[85vh] sm:max-h-[850px] p-0 gap-0 rounded-none sm:rounded-2xl border-0 sm:border bg-card shadow-2xl overflow-hidden min-w-0">
+        {/* Hero: faixa de acento + identificacao do movimento (Fixo) */}
+        <DialogHeader className="shrink-0 space-y-0 text-left">
           <div className={`flex items-stretch ${t.hero} border-b`}>
             <div className={`w-1.5 shrink-0 ${t.rail}`} aria-hidden="true" />
             {/* pr-12 reserva espaco para o botao de fechar do DialogContent */}
             <div className="flex min-w-0 flex-1 flex-wrap items-end justify-between gap-4 py-4 pl-5 pr-12">
               <div className="min-w-0">
                 <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">{kicker}</p>
-                <DialogTitle className="mt-1 flex items-baseline gap-2 text-3xl font-black leading-none tracking-tight">
+                <DialogTitle className="mt-1 flex items-baseline gap-2 text-2xl sm:text-3xl font-black leading-none tracking-tight">
                   <span className="text-muted-foreground/40">#</span>
                   <span className="tabular-nums">{movementId ?? "—"}</span>
                 </DialogTitle>
@@ -185,7 +187,7 @@ export function MovementDialogShell({
           </div>
         </DialogHeader>
 
-        <div className="max-h-[calc(92vh-7.5rem)] overflow-y-auto px-5 py-5">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 space-y-6 min-h-0 min-w-0 w-full">
           {loading ? (
             <div className="flex min-h-56 items-center justify-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="size-5 animate-spin" /> {loadingLabel}
@@ -199,7 +201,7 @@ export function MovementDialogShell({
             </div>
           ) : null}
 
-          {!loading && !error ? <div className="space-y-7">{children}</div> : null}
+          {!loading && !error ? <div className="space-y-6">{children}</div> : null}
         </div>
       </DialogContent>
     </Dialog>

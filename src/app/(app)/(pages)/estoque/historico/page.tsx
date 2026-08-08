@@ -9,11 +9,16 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  Download,
+  Eye,
+  FileText,
   Loader2,
+  MoreHorizontal,
   Package,
   RotateCcw,
   Search,
   SlidersHorizontal,
+  Wallet,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -21,6 +26,12 @@ import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -36,6 +47,8 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/lib/toast";
 import { CancelMovementDialog, type CancelTarget } from "../components/cancel-movement-dialog";
 import { CancelarEntradaDialog } from "@/components/entrada-fiscal/cancelar-entrada-dialog";
+import { EntryDetailsDialog } from "../components/entry-details-dialog";
+import { LancarFinanceiroEntradaDialog } from "@/components/entrada-fiscal/lancar-financeiro-entrada-dialog";
 
 type InventoryKind = "produtos" | "uso-consumo";
 type Direction = "entrada" | "saida";
@@ -103,13 +116,9 @@ type Movement = {
   items: string;
   total: number | null;
   status: string;
-  /** Presentes apenas nas linhas vindas do razao de produtos. */
+  fiscal?: boolean;
   origem?: Origem;
   acao?: "REGISTRO" | "ESTORNO";
-  /**
-   * Documento cancelavel por tras do movimento. Venda e OS ficam nulos de
-   * proposito: elas se desfazem no proprio modulo, nao pela tela de estoque.
-   */
   documentKind?: Direction | null;
   documentId?: number | null;
   reconstruido?: boolean;
@@ -152,83 +161,76 @@ function movementItems(lines?: MovementItem[] | null) {
     .join(", ");
 }
 
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
+}
+
 function normalizeMovement(
   raw: RawMovement,
   inventory: InventoryKind,
   direction: Direction,
 ): Movement {
-  const entryDescription = raw.fiscal
-    ? `NF ${raw.numero_nota || "não informada"}`
-    : label(raw.origem || raw.tipo);
-  const outputDescription = [label(raw.motivo), raw.observacao?.trim()].filter(Boolean).join(" - ");
-
   return {
     key: `${inventory}-${direction}-${raw.id}`,
     id: raw.id,
     inventory,
     direction,
     createdAt: raw.created_at,
-    description: direction === "entrada" ? entryDescription : outputDescription,
-    party:
-      raw.fornecedor?.nomerazaosocial ||
-      raw.funcionario ||
-      raw.setor ||
-      raw.centro_custo?.nome ||
-      "—",
+    description:
+      raw.numero_nota
+        ? `Nota fiscal nº ${raw.numero_nota}`
+        : raw.motivo || raw.tipo || (direction === "entrada" ? "Entrada no estoque" : "Saída do estoque"),
+    party: raw.fornecedor?.nomerazaosocial || raw.funcionario || raw.setor || raw.centro_custo?.nome || "—",
     items: movementItems(raw.itens),
-    total: direction === "entrada" ? Number(raw.valor_total ?? 0) : null,
+    total: raw.valor_total ?? null,
     status: raw.status || "CONFIRMADA",
+    fiscal: Boolean(raw.fiscal),
   };
 }
 
-/**
- * Converte uma linha do razao de produtos para o formato da tabela.
- *
- * O razao e por linha de produto, nao por documento: uma venda de tres itens
- * rende tres movimentos. E a granularidade certa para conferir saldo, e a unica
- * em que baixa de venda e de OS cabem junto com entrada e saida.
- */
 function normalizeLedgerMovement(raw: RawLedgerMovement): Movement {
-  const cancelavel = raw.origem === "ENTRADA" || raw.origem === "SAIDA_MANUAL";
-  const documentId = raw.entrada_id ?? raw.saida_id ?? null;
+  const direction: Direction = raw.sentido === "ENTRADA" ? "entrada" : "saida";
+  const party = raw.entrada?.fornecedor?.nomerazaosocial || raw.criador?.nome || "—";
+  const isEstorno = raw.acao === "ESTORNO";
+  const itemTitle = raw.produto?.titulo || "Produto";
+  const itemUnit = raw.produto?.unidade ? ` ${raw.produto.unidade}` : "";
+  const movementItem = `${itemTitle} (${Math.abs(raw.quantidade)}${itemUnit})`;
 
-  const descricao =
-    raw.origem === "SAIDA_MANUAL"
-      ? [label(raw.saida?.motivo), raw.saida?.observacao?.trim()].filter(Boolean).join(" - ")
-      : raw.documento_label || ROTULO_ORIGEM[raw.origem];
+  let documentKind: Direction | null = null;
+  let documentId: number | null = null;
 
-  const quantidade = Number(raw.quantidade ?? 0);
-  const unidade = raw.produto?.unidade ? ` ${raw.produto.unidade}` : "";
+  if (raw.origem === "ENTRADA") {
+    documentKind = "entrada";
+    documentId = raw.entrada_id;
+  } else if (raw.origem === "SAIDA_MANUAL") {
+    documentKind = "saida";
+    documentId = raw.saida_id;
+  }
 
   return {
-    key: `produtos-razao-${raw.id}`,
-    id: documentId ?? raw.venda_id ?? raw.ordemservicoid ?? raw.id,
+    key: `ledger-${raw.id}`,
+    id: raw.id,
     inventory: "produtos",
-    direction: raw.sentido === "ENTRADA" ? "entrada" : "saida",
+    direction,
     createdAt: raw.created_at,
-    description: raw.acao === "ESTORNO" ? `${descricao} (estorno)` : descricao,
-    party:
-      raw.entrada?.fornecedor?.nomerazaosocial ||
-      raw.criador?.nome ||
-      "—",
-    items: `${raw.produto?.titulo || "Produto"} (${quantidade}${unidade})`,
+    description: isEstorno
+      ? `Estorno — ${raw.documento_label || "movimentação"}`
+      : raw.documento_label || ROTULO_ORIGEM[raw.origem] || "Movimentação",
+    party,
+    items: movementItem,
     total: null,
-    // Entrada e saida trazem o status do documento; venda e OS nao tem status de
-    // movimento, entao a linha vale pelo que ela e: baixa ou devolucao.
-    status:
-      raw.entrada?.status ||
-      raw.saida?.status ||
-      (raw.acao === "ESTORNO" ? "ESTORNADA" : "CONFIRMADA"),
+    status: isEstorno ? "CANCELADA" : raw.entrada?.status || raw.saida?.status || "CONFIRMADA",
     origem: raw.origem,
     acao: raw.acao,
-    documentKind: cancelavel ? (raw.origem === "ENTRADA" ? "entrada" : "saida") : null,
-    documentId: cancelavel ? documentId : null,
+    documentKind,
+    documentId,
     reconstruido: raw.reconstruido,
   };
-}
-
-function formatDateTime(value: string) {
-  return new Date(value).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 }
 
 function MovementRow({
@@ -237,14 +239,28 @@ function MovementRow({
   isCanceling,
   showActions,
   onCancel,
+  onViewDetails,
+  onLancarFinanceiro,
+  onBaixarNfe,
+  onBaixarDanfe,
 }: {
   movement: Movement;
   cancellable: boolean;
   isCanceling: boolean;
   showActions: boolean;
   onCancel: (movement: Movement) => void;
+  onViewDetails: (movement: Movement) => void;
+  onLancarFinanceiro: (movement: Movement) => void;
+  onBaixarNfe: (movement: Movement) => void;
+  onBaixarDanfe: (movement: Movement) => void;
 }) {
   const isEntrada = movement.direction === "entrada";
+  const isEntradaFiscal =
+    isEntrada &&
+    movement.status === "CONFIRMADA" &&
+    (Boolean(movement.fiscal) ||
+      movement.origem === "ENTRADA" ||
+      movement.documentKind === "entrada");
 
   return (
     <TableRow>
@@ -302,12 +318,6 @@ function MovementRow({
         </Badge>
       </TableCell>
 
-      <TableCell className="whitespace-nowrap text-right">
-        {movement.total === null
-          ? "—"
-          : movement.total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-      </TableCell>
-
       <TableCell className="hidden sm:table-cell">
         <Badge variant={movement.status === "CONFIRMADA" ? "outline" : "secondary"}>
           {label(movement.status)}
@@ -316,12 +326,48 @@ function MovementRow({
 
       {showActions ? (
         <TableCell className="text-right">
-          {cancellable ? (
-            <Button size="sm" variant="outline" disabled={isCanceling} onClick={() => onCancel(movement)}>
-              {isCanceling ? <Loader2 className="mr-1 size-4 animate-spin" /> : <RotateCcw className="mr-1 size-4" />}
-              Cancelar
-            </Button>
-          ) : null}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8 hover:cursor-pointer">
+                <MoreHorizontal className="size-4" />
+                <span className="sr-only">Ações</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onClick={() => onViewDetails(movement)} className="hover:cursor-pointer">
+                <Eye className="mr-2 size-4 text-muted-foreground" />
+                Visualizar
+              </DropdownMenuItem>
+
+              {isEntradaFiscal ? (
+                <>
+                  <DropdownMenuItem onClick={() => onLancarFinanceiro(movement)} className="hover:cursor-pointer">
+                    <Wallet className="mr-2 size-4 text-emerald-600 dark:text-emerald-400" />
+                    Lançar no Financeiro
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onBaixarNfe(movement)} className="hover:cursor-pointer">
+                    <Download className="mr-2 size-4 text-emerald-600 dark:text-emerald-400" />
+                    Baixar XML
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onBaixarDanfe(movement)} className="hover:cursor-pointer">
+                    <FileText className="mr-2 size-4 text-indigo-600 dark:text-indigo-400" />
+                    Baixar DANFE
+                  </DropdownMenuItem>
+                </>
+              ) : null}
+
+              {cancellable ? (
+                <DropdownMenuItem
+                  onClick={() => onCancel(movement)}
+                  disabled={isCanceling}
+                  className="text-destructive focus:text-destructive hover:cursor-pointer"
+                >
+                  <RotateCcw className="mr-2 size-4" />
+                  Cancelar
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </TableCell>
       ) : null}
     </TableRow>
@@ -336,6 +382,10 @@ function MovementTable({
   canceling,
   onReload,
   onCancel,
+  onViewDetails,
+  onLancarFinanceiro,
+  onBaixarNfe,
+  onBaixarDanfe,
 }: {
   products: Movement[];
   useItems: Movement[];
@@ -344,6 +394,10 @@ function MovementTable({
   canceling: string | null;
   onReload: () => void;
   onCancel: (movement: Movement) => void;
+  onViewDetails: (movement: Movement) => void;
+  onLancarFinanceiro: (movement: Movement) => void;
+  onBaixarNfe: (movement: Movement) => void;
+  onBaixarDanfe: (movement: Movement) => void;
 }) {
   const [inventory, setInventory] = useState<InventoryKind>("produtos");
   const [search, setSearch] = useState("");
@@ -385,8 +439,8 @@ function MovementTable({
   const totalPages = Math.max(1, Math.ceil(filteredMovements.length / limit));
   const start = (page - 1) * limit;
   const pageMovements = filteredMovements.slice(start, start + limit);
-  const showActions = filteredMovements.some((movement) => canCancel(movement));
-  const colSpan = showActions ? 7 : 6;
+  const showActions = filteredMovements.length > 0;
+  const colSpan = showActions ? 6 : 5;
   const isEmpty = !loading && filteredMovements.length === 0;
   const activeFilterCount =
     Number(directionFilter !== "todos") +
@@ -406,7 +460,6 @@ function MovementTable({
   function changeInventory(value: string) {
     if (value !== "produtos" && value !== "uso-consumo") return;
     setInventory(value);
-    // Uso e consumo nao tem origem: manter o filtro esvaziaria a lista inteira.
     if (value === "uso-consumo") setOrigemFilter("todas");
   }
 
@@ -522,8 +575,6 @@ function MovementTable({
                       </Select>
                     </div>
 
-                    {/* Origem so existe no razao de produtos; uso e consumo tem
-                        apenas entrada e saida. */}
                     {inventory === "produtos" ? (
                       <div className="space-y-2 border-t pt-4">
                         <Label>Origem</Label>
@@ -621,7 +672,6 @@ function MovementTable({
               <TableHead className="hidden md:table-cell">Data</TableHead>
               <TableHead className="hidden lg:table-cell">Itens</TableHead>
               <TableHead>Tipo</TableHead>
-              <TableHead className="text-right">Valor</TableHead>
               <TableHead className="hidden sm:table-cell">Status</TableHead>
               {showActions ? <TableHead className="w-24 text-right">Ações</TableHead> : null}
             </TableRow>
@@ -635,6 +685,10 @@ function MovementTable({
                 isCanceling={canceling === movement.key}
                 showActions={showActions}
                 onCancel={onCancel}
+                onViewDetails={onViewDetails}
+                onLancarFinanceiro={onLancarFinanceiro}
+                onBaixarNfe={onBaixarNfe}
+                onBaixarDanfe={onBaixarDanfe}
               />
             ))}
 
@@ -751,10 +805,17 @@ export default function HistoricoEstoquePage() {
   const [loading, setLoading] = useState(true);
   const [canceling, setCanceling] = useState<string | null>(null);
   const [cancelTarget, setCancelTarget] = useState<{ movement: Movement; target: CancelTarget } | null>(null);
-  /** Entradas usam o dialogo detalhado, que resolve nota mista e lista o que sera desfeito. */
   const [entradaCancelamento, setEntradaCancelamento] = useState<
     { id: number; origem: "ESTOQUE" | "USOCONSUMO" } | null
   >(null);
+  const [detalhesEntrada, setDetalhesEntrada] = useState<{
+    id: number;
+    inventory: "produto" | "usoconsumo";
+  } | null>(null);
+  const [lancarFinanceiroEntrada, setLancarFinanceiroEntrada] = useState<{
+    id: number;
+    inventory: "produto" | "usoconsumo";
+  } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -762,9 +823,6 @@ export default function HistoricoEstoquePage() {
       const requests: Promise<void>[] = [];
 
       if (canProducts) {
-        // Produtos vem do razao de estoque, que reune as quatro origens numa
-        // consulta so. Antes esta aba juntava /api/entradas com
-        // /api/estoque/saidas, e por isso baixa de venda e de OS nunca aparecia.
         requests.push(
           axios
             .get("/api/estoque/movimentos", { params: { page: 1, limit: 200 } })
@@ -808,13 +866,9 @@ export default function HistoricoEstoquePage() {
     void load();
   }, [load, sessionStatus]);
 
-  /** Produto usa a permissao de edicao de estoque; uso/consumo tem permissao propria. */
   function podeCancelar(movement: Movement) {
     if (movement.status !== "CONFIRMADA") return false;
     if (movement.inventory === "uso-consumo") return canCancelUse;
-    // No razao de produtos so entrada e saida manual se cancelam por aqui, e so
-    // a linha original — nunca um estorno ja registrado. Venda e OS se desfazem
-    // no proprio modulo, que ja devolve o saldo e grava o movimento inverso.
     if (!movement.documentKind || !movement.documentId) return false;
     if (movement.acao === "ESTORNO") return false;
     return canCancelProducts;
@@ -846,6 +900,76 @@ export default function HistoricoEstoquePage() {
     }
   }
 
+  async function handleBaixarNfe(movement: Movement) {
+    const docId = movement.documentId ?? movement.id;
+    const inventory = movement.inventory === "uso-consumo" ? "usoconsumo" : "produto";
+    const toastId = toast.loading("Baixando XML da NF-e...");
+
+    try {
+      const response = await fetch(`/api/entradas/${docId}/xml?inventory=${inventory}`);
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        throw new Error(errData?.error || errData?.detail || "XML da NF-e não encontrado.");
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename="?([^"]+)"?/i);
+      const filename = match?.[1] || `NFe-Entrada-${docId}.xml`;
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      toast.success("XML baixado com sucesso!", { id: toastId });
+    } catch (error: any) {
+      toast.error("Não foi possível baixar a NF-e", {
+        id: toastId,
+        description: error?.message,
+      });
+    }
+  }
+
+  async function handleBaixarDanfe(movement: Movement) {
+    const docId = movement.documentId ?? movement.id;
+    const inventory = movement.inventory === "uso-consumo" ? "usoconsumo" : "produto";
+    const toastId = toast.loading("Gerando PDF do DANFE...");
+
+    try {
+      const response = await fetch(`/api/entradas/${docId}/danfe?inventory=${inventory}`);
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        throw new Error(errData?.error || errData?.detail || "Erro ao gerar PDF do DANFE.");
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename="?([^"]+)"?/i);
+      const filename = match?.[1] || `DANFE-Entrada-${docId}.pdf`;
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      toast.success("DANFE (PDF) baixado com sucesso!", { id: toastId });
+    } catch (error: any) {
+      toast.error("Não foi possível baixar o DANFE", {
+        id: toastId,
+        description: error?.message,
+      });
+    }
+  }
+
   return (
     <div className="mx-auto space-y-6">
       <MovementTable
@@ -855,6 +979,22 @@ export default function HistoricoEstoquePage() {
         canCancel={podeCancelar}
         canceling={canceling}
         onReload={() => void load()}
+        onViewDetails={(movement) => {
+          const docId = movement.documentId ?? movement.id;
+          setDetalhesEntrada({
+            id: docId,
+            inventory: movement.inventory === "uso-consumo" ? "usoconsumo" : "produto",
+          });
+        }}
+        onLancarFinanceiro={(movement) => {
+          const docId = movement.documentId ?? movement.id;
+          setLancarFinanceiroEntrada({
+            id: docId,
+            inventory: movement.inventory === "uso-consumo" ? "usoconsumo" : "produto",
+          });
+        }}
+        onBaixarNfe={handleBaixarNfe}
+        onBaixarDanfe={handleBaixarDanfe}
         onCancel={(movement) => {
           const kind = movement.documentKind ?? movement.direction;
           const documentId = movement.documentId ?? movement.id;
@@ -877,6 +1017,21 @@ export default function HistoricoEstoquePage() {
         }}
       />
 
+      <EntryDetailsDialog
+        open={detalhesEntrada !== null}
+        onOpenChange={(open) => !open && setDetalhesEntrada(null)}
+        entryId={detalhesEntrada?.id ?? null}
+        inventory={detalhesEntrada?.inventory ?? "produto"}
+      />
+
+      <LancarFinanceiroEntradaDialog
+        open={lancarFinanceiroEntrada !== null}
+        onOpenChange={(open) => !open && setLancarFinanceiroEntrada(null)}
+        entryId={lancarFinanceiroEntrada?.id ?? null}
+        inventory={lancarFinanceiroEntrada?.inventory ?? "produto"}
+        onSuccess={() => void load()}
+      />
+
       <CancelMovementDialog
         target={cancelTarget?.target ?? null}
         onOpenChange={(open) => !open && setCancelTarget(null)}
@@ -889,7 +1044,6 @@ export default function HistoricoEstoquePage() {
         onOpenChange={(open) => !open && setEntradaCancelamento(null)}
         entradaId={entradaCancelamento?.id ?? null}
         origem={entradaCancelamento?.origem ?? "ESTOQUE"}
-        onCancelada={() => load()}
       />
     </div>
   );

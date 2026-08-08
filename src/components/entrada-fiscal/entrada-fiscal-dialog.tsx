@@ -149,7 +149,7 @@ export function EntradaFiscalDialog({
     useState<Record<string, string | number | null>>();
   const [grupos, setGrupos] = useState<UsoConsumoGrupo[]>([]);
 
-  const [pagamentoFuturo, setPagamentoFuturo] = useState(false);
+  const [pagamentoFuturo, setPagamentoFuturo] = useState(true);
   const [parcelas, setParcelas] = useState<Parcela[]>([]);
   const [bancos, setBancos] = useState<Banco[]>([]);
   const [bancoId, setBancoId] = useState("");
@@ -217,7 +217,7 @@ export function EntradaFiscalDialog({
     setItemDialogIndex(null);
     setItemEmEdicao(null);
     setItemValoresIniciais(undefined);
-    setPagamentoFuturo(false);
+    setPagamentoFuturo(true);
     setParcelas([]);
     setBancoId("");
     setMetodo("");

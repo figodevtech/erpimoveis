@@ -521,6 +521,18 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       .order("data", { ascending: false });
     if (trans_res.error) throw trans_res.error;
 
+    const despesas_servico_res = await supabase
+      .from("eventos_financeiros")
+      .select("id, servicoid, descricao, detalhe, valor, status, transacaoid")
+      .eq("ordemservicoid", osId)
+      .eq("origem", "SERVICO")
+      .eq("natureza", "DESPESA")
+      .neq("status", "CANCELADO")
+      .not("servicoid", "is", null)
+      .order("data_evento", { ascending: true })
+      .order("id", { ascending: true });
+    if (despesas_servico_res.error) throw despesas_servico_res.error;
+
     const transacoes = (trans_res.data ?? []).map((t: any) => ({
       ...t,
       valor: toNum(t.valor),
@@ -532,6 +544,45 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     const despesas = transacoes.filter((t: any) => t.tipo === "DESPESA");
     const despesasPagas = despesas.filter((t: any) => !t.pendente);
     const despesasPendentes = despesas.filter((t: any) => t.pendente);
+    const transacoesPorId = new Map(
+      transacoes.map((transacao: any) => [Number(transacao.id), transacao]),
+    );
+    const despesasByServico = new Map<
+      number,
+      Array<{
+        id: number;
+        descricao: string;
+        detalhe: string | null;
+        valor: number;
+        status: "ATIVO" | "CONVERTIDO";
+        situacao: "PREVISTA" | "A_PAGAR" | "PAGA" | "LANCADA";
+        transacaoid: number | null;
+      }>
+    >();
+    for (const evento of despesas_servico_res.data ?? []) {
+      const servicoid = Number(evento.servicoid);
+      const transacaoid = evento.transacaoid == null ? null : Number(evento.transacaoid);
+      const transacao = transacaoid ? transacoesPorId.get(transacaoid) : null;
+      const status = evento.status === "CONVERTIDO" ? "CONVERTIDO" : "ATIVO";
+      const despesasServico = despesasByServico.get(servicoid) ?? [];
+      despesasServico.push({
+        id: Number(evento.id),
+        descricao: String(evento.descricao || "Despesa do servi\u00e7o"),
+        detalhe: evento.detalhe ? String(evento.detalhe) : null,
+        valor: toNum(evento.valor),
+        status,
+        situacao:
+          status === "ATIVO"
+            ? "PREVISTA"
+            : transacao?.pendente === true
+              ? "A_PAGAR"
+              : transacao?.pendente === false
+                ? "PAGA"
+                : "LANCADA",
+        transacaoid,
+      });
+      despesasByServico.set(servicoid, despesasServico);
+    }
     // Duas leituras diferentes do mesmo pagamento, e nao da para usar uma so:
     //   face    -> o que abateu a OS (juros e multa nao abatem);
     //   cobrado -> o que saiu do bolso do cliente, base da taxa de recebimento.
@@ -575,24 +626,47 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       const custoUnitario = item.custoUnitarioAplicado ?? toNum(item.produto?.ultimovalordecompra);
       return acc + custoUnitario * item.quantidade;
     }, 0);
-    const despesasComprometidas = despesas.reduce((acc: number, t: any) => acc + t.valor, 0);
+    const despesasServicoNaoLancadas = Array.from(despesasByServico.values())
+      .flat()
+      .filter((despesa) => despesa.status === "ATIVO" && despesa.transacaoid == null)
+      .reduce((acc, despesa) => acc + despesa.valor, 0);
+    const despesasComprometidas =
+      despesas.reduce((acc: number, t: any) => acc + t.valor, 0) +
+      despesasServicoNaoLancadas;
     const despesasRealizadas = despesasPagas.reduce((acc: number, t: any) => acc + t.valorLiquido, 0);
     const comissoesServicos = itensServico.map((item: any) => {
       const realizadores = comissoesByServico.get(item.servicoid) ?? [];
+      const despesasServico = despesasByServico.get(item.servicoid) ?? [];
+      const receitaLiquida = item.subtotal * fatorDescontoOs;
+      const valorComissao = realizadores.reduce(
+        (acc, realizador) => acc + realizador.valorComissao,
+        0,
+      );
+      const valorOutrasDespesas = despesasServico.reduce(
+        (acc, despesa) => acc + despesa.valor,
+        0,
+      );
+      const resultadoServico = receitaLiquida - valorComissao - valorOutrasDespesas;
       return {
         servicoid: item.servicoid,
         descricao: item.descricaoServico || item.servico?.descricao || "Serviço",
         valorServico: item.subtotal,
-        receitaLiquida: item.subtotal * fatorDescontoOs,
-        valorComissao: realizadores.reduce(
-          (acc, realizador) => acc + realizador.valorComissao,
-          0,
-        ),
+        receitaLiquida,
+        valorComissao,
+        valorOutrasDespesas,
+        valorDespesasTotal: valorComissao + valorOutrasDespesas,
+        resultadoServico,
+        margemServico: receitaLiquida > 0 ? (resultadoServico / receitaLiquida) * 100 : 0,
+        despesas: despesasServico,
         realizadores,
       };
     });
     const totalComissoesServicos = comissoesServicos.reduce(
       (acc, servico) => acc + servico.valorComissao,
+      0,
+    );
+    const totalOutrasDespesasServicos = comissoesServicos.reduce(
+      (acc, servico) => acc + servico.valorOutrasDespesas,
       0,
     );
     const lucroPrevisto =
@@ -611,8 +685,11 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       produtos: produtosRentabilidade,
       despesasComprometidas,
       despesasPagas: despesasRealizadas,
-      despesasPendentes: despesasPendentes.reduce((acc: number, t: any) => acc + t.valor, 0),
+      despesasPendentes:
+        despesasPendentes.reduce((acc: number, t: any) => acc + t.valor, 0) +
+        despesasServicoNaoLancadas,
       totalComissoesServicos,
+      totalOutrasDespesasServicos,
       comissoesServicos,
       lucroPrevisto,
       lucroRealizado,
