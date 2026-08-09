@@ -3,6 +3,7 @@
 
 import { Building2, Mail, ShieldCheck } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MOLA, MOLA_SUAVE, SAIDA, containerEscalonado, itemQueSobe } from "../lib/motion";
@@ -21,7 +22,15 @@ function iniciais(nome: string | null): string {
 const MOLDURA =
   "relative flex items-center gap-3 overflow-hidden rounded-lg border bg-card p-3 sm:gap-4 sm:p-4";
 
-export function PerfilHeader({ perfil, carregando }: { perfil: MeuPerfil | null; carregando: boolean }) {
+export function PerfilHeader({
+  perfil,
+  carregando,
+  seletorUsuario,
+}: {
+  perfil: MeuPerfil | null;
+  carregando: boolean;
+  seletorUsuario?: ReactNode;
+}) {
   return (
     <AnimatePresence mode="wait" initial={false}>
       {carregando && !perfil ? (
@@ -91,6 +100,12 @@ export function PerfilHeader({ perfil, carregando }: { perfil: MeuPerfil | null;
               )}
             </motion.div>
           </div>
+
+          {seletorUsuario && (
+            <motion.div variants={itemQueSobe} className="relative w-40 shrink-0 sm:w-48">
+              {seletorUsuario}
+            </motion.div>
+          )}
 
           {perfil && !perfil.ativo && (
             <motion.div

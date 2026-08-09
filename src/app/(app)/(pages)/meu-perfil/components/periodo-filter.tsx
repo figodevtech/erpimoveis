@@ -1,36 +1,26 @@
-// src/app/(app)/(pages)/meu-perfil/components/periodo-filter.tsx
 "use client";
 
-import { CalendarRange } from "lucide-react";
-import { endOfMonth, endOfWeek, startOfMonth, startOfWeek, subMonths } from "date-fns";
+import { CalendarIcon, CalendarRange } from "lucide-react";
+import { endOfMonth, endOfWeek, format, startOfMonth, startOfWeek, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { motion } from "motion/react";
-import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { intervalo, periodoDesteMes } from "../lib/format";
-import { MOLA } from "../lib/motion";
 import type { Periodo } from "../types";
 
-type Props = {
-  periodo: Periodo;
-  onChange: (periodo: Periodo) => void;
-};
+type Props = { periodo: Periodo; onChange: (periodo: Periodo) => void };
 
 const OPCOES: Array<{ chave: string; rotulo: string; calcular: () => Periodo }> = [
   {
     chave: "semana",
     rotulo: "Esta semana",
-    // A semana comeca no domingo, seguindo o locale pt-BR ja usado nos
-    // calendarios do sistema.
     calcular: () =>
       intervalo(startOfWeek(new Date(), { locale: ptBR }), endOfWeek(new Date(), { locale: ptBR })),
   },
-  {
-    chave: "mes",
-    rotulo: "Este mês",
-    calcular: periodoDesteMes,
-  },
+  { chave: "mes", rotulo: "Este mês", calcular: periodoDesteMes },
   {
     chave: "mes-anterior",
     rotulo: "Mês anterior",
@@ -42,7 +32,63 @@ const OPCOES: Array<{ chave: string; rotulo: string; calcular: () => Periodo }> 
   { chave: "tudo", rotulo: "Tudo", calcular: () => ({ de: "", ate: "" }) },
 ];
 
+function dataDoIso(valor: string): Date | undefined {
+  const [ano, mes, dia] = valor.split("-").map(Number);
+  if (!ano || !mes || !dia) return undefined;
+  return new Date(ano, mes - 1, dia);
+}
+
+function SeletorData({
+  id,
+  rotulo,
+  valor,
+  desabilitar,
+  onChange,
+}: {
+  id: string;
+  rotulo: string;
+  valor: string;
+  desabilitar?: (data: Date) => boolean;
+  onChange: (valor: string) => void;
+}) {
+  const data = dataDoIso(valor);
+
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <Label htmlFor={id} className="shrink-0 text-xs text-muted-foreground">{rotulo}</Label>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            id={id}
+            variant="outline"
+            className={cn(
+              "h-9 min-w-0 flex-1 justify-start px-3 text-left font-normal sm:w-[10.5rem] sm:flex-none",
+              !data && "text-muted-foreground",
+            )}
+          >
+            <CalendarIcon className="mr-2 size-4" aria-hidden />
+            {data ? format(data, "dd/MM/yyyy") : "Selecione"}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-auto p-0">
+          <Calendar
+            mode="single"
+            selected={data}
+            onSelect={(novaData) => onChange(novaData ? format(novaData, "yyyy-MM-dd") : "")}
+            disabled={desabilitar}
+            locale={ptBR}
+            initialFocus
+          />
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
 export function PeriodoFilter({ periodo, onChange }: Props) {
+  const limiteDe = dataDoIso(periodo.ate);
+  const limiteAte = dataDoIso(periodo.de);
+
   return (
     <section
       aria-label="Filtro de período"
@@ -55,43 +101,24 @@ export function PeriodoFilter({ periodo, onChange }: Props) {
         </div>
 
         <div className="grid grid-cols-2 gap-2 sm:flex sm:items-end">
-          {/* `min-w-0`: o input de data tem largura minima propria no iOS e sem
-              isso ele estoura a coluna da grade. */}
-          <div className="grid min-w-0 gap-1.5">
-            <Label htmlFor="periodo-de" className="text-xs text-muted-foreground">
-              De
-            </Label>
-            <Input
-              id="periodo-de"
-              type="date"
-              className="h-9 w-full sm:w-[10.5rem]"
-              value={periodo.de}
-              max={periodo.ate || undefined}
-              onChange={(e) => onChange({ ...periodo, de: e.target.value })}
-            />
-          </div>
-
-          <div className="grid min-w-0 gap-1.5">
-            <Label htmlFor="periodo-ate" className="text-xs text-muted-foreground">
-              Até
-            </Label>
-            <Input
-              id="periodo-ate"
-              type="date"
-              className="h-9 w-full sm:w-[10.5rem]"
-              value={periodo.ate}
-              min={periodo.de || undefined}
-              onChange={(e) => onChange({ ...periodo, ate: e.target.value })}
-            />
-          </div>
+          <SeletorData
+            id="periodo-de"
+            rotulo="De"
+            valor={periodo.de}
+            desabilitar={limiteDe ? (data) => data > limiteDe : undefined}
+            onChange={(de) => onChange({ ...periodo, de })}
+          />
+          <SeletorData
+            id="periodo-ate"
+            rotulo="Até"
+            valor={periodo.ate}
+            desabilitar={limiteAte ? (data) => data < limiteAte : undefined}
+            onChange={(ate) => onChange({ ...periodo, ate })}
+          />
         </div>
       </div>
 
-      {/* Os atalhos formam um unico controle segmentado: a pilula do selecionado
-          desliza entre eles via layoutId, em vez de piscar de um para o outro.
-          No celular viram uma grade 2x2 — em `flex-wrap` a ultima linha ficava
-          com sobras irregulares. */}
-      <div className="grid grid-cols-2 gap-1 rounded-lg border bg-muted/40 p-1 sm:flex sm:flex-wrap">
+      <div className="grid grid-cols-2 gap-1.5 rounded-xl border bg-muted/40 p-1 sm:flex sm:flex-wrap">
         {OPCOES.map((opcao) => {
           const alvo = opcao.calcular();
           const selecionado = periodo.de === alvo.de && periodo.ate === alvo.ate;
@@ -103,20 +130,14 @@ export function PeriodoFilter({ periodo, onChange }: Props) {
               aria-pressed={selecionado}
               onClick={() => onChange(alvo)}
               className={cn(
-                "relative rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                selecionado ? "text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+                "h-8 rounded-xl border border-transparent px-3 text-xs font-medium transition-all",
+                "hover:cursor-pointer hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                selecionado
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground",
               )}
             >
-              {selecionado && (
-                <motion.span
-                  layoutId="periodo-atalho-ativo"
-                  aria-hidden
-                  className="absolute inset-0 rounded-md bg-primary shadow-sm"
-                  transition={MOLA}
-                />
-              )}
-              <span className="relative">{opcao.rotulo}</span>
+              {opcao.rotulo}
             </button>
           );
         })}

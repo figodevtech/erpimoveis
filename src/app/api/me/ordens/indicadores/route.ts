@@ -27,7 +27,7 @@ import {
 const TETO_ORDENS = 1000;
 
 export async function GET(req: Request) {
-  const userId = await getMeUserId();
+  const userId = await getMeUserId(req);
   if (isNextResponse(userId)) return userId;
 
   try {

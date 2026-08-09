@@ -24,20 +24,20 @@ import {
 const COLUNAS = 7;
 const LIMITE = 10;
 
-export function TabelaMinhasVendas({ periodo, ativo }: { periodo: Periodo; ativo: boolean }) {
+export function TabelaMinhasVendas({ periodo, ativo, usuarioId }: { periodo: Periodo; ativo: boolean; usuarioId?: string }) {
   const [expandidas, setExpandidas] = useState<ReadonlySet<number>>(new Set());
 
   const buscar = useCallback(
     ({ page, limit, signal }: { page: number; limit: number; signal: AbortSignal }) =>
-      buscarMinhasVendas({ ...periodo, page, limit, signal }),
-    [periodo],
+      buscarMinhasVendas({ ...periodo, page, limit, signal, usuarioId }),
+    [periodo, usuarioId],
   );
 
   const lista = useListaPaginada<MinhaVenda>({
     buscar,
     limit: LIMITE,
     ativo,
-    chaveDeReset: `${periodo.de}|${periodo.ate}`,
+    chaveDeReset: `${periodo.de}|${periodo.ate}|${usuarioId ?? "me"}`,
   });
 
   const alternar = (id: number) =>

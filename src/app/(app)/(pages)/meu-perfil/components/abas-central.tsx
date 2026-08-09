@@ -6,8 +6,7 @@ import { ClipboardList, ShoppingCart, Wrench } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { motion } from "motion/react";
 import { TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
-import { MOLA, MOLA_SUAVE } from "../lib/motion";
+import { MOLA_SUAVE } from "../lib/motion";
 import type { AbaCentral } from "../types";
 
 /**
@@ -28,36 +27,21 @@ export const ABAS: Array<{
 /** Distancia lateral de repouso de um painel inativo, em pixels. */
 const DESLOCAMENTO = 28;
 
-export function ListaDeAbas({ ativa }: { ativa: AbaCentral }) {
+export function ListaDeAbas() {
   return (
     // No celular a barra ocupa a linha inteira e divide o espaco entre as tres
     // abas; a partir de `sm` ela volta a ter a largura do conteudo.
-    <TabsList className="h-auto w-full justify-start p-1 sm:w-fit">
+    <TabsList className="h-auto w-full justify-start gap-1.5 rounded-xl border bg-muted/40 p-1 sm:w-fit">
       {ABAS.map((aba) => {
         const Icone = aba.icone;
-        const selecionada = aba.chave === ativa;
-
         return (
           <TabsTrigger
             key={aba.chave}
             value={aba.chave}
-            className={cn(
-              "relative min-w-0 flex-1 gap-1.5 px-2 py-1.5 sm:flex-none sm:px-3",
-              // O realce fica por conta da pilula animada abaixo.
-              "data-[state=active]:border-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none",
-              "dark:data-[state=active]:bg-transparent",
-            )}
+            className="group h-8 min-w-0 flex-1 rounded-xl border border-transparent px-2 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm dark:data-[state=active]:bg-primary dark:data-[state=active]:text-primary-foreground sm:flex-none sm:px-3"
           >
-            {selecionada && (
-              <motion.span
-                layoutId="aba-central-ativa"
-                aria-hidden
-                className="absolute inset-0 rounded-md border border-border bg-background shadow-sm dark:border-transparent dark:bg-accent"
-                transition={MOLA}
-              />
-            )}
-            <span className="relative flex min-w-0 items-center gap-1.5">
-              <Icone className="size-4 shrink-0" aria-hidden />
+            <span className="flex min-w-0 items-center gap-1.5">
+              <Icone className="size-3.5 shrink-0 transition-transform group-data-[state=active]:scale-105" aria-hidden />
               <span className="truncate sm:hidden">{aba.rotuloCurto}</span>
               <span className="hidden truncate sm:inline">{aba.rotulo}</span>
             </span>

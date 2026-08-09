@@ -97,20 +97,20 @@ function BlocoDeItens({
   );
 }
 
-export function TabelaMinhasOrdens({ periodo, ativo }: { periodo: Periodo; ativo: boolean }) {
+export function TabelaMinhasOrdens({ periodo, ativo, usuarioId }: { periodo: Periodo; ativo: boolean; usuarioId?: string }) {
   const [expandidas, setExpandidas] = useState<ReadonlySet<number>>(new Set());
 
   const buscar = useCallback(
     ({ page, limit, signal }: { page: number; limit: number; signal: AbortSignal }) =>
-      buscarMinhasOrdens({ ...periodo, page, limit, signal }),
-    [periodo],
+      buscarMinhasOrdens({ ...periodo, page, limit, signal, usuarioId }),
+    [periodo, usuarioId],
   );
 
   const lista = useListaPaginada<MinhaOrdem>({
     buscar,
     limit: LIMITE,
     ativo,
-    chaveDeReset: `${periodo.de}|${periodo.ate}`,
+    chaveDeReset: `${periodo.de}|${periodo.ate}|${usuarioId ?? "me"}`,
   });
 
   /*
@@ -119,7 +119,7 @@ export function TabelaMinhasOrdens({ periodo, ativo }: { periodo: Periodo; ativo
    * derivado usado no resto da Central: a chave da consulta viaja junto com o
    * resultado, entao "carregando" nao precisa de setState dentro do efeito.
    */
-  const chaveIndicadores = `${periodo.de}|${periodo.ate}`;
+  const chaveIndicadores = `${periodo.de}|${periodo.ate}|${usuarioId ?? "me"}`;
   const [estadoIndicadores, setEstadoIndicadores] = useState<{
     chave: string;
     dados: IndicadoresOrdens | null;
@@ -131,7 +131,7 @@ export function TabelaMinhasOrdens({ periodo, ativo }: { periodo: Periodo; ativo
 
     const controller = new AbortController();
 
-    buscarIndicadoresOrdens(periodo, controller.signal)
+    buscarIndicadoresOrdens(periodo, usuarioId, controller.signal)
       .then((dados) => {
         if (!controller.signal.aborted) setEstadoIndicadores({ chave: chaveIndicadores, dados });
       })
@@ -140,7 +140,7 @@ export function TabelaMinhasOrdens({ periodo, ativo }: { periodo: Periodo; ativo
       });
 
     return () => controller.abort();
-  }, [ativo, chaveIndicadores, periodo]);
+  }, [ativo, chaveIndicadores, periodo, usuarioId]);
 
   const alternar = (id: number) =>
     setExpandidas((atual) => {

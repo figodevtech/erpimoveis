@@ -1,6 +1,7 @@
 // src/app/api/me/_helpers.ts
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { hasUsuariosAccess } from "@/app/api/_authz/perms";
 
 /**
  * Helpers da Central Pessoal (/meu-perfil).
@@ -11,7 +12,7 @@ import { auth } from "@/lib/auth";
  * query. Aceitar um `usuarioId` do cliente transformaria a rota em leitura livre
  * das vendas e ordens de qualquer colega.
  */
-export async function getMeUserId(): Promise<string | NextResponse> {
+export async function getMeUserId(req?: Request): Promise<string | NextResponse> {
   const session = await auth();
   const userId = (session?.user as { id?: string } | undefined)?.id;
 
@@ -19,7 +20,21 @@ export async function getMeUserId(): Promise<string | NextResponse> {
     return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
   }
 
-  return String(userId);
+  const sessionUserId = String(userId);
+  const requestedUserId = req
+    ? (new URL(req.url).searchParams.get("usuarioId") ?? "").trim()
+    : "";
+
+  if (!requestedUserId || requestedUserId === sessionUserId) return sessionUserId;
+
+  if (!(await hasUsuariosAccess())) {
+    return NextResponse.json(
+      { error: "Sem permissao para visualizar o perfil de outro usuario." },
+      { status: 403 },
+    );
+  }
+
+  return requestedUserId;
 }
 
 export function isNextResponse(value: unknown): value is NextResponse {
