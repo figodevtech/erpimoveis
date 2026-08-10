@@ -2,10 +2,12 @@
 
 import type {
   EmpresaRow,
+  ModeloDocumentoFiscal,
   NFeIde,
   NFeDestinatario,
   NFeItem,
 } from './types';
+import { MODELO_NFE, MODELO_NFCE, modeloParaCodigo } from './modeloDocumento';
 import { buildIdeXml } from './xmlIde';
 import { buildEmitXml } from './xmlEmitente';
 import { buildDestXml } from './xmlDest';
@@ -17,7 +19,10 @@ import { calcularTotaisNFe, normalizarCRT, valorLiquidoItem } from './fiscal';
 import { cfopDispensaDifal, deveGerarICMSUFDest, montarICMSUFDest } from './difal';
 import { escapeXml } from './xmlUtils';
 import { validarInscricaoEstadualDestinatario } from './indIEDest';
-import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from './constants';
+import {
+  NFCE_HOMOLOGACAO_PRIMEIRO_ITEM_DESCRICAO,
+  NFE_HOMOLOGACAO_DESTINATARIO_NOME,
+} from './constants';
 
 /**
  * Formata data/hora para o padrão da NF-e 4.00:
@@ -52,6 +57,21 @@ function formatDateTimeNFe(date: Date): string {
  * Cria o bloco <ide> da NF-e, calculando cNF, chave de acesso e cDV.
  */
 export interface IdeOptions {
+  /**
+   * Modelo do documento. Omitido = 55 (NF-e), que mantém o comportamento de
+   * todos os chamadores que existiam antes da NFC-e.
+   */
+  modelo?: ModeloDocumentoFiscal;
+  /**
+   * Ambiente do documento. Omitido, cai no da empresa.
+   *
+   * O ambiente fiscal é único e definido no cadastro da empresa — NF-e e NFC-e
+   * seguem juntas. Este parâmetro serve para o chamador declarar o ambiente já
+   * resolvido, garantindo que o `tpAmb` e as regras de homologação (nome do
+   * destinatário na NF-e, descrição do 1º item na NFC-e) usem exatamente o
+   * mesmo valor.
+   */
+  ambiente?: "HOMOLOGACAO" | "PRODUCAO" | null;
   nomeMunicipioEmitente?: string;
   tpNF?: 0 | 1;
   idDest?: 1 | 2 | 3;
@@ -60,6 +80,8 @@ export interface IdeOptions {
   indPres?: 0 | 1 | 2 | 3 | 4 | 5 | 9;
   finNFe?: 1 | 2 | 3 | 4;
   tpImp?: 1 | 2 | 3 | 4 | 5;
+  /** 1 = normal, 9 = contingência offline da NFC-e. */
+  tpEmis?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
   observacoesFiscais?: string | null;
   pagamento?: NFePagamentoOptions | null;
   pagamentos?: NFePagamentoOptions[] | null;
@@ -259,7 +281,10 @@ function buildPagXml(params: {
         : pagamentos.length === 1 && index === 0
           ? params.vNF
           : "0.00";
-    const isCartao = tPag === "03" || tPag === "04";
+    // NT 2025.001 (RV YA04-10, agora obrigatória): o grupo <card> passou a ser
+    // exigido também no PIX (tPag=17), não só em cartão de crédito/débito.
+    // Sem ele a SEFAZ devolve a rejeição 391.
+    const isCartao = tPag === "03" || tPag === "04" || tPag === "17";
     const tpIntegra = pagamento.tpIntegra === "1" ? "1" : "2";
     const cnpjCredenciadora = onlyDigits(pagamento.cnpjCredenciadora);
     const bandeira = onlyDigits(pagamento.bandeira);
@@ -298,13 +323,16 @@ export function criarIdeParaEmpresa(
   const ano = agora.getFullYear();
   const mes = agora.getMonth() + 1;
 
-  const tpAmb: 1 | 2 = empresa.ambiente === 'PRODUCAO' ? 1 : 2;
+  const tpAmb: 1 | 2 = (options?.ambiente ?? empresa.ambiente) === 'PRODUCAO' ? 1 : 2;
   const cNF = gerarCNF(numeroNota);
 
   // PB defaults to 25 if not found, but now we try to read from company
   const cUF = getCodigoUF(empresa.uf || undefined);
-  const mod = '55'; // NF-e
-  const tpEmis = 1; // emissão normal
+  const modelo = options?.modelo ?? MODELO_NFE;
+  const mod = modeloParaCodigo(modelo);
+  const nfce = modelo === MODELO_NFCE;
+  // 1 = emissão normal; 9 = contingência offline (só NFC-e).
+  const tpEmis = options?.tpEmis ?? 1;
 
   // 1) Gera chave de acesso (44 dígitos) e cDV
   const { chave, id, dv } = gerarChaveAcesso({
@@ -320,23 +348,28 @@ export function criarIdeParaEmpresa(
   });
 
   // 2) Monta objeto ide completo
+  //
+  // A NFC-e tem três campos sem escolha: só documenta operação interna
+  // (idDest 1), é sempre para consumidor final (indFinal 1) e o DANFE é o
+  // formato próprio dela (tpImp 4). Fixar aqui evita que uma origem descuidada
+  // monte um documento que a SEFAZ rejeitaria.
   const ide: NFeIde = {
     cUF,
     cNF,
-    natOp: options?.natOp || 'VENDA DE MERCADORIA',
+    natOp: options?.natOp || (nfce ? 'VENDA AO CONSUMIDOR' : 'VENDA DE MERCADORIA'),
     mod,
     serie,
     nNF: numeroNota,
     dhEmi: formatDateTimeNFe(agora),
     tpNF: options?.tpNF ?? 1,
-    idDest: options?.idDest ?? 1,
+    idDest: nfce ? 1 : options?.idDest ?? 1,
     cMunFG: empresa.codigomunicipio,
-    tpImp: options?.tpImp ?? 1,
+    tpImp: nfce ? 4 : options?.tpImp ?? 1,
     tpEmis,
     cDV: dv,
     tpAmb,
     finNFe: options?.finNFe ?? 1,
-    indFinal: options?.indFinal ?? (options?.tpNF === 0 ? 0 : 1),
+    indFinal: nfce ? 1 : options?.indFinal ?? (options?.tpNF === 0 ? 0 : 1),
     indPres: options?.indPres ?? 1,
     procEmi: 0,
     verProc: 'ERPOficina 2026.1',
@@ -364,22 +397,31 @@ export function buildNFePreviewXml(
   destinatario?: NFeDestinatario,
   options?: IdeOptions
 ): { xml: string; chave: string; id: string } {
+  const modelo = options?.modelo ?? MODELO_NFE;
+  const nfce = modelo === MODELO_NFCE;
+  // Ambiente do documento, não da empresa: as regras de homologação (nome do
+  // destinatário na NF-e, descrição do 1º item na NFC-e) precisam seguir o
+  // mesmo ambiente que vai para o tpAmb.
+  const ambienteDocumento = options?.ambiente ?? empresa.ambiente;
   const empresaUf = String(empresa.uf ?? "").trim().toUpperCase();
   const destinatarioUf = String(destinatario?.endereco?.uf ?? "").trim().toUpperCase();
   const destinatarioPais = String(destinatario?.endereco?.codigoPais ?? "").trim();
   const destinatarioExterior =
     Boolean(destinatario) &&
     ((destinatarioPais !== "" && destinatarioPais !== "1058") || destinatarioUf === "EX");
-  const idDest = destinatarioExterior
-    ? 3
-    : empresaUf && destinatarioUf && empresaUf !== destinatarioUf
-      ? 2
-      : 1;
+  // NFC-e só documenta operação interna: o destino nunca muda o idDest.
+  const idDest = nfce
+    ? 1
+    : destinatarioExterior
+      ? 3
+      : empresaUf && destinatarioUf && empresaUf !== destinatarioUf
+        ? 2
+        : 1;
   const { ide, chave, id } = criarIdeParaEmpresa(
     empresa,
     numeroNota,
     serie,
-    { ...options, idDest: options?.idDest ?? idDest }
+    { ...options, idDest: nfce ? 1 : options?.idDest ?? idDest }
   );
 
   const nomeMunicipioEmitente = cleanText(options?.nomeMunicipioEmitente);
@@ -389,46 +431,54 @@ export function buildNFePreviewXml(
   const emitente = mapEmpresaToEmitente(empresa, nomeMunicipioEmitente);
   const crt = normalizarCRT(emitente.crt);
 
-  const destBase: NFeDestinatario =
+  // A NFC-e pode ser emitida sem consumidor identificado — nesse caso o grupo
+  // <dest> simplesmente não existe. O destinatário de teste abaixo é o
+  // comportamento histórico da NF-e, que sempre exige destinatário; para a
+  // NFC-e ele nunca é usado, porque inventar CPF é proibido.
+  const destBase: NFeDestinatario | undefined =
     destinatario ??
-    {
-      cpf: '12345678909', // pode deixar assim mesmo em homologacao
-      razaoSocial: NFE_HOMOLOGACAO_DESTINATARIO_NOME,
-      indIEDest: '9',
-      endereco: {
-        logradouro: 'RUA TESTE',
-        numero: '100',
-        complemento: '',
-        bairro: 'BAIRRO TESTE',
-        codigoMunicipio: empresa.codigomunicipio,
-        nomeMunicipio: 'JOAO PESSOA',
-        uf: 'PB',
-        cep: '58000000',
-        codigoPais: '1058',
-        nomePais: 'BRASIL',
-        telefone: '',
-      },
-    };
+    (nfce
+      ? undefined
+      : {
+          cpf: '12345678909', // pode deixar assim mesmo em homologacao
+          razaoSocial: NFE_HOMOLOGACAO_DESTINATARIO_NOME,
+          indIEDest: '9',
+          endereco: {
+            logradouro: 'RUA TESTE',
+            numero: '100',
+            complemento: '',
+            bairro: 'BAIRRO TESTE',
+            codigoMunicipio: empresa.codigomunicipio,
+            nomeMunicipio: 'JOAO PESSOA',
+            uf: 'PB',
+            cep: '58000000',
+            codigoPais: '1058',
+            nomePais: 'BRASIL',
+            telefone: '',
+          },
+        });
 
-  let dest: NFeDestinatario = destBase;
+  let dest: NFeDestinatario | undefined = destBase;
 
   // REGRA DE HOMOLOGAÇÃO:
-  // Se não for produção, o nome do destinatário deve ser fixo conforme norma.
-  if (empresa.ambiente !== 'PRODUCAO') {
+  // Na NF-e, o nome do destinatário deve ser fixo conforme norma. Na NFC-e a
+  // marcação é outra — vai na descrição do primeiro item, mais abaixo — porque
+  // o destinatário pode nem existir.
+  if (dest && !nfce && ambienteDocumento !== 'PRODUCAO') {
     // Clonamos para não afetar o objeto original (se passado por referência)
     // Nota: endereco e outros sub-objetos ainda são referencias, mas razaoSocial é primitivo.
-    // Como dest é const, precisamos garantir que podemos alterar ou redefinir.
-    // Aqui estamos alterando a PROPRIEDADE do objeto referenciado por dest.
     dest = { ...dest, razaoSocial: NFE_HOMOLOGACAO_DESTINATARIO_NOME };
   }
 
   // Barreira única: nenhum XML sai daqui sem a situação fiscal do destinatário
   // definida no cadastro. Fica depois do ajuste de homologação para validar
   // exatamente o objeto que vai ser serializado.
-  validarInscricaoEstadualDestinatario({
-    indIEDest: dest.indIEDest,
-    inscricaoEstadual: dest.inscricaoEstadual,
-  });
+  if (dest) {
+    validarInscricaoEstadualDestinatario({
+      indIEDest: dest.indIEDest,
+      inscricaoEstadual: dest.inscricaoEstadual,
+    });
+  }
 
 
   // Se itensOverride não for passado, usa o item de teste (compatibilidade)
@@ -441,16 +491,22 @@ export function buildNFePreviewXml(
   const itensNumerados: NFeItem[] = itensBase.map((item, index) => ({
     ...item,
     numeroItem: item.numeroItem ?? index + 1,
+    // Homologação da NFC-e: a marcação de "sem valor fiscal" vai na descrição
+    // do primeiro item, e não no nome do destinatário como na NF-e.
+    ...(nfce && ambienteDocumento !== 'PRODUCAO' && index === 0
+      ? { descricao: NFCE_HOMOLOGACAO_PRIMEIRO_ITEM_DESCRICAO }
+      : {}),
   }));
 
   // DIFAL: saida interestadual a consumidor final nao contribuinte exige o grupo
   // ICMSUFDest em todos os itens. Sem ele a SEFAZ devolve a rejeicao 694.
-  const ufDestino = String(dest.endereco?.uf ?? "");
-  const exigeDifal = deveGerarICMSUFDest({
+  // A NFC-e nunca gera o grupo: por definição é operação interna.
+  const ufDestino = String(dest?.endereco?.uf ?? "");
+  const exigeDifal = !nfce && deveGerarICMSUFDest({
     ufEmitente: empresaUf,
     ufDestinatario: ufDestino,
     indFinal: ide.indFinal ?? 1,
-    indIEDest: dest.indIEDest ?? "9",
+    indIEDest: dest?.indIEDest ?? "9",
     tpNF: ide.tpNF ?? 1,
   });
 
@@ -482,7 +538,9 @@ export function buildNFePreviewXml(
 
   const ideXml = buildIdeXml(ide);
   const emitXml = buildEmitXml(emitente);
-  const destXml = buildDestXml(dest);
+  // Consumidor não identificado: sem grupo <dest>. Só a NFC-e chega aqui sem
+  // destinatário — na NF-e o placeholder acima garante que sempre existe um.
+  const destXml = dest ? buildDestXml(dest) : '';
   const detXml = itens
     .map((item) => buildDetXml(item, crt))
     .join('');
@@ -573,11 +631,15 @@ export function buildNFePreviewXml(
     (ibsCbsTotXml ? `<vNFTot>${vNF}</vNFTot>` : '') +
     '</total>';
 
-  const transpXml = buildTranspXml({
-    empresa,
-    destinatario: dest,
-    transporte: options?.transporte,
-  });
+  // Venda ao consumidor é entrega no balcão: a NFC-e sai sempre sem ocorrência
+  // de transporte, independentemente do que a origem tenha gravado.
+  const transpXml = nfce
+    ? '<transp><modFrete>9</modFrete></transp>'
+    : buildTranspXml({
+        empresa,
+        destinatario: dest,
+        transporte: options?.transporte,
+      });
 
   const pagXml = buildPagXml({
     pagamento: options?.pagamento,
@@ -586,9 +648,12 @@ export function buildNFePreviewXml(
     finNFe: ide.finNFe,
   });
 
+  const rotulo = nfce ? 'NFC-e' : 'NF-e';
   const natOpText = options?.natOp
-    ? `NF-e de ${options.natOp.toLowerCase()}.`
-    : 'NF-e de venda de mercadoria.';
+    ? `${rotulo} de ${options.natOp.toLowerCase()}.`
+    : nfce
+      ? 'NFC-e de venda ao consumidor.'
+      : 'NF-e de venda de mercadoria.';
 
   const obsRaw = (options?.observacoesFiscais ?? '')
     .replace(/[\r\n\t]+/g, ' ')

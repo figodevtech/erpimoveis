@@ -60,8 +60,13 @@ export default function ConfigFiscalPagamentosPage() {
         serieNFCe: "",
         cscHomologacao: "",
         cscProducao: "",
-        idCSC: "",
+        idCscHomologacao: "",
+        idCscProducao: "",
         naturezaOperacao: "Venda de mercadoria",
+        naturezaOperacaoNFCe: "Venda ao consumidor",
+        qrCodeVersao: "3",
+        nfceConfigurada: false,
+        padroesFiscais: { NFE: {}, NFCE: {} },
       },
       nfse: {
         provedor: "",
@@ -113,12 +118,22 @@ export default function ConfigFiscalPagamentosPage() {
   const applyNfe = useCallback(
     (n: any) => {
       if (!n) return;
-      setValue("nfe.serieNFe", n.serieNFe ?? n.serienfe ?? "1");
-      setValue("nfe.serieNFCe", n.serieNFCe ?? n.serienfce ?? "");
+      setValue("nfe.serieNFe", n.serieNFe ?? "1");
+      setValue("nfe.serieNFCe", n.serieNFCe ?? "");
+      // Chegam mascarados. Reenviar o mascarado é inofensivo: o backend ignora
+      // qualquer valor com "*" e mantém o CSC que já está gravado.
       setValue("nfe.cscHomologacao", n.cscHomologacao ?? "");
       setValue("nfe.cscProducao", n.cscProducao ?? "");
-      setValue("nfe.idCSC", n.idCSC ?? "");
+      setValue("nfe.idCscHomologacao", n.idCscHomologacao ?? "");
+      setValue("nfe.idCscProducao", n.idCscProducao ?? "");
       setValue("nfe.naturezaOperacao", n.naturezaOperacao ?? "Venda de mercadoria");
+      setValue("nfe.naturezaOperacaoNFCe", n.naturezaOperacaoNFCe ?? "Venda ao consumidor");
+      setValue("nfe.qrCodeVersao", n.qrCodeVersao ?? "3");
+      setValue("nfe.nfceConfigurada", Boolean(n.nfceConfigurada));
+      setValue("nfe.padroesFiscais", {
+        NFE: n.padroesFiscais?.NFE ?? {},
+        NFCE: n.padroesFiscais?.NFCE ?? {},
+      });
     },
     [setValue]
   );
@@ -221,7 +236,13 @@ export default function ConfigFiscalPagamentosPage() {
           body: JSON.stringify({ nfe: values.nfe }),
         });
         const j = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(j?.error || "Falha ao salvar NFe");
+        // O 422 do padrão fiscal traz o motivo em `detalhe`; sem ele o usuário
+        // veria só "corrija o padrão" e não saberia qual campo está errado.
+        if (!r.ok) {
+          throw new Error(
+            [j?.error, j?.detalhe].filter(Boolean).join(" ") || "Falha ao salvar NFe",
+          );
+        }
       }
       if (activeTab === "nfse") {
         const r = await fetch("/api/config/nfse", {

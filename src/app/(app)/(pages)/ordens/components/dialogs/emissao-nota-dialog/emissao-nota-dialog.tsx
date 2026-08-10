@@ -29,6 +29,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/compon
 import { ExcluirRascunhoNfeButton } from "./excluirRascunhoNfeButton";
 import { CancelarNotaDialog } from "./cancelar-nota-dialog";
 import { nfseEntregaPdf, nfseMotivoSemPdf } from "@/lib/nfse-modelos";
+import { MODELO_NFCE } from "@/lib/nfe/modeloDocumento";
 
 type NfeResumo = {
   id: number;
@@ -99,6 +100,10 @@ const nfeStatusClasses: Record<string, string> = {
   CANCELADO: "bg-amber-500/20 text-amber-400",
   PROCESSANDO: "bg-sky-600/15 text-sky-400 animate-pulse",
   PROCESSANDO_AUTORIZACAO: "bg-sky-600/15 text-sky-400 animate-pulse",
+  // Estados da NFC-e que exigem ação: destaque em âmbar, como o cancelamento,
+  // porque nenhum dos dois é desfecho final.
+  CONTINGENCIA: "bg-amber-500/20 text-amber-400",
+  RESULTADO_INCERTO: "bg-amber-500/20 text-amber-400",
 };
 
 function fmtDate(s?: string | null) {
@@ -115,18 +120,27 @@ function fmtMoney(v: number | null | undefined) {
   });
 }
 
+/** Horas restantes do prazo de 24h da contingência; `null` se a data faltar. */
+function horasRestantesContingencia(dataEmissao?: string | null): number | null {
+  if (!dataEmissao) return null;
+  const emissao = new Date(dataEmissao);
+  if (Number.isNaN(emissao.getTime())) return null;
+  return 24 - (Date.now() - emissao.getTime()) / 3_600_000;
+}
+
 function buildObservacao(nfe: NfeResumo): string {
   const statusUpper = (nfe.status || "").toUpperCase();
+  const doc = nfe.modelo === "NFCE" ? "NFC-e" : nfe.modelo === "NFSE" ? "NFS-e" : "NF-e";
 
   if (statusUpper === "CANCELADA" || statusUpper === "CANCELADO") {
     if (nfe.justificativacancelamento && nfe.justificativacancelamento.trim()) {
-      return `NF-e cancelada. Justificativa: ${nfe.justificativacancelamento}`;
+      return `${doc} cancelada. Justificativa: ${nfe.justificativacancelamento}`;
     }
-    return "NF-e cancelada. Nenhuma justificativa registrada.";
+    return `${doc} cancelada. Nenhuma justificativa registrada.`;
   }
 
   if (statusUpper === "AUTORIZADA" || statusUpper === "AUTORIZADO" || statusUpper === "EMITIDA") {
-    const base = "NF-e autorizada pela SEFAZ.";
+    const base = `${doc} autorizada pela SEFAZ.`;
     if (nfe.protocolo) {
       return `${base} Protocolo: ${nfe.protocolo}.`;
     }
@@ -134,7 +148,7 @@ function buildObservacao(nfe: NfeResumo): string {
   }
 
   if (statusUpper === "REJEITADA" || statusUpper === "DENEGADA") {
-    const rotulo = statusUpper === "DENEGADA" ? "NF-e denegada" : "NF-e rejeitada";
+    const rotulo = statusUpper === "DENEGADA" ? `${doc} denegada` : `${doc} rejeitada`;
     const motivo = nfe.motivo_rejeicao?.trim();
     if (motivo) {
       const codigo = nfe.codigo_rejeicao?.trim();
@@ -145,7 +159,33 @@ function buildObservacao(nfe: NfeResumo): string {
   }
 
   if (statusUpper === "RASCUNHO") {
-    return "NF-e em rascunho. Ainda não foi enviada para a SEFAZ.";
+    return `${doc} em rascunho. Ainda não foi enviada para a SEFAZ.`;
+  }
+
+  // Resposta perdida depois do envio: o operador NÃO pode emitir outra nota, e
+  // sim consultar a chave para descobrir o que a SEFAZ fez com esta.
+  if (statusUpper === "RESULTADO_INCERTO") {
+    return (
+      `${doc} enviada, mas a resposta da SEFAZ não chegou. Não emita outra: ` +
+      "use Consultar situação para saber se ela foi autorizada."
+    );
+  }
+
+  if (statusUpper === "CONTINGENCIA") {
+    const horas = horasRestantesContingencia(nfe.dataemissao);
+    if (horas == null) {
+      return `${doc} emitida em contingência offline. Precisa ser transmitida quando a conexão voltar.`;
+    }
+    if (horas <= 0) {
+      return (
+        `${doc} emitida em contingência com o prazo de 24 horas VENCIDO ` +
+        `(há ${Math.abs(Math.round(horas))}h). Transmita imediatamente.`
+      );
+    }
+    return (
+      `${doc} emitida em contingência offline. Restam ${Math.floor(horas)}h do prazo de ` +
+      "24 horas para transmitir."
+    );
   }
 
   if (statusUpper === "PROCESSANDO" || statusUpper === "PROCESSANDO_AUTORIZACAO") {
@@ -179,6 +219,12 @@ export function EmissaoNotaDialog({
   const [nfes, setNfes] = useState<NfeResumo[] | null>(null);
   const [avisoListagem, setAvisoListagem] = useState<string | null>(null);
   const [openGerarNfe, setOpenGerarNfe] = useState(false);
+  const [openGerarNfce, setOpenGerarNfce] = useState(false);
+  /** Id da NFC-e cuja transmissão falhou por rede, liberando a contingência. */
+  const [contingenciaOferecida, setContingenciaOferecida] = useState<number | null>(null);
+  /** NFC-e rejeitada sendo corrigida: o assistente reabre esse rascunho. */
+  const [nfceParaCorrigir, setNfceParaCorrigir] = useState<number | null>(null);
+  const [emitindoContingencia, setEmitindoContingencia] = useState(false);
   const [openGerarNfse, setOpenGerarNfse] = useState(false);
   const [empresaFiscal, setEmpresaFiscal] = useState<EmpresaFiscal | null>(null);
   const [openCancelNfseDialog, setOpenCancelNfseDialog] = useState(false);
@@ -210,6 +256,42 @@ export function EmissaoNotaDialog({
     if (origem === "VENDA") return `/api/nfe/por-venda/${origemId}`;
     return `/api/nfe/por-entrada/${origemId}`;
   }, [origem, origemId]);
+
+  /**
+   * Emite a NFC-e offline depois de uma falha de comunicação.
+   *
+   * O cupom sai na hora para o consumidor; a transmissão fica pendente e tem
+   * prazo de 24 horas.
+   */
+  const emitirEmContingencia = async (nfeId: number) => {
+    if (emitindoContingencia) return;
+    setEmitindoContingencia(true);
+    const toastId = toast.loading("Emitindo NFC-e em contingência...");
+
+    try {
+      const response = await fetch(`/api/nfce/contingencia/${nfeId}`, { method: "POST" });
+      const json = await response.json().catch(() => null);
+
+      if (!response.ok || !json?.ok) {
+        throw new Error(json?.message || "Não foi possível emitir em contingência.");
+      }
+
+      toast.success("NFC-e emitida em contingência.", {
+        id: toastId,
+        description:
+          "Imprima o cupom e transmita assim que a conexão voltar — o prazo é de 24 horas.",
+      });
+      setContingenciaOferecida(null);
+      await fetchNfes();
+    } catch (error: any) {
+      toast.error("Falha ao emitir em contingência.", {
+        id: toastId,
+        description: error?.message,
+      });
+    } finally {
+      setEmitindoContingencia(false);
+    }
+  };
 
   const baixarXmlNfe = async (nfe: NfeResumo) => {
     if (downloadingXmlId === nfe.id) return;
@@ -578,6 +660,20 @@ export function EmissaoNotaDialog({
                     <Plus className="h-3.5 w-3.5" /> NF-e (Produto)
                   </Button>
 
+                  {/* NFC-e só documenta saída ao consumidor: não aparece em
+                      entrada de mercadoria, que é sempre modelo 55. */}
+                  {(origem === "OS" || origem === "VENDA") && (
+                    <Button
+                      disabled={loading}
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setOpenGerarNfce(true)}
+                      className="h-8 gap-2 text-xs hover:cursor-pointer"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> NFC-e (Consumidor)
+                    </Button>
+                  )}
+
                   {origem === "OS" && (
                     <Button
                       disabled={loading}
@@ -763,13 +859,21 @@ export function EmissaoNotaDialog({
                                   {(nfe.status === "RASCUNHO" || isRejeitada) && (
                                     <div className="flex flex-col gap-1">
                                       {isRejeitada ? (
-                                        // Abre a nota no editor fiscal com o mesmo id: o
-                                        // usuário corrige e transmite de lá, sem gerar
-                                        // rascunho novo nem consumir outro número.
+                                        // Corrige a nota reaproveitando o mesmo id: sem
+                                        // rascunho novo e sem consumir outro número.
+                                        //
+                                        // A NFC-e volta para o assistente do modelo 65. O
+                                        // editor avulso é exclusivo da NF-e — mandar uma
+                                        // NFC-e para lá misturaria os dois motores.
                                         <Button
                                           size="sm"
                                           className="text-xs hover:cursor-pointer"
                                           onClick={() => {
+                                            if (nfe.modelo === "NFCE") {
+                                              setNfceParaCorrigir(nfe.id);
+                                              setOpenGerarNfce(true);
+                                              return;
+                                            }
                                             onOpenChange(false);
                                             router.push(`/fiscal/nfe-avulsa?id=${nfe.id}`);
                                           }}
@@ -783,9 +887,30 @@ export function EmissaoNotaDialog({
                                         variant="outline"
                                         className="text-xs hover:cursor-pointer"
                                         onAfterAuthorize={() => fetchNfes()}
+                                        onContingenciaDisponivel={setContingenciaOferecida}
                                       >
-                                        {isRejeitada ? "Reenviar sem alterar" : "Autorizar NF-e"}
+                                        {statusUpper === "CONTINGENCIA"
+                                          ? "Transmitir agora"
+                                          : isRejeitada
+                                            ? "Reenviar sem alterar"
+                                            : `Autorizar ${nfe.modelo === "NFCE" ? "NFC-e" : "NF-e"}`}
                                       </AutorizarNfeButton>
+
+                                      {/* Só aparece depois de uma falha de rede
+                                          comprovada nesta nota. */}
+                                      {contingenciaOferecida === nfe.id ? (
+                                        <Button
+                                          className="text-xs hover:cursor-pointer"
+                                          disabled={emitindoContingencia}
+                                          onClick={() => emitirEmContingencia(nfe.id)}
+                                          size="sm"
+                                          variant="secondary"
+                                        >
+                                          {emitindoContingencia
+                                            ? "Emitindo..."
+                                            : "Emitir em contingência"}
+                                        </Button>
+                                      ) : null}
 
                                       <Button
                                         variant="outline"
@@ -958,7 +1083,8 @@ export function EmissaoNotaDialog({
                           <div className="flex-1 min-w-0 space-y-1">
                             <div className="flex flex-wrap items-center gap-2">
                               <div className="font-medium">
-                                {nfe.modelo === "NFSE" ? "NFS-e" : "NF-e"} {nfe.numero ?? "—"}
+                                {nfe.modelo === "NFSE" ? "NFS-e" : nfe.modelo === "NFCE" ? "NFC-e" : "NF-e"}{" "}
+                                {nfe.numero ?? "—"}
                                 {nfe.serie ? `/Série ${nfe.serie}` : ""}
                                 {nfe.modelo !== "NFSE" && (statusUpper === "RASCUNHO" || isRejeitada) ? (
                                   <span className="ml-1 text-xs font-normal text-muted-foreground">
@@ -1087,6 +1213,29 @@ export function EmissaoNotaDialog({
             osId={osId ?? null}
             vendaId={vendaId ?? null}
             entradaId={entradaId ?? null}
+            onAfterGenerate={() => fetchNfes()}
+          />
+        )}
+
+        {/* Mesmo assistente, perfil do modelo 65: sem transporte, sem DIFAL e
+            com identificação do consumidor opcional. */}
+        {!!origemId && (origem === "OS" || origem === "VENDA") && (
+          <GerarNotaDeOsDialog
+            modelo={MODELO_NFCE}
+            nfeId={nfceParaCorrigir}
+            open={openGerarNfce}
+            onOpenChange={(v) => {
+              setOpenGerarNfce(v);
+              // Fechar encerra a correção: reabrir pelo botão "Gerar NFC-e"
+              // volta a criar nota nova, e não a editar a rejeitada.
+              if (!v) {
+                setNfceParaCorrigir(null);
+                fetchNfes();
+              }
+            }}
+            osId={osId ?? null}
+            vendaId={vendaId ?? null}
+            entradaId={null}
             onAfterGenerate={() => fetchNfes()}
           />
         )}

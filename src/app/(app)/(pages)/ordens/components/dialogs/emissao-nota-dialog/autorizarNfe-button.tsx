@@ -14,6 +14,12 @@ type AutorizarNfeResponse = {
   mensagem?: string;
   message?: string;
   detalhe?: string;
+  /**
+   * Só vem `true` quando a SEFAZ ficou inalcançável e o lote comprovadamente
+   * NÃO chegou lá. Rejeição fiscal nunca liga esta flag — rejeição se corrige,
+   * não vira contingência.
+   */
+  podeEmitirEmContingencia?: boolean;
   sefaz?: {
     lote?: {
       cStat?: string | number | null;
@@ -39,11 +45,17 @@ type AutorizarNfeButtonProps = {
    * Callback opcional para o pai poder recarregar lista, fechar dialog, etc.
    */
   onAfterAuthorize?: (data: AutorizarNfeResponse) => void;
+  /**
+   * Chamado quando a SEFAZ não pôde ser alcançada e a NFC-e pode sair em
+   * contingência. Quem decide é o operador — por isso a tela só é avisada.
+   */
+  onContingenciaDisponivel?: (nfeId: number) => void;
 } & Omit<React.ComponentProps<typeof Button>, "onClick">;
 
 export function AutorizarNfeButton({
   nfeId,
   onAfterAuthorize,
+  onContingenciaDisponivel,
   children,
   disabled,
   ...buttonProps
@@ -64,15 +76,28 @@ export function AutorizarNfeButton({
         method: "POST",
       });
 
-      if (!res.ok) {
-        const texto = await res.text().catch(() => "");
-        toast.error("Erro ao autorizar NF-e", {
-          description: `HTTP ${res.status} - ${texto || "Tente novamente."}`,
+      // O corpo é lido mesmo em resposta de erro: é nele que vem a indicação de
+      // que a nota pode sair em contingência (HTTP 504 na falha de rede).
+      const data: AutorizarNfeResponse | null = await res.json().catch(() => null);
+
+      if (!data) {
+        toast.error("Erro ao autorizar a nota", {
+          description: `HTTP ${res.status} — tente novamente.`,
         });
         return;
       }
 
-      const data: AutorizarNfeResponse = await res.json();
+      if (data.podeEmitirEmContingencia && onContingenciaDisponivel) {
+        toast.warning("A SEFAZ não respondeu.", {
+          description:
+            data.mensagem ||
+            "A nota não chegou à SEFAZ. Você pode emitir em contingência para não travar a venda.",
+          icon: <AlertTriangle className="h-5 w-5 text-amber-400" />,
+        });
+        onContingenciaDisponivel(nfeId);
+        onAfterAuthorize?.(data);
+        return;
+      }
 
       if (!data.ok) {
         toast.error("Falha ao autorizar NF-e", {

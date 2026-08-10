@@ -34,13 +34,16 @@ export async function GET(_req: NextRequest, context: Context) {
 
     return NextResponse.json(draft);
   } catch (error: any) {
-    const status = error?.statusCode === 403 ? 403 : 500;
+    const status = error?.statusCode === 403 ? 403 : error?.statusCode === 422 ? 422 : 500;
     return NextResponse.json(
       {
         error:
           status === 403
             ? "Você não tem permissão para visualizar rascunhos de NF-e."
-            : "Erro ao buscar rascunho de NF-e avulsa.",
+            : status === 422
+              ? // Regra de negócio: a mensagem do serviço já explica o que fazer.
+                error?.message
+              : "Erro ao buscar rascunho de NF-e avulsa.",
         detail: error?.message ?? String(error),
       },
       { status },

@@ -61,7 +61,7 @@ export async function garantirNumeroDefinitivo(
 ): Promise<NumeroDefinitivo> {
   const { data: nfe, error: nfeError } = await supabaseAdmin
     .from("nfe")
-    .select("id, empresaid, numero, serie, chave_acesso, numero_definitivo")
+    .select("id, empresaid, modelo, numero, serie, chave_acesso, numero_definitivo")
     .eq("id", nfeId)
     .maybeSingle();
 
@@ -78,16 +78,23 @@ export async function garantirNumeroDefinitivo(
     };
   }
 
+  // A configuração é por empresa E modelo: a NFC-e tem série e contador
+  // próprios. Sem o filtro de modelo, uma nota 65 consumiria o número da 55.
   const { data: config, error: configError } = await supabaseAdmin
     .from("nfe_config")
     .select("id")
     .eq("empresaid", nfe.empresaid)
+    .eq("modelo", nfe.modelo)
     .order("id", { ascending: true })
     .limit(1)
     .maybeSingle();
 
   if (configError) throw configError;
-  if (!config) throw new Error("Configuração de NF-e não encontrada para a empresa da nota.");
+  if (!config) {
+    throw new Error(
+      `Configuração fiscal do modelo ${nfe.modelo} não encontrada para a empresa da nota.`,
+    );
+  }
 
   const { data: alocado, error: alocarError } = await supabaseAdmin.rpc("nfe_alocar_numero", {
     p_config_id: Number(config.id),

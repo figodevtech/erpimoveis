@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import https from "https";
 import { XMLParser } from "fast-xml-parser";
 
+import { requireEmissaoFiscalAccess } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   garantirNumeroDefinitivo,
@@ -12,6 +13,10 @@ import {
 import { carregarCertificadoA1 } from "@/lib/nfe/certificado";
 import { assinarNFeXml } from "@/lib/nfe/assinatura";
 import { buildEnviNFeXml } from "@/lib/nfe/enviNFe";
+import { exigirModelo, MODELO_NFCE } from "@/lib/nfe/modeloDocumento";
+import { atualizarDataEmissao } from "@/lib/nfe/nfce/dataEmissao";
+import { resolveSefazEndpoint } from "@/lib/nfe/webservices";
+import { anexarQrCodeNfce } from "@/services/fiscal/nfceQrCodeService";
 import type { ClienteRow, EmpresaRow } from "@/lib/nfe/types";
 
 export const runtime = "nodejs";
@@ -19,6 +24,52 @@ export const runtime = "nodejs";
 /**
  * Envia SOAP via https.request usando client-cert (PFX).
  */
+/**
+ * Timeout da chamada à SEFAZ.
+ *
+ * Sem limite, uma SEFAZ lenta prende o request até o timeout da plataforma e o
+ * operador clica de novo — que é exatamente como nasce nota duplicada.
+ */
+const SEFAZ_TIMEOUT_MS = 30_000;
+
+/**
+ * Erros de rede que provam que o lote NUNCA chegou à SEFAZ.
+ *
+ * São falhas na fase de conexão: DNS que não resolve, porta recusada, host
+ * inalcançável. Nenhum byte do documento foi processado do outro lado, então a
+ * nota com certeza não existe lá — e é seguro reemiti-la em contingência com o
+ * mesmo número.
+ */
+const ERROS_ANTES_DO_ENVIO = new Set([
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ECONNREFUSED",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "ETIMEDOUT",
+  "ECONNRESET",
+]);
+
+/**
+ * Falha de comunicação com a SEFAZ.
+ *
+ * `entregue` distingue os dois desfechos que exigem tratamento oposto:
+ *
+ *   false → o lote não saiu daqui. A nota não existe na SEFAZ e pode ser
+ *           emitida em contingência;
+ *   true  → mandamos e a resposta se perdeu. NÃO sabemos o desfecho: emitir
+ *           outra versão do mesmo documento duplicaria a nota.
+ */
+class SefazComunicacaoError extends Error {
+  constructor(
+    readonly causa: string,
+    readonly entregue: boolean,
+  ) {
+    super(`Falha de comunicação com a SEFAZ: ${causa}`);
+    this.name = "SefazComunicacaoError";
+  }
+}
+
 function postSoapComCert(
   url: string,
   soapEnvelope: string,
@@ -34,6 +85,7 @@ function postSoapComCert(
         path: urlObj.pathname,
         method: "POST",
         agent,
+        timeout: SEFAZ_TIMEOUT_MS,
         headers: {
           "Content-Type":
             'application/soap+xml; charset=utf-8; action="http://www.portalfiscal.inf.br/nfe/wsdl/NFeAutorizacao4/nfeAutorizacaoLote"',
@@ -57,8 +109,25 @@ function postSoapComCert(
       }
     );
 
+    // Timeout de resposta: o pedido já foi flushado, então pode ter sido
+    // processado. É o caso incerto, e o único tratamento seguro é consultar a
+    // chave depois — nunca reemitir.
+    req.on("timeout", () => {
+      req.destroy(
+        new SefazComunicacaoError(`sem resposta em ${SEFAZ_TIMEOUT_MS / 1000}s`, true)
+      );
+    });
+
     req.on("error", (err) => {
-      reject(err);
+      if (err instanceof SefazComunicacaoError) return reject(err);
+
+      const codigo = String((err as NodeJS.ErrnoException)?.code ?? "");
+      reject(
+        new SefazComunicacaoError(
+          `${codigo || "erro de rede"}: ${String((err as Error)?.message ?? err)}`,
+          !ERROS_ANTES_DO_ENVIO.has(codigo)
+        )
+      );
     });
 
     req.write(soapEnvelope);
@@ -142,6 +211,11 @@ function extrairChaveEIdDoXml(
 
 async function autorizarHandler(req: Request, nfeIdParam: string) {
   try {
+    // -------------------------------------------------------------------
+    // 0) Permissão: transmitir para a SEFAZ é ação fiscal, não é só estar logado
+    // -------------------------------------------------------------------
+    await requireEmissaoFiscalAccess();
+
     // -------------------------------------------------------------------
     // 1) Validar ID da NF-e (tabela nfe)
     // -------------------------------------------------------------------
@@ -233,8 +307,11 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
       );
     }
 
+    // Ambiente da NOTA, gravado quando o rascunho nasceu a partir da config do
+    // modelo. Usar o da empresa mandaria uma NFC-e ainda em homologação para o
+    // ambiente de produção da SEFAZ.
     const ambiente =
-      empresa.ambiente === "PRODUCAO" ? "PRODUCAO" : "HOMOLOGACAO";
+      (nfe.ambiente ?? empresa.ambiente) === "PRODUCAO" ? "PRODUCAO" : "HOMOLOGACAO";
 
     // -------------------------------------------------------------------
     // 4) Buscar cliente destinatario (cliente da OS vinculado a esta NF-e)
@@ -381,7 +458,21 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
     // nota que já foi numerada repete o mesmo número.
     // -------------------------------------------------------------------
     const numeracao = await garantirNumeroDefinitivo(nfeId, xmlRascunhoSalvo);
-    const xmlSemAssinatura = numeracao.xml;
+    const modeloNota = exigirModelo(nfe.modelo);
+
+    // A NFC-e admite ~5 minutos entre a data de emissão e a autorização
+    // (NT 2025.001, item 02.4). O rascunho pode ter ficado aberto bem mais que
+    // isso, então a data é renovada aqui, imediatamente antes de assinar.
+    //
+    // Contingência é a exceção: a nota foi emitida offline horas antes e o
+    // cupom já está com o consumidor, com aquela data impressa e dentro do QR
+    // Code. Renovar o dhEmi aqui faria o documento transmitido divergir do
+    // papel entregue.
+    const emContingencia = String(nfe.status) === "CONTINGENCIA";
+    const xmlSemAssinatura =
+      modeloNota === MODELO_NFCE && !emContingencia
+        ? atualizarDataEmissao(numeracao.xml)
+        : numeracao.xml;
 
     if (numeracao.alocadoAgora) {
       const extraida = extrairChaveEIdDoXml(xmlSemAssinatura);
@@ -399,11 +490,34 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
     // -------------------------------------------------------------------
     // 8) Assinar XML da NFe (tag <infNFe>)
     // -------------------------------------------------------------------
-    const xmlAssinado = assinarNFeXml(
+    const xmlAssinadoBase = assinarNFeXml(
       xmlSemAssinatura,
       privateKeyPem,
       certificatePem
     );
+
+    // -------------------------------------------------------------------
+    // 8.1) QR Code da NFC-e
+    //
+    // Entra depois da numeração definitiva (o QR carrega a chave) e depois da
+    // assinatura (na contingência o QR usa o DigestValue). Acrescentar
+    // <infNFeSupl> aqui não invalida nada: a assinatura cobre <infNFe>.
+    // -------------------------------------------------------------------
+    const xmlAssinado =
+      modeloNota === MODELO_NFCE && chave
+        ? (
+            await anexarQrCodeNfce({
+              xmlAssinado: xmlAssinadoBase,
+              chaveAcesso: chave,
+              uf: String(empresa.uf ?? ""),
+              ambiente,
+              empresaId: Number(nfe.empresaid),
+              // O QR v3 em contingência é assinado com o mesmo certificado do
+              // XML; nas demais combinações a chave nem é tocada.
+              privateKeyPem,
+            })
+          ).xml
+        : xmlAssinadoBase;
 
     // -------------------------------------------------------------------
     // 9) Montar o XML do <enviNFe> (lote) com o XML assinado
@@ -427,12 +541,17 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
       "</soap12:Envelope>";
 
     // -------------------------------------------------------------------
-    // 11) URL do webservice (SVRS - PB) para PRODUÃ‡ÃƒO / HOMOLOGAÃ‡ÃƒO
+    // 11) URL do webservice, resolvida por modelo/UF/ambiente
+    //
+    // A NFC-e usa hosts próprios (nfce.svrs), não os da NF-e: mandar a 65 para
+    // o endereço da 55 volta como rejeição de modelo.
     // -------------------------------------------------------------------
-    const url =
-      ambiente === "PRODUCAO"
-        ? "https://nfe.svrs.rs.gov.br/ws/NfeAutorizacao/NFeAutorizacao4.asmx"
-        : "https://nfe-homologacao.svrs.rs.gov.br/ws/NfeAutorizacao/NFeAutorizacao4.asmx";
+    const url = resolveSefazEndpoint({
+      modelo: modeloNota,
+      uf: String(empresa.uf ?? ""),
+      ambiente,
+      servico: "autorizacao",
+    });
 
     // -------------------------------------------------------------------
     // 12) Montar agente HTTPS com a chave e certificado extraÃ­dos (PEM)
@@ -448,11 +567,52 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
     // -------------------------------------------------------------------
     // 13) Enviar requisiÃ§Ã£o SOAP para o webservice usando https.request
     // -------------------------------------------------------------------
-    const { httpStatus, body: respostaText } = await postSoapComCert(
-      url,
-      soapEnvelope,
-      httpsAgent
-    );
+    //
+    // Se a comunicação falhar depois do envio, NÃO sabemos se a SEFAZ
+    // autorizou. Assumir "não autorizada" e deixar emitir de novo é como se
+    // duplica documento fiscal. A nota fica em RESULTADO_INCERTO, segurando o
+    // número, e a conciliação é feita consultando a chave.
+    let httpStatus: number;
+    let respostaText: string;
+    try {
+      ({ httpStatus, body: respostaText } = await postSoapComCert(url, soapEnvelope, httpsAgent));
+    } catch (erroComunicacao: any) {
+      const entregue = erroComunicacao?.entregue !== false;
+      // Não entregue: a nota não existe na SEFAZ, o número continua reservado e
+      // a contingência é o caminho legítimo. Entregue sem resposta: só a
+      // consulta da chave resolve.
+      const novoStatus = entregue ? "RESULTADO_INCERTO" : "PENDENTE_ENVIO";
+
+      await supabaseAdmin
+        .from("nfe")
+        .update({
+          status: novoStatus,
+          xml_assinado: xmlAssinado,
+          motivo_rejeicao: String(erroComunicacao?.message ?? erroComunicacao).slice(0, 500),
+          updatedat: new Date().toISOString(),
+        })
+        .eq("id", nfeId);
+
+      return NextResponse.json(
+        {
+          ok: false,
+          ambiente,
+          chave: chave ?? null,
+          idNFe: idNFeXml ?? null,
+          // A tela usa esta flag para decidir se oferece o botão de
+          // contingência. Rejeição fiscal nunca passa por aqui.
+          podeEmitirEmContingencia: !entregue && modeloNota === MODELO_NFCE,
+          mensagem: entregue
+            ? "A nota foi enviada, mas a resposta da SEFAZ não chegou. NÃO emita outra: " +
+              "consulte a situação da chave para saber se ela foi autorizada."
+            : "Não foi possível alcançar a SEFAZ. A nota não chegou lá e pode ser emitida " +
+              "em contingência para não travar a venda.",
+          detalhe: String(erroComunicacao?.message ?? erroComunicacao),
+          nfeDb: { id: nfeId, status: novoStatus, protocolo: nfe.protocolo ?? null },
+        },
+        { status: 504 }
+      );
+    }
 
     // -------------------------------------------------------------------
     // 14) Se HTTP nÃ£o for 200, jÃ¡ retorna erro bruto
@@ -658,12 +818,19 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
     });
   } catch (e: any) {
     console.error("Erro em /api/nfe/autorizar/[id]:", e);
+
+    if (e?.statusCode === 403) {
+      return NextResponse.json(
+        { ok: false, mensagem: "Você não tem permissão para transmitir documentos fiscais." },
+        { status: 403 }
+      );
+    }
+
     return NextResponse.json(
       {
         ok: false,
-        mensagem: "Erro interno ao enviar NF-e para autorizaÃ§Ã£o",
+        mensagem: "Erro interno ao enviar a nota para autorização",
         detalhe: String(e?.message ?? e),
-        stack: e?.stack ?? null,
       },
       { status: 500 }
     );

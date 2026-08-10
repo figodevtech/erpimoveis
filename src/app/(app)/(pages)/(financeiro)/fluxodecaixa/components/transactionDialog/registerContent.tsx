@@ -1459,13 +1459,15 @@ export default function RegisterContent({
                       internalCompanyExpense
                     }
                     id="cpfcnpjpagador"
-                    maxLength={14}
+                    inputMode="numeric"
+                    maxLength={18}
                     value={
                       formatCpfCnpj(newTransaction.cpfcnpjpagador || "") || ""
                     }
-                    onChange={(e) =>
-                      handleChange("cpfcnpjpagador", e.target.value)
-                    }
+                    onChange={(e) => {
+                      const documento = e.target.value.replace(/\D/g, "").slice(0, 14);
+                      handleChange("cpfcnpjpagador", documento);
+                    }}
                     placeholder="CPF/CNPJ"
                     className="w-full"
                   />

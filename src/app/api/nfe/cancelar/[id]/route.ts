@@ -4,11 +4,14 @@ import { NextResponse } from 'next/server';
 import https from 'https';
 import { XMLParser } from 'fast-xml-parser';
 
+import { requireEmissaoFiscalAccess } from '@/app/api/_authz/perms';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { carregarCertificadoA1 } from '@/lib/nfe/certificado';
 import type { EmpresaRow } from '@/lib/nfe/types';
 import { buildEnvEventoCancelamento } from '@/lib/nfe/eventoCancelamento';
 import { assinarEventoNFeXml } from '@/lib/nfe/assinaturaEvento';
+import { exigirModelo } from '@/lib/nfe/modeloDocumento';
+import { resolveSefazEndpoint } from '@/lib/nfe/webservices';
 
 export const runtime = 'nodejs';
 
@@ -68,6 +71,11 @@ function postSoapComCert(
 
 async function cancelarHandler(req: Request, nfeIdParam: string) {
   try {
+    // -------------------------------------------------------------------
+    // 0) Permissão: cancelar é evento fiscal irreversível
+    // -------------------------------------------------------------------
+    await requireEmissaoFiscalAccess();
+
     // -------------------------------------------------------------------
     // 1) Validar ID da NF-e
     // -------------------------------------------------------------------
@@ -209,8 +217,10 @@ async function cancelarHandler(req: Request, nfeIdParam: string) {
       );
     }
 
+    // O evento tem que ir para o mesmo ambiente em que a nota foi autorizada:
+    // cancelar em produção uma nota de homologação não acha o documento.
     const ambiente =
-      empresa.ambiente === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO';
+      (nfe.ambiente ?? empresa.ambiente) === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO';
     const tpAmb: 1 | 2 = ambiente === 'PRODUCAO' ? 1 : 2;
 
     // cOrgao = código da UF (primeiros 2 dígitos do codigomunicipio)
@@ -269,12 +279,14 @@ async function cancelarHandler(req: Request, nfeIdParam: string) {
       '</soap12:Envelope>';
 
     // -------------------------------------------------------------------
-    // 9) URL do webservice de evento (SVRS - PB) PRODUÇÃO / HOMOLOGAÇÃO
+    // 9) URL do webservice de evento, resolvida por modelo/UF/ambiente
     // -------------------------------------------------------------------
-    const url =
-      ambiente === 'PRODUCAO'
-        ? 'https://nfe.svrs.rs.gov.br/ws/recepcaoevento/recepcaoevento4.asmx'
-        : 'https://nfe-homologacao.svrs.rs.gov.br/ws/recepcaoevento/recepcaoevento4.asmx';
+    const url = resolveSefazEndpoint({
+      modelo: exigirModelo(nfe.modelo),
+      uf: String(empresa.uf ?? ''),
+      ambiente,
+      servico: 'recepcaoEvento',
+    });
 
     // -------------------------------------------------------------------
     // 10) Montar agente HTTPS com a chave e certificado extraídos (PEM)
@@ -427,12 +439,19 @@ async function cancelarHandler(req: Request, nfeIdParam: string) {
     });
   } catch (e: any) {
     console.error('Erro em /api/nfe/cancelar/[id]:', e);
+
+    if (e?.statusCode === 403) {
+      return NextResponse.json(
+        { ok: false, mensagem: 'Você não tem permissão para cancelar documentos fiscais.' },
+        { status: 403 },
+      );
+    }
+
     return NextResponse.json(
       {
         ok: false,
-        mensagem: 'Erro interno ao cancelar NF-e',
+        mensagem: 'Erro interno ao cancelar a nota',
         detalhe: String(e?.message ?? e),
-        stack: e?.stack ?? null,
       },
       { status: 500 },
     );

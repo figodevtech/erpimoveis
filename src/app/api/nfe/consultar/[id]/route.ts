@@ -2,6 +2,7 @@
 import { NextResponse } from 'next/server';
 import https from 'https';
 import { XMLParser } from 'fast-xml-parser';
+import { requireEmissaoFiscalAccess } from '@/app/api/_authz/perms';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import type { EmpresaRow } from '@/lib/nfe/types';
 import { carregarCertificadoA1 } from '@/lib/nfe/certificado';
@@ -81,6 +82,8 @@ function postSoapComCert(
 
 async function consultarHandler(_req: Request, nfeIdParam: string) {
   try {
+    await requireEmissaoFiscalAccess();
+
     const nfeId = Number(nfeIdParam);
 
     if (Number.isNaN(nfeId)) {
@@ -359,6 +362,12 @@ async function consultarHandler(_req: Request, nfeIdParam: string) {
         protocoloFinal = nProt ?? protocoloFinal;
       } else if (prot_cStat && prot_cStat !== '100') {
         statusFinal = 'REJEITADA';
+      } else if (nfe.status === 'RESULTADO_INCERTO' && cStat === '217') {
+        // 217 = a chave não consta na base da SEFAZ. É a resposta que desfaz a
+        // incerteza no sentido seguro: o documento NÃO existe lá, então pode ser
+        // retransmitido — e com o MESMO número, que nunca chegou a ser
+        // consumido. Por isso não liberamos o número para a fila.
+        statusFinal = 'PENDENTE_ENVIO';
       }
     }
 
@@ -423,12 +432,19 @@ async function consultarHandler(_req: Request, nfeIdParam: string) {
     });
   } catch (e: any) {
     console.error('Erro em /api/nfe/consultar/[id]:', e);
+
+    if (e?.statusCode === 403) {
+      return NextResponse.json(
+        { ok: false, message: 'Você não tem permissão para consultar documentos fiscais.' },
+        { status: 403 },
+      );
+    }
+
     return NextResponse.json(
       {
         ok: false,
-        message: 'Erro interno ao consultar NF-e',
+        message: 'Erro interno ao consultar a nota',
         detalhe: String(e?.message ?? e),
-        stack: e?.stack ?? null,
       },
       { status: 500 },
     );
