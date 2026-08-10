@@ -15,6 +15,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { mascararCsc } from "@/services/fiscal/nfeConfigService";
+import {
+  descreverIssues,
+  prepararPadroesFiscais,
+} from "@/services/fiscal/padraoFiscalConfigService";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
@@ -31,10 +35,28 @@ type ConfigRow = {
   csc_producao: string | null;
   csc_id_producao: string | null;
   qrcode_versao: number | null;
+  padroes_emissao: unknown;
 };
 
 const CAMPOS =
-  "id, modelo, serie, natureza_operacao, csc_homologacao, csc_id_homologacao, csc_producao, csc_id_producao, qrcode_versao";
+  "id, modelo, serie, natureza_operacao, csc_homologacao, csc_id_homologacao, csc_producao, csc_id_producao, qrcode_versao, padroes_emissao";
+
+function padroesDoModelo(config: ConfigRow | null) {
+  const valor = config?.padroes_emissao;
+  return valor && typeof valor === "object" && !Array.isArray(valor) ? valor : {};
+}
+
+async function crtDaEmpresa(): Promise<number | null> {
+  const { data, error } = await supabase
+    .from("empresa")
+    .select("regimetributario")
+    .eq("id", EMPRESA_ID)
+    .maybeSingle();
+
+  if (error) throw error;
+  const regime = Number(data?.regimetributario ?? 0);
+  return [1, 2, 3, 4].includes(regime) ? regime : null;
+}
 
 async function carregarConfigs() {
   const { data, error } = await supabase
@@ -65,6 +87,13 @@ function serializar(configs: Awaited<ReturnType<typeof carregarConfigs>>) {
     cscProducao: mascararCsc(configs.nfce?.csc_producao),
     qrCodeVersao: String(configs.nfce?.qrcode_versao ?? 3),
     nfceConfigurada: Boolean(configs.nfce),
+    // Perfil tributário padrão dos itens, por modelo e por operação. É o que
+    // preenche CSOSN, origem e CST de PIS/COFINS na emissão, para o operador
+    // não redigitar o mesmo perfil em cada item de cada nota.
+    padroesFiscais: {
+      NFE: padroesDoModelo(configs.nfe),
+      NFCE: padroesDoModelo(configs.nfce),
+    },
   };
 }
 
@@ -125,12 +154,43 @@ export async function PUT(req: NextRequest) {
       );
     }
 
+    // ---- padrão fiscal dos itens ------------------------------------------
+    // Validado antes de qualquer gravação: padrão inválido não estraga uma
+    // nota, estraga todas as emitidas depois, e a rejeição aparece longe daqui.
+    const crt = await crtDaEmpresa();
+    const padroesRecebidos = (nfe.padroesFiscais ?? {}) as Record<string, unknown>;
+    const padroesNFe =
+      "NFE" in padroesRecebidos
+        ? await prepararPadroesFiscais(padroesRecebidos.NFE, crt)
+        : null;
+    const padroesNFCe =
+      "NFCE" in padroesRecebidos
+        ? await prepararPadroesFiscais(padroesRecebidos.NFCE, crt)
+        : null;
+
+    const problemas = [
+      ...(padroesNFe?.issues ?? []).map((issue) => ({ ...issue, modelo: "NF-e" })),
+      ...(padroesNFCe?.issues ?? []).map((issue) => ({ ...issue, modelo: "NFC-e" })),
+    ];
+    if (problemas.length > 0) {
+      return NextResponse.json(
+        {
+          error: "Corrija o padrão fiscal antes de salvar.",
+          detalhe: problemas
+            .map((issue) => `${issue.modelo}: ${descreverIssues([issue])}`)
+            .join(" "),
+        },
+        { status: 422 },
+      );
+    }
+
     // ---- modelo 55 -------------------------------------------------------
     const serieNFe = parseSerie(nfe.serieNFe);
     const naturezaNFe = parseTexto(nfe.naturezaOperacao);
     const patchNFe = {
       ...(serieNFe !== undefined ? { serie: serieNFe } : {}),
       ...(naturezaNFe !== undefined ? { natureza_operacao: naturezaNFe } : {}),
+      ...(padroesNFe ? { padroes_emissao: padroesNFe.padroes } : {}),
     };
 
     if (Object.keys(patchNFe).length > 0) {
@@ -162,6 +222,7 @@ export async function PUT(req: NextRequest) {
         ...(cscProducao !== undefined ? { csc_producao: cscProducao } : {}),
         ...(idCscHomologacao !== undefined ? { csc_id_homologacao: idCscHomologacao } : {}),
         ...(idCscProducao !== undefined ? { csc_id_producao: idCscProducao } : {}),
+        ...(padroesNFCe ? { padroes_emissao: padroesNFCe.padroes } : {}),
       };
 
       if (Object.keys(patchNFCe).length > 0) {

@@ -80,6 +80,11 @@ export type SourceProduct = {
   aliquota_ibs_uf?: string | number | null;
   aliquota_ibs_municipio?: string | number | null;
   aliquota_cbs?: string | number | null;
+  /**
+   * De onde o servidor tirou cada campo fiscal: 'PRODUTO', 'PADRAO' (o perfil
+   * cadastrado em Configurações), 'REGRA' (imposto pelo CST) ou 'VAZIO'.
+   */
+  procedenciaFiscal?: Record<string, string> | null;
 };
 
 export type AssistedFiscalItem = {
@@ -145,6 +150,13 @@ export type AssistedFiscalItem = {
   difalAliquotaFcp: string;
   difalPercentualPartilha: string;
   difalBaseFcp: string;
+  /**
+   * Procedência de cada campo fiscal como o servidor a montou, chaveada pelo
+   * nome de coluna (`csosn`, `cst_pis`, …). Serve só para a tela avisar o que
+   * veio do padrão de Configurações e o que veio do cadastro do produto — não
+   * entra no XML nem é reavaliada quando o usuário edita o campo.
+   */
+  procedenciaFiscal: Record<string, string>;
 };
 
 export type AssistedItemIssue = {
@@ -300,6 +312,7 @@ export function createAssistedItem(
     difalAliquotaFcp: "",
     difalPercentualPartilha: exigeDifal ? "100" : "",
     difalBaseFcp: "",
+    procedenciaFiscal: source.procedenciaFiscal ?? {},
   };
 }
 
@@ -563,5 +576,9 @@ export function toApiItem(item: AssistedFiscalItem) {
     aliquotaFcpDestino: item.difalHabilitado ? item.difalAliquotaFcp || null : null,
     percentualPartilhaDestino: item.difalHabilitado ? item.difalPercentualPartilha || null : null,
     baseCalculoFcpDestino: item.difalHabilitado ? item.difalBaseFcp || null : null,
+    // Não entra no XML: fica no snapshot do item para uma nota antiga poder ser
+    // explicada depois — se um campo veio do padrão de Configurações, corrigir
+    // o produto não basta, tem de corrigir o padrão.
+    procedenciaFiscal: item.procedenciaFiscal,
   };
 }

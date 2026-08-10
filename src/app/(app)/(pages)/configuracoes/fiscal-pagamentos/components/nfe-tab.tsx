@@ -1,11 +1,18 @@
 "use client";
 
+import { useState } from "react";
 import type { UseFormRegister, UseFormSetValue, UseFormWatch } from "react-hook-form";
-import type { FormValues } from "../types";
+import type { FormValues, ModeloPadraoFiscal, OperacaoPadraoFiscal } from "../types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Info, ShieldAlert } from "lucide-react";
+import type { CRT } from "@/lib/nfe/types";
+
+import { PadraoFiscalFields } from "./padrao-fiscal-fields";
+
+const CLASSES_SELECT =
+  "border-input bg-background ring-offset-background focus-visible:ring-ring h-10 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-none";
 
 export function NFeTab({
   register,
@@ -18,6 +25,15 @@ export function NFeTab({
   const nfceConfigurada = watch?.("nfe.nfceConfigurada") ?? false;
   /** Só a versão 2 do QR Code depende de CSC. */
   const usaCsc = String(watch?.("nfe.qrCodeVersao") ?? "3") === "2";
+
+  const [modeloPadrao, setModeloPadrao] = useState<ModeloPadraoFiscal>("NFE");
+  const [operacaoPadrao, setOperacaoPadrao] = useState<OperacaoPadraoFiscal>("SAIDA");
+  const regime = Number(watch?.("empresa.regimetributario") ?? 0);
+  const crt = ([1, 2, 3, 4] as number[]).includes(regime) ? (regime as CRT) : null;
+  // A NFC-e não é documento de entrada; o seletor de operação some no modelo 65
+  // para ninguém cadastrar um padrão que nunca vai ser lido.
+  const operacaoAtiva: OperacaoPadraoFiscal =
+    modeloPadrao === "NFCE" ? "SAIDA" : operacaoPadrao;
 
   return (
     <Card className="border-primary/10 bg-card/80 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/60">
@@ -121,6 +137,64 @@ export function NFeTab({
               />
             </div>
           </div>
+        </section>
+
+        <section className="space-y-4 border-t pt-6">
+          <div>
+            <h3 className="text-sm font-semibold">Padrão fiscal dos itens</h3>
+            <p className="text-muted-foreground mt-1 text-xs">
+              Preenche na emissão o que o cadastro do produto deixou em branco, para o mesmo perfil
+              tributário não ser redigitado item a item. Produto com o campo preenchido continua
+              vencendo — é assim que a exceção (peça monofásica, por exemplo) sobrevive. NCM e CEST
+              ficam de fora: são do item, não do perfil.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <Label className="mb-2 block text-xs">Modelo</Label>
+              <select
+                className={CLASSES_SELECT}
+                value={modeloPadrao}
+                onChange={(evento) =>
+                  setModeloPadrao(evento.target.value as ModeloPadraoFiscal)
+                }
+              >
+                <option value="NFE">NF-e · modelo 55</option>
+                <option value="NFCE">NFC-e · modelo 65</option>
+              </select>
+            </div>
+
+            {modeloPadrao === "NFE" ? (
+              <div>
+                <Label className="mb-2 block text-xs">Operação</Label>
+                <select
+                  className={CLASSES_SELECT}
+                  value={operacaoPadrao}
+                  onChange={(evento) =>
+                    setOperacaoPadrao(evento.target.value as OperacaoPadraoFiscal)
+                  }
+                >
+                  <option value="SAIDA">Saída — venda e ordem de serviço</option>
+                  <option value="ENTRADA">Entrada — compra e devolução</option>
+                </select>
+              </div>
+            ) : (
+              <p className="text-muted-foreground self-end text-xs">
+                A NFC-e só tem operação de saída.
+              </p>
+            )}
+          </div>
+
+          {watch ? (
+            <PadraoFiscalFields
+              register={register}
+              watch={watch}
+              modelo={modeloPadrao}
+              operacao={operacaoAtiva}
+              crt={crt}
+            />
+          ) : null}
         </section>
 
         <div className="flex items-start gap-2 rounded-lg border p-3 text-sm">

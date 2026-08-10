@@ -366,10 +366,13 @@ export function GerarNotaDeOsDialog({
   const originId = osId ?? vendaId ?? entradaId ?? null;
   const productsEndpoint = useMemo(() => {
     if (!origin || !originId) return null;
-    if (origin === "OS") return `/api/ordens/${originId}/produtos-para-nfe`;
-    if (origin === "VENDA") return `/api/venda/${originId}/produtos-para-nfe`;
+    // O modelo vai na query porque o padrão fiscal dos itens é por modelo: sem
+    // ele, a NFC-e abriria com o perfil tributário cadastrado para a NF-e.
+    // Entrada não tem modelo a escolher — é sempre 55.
+    if (origin === "OS") return `/api/ordens/${originId}/produtos-para-nfe?modelo=${modelo}`;
+    if (origin === "VENDA") return `/api/venda/${originId}/produtos-para-nfe?modelo=${modelo}`;
     return `/api/entradas/${originId}/produtos-para-nfe`;
-  }, [origin, originId]);
+  }, [origin, originId, modelo]);
   const generateEndpoint = useMemo(() => {
     if (!origin || !originId) return null;
     // NFC-e tem rotas próprias: elas fixam o modelo 65 no servidor, para o

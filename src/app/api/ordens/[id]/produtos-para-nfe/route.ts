@@ -6,6 +6,9 @@ import { descontoPorItem, parcelaDoDescontoNaNota } from "@/lib/nfe/descontoOrig
 import { inferirDescontoGeralOs } from "@/lib/ordens/totais";
 import { mapPaymentMethodToNFe } from "@/lib/nfe/originFiscalDefaults";
 import { valorDeFace } from "@/lib/financeiro/transacao";
+import { exigirModelo, MODELO_NFE } from "@/lib/nfe/modeloDocumento";
+import { resolverPadraoFiscalItem } from "@/lib/nfe/padraoFiscalItem";
+import { buscarContextoPadraoFiscal } from "@/services/fiscal/nfeConfigService";
 
 export const runtime = "nodejs";
 
@@ -107,6 +110,9 @@ type ProdutoParaNfeDTO = {
   referencia: string | null;
   unidade: string | null;
   origem_mercadoria: string | null;
+
+  /** De onde veio cada campo fiscal: 'PRODUTO', 'PADRAO', 'REGRA' ou 'VAZIO'. */
+  procedenciaFiscal: Record<string, string>;
 };
 
 // Extrai o osId direto da URL: /api/ordens/95/produtos-para-nfe
@@ -144,6 +150,12 @@ export async function GET(req: Request) {
         { status: 400 }
       );
     }
+
+    // Sem `?modelo=`, responde a NF-e: era o único modelo quando esta rota
+    // nasceu, e o padrão fiscal da NFC-e é outro.
+    const modeloParam = new URL(req.url).searchParams.get("modelo");
+    const modelo = modeloParam ? exigirModelo(modeloParam) : MODELO_NFE;
+    const { padrao, crt } = await buscarContextoPadraoFiscal(modelo, "SAIDA");
 
     console.log(
       "GET /api/ordens/[osId]/produtos-para-nfe -> idOs:",
@@ -282,6 +294,14 @@ export async function GET(req: Request) {
       const titulo = p?.titulo || `Produto #${i.produtoid}`;
       const descricao = p?.descricao || titulo;
 
+      // O cadastro do produto manda; o padrão de configs preenche o que ficou
+      // em branco. NCM e CEST ficam de fora — são do item, não do perfil.
+      const { campos: fiscal, procedencia } = resolverPadraoFiscalItem({
+        fontes: [{ origem: "PRODUTO", valores: p }],
+        padrao,
+        crt,
+      });
+
       return {
         // PK composta real
         osProdutoId: `${i.ordemservicoid}-${i.produtoid}`,
@@ -301,37 +321,13 @@ export async function GET(req: Request) {
         ),
 
         ncm: p?.ncm ?? null,
-        cfop: p?.cfop ?? null,
-        csosn: p?.csosn ?? null,
-        cst: p?.cst ?? null,
         cest: p?.cest ?? null,
-        aliquotaicms:
-          p?.aliquotaicms != null ? Number(p.aliquotaicms) : null,
-
-        cst_pis: p?.cst_pis ?? null,
-        aliquota_pis:
-          p?.aliquota_pis != null ? Number(p.aliquota_pis) : null,
-        modo_pis: p?.modo_pis ?? null,
-        aliquota_por_unidade_pis:
-          p?.aliquota_por_unidade_pis != null ? Number(p.aliquota_por_unidade_pis) : null,
-        cst_cofins: p?.cst_cofins ?? null,
-        aliquota_cofins:
-          p?.aliquota_cofins != null ? Number(p.aliquota_cofins) : null,
-        modo_cofins: p?.modo_cofins ?? null,
-        aliquota_por_unidade_cofins:
-          p?.aliquota_por_unidade_cofins != null ? Number(p.aliquota_por_unidade_cofins) : null,
-        rtc_habilitado: Boolean(p?.rtc_habilitado),
-        cst_ibscbs: p?.cst_ibscbs ?? null,
-        cclass_trib: p?.cclass_trib ?? null,
-        aliquota_ibs_uf: p?.aliquota_ibs_uf != null ? Number(p.aliquota_ibs_uf) : null,
-        aliquota_ibs_municipio:
-          p?.aliquota_ibs_municipio != null ? Number(p.aliquota_ibs_municipio) : null,
-        aliquota_cbs: p?.aliquota_cbs != null ? Number(p.aliquota_cbs) : null,
+        ...fiscal,
 
         codigobarras: p?.codigobarras ?? null,
         referencia: p?.referencia ?? null,
         unidade: p?.unidade ?? "UN",
-        origem_mercadoria: p?.origem_mercadoria ?? null,
+        procedenciaFiscal: procedencia,
       };
     });
 

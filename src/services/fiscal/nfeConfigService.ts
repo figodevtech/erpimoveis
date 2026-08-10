@@ -2,7 +2,8 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { modeloParaDb, rotuloModelo } from "@/lib/nfe/modeloDocumento";
-import type { ModeloDocumentoFiscal, ModeloDocumentoFiscalDb } from "@/lib/nfe/types";
+import { padraoDaOperacao, type PadraoFiscalItem } from "@/lib/nfe/padraoFiscalItem";
+import type { CRT, ModeloDocumentoFiscal, ModeloDocumentoFiscalDb } from "@/lib/nfe/types";
 
 /**
  * Configuração fiscal de um modelo de documento.
@@ -21,9 +22,12 @@ export type FiscalConfigRow = {
   ultimo_numero: number;
   ambiente: "HOMOLOGACAO" | "PRODUCAO";
   qrcode_versao: number;
+  /** Padrão fiscal dos itens, por tipo de operação. Ver `padraoFiscalItem.ts`. */
+  padroes_emissao: unknown;
 };
 
-const CAMPOS_PUBLICOS = "id, empresaid, modelo, serie, ultimo_numero, ambiente, qrcode_versao";
+const CAMPOS_PUBLICOS =
+  "id, empresaid, modelo, serie, ultimo_numero, ambiente, qrcode_versao, padroes_emissao";
 
 /**
  * Configuração do modelo pedido. `empresaId` omitido pega a primeira empresa
@@ -62,6 +66,45 @@ export async function exigirFiscalConfig(
     );
   }
   return config;
+}
+
+export type ContextoPadraoFiscal = {
+  /** Padrão do modelo e da operação pedidos; `null` quando nada foi cadastrado. */
+  padrao: PadraoFiscalItem | null;
+  /** Regime tributário do emitente: decide entre CSOSN e CST de ICMS. */
+  crt: CRT | null;
+};
+
+/**
+ * Padrão fiscal dos itens + CRT, para as rotas que montam o snapshot da nota.
+ *
+ * Não explode quando não há padrão cadastrado: o snapshot continua saindo com o
+ * que o produto tiver, exatamente como antes desta camada existir. Só o CRT
+ * precisa da empresa, e ele já é cobrado por `validarEmpresa` na emissão.
+ */
+export async function buscarContextoPadraoFiscal(
+  modelo: ModeloDocumentoFiscal,
+  operacao: "SAIDA" | "ENTRADA",
+  empresaId?: number,
+): Promise<ContextoPadraoFiscal> {
+  const config = await buscarFiscalConfig(modelo, empresaId);
+
+  let query = supabaseAdmin.from("empresa").select("id, regimetributario");
+  const alvo = empresaId ?? config?.empresaid;
+  if (alvo != null) query = query.eq("id", alvo);
+
+  const { data: empresa, error } = await query
+    .order("id", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  const regime = Number(empresa?.regimetributario ?? 0);
+  return {
+    padrao: padraoDaOperacao(config?.padroes_emissao, operacao),
+    crt: [1, 2, 3, 4].includes(regime) ? (regime as CRT) : null,
+  };
 }
 
 /**

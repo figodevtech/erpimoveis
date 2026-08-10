@@ -30,6 +30,37 @@ export type Empresa = {
   placa_consulta_mes: string;
 };
 
+/** Um conjunto de padrões fiscais. Tudo string: são campos de formulário. */
+export type PadraoFiscalForm = {
+  origem_mercadoria?: string;
+  cfop?: string;
+  csosn?: string;
+  cst?: string;
+  aliquotaicms?: string;
+  cst_pis?: string;
+  modo_pis?: string;
+  aliquota_pis?: string;
+  aliquota_por_unidade_pis?: string;
+  cst_cofins?: string;
+  modo_cofins?: string;
+  aliquota_cofins?: string;
+  aliquota_por_unidade_cofins?: string;
+  rtc_habilitado?: boolean;
+  cst_ibscbs?: string;
+  cclass_trib?: string;
+  aliquota_ibs_uf?: string;
+  aliquota_ibs_municipio?: string;
+  aliquota_cbs?: string;
+};
+
+export type ModeloPadraoFiscal = "NFE" | "NFCE";
+export type OperacaoPadraoFiscal = "SAIDA" | "ENTRADA";
+
+export type PadroesFiscaisForm = Record<
+  ModeloPadraoFiscal,
+  Partial<Record<OperacaoPadraoFiscal, PadraoFiscalForm>>
+>;
+
 export type NFeCfg = {
   serieNFe: string;
   serieNFCe?: string;
@@ -48,6 +79,12 @@ export type NFeCfg = {
   qrCodeVersao?: string;
   /** false quando a empresa ainda não tem linha de configuração do modelo 65. */
   nfceConfigurada?: boolean;
+  /**
+   * Perfil tributário padrão dos itens, por modelo e por operação. Preenche na
+   * emissão o que o cadastro do produto deixou em branco — produto preenchido
+   * continua vencendo. NCM e CEST não entram aqui: são do item.
+   */
+  padroesFiscais?: PadroesFiscaisForm;
 };
 
 export type NFSecfg = {

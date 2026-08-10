@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 
 import { requireEstoqueAccess } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { MODELO_NFE } from "@/lib/nfe/modeloDocumento";
+import { resolverPadraoFiscalItem } from "@/lib/nfe/padraoFiscalItem";
+import { buscarContextoPadraoFiscal } from "@/services/fiscal/nfeConfigService";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -150,11 +153,41 @@ export async function GET(_request: Request, context: Context) {
 
     if (itensError) throw itensError;
 
+    // NF-e de entrada é sempre modelo 55: a NFC-e não existe como documento de
+    // entrada, e `salvarNFeDeOrigem` já recusa a combinação.
+    const { padrao, crt } = await buscarContextoPadraoFiscal(MODELO_NFE, "ENTRADA");
+
     const itens = (rows ?? []).map((row: any) => {
       const produto = relationOne<any>(row.produto);
       const titulo = String(row.titulo || produto?.titulo || `Produto #${row.produto_id}`);
       const quantidade = numero(row.quantidade);
       const valorUnitario = numero(row.valor_unitario_compra ?? row.precovenda);
+
+      // Aqui a precedência tem um degrau a mais: o item da entrada carrega o
+      // fiscal que veio na nota do fornecedor, e ele descreve esta operação
+      // melhor do que o cadastro do produto.
+      const { campos: fiscal, procedencia } = resolverPadraoFiscalItem({
+        fontes: [
+          {
+            origem: "ENTRADA",
+            valores: {
+              cfop: row.cfop,
+              csosn: row.csosn,
+              cst: row.cst,
+              aliquotaicms: row.aliquotaicms,
+              cst_pis: row.cst_pis,
+              aliquota_pis: row.aliquota_pis,
+              cst_cofins: row.cst_cofins,
+              aliquota_cofins: row.aliquota_cofins,
+              cst_ibscbs: row.cstIbs ?? row.cstCbs,
+              cclass_trib: row.cClassTrib,
+            },
+          },
+          { origem: "PRODUTO", valores: produto },
+        ],
+        padrao,
+        crt,
+      });
 
       return {
         osProdutoId: String(row.id),
@@ -166,29 +199,12 @@ export async function GET(_request: Request, context: Context) {
         precoUnitario: valorUnitario,
         subtotal: Number((quantidade * valorUnitario).toFixed(2)),
         ncm: row.ncm ?? produto?.ncm ?? null,
-        cfop: row.cfop ?? produto?.cfop ?? null,
-        csosn: row.csosn ?? produto?.csosn ?? null,
-        cst: row.cst ?? produto?.cst ?? null,
         cest: row.cest ?? produto?.cest ?? null,
-        aliquotaicms: row.aliquotaicms ?? produto?.aliquotaicms ?? null,
-        cst_pis: row.cst_pis ?? produto?.cst_pis ?? null,
-        aliquota_pis: row.aliquota_pis ?? produto?.aliquota_pis ?? null,
-        modo_pis: produto?.modo_pis ?? null,
-        aliquota_por_unidade_pis: produto?.aliquota_por_unidade_pis ?? null,
-        cst_cofins: row.cst_cofins ?? produto?.cst_cofins ?? null,
-        aliquota_cofins: row.aliquota_cofins ?? produto?.aliquota_cofins ?? null,
-        modo_cofins: produto?.modo_cofins ?? null,
-        aliquota_por_unidade_cofins: produto?.aliquota_por_unidade_cofins ?? null,
-        rtc_habilitado: Boolean(produto?.rtc_habilitado),
-        cst_ibscbs: row.cstIbs ?? row.cstCbs ?? produto?.cst_ibscbs ?? null,
-        cclass_trib: row.cClassTrib ?? produto?.cclass_trib ?? null,
-        aliquota_ibs_uf: produto?.aliquota_ibs_uf ?? null,
-        aliquota_ibs_municipio: produto?.aliquota_ibs_municipio ?? null,
-        aliquota_cbs: produto?.aliquota_cbs ?? null,
+        ...fiscal,
         codigobarras: produto?.codigobarras ?? null,
         referencia: row.referencia ?? produto?.referencia ?? null,
         unidade: row.unidade ?? produto?.unidade ?? "UN",
-        origem_mercadoria: produto?.origem_mercadoria ?? null,
+        procedenciaFiscal: procedencia,
       };
     });
 

@@ -27,6 +27,11 @@ import {
   getRequiredPisCofinsMode,
   PIS_COFINS_CST_OPTIONS,
 } from "@/lib/nfe/taxRules";
+import {
+  CSOSN_DESCRICOES,
+  CST_ICMS_DESCRICOES,
+  ORIGENS_MERCADORIA,
+} from "@/lib/nfe/rotulosFiscais";
 
 import {
   type AssistedFiscalItem,
@@ -45,55 +50,48 @@ type Props = {
   onChange: (patch: Partial<AssistedFiscalItem>) => void;
 };
 
-const CSOSN_DESCRIPTIONS: Record<string, string> = {
-  "101": "Tributada pelo Simples com permissão de crédito",
-  "102": "Tributada pelo Simples sem permissão de crédito",
-  "103": "Isenção por faixa de receita",
-  "201": "Tributada com crédito e ICMS-ST",
-  "202": "Tributada sem crédito e com ICMS-ST",
-  "203": "Isenção por faixa de receita e ICMS-ST",
-  "300": "Imune",
-  "400": "Não tributada",
-  "500": "ICMS-ST cobrado anteriormente",
-  "900": "Outros",
-};
+const CSOSN_DESCRIPTIONS = CSOSN_DESCRICOES;
+const CST_DESCRIPTIONS = CST_ICMS_DESCRICOES;
+const ORIGENS = ORIGENS_MERCADORIA;
 
-const CST_DESCRIPTIONS: Record<string, string> = {
-  "00": "Tributada integralmente",
-  "10": "Tributada com ICMS-ST",
-  "20": "Redução de base de cálculo",
-  "30": "Isenta/não tributada com ICMS-ST",
-  "40": "Isenta",
-  "41": "Não tributada",
-  "50": "Suspensão",
-  "51": "Diferimento",
-  "60": "ICMS-ST cobrado anteriormente",
-  "70": "Redução de base com ICMS-ST",
-  "90": "Outras",
-};
-
-const ORIGENS = [
-  ["0", "Nacional"],
-  ["1", "Estrangeira — importação direta"],
-  ["2", "Estrangeira — mercado interno"],
-  ["3", "Nacional, conteúdo importado superior a 40%"],
-  ["4", "Nacional, processo produtivo básico"],
-  ["5", "Nacional, conteúdo importado até 40%"],
-  ["6", "Estrangeira sem similar nacional"],
-  ["7", "Estrangeira sem similar — mercado interno"],
-  ["8", "Nacional, conteúdo importado superior a 70%"],
-] as const;
+/**
+ * Selo de procedência do valor que abriu no campo.
+ *
+ * Só aparece para o que não veio do cadastro do produto. Sem isso, quem emite
+ * não distingue "o sistema preencheu pelo padrão de Configurações" de "alguém
+ * cadastrou este produto assim" — e é essa diferença que decide se corrigir o
+ * item resolve uma nota ou todas as próximas.
+ */
+function SeloProcedencia({ origem }: { origem?: string }) {
+  if (origem !== "PADRAO" && origem !== "REGRA") return null;
+  const padrao = origem === "PADRAO";
+  return (
+    <span
+      className="ml-1 rounded border px-1 py-px align-middle text-[10px] font-normal text-muted-foreground"
+      title={
+        padrao
+          ? "Veio do padrão fiscal em Configurações › Fiscal, porque o produto não tem este campo."
+          : "Imposto pelo CST escolhido; alterar aqui seria recusado na validação."
+      }
+    >
+      {padrao ? "padrão" : "regra"}
+    </span>
+  );
+}
 
 function Field({
   label,
   required,
   hint,
+  origem,
   children,
   className = "",
 }: {
   label: string;
   required?: boolean;
   hint?: string;
+  /** Procedência do valor inicial: 'PRODUTO', 'PADRAO', 'REGRA' ou 'VAZIO'. */
+  origem?: string;
   children: React.ReactNode;
   className?: string;
 }) {
@@ -103,6 +101,7 @@ function Field({
     >
       <Label className="break-words text-xs">
         {label} {required ? <span className="text-destructive">*</span> : null}
+        <SeloProcedencia origem={origem} />
       </Label>
       {children}
       {hint ? <p className="text-[11px] leading-snug text-muted-foreground">{hint}</p> : null}
@@ -133,6 +132,9 @@ export function NfeItemFiscalEditor({
   if (!item) return null;
 
   const rules = setup.regrasFiscais;
+  // Procedência com que o servidor montou o item. Não acompanha a edição: o
+  // selo descreve como o campo abriu, não o que o usuário digitou depois.
+  const proc = item.procedenciaFiscal ?? {};
   const needsIcmsRate =
     ["00", "10", "20", "51", "70", "90"].includes(item.cst) ||
     item.csosn === "900";
@@ -229,7 +231,7 @@ export function NfeItemFiscalEditor({
                 onChange={(event) => onChange({ ncm: onlyDigits(event.target.value) })}
               />
             </Field>
-            <Field label="CFOP" required className="lg:col-span-2">
+            <Field label="CFOP" required origem={proc.cfop} className="lg:col-span-2">
               <Input
                 value={item.cfop}
                 maxLength={4}
@@ -300,7 +302,12 @@ export function NfeItemFiscalEditor({
         <section className="min-w-0 space-y-3 rounded-lg border p-3 sm:p-4 bg-card">
           <h3 className="text-sm font-semibold">ICMS</h3>
           <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Field label="Origem da mercadoria" required className="sm:col-span-2">
+            <Field
+              label="Origem da mercadoria"
+              required
+              origem={proc.origem_mercadoria}
+              className="sm:col-span-2"
+            >
               <Select value={item.orig} onValueChange={(orig) => onChange({ orig })}>
                 <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent className="w-[calc(100vw-2rem)] max-w-[32rem]">
@@ -314,7 +321,7 @@ export function NfeItemFiscalEditor({
             </Field>
 
             {rules?.icms.csosn === "REQUIRED" ? (
-              <Field label="CSOSN" required className="sm:col-span-2">
+              <Field label="CSOSN" required origem={proc.csosn} className="sm:col-span-2">
                 <Select
                   value={item.csosn}
                   onValueChange={(csosn) => onChange({ csosn, cst: "" })}
@@ -332,7 +339,7 @@ export function NfeItemFiscalEditor({
             ) : null}
 
             {rules?.icms.cst === "REQUIRED" ? (
-              <Field label="CST ICMS" required className="sm:col-span-2">
+              <Field label="CST ICMS" required origem={proc.cst} className="sm:col-span-2">
                 <Select value={item.cst} onValueChange={(cst) => onChange({ cst, csosn: "" })}>
                   <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                   <SelectContent className="w-[calc(100vw-2rem)] max-w-[30rem]">
@@ -347,7 +354,7 @@ export function NfeItemFiscalEditor({
             ) : null}
 
             {needsIcmsRate ? (
-              <Field label="Alíquota ICMS (%)" required>
+              <Field label="Alíquota ICMS (%)" required origem={proc.aliquotaicms}>
                 <Input
                   type="number"
                   inputMode="decimal"
@@ -368,6 +375,7 @@ export function NfeItemFiscalEditor({
             rate={item.aliquotaPis}
             quantity={item.quantidadePis}
             unitRate={item.aliquotaPorUnidadePis}
+            procedencia={proc}
             onCstChange={(value) => updateContributionCst("PIS", value)}
             onChange={onChange}
           />
@@ -379,6 +387,7 @@ export function NfeItemFiscalEditor({
             rate={item.aliquotaCofins}
             quantity={item.quantidadeCofins}
             unitRate={item.aliquotaPorUnidadeCofins}
+            procedencia={proc}
             onCstChange={(value) => updateContributionCst("COFINS", value)}
             onChange={onChange}
           />
@@ -469,7 +478,12 @@ export function NfeItemFiscalEditor({
 
             {item.rtcHabilitado ? (
               <>
-                <Field label="Classificação tributária" required className="sm:col-span-2 lg:col-span-2">
+                <Field
+                  label="Classificação tributária"
+                  required
+                  origem={proc.cclass_trib}
+                  className="sm:col-span-2 lg:col-span-2"
+                >
                   <Select
                     value={item.cClassTrib}
                     onValueChange={(cClassTrib) => {
@@ -497,7 +511,7 @@ export function NfeItemFiscalEditor({
                     </SelectContent>
                   </Select>
                 </Field>
-                <Field label="CST IBS/CBS" required>
+                <Field label="CST IBS/CBS" required origem={proc.cst_ibscbs}>
                   <Input value={item.cstIbsCbs} disabled />
                 </Field>
                 <Field label="Base IBS/CBS" required>
@@ -538,6 +552,7 @@ function ContributionFields({
   rate,
   quantity,
   unitRate,
+  procedencia,
   onCstChange,
   onChange,
 }: {
@@ -547,16 +562,24 @@ function ContributionFields({
   rate: string;
   quantity: string;
   unitRate: string;
+  procedencia?: Record<string, string>;
   onCstChange: (value: string) => void;
   onChange: (patch: Partial<AssistedFiscalItem>) => void;
 }) {
   const pis = type === "PIS";
+  // Nome da coluna correspondente, para ler a procedência que o servidor mandou.
+  const chave = pis ? "pis" : "cofins";
   const options = PIS_COFINS_CST_OPTIONS.filter(
     (option) => option.operation === "SAIDA" || option.operation === "OUTROS",
   );
   return (
     <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      <Field label={`CST ${type}`} required className="sm:col-span-2">
+      <Field
+        label={`CST ${type}`}
+        required
+        origem={procedencia?.[`cst_${chave}`]}
+        className="sm:col-span-2"
+      >
         <Select value={cst} onValueChange={onCstChange}>
           <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
           <SelectContent className="w-[calc(100vw-2rem)] max-w-[38rem]">
@@ -568,7 +591,7 @@ function ContributionFields({
           </SelectContent>
         </Select>
       </Field>
-      <Field label={`Modo ${type}`} required>
+      <Field label={`Modo ${type}`} required origem={procedencia?.[`modo_${chave}`]}>
         <Select
           value={mode}
           onValueChange={(value: AssistedFiscalItem["modoPis"]) =>
@@ -584,7 +607,7 @@ function ContributionFields({
         </Select>
       </Field>
       {mode === "PERCENTUAL" ? (
-        <Field label={`Alíquota ${type} (%)`} required>
+        <Field label={`Alíquota ${type} (%)`} required origem={procedencia?.[`aliquota_${chave}`]}>
           <Input
             type="number"
             inputMode="decimal"
@@ -607,7 +630,11 @@ function ContributionFields({
               }
             />
           </Field>
-          <Field label={`Alíquota por unidade ${type}`} required>
+          <Field
+            label={`Alíquota por unidade ${type}`}
+            required
+            origem={procedencia?.[`aliquota_por_unidade_${chave}`]}
+          >
             <Input
               type="number"
               inputMode="decimal"

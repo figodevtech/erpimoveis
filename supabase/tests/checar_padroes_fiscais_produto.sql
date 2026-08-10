@@ -1,72 +1,122 @@
--- Leitura apenas. Mede o quanto do cadastro fiscal do produto está preenchido
--- e mostra o que a nfe_config guarda hoje. Termina em ROLLBACK.
+-- Padrão fiscal dos itens: mede o buraco que ele preenche e ensaia a migration.
+--
+-- Roda a migration 20260810180000 dentro da transação e desfaz tudo no final,
+-- então serve tanto antes do deploy (ensaio) quanto depois (conferência).
+--
+--   npm run db:test:sql -- supabase/tests/checar_padroes_fiscais_produto.sql
+--
+-- Termina em ROLLBACK: nada é gravado.
 BEGIN;
 
 DO $$
 DECLARE
   r record;
   total bigint;
+  gravado jsonb;
 BEGIN
-  SELECT count(*) INTO total FROM produto;
-  RAISE NOTICE '--- produto: % linhas ---', total;
+  ---------------------------------------------------------------------------
+  -- 1) O tamanho do problema: quanto do cadastro fiscal está preenchido
+  ---------------------------------------------------------------------------
+  SELECT count(*) INTO total FROM produto WHERE NOT coalesce(is_deleted, false);
+  RAISE NOTICE '--- produto: % linhas ativas ---', total;
 
   IF total > 0 THEN
     SELECT
-      count(*) FILTER (WHERE nullif(btrim(ncm), '') IS NOT NULL)              AS ncm,
-      count(*) FILTER (WHERE nullif(btrim(cest), '') IS NOT NULL)             AS cest,
-      count(*) FILTER (WHERE nullif(btrim(cfop), '') IS NOT NULL)             AS cfop,
-      count(*) FILTER (WHERE nullif(btrim(csosn), '') IS NOT NULL)            AS csosn,
-      count(*) FILTER (WHERE nullif(btrim(cst), '') IS NOT NULL)              AS cst,
-      count(*) FILTER (WHERE aliquotaicms IS NOT NULL)                        AS aliq_icms,
-      count(*) FILTER (WHERE nullif(btrim(cst_pis), '') IS NOT NULL)          AS cst_pis,
-      count(*) FILTER (WHERE nullif(btrim(cst_cofins), '') IS NOT NULL)       AS cst_cofins,
-      count(*) FILTER (WHERE nullif(btrim(modo_pis), '') IS NOT NULL)         AS modo_pis,
-      count(*) FILTER (WHERE nullif(btrim(cst_ibscbs), '') IS NOT NULL)       AS cst_ibscbs,
-      count(*) FILTER (WHERE nullif(btrim(cclass_trib), '') IS NOT NULL)      AS cclass_trib,
-      count(*) FILTER (WHERE rtc_habilitado)                                  AS rtc_on,
-      count(*) FILTER (WHERE nullif(btrim(origem_mercadoria), '') IS NOT NULL) AS origem
-    INTO r FROM produto;
+      count(*) FILTER (WHERE nullif(btrim(ncm), '') IS NOT NULL)               AS ncm,
+      count(*) FILTER (WHERE nullif(btrim(cest), '') IS NOT NULL)              AS cest,
+      count(*) FILTER (WHERE nullif(btrim(origem_mercadoria), '') IS NOT NULL) AS origem,
+      count(*) FILTER (WHERE nullif(btrim(csosn), '') IS NOT NULL)             AS csosn,
+      count(*) FILTER (WHERE nullif(btrim(cst), '') IS NOT NULL)               AS cst,
+      count(*) FILTER (WHERE aliquotaicms IS NOT NULL)                         AS aliq_icms,
+      count(*) FILTER (WHERE nullif(btrim(cst_pis), '') IS NOT NULL)           AS cst_pis,
+      count(*) FILTER (WHERE nullif(btrim(cst_cofins), '') IS NOT NULL)        AS cst_cofins,
+      count(*) FILTER (WHERE nullif(btrim(cclass_trib), '') IS NOT NULL)       AS cclass_trib
+    INTO r FROM produto WHERE NOT coalesce(is_deleted, false);
 
-    RAISE NOTICE 'ncm=% cest=% cfop=% origem=%', r.ncm, r.cest, r.cfop, r.origem;
-    RAISE NOTICE 'csosn=% cst=% aliq_icms=%', r.csosn, r.cst, r.aliq_icms;
-    RAISE NOTICE 'cst_pis=% cst_cofins=% modo_pis=%', r.cst_pis, r.cst_cofins, r.modo_pis;
-    RAISE NOTICE 'cst_ibscbs=% cclass_trib=% rtc_habilitado=%', r.cst_ibscbs, r.cclass_trib, r.rtc_on;
+    RAISE NOTICE 'do item  -> ncm=% cest=%', r.ncm, r.cest;
+    RAISE NOTICE 'do perfil-> origem=% csosn=% cst=% aliq_icms=%', r.origem, r.csosn, r.cst, r.aliq_icms;
+    RAISE NOTICE '            cst_pis=% cst_cofins=% cclass_trib=%', r.cst_pis, r.cst_cofins, r.cclass_trib;
+    RAISE NOTICE 'Os campos "do perfil" são os que o padrão passa a preencher.';
   END IF;
 
-  RAISE NOTICE '--- empresa: colunas fiscais ---';
+  ---------------------------------------------------------------------------
+  -- 2) Ensaio da migration
+  ---------------------------------------------------------------------------
+  ALTER TABLE public.nfe_config
+    ADD COLUMN IF NOT EXISTS padroes_emissao jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+  ALTER TABLE public.nfe_config
+    DROP CONSTRAINT IF EXISTS nfe_config_padroes_emissao_object_check;
+
+  ALTER TABLE public.nfe_config
+    ADD CONSTRAINT nfe_config_padroes_emissao_object_check
+    CHECK (jsonb_typeof(padroes_emissao) = 'object');
+
+  RAISE NOTICE '--- migration aplicada sem erro ---';
+
+  ---------------------------------------------------------------------------
+  -- 3) O padrão sobrevive a ida e volta, chaveado por operação
+  ---------------------------------------------------------------------------
+  UPDATE public.nfe_config
+     SET padroes_emissao = jsonb_build_object(
+           'SAIDA', jsonb_build_object(
+             'origem_mercadoria', '0',
+             'cfop', '5102',
+             'csosn', '102',
+             'cst_pis', '49',
+             'modo_pis', 'PERCENTUAL',
+             'aliquota_pis', 0
+           )
+         )
+   WHERE modelo = 'NFE'::public.enum_modelo_nfe;
+
+  SELECT padroes_emissao INTO gravado
+    FROM public.nfe_config
+   WHERE modelo = 'NFE'::public.enum_modelo_nfe
+   ORDER BY id LIMIT 1;
+
+  IF gravado -> 'SAIDA' ->> 'csosn' IS DISTINCT FROM '102' THEN
+    RAISE EXCEPTION 'padrao de SAIDA nao voltou como gravado: %', gravado;
+  END IF;
+  IF gravado ? 'ENTRADA' THEN
+    RAISE EXCEPTION 'ramo ENTRADA apareceu sem ter sido gravado: %', gravado;
+  END IF;
+
+  RAISE NOTICE 'ida e volta do jsonb: ok (%).', gravado -> 'SAIDA';
+
+  -- O check tem de barrar qualquer coisa que não seja objeto.
+  BEGIN
+    UPDATE public.nfe_config SET padroes_emissao = '[]'::jsonb
+     WHERE modelo = 'NFE'::public.enum_modelo_nfe;
+    RAISE EXCEPTION 'o check aceitou um array em padroes_emissao';
+  EXCEPTION WHEN check_violation THEN
+    RAISE NOTICE 'check rejeita array, como esperado.';
+  END;
+
+  ---------------------------------------------------------------------------
+  -- 4) Estado atual da configuração fiscal
+  ---------------------------------------------------------------------------
+  RAISE NOTICE '--- nfe_config ---';
   FOR r IN
-    SELECT column_name
-    FROM information_schema.columns
-    WHERE table_schema = 'public' AND table_name = 'empresa'
-      AND (column_name ILIKE '%regime%' OR column_name ILIKE '%crt%'
-           OR column_name ILIKE '%uf%' OR column_name ILIKE '%csc%'
-           OR column_name ILIKE '%ambiente%' OR column_name ILIKE '%municipio%')
-    ORDER BY column_name
+    SELECT modelo, serie, ultimo_numero, ambiente, padroes_emissao
+      FROM public.nfe_config ORDER BY id
   LOOP
-    RAISE NOTICE '  %', r.column_name;
+    RAISE NOTICE '  % | serie % | ultimo % | % | padroes=%',
+      r.modelo, r.serie, r.ultimo_numero, r.ambiente, r.padroes_emissao;
   END LOOP;
 
   FOR r IN SELECT id, uf, regimetributario FROM empresa ORDER BY id LOOP
-    RAISE NOTICE '  empresa id=% uf=% regime=%', r.id, r.uf, r.regimetributario;
+    RAISE NOTICE '  empresa % | uf % | CRT %', r.id, r.uf, r.regimetributario;
   END LOOP;
 
-  RAISE NOTICE '--- distintos usados em nfe_item (o que já saiu em nota) ---';
-  FOR r IN
-    SELECT cfop, csosn, cst, count(*) AS n
-    FROM nfe_item GROUP BY 1,2,3 ORDER BY n DESC LIMIT 10
-  LOOP
-    RAISE NOTICE '  cfop=% csosn=% cst=% n=%', r.cfop, r.csosn, r.cst, r.n;
-  END LOOP;
-
-  RAISE NOTICE '--- colunas fiscais de nfe_item ---';
-  FOR r IN
-    SELECT column_name, data_type
-    FROM information_schema.columns
-    WHERE table_schema = 'public' AND table_name = 'nfe_item'
-    ORDER BY ordinal_position
-  LOOP
-    RAISE NOTICE '  % (%)', r.column_name, r.data_type;
-  END LOOP;
+  ---------------------------------------------------------------------------
+  -- 5) Procedência gravada nas notas já emitidas (vazia antes desta entrega)
+  ---------------------------------------------------------------------------
+  RAISE NOTICE '--- itens com procedência no snapshot ---';
+  SELECT count(*) INTO total
+    FROM nfe_item
+   WHERE tributacao_snapshot ? 'procedenciaFiscal';
+  RAISE NOTICE '  % de % itens', total, (SELECT count(*) FROM nfe_item);
 END $$;
 
 ROLLBACK;

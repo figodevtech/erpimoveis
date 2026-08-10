@@ -66,6 +66,7 @@ export default function ConfigFiscalPagamentosPage() {
         naturezaOperacaoNFCe: "Venda ao consumidor",
         qrCodeVersao: "3",
         nfceConfigurada: false,
+        padroesFiscais: { NFE: {}, NFCE: {} },
       },
       nfse: {
         provedor: "",
@@ -129,6 +130,10 @@ export default function ConfigFiscalPagamentosPage() {
       setValue("nfe.naturezaOperacaoNFCe", n.naturezaOperacaoNFCe ?? "Venda ao consumidor");
       setValue("nfe.qrCodeVersao", n.qrCodeVersao ?? "3");
       setValue("nfe.nfceConfigurada", Boolean(n.nfceConfigurada));
+      setValue("nfe.padroesFiscais", {
+        NFE: n.padroesFiscais?.NFE ?? {},
+        NFCE: n.padroesFiscais?.NFCE ?? {},
+      });
     },
     [setValue]
   );
@@ -231,7 +236,13 @@ export default function ConfigFiscalPagamentosPage() {
           body: JSON.stringify({ nfe: values.nfe }),
         });
         const j = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(j?.error || "Falha ao salvar NFe");
+        // O 422 do padrão fiscal traz o motivo em `detalhe`; sem ele o usuário
+        // veria só "corrija o padrão" e não saberia qual campo está errado.
+        if (!r.ok) {
+          throw new Error(
+            [j?.error, j?.detalhe].filter(Boolean).join(" ") || "Falha ao salvar NFe",
+          );
+        }
       }
       if (activeTab === "nfse") {
         const r = await fetch("/api/config/nfse", {

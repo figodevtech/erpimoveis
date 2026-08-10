@@ -82,6 +82,12 @@ export type NFeAvulsaItemInput = {
   valorIbsMunicipio?: string | number | null;
   aliquotaCbs?: string | number | null;
   valorCbs?: string | number | null;
+  /**
+   * De onde veio cada campo fiscal quando a tela montou o item: 'PRODUTO',
+   * 'PADRAO' (perfil de Configurações), 'REGRA' ou 'VAZIO'. Não influencia
+   * cálculo nem XML — só é guardado no snapshot para auditoria.
+   */
+  procedenciaFiscal?: Record<string, string> | null;
   /** DIFAL (ICMSUFDest) confirmado pelo usuário; sobrepõe os padrões do motor. */
   aliquotaInternaDestino?: string | number | null;
   aliquotaInterestadual?: string | number | null;
@@ -987,6 +993,10 @@ function mapItemToInsert(item: NFeAvulsaItemInput, index: number, nfeId: number,
     tributacao_snapshot: {
       ...taxItem,
       ...(item.sourceItemId ? { sourceItemId: item.sourceItemId } : {}),
+      // Guarda de onde veio cada campo fiscal. Um item que saiu errado por
+      // causa do padrão de Configurações não se conserta mexendo no produto,
+      // e sem este registro não há como saber qual dos dois falhou.
+      ...(item.procedenciaFiscal ? { procedenciaFiscal: item.procedenciaFiscal } : {}),
     },
     updatedat: new Date().toISOString(),
   };
