@@ -37,6 +37,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -366,7 +374,7 @@ export default function VendasDataTable({
       });
       const resultado = response.data?.data ?? {};
       toast.success("Venda cancelada", {
-        description: `${resultado.estornosCriados ?? 0} estorno(s) criado(s) e ${resultado.transacoesPendentesCanceladas ?? 0} pendência(s) cancelada(s).`,
+        description: `${resultado.transacoesExcluidas ?? 0} transação(ões) removida(s) e estoque devolvido.`,
       });
       setCancelDialogOpen(false);
       setCancelVendaId(null);
@@ -768,7 +776,7 @@ export default function VendasDataTable({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <AlertDialog
+      <Dialog
         open={cancelDialogOpen}
         onOpenChange={(open) => {
           if (cancelando) return;
@@ -776,33 +784,52 @@ export default function VendasDataTable({
           if (!open) setCancelVendaId(null);
         }}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Cancelar venda #{cancelVendaId}</AlertDialogTitle>
-            <AlertDialogDescription>
-              A venda será preservada no histórico. O estoque baixado será devolvido e os recebimentos concluídos serão estornados.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
+        <DialogContent
+          className="overflow-hidden p-0 sm:max-w-lg"
+          onInteractOutside={(event) => {
+            if (loadingCancelamento || cancelando) event.preventDefault();
+          }}
+          onEscapeKeyDown={(event) => {
+            if (loadingCancelamento || cancelando) event.preventDefault();
+          }}
+        >
+          {(loadingCancelamento || cancelando) && (
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-background/85 backdrop-blur-[1px]">
+              <Loader2 className="size-7 animate-spin text-primary" />
+              <p className="text-sm font-medium text-muted-foreground">
+                {cancelando ? "Cancelando venda..." : "Verificando venda..."}
+              </p>
+            </div>
+          )}
+          <DialogHeader className="border-b bg-muted/30 px-6 py-5 text-left">
+            <DialogTitle className="flex items-center gap-3">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+                <Ban className="size-4" />
+              </span>
+              Cancelar venda #{cancelVendaId}
+            </DialogTitle>
+            <DialogDescription>
+              A venda permanecerá no histórico, o estoque será devolvido e as transações vinculadas serão removidas.
+            </DialogDescription>
+          </DialogHeader>
 
           {loadingCancelamento ? (
-            <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" /> Verificando venda...
-            </div>
+            <div className="h-64" aria-hidden />
           ) : cancelResumo ? (
-            <div className="space-y-4">
+            <div className="space-y-4 px-6 py-5">
               <div className="grid grid-cols-2 gap-2 text-sm">
-                <div className="rounded-lg border p-3">
+                <div className="rounded-xl border bg-card p-3">
                   <p className="text-xs text-muted-foreground">Devolução ao estoque</p>
-                  <p className="font-medium">{cancelResumo.produtos.quantidade} unidade(s)</p>
+                  <p className="mt-1 text-lg font-semibold">{cancelResumo.produtos.quantidade} unidade(s)</p>
                 </div>
-                <div className="rounded-lg border p-3">
-                  <p className="text-xs text-muted-foreground">Valor a estornar</p>
-                  <p className="font-medium">{formatarEmReal(cancelResumo.transacoes.valorConcluido)}</p>
+                <div className="rounded-xl border bg-card p-3">
+                  <p className="text-xs text-muted-foreground">Valor das transações</p>
+                  <p className="mt-1 text-lg font-semibold">{formatarEmReal(cancelResumo.transacoes.valorConcluido)}</p>
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground">
-                {cancelResumo.transacoes.concluidas} transação(ões) concluída(s) e {cancelResumo.transacoes.pendentes} pendente(s).
-              </p>
+              <div className="rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                Serão removidas {cancelResumo.transacoes.concluidas} transação(ões) concluída(s) e {cancelResumo.transacoes.pendentes} pendente(s). Nenhum estorno será criado.
+              </div>
               {cancelResumo.bloqueio && (
                 <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
                   {cancelResumo.bloqueio}
@@ -825,22 +852,27 @@ export default function VendasDataTable({
             </div>
           ) : null}
 
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={cancelando}>Voltar</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-white hover:bg-destructive/90"
+          <DialogFooter className="border-t bg-muted/20 px-6 py-4">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={loadingCancelamento || cancelando}
+              onClick={() => setCancelDialogOpen(false)}
+            >
+              Voltar
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
               disabled={loadingCancelamento || cancelando || Boolean(cancelResumo?.bloqueio) || cancelMotivo.trim().length < 3}
-              onClick={(event) => {
-                event.preventDefault();
-                void confirmarCancelamento();
-              }}
+              onClick={() => void confirmarCancelamento()}
             >
               {cancelando && <Loader2 className="size-4 animate-spin" />}
               Confirmar cancelamento
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
