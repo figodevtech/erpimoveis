@@ -77,6 +77,10 @@ const VENDA_SELECT = `
   created_by,
   vendedor,
   updated_by,
+  motivo_cancelamento,
+  cancelada_at,
+  cancelada_by,
+  cancelada_por:cancelada_by ( id, nome ),
   criador:created_by ( id, nome ),
   comissao_venda_percent_aplicada,
   vendedor_rel:vendedor ( id, nome ),
@@ -590,6 +594,12 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
 
     if (status !== undefined) {
       const upperStatus = String(status).toUpperCase();
+      if (STATUS_CANCELADOS.has(upperStatus)) {
+        return NextResponse.json(
+          { error: "Use o fluxo de cancelamento da venda para informar o motivo e estornar estoque e transações." },
+          { status: 409 },
+        );
+      }
       if (!STATUS_SET.has(upperStatus as Status)) {
         return NextResponse.json(
           {

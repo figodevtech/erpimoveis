@@ -160,6 +160,10 @@ interface Venda {
     nome: string
   } | null
   updated_by: string | null
+  motivo_cancelamento?: string | null
+  cancelada_at?: string | null
+  cancelada_by?: string | null
+  cancelada_por?: { id: string; nome: string | null } | null
   editor?: {
     id: string
     nome: string
@@ -1091,6 +1095,18 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                                 </Select>
                               )}
                             </div>
+                            {venda.motivo_cancelamento && (
+                              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 sm:col-span-2">
+                                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                  Motivo do cancelamento
+                                </p>
+                                <p className="mt-1 text-sm">{venda.motivo_cancelamento}</p>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  {venda.cancelada_at ? formatDate(venda.cancelada_at) : "Data não informada"}
+                                  {venda.cancelada_por?.nome ? ` por ${venda.cancelada_por.nome}` : ""}
+                                </p>
+                              </div>
+                            )}
                              {venda.createdat && (
                               <div className="rounded-lg border bg-background/80 p-3">
                                 <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">

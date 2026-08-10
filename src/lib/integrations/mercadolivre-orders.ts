@@ -528,6 +528,18 @@ async function updateVendaShipment(vendaId: number, shipment: ReturnType<typeof 
 
 async function updateVendaOrderStatus(vendaId: number, order: MercadoLivreOrder) {
   const status = mapOrderToVendaStatus(order);
+  if (status === "CANCELADA") {
+    const atual = await supabaseAdmin.from("venda").select("status").eq("id", vendaId).maybeSingle();
+    if (atual.error) throw atual.error;
+    if (!["CANCELADA", "CANCELADO"].includes(String(atual.data?.status ?? "").toUpperCase())) {
+      const cancelamento = await supabaseAdmin.rpc("cancelar_venda", {
+        p_venda_id: vendaId,
+        p_motivo: `Cancelado no Mercado Livre (pedido #${Number(order.id)}).`,
+        p_cancelada_by: null,
+      });
+      if (cancelamento.error) throw cancelamento.error;
+    }
+  }
   const patch: Record<string, unknown> = {
     status,
     updatedat: new Date().toISOString(),

@@ -275,9 +275,27 @@ async function getPlaceholderProduct() {
 
 async function updateVendaStatus(vendaId: number, order: ShopeeOrder) {
   const status = mapOrderStatus(order.order_status);
+  if (status === "CANCELADA") {
+    const atual = await supabaseAdmin.from("venda").select("status").eq("id", vendaId).maybeSingle();
+    if (atual.error) throw atual.error;
+    if (!["CANCELADA", "CANCELADO"].includes(String(atual.data?.status ?? "").toUpperCase())) {
+      const cancelamento = await supabaseAdmin.rpc("cancelar_venda", {
+        p_venda_id: vendaId,
+        p_motivo: `Cancelado na Shopee (pedido ${order.order_sn}).`,
+        p_cancelada_by: null,
+      });
+      if (cancelamento.error) throw cancelamento.error;
+    }
+  }
   const { error } = await supabaseAdmin.from("venda").update({
     status,
-    ...(status === "CANCELADA" ? { status_entrega: null } : {}),
+    ...(status === "CANCELADA"
+      ? {
+          status_entrega: null,
+          motivo_cancelamento: `Cancelado na Shopee (pedido ${order.order_sn}).`,
+          cancelada_at: new Date().toISOString(),
+        }
+      : {}),
     updatedat: new Date().toISOString(),
   }).eq("id", vendaId);
   if (error) throw error;

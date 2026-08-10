@@ -82,6 +82,10 @@ export interface VendaComItens {
   datavenda: string;
   createdat: string | null;
   updatedat: string | null;
+  motivo_cancelamento?: string | null;
+  cancelada_at?: string | null;
+  cancelada_by?: string | null;
+  cancelada_por?: { id: string; nome?: string | null } | null;
   created_by: string | null; // uuid
   criador?: { id: string; nome?: string | null } | null;
   comissao_venda_percent_aplicada?: number | null;

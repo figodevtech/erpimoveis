@@ -21,8 +21,10 @@ import {
   Pencil,
   UserRound,
   Search,
+  Ban,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog,
@@ -81,6 +83,11 @@ interface VendasDataTableProps {
 }
 
 type ApprovalPaymentMethod = "CREDITO" | "DEBITO" | "DINHEIRO" | "PIX" | "NAO_INFORMAR";
+type CancelamentoResumo = {
+  produtos: { itens: number; quantidade: number };
+  transacoes: { pendentes: number; concluidas: number; valorConcluido: number };
+  bloqueio: string | null;
+};
 
 const getStatusBadge = (status: vendaStatus) => {
   if (status === "ORCAMENTO") {
@@ -243,6 +250,12 @@ export default function VendasDataTable({
   const [approveVendaId, setApproveVendaId] = useState<number | null>(null);
   const [approvalPaymentMethod, setApprovalPaymentMethod] = useState<ApprovalPaymentMethod>("NAO_INFORMAR");
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const [cancelVendaId, setCancelVendaId] = useState<number | null>(null);
+  const [cancelMotivo, setCancelMotivo] = useState("");
+  const [cancelResumo, setCancelResumo] = useState<CancelamentoResumo | null>(null);
+  const [loadingCancelamento, setLoadingCancelamento] = useState(false);
+  const [cancelando, setCancelando] = useState(false);
   const [syncingMercadoLivre, setSyncingMercadoLivre] = useState(false);
   const config = useConfig();
   const canEdit = permissionSetHas((session?.user as any)?.permissoes, PERMS.VENDAS_EDITAR);
@@ -321,6 +334,52 @@ export default function VendasDataTable({
       } else {
         toast.error("Erro ao aprovar orçamento");
       }
+    }
+  };
+
+  const abrirCancelamento = async (id: number) => {
+    setCancelVendaId(id);
+    setCancelMotivo("");
+    setCancelResumo(null);
+    setCancelDialogOpen(true);
+    setLoadingCancelamento(true);
+    try {
+      const response = await axios.get(`/api/venda/${id}/cancelar`);
+      setCancelResumo(response.data as CancelamentoResumo);
+    } catch (error) {
+      const mensagem = isAxiosError(error)
+        ? error.response?.data?.error || "Não foi possível preparar o cancelamento."
+        : "Não foi possível preparar o cancelamento.";
+      toast.error(mensagem);
+      setCancelDialogOpen(false);
+    } finally {
+      setLoadingCancelamento(false);
+    }
+  };
+
+  const confirmarCancelamento = async () => {
+    if (!cancelVendaId || cancelMotivo.trim().length < 3 || cancelResumo?.bloqueio) return;
+    setCancelando(true);
+    try {
+      const response = await axios.post(`/api/venda/${cancelVendaId}/cancelar`, {
+        motivo: cancelMotivo.trim(),
+      });
+      const resultado = response.data?.data ?? {};
+      toast.success("Venda cancelada", {
+        description: `${resultado.estornosCriados ?? 0} estorno(s) criado(s) e ${resultado.transacoesPendentesCanceladas ?? 0} pendência(s) cancelada(s).`,
+      });
+      setCancelDialogOpen(false);
+      setCancelVendaId(null);
+      await Promise.all([
+        handleGetVendas(pagination.page, pagination.limit, search, status, filters),
+        fetchStatusCounts(),
+      ]);
+    } catch (error) {
+      toast.error("Erro ao cancelar venda", {
+        description: isAxiosError(error) ? error.response?.data?.error || "Tente novamente." : "Tente novamente.",
+      });
+    } finally {
+      setCancelando(false);
     }
   };
 
@@ -555,6 +614,16 @@ export default function VendasDataTable({
                           </DropdownMenuItem>
                         )}
 
+                        {canEdit && !["CANCELADA", "CANCELADO"].includes(String(p.status).toUpperCase()) && (
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onClick={() => void abrirCancelamento(p.id)}
+                          >
+                            <Ban className="h-4 w-4" />
+                            Cancelar venda
+                          </DropdownMenuItem>
+                        )}
+
                         {canDelete ? (
                           <DeleteAlert
                             onDelete={() => handleDeleteVenda(p.id)}
@@ -696,6 +765,79 @@ export default function VendasDataTable({
               Cancelar
             </AlertDialogCancel>
             <AlertDialogAction onClick={() => handleApproveBudget()}>Confirmar</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        open={cancelDialogOpen}
+        onOpenChange={(open) => {
+          if (cancelando) return;
+          setCancelDialogOpen(open);
+          if (!open) setCancelVendaId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancelar venda #{cancelVendaId}</AlertDialogTitle>
+            <AlertDialogDescription>
+              A venda será preservada no histórico. O estoque baixado será devolvido e os recebimentos concluídos serão estornados.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {loadingCancelamento ? (
+            <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" /> Verificando venda...
+            </div>
+          ) : cancelResumo ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Devolução ao estoque</p>
+                  <p className="font-medium">{cancelResumo.produtos.quantidade} unidade(s)</p>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Valor a estornar</p>
+                  <p className="font-medium">{formatarEmReal(cancelResumo.transacoes.valorConcluido)}</p>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {cancelResumo.transacoes.concluidas} transação(ões) concluída(s) e {cancelResumo.transacoes.pendentes} pendente(s).
+              </p>
+              {cancelResumo.bloqueio && (
+                <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+                  {cancelResumo.bloqueio}
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <label htmlFor="motivo-cancelamento-venda" className="text-sm font-medium">
+                  Motivo do cancelamento
+                </label>
+                <Textarea
+                  id="motivo-cancelamento-venda"
+                  value={cancelMotivo}
+                  onChange={(event) => setCancelMotivo(event.target.value)}
+                  placeholder="Informe por que esta venda está sendo cancelada"
+                  rows={3}
+                  maxLength={500}
+                  disabled={Boolean(cancelResumo.bloqueio) || cancelando}
+                />
+              </div>
+            </div>
+          ) : null}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cancelando}>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              disabled={loadingCancelamento || cancelando || Boolean(cancelResumo?.bloqueio) || cancelMotivo.trim().length < 3}
+              onClick={(event) => {
+                event.preventDefault();
+                void confirmarCancelamento();
+              }}
+            >
+              {cancelando && <Loader2 className="size-4 animate-spin" />}
+              Confirmar cancelamento
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
