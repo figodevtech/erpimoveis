@@ -51,7 +51,7 @@ O arquivo `telegram.env.example` serve apenas como referência e não contém cr
 A migration é:
 
 ```text
-supabase/migrations/20260810170000_notificacoes_os_telegram.sql
+supabase/migrations/20260810190000_notificacoes_os_telegram.sql
 ```
 
 Siga o fluxo seguro já adotado pelo projeto:
@@ -60,8 +60,6 @@ Siga o fluxo seguro já adotado pelo projeto:
 npm run db:status
 npm run db:deploy
 ```
-
-> **Atenção ao estado atual do repositório:** em 10/08/2026, o banco de Demonstração apresentou as migrations remotas `20260809230000`, `20260810120000`, `20260810140000` e `20260810160000` sem arquivos locais correspondentes. Não execute o deploy de migrations antes de recuperar/reconciliar esses quatro arquivos. O próprio fluxo de deploy bloqueia esse cenário para evitar divergência de schema.
 
 O comando valida e aplica primeiro no banco de Demonstração. Teste a integração nesse banco antes de autorizar a atualização dos bancos dos clientes.
 

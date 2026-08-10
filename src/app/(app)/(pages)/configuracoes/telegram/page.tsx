@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Activity, Bot, CheckCircle2, Loader2, RefreshCw, RotateCcw, Send } from "lucide-react";
 import { toast } from "@/lib/toast";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { TelegramRecipientsCard } from "./telegram-recipients-card";
 
 type Status = {
@@ -12,7 +13,6 @@ type Status = {
   bot: { username?: string; first_name?: string } | null;
   webhook: { url: string; pending_update_count: number; last_error_message?: string } | null;
   connectionError: string | null;
-  metrics: { connected: number; pendingEvents: number; pendingDeliveries: number; failedDeliveries: number };
   latestRun: { status: string; erro?: string; started_at: string; completed_at?: string } | null;
 };
 
@@ -51,42 +51,31 @@ export default function TelegramConfigurationPage() {
   const environmentOk = status?.environment.configured && status.environment.hasWebhookSecret && status.environment.hasAppUrl;
   const webhookOk = Boolean(status?.webhook?.url) && !status?.webhook?.last_error_message;
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div><h1 className="text-2xl font-semibold tracking-tight">Telegram</h1><p className="mt-1 text-sm text-muted-foreground">Saúde da integração e processamento dos avisos de ordens de serviço.</p></div>
-        <Button variant="outline" onClick={() => void load()} disabled={loading}><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />Atualizar</Button>
-      </div>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {[["Usuários conectados", status?.metrics.connected ?? 0], ["Eventos pendentes", status?.metrics.pendingEvents ?? 0], ["Entregas pendentes", status?.metrics.pendingDeliveries ?? 0], ["Entregas com falha", status?.metrics.failedDeliveries ?? 0]].map(([label, value]) => (
-          <Card key={String(label)}><CardContent className="p-4"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p><p className="mt-2 text-2xl font-semibold tabular-nums">{value}</p></CardContent></Card>
-        ))}
-      </div>
+    <div className="space-y-4">
       <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Bot className="h-4 w-4" />Configuração do bot</CardTitle><CardDescription>Os segredos são lidos exclusivamente das variáveis do servidor.</CardDescription></CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-3">
-            <StatusItem ok={Boolean(status?.environment.configured)} label="Token e username" detail={status?.environment.botUsername ? `@${status.environment.botUsername}` : "Não configurados"} />
-            <StatusItem ok={Boolean(status?.environment.hasWebhookSecret)} label="Segredo do webhook" detail={status?.environment.hasWebhookSecret ? "Configurado" : "Ausente"} />
-            <StatusItem ok={Boolean(status?.environment.hasAppUrl)} label="URL pública" detail={status?.environment.hasAppUrl ? "Configurada" : "Ausente"} />
+        <CardContent className="space-y-4 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted"><Bot className="h-4 w-4" /></div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2"><p className="font-medium">{status?.environment.botUsername ? `@${status.environment.botUsername}` : "Bot não configurado"}</p><Badge variant={status?.environment.enabled ? "default" : "secondary"}>{status?.environment.enabled ? "Ativo" : "Desativado"}</Badge><Badge variant={webhookOk ? "outline" : "destructive"}>{webhookOk ? "Webhook conectado" : "Webhook pendente"}</Badge></div>
+                <p className="mt-0.5 text-xs text-muted-foreground">{status?.latestRun ? `Último processamento: ${new Date(status.latestRun.started_at).toLocaleString("pt-BR")} · ${status.latestRun.status}` : "O processador ainda não foi executado."}</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => runAction("webhook", "/api/integracoes/telegram/configurar-webhook", "Webhook configurado.")} disabled={!environmentOk || action === "webhook"}>{action === "webhook" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}Configurar webhook</Button>
+              <Button size="sm" variant="outline" onClick={() => runAction("process", "/api/integracoes/telegram/executar", "Fila processada.")} disabled={!status?.environment.enabled || action === "process"}>{action === "process" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Activity className="h-4 w-4" />}Processar</Button>
+              <Button size="sm" variant="outline" onClick={() => runAction("retry", "/api/integracoes/telegram/reprocessar", "Falhas elegíveis recolocadas na fila.")} disabled={action === "retry"}>{action === "retry" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}Reprocessar</Button>
+              <Button size="icon" variant="ghost" onClick={() => void load()} disabled={loading} aria-label="Atualizar integração"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></Button>
+            </div>
           </div>
           {status?.connectionError ? <p role="alert" className="border-l-2 border-destructive pl-3 text-sm text-destructive">{status.connectionError}</p> : null}
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={() => runAction("webhook", "/api/integracoes/telegram/configurar-webhook", "Webhook configurado.")} disabled={!environmentOk || action === "webhook"}>{action === "webhook" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}Configurar webhook</Button>
-            <Button variant="outline" onClick={() => runAction("process", "/api/integracoes/telegram/executar", "Fila processada.")} disabled={!status?.environment.enabled || action === "process"}>{action === "process" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Activity className="h-4 w-4" />}Processar agora</Button>
-            <Button variant="outline" onClick={() => runAction("retry", "/api/integracoes/telegram/reprocessar", "Falhas elegíveis recolocadas na fila.")} disabled={action === "retry"}>{action === "retry" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}Reprocessar falhas</Button>
-          </div>
-        </CardContent>
-      </Card>
-      <TelegramRecipientsCard integrationEnabled={Boolean(status?.environment.enabled)} />
-      <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Activity className="h-4 w-4" />Operação</CardTitle></CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2">
-          <StatusItem ok={webhookOk} label="Webhook" detail={status?.webhook?.url || "Ainda não registrado"} />
-          <StatusItem ok={status?.latestRun?.status === "CONCLUIDO"} label="Último processamento" detail={status?.latestRun ? `${status.latestRun.status} — ${new Date(status.latestRun.started_at).toLocaleString("pt-BR")}` : "Nenhuma execução registrada"} />
+          {!environmentOk ? <div className="grid gap-3 border-t pt-3 md:grid-cols-3"><StatusItem ok={Boolean(status?.environment.configured)} label="Token e username" detail={status?.environment.configured ? "Configurados" : "Ausentes"} /><StatusItem ok={Boolean(status?.environment.hasWebhookSecret)} label="Segredo" detail={status?.environment.hasWebhookSecret ? "Configurado" : "Ausente"} /><StatusItem ok={Boolean(status?.environment.hasAppUrl)} label="URL pública" detail={status?.environment.hasAppUrl ? "Configurada" : "Ausente"} /></div> : null}
           {status?.webhook?.last_error_message ? <p role="alert" className="text-sm text-destructive">Webhook: {status.webhook.last_error_message}</p> : null}
           {status?.latestRun?.erro ? <p role="alert" className="text-sm text-destructive">Processador: {status.latestRun.erro}</p> : null}
         </CardContent>
       </Card>
+      <TelegramRecipientsCard integrationEnabled={Boolean(status?.environment.enabled)} />
     </div>
   );
 }

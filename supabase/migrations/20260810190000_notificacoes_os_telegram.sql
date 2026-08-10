@@ -1,4 +1,4 @@
--- Mantida após as migrations remotas de 10/08/2026 para não colidir com o histórico aplicado.
+-- Executada após as migrations fiscais de 10/08/2026 para respeitar o histórico remoto.
 CREATE TABLE IF NOT EXISTS public.telegram_usuario_preferencia (
   usuario_id uuid PRIMARY KEY REFERENCES public.usuario(id) ON DELETE CASCADE,
   chat_id bigint UNIQUE,
