@@ -190,7 +190,7 @@ export function OrdensTabela({
       const saved = localStorage.getItem("ordens_view_mode");
       if (saved === "grid" || saved === "table") return saved;
     }
-    return "grid";
+    return "table";
   });
 
   const toggleViewMode = (mode: "grid" | "table") => {

@@ -10,6 +10,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Landmark,
+  Loader2,
   Wallet,
 } from "lucide-react";
 import { toast } from "@/lib/toast";
@@ -196,6 +197,10 @@ export default function BancosFinanceiroPage() {
     void carregarTransacoes();
   }, [carregarTransacoes]);
 
+  function recarregarDados() {
+    void Promise.all([carregarResumo(), carregarTransacoes()]);
+  }
+
   function tratarDataInicio(date?: Date) {
     setTransacaoPage(1);
     if (!date) return setDataInicio(null);
@@ -254,23 +259,9 @@ export default function BancosFinanceiroPage() {
       </div>
 
       <Card>
-        <CardHeader className="flex flex-col gap-3 border-b sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-1">
-            <CardTitle className="text-lg font-medium">Contas bancárias</CardTitle>
-            <CardDescription>Valores por banco, considerando movimentações vinculadas a cada conta.</CardDescription>
-            <Badge variant="default" className="text-[10px] sm:text-xs">
-              Período: {textoPeriodo}
-            </Badge>
-          </div>
-          <SheetFinanceiroFiltros
-            aberto={filtroAberto}
-            aoMudarAberto={setFiltroAberto}
-            dataInicio={dataInicio}
-            dataFim={dataFim}
-            aoMudarDataInicio={tratarDataInicio}
-            aoMudarDataFim={tratarDataFim}
-            aoLimpar={limparFiltros}
-          />
+        <CardHeader className="min-w-0 border-b-2 pb-4">
+          <CardTitle>Contas bancárias</CardTitle>
+          <CardDescription>Valores por banco, considerando movimentações vinculadas a cada conta.</CardDescription>
         </CardHeader>
         <CardContent className="px-3 pb-3 pt-2">
           <Table>
@@ -361,11 +352,39 @@ export default function BancosFinanceiroPage() {
       </Card>
 
       <Card>
-        <CardHeader className="border-b">
-          <CardTitle className="text-lg font-medium">
-            Transações de {selectedBanco?.titulo ?? "conta"}
-          </CardTitle>
-          <CardDescription>Extrato ordenado pela data mais recente.</CardDescription>
+        <CardHeader className="min-w-0 border-b-2 pb-4">
+          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <CardTitle>Transações de {selectedBanco?.titulo ?? "conta"}</CardTitle>
+              <CardDescription className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={recarregarDados}
+                  className="inline-flex items-center gap-1 text-foreground/50 hover:text-foreground/70"
+                >
+                  <span>Recarregar</span>
+                  <Loader2
+                    width={12}
+                    className={cn(isLoading || isLoadingTransacoes ? "animate-spin" : "")}
+                  />
+                </button>
+              </CardDescription>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="default" className="text-[10px] sm:text-xs">
+                Período: {textoPeriodo}
+              </Badge>
+              <SheetFinanceiroFiltros
+                aberto={filtroAberto}
+                aoMudarAberto={setFiltroAberto}
+                dataInicio={dataInicio}
+                dataFim={dataFim}
+                aoMudarDataInicio={tratarDataInicio}
+                aoMudarDataFim={tratarDataFim}
+                aoLimpar={limparFiltros}
+              />
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="px-3 pb-3 pt-2">
           <Table>
@@ -433,32 +452,14 @@ export default function BancosFinanceiroPage() {
           </Table>
 
           {transacaoTotal > 0 ? (
-            <div className="mt-4 flex items-center justify-between">
-              <div className="flex flex-nowrap text-xs text-muted-foreground">
+            <div className="mt-4 grid min-h-9 grid-cols-1 items-center gap-3 sm:grid-cols-[1fr_auto_1fr]">
+              <div className="flex flex-nowrap justify-self-center text-xs text-muted-foreground sm:justify-self-start">
                 <span>{transacaoStart + 1}</span> -{" "}
                 <span>{Math.min(transacaoStart + transacoesPaginadas.length, transacaoTotal)}</span>
                 <span className="ml-1 hidden sm:block">de {transacaoTotal}</span>
               </div>
 
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <Select
-                  value={String(transacaoLimit)}
-                  onValueChange={(value) => {
-                    setTransacaoPage(1);
-                    setTransacaoLimit(Number(value));
-                  }}
-                >
-                  <SelectTrigger className="order-2 ml-2 hover:cursor-pointer" aria-label="Itens por página">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="10">10</SelectItem>
-                    <SelectItem value="20">20</SelectItem>
-                    <SelectItem value="50">50</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                <div className="order-1 flex items-center justify-center space-x-1 sm:space-x-3">
+              <div className="flex items-center justify-center space-x-1 sm:col-start-2 sm:row-start-1 sm:space-x-3">
                   <Button
                     type="button"
                     variant="outline"
@@ -504,8 +505,27 @@ export default function BancosFinanceiroPage() {
                   >
                     <ChevronsRight className="h-4 w-4" />
                   </Button>
-                </div>
               </div>
+
+              <Select
+                value={String(transacaoLimit)}
+                onValueChange={(value) => {
+                  setTransacaoPage(1);
+                  setTransacaoLimit(Number(value));
+                }}
+              >
+                <SelectTrigger
+                  className="w-auto justify-self-center hover:cursor-pointer sm:col-start-3 sm:row-start-1 sm:justify-self-end"
+                  aria-label="Itens por página"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10</SelectItem>
+                  <SelectItem value="20">20</SelectItem>
+                  <SelectItem value="50">50</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           ) : null}
         </CardContent>
