@@ -2,6 +2,8 @@
 export type ProdutoBusca = {
   id: number;
   codigo: string; // usaremos a referência (referencia) como "código"
+  referencia?: string | null;
+  etiqueta?: string | null;
   descricao: string;
   precounitario: number; // preço de venda
   estoque: number;
@@ -10,6 +12,7 @@ export type ProdutoBusca = {
 export type ServicoBusca = {
   id: number;
   codigo: string;
+  referencia?: string | null;
   descricao: string;
   precohora: number;
 };
@@ -19,6 +22,8 @@ export type TipoDesconto = "FIXO" | "PORCENTAGEM";
 export type ItemProduto = {
   produtoid: number;
   descricao: string;
+  referencia?: string | null;
+  etiqueta?: string | null;
   quantidade: number;
   precounitario: number;
   subtotal: number;
@@ -39,6 +44,7 @@ export type ItemProdutoAvulso = {
 export type ItemServico = {
   servicoid: number;
   descricao: string;
+  referencia?: string | null;
   descricaoServico?: string | null;
   quantidade: number;
   precounitario: number;

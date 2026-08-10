@@ -40,6 +40,8 @@ export async function buscarProdutosAPI(params: { q?: string; codigo?: string })
   const produtos: ProdutoBusca[] = arr.map((p: any) => ({
     id: Number(p.id),
     codigo: String(p.codigo ?? p.referencia ?? ""),
+    referencia: String(p.referencia ?? p.codigo ?? "").trim() || null,
+    etiqueta: String(p.etiqueta ?? "").trim() || null,
     descricao: String(p.descricao ?? p.titulo ?? ""),
     precounitario: toNum(p.precounitario ?? p.precovenda ?? 0),
     estoque: toNum(p.estoque ?? 0),
@@ -60,6 +62,7 @@ export async function buscarServicosAPI(params: { q?: string; codigo?: string })
   const servicos: ServicoBusca[] = arr.map((s: any) => ({
     id: Number(s.id),
     codigo: String(s.codigo ?? ""),
+    referencia: String(s.codigo ?? "").trim() || null,
     descricao: String(s.descricao ?? ""),
     precohora: toNum(s.precohora ?? 0),
   }));
@@ -77,6 +80,8 @@ export async function carregarItensDaOSAPI(osId: number) {
   const produtos: ItemProduto[] = (j?.produtos ?? []).map((p: any) => ({
     produtoid: Number(p.produtoid),
     descricao: String(p.descricao ?? ""),
+    referencia: String(p.referencia ?? "").trim() || null,
+    etiqueta: String(p.etiqueta ?? "").trim() || null,
     quantidade: toNum(p.quantidade ?? 1),
     precounitario: toNum(p.precounitario ?? 0),
     subtotal: toNum(p.subtotal ?? toNum(p.quantidade ?? 1) * toNum(p.precounitario ?? 0)),
@@ -87,6 +92,7 @@ export async function carregarItensDaOSAPI(osId: number) {
   const servicos: ItemServico[] = (j?.servicos ?? []).map((s: any) => ({
     servicoid: Number(s.servicoid),
     descricao: String(s.descricao ?? ""),
+    referencia: String(s.referencia ?? "").trim() || null,
     descricaoServico: s.descricaoServico ?? null,
     quantidade: toNum(s.quantidade ?? 1),
     precounitario: toNum(s.precounitario ?? 0),

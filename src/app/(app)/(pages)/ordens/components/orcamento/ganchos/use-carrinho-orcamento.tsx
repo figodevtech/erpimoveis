@@ -74,7 +74,20 @@ export function useCarrinhoOrcamento(
         return novo;
       }
       const pu = toNum(p.precounitario || 0);
-      return [...prev, { produtoid: p.id, descricao: p.descricao, quantidade: 1, precounitario: pu, subtotal: pu, descontoTipo: null, desconto: 0 }];
+      return [
+        ...prev,
+        {
+          produtoid: p.id,
+          descricao: p.descricao,
+          referencia: p.referencia === undefined ? p.codigo || null : p.referencia,
+          etiqueta: p.etiqueta ?? null,
+          quantidade: 1,
+          precounitario: pu,
+          subtotal: pu,
+          descontoTipo: null,
+          desconto: 0,
+        },
+      ];
     });
   };
 
@@ -100,6 +113,7 @@ export function useCarrinhoOrcamento(
         {
           servicoid: s.id,
           descricao: s.descricao,
+          referencia: s.referencia === undefined ? s.codigo || null : s.referencia,
           descricaoServico: null,
           quantidade: 1,
           precounitario: pu,

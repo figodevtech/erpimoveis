@@ -14,6 +14,7 @@ import { Estoque_status, type Produto, Unidade_medida } from "../../../../estoqu
 import type { ItemProdutoAvulso } from "../tipos";
 import { CampoPreco } from "./campo-preco";
 import { CampoQuantidade } from "./campo-quantidade";
+import { IdentificadoresItem } from "./identificadores-item";
 
 type Props = {
   itens: ItemProdutoAvulso[];
@@ -82,28 +83,45 @@ export function ProdutosAvulsos({ itens, onAdicionar, onAtualizar, onRemover, on
     : undefined;
 
   return (
-    <div className="space-y-3">
+    <section className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Label>Produtos avulsos</Label>
-          <Badge variant={itens.length ? "destructive" : "outline"}>{itens.length} pendente(s)</Badge>
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300">
+            <PackagePlus className="size-4" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <Label className="text-sm font-semibold">Produtos avulsos</Label>
+              <Badge variant={itens.length ? "destructive" : "secondary"} className="font-normal tabular-nums">
+                {itens.length} {itens.length === 1 ? "pendente" : "pendentes"}
+              </Badge>
+            </div>
+            <p className="truncate text-xs text-muted-foreground">
+              Itens ainda não vinculados ao estoque
+            </p>
+          </div>
         </div>
-        <Button type="button" variant="outline" onClick={() => setOpen(true)}>
+        <Button
+          type="button"
+          variant="outline"
+          className="border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10"
+          onClick={() => setOpen(true)}
+        >
           <PackagePlus className="h-4 w-4" />
           Lançar produto avulso
         </Button>
       </div>
 
       {itens.length > 0 ? (
-        <div className="rounded-md border border-amber-500/40 bg-amber-500/5">
-          <div className="flex gap-2 border-b border-amber-500/30 p-3 text-sm text-amber-800 dark:text-amber-300">
+        <div className="overflow-x-auto rounded-xl border border-amber-500/40 bg-amber-500/5 shadow-xs">
+          <div className="flex min-w-[900px] gap-2 border-b border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-200">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             Estes itens podem ser salvos e impressos, mas precisam ser vinculados antes de avançar a OS.
           </div>
-          <Table>
-            <TableHeader>
+          <Table className="min-w-[900px]">
+            <TableHeader className="bg-amber-500/5">
               <TableRow>
-                <TableHead>Descrição</TableHead>
+                <TableHead className="min-w-[280px]">Produto avulso</TableHead>
                 <TableHead className="w-28 text-center">Quantidade</TableHead>
                 <TableHead className="w-36 text-right">Valor unit.</TableHead>
                 <TableHead className="w-32 text-right">Subtotal</TableHead>
@@ -112,11 +130,29 @@ export function ProdutosAvulsos({ itens, onAdicionar, onAtualizar, onRemover, on
             </TableHeader>
             <TableBody>
               {itens.map((item, index) => (
-                <TableRow key={item.id ?? `novo-${index}`}>
-                  <TableCell className="align-middle">
-                    <div className="flex items-center gap-2">
-                      <Input value={item.titulo} onChange={(event) => onAtualizar(index, { titulo: event.target.value })} />
-                      {!item.id ? <Badge variant="outline" className="shrink-0">Não salvo</Badge> : null}
+                <TableRow
+                  key={item.id ?? `novo-${index}`}
+                  className="transition-colors hover:bg-amber-500/5"
+                >
+                  <TableCell className="py-3 align-top">
+                    <div className="space-y-2">
+                      <Input
+                        value={item.titulo}
+                        onChange={(event) => onAtualizar(index, { titulo: event.target.value })}
+                        className="bg-background/80 font-medium"
+                      />
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {item.id ? (
+                          <IdentificadoresItem id={item.id} />
+                        ) : (
+                          <Badge variant="outline" className="h-5 rounded-md px-1.5 text-[10px] font-medium">
+                            Ainda sem ID
+                          </Badge>
+                        )}
+                        <Badge className="h-5 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 text-[10px] font-medium text-amber-800 hover:bg-amber-500/10 dark:text-amber-300">
+                          Avulso
+                        </Badge>
+                      </div>
                     </div>
                   </TableCell>
                   <TableCell>
@@ -140,7 +176,15 @@ export function ProdutosAvulsos({ itens, onAdicionar, onAtualizar, onRemover, on
                       <Button type="button" size="sm" variant="outline" className="h-8 w-24 shrink-0" disabled={!item.id || vinculando} title={!item.id ? "Salve o orçamento primeiro" : undefined} onClick={() => setCadastroItem(item)}>
                         <PackagePlus className="h-4 w-4" /> Cadastrar
                       </Button>
-                      <Button type="button" size="icon" variant="ghost" className="h-8 w-8 shrink-0" onClick={() => onRemover(index)} title="Remover produto avulso">
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => onRemover(index)}
+                        title="Remover produto avulso"
+                        aria-label={`Remover ${item.titulo}`}
+                      >
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
@@ -175,6 +219,6 @@ export function ProdutosAvulsos({ itens, onAdicionar, onAtualizar, onRemover, on
           if (produtoId && cadastroItem) void vincular(cadastroItem, produtoId);
         }}
       />
-    </div>
+    </section>
   );
 }
