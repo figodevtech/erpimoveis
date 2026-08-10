@@ -6,6 +6,14 @@ import type { IndIEDest } from './indIEDest';
 export type { ICMSUFDest };
 
 // =====================
+// Modelo do documento fiscal
+// =====================
+/** 55 = NF-e, 65 = NFC-e. Conversões em `./modeloDocumento`. */
+export type ModeloDocumentoFiscal = 55 | 65;
+/** Como o modelo é gravado em `nfe.modelo` e `nfe_config.modelo`. */
+export type ModeloDocumentoFiscalDb = "NFE" | "NFCE";
+
+// =====================
 // Tabela EMPRESA (Supabase)
 // =====================
 export type CRT = 1 | 2 | 3 | 4;

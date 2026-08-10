@@ -33,10 +33,21 @@ export type Empresa = {
 export type NFeCfg = {
   serieNFe: string;
   serieNFCe?: string;
+  naturezaOperacao: string;
+  naturezaOperacaoNFCe?: string;
+  /**
+   * CSC da NFC-e. Chega mascarado do backend (`*****A4F2`); só é regravado se o
+   * usuário digitar um valor novo, sem "*".
+   */
   cscHomologacao?: string;
   cscProducao?: string;
-  idCSC?: string;
-  naturezaOperacao: string;
+  /** ID do CSC é próprio de cada ambiente — produção e homologação diferem. */
+  idCscHomologacao?: string;
+  idCscProducao?: string;
+  /** Leiaute do QR Code: "2" (com CSC) ou "3" (NT 2025.001, dispensa CSC). */
+  qrCodeVersao?: string;
+  /** false quando a empresa ainda não tem linha de configuração do modelo 65. */
+  nfceConfigurada?: boolean;
 };
 
 export type NFSecfg = {

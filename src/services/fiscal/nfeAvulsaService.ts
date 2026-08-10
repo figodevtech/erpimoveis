@@ -7,7 +7,16 @@ import {
 import { carregarCertificadoA1 } from "@/lib/nfe/certificado";
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
 import { normalizarIndIEDest } from "@/lib/nfe/indIEDest";
-import type { CRT, ClassificacaoTributariaRtc, EmpresaRow, NFeDestinatario, NFeItem } from "@/lib/nfe/types";
+import { MODELO_NFE, MODELO_NFCE, modeloParaDb, rotuloModelo } from "@/lib/nfe/modeloDocumento";
+import { validarNfce } from "@/lib/nfe/nfce/validator";
+import type {
+  CRT,
+  ClassificacaoTributariaRtc,
+  EmpresaRow,
+  ModeloDocumentoFiscal,
+  NFeDestinatario,
+  NFeItem,
+} from "@/lib/nfe/types";
 import { getNFeFiscalFieldRules, NFE_FISCAL_RULE_VERSION, validateNFeItemTax } from "@/lib/nfe/taxRules";
 import { resolverNomeMunicipioIbge } from "@/lib/ibge/municipio";
 import { isCfopCompatibleWithOperation } from "@/lib/nfe/cfopOperation";
@@ -84,6 +93,11 @@ export type NFeAvulsaItemInput = {
 export type NFeAvulsaDraftInput = {
   nfeId?: number | null;
   currentStep?: number;
+  /**
+   * Modelo do documento. Omitido = 55 (NF-e), preservando todos os chamadores
+   * anteriores à NFC-e.
+   */
+  modelo?: ModeloDocumentoFiscal;
   origem?: {
     tipo: "AVULSA" | "OS" | "VENDA" | "ENTRADA";
     ordemServicoId?: number | null;
@@ -299,9 +313,44 @@ function mapInputToTaxItem(item: NFeAvulsaItemInput, index: number): NFeItem {
   };
 }
 
-function getDestinatarioSnapshot(input: NFeAvulsaDraftInput, empresa: EmpresaRow): NFeDestinatario {
+/**
+ * Destinatário no formato do XML.
+ *
+ * Devolve `undefined` quando é NFC-e sem consumidor identificado — o grupo
+ * <dest> simplesmente não existe nesse caso, e o motor sabe lidar com isso.
+ */
+function getDestinatarioSnapshot(
+  input: NFeAvulsaDraftInput,
+  empresa: EmpresaRow,
+): NFeDestinatario | undefined {
   const dest = normalizeFiscalRecipient(input.destinatario);
   const documento = onlyDigits(dest.cpfCnpj);
+
+  if ((input.modelo ?? MODELO_NFE) === MODELO_NFCE) {
+    if (!documento) return undefined;
+
+    // Consumidor identificado na NFC-e: só o documento e o nome, quando houver.
+    // Endereço é opcional e não é cobrado no balcão.
+    const pessoaJuridica = documento.length === 14;
+    return {
+      cnpj: pessoaJuridica ? documento : undefined,
+      cpf: pessoaJuridica ? undefined : documento,
+      razaoSocial: cleanText(dest.nomeRazaoSocial) || "CONSUMIDOR",
+      indIEDest: "9",
+      endereco: {
+        logradouro: cleanText(dest.endereco) || "",
+        numero: cleanText(dest.numero) || "",
+        bairro: cleanText(dest.bairro) || "",
+        codigoMunicipio: cleanText(dest.codigoMunicipio) || "",
+        nomeMunicipio: cleanText(dest.cidade) || "",
+        uf: cleanText(dest.estado) || cleanText(empresa.uf) || "",
+        cep: onlyDigits(dest.cep) || "",
+        codigoPais: "1058",
+        nomePais: "BRASIL",
+        telefone: onlyDigits(dest.telefone) || undefined,
+      },
+    };
+  }
   const tipoPessoa =
     dest.tipoPessoa ??
     (documento.length === 14 ? "JURIDICA" : documento.length === 11 ? "FISICA" : "ESTRANGEIRO");
@@ -445,7 +494,11 @@ function getTransporteDadosAvulsos(input: NFeAvulsaDraftInput) {
   return getTransporteFiscal(input);
 }
 
-function validarEmpresa(empresa: EmpresaRow | null, config: NFeConfigRow | null) {
+function validarEmpresa(
+  empresa: EmpresaRow | null,
+  config: NFeConfigRow | null,
+  modelo: ModeloDocumentoFiscal = MODELO_NFE,
+) {
   const erros: string[] = [];
   if (!empresa) return ["Empresa ativa não encontrada."];
   if (onlyDigits(empresa.cnpj).length !== 14) erros.push("CNPJ da empresa inválido ou ausente.");
@@ -459,9 +512,12 @@ function validarEmpresa(empresa: EmpresaRow | null, config: NFeConfigRow | null)
   if (onlyDigits(empresa.cep).length !== 8) erros.push("CEP da empresa inválido ou ausente.");
   if (!empresa.regimetributario) erros.push("CRT/regime tributário da empresa ausente.");
   if (!empresa.ambiente) erros.push("Ambiente fiscal da empresa ausente.");
-  if (!config) erros.push("Configuração de NF-e não encontrada.");
-  if (!config?.serie) erros.push("Série de NF-e não configurada.");
-  if (config && config.modelo !== "NFE") erros.push("Este motor emite exclusivamente NF-e modelo 55.");
+  const rotulo = rotuloModelo(modelo);
+  if (!config) erros.push(`Configuração de ${rotulo} não encontrada.`);
+  if (!config?.serie) erros.push(`Série de ${rotulo} não configurada.`);
+  if (config && config.modelo !== modeloParaDb(modelo)) {
+    erros.push(`Configuração fiscal carregada é do modelo ${config.modelo}, e não de ${rotulo}.`);
+  }
   if (!empresa.certificadocaminho) erros.push("Certificado A1 não configurado.");
   if (!empresa.certificadosenha) erros.push("Senha do certificado A1 não configurada.");
   return erros;
@@ -478,76 +534,95 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
     });
   }
 
+  const modelo = input.modelo ?? MODELO_NFE;
   const destinatario = input.destinatario ?? {};
   const docDestinatario = onlyDigits(destinatario.cpfCnpj);
   const isExterior = destinatario.tipoPessoa === "ESTRANGEIRO";
 
-  if (!cleanText(destinatario.nomeRazaoSocial)) {
-    errors.push({
-      step: "recipient",
-      field: "nomeRazaoSocial",
-      message: "Nome ou razão social do destinatário é obrigatório.",
-    });
-  }
-  if (
-    !isExterior &&
-    ((destinatario.tipoPessoa === "FISICA" && !isValidCpf(docDestinatario)) ||
-      (destinatario.tipoPessoa !== "FISICA" && !isValidCnpj(docDestinatario)))
-  ) {
-    errors.push({
-      step: "recipient",
-      field: "cpfCnpj",
-      message: `${destinatario.tipoPessoa === "FISICA" ? "CPF" : "CNPJ"} do destinatário é inválido.`,
-    });
-  }
-  if (!["1", "2", "9"].includes(cleanText(destinatario.indicadorIe))) {
-    errors.push({
-      step: "recipient",
-      field: "indicadorIe",
-      message: "Indicador de inscrição estadual do destinatário é inválido.",
-    });
-  }
-  if (
-    cleanText(destinatario.indicadorIe) === "1" &&
-    !onlyDigits(destinatario.inscricaoEstadual)
-  ) {
-    errors.push({
-      step: "recipient",
-      field: "inscricaoEstadual",
-      message: "Inscrição estadual é obrigatória para contribuinte ICMS.",
-    });
-  }
-  if (
-    cleanText(destinatario.email) &&
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanText(destinatario.email))
-  ) {
-    errors.push({
-      step: "recipient",
-      field: "email",
-      message: "E-mail do destinatário é inválido.",
-    });
-  }
-  if (!cleanText(destinatario.endereco)) {
-    errors.push({ step: "recipient", field: "endereco", message: "Endereço do destinatário é obrigatório." });
-  }
-  if (!cleanText(destinatario.bairro)) {
-    errors.push({ step: "recipient", field: "bairro", message: "Bairro do destinatário é obrigatório." });
-  }
-  if (!cleanText(destinatario.cidade)) {
-    errors.push({ step: "recipient", field: "cidade", message: "Cidade do destinatário é obrigatória." });
-  }
-  if (!cleanText(destinatario.estado)) {
-    errors.push({ step: "recipient", field: "estado", message: "UF do destinatário é obrigatória." });
-  }
-  if (!isExterior && onlyDigits(destinatario.cep).length !== 8) {
-    errors.push({ step: "recipient", field: "cep", message: "CEP do destinatário deve ter 8 dígitos." });
-  }
-  if (!isExterior && onlyDigits(destinatario.codigoMunicipio).length !== 7) {
-    errors.push({
-      step: "recipient",
-      field: "codigoMunicipio",
-      message: "Código IBGE do município do destinatário deve ter 7 dígitos.",
-    });
+  if (modelo === MODELO_NFCE) {
+    // Consumidor não identificado é o caso normal da NFC-e: nada de nome,
+    // endereço ou indicador de IE. O que não pode é documento inválido — e a
+    // exigência de CPF/CNPJ por valor é regra estadual, verificada em
+    // `validarNfce` com o total já calculado.
+    if (docDestinatario) {
+      const documentoValido =
+        docDestinatario.length === 14 ? isValidCnpj(docDestinatario) : isValidCpf(docDestinatario);
+      if (!documentoValido) {
+        errors.push({
+          step: "recipient",
+          field: "cpfCnpj",
+          message: "CPF ou CNPJ do consumidor é inválido.",
+        });
+      }
+    }
+  } else {
+    if (!cleanText(destinatario.nomeRazaoSocial)) {
+      errors.push({
+        step: "recipient",
+        field: "nomeRazaoSocial",
+        message: "Nome ou razão social do destinatário é obrigatório.",
+      });
+    }
+    if (
+      !isExterior &&
+      ((destinatario.tipoPessoa === "FISICA" && !isValidCpf(docDestinatario)) ||
+        (destinatario.tipoPessoa !== "FISICA" && !isValidCnpj(docDestinatario)))
+    ) {
+      errors.push({
+        step: "recipient",
+        field: "cpfCnpj",
+        message: `${destinatario.tipoPessoa === "FISICA" ? "CPF" : "CNPJ"} do destinatário é inválido.`,
+      });
+    }
+    if (!["1", "2", "9"].includes(cleanText(destinatario.indicadorIe))) {
+      errors.push({
+        step: "recipient",
+        field: "indicadorIe",
+        message: "Indicador de inscrição estadual do destinatário é inválido.",
+      });
+    }
+    if (
+      cleanText(destinatario.indicadorIe) === "1" &&
+      !onlyDigits(destinatario.inscricaoEstadual)
+    ) {
+      errors.push({
+        step: "recipient",
+        field: "inscricaoEstadual",
+        message: "Inscrição estadual é obrigatória para contribuinte ICMS.",
+      });
+    }
+    if (
+      cleanText(destinatario.email) &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanText(destinatario.email))
+    ) {
+      errors.push({
+        step: "recipient",
+        field: "email",
+        message: "E-mail do destinatário é inválido.",
+      });
+    }
+    if (!cleanText(destinatario.endereco)) {
+      errors.push({ step: "recipient", field: "endereco", message: "Endereço do destinatário é obrigatório." });
+    }
+    if (!cleanText(destinatario.bairro)) {
+      errors.push({ step: "recipient", field: "bairro", message: "Bairro do destinatário é obrigatório." });
+    }
+    if (!cleanText(destinatario.cidade)) {
+      errors.push({ step: "recipient", field: "cidade", message: "Cidade do destinatário é obrigatória." });
+    }
+    if (!cleanText(destinatario.estado)) {
+      errors.push({ step: "recipient", field: "estado", message: "UF do destinatário é obrigatória." });
+    }
+    if (!isExterior && onlyDigits(destinatario.cep).length !== 8) {
+      errors.push({ step: "recipient", field: "cep", message: "CEP do destinatário deve ter 8 dígitos." });
+    }
+    if (!isExterior && onlyDigits(destinatario.codigoMunicipio).length !== 7) {
+      errors.push({
+        step: "recipient",
+        field: "codigoMunicipio",
+        message: "Código IBGE do município do destinatário deve ter 7 dígitos.",
+      });
+    }
   }
 
   if (!Array.isArray(input.itens) || input.itens.length === 0) {
@@ -599,7 +674,9 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
   const pagamentosFiscais = getPagamentosFiscais(input);
 
   pagamentosFiscais.forEach((pagamentoFiscal, paymentIndex) => {
-    if ((pagamentoFiscal.tPag === "03" || pagamentoFiscal.tPag === "04") && pagamentoFiscal.tpIntegra === "1") {
+    // PIX entra junto com cartão desde a NT 2025.001 (RV YA04-10/YA05-10).
+    const exigeGrupoCard = ["03", "04", "17"].includes(pagamentoFiscal.tPag);
+    if (exigeGrupoCard && pagamentoFiscal.tpIntegra === "1") {
       if (onlyDigits(pagamentoFiscal.cnpjCredenciadora).length !== 14) {
         errors.push({
           step: "payment",
@@ -729,10 +806,20 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
   return errors;
 }
 
-export async function getNFeAvulsaSetup() {
+/**
+ * Dados que a tela de emissão precisa: empresa, configuração do modelo, regras
+ * fiscais e a previsão do próximo número.
+ *
+ * O filtro por modelo é obrigatório. Sem ele, esta função devolvia sempre a
+ * primeira linha de `nfe_config` — a da NF-e — e a tela de NFC-e exibia a série
+ * e o número da NF-e, além do ambiente errado. Ler "PRODUÇÃO" numa emissão que
+ * na verdade sai em homologação é o pior tipo de informação errada.
+ */
+export async function getNFeAvulsaSetup(modelo: ModeloDocumentoFiscal = MODELO_NFE) {
   const { data: config, error: configError } = await supabaseAdmin
     .from("nfe_config")
     .select("id, empresaid, modelo, serie, ultimo_numero, ambiente")
+    .eq("modelo", modeloParaDb(modelo))
     .order("id", { ascending: true })
     .limit(1)
     .maybeSingle<NFeConfigRow>();
@@ -801,7 +888,7 @@ export async function getNFeAvulsaSetup() {
     empresa,
     config,
     proximoNumero,
-    empresaErros: validarEmpresa(empresa, config),
+    empresaErros: validarEmpresa(empresa, config, modelo),
     certificadoStatus,
     clientes: clientes ?? [],
     produtos: produtos ?? [],
@@ -824,16 +911,23 @@ export async function getNFeAvulsaSetup() {
   };
 }
 
-async function getConfigAndEmpresa() {
+async function getConfigAndEmpresa(modelo: ModeloDocumentoFiscal = MODELO_NFE) {
+  // Filtro por modelo é obrigatório: NF-e e NFC-e têm linhas separadas em
+  // `nfe_config`, com séries e contadores independentes.
   const { data: config, error: configError } = await supabaseAdmin
     .from("nfe_config")
     .select("id, empresaid, modelo, serie, ultimo_numero, ambiente")
+    .eq("modelo", modeloParaDb(modelo))
     .order("id", { ascending: true })
     .limit(1)
     .maybeSingle<NFeConfigRow>();
 
   if (configError) throw configError;
-  if (!config) throw new Error("Configuração de NF-e não encontrada.");
+  if (!config) {
+    throw new Error(
+      `Configuração de ${rotuloModelo(modelo)} não encontrada. Cadastre a série em Configurações › Fiscal.`,
+    );
+  }
 
   const { data: empresa, error: empresaError } = await supabaseAdmin
     .from("empresa")
@@ -842,9 +936,9 @@ async function getConfigAndEmpresa() {
     .maybeSingle<EmpresaRow>();
 
   if (empresaError) throw empresaError;
-  if (!empresa) throw new Error("Empresa da configuração de NF-e não encontrada.");
+  if (!empresa) throw new Error("Empresa da configuração fiscal não encontrada.");
 
-  const empresaErros = validarEmpresa(empresa, config);
+  const empresaErros = validarEmpresa(empresa, config, modelo);
   if (empresaErros.length > 0) {
     throw new Error(`Corrija o cadastro da empresa antes de emitir: ${empresaErros.join(" ")}`);
   }
@@ -899,6 +993,9 @@ function mapItemToInsert(item: NFeAvulsaItemInput, index: number, nfeId: number,
 }
 
 export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
+  const modelo = input.modelo ?? MODELO_NFE;
+  const isNfce = modelo === MODELO_NFCE;
+
   input = {
     ...input,
     destinatario: normalizeFiscalRecipient(input.destinatario),
@@ -908,7 +1005,11 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
     return { ok: false as const, errors };
   }
 
-  if (input.destinatario.tipoPessoa !== "ESTRANGEIRO") {
+  // O município do destinatário só é resolvido no IBGE quando o documento
+  // realmente exige endereço. Na NFC-e o consumidor pode nem estar
+  // identificado, e cobrar código IBGE de quem comprou no balcão travaria a
+  // venda por um dado que a nota não leva.
+  if (!isNfce && input.destinatario.tipoPessoa !== "ESTRANGEIRO") {
     try {
       input.destinatario.cidade = await resolverNomeMunicipioIbge(
         input.destinatario.codigoMunicipio ?? "",
@@ -926,7 +1027,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
     }
   }
 
-  const { config, empresa } = await getConfigAndEmpresa();
+  const { config, empresa } = await getConfigAndEmpresa(modelo);
   const empresaUf = cleanText(empresa.uf).toUpperCase();
   const destinatarioUf = cleanText(input.destinatario.estado).toUpperCase();
   const cfopErrors: ValidationError[] = input.itens.flatMap((item, itemIndex) => {
@@ -1041,6 +1142,61 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
   const pagamentosDadosAvulsos = getPagamentosDadosAvulsos(input);
   const transporte = getTransporteFiscal(input);
   const transporteDadosAvulsos = getTransporteDadosAvulsos(input);
+
+  // Validações do modelo 65 e da UF do emitente. Rodam com os totais já
+  // calculados a partir dos itens fiscais — a regra da Paraíba depende do valor
+  // do documento, e esperar a rejeição 750 da SEFAZ queima número de nota com o
+  // cliente esperando no balcão.
+  if (isNfce) {
+    const totalDocumento = Number(
+      itensXml
+        .reduce(
+          (total, item) =>
+            total +
+            Number(item.valorTotal ?? 0) -
+            Number(item.valorDesconto ?? 0) +
+            Number(item.valorFrete ?? 0),
+          0,
+        )
+        .toFixed(2),
+    );
+    const totalPago = pagamentos.reduce(
+      (total, pagamento) => total + toDecimalNumber(pagamento.valor),
+      0,
+    );
+
+    const violacoes = validarNfce({
+      uf: cleanText(empresa.uf).toUpperCase(),
+      ambiente: empresa.ambiente === "PRODUCAO" ? "PRODUCAO" : "HOMOLOGACAO",
+      tpEmis: 1,
+      indPres: input.operacao.indicadorPresenca,
+      finNFe: finalidadeToFinNFe(input.operacao.finalidade),
+      tipoOperacao: input.operacao.tipoOperacao,
+      consumidor: destinatario
+        ? { cpf: destinatario.cpf ?? null, cnpj: destinatario.cnpj ?? null }
+        : null,
+      itens: itensXml,
+      totalPago,
+      totalDocumento,
+    });
+
+    if (violacoes.length > 0) {
+      return {
+        ok: false as const,
+        errors: violacoes.map((violacao) => ({
+          step: violacao.field?.startsWith("destinatario")
+            ? "recipient"
+            : violacao.field?.startsWith("pagamentos")
+              ? "payment"
+              : violacao.field === "itens"
+                ? "products"
+                : "operation",
+          field: violacao.field,
+          message: violacao.message,
+        })),
+      };
+    }
+  }
   // Só eco do que a tela mandou: o rateio já veio pronto em cada item.
   const descontoGeralInformado = Number(
     Math.max(0, toDecimalNumber(input.descontoGeral)).toFixed(2),
@@ -1077,6 +1233,11 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
       indPres: Number(input.operacao.indicadorPresenca || 1) as any,
       finNFe: finalidadeToFinNFe(input.operacao.finalidade),
       observacoesFiscais: input.operacao.observacoesFiscais,
+      modelo,
+      // Ambiente fiscal é único e vem do cadastro da empresa: trocar lá muda
+      // NF-e e NFC-e juntas. A coluna nfe_config.ambiente é só um espelho,
+      // mantido por trigger.
+      ambiente: empresa.ambiente,
       pagamento,
       pagamentos,
       transporte,
@@ -1085,12 +1246,15 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
     const { data: nfe, error: insertError } = await supabaseAdmin
       .from("nfe")
       .insert({
-        modelo: "NFE",
+        modelo: modeloParaDb(modelo),
         serie,
         numero,
         chave_acesso: chave,
         numero_definitivo: false,
-        ambiente: config.ambiente ?? "HOMOLOGACAO",
+        // Carimba na nota o ambiente com que ela foi montada. É esse valor que
+        // a transmissão e o cancelamento usam depois, mesmo que a empresa mude
+        // de ambiente no meio do caminho.
+        ambiente: empresa.ambiente ?? "HOMOLOGACAO",
         status: "RASCUNHO",
         ordemservicoid: origem?.ordemServicoId ?? null,
         vendaid: origem?.vendaId ?? null,
@@ -1126,7 +1290,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
         },
         versao_regra_fiscal: NFE_FISCAL_RULE_VERSION,
         decisao_fiscal: {
-          modelo: "55",
+          modelo: String(modelo),
           crt,
           dataEmissao: now,
           classificacoesRtc: itensXml.filter((item) => item.rtc).map((item) => ({
@@ -1158,15 +1322,23 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
     const { data: nfe, error: nfeError } = await supabaseAdmin
       .from("nfe")
       .select(
-        "id, status, numero, serie, ordemservicoid, vendaid, entradaid, clienteid, fornecedorid, dados_avulsos",
+        "id, status, modelo, numero, serie, ordemservicoid, vendaid, entradaid, clienteid, fornecedorid, dados_avulsos",
       )
       .eq("id", nfeId)
       .maybeSingle();
 
     if (nfeError) throw nfeError;
-    if (!nfe) throw new Error("Rascunho de NF-e não encontrado.");
+    if (!nfe) throw new Error("Rascunho não encontrado.");
     if (!["RASCUNHO", "REJEITADA"].includes(String(nfe.status))) {
-      throw new Error("Somente NF-e em rascunho ou rejeitada pode ser alterada.");
+      throw new Error("Somente nota em rascunho ou rejeitada pode ser alterada.");
+    }
+    // Modelo é imutável: o número, a série e a chave já foram montados com ele.
+    // Reabrir um rascunho de NF-e como NFC-e produziria uma chave inconsistente
+    // com a numeração gravada.
+    if (nfe.modelo !== modeloParaDb(modelo)) {
+      throw new Error(
+        `Este rascunho é de ${nfe.modelo === "NFCE" ? "NFC-e" : "NF-e"} e não pode ser reaberto como ${rotuloModelo(modelo)}.`,
+      );
     }
 
     // O motor fiscal reabre a nota e devolve o rascunho sem o bloco de origem.
@@ -1200,6 +1372,11 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
       indPres: Number(input.operacao.indicadorPresenca || 1) as any,
       finNFe: finalidadeToFinNFe(input.operacao.finalidade),
       observacoesFiscais: input.operacao.observacoesFiscais,
+      modelo,
+      // Ambiente fiscal é único e vem do cadastro da empresa: trocar lá muda
+      // NF-e e NFC-e juntas. A coluna nfe_config.ambiente é só um espelho,
+      // mantido por trigger.
+      ambiente: empresa.ambiente,
       pagamento,
       pagamentos,
       transporte,
@@ -1229,7 +1406,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
         },
         versao_regra_fiscal: NFE_FISCAL_RULE_VERSION,
         decisao_fiscal: {
-          modelo: "55",
+          modelo: String(modelo),
           crt,
           dataEmissao: now,
           classificacoesRtc: itensXml.filter((item) => item.rtc).map((item) => ({
@@ -1312,6 +1489,20 @@ export async function buscarNFeAvulsaDraft(nfeId: number) {
 
   if (nfeError) throw nfeError;
   if (!nfe) return null;
+
+  // O editor avulso é exclusivo da NF-e modelo 55: ele não tem consumidor
+  // opcional, QR Code nem as regras do modelo 65. Recusar aqui, na abertura, é
+  // melhor que deixar o usuário preencher a tela inteira e só descobrir no
+  // salvamento — e impede que um link com id de NFC-e misture os dois motores.
+  if (nfe.modelo === "NFCE") {
+    const erro = new Error(
+      "Esta é uma NFC-e (modelo 65) e não pode ser editada aqui. " +
+        "Corrija-a pelo assistente de NFC-e, na tela da venda ou da ordem de serviço.",
+    );
+    // Regra de negócio, não falha do servidor.
+    (erro as Error & { statusCode?: number }).statusCode = 422;
+    throw erro;
+  }
 
   const { data: itens, error: itensError } = await supabaseAdmin
     .from("nfe_item")

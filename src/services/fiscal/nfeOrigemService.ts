@@ -10,7 +10,8 @@ import {
 } from "@/lib/nfe/originFiscalDefaults";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { inferirDescontoGeralOs } from "@/lib/ordens/totais";
-import type { ClienteRow } from "@/lib/nfe/types";
+import { MODELO_NFE, MODELO_NFCE, modeloParaDb, rotuloModelo } from "@/lib/nfe/modeloDocumento";
+import type { ClienteRow, ModeloDocumentoFiscal } from "@/lib/nfe/types";
 import {
   salvarNFeAvulsaDraft,
   type NFeAvulsaDraftInput,
@@ -19,11 +20,54 @@ import {
 
 export type NFeOrigemTipo = "OS" | "VENDA" | "ENTRADA";
 
+/** Colunas de vínculo com a origem, por tipo. */
+const COLUNA_ORIGEM: Record<NFeOrigemTipo, "ordemservicoid" | "vendaid" | "entradaid"> = {
+  OS: "ordemservicoid",
+  VENDA: "vendaid",
+  ENTRADA: "entradaid",
+};
+
+/**
+ * Estados em que a nota ainda "ocupa" a origem.
+ *
+ * REJEITADA fica de fora porque é nota que não existe na SEFAZ: o fluxo normal
+ * é corrigir e retransmitir o mesmo rascunho. CANCELADA e DENEGADA também
+ * liberam a origem para uma emissão nova.
+ */
+const STATUS_OCUPAM_ORIGEM = [
+  "RASCUNHO",
+  "ASSINADA",
+  "ENVIADA",
+  "AUTORIZADA",
+  "PENDENTE_ENVIO",
+];
+
+async function buscarNotaAtivaDaOrigem(
+  tipo: NFeOrigemTipo,
+  origemId: number,
+  modelo: ModeloDocumentoFiscal,
+) {
+  const { data, error } = await supabaseAdmin
+    .from("nfe")
+    .select("id, numero, serie, status")
+    .eq(COLUNA_ORIGEM[tipo], origemId)
+    .eq("modelo", modeloParaDb(modelo))
+    .in("status", STATUS_OCUPAM_ORIGEM)
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data as { id: number; numero: number; serie: number; status: string } | null;
+}
+
 export type NFeOrigemItemInput = NFeAvulsaItemInput & {
   sourceItemId: string;
 };
 
 export type NFeOrigemDraftInput = {
+  /** Preenchido ao reabrir um rascunho já criado desta origem. */
+  nfeId?: number | null;
   itens: NFeOrigemItemInput[];
   observacoesFiscais?: string | null;
   /** Desconto geral confirmado na tela; já chega rateado nos itens. */
@@ -450,6 +494,7 @@ export async function salvarNFeDeOrigem(
   tipo: NFeOrigemTipo,
   origemId: number,
   input: NFeOrigemDraftInput,
+  modelo: ModeloDocumentoFiscal = MODELO_NFE,
 ) {
   if (!Number.isFinite(origemId) || origemId <= 0) {
     throw new Error("Identificador da origem inválido.");
@@ -461,10 +506,50 @@ export async function salvarNFeDeOrigem(
     };
   }
 
+  const isNfce = modelo === MODELO_NFCE;
+
+  // NFC-e é documento de saída ao consumidor. Entrada de mercadoria é sempre
+  // NF-e modelo 55.
+  if (isNfce && tipo === "ENTRADA") {
+    return {
+      ok: false as const,
+      errors: [{
+        step: "operation",
+        message: "Entrada de mercadoria não pode ser documentada por NFC-e. Use NF-e modelo 55.",
+      }],
+    };
+  }
+
+  // Idempotência: uma origem não pode ter duas notas do mesmo modelo em curso.
+  // Sem isso, o duplo clique em "Emitir" abre dois rascunhos, cada um reserva
+  // seu número na transmissão e a venda sai documentada duas vezes.
+  if (!input.nfeId) {
+    const emAndamento = await buscarNotaAtivaDaOrigem(tipo, origemId, modelo);
+    if (emAndamento) {
+      return {
+        ok: false as const,
+        errors: [{
+          step: "operation",
+          message:
+            `Esta ${tipo === "OS" ? "ordem de serviço" : tipo === "VENDA" ? "venda" : "entrada"} já tem ` +
+            `${rotuloModelo(modelo)} ${emAndamento.status.toLowerCase()} (nº ${emAndamento.numero}). ` +
+            "Cancele ou exclua a nota existente antes de emitir outra.",
+        }],
+      };
+    }
+  }
+
   const source = await loadSource(tipo, origemId);
-  const rawDestinatario = tipo === "ENTRADA"
-    ? input.destinatario ?? source.destinatario
-    : source.destinatario;
+  // Na NFC-e quem manda é a tela: o operador decide se o consumidor se
+  // identifica. Sem bloco de destinatário na requisição, a nota sai sem
+  // consumidor identificado — que é o caso normal do balcão. O cadastro do
+  // cliente da venda só serve para pré-preencher o campo, nunca para
+  // identificar alguém à revelia.
+  const rawDestinatario = isNfce
+    ? input.destinatario ?? { clienteId: source.clienteId ?? null }
+    : tipo === "ENTRADA"
+      ? input.destinatario ?? source.destinatario
+      : source.destinatario;
   if (!rawDestinatario) {
     return {
       ok: false as const,
@@ -533,14 +618,21 @@ export async function salvarNFeDeOrigem(
     ? requestedFiscalConfig.consumidorFinal
     : source.consumidorFinal;
   const indicadorPresenca = String(requestedFiscalConfig?.indicadorPresenca ?? source.indicadorPresenca);
-  const transporte = requestedFiscalConfig?.transporte ?? source.transporte;
+  // Venda ao consumidor sai pelo balcão: a NFC-e não carrega frete nem
+  // transportadora, e o valor de frete gravado na origem não pode inflar o vNF
+  // de um documento que não documenta transporte.
+  const transporte = isNfce
+    ? { modFrete: "9" as const }
+    : requestedFiscalConfig?.transporte ?? source.transporte;
   const modFrete = String(transporte?.modFrete ?? "9");
 
   // O frete confirmado na tela manda; sem ele, vale o que a origem gravou para
   // as linhas emitidas. Como o leiaute 4.00 só tem vFrete por item, o valor da
   // nota é rateado proporcionalmente ao líquido de cada item.
-  const freteInformado = requestedFiscalConfig?.transporte?.valorFrete;
-  const itensDaNota = freteInformado == null || freteInformado === ""
+  const freteInformado = isNfce ? null : requestedFiscalConfig?.transporte?.valorFrete;
+  const itensDaNota = isNfce
+    ? itens.map((item) => ({ ...item, valorFrete: 0 }))
+    : freteInformado == null || freteInformado === ""
     ? itens
     : (() => {
         const liquidos = itens.map((item) =>
@@ -628,6 +720,8 @@ export async function salvarNFeDeOrigem(
   if (errors.length > 0) return { ok: false as const, errors };
 
   return salvarNFeAvulsaDraft({
+    nfeId: input.nfeId ?? null,
+    modelo,
     origem: {
       tipo,
       ordemServicoId: tipo === "OS" ? origemId : null,
@@ -638,9 +732,10 @@ export async function salvarNFeDeOrigem(
     },
     operacao: {
       tipoOperacao: source.tipoOperacao,
-      naturezaOperacao: source.naturezaOperacao,
+      naturezaOperacao: isNfce ? "VENDA AO CONSUMIDOR" : source.naturezaOperacao,
       finalidade: source.finalidade,
-      consumidorFinal,
+      // NFC-e é sempre para consumidor final, por definição do modelo.
+      consumidorFinal: isNfce ? true : consumidorFinal,
       indicadorPresenca,
       observacoesFiscais:
         input.observacoesFiscais?.trim().slice(0, 500) || source.observacoesFiscais || null,

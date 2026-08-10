@@ -257,6 +257,22 @@ export async function requireVendasDelete() {
   return requirePerm(PERMS.VENDAS_EXCLUIR);
 }
 
+/* -------------------- Emissão fiscal -------------------- */
+
+/**
+ * Quem pode transmitir, cancelar ou consultar um documento fiscal.
+ *
+ * A mesma rota atende notas nascidas de OS, venda, entrada e emissão avulsa,
+ * então a permissão aceita qualquer uma das áreas que já pode criar o rascunho
+ * correspondente — exigir só FINANCEIRO trancaria quem emite pela tela da OS.
+ *
+ * Antes disso estas rotas não tinham checagem nenhuma: bastava estar logado
+ * para autorizar ou cancelar nota na SEFAZ.
+ */
+export async function requireEmissaoFiscalAccess() {
+  return requireAny([PERMS.FINANCEIRO, PERMS.ORDENS, PERMS.VENDAS, PERMS.ESTOQUE]);
+}
+
 export async function hasVeiculosAccess() {
   return hasPerm(PERMS.VEICULOS);
 }

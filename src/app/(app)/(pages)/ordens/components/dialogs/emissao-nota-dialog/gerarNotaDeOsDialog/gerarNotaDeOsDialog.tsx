@@ -59,6 +59,9 @@ import {
 } from "@/lib/nfe/originFiscalDefaults";
 import { isValidCnpj, isValidCpf, normalizeFiscalRecipient } from "@/lib/nfe/recipientNormalization";
 import { normalizarIndIEDest, sugerirIndIEDest } from "@/lib/nfe/indIEDest";
+import { MODELO_NFE, MODELO_NFCE, rotuloModelo } from "@/lib/nfe/modeloDocumento";
+import { PB_NFCE_PISO_IDENTIFICACAO } from "@/lib/nfe/fiscalRules";
+import type { ModeloDocumentoFiscal } from "@/lib/nfe/types";
 import { ConfirmarIndicadorIe } from "@/components/fiscal/confirmar-indicador-ie";
 
 import {
@@ -239,12 +242,56 @@ function ratearPagamentosParaTotal(
   });
 }
 
+/**
+ * Consumidor da NFC-e: identificação é opcional, documento inválido não.
+ *
+ * A mesma regra roda no servidor (`validarNfce` + `fiscalRules/PB`) — aqui ela
+ * existe só para o operador descobrir antes de clicar em emitir, e não pela
+ * rejeição 750 da SEFAZ com o cliente esperando no balcão.
+ */
+function validarConsumidorNfce(
+  documento: string,
+  totalDaNota: number,
+  ufEmitente: string | null | undefined,
+): string[] {
+  const erros: string[] = [];
+  const digitos = onlyDigits(documento);
+
+  if (digitos) {
+    const valido = digitos.length === 14 ? isValidCnpj(digitos) : isValidCpf(digitos);
+    if (!valido) erros.push("CPF ou CNPJ do consumidor é inválido.");
+  }
+
+  const uf = String(ufEmitente ?? "").trim().toUpperCase();
+  if (uf === "PB" && totalDaNota >= PB_NFCE_PISO_IDENTIFICACAO && !digitos) {
+    erros.push(
+      `Na Paraíba, NFC-e de ${fmtMoney(PB_NFCE_PISO_IDENTIFICACAO)} ou mais exige CPF ou CNPJ do consumidor.`,
+    );
+  }
+
+  return erros;
+}
+
 export interface GerarNotaDeOsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   osId?: number | null;
   vendaId?: number | null;
   entradaId?: number | null;
+  /**
+   * 55 = NF-e (padrão), 65 = NFC-e.
+   *
+   * O mesmo assistente serve os dois modelos: muda o que é perguntado, não o
+   * motor. Na NFC-e caem transporte, DIFAL e destinatário obrigatório; entra a
+   * identificação opcional do consumidor.
+   */
+  modelo?: ModeloDocumentoFiscal;
+  /**
+   * Rascunho existente a corrigir (nota rejeitada). Preenchido, o assistente
+   * atualiza essa nota em vez de criar outra — o número e a chave já alocados
+   * são reaproveitados.
+   */
+  nfeId?: number | null;
   onAfterGenerate?: (nfeId: number | null) => void;
 }
 
@@ -254,8 +301,15 @@ export function GerarNotaDeOsDialog({
   osId,
   vendaId,
   entradaId,
+  modelo = MODELO_NFE,
+  nfeId = null,
   onAfterGenerate,
 }: GerarNotaDeOsDialogProps) {
+  const corrigindoRejeitada = Boolean(nfeId);
+  const isNfce = modelo === MODELO_NFCE;
+  const rotulo = rotuloModelo(modelo);
+  /** CPF/CNPJ do consumidor na NFC-e. Vazio = consumidor não identificado. */
+  const [consumidorDoc, setConsumidorDoc] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [setup, setSetup] = useState<FiscalSetup | null>(null);
@@ -277,16 +331,20 @@ export function GerarNotaDeOsDialog({
 
   // Consumidor final e a IE do destinatário mudam a exigência do DIFAL. Reavalia
   // na hora, preservando o que já foi digitado nos campos.
+  //
+  // NFC-e nunca entra aqui: é operação interna por definição, e a UF do cliente
+  // não pode transformá-la em interestadual.
   const difalContexto = useMemo(() => {
     const parceiro = source?.fornecedor ?? source?.cliente;
     return {
       ufEmitente: setup?.empresa?.uf ?? null,
-      ufDestinatario: parceiro?.uf ?? null,
+      ufDestinatario: isNfce ? (setup?.empresa?.uf ?? null) : parceiro?.uf ?? null,
       tipoOperacao: source?.tipo_operacao ?? "SAIDA",
       indFinal: fiscalConfig.consumidorFinal ? 1 : 0,
       indIEDest: indicadorDoCliente(source?.cliente),
     } satisfies DifalContexto;
   }, [
+    isNfce,
     setup?.empresa?.uf,
     source?.fornecedor,
     source?.cliente,
@@ -314,10 +372,17 @@ export function GerarNotaDeOsDialog({
   }, [origin, originId]);
   const generateEndpoint = useMemo(() => {
     if (!origin || !originId) return null;
+    // NFC-e tem rotas próprias: elas fixam o modelo 65 no servidor, para o
+    // modelo nunca depender de um campo vindo da tela.
+    if (isNfce) {
+      if (origin === "OS") return `/api/nfce/de-os/${originId}/gerar-rascunho`;
+      if (origin === "VENDA") return `/api/nfce/de-venda/${originId}/gerar-rascunho`;
+      return null;
+    }
     if (origin === "OS") return `/api/nfe/de-os/${originId}/gerar-rascunho`;
     if (origin === "VENDA") return `/api/nfe/de-venda/${originId}/gerar-rascunho`;
     return `/api/nfe/de-entrada/${originId}/gerar-rascunho`;
-  }, [origin, originId]);
+  }, [origin, originId, isNfce]);
 
   async function load(signal?: AbortSignal) {
     if (!productsEndpoint) return;
@@ -327,7 +392,12 @@ export function GerarNotaDeOsDialog({
     try {
       const [productsResponse, setupResponse] = await Promise.all([
         fetch(productsEndpoint, { cache: "no-store", signal }),
-        fetch("/api/nfe/emissao-assistida/setup", { cache: "no-store", signal }),
+        // O modelo vai na query: sem ele o setup responde sempre a NF-e, e a
+        // tela da NFC-e mostraria a série, o número e o ambiente do modelo 55.
+        fetch(`/api/nfe/emissao-assistida/setup?modelo=${modelo}`, {
+          cache: "no-store",
+          signal,
+        }),
       ]);
       const productsJson = (await productsResponse.json().catch(() => null)) as SourceResponse | null;
       const setupJson = (await setupResponse.json().catch(() => null)) as
@@ -405,8 +475,10 @@ export function GerarNotaDeOsDialog({
     const controller = new AbortController();
     void load(controller.signal);
     return () => controller.abort();
+    // `modelo` entra nas dependências porque o setup é por modelo: trocar de
+    // NF-e para NFC-e precisa recarregar série, número e ambiente.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, productsEndpoint]);
+  }, [open, productsEndpoint, modelo]);
 
   const issuesByItem = useMemo(() => {
     const map = new Map<string, AssistedItemIssue[]>();
@@ -472,11 +544,12 @@ export function GerarNotaDeOsDialog({
   const editingItem = items.find((item) => item.sourceItemId === editingId) ?? null;
   const editingIssues = editingItem ? issuesByItem.get(editingItem.sourceItemId) ?? [] : [];
 
+  const verbo = corrigindoRejeitada ? "Corrigir" : "Gerar";
   const title = origin === "VENDA"
-    ? `Gerar NF-e da Venda #${originId ?? ""}`
+    ? `${verbo} ${rotulo} da Venda #${originId ?? ""}`
     : origin === "ENTRADA"
-      ? `Gerar NF-e da Entrada #${originId ?? ""}`
-      : `Gerar NF-e da OS #${originId ?? ""}`;
+      ? `${verbo} ${rotulo} da Entrada #${originId ?? ""}`
+      : `${verbo} ${rotulo} da OS #${originId ?? ""}`;
   const parceiro = origin === "ENTRADA"
     ? { nome: entrySupplier.nomeRazaoSocial, uf: entrySupplier.estado }
     : source?.fornecedor ?? source?.cliente;
@@ -485,11 +558,17 @@ export function GerarNotaDeOsDialog({
     () => origin === "ENTRADA" ? validateEntrySupplier(entrySupplier) : [],
     [entrySupplier, origin],
   );
-  const customerErrors = useMemo(
-    () => origin === "OS" || origin === "VENDA" ? validateFiscalCustomer(source?.cliente) : [],
-    [origin, source?.cliente],
-  );
+  const customerErrors = useMemo(() => {
+    if (!(origin === "OS" || origin === "VENDA")) return [];
+    // Na NFC-e o consumidor é opcional: o cadastro do cliente não precisa estar
+    // fiscalmente completo. O que vale é o documento digitado (se houver) e a
+    // regra de valor da UF.
+    if (isNfce) return validarConsumidorNfce(consumidorDoc, selectedTotal, setup?.empresa?.uf);
+    return validateFiscalCustomer(source?.cliente);
+  }, [origin, source?.cliente, isNfce, consumidorDoc, selectedTotal, setup?.empresa?.uf]);
   const transportErrors = useMemo(() => {
+    // NFC-e sai sempre sem ocorrência de transporte.
+    if (isNfce) return [];
     if (!(origin === "OS" || origin === "VENDA") || !["0", "1", "2"].includes(fiscalConfig.modFrete)) {
       return [];
     }
@@ -499,7 +578,7 @@ export function GerarNotaDeOsDialog({
     if (!fiscalConfig.transportadora.nome.trim()) errors.push("Informe o nome da transportadora.");
     if (fiscalConfig.transportadora.uf.trim().length !== 2) errors.push("Informe a UF da transportadora.");
     return errors;
-  }, [fiscalConfig.modFrete, fiscalConfig.transportadora, origin]);
+  }, [fiscalConfig.modFrete, fiscalConfig.transportadora, origin, isNfce]);
   const paymentErrors = useMemo(() => {
     if (!(origin === "OS" || origin === "VENDA")) return [];
     if (fiscalConfig.pagamentos.length === 0) return ["Selecione pelo menos um método de pagamento."];
@@ -522,16 +601,18 @@ export function GerarNotaDeOsDialog({
     () => [
       { rotulo: "Emitente", concluida: (setup?.empresaErros.length ?? 0) === 0 },
       {
-        rotulo: origin === "ENTRADA" ? "Fornecedor" : "Destinatário",
+        rotulo: origin === "ENTRADA" ? "Fornecedor" : isNfce ? "Consumidor" : "Destinatário",
         concluida: origin === "ENTRADA" ? entrySupplierErrors.length === 0 : customerErrors.length === 0,
       },
       { rotulo: "Produtos", concluida: selectedItems.length > 0 && selectedIssues.length === 0 },
       { rotulo: "Pagamento", concluida: paymentErrors.length === 0 },
-      { rotulo: "Transporte", concluida: transportErrors.length === 0 },
+      // NFC-e não tem etapa de transporte.
+      ...(isNfce ? [] : [{ rotulo: "Transporte", concluida: transportErrors.length === 0 }]),
     ],
     [
       setup?.empresaErros.length,
       origin,
+      isNfce,
       entrySupplierErrors.length,
       customerErrors.length,
       selectedItems.length,
@@ -681,6 +762,9 @@ export function GerarNotaDeOsDialog({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          // Corrigindo uma rejeitada: o servidor atualiza este rascunho em vez
+          // de criar outro, preservando número e chave já alocados.
+          ...(nfeId ? { nfeId } : {}),
           itens: selectedItems.map(toApiItem),
           observacoesFiscais:
             includeObservations && observations.trim()
@@ -694,22 +778,42 @@ export function GerarNotaDeOsDialog({
                 },
               }
             : {}),
+          // NFC-e: só o documento do consumidor viaja. Vazio = consumidor não
+          // identificado, que é o caso normal do balcão. O restante do cadastro
+          // do cliente não entra no XML do modelo 65.
+          ...(isNfce
+            ? {
+                destinatario: {
+                  clienteId: source?.cliente?.id ?? null,
+                  cpfCnpj: onlyDigits(consumidorDoc) || null,
+                  nomeRazaoSocial: onlyDigits(consumidorDoc)
+                    ? source?.cliente?.nomerazaosocial ?? source?.cliente?.nome ?? null
+                    : null,
+                },
+              }
+            : {}),
           ...(origin === "OS" || origin === "VENDA"
             ? {
                 descontoGeral,
                 configuracaoFiscal: {
-                  consumidorFinal: fiscalConfig.consumidorFinal,
+                  consumidorFinal: isNfce ? true : fiscalConfig.consumidorFinal,
                   indicadorPresenca: fiscalConfig.indicadorPresenca,
                   pagamentos: fiscalConfig.pagamentos.map((pagamento) => ({
                     meio: pagamento.meio,
                     valor: fiscalConfig.pagamentos.length === 1 ? selectedTotal : pagamento.valor,
                     tipoIntegracao: "2",
                   })),
-                  transporte: {
-                    modFrete: fiscalConfig.modFrete,
-                    valorFrete: freteDaNota,
-                    transportadora: fiscalConfig.transportadora,
-                  },
+                  // Transporte não existe na NFC-e; o servidor força modFrete 9
+                  // de qualquer forma, mas não faz sentido mandar o bloco.
+                  ...(isNfce
+                    ? {}
+                    : {
+                        transporte: {
+                          modFrete: fiscalConfig.modFrete,
+                          valorFrete: freteDaNota,
+                          transportadora: fiscalConfig.transportadora,
+                        },
+                      }),
                 },
               }
             : {}),
@@ -817,7 +921,53 @@ export function GerarNotaDeOsDialog({
                   />
                 ) : null}
 
-                {(origin === "OS" || origin === "VENDA") && source.cliente ? (
+                {/* NFC-e: identificação do consumidor é opcional. Nada de exigir
+                    cadastro fiscal completo de quem comprou no balcão. */}
+                {isNfce && (origin === "OS" || origin === "VENDA") ? (
+                  <section className="min-w-0 space-y-3 border border-l-4 border-l-border bg-card p-3 sm:p-4">
+                    <div className="space-y-1">
+                      <p className="font-medium">Consumidor</p>
+                      <p className="text-xs text-muted-foreground">
+                        Opcional. Deixe em branco para emitir sem identificar o consumidor.
+                      </p>
+                    </div>
+
+                    <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                      <div className="min-w-0 space-y-1.5">
+                        <Label htmlFor="nfce-consumidor-doc">CPF ou CNPJ</Label>
+                        <Input
+                          id="nfce-consumidor-doc"
+                          inputMode="numeric"
+                          onChange={(event) => setConsumidorDoc(event.target.value)}
+                          placeholder="Somente números"
+                          value={consumidorDoc}
+                        />
+                      </div>
+                      {source.cliente?.cpfcnpj ? (
+                        <div className="flex items-end">
+                          <Button
+                            onClick={() => setConsumidorDoc(onlyDigits(source.cliente?.cpfcnpj))}
+                            size="sm"
+                            type="button"
+                            variant="outline"
+                          >
+                            Usar o do cliente ({source.cliente.nome})
+                          </Button>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {customerErrors.length > 0 ? (
+                      <ul className="space-y-1 text-xs text-destructive">
+                        {customerErrors.map((erro) => (
+                          <li key={erro}>{erro}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </section>
+                ) : null}
+
+                {!isNfce && (origin === "OS" || origin === "VENDA") && source.cliente ? (
                   <section className="min-w-0 space-y-3 border border-l-4 border-l-border bg-card p-3 sm:p-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0 space-y-1">
@@ -875,32 +1025,35 @@ export function GerarNotaDeOsDialog({
                     <div>
                       <p className="font-medium">Dados da operação</p>
                       <p className="text-xs text-muted-foreground">
-                        Revise os dados trazidos da {origin === "OS" ? "ordem de serviço" : "venda"} antes de gerar a NF-e.
+                        Revise os dados trazidos da {origin === "OS" ? "ordem de serviço" : "venda"} antes de gerar a {rotulo}.
                       </p>
                     </div>
                     <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-2">
-                      <div className="min-w-0 space-y-1.5">
-                        <Label>Consumidor final</Label>
-                        {difalAtivo ? (
-                          <p className="text-[11px] text-amber-600 dark:text-amber-400">
-                            Esta operação exige DIFAL. Alterar este campo recalcula a seção
-                            de partilha nos itens.
-                          </p>
-                        ) : null}
-                        <Select
-                          value={fiscalConfig.consumidorFinal ? "SIM" : "NAO"}
-                          onValueChange={(value) => setFiscalConfig((current) => ({
-                            ...current,
-                            consumidorFinal: value === "SIM",
-                          }))}
-                        >
-                          <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="SIM">Sim</SelectItem>
-                            <SelectItem value="NAO">Não</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
+                      {/* NFC-e é sempre a consumidor final: não há escolha. */}
+                      {isNfce ? null : (
+                        <div className="min-w-0 space-y-1.5">
+                          <Label>Consumidor final</Label>
+                          {difalAtivo ? (
+                            <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                              Esta operação exige DIFAL. Alterar este campo recalcula a seção
+                              de partilha nos itens.
+                            </p>
+                          ) : null}
+                          <Select
+                            value={fiscalConfig.consumidorFinal ? "SIM" : "NAO"}
+                            onValueChange={(value) => setFiscalConfig((current) => ({
+                              ...current,
+                              consumidorFinal: value === "SIM",
+                            }))}
+                          >
+                            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="SIM">Sim</SelectItem>
+                              <SelectItem value="NAO">Não</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
                       <div className="min-w-0 space-y-1.5">
                         <Label>Indicador de presença</Label>
                         <Select
@@ -909,9 +1062,14 @@ export function GerarNotaDeOsDialog({
                         >
                           <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                           <SelectContent>
-                            {NFE_PRESENCE_OPTIONS.filter((option) => option.value !== "0").map((option) => (
-                              <SelectItem key={option.value} value={option.value}>{option.value} - {option.label}</SelectItem>
-                            ))}
+                            {NFE_PRESENCE_OPTIONS
+                              // "0" (não se aplica) nunca serve numa saída; "9"
+                              // (outros) não descreve venda ao consumidor e a
+                              // NFC-e o rejeita.
+                              .filter((option) => option.value !== "0" && !(isNfce && option.value === "9"))
+                              .map((option) => (
+                                <SelectItem key={option.value} value={option.value}>{option.value} - {option.label}</SelectItem>
+                              ))}
                           </SelectContent>
                         </Select>
                       </div>
@@ -966,11 +1124,13 @@ export function GerarNotaDeOsDialog({
                         </Popover>
                         {fiscalConfig.pagamentos.length === 1 ? (
                           <p className="text-xs text-muted-foreground">
-                            O total da NF-e será atribuído a este método.
+                            O total da {rotulo} será atribuído a este método.
                           </p>
                         ) : null}
                       </div>
-                      <div className="min-w-0 space-y-1.5">
+                      {/* Frete e transportadora não existem na NFC-e: venda ao
+                          consumidor sai sem ocorrência de transporte. */}
+                      <div className={`min-w-0 space-y-1.5 ${isNfce ? "hidden" : ""}`}>
                         <Label>Modalidade do frete</Label>
                         <Select
                           value={fiscalConfig.modFrete}
@@ -984,7 +1144,7 @@ export function GerarNotaDeOsDialog({
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="min-w-0 space-y-1.5">
+                      <div className={`min-w-0 space-y-1.5 ${isNfce ? "hidden" : ""}`}>
                         <Label>Valor do frete</Label>
                         <ValueInput
                           price={fiscalConfig.valorFrete}
@@ -1049,7 +1209,7 @@ export function GerarNotaDeOsDialog({
                       <p className="text-xs text-destructive">{paymentErrors.join(" ")}</p>
                     ) : null}
 
-                    {["0", "1", "2"].includes(fiscalConfig.modFrete) ? (
+                    {!isNfce && ["0", "1", "2"].includes(fiscalConfig.modFrete) ? (
                       <div className="space-y-3 border-t pt-3">
                         <p className="text-sm font-medium">Transportadora contratada</p>
                         <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">
