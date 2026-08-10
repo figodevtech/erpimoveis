@@ -7,8 +7,8 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { erroInterno, getMeUserId, isNextResponse, relacaoNomeada, texto } from "../_helpers";
 
-export async function GET() {
-  const userId = await getMeUserId();
+export async function GET(req: Request) {
+  const userId = await getMeUserId(req);
   if (isNextResponse(userId)) return userId;
 
   try {

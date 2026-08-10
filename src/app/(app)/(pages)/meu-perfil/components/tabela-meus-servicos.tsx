@@ -27,18 +27,18 @@ function statusDaExecucao(servico: MeuServico): string {
   return servico.statusExecucao ?? "PENDENTE";
 }
 
-export function TabelaMeusServicos({ periodo, ativo }: { periodo: Periodo; ativo: boolean }) {
+export function TabelaMeusServicos({ periodo, ativo, usuarioId }: { periodo: Periodo; ativo: boolean; usuarioId?: string }) {
   const buscar = useCallback(
     ({ page, limit, signal }: { page: number; limit: number; signal: AbortSignal }) =>
-      buscarMeusServicos({ ...periodo, page, limit, signal }),
-    [periodo],
+      buscarMeusServicos({ ...periodo, page, limit, signal, usuarioId }),
+    [periodo, usuarioId],
   );
 
   const lista = useListaPaginada<MeuServico>({
     buscar,
     limit: LIMITE,
     ativo,
-    chaveDeReset: `${periodo.de}|${periodo.ate}`,
+    chaveDeReset: `${periodo.de}|${periodo.ate}|${usuarioId ?? "me"}`,
   });
 
   return (

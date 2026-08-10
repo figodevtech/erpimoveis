@@ -4,7 +4,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { MeuPerfilClient } from "./meu-perfil-client";
 
 export const metadata = {
-  title: "Meu perfil",
+  title: "Meu Perfil",
 };
 
 /**
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 
 function CarregandoCentral() {
   return (
-    <div className="flex flex-col gap-4 p-4 md:p-6">
+    <div className="flex flex-col gap-4">
       <Skeleton className="h-24 w-full rounded-lg" />
       <Skeleton className="h-20 w-full rounded-lg" />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

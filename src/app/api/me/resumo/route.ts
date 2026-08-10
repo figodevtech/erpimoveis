@@ -24,7 +24,7 @@ const TETO_VENDAS_ORDENS = 5000;
 const TETO_SERVICOS = 2000;
 
 export async function GET(req: Request) {
-  const userId = await getMeUserId();
+  const userId = await getMeUserId(req);
   if (isNextResponse(userId)) return userId;
 
   try {

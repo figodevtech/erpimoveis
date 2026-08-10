@@ -61,7 +61,7 @@ function primeiro(valor: unknown): Record<string, unknown> | null {
 }
 
 export async function GET(req: Request) {
-  const userId = await getMeUserId();
+  const userId = await getMeUserId(req);
   if (isNextResponse(userId)) return userId;
 
   try {

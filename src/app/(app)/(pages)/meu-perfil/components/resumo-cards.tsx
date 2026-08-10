@@ -74,7 +74,7 @@ function montarCartoes(resumo: MeuResumo): Cartao[] {
 
 // Duas colunas ja no celular: em uma coluna os quatro cartoes empurravam as
 // abas para fora da primeira dobra.
-const GRADE = "grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4";
+const GRADE = "grid grid-cols-2 gap-2 xl:grid-cols-4";
 
 export function ResumoCards({ resumo, carregando }: { resumo: MeuResumo | null; carregando: boolean }) {
   return (
@@ -88,11 +88,10 @@ export function ResumoCards({ resumo, carregando }: { resumo: MeuResumo | null; 
           exit={{ opacity: 0, transition: SAIDA }}
         >
           {Array.from({ length: 4 }).map((_, indice) => (
-            <Card key={indice}>
-              <CardContent className="grid gap-2 p-3 sm:p-4">
-                <Skeleton className="h-4 w-full max-w-32" />
-                <Skeleton className="h-7 w-16" />
-                <Skeleton className="h-4 w-24" />
+            <Card key={indice} className="rounded-lg py-0">
+              <CardContent className="grid gap-1.5 p-3">
+                <Skeleton className="h-3 w-full max-w-32" />
+                <Skeleton className="h-5 w-full max-w-28" />
               </CardContent>
             </Card>
           ))}
@@ -118,7 +117,7 @@ export function ResumoCards({ resumo, carregando }: { resumo: MeuResumo | null; 
               >
                 <Card
                   className={cn(
-                    "relative h-full overflow-hidden transition-[opacity,box-shadow] hover:shadow-md",
+                    "relative h-full overflow-hidden rounded-lg py-0 transition-[opacity,box-shadow] hover:shadow-md",
                     carregando && "opacity-60",
                   )}
                 >
@@ -132,7 +131,7 @@ export function ResumoCards({ resumo, carregando }: { resumo: MeuResumo | null; 
                     )}
                   />
 
-                  <CardContent className="relative grid gap-1 p-3 sm:p-4">
+                  <CardContent className="relative grid gap-0.5 p-3">
                     <div className="flex items-start justify-between gap-2">
                       <span className="text-xs leading-snug text-muted-foreground sm:text-sm">
                         {cartao.rotulo}
@@ -140,11 +139,11 @@ export function ResumoCards({ resumo, carregando }: { resumo: MeuResumo | null; 
                       <Icone className={cn("size-4 shrink-0", cartao.tom)} aria-hidden />
                     </div>
 
-                    <div className="flex flex-wrap items-baseline gap-x-2">
+                    <div className="flex min-w-0 items-baseline justify-between gap-2">
                       <NumeroAnimado
                         valor={cartao.quantidade}
                         formatar={inteiro}
-                        className="text-xl font-semibold tabular-nums sm:text-2xl"
+                        className="shrink-0 text-base font-semibold tabular-nums sm:text-lg"
                       />
                       {cartao.parcial && (
                         <Tooltip>
@@ -158,19 +157,18 @@ export function ResumoCards({ resumo, carregando }: { resumo: MeuResumo | null; 
                           </TooltipContent>
                         </Tooltip>
                       )}
+                      {cartao.valor === null ? (
+                        <span className="truncate text-xs text-muted-foreground">
+                          {cartao.legenda}
+                        </span>
+                      ) : (
+                        <NumeroAnimado
+                          valor={cartao.valor}
+                          formatar={formatarMoeda}
+                          className="min-w-0 truncate text-xs text-muted-foreground tabular-nums"
+                        />
+                      )}
                     </div>
-
-                    {cartao.valor === null ? (
-                      <span className="text-xs leading-snug text-muted-foreground sm:text-sm">
-                        {cartao.legenda}
-                      </span>
-                    ) : (
-                      <NumeroAnimado
-                        valor={cartao.valor}
-                        formatar={formatarMoeda}
-                        className="text-xs text-muted-foreground tabular-nums sm:text-sm"
-                      />
-                    )}
                   </CardContent>
                 </Card>
               </motion.div>

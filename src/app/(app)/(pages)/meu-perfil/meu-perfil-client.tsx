@@ -3,8 +3,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { MotionConfig, motion } from "motion/react";
 import { Tabs } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { buscarPerfil, buscarResumo } from "./lib/api";
 import { periodoPadrao } from "./lib/format";
 import { MOLA_SUAVE, containerEscalonado, itemQueSobe } from "./lib/motion";
@@ -22,6 +25,7 @@ function abaValida(valor: string | null): AbaCentral {
 }
 
 export function MeuPerfilClient() {
+  const { data: session } = useSession();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -31,16 +35,28 @@ export function MeuPerfilClient() {
   const de = searchParams.get("de") ?? padrao.de;
   const ate = searchParams.get("ate") ?? padrao.ate;
   const aba = abaValida(searchParams.get("tab"));
+  const usuarioId = searchParams.get("usuarioId") ?? undefined;
+  const usuarioLogadoId = String((session?.user as { id?: string } | undefined)?.id ?? "");
+  const podeVerUsuarios = permissionSetHas(
+    (session?.user as { permissoes?: unknown } | undefined)?.permissoes,
+    PERMS.USUARIOS,
+  );
+  const [usuarios, setUsuarios] = useState<Array<{ id: string; nome: string; email: string }>>([]);
 
   // Identidade estavel: as tabelas usam `periodo` como dependencia de busca.
   const periodo = useMemo<Periodo>(() => ({ de, ate }), [de, ate]);
 
-  const [perfil, setPerfil] = useState<MeuPerfil | null>(null);
-  const [carregandoPerfil, setCarregandoPerfil] = useState(true);
+  const chavePerfil = usuarioId ?? "me";
+  const [estadoPerfil, setEstadoPerfil] = useState<{ chave: string; dados: MeuPerfil | null }>({
+    chave: "",
+    dados: null,
+  });
+  const perfil = estadoPerfil.chave === chavePerfil ? estadoPerfil.dados : null;
+  const carregandoPerfil = estadoPerfil.chave !== chavePerfil;
 
   // Mesmo padrao do useListaPaginada: o estado guarda a chave da consulta que o
   // produziu, entao "carregando" e derivado em vez de setado dentro do efeito.
-  const chaveResumo = `${de}|${ate}`;
+  const chaveResumo = `${de}|${ate}|${usuarioId ?? "me"}`;
   const [estadoResumo, setEstadoResumo] = useState<{
     chave: string;
     dados: MeuResumo | null;
@@ -49,37 +65,49 @@ export function MeuPerfilClient() {
   const carregandoResumo = estadoResumo.chave !== chaveResumo;
 
   const atualizarUrl = useCallback(
-    (mudancas: Partial<{ de: string; ate: string; tab: AbaCentral }>) => {
+    (mudancas: Partial<{ de: string; ate: string; tab: AbaCentral; usuarioId: string | null }>) => {
       const params = new URLSearchParams(searchParams.toString());
       params.set("de", mudancas.de ?? de);
       params.set("ate", mudancas.ate ?? ate);
       params.set("tab", mudancas.tab ?? aba);
+      if (mudancas.usuarioId === null) params.delete("usuarioId");
+      else if (mudancas.usuarioId) params.set("usuarioId", mudancas.usuarioId);
       router.replace(`${pathname}?${params.toString()}`, { scroll: false });
     },
     [aba, ate, de, pathname, router, searchParams],
   );
 
   useEffect(() => {
+    if (!podeVerUsuarios) return;
     const controller = new AbortController();
-
-    buscarPerfil(controller.signal)
-      .then((dados) => {
-        if (!controller.signal.aborted) setPerfil(dados);
+    fetch("/api/users", { cache: "no-store", signal: controller.signal })
+      .then(async (resposta) => {
+        const corpo = await resposta.json();
+        if (!resposta.ok) throw new Error(corpo?.error);
+        if (!controller.signal.aborted) setUsuarios(corpo.users ?? []);
       })
-      .catch(() => {
-        // O cabecalho degrada para o titulo generico; nao vale bloquear a tela.
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setCarregandoPerfil(false);
-      });
-
+      .catch(() => {});
     return () => controller.abort();
-  }, []);
+  }, [podeVerUsuarios]);
 
   useEffect(() => {
     const controller = new AbortController();
 
-    buscarResumo(periodo, controller.signal)
+    buscarPerfil(usuarioId, controller.signal)
+      .then((dados) => {
+        if (!controller.signal.aborted) setEstadoPerfil({ chave: chavePerfil, dados });
+      })
+      .catch(() => {
+        // O cabecalho degrada para o titulo generico; nao vale bloquear a tela.
+      })
+
+    return () => controller.abort();
+  }, [chavePerfil, usuarioId]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    buscarResumo(periodo, usuarioId, controller.signal)
       .then((dados) => {
         if (!controller.signal.aborted) setEstadoResumo({ chave: chaveResumo, dados, erro: false });
       })
@@ -88,19 +116,42 @@ export function MeuPerfilClient() {
       });
 
     return () => controller.abort();
-  }, [chaveResumo, periodo]);
+  }, [chaveResumo, periodo, usuarioId]);
 
   return (
     // `reducedMotion="user"` respeita a preferencia do sistema em toda a arvore:
     // quem pede menos movimento recebe so as transicoes de opacidade.
     <MotionConfig reducedMotion="user">
       <motion.div
-        className="flex flex-col gap-4 p-4 md:p-6"
+        className="flex flex-col gap-4"
         variants={containerEscalonado}
         initial="oculto"
         animate="visivel"
       >
-        <PerfilHeader perfil={perfil} carregando={carregandoPerfil} />
+        <PerfilHeader
+          perfil={perfil}
+          carregando={carregandoPerfil}
+          seletorUsuario={podeVerUsuarios ? (
+            <Select
+              value={usuarioId ?? usuarioLogadoId}
+              onValueChange={(id) => atualizarUrl({ usuarioId: id === usuarioLogadoId ? null : id })}
+            >
+              <SelectTrigger
+                className="h-8 w-full border-border/60 bg-transparent text-xs text-muted-foreground shadow-none"
+                aria-label="Usuário visualizado"
+              >
+                <SelectValue placeholder="Selecione um usuário" />
+              </SelectTrigger>
+              <SelectContent>
+                {usuarios.map((usuario) => (
+                  <SelectItem key={usuario.id} value={usuario.id}>
+                    {usuario.nome || usuario.email}{usuario.id === usuarioLogadoId ? " (você)" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : undefined}
+        />
 
         <motion.div variants={itemQueSobe}>
           <PeriodoFilter
@@ -125,20 +176,20 @@ export function MeuPerfilClient() {
 
         <motion.div variants={itemQueSobe}>
           <Tabs value={aba} onValueChange={(valor) => atualizarUrl({ tab: abaValida(valor) })}>
-            <ListaDeAbas ativa={aba} />
+            <ListaDeAbas />
 
             {/* Os paineis ficam montados: a busca e controlada pelo prop
                 `ativo`, entao aba oculta nao dispara requisicao. */}
             <PainelDeAba chave="vendas" ativa={aba}>
-              <TabelaMinhasVendas periodo={periodo} ativo={aba === "vendas"} />
+              <TabelaMinhasVendas periodo={periodo} ativo={aba === "vendas"} usuarioId={usuarioId} />
             </PainelDeAba>
 
             <PainelDeAba chave="ordens" ativa={aba}>
-              <TabelaMinhasOrdens periodo={periodo} ativo={aba === "ordens"} />
+              <TabelaMinhasOrdens periodo={periodo} ativo={aba === "ordens"} usuarioId={usuarioId} />
             </PainelDeAba>
 
             <PainelDeAba chave="servicos" ativa={aba}>
-              <TabelaMeusServicos periodo={periodo} ativo={aba === "servicos"} />
+              <TabelaMeusServicos periodo={periodo} ativo={aba === "servicos"} usuarioId={usuarioId} />
             </PainelDeAba>
           </Tabs>
         </motion.div>

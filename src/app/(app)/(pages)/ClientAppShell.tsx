@@ -44,6 +44,7 @@ const routeTitles: Record<string, string> = {
   "/historicovendas": "Histórico de Vendas",
   "/configuracoes/perfis": "Perfis de Permissões",
   "/plano": "Seu Plano",
+  "/meu-perfil": "Meu Perfil",
 };
 
 function humanize(path: string) {
