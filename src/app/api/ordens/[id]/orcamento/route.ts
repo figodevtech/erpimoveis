@@ -6,10 +6,15 @@ export const revalidate = 0;
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { buscarModoBaixaEstoqueOS } from "@/lib/ordens/estoque-os";
+import { sanitizeFinancialSurchargeType } from "@/lib/financial-surcharge";
 import {
-  calculateFinancialTotal,
-  sanitizeFinancialSurchargeType,
-} from "@/lib/financial-surcharge";
+  arredondarMoeda,
+  calcularTotalComDesconto,
+  sanitizeTipoDesconto,
+  type TipoDesconto,
+} from "@/lib/ordens/desconto";
+import { calcularTotaisOs, sanitizarValorFrete } from "@/lib/ordens/totais";
+import { valorDeFace } from "@/lib/financeiro/transacao";
 import { mesesDeCompetenciaFechada } from "../eventos-financeiros/_lib/competencia";
 
 type Num = number;
@@ -17,28 +22,6 @@ const toNum = (v: unknown): number => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 };
-
-type TipoDesconto = "FIXO" | "PORCENTAGEM" | null;
-
-function sanitizeTipoDesconto(value: unknown): TipoDesconto {
-  return value === "FIXO" || value === "PORCENTAGEM" ? value : null;
-}
-
-function arredondarMoeda(valor: number) {
-  return Math.round((Number.isFinite(valor) ? valor : 0) * 100) / 100;
-}
-
-function calcularDescontoAplicado(base: number, tipo: TipoDesconto, desconto: number) {
-  const baseSeguro = Math.max(0, toNum(base));
-  const valor = Math.max(0, toNum(desconto));
-  if (!tipo || valor <= 0 || baseSeguro <= 0) return 0;
-  if (tipo === "PORCENTAGEM") return arredondarMoeda(baseSeguro * (Math.min(valor, 100) / 100));
-  return arredondarMoeda(Math.min(valor, baseSeguro));
-}
-
-function calcularTotalComDesconto(base: number, tipo: TipoDesconto, desconto: number) {
-  return arredondarMoeda(Math.max(0, toNum(base) - calcularDescontoAplicado(base, tipo, desconto)));
-}
 
 function limitarDesconto(base: number, tipo: TipoDesconto, desconto: number) {
   const valor = Math.max(0, toNum(desconto));
@@ -64,7 +47,7 @@ export async function GET(
     // Produtos com descrição
     const { data: osRow, error: osErr } = await supabase
       .from("ordemservico")
-      .select("subtotal, desconto_tipo, desconto, acrescimo_financeiro_tipo, acrescimo_financeiro_valor")
+      .select("subtotal, desconto_tipo, desconto, valor_frete, acrescimo_financeiro_tipo, acrescimo_financeiro_valor")
       .eq("id", osId)
       .maybeSingle();
 
@@ -150,6 +133,7 @@ export async function GET(
         subtotal: toNum((osRow as any)?.subtotal ?? 0),
         descontoTipo: (osRow as any)?.desconto_tipo ?? null,
         desconto: toNum((osRow as any)?.desconto ?? 0),
+        valorFrete: toNum((osRow as any)?.valor_frete ?? 0),
         acrescimoFinanceiroTipo: (osRow as any)?.acrescimo_financeiro_tipo ?? null,
         acrescimoFinanceiroValor: toNum((osRow as any)?.acrescimo_financeiro_valor ?? 0),
       },
@@ -225,6 +209,7 @@ export async function PUT(
     }> = Array.isArray(body?.produtosAvulsos) ? body.produtosAvulsos : [];
     const descontoTipo = sanitizeTipoDesconto(body?.descontoTipo);
     const descontoSolicitado = Math.max(0, toNum(body?.desconto ?? 0));
+    const valorFrete = sanitizarValorFrete(body?.valorFrete);
     const acrescimoFinanceiroTipo = sanitizeFinancialSurchargeType(body?.acrescimoFinanceiroTipo);
     const acrescimoFinanceiroValor = Math.max(0, toNum(body?.acrescimoFinanceiroValor ?? 0));
     if (body?.acrescimoFinanceiroTipo != null && !acrescimoFinanceiroTipo) {
@@ -617,11 +602,19 @@ export async function PUT(
     );
     const subtotal = arredondarMoeda(totalProdutos + totalProdutosAvulsos + totalServicos);
     const desconto = limitarDesconto(subtotal, descontoTipo, descontoSolicitado);
-    const totalGeral = calcularTotalComDesconto(subtotal, descontoTipo, desconto);
+    const totais = calcularTotaisOs({
+      subtotal,
+      descontoTipo,
+      desconto,
+      valorFrete,
+      acrescimoFinanceiroTipo,
+      acrescimoFinanceiroValor,
+    });
+    const totalGeral = totais.totalComercial;
 
     const { data: transacoes, error: transacoesErr } = await supabase
       .from("transacao")
-      .select("valor")
+      .select("valor, valor_acrescimos")
       .eq("ordemservicoid", osId)
       .eq("tipo", "RECEITA")
       .is("evento_financeiro_id", null)
@@ -629,16 +622,17 @@ export async function PUT(
 
     if (transacoesErr) throw transacoesErr;
 
-    const totalPago = (transacoes ?? []).reduce((acc: number, row: any) => acc + toNum(row.valor), 0);
-    const totalFinanceiro = calculateFinancialTotal(
-      totalGeral,
-      acrescimoFinanceiroTipo,
-      acrescimoFinanceiroValor,
+    const totalComprometido = (transacoes ?? []).reduce(
+      (acc: number, row: any) => acc + valorDeFace(row),
+      0,
     );
-    if (totalFinanceiro < totalPago) {
+    // Mantém o identificador usado na mensagem legada; agora ele inclui também
+    // títulos pendentes, pois ambos comprometem o total da OS.
+    const totalFinanceiro = totais.totalFinanceiro;
+    if (totalFinanceiro < totalComprometido) {
       return NextResponse.json(
         {
-          error: `O total com desconto nÃ£o pode ficar menor que o total jÃ¡ pago (${totalPago.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}).`,
+          error: `O total financeiro da OS não pode ficar menor que os pagamentos e títulos já registrados (${totalComprometido.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}).`,
         },
         { status: 409 }
       );
@@ -650,6 +644,7 @@ export async function PUT(
         subtotal,
         desconto_tipo: descontoTipo,
         desconto,
+        valor_frete: totais.valorFrete,
         orcamentototal: totalGeral,
         acrescimo_financeiro_tipo: acrescimoFinanceiroTipo,
         acrescimo_financeiro_valor: acrescimoFinanceiroTipo ? acrescimoFinanceiroValor : 0,
@@ -688,7 +683,13 @@ export async function PUT(
       }
     }
 
-    return NextResponse.json({ ok: true, totalGeral, aviso });
+    return NextResponse.json({
+      ok: true,
+      totalGeral,
+      valorFrete: totais.valorFrete,
+      totalFinanceiro,
+      aviso,
+    });
   } catch (err: any) {
     console.error("PUT /api/ordens/[id]/orcamento", err);
     return NextResponse.json(

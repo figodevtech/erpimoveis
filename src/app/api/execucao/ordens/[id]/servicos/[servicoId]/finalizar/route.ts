@@ -34,13 +34,19 @@ async function calcularConclusaoDaOrdem(ordemservicoid: number) {
 
 async function enviarParaPagamento(ordemservicoid: number) {
   const now = new Date().toISOString();
+  const resumoRes = await supabaseAdmin.rpc("resumo_financeiro_os", {
+    p_ordemservicoid: ordemservicoid,
+  });
+  if (resumoRes.error) throw resumoRes.error;
+  const resumo = Array.isArray(resumoRes.data) ? resumoRes.data[0] : resumoRes.data;
+  const status = resumo?.quitada === true ? "CONCLUIDO" : "PAGAMENTO";
   const updateRes = await supabaseAdmin
     .from("ordemservico")
-    .update({ status: "PAGAMENTO", execucao_fim_em: now })
+    .update({ status, execucao_fim_em: now })
     .eq("id", ordemservicoid);
 
   if (updateRes.error) throw updateRes.error;
-  return { avancou: true, proximoSetorId: null, status: "PAGAMENTO" };
+  return { avancou: true, proximoSetorId: null, status };
 }
 
 export async function POST(req: Request, ctx: { params: Promise<Params> }) {

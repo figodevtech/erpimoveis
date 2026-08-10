@@ -219,6 +219,26 @@ function fmtMoney(value: number | null | undefined) {
   });
 }
 
+function ratearPagamentosParaTotal(
+  pagamentos: Array<{ meio: string; valor: number }>,
+  total: number,
+) {
+  if (pagamentos.length === 0) return [];
+  const totalCentavos = Math.max(0, Math.round(total * 100));
+  const pesos = pagamentos.map((pagamento) => Math.max(0, Number(pagamento.valor) || 0));
+  const somaPesos = pesos.reduce((soma, peso) => soma + peso, 0);
+  let alocado = 0;
+  return pagamentos.map((pagamento, index) => {
+    const centavos = index === pagamentos.length - 1
+      ? totalCentavos - alocado
+      : somaPesos > 0
+        ? Math.floor(totalCentavos * pesos[index] / somaPesos)
+        : Math.floor(totalCentavos / pagamentos.length);
+    alocado += centavos;
+    return { meio: pagamento.meio, valor: centavos / 100 };
+  });
+}
+
 export interface GerarNotaDeOsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -341,14 +361,21 @@ export function GerarNotaDeOsDialog({
       setItems(mapped);
       setSelectedIds(mapped.map((item) => item.sourceItemId));
       setEntrySupplier(productsJson.destinatario ?? emptyEntrySupplier);
+      const valorFreteOrigem = Math.max(0, Number(productsJson.configuracao_fiscal?.valorFrete ?? 0));
+      const totalFiscalSugerido = mapped.reduce(
+        (total, item) => total + Math.max(0, item.quantidade * item.valorUnitario - item.valorDesconto),
+        valorFreteOrigem,
+      );
       setFiscalConfig({
         ...defaultFiscalConfig,
         ...productsJson.configuracao_fiscal,
-        pagamentos: [],
-        // Frete cobrado na origem (hoje só a venda guarda um). Fica editável na
-        // tela: a nota pode sair com outro valor, ou ganhar frete que a origem
-        // não tinha.
-        valorFrete: Math.max(0, Number(productsJson.configuracao_fiscal?.valorFrete ?? 0)),
+        pagamentos: ratearPagamentosParaTotal(
+          productsJson.configuracao_fiscal?.pagamentos ?? [],
+          totalFiscalSugerido,
+        ),
+        // Frete cobrado na venda ou na OS. O valor integral é sugerido na NF-e
+        // e continua editável antes da emissão.
+        valorFrete: valorFreteOrigem,
         transportadora: {
           ...defaultFiscalConfig.transportadora,
           ...productsJson.configuracao_fiscal?.transportadora,

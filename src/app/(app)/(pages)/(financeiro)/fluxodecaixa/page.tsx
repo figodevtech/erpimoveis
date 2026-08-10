@@ -39,6 +39,7 @@ export default function FinanceiroPage() {
     bancoId: "",
     planoContaId: "",
     centroCustoId: "",
+    metodoPagamento: "",
   });
   // Só guarda o clique do usuário, junto da aba onde ele clicou. A ordenação
   // em si é derivada abaixo — corrigi-la por efeito depois da troca de aba
@@ -126,6 +127,7 @@ export default function FinanceiroPage() {
           bancoId: relationFilters.bancoId || undefined,
           planoContaId: relationFilters.planoContaId || undefined,
           centroCustoId: relationFilters.centroCustoId || undefined,
+          metodopagamento: relationFilters.metodoPagamento || undefined,
           ordem: ordenacao.direcao,
           ordenarPor: ordenacao.campo,
         },

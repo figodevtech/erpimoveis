@@ -54,6 +54,7 @@ export type OrcamentoFormProps = {
     totalProdutos: number;
     totalServicos: number;
     desconto: number;
+    valorFrete: number;
     totalGeral: number;
   }) => void;
   onLoadingChange?: (loading: boolean) => void;

@@ -480,7 +480,7 @@ export function EmissaoNotaDialog({
 
   const titulo = useMemo(() => {
     if (!origem || !origemId) return "Emissão de Nota Fiscal";
-    if (origem === "OS") return ` ?${origemId}`;
+    if (origem === "OS") return `Emissão de Nota Fiscal - OS #${origemId}`;
     if (origem === "VENDA") return `Emissão de Nota Fiscal - Venda #${origemId}`;
     return `Emissão de Nota Fiscal - Entrada #${origemId}`;
   }, [origem, origemId]);

@@ -34,7 +34,7 @@ export async function GET(request: Request) {
 
     let osQuery = supabaseAdmin
       .from("ordemservico")
-      .select("id, status, orcamentototal, subtotal, dataentrada, datasaida, setor:setorid(id,nome), cliente:clienteid(nomerazaosocial)")
+      .select("id, status, orcamentototal, valor_frete, subtotal, dataentrada, datasaida, setor:setorid(id,nome), cliente:clienteid(nomerazaosocial)")
       .gte("dataentrada", `${inicio}T00:00:00-03:00`)
       .lte("dataentrada", `${fim}T23:59:59-03:00`)
       .order("dataentrada", { ascending: true })
@@ -105,8 +105,9 @@ export async function GET(request: Request) {
       const itensServico = servicosByOs[osId] ?? [];
       const txs = transacoesByOs[osId] ?? [];
       const faturamento = num(os.orcamentototal);
+      const frete = num(os.valor_frete);
       const subtotalItens = [...itensProduto, ...itensServico].reduce((sum, item) => sum + num(item.subtotal), 0);
-      const fator = subtotalItens > 0 ? faturamento / subtotalItens : 1;
+      const fator = subtotalItens > 0 ? Math.max(0, faturamento - frete) / subtotalItens : 1;
       let custoProdutos = 0;
       for (const item of itensProduto) {
         const produto: any = relation(item.produto as any);

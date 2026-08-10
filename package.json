@@ -17,6 +17,7 @@
     "db:deploy:demo": "tsx scripts/db/deploy-demo.ts",
     "db:deploy:clients": "tsx scripts/db/deploy-clients.ts",
     "migracao:demir:financeiro": "tsx scripts/migracao/demir-financeiro.ts",
+    "migracao:garage:contas-pagar": "tsx scripts/migracao/garagepremium-contas-pagar.ts",
     "test:fiscal": "tsx --test src/services/fiscal/*.test.ts",
     "db:remover-fantasma": "tsx scripts/db/remover-versao-fantasma.ts"
   },

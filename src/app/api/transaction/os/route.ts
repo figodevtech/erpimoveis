@@ -5,6 +5,8 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
 import { requireFinanceiroCreate, requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { calculateFinancialTotal } from "@/lib/financial-surcharge";
+import { valorDeFace } from "@/lib/financeiro/transacao";
+import { podeRegistrarPagamentoOs } from "@/lib/ordens/financeiro";
 import { aplicarCamposDocumento, erroDeDocumento } from "../_lib/documento";
 
 /** Campos graváveis em transacao */
@@ -74,8 +76,6 @@ function brl(cents: number): string {
   return `R$ ${s}`;
 }
 
-// Ajuste para o literal correto do seu enum (ex.: 'FINALIZADA')
-const TARGET_STATUS_CONCLUIDA = "CONCLUIDO";
 const TARGET_VENDA_STATUS_CONCLUIDA = "FINALIZADA";
 
 
@@ -415,6 +415,15 @@ export async function POST(req: Request) {
       if (!os) {
         return NextResponse.json({ error: "Ordem de serviço não encontrada." }, { status: 404 });
       }
+      if (!podeRegistrarPagamentoOs(os.status)) {
+        return NextResponse.json(
+          {
+            error:
+              "Pagamentos da OS só podem ser registrados em Orçamento aprovado, Em andamento ou Pagamento.",
+          },
+          { status: 409 },
+        );
+      }
 
       orcCents = moneyToCents(
         calculateFinancialTotal(
@@ -440,7 +449,7 @@ export async function POST(req: Request) {
       // 3) Soma pagamentos existentes + novo não pode ultrapassar
       const { data: transacoes, error: txErr } = await supabaseAdmin
         .from("transacao")
-        .select("valor")
+        .select("valor, valor_acrescimos")
         .eq("ordemservicoid", osId)
         .eq("tipo", "RECEITA")
         .is("evento_financeiro_id", null)
@@ -452,7 +461,7 @@ export async function POST(req: Request) {
 
       preSumCents =
         transacoes?.reduce((acc, t) => {
-          const cents = moneyToCents(t.valor as any) ?? 0;
+          const cents = moneyToCents(valorDeFace(t) as any) ?? 0;
           return acc + cents;
         }, 0) ?? 0;
 
@@ -592,33 +601,17 @@ export async function POST(req: Request) {
           { status: 409 }
         );
       }
-      return NextResponse.json({ error: (error as any).message ?? "Erro ao criar transação." }, { status: 500 });
+      const code = String((error as any).code ?? "");
+      return NextResponse.json(
+        { error: (error as any).message ?? "Erro ao criar transação." },
+        { status: ["23514", "P0001"].includes(code) ? 409 : 500 },
+      );
     }
 
-    // =================== Pós-inserção: fechar OS/Venda se bateu orçamento ===================
-
-    // OS: se total pago == orçamento, registra a conclusao financeira.
+    // O trigger financeiro do banco recalcula a OS. Em especial, pagamentos
+    // antecipados não encerram ORCAMENTO_APROVADO/EM_ANDAMENTO.
     const createdRows = data ?? [];
     const createdPayload = createdRows.length === 1 ? createdRows[0] : createdRows;
-
-    if (osId != null && preSumCents != null && orcCents != null) {
-      const novoTotal = preSumCents + valorCents!;
-      if (novoTotal === orcCents) {
-        const nowIso = new Date().toISOString();
-        const { error: updErr } = await supabaseAdmin
-          .from("ordemservico")
-          .update({
-            status: TARGET_STATUS_CONCLUIDA,
-            pagamento_concluido_em: nowIso,
-            updatedat: nowIso,
-          })
-          .eq("id", osId);
-
-        if (updErr) {
-          console.error("Falha ao atualizar status da OS:", updErr);
-        }
-      }
-    }
 
     // Venda: mantém só status + updatedat
     if (vendaId != null && preSumCents != null && orcCents != null) {

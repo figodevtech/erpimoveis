@@ -29,6 +29,13 @@ function tipoVeiculoValido(valor: string | undefined) {
   return !!valor && TIPOS_VEICULO.has(valor);
 }
 
+function removeAccents(str: string): string {
+  return str
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
 /* ========================= GET (lista paginada) ========================= */
 
 export async function GET(request: Request) {
@@ -40,7 +47,7 @@ export async function GET(request: Request) {
     const clienteId = parseIntSeguro(searchParams.get("clienteId"));
     const placaRaw = (searchParams.get("placa") || "").trim();
     const tipo = (searchParams.get("tipo") || "").trim();
-    const q = (searchParams.get("search") ?? searchParams.get("q") ?? "").trim();
+    const rawQ = (searchParams.get("search") ?? searchParams.get("q") ?? "").trim();
 
     // paginação (igual ao /products)
     const page = Math.max(Number(searchParams.get("page") ?? 1), 1);
@@ -51,36 +58,101 @@ export async function GET(request: Request) {
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
+    let isExactIdOnly = false;
+    let cleanQ = rawQ;
+
+    if (/^#\s*\d+$/.test(rawQ)) {
+      isExactIdOnly = true;
+      cleanQ = rawQ.replace(/^#\s*/, "");
+    } else if (/^id:\s*\d+$/i.test(rawQ)) {
+      isExactIdOnly = true;
+      cleanQ = rawQ.replace(/^id:\s*/i, "");
+    } else if (/^id=\s*\d+$/i.test(rawQ)) {
+      isExactIdOnly = true;
+      cleanQ = rawQ.replace(/^id=\s*/i, "");
+    }
+
     let query = supabase
       .from("veiculo")
       .select(
         "id, clienteid, placa, placa_formatada, modelo, marca, ano, cor, kmatual, tipo, chassi, ano_modelo, versao, fipe, combustivel, transmissao, imgUrl, cliente:clienteid( id, nomerazaosocial, cpfcnpj, email, telefone ), proprietarioFilter:clienteid()",
         { count: "exact" }
       )
-      .order("id", { ascending: false })
-      .range(from, to);
+      .order("id", { ascending: false });
 
     if (clienteId !== null) query = query.eq("clienteid", clienteId);
-
     if (placaRaw) query = query.eq("placa", normalizarPlaca(placaRaw));
-    if (tipo) query = query.eq("tipo", tipo);
+    if (tipo && tipo !== "TODOS") query = query.eq("tipo", tipo);
 
-    if (q) {
-      const like = `%${q}%`;
+    if (cleanQ) {
+      if (isExactIdOnly) {
+        query = query.eq("id", Number(cleanQ));
+      } else {
+        const onlyDigitsQ = cleanQ.replace(/\D+/g, "");
+        const cleanPlaca = normalizarPlaca(cleanQ);
+        const unaccentedQ = removeAccents(cleanQ);
+        const isNumeric = /^\d+$/.test(cleanQ);
 
-      query = query.or(
-        `nomerazaosocial.ilike.${like},cpfcnpj.ilike.${like},telefone.ilike.${like},email.ilike.${like}`,
-        { foreignTable: "proprietarioFilter" }
-      );
-      query = query.or(
-        `modelo.ilike.${like},marca.ilike.${like},placa.ilike.${like},placa_formatada.ilike.${like},chassi.ilike.${like},proprietarioFilter.not.is.null`
-      );
+        // Subquery ou condicional OR para buscar em campos de veículo e proprietário
+        query = query.or(
+          `nomerazaosocial.ilike.%${cleanQ}%,cpfcnpj.ilike.%${cleanQ}%,telefone.ilike.%${cleanQ}%,email.ilike.%${cleanQ}%`,
+          { foreignTable: "proprietarioFilter" }
+        );
+
+        const conditions: string[] = [
+          `modelo.ilike.%${cleanQ}%`,
+          `marca.ilike.%${cleanQ}%`,
+          `placa.ilike.%${cleanQ}%`,
+          `placa_formatada.ilike.%${cleanQ}%`,
+          `chassi.ilike.%${cleanQ}%`,
+          `cor.ilike.%${cleanQ}%`,
+          `proprietarioFilter.not.is.null`,
+        ];
+
+        if (isNumeric) {
+          conditions.push(`id.eq.${cleanQ}`);
+          if (cleanQ.length === 4) {
+            conditions.push(`ano.eq.${cleanQ}`);
+          }
+        }
+
+        if (cleanPlaca && cleanPlaca !== cleanQ) {
+          conditions.push(`placa.ilike.%${cleanPlaca}%`);
+        }
+
+        if (unaccentedQ !== cleanQ.toLowerCase()) {
+          conditions.push(`modelo.ilike.%${unaccentedQ}%`);
+          conditions.push(`marca.ilike.%${unaccentedQ}%`);
+        }
+
+        query = query.or(conditions.join(","));
+      }
     }
+
+    query = query.range(from, to);
 
     const { data, error, count } = await query;
     if (error) throw error;
 
-    const items = data ?? [];
+    let items = data ?? [];
+
+    // Prioriza ID exato ou placa exata no topo
+    if (cleanQ) {
+      const isNum = /^\d+$/.test(cleanQ);
+      const cleanP = normalizarPlaca(cleanQ);
+
+      const exactIndex = items.findIndex((item) => {
+        if (isNum && Number(item.id) === Number(cleanQ)) return true;
+        if (cleanP && normalizarPlaca(item.placa || "") === cleanP) return true;
+        return false;
+      });
+
+      if (exactIndex > 0) {
+        const [exactItem] = items.splice(exactIndex, 1);
+        items.unshift(exactItem);
+      }
+    }
+
     const total = count ?? 0;
     const totalPages = Math.max(1, Math.ceil(total / limit));
 
@@ -100,7 +172,7 @@ export async function GET(request: Request) {
         hasNextPage,
       },
       filters: {
-        search: q,
+        search: rawQ,
         clienteId,
         placa: placaRaw,
         tipo,

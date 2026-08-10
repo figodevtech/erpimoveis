@@ -9,8 +9,8 @@ import NfeSelect from "@/app/(app)/components/nfeSelect";
 
 interface BotaoNotaFiscalProps {
   setParsed: (parsed: NF | null) => void;
-    file: File | undefined;
-    setFile: (file: File | undefined) => void;
+  file: File | undefined;
+  setFile: (file: File | undefined) => void;
 
 }
 
@@ -53,21 +53,21 @@ export default function BotaoNotaFiscal({ setParsed, file, setFile }: BotaoNotaF
       handleFileChange();
     }
 
-    if(file === undefined) {
+    if (file === undefined) {
       if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
+        fileInputRef.current.value = "";
+      }
     }
   }, [file, handleFileChange]);
 
- 
+
 
   return (
     <div className="max-w-2xl mx-auto p-4 space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <label className="inline-flex items-center bg-primary text-primary-foreground gap-2 rounded-md border px-3 py-2 text-sm cursor-pointer hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">
           <UploadCloud className="h-4 w-4" />
-          {loading ? "Processando..." : "Adicionar NF"}
+          {loading ? "Processando..." : "Importar NF (XML)"}
           <input
             ref={fileInputRef}
             disabled={loading}

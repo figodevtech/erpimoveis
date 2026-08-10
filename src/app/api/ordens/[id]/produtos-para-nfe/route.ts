@@ -3,6 +3,9 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireOSAccess } from "@/app/api/_authz/perms";
 import { descontoPorItem, parcelaDoDescontoNaNota } from "@/lib/nfe/descontoOrigem";
+import { inferirDescontoGeralOs } from "@/lib/ordens/totais";
+import { mapPaymentMethodToNFe } from "@/lib/nfe/originFiscalDefaults";
+import { valorDeFace } from "@/lib/financeiro/transacao";
 
 export const runtime = "nodejs";
 
@@ -150,7 +153,7 @@ export async function GET(req: Request) {
     // 1) Garantir que a OS existe
     const { data: os, error: osError } = await supabaseAdmin
       .from("ordemservico")
-      .select("id, clienteid, observacoes_fiscais, subtotal, orcamentototal")
+      .select("id, clienteid, observacoes_fiscais, subtotal, orcamentototal, valor_frete, forma_pagamento, pagamentos_previstos")
       .eq("id", idOs)
       .maybeSingle();
 
@@ -254,10 +257,11 @@ export async function GET(req: Request) {
     });
     // Só deduz o desconto geral com a OS fechada: sem a guarda, uma OS com
     // `orcamentototal` ainda zerado viraria 100% de desconto.
-    const totalComDesconto = toNumber(os.orcamentototal);
-    const descontoGeral = totalComDesconto > 0
-      ? Math.max(0, toNumber(os.subtotal) - totalComDesconto)
-      : 0;
+    const descontoGeral = inferirDescontoGeralOs({
+      subtotal: os.subtotal,
+      orcamentoTotal: os.orcamentototal,
+      valorFrete: os.valor_frete,
+    });
     const pesosDosServicos = (servicos ?? []).map((servico: any) => toNumber(servico.subtotal));
     const descontoPorLinha = descontoPorItem(
       brutoPorItem.map((bruto, index) => ({ bruto, liquido: liquidoPorItem[index] })),
@@ -339,6 +343,37 @@ export async function GET(req: Request) {
           .maybeSingle()
       : { data: null };
 
+    const { data: transacoesPagamento, error: transacoesPagamentoError } = await supabaseAdmin
+      .from("transacao")
+      .select("metodopagamento, valor, valor_acrescimos")
+      .eq("ordemservicoid", idOs)
+      .eq("tipo", "RECEITA")
+      .is("evento_financeiro_id", null)
+      .eq("is_deleted", false)
+      .order("id", { ascending: true });
+    if (transacoesPagamentoError) throw transacoesPagamentoError;
+
+    // Pagamentos e boletos efetivamente registrados são a fonte prioritária da
+    // NF-e. Na ausência deles, preserva a previsão informada ao encerrar a OS.
+    const pagamentosRegistrados = (transacoesPagamento ?? [])
+      .filter((pagamento: any) => pagamento.metodopagamento)
+      .map((pagamento: any) => ({
+        metodo: pagamento.metodopagamento,
+        valor: valorDeFace(pagamento),
+      }));
+    const pagamentosOrigem = pagamentosRegistrados.length > 0
+      ? pagamentosRegistrados
+      : Array.isArray(os.pagamentos_previstos) && os.pagamentos_previstos.length > 0
+        ? os.pagamentos_previstos
+      : os.forma_pagamento
+        ? [{ metodo: os.forma_pagamento, valor: os.orcamentototal }]
+        : [];
+    const pagamentosAgrupados = new Map<string, number>();
+    for (const pagamento of pagamentosOrigem as any[]) {
+      const meio = mapPaymentMethodToNFe(pagamento?.metodo);
+      pagamentosAgrupados.set(meio, (pagamentosAgrupados.get(meio) ?? 0) + Math.max(0, toNumber(pagamento?.valor)));
+    }
+
     return NextResponse.json({
       ok: true,
       osId: idOs,
@@ -347,7 +382,9 @@ export async function GET(req: Request) {
       configuracao_fiscal: {
         consumidorFinal: true,
         indicadorPresenca: "1",
-        modFrete: "9",
+        modFrete: toNumber(os.valor_frete) > 0 ? "0" : "9",
+        valorFrete: Math.max(0, toNumber(os.valor_frete)),
+        pagamentos: Array.from(pagamentosAgrupados, ([meio, valor]) => ({ meio, valor })),
       },
       observacoes_fiscais: os.observacoes_fiscais ?? null,
       desconto_geral: descontoGeralDaNota,

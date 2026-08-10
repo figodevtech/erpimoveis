@@ -9,6 +9,7 @@ import {
   NFE_PRESENCE_OPTIONS,
 } from "@/lib/nfe/originFiscalDefaults";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { inferirDescontoGeralOs } from "@/lib/ordens/totais";
 import type { ClienteRow } from "@/lib/nfe/types";
 import {
   salvarNFeAvulsaDraft,
@@ -215,7 +216,7 @@ async function getEmpresaUf() {
 async function loadOs(osId: number): Promise<LoadedSource> {
   const { data: os, error: osError } = await supabaseAdmin
     .from("ordemservico")
-    .select("id, clienteid, observacoes_fiscais, subtotal, orcamentototal")
+    .select("id, clienteid, observacoes_fiscais, subtotal, orcamentototal, valor_frete")
     .eq("id", osId)
     .maybeSingle();
   if (osError) throw osError;
@@ -251,15 +252,18 @@ async function loadOs(osId: number): Promise<LoadedSource> {
   });
   // Só deduz o desconto geral quando a OS tem total fechado. Sem essa guarda,
   // uma OS com `orcamentototal` ainda zerado viraria 100% de desconto.
-  const totalComDesconto = toNumber(os.orcamentototal);
-  const descontoGeral = totalComDesconto > 0
-    ? Math.max(0, toNumber(os.subtotal) - totalComDesconto)
-    : 0;
+  const descontoGeral = inferirDescontoGeralOs({
+    subtotal: os.subtotal,
+    orcamentoTotal: os.orcamentototal,
+    valorFrete: os.valor_frete,
+  });
   const descontoPorLinha = descontoPorItem(
     brutoPorItem.map((bruto, index) => ({ bruto, liquido: liquidoPorItem[index] })),
     descontoGeral,
     (servicos ?? []).map((servico: any) => toNumber(servico.subtotal)),
   );
+  const freight = Math.max(0, toNumber(os.valor_frete));
+  const freightByItem = distribuirDinheiro(freight, liquidoPorItem);
 
   const cliente = await getCliente(Number(os.clienteid));
   return {
@@ -273,7 +277,7 @@ async function loadOs(osId: number): Promise<LoadedSource> {
     destinatario: clienteToDraft(cliente),
     consumidorFinal: true,
     indicadorPresenca: "1",
-    transporte: { modFrete: "9" },
+    transporte: { modFrete: freight > 0 ? "0" : "9" },
     itens: rows.map((row: any, index: number) => {
       const produto = normalizeRelation<ProdutoFiscalRow>(row.produto);
       return {
@@ -285,6 +289,7 @@ async function loadOs(osId: number): Promise<LoadedSource> {
         quantidade: toNumber(row.quantidade),
         valorUnitario: toNumber(row.precounitario),
         valorDesconto: descontoPorLinha[index] ?? 0,
+        valorFrete: freightByItem[index] ?? 0,
       };
     }),
   };
@@ -501,7 +506,7 @@ export async function salvarNFeDeOrigem(
       valorDesconto: tipo === "ENTRADA"
         ? sourceItem.valorDesconto ?? 0
         : item.valorDesconto ?? sourceItem.valorDesconto ?? 0,
-      valorFrete: tipo === "VENDA" ? sourceItem.valorFrete ?? 0 : item.valorFrete,
+      valorFrete: tipo === "ENTRADA" ? item.valorFrete : sourceItem.valorFrete ?? item.valorFrete ?? 0,
     } satisfies NFeAvulsaItemInput];
   });
 

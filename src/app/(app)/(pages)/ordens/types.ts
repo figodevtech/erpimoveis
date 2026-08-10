@@ -72,6 +72,7 @@ export type Ordem = {
   equipamento?: Equipamento | null;
   checklistTemplateId?: string | null;
   orcamentototal:number;
+  valor_frete?: number | null;
   subtotal?: number | null;
   desconto_tipo?: "FIXO" | "PORCENTAGEM" | null;
   desconto?: number | null;
@@ -90,5 +91,6 @@ export type Ordem = {
 export type OrcamentoTotais = {
   totalProdutos: number;
   totalServicos: number;
+  valorFrete?: number;
   totalGeral: number;
 };

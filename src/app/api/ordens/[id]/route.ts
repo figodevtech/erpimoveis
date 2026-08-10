@@ -7,6 +7,7 @@ import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
 import { requireOSEdit, requireOSAccess, hasOSRentabilidade } from "@/app/api/_authz/perms";
 import { valorDeFace } from "@/lib/financeiro/transacao";
+import { calcularResumoFinanceiroOs } from "@/lib/ordens/financeiro";
 
 type Prioridade = "BAIXA" | "NORMAL" | "ALTA";
 type AlvoTipo = "VEICULO" | "PECA" | "EQUIPAMENTO";
@@ -51,6 +52,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
           "destacada_por",
           "destacada_em",
           "orcamentototal",
+          "valor_frete",
           "subtotal",
           "desconto_tipo",
           "desconto",
@@ -104,6 +106,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       destacada_por: string | null;
       destacada_em: string | null;
       orcamentototal: number | null;
+      valor_frete?: number | null;
       subtotal?: number | null;
       desconto_tipo?: string | null;
       desconto?: number | null;
@@ -515,7 +518,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
     const trans_res = await supabase
       .from("transacao")
-      .select("id, descricao, valor, valorLiquido, valor_acrescimos, valor_descontos, data, tipo, pendente, metodopagamento, categoria, plano_de_conta, plano_de_conta_id, banco_id")
+      .select("id, descricao, valor, valorLiquido, valor_acrescimos, valor_descontos, data, tipo, pendente, metodopagamento, categoria, plano_de_conta, plano_de_conta_id, banco_id, evento_financeiro_id")
       .eq("ordemservicoid", osId)
       .eq("is_deleted", false)
       .order("data", { ascending: false });
@@ -539,6 +542,12 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       valorLiquido: t.valorLiquido == null ? toNum(t.valor) : toNum(t.valorLiquido),
       pendente: Boolean(t.pendente),
     }));
+    const resumoFinanceiro = calcularResumoFinanceiroOs({
+      totalComercial: osRow.orcamentototal,
+      acrescimoFinanceiroTipo: osRow.acrescimo_financeiro_tipo,
+      acrescimoFinanceiroValor: osRow.acrescimo_financeiro_valor,
+      transacoes,
+    });
 
     const receitasPagas = transacoes.filter((t: any) => t.tipo === "RECEITA" && !t.pendente);
     const despesas = transacoes.filter((t: any) => t.tipo === "DESPESA");
@@ -595,11 +604,13 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     const recebidoCobrado = receitasPagas.reduce((acc: number, t: any) => acc + t.valor, 0);
     const recebidoLiquido = receitasPagas.reduce((acc: number, t: any) => acc + t.valorLiquido, 0);
     const valorFinalOs = toNum(osRow.orcamentototal);
+    const valorFrete = toNum(osRow.valor_frete);
+    const valorLiquidoItensOs = Math.max(0, valorFinalOs - valorFrete);
     const subtotalItens = [...itensProduto, ...itensServico].reduce(
       (acc: number, item: any) => acc + toNum(item.subtotal),
       0,
     );
-    const fatorDescontoOs = subtotalItens > 0 ? valorFinalOs / subtotalItens : 1;
+    const fatorDescontoOs = subtotalItens > 0 ? valorLiquidoItensOs / subtotalItens : 1;
     const produtosRentabilidade = itensProduto.map((item: any) => {
       const custoAtual = item.produto?.ultimovalordecompra;
       const custoNaoInformado = item.custoUnitarioAplicado == null && custoAtual == null;
@@ -675,6 +686,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       recebidoLiquido - custoProdutos - despesasRealizadas - totalComissoesServicos;
     const rentabilidade = {
       valorFinalOs,
+      valorFrete,
       recebidoBruto,
       recebidoLiquido,
       taxasRecebimento: Math.max(0, recebidoCobrado - recebidoLiquido),
@@ -710,6 +722,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       usuariocriadorid: osRow.usuariocriadorid,
       criador,
       orcamentototal: osRow.orcamentototal,
+      valor_frete: osRow.valor_frete ?? 0,
       subtotal: osRow.subtotal ?? osRow.orcamentototal,
       desconto_tipo: osRow.desconto_tipo ?? null,
       desconto: osRow.desconto ?? 0,
@@ -783,6 +796,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         saida,
         aprovacoes,
         orcamento,
+        resumoFinanceiro,
         ...(podeVerRentabilidade ? { transacoes, rentabilidade } : {}),
       },
       { headers: { "Cache-Control": "no-store" } }

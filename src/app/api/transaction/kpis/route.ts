@@ -61,6 +61,11 @@ export async function GET(req: NextRequest) {
     const bancoId = inteiroOuNulo(searchParams.get("bancoId"));
     const planoContaId = inteiroOuNulo(searchParams.get("planoContaId"));
     const centroCustoId = inteiroOuNulo(searchParams.get("centroCustoId"));
+    const metodoPagamento = (
+      searchParams.get("metodo") ??
+      searchParams.get("metodopagamento") ??
+      ""
+    ).trim();
 
     const base = () => {
       let q = supabaseAdmin
@@ -79,6 +84,7 @@ export async function GET(req: NextRequest) {
       if (bancoId != null) q = q.eq("banco_id", bancoId);
       if (planoContaId != null) q = q.eq("plano_de_conta_id", planoContaId);
       if (centroCustoId != null) q = q.eq("centro_custo_id", centroCustoId);
+      if (metodoPagamento) q = q.eq("metodopagamento", metodoPagamento);
       return q;
     };
 

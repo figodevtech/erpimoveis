@@ -25,6 +25,7 @@ export type TotaisOrcamento = {
   descontoGeralTipo: TipoDesconto;
   descontoGeralInformado: number;
   descontoGeral: number;
+  valorFrete: number;
   totalGeral: number;
 };
 

@@ -81,6 +81,11 @@ import { Label } from "@/components/ui/label";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import type { PaymentMethodOption, PlannedPayment } from "@/lib/payment-methods";
 import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
+import { calculateFinancialTotal } from "@/lib/financial-surcharge";
+import {
+  ImpactoExclusaoFinanceiraOs,
+  useImpactoExclusaoFinanceiraOs,
+} from "./dialogs/impacto-exclusao-financeira-os";
 
 const MAX_ALVO_CHARS = 48;
 
@@ -480,8 +485,14 @@ export function OrdensTabela({
   const [confirmPaymentMethodsOpen, setConfirmPaymentMethodsOpen] = useState(false);
   const [confirmDescricaoFinanceiro, setConfirmDescricaoFinanceiro] = useState("");
   const [confirmGarantia, setConfirmGarantia] = useState("");
+  const [confirmSaldoCents, setConfirmSaldoCents] = useState<number | null>(null);
+  const [loadingConfirmSaldo, setLoadingConfirmSaldo] = useState(false);
 
-  const confirmTotalCents = moneyToCents(Number(confirmRow?.orcamentototal ?? 0));
+  const confirmTotalCents = confirmSaldoCents ?? moneyToCents(calculateFinancialTotal(
+      confirmRow?.orcamentototal,
+      confirmRow?.acrescimo_financeiro_tipo,
+      confirmRow?.acrescimo_financeiro_valor,
+    ));
   const confirmPaymentsTotalCents = confirmPaymentMethods.reduce(
     (totalCents, method) =>
       totalCents + moneyToCents(Number(confirmPaymentAmounts[method] ?? 0)),
@@ -495,6 +506,38 @@ export function OrdensTabela({
         )
           .map((method) => method.label)
           .join(", ");
+
+  useEffect(() => {
+    if (!confirmOpen || !confirmRow?.id) {
+      setConfirmSaldoCents(null);
+      setLoadingConfirmSaldo(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setLoadingConfirmSaldo(true);
+    void fetch(`/api/ordens/${confirmRow.id}`, {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload?.error || "Falha ao consultar o saldo da OS.");
+        setConfirmSaldoCents(
+          moneyToCents(payload?.resumoFinanceiro?.saldoDisponivelParaLancamento ?? 0),
+        );
+      })
+      .catch((error) => {
+        if (error?.name !== "AbortError") {
+          toast.error(error?.message || "Falha ao consultar o saldo da OS.");
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingConfirmSaldo(false);
+      });
+
+    return () => controller.abort();
+  }, [confirmOpen, confirmRow?.id]);
 
   const toggleConfirmPaymentMethod = (method: PaymentMethodOption) => {
     setConfirmPaymentMethods((current) => {
@@ -590,6 +633,15 @@ export function OrdensTabela({
   const [noChargeOpen, setNoChargeOpen] = useState(false);
   const [noChargeRow, setNoChargeRow] = useState<OrdemComDatas | null>(null);
   const [noChargeMotivo, setNoChargeMotivo] = useState("");
+  const impactoReset = useImpactoExclusaoFinanceiraOs(
+    resetOpen ? resetRow?.id : null,
+  );
+  const impactoCancelamento = useImpactoExclusaoFinanceiraOs(
+    cancelOpen ? cancelRow?.id : null,
+  );
+  const impactoSemCobranca = useImpactoExclusaoFinanceiraOs(
+    noChargeOpen ? noChargeRow?.id : null,
+  );
 
   const clearApprovalToast = () => {
     if (approvalToastId != null) {
@@ -760,21 +812,23 @@ export function OrdensTabela({
   }
 
   // ✅ Reset reaproveitando endpoint existente de status
-  async function doResetOS(id: number) {
+  async function doResetOS(id: number, transacoesFinanceirasEsperadas: string[]) {
     const tId = toast.loading(`Reiniciando OS #${id}...`, { duration: Infinity });
     try {
       const r = await fetch(`/api/ordens/${id}/status`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "ORCAMENTO" }),
+        body: JSON.stringify({ status: "ORCAMENTO", transacoesFinanceirasEsperadas }),
       });
       const j = await r.json().catch(() => ({} as any));
       if (!r.ok) throw new Error(j?.error || "Falha ao reiniciar OS");
 
       toast.success("OS reiniciada (voltou para ORCAMENTO)", { id: tId, duration: 2500 });
       window.dispatchEvent(new CustomEvent("os:refresh"));
+      return true;
     } catch (e: any) {
       toast.error(e?.message || "Falha ao reiniciar OS", { id: tId, duration: 4000 });
+      return false;
     }
   }
 
@@ -785,21 +839,27 @@ export function OrdensTabela({
     setCancelOpen(true);
   }
 
-  async function doCancelarOS(id: number, motivo: string) {
+  async function doCancelarOS(
+    id: number,
+    motivo: string,
+    transacoesFinanceirasEsperadas: string[],
+  ) {
     const tId = toast.loading(`Cancelando OS #${id}...`, { duration: Infinity });
     try {
       const r = await fetch(`/api/ordens/${id}/cancelar`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ motivo }),
+        body: JSON.stringify({ motivo, transacoesFinanceirasEsperadas }),
       });
       const j = await r.json().catch(() => ({} as any));
       if (!r.ok) throw new Error(j?.error || "Falha ao cancelar OS");
 
       toast.success("OS cancelada", { id: tId, duration: 2500 });
       window.dispatchEvent(new CustomEvent("os:refresh"));
+      return true;
     } catch (e: any) {
       toast.error(e?.message || "Falha ao cancelar OS", { id: tId, duration: 4000 });
+      return false;
     }
   }
 
@@ -810,21 +870,32 @@ export function OrdensTabela({
     setNoChargeOpen(true);
   }
 
-  async function doFinishNoCharge(id: number, motivo: string) {
+  async function doFinishNoCharge(
+    id: number,
+    motivo: string,
+    transacoesFinanceirasEsperadas: string[],
+  ) {
     const tId = toast.loading(`Finalizando OS #${id} sem cobrança...`, { duration: Infinity });
     try {
       const r = await fetch(`/api/ordens/${id}/status`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "SEM_COBRANCA", semCobranca: true, motivoSemCobranca: motivo }),
+        body: JSON.stringify({
+          status: "SEM_COBRANCA",
+          semCobranca: true,
+          motivoSemCobranca: motivo,
+          transacoesFinanceirasEsperadas,
+        }),
       });
       const j = await r.json().catch(() => ({} as any));
       if (!r.ok) throw new Error(j?.error || "Falha ao finalizar sem cobrança");
 
       toast.success("OS finalizada sem cobrança", { id: tId, duration: 2500 });
       window.dispatchEvent(new CustomEvent("os:refresh"));
+      return true;
     } catch (e: any) {
       toast.error(e?.message || "Falha ao finalizar sem cobrança", { id: tId, duration: 4000 });
+      return false;
     }
   }
 
@@ -1613,6 +1684,7 @@ export function OrdensTabela({
               setConfirmPaymentMethodsOpen(false);
               setConfirmDescricaoFinanceiro("");
               setConfirmGarantia("");
+              setConfirmSaldoCents(null);
             }
           }}
         >
@@ -1623,12 +1695,21 @@ export function OrdensTabela({
                 Confirmar envio ao Financeiro
               </AlertDialogTitle>
               <AlertDialogDescription>
-                Esta ação mudará o status da OS <b>#{confirmRow?.id}</b> para <b>PAGAMENTO</b>.
+                Esta ação encerra a execução da OS <b>#{confirmRow?.id}</b>. Se pagamentos ou títulos já cobrirem todo o valor, ela será concluída; caso contrário, seguirá para <b>PAGAMENTO</b>.
               </AlertDialogDescription>
             </AlertDialogHeader>
-            <div className="space-y-4 py-2">
+            <div className="space-y-4 py-2 bg-card rounded-2xl p-4">
               <div className="space-y-2">
                 <Label>Formas de pagamento</Label>
+                {loadingConfirmSaldo ? (
+                  <div className="flex items-center gap-2 rounded-md border p-3 text-sm text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin" /> Consultando o saldo ainda não coberto...
+                  </div>
+                ) : confirmTotalCents === 0 ? (
+                  <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm text-emerald-700 dark:text-emerald-300">
+                    O valor da OS já está integralmente coberto por pagamentos ou títulos pendentes.
+                  </div>
+                ) : null}
                 <Popover
                   open={confirmPaymentMethodsOpen}
                   onOpenChange={setConfirmPaymentMethodsOpen}
@@ -1638,6 +1719,7 @@ export function OrdensTabela({
                       type="button"
                       variant="outline"
                       className="w-full justify-between font-normal"
+                      disabled={loadingConfirmSaldo || confirmTotalCents === 0}
                     >
                       <span className="truncate">{confirmPaymentMethodsLabel}</span>
                       <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-60" />
@@ -1805,6 +1887,7 @@ export function OrdensTabela({
             <AlertDialogFooter>
               <AlertDialogCancel>Cancelar</AlertDialogCancel>
               <AlertDialogAction
+                disabled={loadingConfirmSaldo}
                 onClick={async (event) => {
                   event.preventDefault();
                   if (!confirmRow) return;
@@ -1908,25 +1991,33 @@ export function OrdensTabela({
             if (!open) setResetRow(null);
           }}
         >
-          <AlertDialogContent>
+          <AlertDialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
             <AlertDialogHeader>
               <AlertDialogTitle>Reiniciar OS</AlertDialogTitle>
               <AlertDialogDescription>
                 Isso vai retornar a OS <b>#{resetRow?.id}</b> para <b>ORCAMENTO</b>.
-                Os checklists existentes serão mantidos. Confirma?
+                Os checklists existentes serão mantidos, mas todos os pagamentos e títulos listados abaixo serão excluídos.
               </AlertDialogDescription>
             </AlertDialogHeader>
+            <ImpactoExclusaoFinanceiraOs impacto={impactoReset} />
             <AlertDialogFooter>
               <AlertDialogCancel>Cancelar</AlertDialogCancel>
               <AlertDialogAction
-                onClick={async () => {
+                disabled={!impactoReset.pronto}
+                onClick={async (event) => {
+                  event.preventDefault();
                   if (!resetRow) return;
-                  await doResetOS(resetRow.id);
+                  const sucesso = await doResetOS(resetRow.id, impactoReset.ids);
+                  if (!sucesso) {
+                    impactoReset.recarregar();
+                    return;
+                  }
                   setResetOpen(false);
                   setResetRow(null);
                 }}
               >
-                Confirmar reset
+                {!impactoReset.pronto ? <Loader2 className="size-4 animate-spin" /> : null}
+                Confirmar reinício e exclusão
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -1943,13 +2034,15 @@ export function OrdensTabela({
             }
           }}
         >
-          <AlertDialogContent>
+          <AlertDialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
             <AlertDialogHeader>
               <AlertDialogTitle>Cancelar OS</AlertDialogTitle>
               <AlertDialogDescription>
-                Informe o motivo do cancelamento da OS <b>#{cancelRow?.id}</b>. Esse campo é obrigatório.
+                Informe o motivo do cancelamento da OS <b>#{cancelRow?.id}</b>. Todos os pagamentos e títulos listados abaixo serão excluídos.
               </AlertDialogDescription>
             </AlertDialogHeader>
+
+            <ImpactoExclusaoFinanceiraOs impacto={impactoCancelamento} />
 
             <div className="mt-2 space-y-2">
               <Label className="">Motivo</Label>
@@ -1963,19 +2056,29 @@ export function OrdensTabela({
             <AlertDialogFooter>
               <AlertDialogCancel>Voltar</AlertDialogCancel>
               <AlertDialogAction
-                disabled={cancelMotivo.trim().length === 0}
-                onClick={async () => {
+                disabled={cancelMotivo.trim().length === 0 || !impactoCancelamento.pronto}
+                onClick={async (event) => {
+                  event.preventDefault();
                   if (!cancelRow) return;
                   const motivo = cancelMotivo.trim();
                   if (!motivo) return;
 
-                  await doCancelarOS(cancelRow.id, motivo);
+                  const sucesso = await doCancelarOS(
+                    cancelRow.id,
+                    motivo,
+                    impactoCancelamento.ids,
+                  );
+                  if (!sucesso) {
+                    impactoCancelamento.recarregar();
+                    return;
+                  }
                   setCancelOpen(false);
                   setCancelRow(null);
                   setCancelMotivo("");
                 }}
               >
-                Confirmar cancelamento
+                {!impactoCancelamento.pronto ? <Loader2 className="size-4 animate-spin" /> : null}
+                Confirmar cancelamento e exclusão
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -1992,7 +2095,7 @@ export function OrdensTabela({
             }
           }}
         >
-          <AlertDialogContent>
+          <AlertDialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
             <AlertDialogHeader>
               <AlertDialogTitle>Finalizar sem cobrança</AlertDialogTitle>
               <AlertDialogDescription>
@@ -2006,6 +2109,7 @@ export function OrdensTabela({
               </p>
               <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
                 <li>o orçamento é zerado — o total da OS passa a ser R$ 0,00;</li>
+                <li>todos os pagamentos e títulos vinculados serão excluídos;</li>
                 <li>as receitas de produtos e serviços saem do financeiro da OS;</li>
                 <li>
                   os custos são mantidos: as peças aplicadas continuam lançadas como despesa;
@@ -2014,6 +2118,8 @@ export function OrdensTabela({
                 <li>a OS é finalizada e seus valores ficam travados para edição.</li>
               </ul>
             </div>
+
+            <ImpactoExclusaoFinanceiraOs impacto={impactoSemCobranca} />
 
             <div className="mt-2 space-y-2">
               <Label>Motivo</Label>
@@ -2027,19 +2133,29 @@ export function OrdensTabela({
             <AlertDialogFooter>
               <AlertDialogCancel>Voltar</AlertDialogCancel>
               <AlertDialogAction
-                disabled={noChargeMotivo.trim().length === 0}
-                onClick={async () => {
+                disabled={noChargeMotivo.trim().length === 0 || !impactoSemCobranca.pronto}
+                onClick={async (event) => {
+                  event.preventDefault();
                   if (!noChargeRow) return;
                   const motivo = noChargeMotivo.trim();
                   if (!motivo) return;
 
-                  await doFinishNoCharge(noChargeRow.id, motivo);
+                  const sucesso = await doFinishNoCharge(
+                    noChargeRow.id,
+                    motivo,
+                    impactoSemCobranca.ids,
+                  );
+                  if (!sucesso) {
+                    impactoSemCobranca.recarregar();
+                    return;
+                  }
                   setNoChargeOpen(false);
                   setNoChargeRow(null);
                   setNoChargeMotivo("");
                 }}
               >
-                Finalizar sem cobrança
+                {!impactoSemCobranca.pronto ? <Loader2 className="size-4 animate-spin" /> : null}
+                Finalizar sem cobrança e excluir
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

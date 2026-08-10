@@ -221,7 +221,8 @@ export default async function OSFullPage({ params }: PageProps) {
     descontoGeralTipo,
     os.desconto
   );
-  const totalGeral = roundMoney(Math.max(0, subtotalOS - descontoGeralAplicado));
+  const valorFrete = roundMoney(Math.max(0, toNumber(os.valor_frete)));
+  const totalGeral = roundMoney(Math.max(0, subtotalOS - descontoGeralAplicado) + valorFrete);
 
   const empresaNome =
     empresa?.nomefantasia || empresa?.razaosocial || "Oficina Mecânica";
@@ -1381,6 +1382,13 @@ export default async function OSFullPage({ params }: PageProps) {
                       <span className="valor">- {fmtMoney(descontoGeralAplicado)}</span>
                     </div>
                   </>
+                ) : null}
+
+                {valorFrete > 0 ? (
+                  <div className="linha-total">
+                    <span className="label">Frete</span>
+                    <span className="valor">+ {fmtMoney(valorFrete)}</span>
+                  </div>
                 ) : null}
 
                 <div className="linha-total-final">

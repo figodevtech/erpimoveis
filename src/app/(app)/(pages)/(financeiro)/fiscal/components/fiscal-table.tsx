@@ -603,10 +603,10 @@ export default function FiscalTable({
                   ) : null}
                 </Button>
               </SheetTrigger>
-              <SheetContent>
+              <SheetContent className="p-4">
                 <SheetHeader><SheetTitle>Filtros fiscais</SheetTitle></SheetHeader>
-                <div className="grid flex-1 auto-rows-min gap-6 px-4">
-                  <div className="space-y-3">
+                <div className="grid flex-1 px-4 p-4 bg-card rounded-2xl ">
+                  <div className="space-y-3 ">
                     <p className="text-xs font-medium text-muted-foreground">Busca</p>
                     <div className="space-y-1">
                       <p className="text-[11px] text-muted-foreground">Nota, chave, pessoa, documento ou protocolo</p>
@@ -627,11 +627,11 @@ export default function FiscalTable({
                       <div className="space-y-1"><p className="text-[11px] text-muted-foreground">Modelo</p><Select value={modelo || "TODOS"} onValueChange={(value) => setModelo(value === "TODOS" ? "" : value)}><SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="TODOS">Todos modelos</SelectItem><SelectItem value="NFE">NF-e</SelectItem><SelectItem value="NFCE">NFC-e</SelectItem></SelectContent></Select></div>
                     </div>
                   </div>
+                </div>
                   <div className="mt-2 flex justify-between gap-2">
                     <Button type="button" variant="outline" onClick={limparFiltros} disabled={!search && !dateFrom && !dateTo && !status && !modelo}><XCircle className="h-4 w-4" />Limpar filtros</Button>
                     <SheetClose asChild><Button type="button" onClick={() => handleGetNotas(1, pagination.limit)}>Aplicar filtros</Button></SheetClose>
                   </div>
-                </div>
               </SheetContent>
             </Sheet>
             

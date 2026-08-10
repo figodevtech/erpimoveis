@@ -52,7 +52,8 @@ type Totais = {
   descontoGeralInformado: number;
   /** desconto geral da OS convertido em reais */
   descontoGeral: number;
-  /** subtotal - descontoGeral: é o valor que o cliente está aprovando */
+  valorFrete: number;
+  /** subtotal - descontoGeral + frete: é o valor que o cliente está aprovando */
   totalGeral: number;
 };
 
@@ -63,6 +64,7 @@ const TOTAIS_ZERADOS: Totais = {
   descontoGeralTipo: null,
   descontoGeralInformado: 0,
   descontoGeral: 0,
+  valorFrete: 0,
   totalGeral: 0,
 };
 
@@ -111,7 +113,7 @@ async function carregarPorToken(token: string): Promise<Bundle | null> {
 
   const os = await supabaseAdmin
     .from("ordemservico")
-    .select("id, status, statusaprovacao, clienteid, desconto, desconto_tipo")
+    .select("id, status, statusaprovacao, clienteid, desconto, desconto_tipo, valor_frete")
     .eq("id", osId)
     .maybeSingle();
 
@@ -203,7 +205,8 @@ async function carregarPorToken(token: string): Promise<Bundle | null> {
   const descontoGeralTipo = sanitizeTipoDesconto(os.data.desconto_tipo);
   const descontoGeralInformado = Number(os.data.desconto) || 0;
   const descontoGeral = calcularDescontoAplicado(subtotal, descontoGeralTipo, descontoGeralInformado);
-  const totalGeral = arredondarMoeda(subtotal - descontoGeral);
+  const valorFrete = arredondarMoeda(Math.max(0, Number(os.data.valor_frete) || 0));
+  const totalGeral = arredondarMoeda(subtotal - descontoGeral + valorFrete);
 
   return {
     tokenRow: tok.data,
@@ -222,6 +225,7 @@ async function carregarPorToken(token: string): Promise<Bundle | null> {
       descontoGeralTipo,
       descontoGeralInformado,
       descontoGeral,
+      valorFrete,
       totalGeral,
     },
     statusOS: (os.data.status || "ORCAMENTO") as DBStatusOS,

@@ -15,6 +15,7 @@ export interface OrdemServico {
   datasaidaprevista?: string | null;
   datasaida?: string | null;
   orcamentototal?: number | null;    // numeric
+  valor_frete?: number | null;       // numeric; compõe o total comercial
   observacoes?: string | null;
   createdat?: string | null;
   updatedat?: string | null;

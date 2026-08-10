@@ -103,6 +103,7 @@ import { DialogProduto } from "../../../estoque/components/dialog-produto/dialog
 import { Tipo_transacao, type Transaction } from "../../../(financeiro)/fluxodecaixa/types";
 import { formatPaymentMethodLabel, type PlannedPayment } from "@/lib/payment-methods";
 import { ChecklistImagePreview } from "./checklist-image-preview";
+import { FinanceiroOsTab } from "./financeiro-os-tab";
 
 const PUBLIC_APPROVAL_BASE = "/aprovacao";
 function approvalUrlFromToken(token: string) {
@@ -253,6 +254,7 @@ function fileNameFromUrl(url: string) {
 type OS = {
   id: number;
   orcamentototal?: number | null;
+  valor_frete?: number | null;
   subtotal?: number | null;
   desconto_tipo?: "FIXO" | "PORCENTAGEM" | null;
   desconto?: number | null;
@@ -435,7 +437,7 @@ type OSDetalhesResponse = {
   auditoriaResumo?: AuditoriaResumoItem[];
   eventosFinanceiros?: Array<{
     id: number;
-    origem: "PRODUTO" | "SERVICO" | "COMISSAO" | "AVULSO";
+    origem: "PRODUTO" | "SERVICO" | "COMISSAO" | "AVULSO" | "DESCONTO" | "FRETE";
     natureza: "RECEITA" | "DESPESA";
     status: "ATIVO" | "CANCELADO" | "CONVERTIDO";
     descricao: string;
@@ -466,6 +468,7 @@ type OSDetalhesResponse = {
   }>;
   rentabilidade?: {
     valorFinalOs: number;
+    valorFrete: number;
     recebidoBruto: number;
     recebidoLiquido: number;
     taxasRecebimento: number;
@@ -690,6 +693,10 @@ export function OSDetalhesDialog({
   const permissoesUsuario = (session?.user as any)?.permissoes;
   const podeVerRentabilidade = permissionSetHas(permissoesUsuario, PERMS.ORDENS_RENTABILIDADE);
   const podeVerEventosFinanceiros = permissionSetHas(permissoesUsuario, PERMS.ORDENS_EVENTOS_FINANCEIROS);
+  const podeVerFinanceiro = permissionSetHas(permissoesUsuario, PERMS.FINANCEIRO);
+  const podeCriarFinanceiro = permissionSetHas(permissoesUsuario, PERMS.FINANCEIRO_CRIAR);
+  const podeEditarFinanceiro = permissionSetHas(permissoesUsuario, PERMS.FINANCEIRO_EDITAR);
+  const podeExcluirFinanceiro = permissionSetHas(permissoesUsuario, PERMS.FINANCEIRO_EXCLUIR);
   // As rotas de evento financeiro exigem as duas permissões; sem ambas o menu
   // só ofereceria ações que voltam 403.
   const podeEditarEventosFinanceiros =
@@ -920,7 +927,8 @@ export function OSDetalhesDialog({
   useEffect(() => {
     if (currentTab === "rentabilidade" && !podeVerRentabilidade) setCurrentTab("resumo");
     if (currentTab === "fluxo-os" && !podeVerEventosFinanceiros) setCurrentTab("resumo");
-  }, [currentTab, podeVerRentabilidade, podeVerEventosFinanceiros]);
+    if (currentTab === "financeiro" && !podeVerFinanceiro) setCurrentTab("resumo");
+  }, [currentTab, podeVerRentabilidade, podeVerEventosFinanceiros, podeVerFinanceiro]);
 
   const titulo = useMemo(() => (data?.os?.id ? `Detalhes da OS #${data.os.id}` : "Detalhes da OS"), [data?.os?.id]);
 
@@ -952,13 +960,16 @@ export function OSDetalhesDialog({
     () => calcularDescontoAplicado(subtotalOS, data?.os?.desconto_tipo, data?.os?.desconto),
     [data?.os?.desconto, data?.os?.desconto_tipo, subtotalOS]
   );
+  const valorFrete = Math.max(0, Number(data?.os?.valor_frete) || 0);
   const totalGeral = useMemo(
     () => {
       const totalSalvo = Number(data?.os?.orcamentototal);
       if (data?.os?.orcamentototal != null && Number.isFinite(totalSalvo)) return totalSalvo;
-      return calcularTotalComDesconto(subtotalOS, data?.os?.desconto_tipo, data?.os?.desconto);
+      return arredondarMoeda(
+        calcularTotalComDesconto(subtotalOS, data?.os?.desconto_tipo, data?.os?.desconto) + valorFrete,
+      );
     },
-    [data?.os?.desconto, data?.os?.desconto_tipo, data?.os?.orcamentototal, subtotalOS]
+    [data?.os?.desconto, data?.os?.desconto_tipo, data?.os?.orcamentototal, subtotalOS, valorFrete]
   );
 
   const fluxoOs = useMemo(() => {
@@ -1634,6 +1645,14 @@ export function OSDetalhesDialog({
                         </span>
                       </TabsTrigger>
                     ) : null}
+                    {podeVerFinanceiro ? (
+                      <TabsTrigger value="financeiro" className={tabTriggerClass}>
+                        <span className="flex items-center gap-2">
+                          <CreditCard className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                          Pagamentos
+                        </span>
+                      </TabsTrigger>
+                    ) : null}
                     <TabsTrigger value="anexos" className={tabTriggerClass}>
                       <span className="flex items-center gap-2">
                         <Paperclip className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
@@ -2089,6 +2108,12 @@ export function OSDetalhesDialog({
                         <span className="tabular-nums">- {fmtMoney(descontoGeralAplicado)}</span>
                       </div>
                     ) : null}
+                    {valorFrete > 0 ? (
+                      <div className="flex items-center justify-between gap-4 font-medium">
+                        <span>Frete</span>
+                        <span className="tabular-nums">+ {fmtMoney(valorFrete)}</span>
+                      </div>
+                    ) : null}
                     <Separator />
                     <div className="flex items-center justify-between gap-4 pt-1">
                       <span className="font-medium">Total geral</span>
@@ -2461,6 +2486,19 @@ export function OSDetalhesDialog({
                     <p className="text-sm text-muted-foreground">Não foi possível calcular a rentabilidade.</p>
                   )}
                 </TabsContent>
+                ) : null}
+
+                {podeVerFinanceiro ? (
+                  <TabsContent value="financeiro" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 sm:px-6 sm:py-5">
+                    <FinanceiroOsTab
+                      osId={data.os.id}
+                      status={data.os.status ?? ""}
+                      podeCriar={podeCriarFinanceiro}
+                      podeEditar={podeEditarFinanceiro}
+                      podeExcluir={podeExcluirFinanceiro}
+                      onChanged={recarregarDetalhes}
+                    />
+                  </TabsContent>
                 ) : null}
 
                 {podeVerEventosFinanceiros ? (

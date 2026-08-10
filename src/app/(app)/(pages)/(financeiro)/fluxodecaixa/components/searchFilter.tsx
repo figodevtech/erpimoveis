@@ -13,6 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
 import { cn } from "@/lib/utils";
 import { Calendar as CalendarIcon, SlidersHorizontal } from "lucide-react";
 import type { Banco, FluxoViewMode, TransactionRelationFilters } from "../types";
@@ -83,6 +84,11 @@ export default function SearchFilter({
   const { categorias, loadingCategorias, errorCategorias } = useCategoriasTransacao();
   const { gruposPlanosDeConta, loadingPlanos, errorPlanos } = usePlanosDeConta();
   const { centrosCusto, loadingCentrosCusto, errorCentrosCusto } = useCentrosCusto();
+  const {
+    options: paymentMethodOptions,
+    isLoading: loadingPaymentMethods,
+    error: paymentMethodsError,
+  } = usePaymentMethodOptions();
 
   React.useEffect(() => {
     if (!sheetOpen) {
@@ -141,6 +147,7 @@ export default function SearchFilter({
     relationFilters.bancoId,
     relationFilters.planoContaId,
     relationFilters.centroCustoId,
+    relationFilters.metodoPagamento,
   ].filter(Boolean).length;
 
   const periodLabel = React.useMemo(() => {
@@ -177,6 +184,7 @@ export default function SearchFilter({
       bancoId: "",
       planoContaId: "",
       centroCustoId: "",
+      metodoPagamento: "",
     };
     setDraftRelationFilters(emptyRelations);
     setSearch("");
@@ -278,6 +286,40 @@ export default function SearchFilter({
                       <SelectItem value={Tipo_transacao.DESPESA}>Despesas</SelectItem>
                       <SelectItem value={Tipo_transacao.DEPOSITO}>Depósitos</SelectItem>
                       <SelectItem value={Tipo_transacao.SAQUE}>Saques</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Método de pagamento</Label>
+                  <Select
+                    disabled={loadingPaymentMethods || !!paymentMethodsError}
+                    value={draftRelationFilters.metodoPagamento || ""}
+                    onValueChange={(value) =>
+                      setDraftRelationFilters((current) => ({
+                        ...current,
+                        metodoPagamento: value === "TODOS" ? "" : value,
+                      }))
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue
+                        placeholder={
+                          paymentMethodsError
+                            ? "Erro ao carregar"
+                            : loadingPaymentMethods
+                              ? "Carregando..."
+                              : "Todos os métodos"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="TODOS">Todos os métodos</SelectItem>
+                      {paymentMethodOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

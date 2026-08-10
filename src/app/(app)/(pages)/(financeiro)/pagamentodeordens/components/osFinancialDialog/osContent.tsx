@@ -32,6 +32,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { formatPaymentMethodLabel } from "@/lib/payment-methods";
+import { valorDeFace } from "@/lib/financeiro/transacao";
+import type { ResumoFinanceiroOs } from "@/lib/ordens/financeiro";
 
 interface OsContentProps {
   osId: number;
@@ -170,6 +172,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
     totalPages: 0,
   });
   const [ordem, setOrdem] = useState<Ordem | undefined>(undefined);
+  const [resumoFinanceiro, setResumoFinanceiro] = useState<ResumoFinanceiroOs | null>(null);
   const [itensProduto, setItensProduto] = useState<OsProdutoItem[]>([]);
   const [itensServico, setItensServico] = useState<OsServicoItem[]>([]);
   const [anexos, setAnexos] = useState<OsAnexo[]>([]);
@@ -180,6 +183,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
   const anexoInputRef = useRef<HTMLInputElement | null>(null);
   const [descontoTipo, setDescontoTipo] = useState<"FIXO" | "PORCENTAGEM" | null>(null);
   const [desconto, setDesconto] = useState(0);
+  const [valorFrete, setValorFrete] = useState(0);
   const [acrescimoTipo, setAcrescimoTipo] = useState<"FIXO" | "PORCENTAGEM" | null>(null);
   const [acrescimo, setAcrescimo] = useState(0);
   const [isSavingDiscount, setIsSavingDiscount] = useState(false);
@@ -195,20 +199,24 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
   // A mesma trava do fluxo de caixa: sem ela o dialog abre em modo leitura.
   const podeEditarTransacao = canEdit && config?.habilitar_edicao_transacoes === true;
 
-  const totalPago = transactions?.reduce((acc, t) => acc + Number(t?.valor ?? 0), 0) ?? 0;
+  const totalPago = resumoFinanceiro?.valorComprometido ??
+    (transactions?.reduce((acc, transaction) => acc + valorDeFace(transaction), 0) ?? 0);
   const subtotalItens = [...itensProduto, ...itensServico].reduce((acc, item) => acc + toNum(item.subtotal), 0);
   const subtotalBrutoItens = [...itensProduto, ...itensServico].reduce(
     (acc, item) => acc + toNum(item.quantidade) * toNum(item.precounitario),
     0,
   );
-  const subtotalOrdem = subtotalItens > 0 ? subtotalItens : ordem?.subtotal ?? ordem?.orcamentototal ?? 0;
+  const subtotalOrdem = subtotalItens > 0
+    ? subtotalItens
+    : ordem?.subtotal ?? Math.max(0, toNum(ordem?.orcamentototal) - Math.max(0, valorFrete));
   const subtotalBrutoOrdem = subtotalBrutoItens > 0 ? subtotalBrutoItens : subtotalOrdem;
   const descontoItensAplicado = Math.max(0, arredondarMoeda(subtotalBrutoOrdem - subtotalOrdem));
   const descontoAplicado = calcularDescontoAplicado(subtotalOrdem, descontoTipo, desconto);
   const descontoTotalAplicado = arredondarMoeda(descontoItensAplicado + descontoAplicado);
   const totalComDesconto = calcularTotalComDesconto(subtotalOrdem, descontoTipo, desconto);
-  const acrescimoAplicado = calculateFinancialSurcharge(totalComDesconto, acrescimoTipo, acrescimo);
-  const totalFinanceiro = calculateFinancialTotal(totalComDesconto, acrescimoTipo, acrescimo);
+  const totalComercial = arredondarMoeda(totalComDesconto + Math.max(0, valorFrete));
+  const acrescimoAplicado = calculateFinancialSurcharge(totalComercial, acrescimoTipo, acrescimo);
+  const totalFinanceiro = calculateFinancialTotal(totalComercial, acrescimoTipo, acrescimo);
   const saldoDevedor = Math.max(0, totalFinanceiro - totalPago);
   const alvoLabel =
     ordem?.alvo_tipo === "PECA"
@@ -254,8 +262,10 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
         setItensServico(response.data.itensServico ?? []);
         setDescontoTipo(response.data.os?.desconto_tipo ?? null);
         setDesconto(toNum(response.data.os?.desconto ?? 0));
+        setValorFrete(toNum(response.data.os?.valor_frete ?? 0));
         setAcrescimoTipo(response.data.os?.acrescimo_financeiro_tipo ?? null);
         setAcrescimo(toNum(response.data.os?.acrescimo_financeiro_valor ?? 0));
+        setResumoFinanceiro(response.data.resumoFinanceiro ?? null);
       }
     } catch {
       toast.error("Não foi possível carregar a OS");
@@ -283,6 +293,8 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
         const { data } = response;
         setTransactions(data.data);
         setPagination(data.pagination);
+        const detalhes = await axios.get(`/api/ordens/${targetId}`);
+        setResumoFinanceiro(detalhes.data?.resumoFinanceiro ?? null);
       }
     } catch {
       toast.error("Não foi possível carregar as transações");
@@ -394,8 +406,10 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
       setAnexos([]);
       setDescontoTipo(null);
       setDesconto(0);
+      setValorFrete(0);
       setAcrescimoTipo(null);
       setAcrescimo(0);
+      setResumoFinanceiro(null);
       setHasLoadedOnce(false);
     }
   }, [IsOpen]);
@@ -409,7 +423,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
       </div>,
     );
     try {
-      const response = await axios.delete(`/api/transaction/${id}/os`);
+      const response = await axios.delete(`/api/transaction/${id}`);
       if (response.status === 204) {
         handleGetTransactions(pagination.page);
         toast.success("Transação deletada!");
@@ -491,6 +505,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
         })),
         descontoTipo,
         desconto,
+        valorFrete,
         acrescimoFinanceiroTipo: acrescimoTipo,
         acrescimoFinanceiroValor: acrescimoTipo ? Math.max(0, acrescimo) : 0,
       });
@@ -754,6 +769,21 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                       onChange={(value) => setDesconto(limitarDesconto(subtotalOrdem, descontoTipo, value))}
                     />
                   </div>
+                  <Button type="button" onClick={handleSaveDiscounts} disabled={isSavingDiscount || ordem.status === "CONCLUIDO"}>
+                    {isSavingDiscount ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="rounded-lg border bg-card p-4">
+                <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_200px_auto] lg:items-end">
+                  <div>
+                    <span className="text-[11px] uppercase tracking-wide text-bold">Frete da OS</span>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Compõe o total comercial e será sugerido integralmente na NF-e.
+                    </p>
+                  </div>
+                  <ValueInput value={valorFrete} onValueChange={setValorFrete} />
                   <Button type="button" onClick={handleSaveDiscounts} disabled={isSavingDiscount || ordem.status === "CONCLUIDO"}>
                     {isSavingDiscount ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
                   </Button>
@@ -1198,6 +1228,16 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
               </h1>
             </div>
             <div className="grid w-full grid-cols-[max-content_minmax(24px,1fr)_max-content] items-center gap-2">
+              <span className="text-nowrap">Frete:</span>
+              <div className="h-full w-full border-b border-dashed"></div>
+              <h1 className="text-left tabular-nums">
+                <span className="inline-grid grid-cols-[0.75rem_auto]">
+                  <span>+</span>
+                  <span>{formatarEmReal(valorFrete)}</span>
+                </span>
+              </h1>
+            </div>
+            <div className="grid w-full grid-cols-[max-content_minmax(24px,1fr)_max-content] items-center gap-2">
               <span className="text-nowrap">Acréscimo financeiro:</span>
               <div className="h-full w-full border-b border-dashed"></div>
               <h1 className="text-left tabular-nums">
@@ -1218,7 +1258,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
               </h1>
             </div>
             <div className="grid w-full grid-cols-[max-content_minmax(24px,1fr)_max-content] items-center gap-2">
-              <span className="text-nowrap">Total Pago:</span>
+              <span className="text-nowrap">Total coberto:</span>
               <div className="h-full w-full border-b border-dashed"></div>
               <h1 className="text-left font-bold tabular-nums text-blue-500">
                 <span className="inline-grid grid-cols-[0.75rem_auto]">

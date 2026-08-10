@@ -43,8 +43,15 @@ function isValidEmail(v?: string | null) {
   return /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(s);
 }
 
+function removeAccents(str: string): string {
+  return str
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
 /* ============================
-   GET /api/clientes  (listar)
+   GET /api/customers/com-veiculos (listar/buscar)
    ============================ */
 export async function GET(req: Request) {
   try {
@@ -56,12 +63,13 @@ export async function GET(req: Request) {
       searchParams.get("limit") ?? searchParams.get("pageSize") ?? "20";
     const limit = Math.min(Math.max(Number(limitRaw), 1), 100);
 
-    const q = (
+    const rawQ = (
       searchParams.get("search") ??
       searchParams.get("q") ??
       ""
     ).trim();
 
+    const tipopessoaParam = (searchParams.get("tipopessoa") ?? "").toUpperCase();
     const statusParam = (searchParams.get("status") ?? "TODOS").toUpperCase();
     const statusFilter = STATUS_SET.has(statusParam as Status)
       ? (statusParam as Status)
@@ -70,34 +78,117 @@ export async function GET(req: Request) {
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
+    let isExactIdOnly = false;
+    let cleanQ = rawQ;
+
+    if (/^#\s*\d+$/.test(rawQ)) {
+      isExactIdOnly = true;
+      cleanQ = rawQ.replace(/^#\s*/, "");
+    } else if (/^id:\s*\d+$/i.test(rawQ)) {
+      isExactIdOnly = true;
+      cleanQ = rawQ.replace(/^id:\s*/i, "");
+    } else if (/^id=\s*\d+$/i.test(rawQ)) {
+      isExactIdOnly = true;
+      cleanQ = rawQ.replace(/^id=\s*/i, "");
+    }
+
     let query = supabaseAdmin
       .from("cliente")
       .select(
         `
         id, tipopessoa, cpfcnpj, nomerazaosocial, email, telefone, endereco,
         cidade, estado, bairro, cep, inscricaoestadual, inscricaomunicipal, codigomunicipio,
-  ind_ie_dest,
-        createdat, updatedat,endereconumero, enderecocomplemento, status, veiculos: veiculo (${VEICULO_FIELDS})
+        ind_ie_dest,
+        createdat, updatedat, endereconumero, enderecocomplemento, status, veiculos: veiculo (${VEICULO_FIELDS})
         `,
         { count: "exact" }
       )
-      .order("id", { ascending: false })
-      .range(from, to);
+      .order("id", { ascending: false });
 
-    if (q) {
-      query = query.or(
-        `nomerazaosocial.ilike.%${q}%,cpfcnpj.ilike.%${q}%,email.ilike.%${q}%,telefone.ilike.%${q}%`
-      );
+    if (cleanQ) {
+      if (isExactIdOnly) {
+        query = query.eq("id", Number(cleanQ));
+      } else {
+        const onlyDigitsQ = cleanQ.replace(/\D+/g, "");
+        const unaccentedQ = removeAccents(cleanQ);
+        const hasDiffAccents = unaccentedQ !== cleanQ.toLowerCase();
+        const isNumeric = /^\d+$/.test(cleanQ);
+
+        // Buscar clientes vinculados a veículos que combinem com a busca (ex: placa, modelo, marca)
+        let vehicleClientIds: number[] = [];
+        try {
+          const { data: matchedVeiculos } = await supabaseAdmin
+            .from("veiculo")
+            .select("clienteid")
+            .or(
+              `placa.ilike.%${cleanQ}%,placa_formatada.ilike.%${cleanQ}%,modelo.ilike.%${cleanQ}%,marca.ilike.%${cleanQ}%${
+                unaccentedQ !== cleanQ ? `,modelo.ilike.%${unaccentedQ}%,marca.ilike.%${unaccentedQ}%` : ""
+              }`
+            )
+            .limit(100);
+
+          vehicleClientIds = Array.from(
+            new Set((matchedVeiculos ?? []).map((v) => Number(v.clienteid)).filter(Boolean))
+          );
+        } catch {
+          // ignora falhas secundárias de veículo
+        }
+
+        const conditions: string[] = [];
+
+        if (isNumeric) {
+          conditions.push(`id.eq.${cleanQ}`);
+        }
+
+        conditions.push(`nomerazaosocial.ilike.%${cleanQ}%`);
+        conditions.push(`cpfcnpj.ilike.%${cleanQ}%`);
+        conditions.push(`email.ilike.%${cleanQ}%`);
+        conditions.push(`telefone.ilike.%${cleanQ}%`);
+        conditions.push(`cidade.ilike.%${cleanQ}%`);
+
+        if (hasDiffAccents) {
+          conditions.push(`nomerazaosocial.ilike.%${unaccentedQ}%`);
+          conditions.push(`cidade.ilike.%${unaccentedQ}%`);
+        }
+
+        if (onlyDigitsQ && onlyDigitsQ.length >= 3 && onlyDigitsQ !== cleanQ) {
+          conditions.push(`cpfcnpj.ilike.%${onlyDigitsQ}%`);
+          conditions.push(`telefone.ilike.%${onlyDigitsQ}%`);
+        }
+
+        if (vehicleClientIds.length > 0) {
+          conditions.push(`id.in.(${vehicleClientIds.join(",")})`);
+        }
+
+        query = query.or(conditions.join(","));
+      }
+    }
+
+    if (tipopessoaParam === "FISICA" || tipopessoaParam === "JURIDICA") {
+      query = query.eq("tipopessoa", tipopessoaParam);
     }
 
     if (statusFilter) {
       query = query.eq("status", statusFilter);
     }
 
+    query = query.range(from, to);
+
     const { data, error, count } = await query;
     if (error) throw error;
 
-    const items = data ?? [];
+    let items = data ?? [];
+
+    // Prioriza ID exato no topo se for busca por ID/número
+    if (cleanQ && /^\d+$/.test(cleanQ)) {
+      const targetId = Number(cleanQ);
+      const exactIndex = items.findIndex((item) => Number(item.id) === targetId);
+      if (exactIndex > 0) {
+        const [exactItem] = items.splice(exactIndex, 1);
+        items.unshift(exactItem);
+      }
+    }
+
     const total = count ?? 0;
     const totalPages = Math.max(1, Math.ceil(total / limit));
 
@@ -116,7 +207,7 @@ export async function GET(req: Request) {
         hasPrevPage,
         hasNextPage,
       },
-      filters: { search: q, status: statusFilter ?? "TODOS" },
+      filters: { search: rawQ, status: statusFilter ?? "TODOS", tipopessoa: tipopessoaParam || "TODOS" },
     });
   } catch (e: any) {
     return NextResponse.json(

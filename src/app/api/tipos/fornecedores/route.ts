@@ -15,6 +15,13 @@ async function ensureAuth() {
   await auth();
 }
 
+function removeAccents(str: string): string {
+  return str
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
 // GET /api/tipos/fornecedores
 export async function GET(req: Request) {
   try {
@@ -25,7 +32,7 @@ export async function GET(req: Request) {
     // pagination
     const pageParam = url.searchParams.get("page");
     const limitParam = url.searchParams.get("limit");
-    const search = (url.searchParams.get("search") ?? "").trim();
+    const rawQ = (url.searchParams.get("search") ?? url.searchParams.get("q") ?? "").trim();
 
     let page = Number(pageParam || "1");
     let limit = Number(limitParam || "20");
@@ -37,6 +44,20 @@ export async function GET(req: Request) {
 
     const from = (page - 1) * limit;
     const to = from + limit - 1;
+
+    let isExactIdOnly = false;
+    let cleanQ = rawQ;
+
+    if (/^#\s*\d+$/.test(rawQ)) {
+      isExactIdOnly = true;
+      cleanQ = rawQ.replace(/^#\s*/, "");
+    } else if (/^id:\s*\d+$/i.test(rawQ)) {
+      isExactIdOnly = true;
+      cleanQ = rawQ.replace(/^id:\s*/i, "");
+    } else if (/^id=\s*\d+$/i.test(rawQ)) {
+      isExactIdOnly = true;
+      cleanQ = rawQ.replace(/^id=\s*/i, "");
+    }
 
     // base query
     let query = supabaseAdmin
@@ -62,19 +83,47 @@ export async function GET(req: Request) {
       .order("id", { ascending: false });
 
     // filtro de busca
-    if (search) {
-      const pattern = `%${search}%`;
-      // busca em razão social, fantasia e cpf/cnpj
-      query = query.or(
-        `nomerazaosocial.ilike.${pattern},nomefantasia.ilike.${pattern},cpfcnpj.ilike.${pattern}`
-      );
+    if (cleanQ) {
+      if (isExactIdOnly) {
+        query = query.eq("id", Number(cleanQ));
+      } else {
+        const onlyDigitsQ = cleanQ.replace(/\D+/g, "");
+        const unaccentedQ = removeAccents(cleanQ);
+        const hasDiffAccents = unaccentedQ !== cleanQ.toLowerCase();
+        const isNumeric = /^\d+$/.test(cleanQ);
+
+        const conditions: string[] = [];
+
+        if (isNumeric) {
+          conditions.push(`id.eq.${cleanQ}`);
+        }
+
+        conditions.push(`nomerazaosocial.ilike.%${cleanQ}%`);
+        conditions.push(`nomefantasia.ilike.%${cleanQ}%`);
+        conditions.push(`cpfcnpj.ilike.%${cleanQ}%`);
+        conditions.push(`contato.ilike.%${cleanQ}%`);
+        conditions.push(`cidade.ilike.%${cleanQ}%`);
+
+        if (hasDiffAccents) {
+          conditions.push(`nomerazaosocial.ilike.%${unaccentedQ}%`);
+          conditions.push(`nomefantasia.ilike.%${unaccentedQ}%`);
+          conditions.push(`cidade.ilike.%${unaccentedQ}%`);
+        }
+
+        if (onlyDigitsQ && onlyDigitsQ.length >= 3 && onlyDigitsQ !== cleanQ) {
+          conditions.push(`cpfcnpj.ilike.%${onlyDigitsQ}%`);
+          conditions.push(`contato.ilike.%${onlyDigitsQ}%`);
+        }
+
+        query = query.or(conditions.join(","));
+      }
     }
 
     const { data, error, count } = await query.range(from, to);
 
     if (error) throw error;
 
-    const items = (data ?? []).map((f: any) => ({
+    let items = (data ?? []).map((f: any) => ({
       id: f.id as number,
       cpfcnpj: f.cpfcnpj as string,
       nomerazaosocial: f.nomerazaosocial as string,
@@ -89,6 +138,16 @@ export async function GET(req: Request) {
       contato: (f.contato as string | null) ?? null,
       ativo: typeof f.ativo === "boolean" ? f.ativo : true,
     }));
+
+    // Prioriza ID exato no topo se for busca numérica
+    if (cleanQ && /^\d+$/.test(cleanQ)) {
+      const targetId = Number(cleanQ);
+      const exactIndex = items.findIndex((item) => Number(item.id) === targetId);
+      if (exactIndex > 0) {
+        const [exactItem] = items.splice(exactIndex, 1);
+        items.unshift(exactItem);
+      }
+    }
 
     const total = count ?? 0;
     const totalPages =

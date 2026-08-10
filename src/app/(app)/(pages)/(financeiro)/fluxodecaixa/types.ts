@@ -89,6 +89,7 @@ export type TransactionRelationFilters = {
   bancoId: string;
   planoContaId: string;
   centroCustoId: string;
+  metodoPagamento: string;
 };
 
 /**

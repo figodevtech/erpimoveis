@@ -53,3 +53,18 @@ export function mapSalesChannelToPresence(value: unknown) {
   if (channel.includes("TELEFONE") || channel.includes("TELEATENDIMENTO")) return "3";
   return "9";
 }
+
+/** Converte as formas internas do ERP para os codigos tPag da NF-e 4.00. */
+export function mapPaymentMethodToNFe(value: unknown) {
+  const method = normalizeLabel(value);
+  if (!method) return "99";
+  if (method.includes("DINHEIRO") || method === "CASH") return "01";
+  if (method.includes("CHEQUE")) return "02";
+  if (method.includes("CREDITO")) return "03";
+  if (method.includes("DEBITO")) return "04";
+  if (method.includes("BOLETO")) return "15";
+  if (method.includes("DEPOSITO")) return "16";
+  if (method.includes("PIX")) return "17";
+  if (method.includes("TRANSFER") || method === "TED" || method === "DOC") return "18";
+  return "99";
+}

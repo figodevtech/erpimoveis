@@ -17,42 +17,10 @@ function toCents(value: unknown) {
 }
 
 async function revalidarStatusOrdem(osId: number) {
-  const { data: ordem, error } = await supabaseAdmin
-    .from("ordemservico")
-    .select("id, orcamentototal, status, acrescimo_financeiro_tipo, acrescimo_financeiro_valor")
-    .eq("id", osId)
-    .maybeSingle();
-  if (error || !ordem) throw error ?? new Error("OS não encontrada.");
-
-  const { data: pagamentos, error: pagamentosError } = await supabaseAdmin
-    .from("transacao")
-    .select("valor, valor_acrescimos")
-    .eq("ordemservicoid", osId)
-    .eq("tipo", "RECEITA")
-    .is("evento_financeiro_id", null)
-    .eq("is_deleted", false);
-  if (pagamentosError) throw pagamentosError;
-
-  const totalDevido = toCents(calculateFinancialTotal(
-    ordem.orcamentototal,
-    ordem.acrescimo_financeiro_tipo,
-    ordem.acrescimo_financeiro_valor,
-  ));
-  // Face, nao bruto: juros e multa cobrados no pagamento nao abatem a OS, senao
-  // uma ordem paga com atraso fecharia como paga a mais.
-  const totalPago = (pagamentos ?? []).reduce(
-    (total, pagamento) => total + toCents(valorDeFace(pagamento)),
-    0,
-  );
-  const status = String(ordem.status ?? "").toUpperCase();
-
-  if (["CONCLUIDO", "FINALIZADA"].includes(status) && totalPago < totalDevido) {
-    const { error: updateError } = await supabaseAdmin
-      .from("ordemservico")
-      .update({ status: "PAGAMENTO", updatedat: new Date().toISOString() })
-      .eq("id", osId);
-    if (updateError) throw updateError;
-  }
+  const { error } = await supabaseAdmin.rpc("recalcular_status_financeiro_os", {
+    p_ordemservicoid: osId,
+  });
+  if (error) throw error;
 }
 
 async function revalidarStatusVenda(vendaId: number) {

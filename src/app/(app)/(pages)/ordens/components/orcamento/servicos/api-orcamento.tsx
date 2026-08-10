@@ -111,6 +111,7 @@ export async function carregarItensDaOSAPI(osId: number) {
     servicos,
     descontoTipo: (j?.descontoTipo ?? null) as TipoDesconto | null,
     desconto: toNum(j?.desconto ?? 0),
+    valorFrete: toNum(j?.valorFrete ?? 0),
   };
 }
 
@@ -125,7 +126,8 @@ export async function salvarOrcamentoAPI(
   itensProdutoAvulso: ItemProdutoAvulso[],
   itensServico: ItemServico[],
   descontoTipo?: TipoDesconto | null,
-  desconto?: number
+  desconto?: number,
+  valorFrete?: number,
 ) {
   const body = {
     produtos: itensProduto.map((p) => ({
@@ -155,6 +157,7 @@ export async function salvarOrcamentoAPI(
     })),
     descontoTipo: descontoTipo ?? null,
     desconto: desconto ?? 0,
+    valorFrete: Math.max(0, toNum(valorFrete)),
   };
 
   const r = await fetch(`/api/ordens/${osId}/orcamento`, {

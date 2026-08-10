@@ -473,6 +473,7 @@ export default function FinancialTable({
                       bancoId={relationFilters.bancoId ? Number(relationFilters.bancoId) : null}
                       planoContaId={relationFilters.planoContaId ? Number(relationFilters.planoContaId) : null}
                       centroCustoId={relationFilters.centroCustoId ? Number(relationFilters.centroCustoId) : null}
+                      metodopagamento={relationFilters.metodoPagamento || null}
                       variant="ghost"
                       className="h-8 w-full justify-start px-2 font-normal hover:cursor-pointer"
                     />

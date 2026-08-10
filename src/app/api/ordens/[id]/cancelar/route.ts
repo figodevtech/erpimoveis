@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { requireOSEdit } from "@/app/api/_authz/perms";
+import { validarSnapshotTransacoesDaOs } from "@/app/api/ordens/_lib/exclusao-financeira";
 
 export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
@@ -19,6 +20,11 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
       return NextResponse.json({ error: "Motivo do cancelamento é obrigatório." }, { status: 400 });
     }
 
+    const transacoesExcluidas = await validarSnapshotTransacoesDaOs(
+      osId,
+      body?.transacoesFinanceirasEsperadas,
+    );
+
     const { error } = await supabase
       .from("ordemservico")
       .update({
@@ -31,8 +37,11 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, transacoesExcluidas });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Erro inesperado" }, { status: 500 });
+    return NextResponse.json(
+      { error: e?.message || "Erro inesperado", codigo: e?.codigo },
+      { status: e?.statusCode || 500 },
+    );
   }
 }

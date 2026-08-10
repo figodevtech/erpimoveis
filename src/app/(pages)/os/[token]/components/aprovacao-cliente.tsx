@@ -29,6 +29,7 @@ const TOTAIS_ZERADOS: TotaisOrcamento = {
   descontoGeralTipo: null,
   descontoGeralInformado: 0,
   descontoGeral: 0,
+  valorFrete: 0,
   totalGeral: 0,
 };
 

@@ -23,6 +23,7 @@ import { dinheiro } from "./util";
 import { CampoDesconto } from "./components/campo-desconto";
 import { ProdutosAvulsos } from "./components/produtos-avulsos";
 import { useConfig } from "../../../config-context";
+import { ValueInput } from "@/components/ui/value-input";
 
 export const OrcamentoForm = forwardRef<OrcamentoFormHandle, OrcamentoFormProps>(function OrcamentoForm(
   { ordemServico, onTotaisChange, onLoadingChange },
@@ -47,8 +48,10 @@ export const OrcamentoForm = forwardRef<OrcamentoFormHandle, OrcamentoFormProps>
     removerServico,
     descontoTipo,
     desconto,
+    valorFrete,
     setDescontoTipo,
     setDesconto,
+    setValorFrete,
     subtotal,
     descontoAplicado,
     totalGeral,
@@ -106,7 +109,15 @@ export const OrcamentoForm = forwardRef<OrcamentoFormHandle, OrcamentoFormProps>
 
     try {
       setErrosEstoque({});
-      const resposta = await salvarOrcamentoAPI(osId, itensProduto, itensProdutoAvulso, itensServico, descontoTipo, desconto);
+      const resposta = await salvarOrcamentoAPI(
+        osId,
+        itensProduto,
+        itensProdutoAvulso,
+        itensServico,
+        descontoTipo,
+        desconto,
+        valorFrete,
+      );
       toast.success("Orçamento salvo com sucesso");
       // A reconciliação alcançou mês já fechado na DRE: some depois do sucesso
       // e fica mais tempo em tela, porque exige conferência.
@@ -148,7 +159,7 @@ export const OrcamentoForm = forwardRef<OrcamentoFormHandle, OrcamentoFormProps>
       // IMPORTANTE: lança erro para o pai NÃO fechar o dialog
       throw e;
     }
-  }, [osId, itensProduto, itensProdutoAvulso, itensServico, descontoTipo, desconto]);
+  }, [osId, itensProduto, itensProdutoAvulso, itensServico, descontoTipo, desconto, valorFrete]);
 
   useImperativeHandle(ref, () => ({ salvarOrcamento }), [salvarOrcamento]);
 
@@ -333,6 +344,18 @@ export const OrcamentoForm = forwardRef<OrcamentoFormHandle, OrcamentoFormProps>
                   inputClassName="h-9"
                 />
               </div>
+
+              <div className="max-w-xs space-y-1.5">
+                <Label className="text-xs">Frete da OS</Label>
+                <ValueInput
+                  value={valorFrete}
+                  onValueChange={setValorFrete}
+                  className="h-9"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Incluído no total da OS e sugerido integralmente na emissão da NF-e.
+                </p>
+              </div>
             </div>
 
             <div className="space-y-2 rounded-md border bg-background/70 p-3 text-sm">
@@ -343,6 +366,10 @@ export const OrcamentoForm = forwardRef<OrcamentoFormHandle, OrcamentoFormProps>
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">Desconto</span>
                 <span className="min-w-[130px] text-right font-medium tabular-nums">- {dinheiro(descontoAplicado)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">Frete</span>
+                <span className="min-w-[130px] text-right font-medium tabular-nums">+ {dinheiro(valorFrete)}</span>
               </div>
               <Separator />
               <div className="flex items-center justify-between gap-3 text-base">

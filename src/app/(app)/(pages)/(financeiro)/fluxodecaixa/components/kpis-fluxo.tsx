@@ -65,7 +65,7 @@ export function KpisFluxo({
    * números antigos continuam visíveis, e a transição só roda quando os novos já
    * estão em mãos — o usuário nunca vê um cartão sem valor.
    */
-  const { categoriaId, bancoId, planoContaId, centroCustoId } = relationFilters;
+  const { categoriaId, bancoId, planoContaId, centroCustoId, metodoPagamento } = relationFilters;
 
   // Primitivos, não o objeto: `relationFilters` pode vir recriado a cada render
   // do pai e refaria a consulta sem nada ter mudado.
@@ -79,8 +79,19 @@ export function KpisFluxo({
       bancoId: bancoId || undefined,
       planoContaId: planoContaId || undefined,
       centroCustoId: centroCustoId || undefined,
+      metodopagamento: metodoPagamento || undefined,
     }),
-    [viewMode, dateFrom, dateTo, search, categoriaId, bancoId, planoContaId, centroCustoId],
+    [
+      viewMode,
+      dateFrom,
+      dateTo,
+      search,
+      categoriaId,
+      bancoId,
+      planoContaId,
+      centroCustoId,
+      metodoPagamento,
+    ],
   );
 
   const chave = JSON.stringify(consulta);

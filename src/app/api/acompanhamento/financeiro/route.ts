@@ -5,6 +5,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getPaymentMethodValues } from "@/lib/payment-methods-server";
+import { calculateFinancialTotal } from "@/lib/financial-surcharge";
+import { valorDeFace } from "@/lib/financeiro/transacao";
 
 type Origem = "OS" | "VENDA";
 
@@ -38,6 +40,7 @@ type Cobranca = {
 const OS_SELECT = `
   id, descricao, status, orcamentototal, dataentrada, datasaida, updatedat,
   forma_pagamento, parcelas_pagamento, pagamentos_previstos,
+  acrescimo_financeiro_tipo, acrescimo_financeiro_valor,
   cliente:clienteid ( id, nomerazaosocial ),
   setor:setorid ( id, nome ),
   veiculo:veiculoid ( placa, modelo, marca ),
@@ -186,7 +189,7 @@ export async function GET(req: NextRequest) {
         : supabaseAdmin
             .from("ordemservico")
             .select(OS_SELECT)
-            .in("status", ["PAGAMENTO", "CONCLUIDO"])
+            .in("status", ["ORCAMENTO_APROVADO", "EM_ANDAMENTO", "PAGAMENTO", "CONCLUIDO"])
             .eq("is_deleted", false)
             .order("updatedat", { ascending: false })
             .limit(limite);
@@ -213,10 +216,11 @@ export async function GET(req: NextRequest) {
     const transacoesOsPromise = ordemIds.length
       ? supabaseAdmin
           .from("transacao")
-          .select("id, ordemservicoid, valor, data, tipo, metodopagamento")
+          .select("id, ordemservicoid, valor, valor_acrescimos, pendente, data, tipo, metodopagamento")
           .in("ordemservicoid", ordemIds)
           .eq("is_deleted", false)
           .eq("tipo", "RECEITA")
+          .is("evento_financeiro_id", null)
       : Promise.resolve({ data: [], error: null });
 
     const transacoesVendasPromise = vendaIds.length
@@ -243,11 +247,11 @@ export async function GET(req: NextRequest) {
     for (const transacao of (transacoesOsResult.data ?? []) as any[]) {
       const id = Number(transacao.ordemservicoid);
       const atual = pagamentosOs.get(id) ?? { total: 0, ultimo: null };
-      atual.total += numero(transacao.valor);
+      atual.total += valorDeFace(transacao);
       if (transacao.data && (!atual.ultimo || transacao.data > atual.ultimo)) atual.ultimo = transacao.data;
       pagamentosOs.set(id, atual);
       const lista = transacoesPorOs.get(id) ?? [];
-      lista.push({ metodopagamento: transacao.metodopagamento ?? null, valor: transacao.valor });
+      lista.push({ metodopagamento: transacao.metodopagamento ?? null, valor: valorDeFace(transacao) });
       transacoesPorOs.set(id, lista);
     }
 
@@ -267,8 +271,16 @@ export async function GET(req: NextRequest) {
     const cobrancas: Cobranca[] = [];
 
     for (const ordem of ordens) {
+      const temLancamento = transacoesPorOs.has(Number(ordem.id));
+      if (["ORCAMENTO_APROVADO", "EM_ANDAMENTO"].includes(String(ordem.status)) && !temLancamento) {
+        continue;
+      }
       const pagamento = pagamentosOs.get(Number(ordem.id)) ?? { total: 0, ultimo: null };
-      const total = moeda(numero(ordem.orcamentototal));
+      const total = moeda(calculateFinancialTotal(
+        ordem.orcamentototal,
+        ordem.acrescimo_financeiro_tipo,
+        ordem.acrescimo_financeiro_valor,
+      ));
       const pago = moeda(pagamento.total);
       const concluida = ordem.status === "CONCLUIDO";
       const atualizadoEm = ordem.datasaida ?? ordem.updatedat ?? null;

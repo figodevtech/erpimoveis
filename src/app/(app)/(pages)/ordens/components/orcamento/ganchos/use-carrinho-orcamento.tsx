@@ -13,6 +13,7 @@ export function useCarrinhoOrcamento(
     totalProdutos: number;
     totalServicos: number;
     desconto: number;
+    valorFrete: number;
     totalGeral: number;
   }) => void
 ) {
@@ -21,6 +22,7 @@ export function useCarrinhoOrcamento(
   const [itensProdutoAvulso, setItensProdutoAvulso] = useState<ItemProdutoAvulso[]>([]);
   const [descontoTipo, setDescontoTipo] = useState<TipoDesconto | null>(null);
   const [desconto, setDesconto] = useState(0);
+  const [valorFrete, setValorFrete] = useState(0);
 
   const totalProdutos = useMemo(
     () =>
@@ -35,13 +37,13 @@ export function useCarrinhoOrcamento(
     [subtotal, descontoTipo, desconto],
   );
   const totalGeral = useMemo(
-    () => calcularTotalComDesconto(subtotal, descontoTipo, desconto),
-    [subtotal, descontoTipo, desconto],
+    () => calcularTotalComDesconto(subtotal, descontoTipo, desconto) + Math.max(0, toNum(valorFrete)),
+    [subtotal, descontoTipo, desconto, valorFrete],
   );
 
   useEffect(() => {
-    onTotaisChange?.({ subtotal, totalProdutos, totalServicos, desconto: descontoAplicado, totalGeral });
-  }, [descontoAplicado, onTotaisChange, subtotal, totalGeral, totalProdutos, totalServicos]);
+    onTotaisChange?.({ subtotal, totalProdutos, totalServicos, desconto: descontoAplicado, valorFrete, totalGeral });
+  }, [descontoAplicado, onTotaisChange, subtotal, totalGeral, totalProdutos, totalServicos, valorFrete]);
 
   const carregarItensDaOS = useCallback(async () => {
     if (!osId) return;
@@ -52,6 +54,7 @@ export function useCarrinhoOrcamento(
     setItensServico(servicos);
     setDescontoTipo(data.descontoTipo);
     setDesconto(data.desconto);
+    setValorFrete(data.valorFrete);
   }, [osId]);
 
   const adicionarProduto = (p: ProdutoBusca) => {
@@ -172,8 +175,10 @@ export function useCarrinhoOrcamento(
     totalGeral,
     descontoTipo,
     desconto,
+    valorFrete,
     setDescontoTipo,
     setDesconto,
+    setValorFrete,
     carregarItensDaOS,
     adicionarProduto,
     adicionarServico,

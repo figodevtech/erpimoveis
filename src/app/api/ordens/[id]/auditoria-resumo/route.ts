@@ -283,6 +283,11 @@ function detalheCondicoesOrcamento(evento: EventoAuditoria) {
   if (mudou(anterior, novo, "desconto") || mudou(anterior, novo, "desconto_tipo")) {
     alteracoes.push(`desconto geral ${descontoFormatado(anterior)} → ${descontoFormatado(novo)}`);
   }
+  if (mudou(anterior, novo, "valor_frete")) {
+    alteracoes.push(
+      `frete ${moedaFormatada(valor(anterior, "valor_frete"))} → ${moedaFormatada(valor(novo, "valor_frete"))}`,
+    );
+  }
   if (
     mudou(anterior, novo, "acrescimo_financeiro_valor") ||
     mudou(anterior, novo, "acrescimo_financeiro_tipo")
@@ -319,6 +324,7 @@ function detalheCondicoesOrcamento(evento: EventoAuditoria) {
     mudou(anterior, novo, "orcamentototal") &&
     !mudou(anterior, novo, "desconto") &&
     !mudou(anterior, novo, "desconto_tipo") &&
+    !mudou(anterior, novo, "valor_frete") &&
     !mudou(anterior, novo, "acrescimo_financeiro_valor") &&
     !mudou(anterior, novo, "acrescimo_financeiro_tipo")
   ) {

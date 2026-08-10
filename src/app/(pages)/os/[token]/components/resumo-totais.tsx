@@ -42,6 +42,13 @@ export function ResumoTotais({ totais }: { totais: TotaisOrcamento }) {
           </>
         ) : null}
 
+        {(totais.valorFrete ?? 0) > 0 ? (
+          <div className="flex items-center justify-between gap-4">
+            <dt className="text-muted-foreground">Frete</dt>
+            <dd className="tabular-nums">+ {money(totais.valorFrete)}</dd>
+          </div>
+        ) : null}
+
         <div className="flex items-center justify-between gap-4 border-t pt-2 text-base font-semibold">
           <dt>Total</dt>
           <dd className="tabular-nums">{money(totais.totalGeral)}</dd>

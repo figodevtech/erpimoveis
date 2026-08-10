@@ -8,6 +8,10 @@ import {
 } from "@/lib/ordens/estoque-os";
 import type { PlannedPayment } from "@/lib/payment-methods";
 import { getPaymentMethodValues } from "@/lib/payment-methods-server";
+import {
+  statusExcluiTransacoesFinanceirasOs,
+  validarSnapshotTransacoesDaOs,
+} from "@/app/api/ordens/_lib/exclusao-financeira";
 
 type DBStatusOS =
   | "AGUARDANDO_CHECKLIST"
@@ -33,6 +37,7 @@ type Body = {
   pagamentosPrevistos?: PlannedPayment[];
   descricaoFinanceiro?: string | null;
   garantia?: string | null;
+  transacoesFinanceirasEsperadas?: Array<string | number>;
 };
 
 type ParamsId = { id: string };
@@ -216,27 +221,32 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
     }
 
     const updateData: any = { status };
+    let statusFinal: DBStatusOS = status;
 
     if (status === "PAGAMENTO") {
-      if (pagamentosPrevistos && pagamentosPrevistos.length > 0) {
-        const totalRes = await supabaseAdmin
-          .from("ordemservico")
-          .select("orcamentototal")
-          .eq("id", osId)
-          .maybeSingle();
-        if (totalRes.error) throw totalRes.error;
-        if (!totalRes.data) {
-          return NextResponse.json({ error: "OS não encontrada." }, { status: 404 });
-        }
+      const resumoRes = await supabaseAdmin.rpc("resumo_financeiro_os", {
+        p_ordemservicoid: osId,
+      });
+      if (resumoRes.error) throw resumoRes.error;
+      const resumoFinanceiro = Array.isArray(resumoRes.data)
+        ? resumoRes.data[0]
+        : resumoRes.data;
+      if (!resumoFinanceiro) {
+        return NextResponse.json({ error: "OS não encontrada." }, { status: 404 });
+      }
+      const saldoDisponivelCents = Math.max(
+        0,
+        Math.round(Number(resumoFinanceiro.saldo_disponivel_lancamento ?? 0) * 100),
+      );
 
-        const totalOsCents = Math.round(Number(totalRes.data.orcamentototal ?? 0) * 100);
+      if (pagamentosPrevistos && pagamentosPrevistos.length > 0) {
         const totalPagamentosCents = pagamentosPrevistos.reduce(
           (total, pagamento) => total + Math.round(pagamento.valor * 100),
           0,
         );
-        if (totalPagamentosCents !== totalOsCents) {
+        if (totalPagamentosCents !== saldoDisponivelCents) {
           return NextResponse.json(
-            { error: "A soma dos pagamentos precisa fechar o total da OS." },
+            { error: "A soma dos pagamentos previstos precisa fechar apenas o saldo ainda não coberto da OS." },
             { status: 400 },
           );
         }
@@ -298,6 +308,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
       }
     }
 
+    const transacoesExcluidas = statusExcluiTransacoesFinanceirasOs(status)
+      ? await validarSnapshotTransacoesDaOs(
+          osId,
+          body.transacoesFinanceirasEsperadas,
+        )
+      : [];
+
     // Conclusao financeira e retirada fisica sao eventos independentes.
     if (status === "CONCLUIDO") {
       updateData.pagamento_concluido_em = new Date().toISOString();
@@ -321,6 +338,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
         .update({
           desconto_tipo: "PORCENTAGEM",
           desconto: 100,
+          valor_frete: 0,
           orcamentototal: 0,
           acrescimo_financeiro_tipo: null,
           acrescimo_financeiro_valor: 0,
@@ -341,6 +359,20 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
       } else {
         throw upd.error;
       }
+    }
+
+    if (status === "PAGAMENTO") {
+      const recalc = await supabaseAdmin.rpc("recalcular_status_financeiro_os", {
+        p_ordemservicoid: osId,
+      });
+      if (recalc.error) throw recalc.error;
+      const statusRes = await supabaseAdmin
+        .from("ordemservico")
+        .select("status")
+        .eq("id", osId)
+        .single();
+      if (statusRes.error) throw statusRes.error;
+      statusFinal = statusRes.data.status as DBStatusOS;
     }
 
     // opcional: marcar tokens da OS como "usados" quando aprovar/reprovar
@@ -365,20 +397,24 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
     return NextResponse.json(
       {
         ok: true,
-        status,
+        status: statusFinal,
         statusaprovacao,
         formaPagamento,
         parcelasPagamento,
         pagamentosPrevistos,
         descricaoFinanceiro,
         garantia,
+        transacoesExcluidas,
       },
       { status: 200 },
     );
   } catch (err: any) {
     console.error("PUT /api/ordens/[id]/status", err);
     return NextResponse.json(
-      { error: err?.message || "Falha ao atualizar status" },
+      {
+        error: err?.message || "Falha ao atualizar status",
+        codigo: err?.codigo,
+      },
       { status: err?.statusCode || 500 },
     );
   }
