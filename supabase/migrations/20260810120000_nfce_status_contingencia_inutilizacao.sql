@@ -72,56 +72,135 @@ ALTER TABLE public.nfe_inutilizacao ENABLE ROW LEVEL SECURITY;
 --
 -- Uma venda ou OS não pode ter duas notas TRANSMITIDAS do mesmo modelo. O
 -- serviço já verifica antes de criar o rascunho, mas duas requisições
--- simultâneas passam pela verificação juntas — só o índice único garante.
+-- simultâneas passam pela verificação juntas — a trava transacional abaixo
+-- serializa a ocupação da origem e fecha essa corrida no banco.
 --
--- RASCUNHO fica de fora do índice de propósito: rascunho duplicado é lixo
+-- RASCUNHO fica de fora da guarda de propósito: rascunho duplicado é lixo
 -- barato, tratado na camada de serviço, e incluí-lo aqui faria esta migration
 -- quebrar em bases que já acumularam dois rascunhos para a mesma origem.
 -- REJEITADA, CANCELADA e DENEGADA também ficam fora: não ocupam mais a origem.
 -- ---------------------------------------------------------------------------
-DO $$
-DECLARE
-  v_conflitos text;
-BEGIN
-  SELECT string_agg(format('%s %s (%s notas)', origem, id_origem, qtd), '; ')
-    INTO v_conflitos
-    FROM (
-      SELECT 'venda' AS origem, vendaid AS id_origem, count(*) AS qtd
-        FROM public.nfe
-       WHERE vendaid IS NOT NULL
-         AND is_deleted = false
-         AND status IN ('ASSINADA', 'ENVIADA', 'AUTORIZADA', 'PENDENTE_ENVIO')
-       GROUP BY vendaid, modelo
-      HAVING count(*) > 1
-       UNION ALL
-      SELECT 'OS', ordemservicoid, count(*)
-        FROM public.nfe
-       WHERE ordemservicoid IS NOT NULL
-         AND is_deleted = false
-         AND status IN ('ASSINADA', 'ENVIADA', 'AUTORIZADA', 'PENDENTE_ENVIO')
-       GROUP BY ordemservicoid, modelo
-      HAVING count(*) > 1
-    ) AS duplicadas;
-
-  IF v_conflitos IS NOT NULL THEN
-    RAISE EXCEPTION
-      'Existem origens com mais de uma nota transmitida do mesmo modelo: %. Resolva (cancele ou marque como excluida a nota indevida) antes de aplicar esta migration.',
-      v_conflitos;
-  END IF;
-END;
-$$;
-
-CREATE UNIQUE INDEX IF NOT EXISTS nfe_origem_venda_modelo_transmitida_idx
+-- Bases anteriores já podem conter mais de uma nota transmitida para a mesma
+-- origem. Esses documentos fiscais não podem ser cancelados ou excluídos por uma
+-- migration. Os índices abaixo aceleram a guarda, sem reescrever o histórico.
+CREATE INDEX IF NOT EXISTS nfe_origem_venda_modelo_transmitida_idx
   ON public.nfe (vendaid, modelo)
   WHERE vendaid IS NOT NULL
     AND is_deleted = false
     AND status IN ('ASSINADA', 'ENVIADA', 'AUTORIZADA', 'PENDENTE_ENVIO', 'CONTINGENCIA', 'RESULTADO_INCERTO');
 
-CREATE UNIQUE INDEX IF NOT EXISTS nfe_origem_os_modelo_transmitida_idx
+CREATE INDEX IF NOT EXISTS nfe_origem_os_modelo_transmitida_idx
   ON public.nfe (ordemservicoid, modelo)
   WHERE ordemservicoid IS NOT NULL
     AND is_deleted = false
     AND status IN ('ASSINADA', 'ENVIADA', 'AUTORIZADA', 'PENDENTE_ENVIO', 'CONTINGENCIA', 'RESULTADO_INCERTO');
+
+-- A trava por origem fecha a corrida entre duas transmissões sem exigir que o
+-- legado já esteja limpo. Uma nota que já ocupava a origem pode avançar entre
+-- estados transmitidos; a guarda atua quando uma nova nota tenta passar a ocupar.
+CREATE OR REPLACE FUNCTION public.nfe_impedir_origem_transmitida_duplicada()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_status_ocupa boolean;
+  v_status_anterior_ocupava boolean := false;
+BEGIN
+  v_status_ocupa := NOT coalesce(NEW.is_deleted, false)
+    AND NEW.status IN (
+      'ASSINADA', 'ENVIADA', 'AUTORIZADA', 'PENDENTE_ENVIO',
+      'CONTINGENCIA', 'RESULTADO_INCERTO'
+    );
+
+  IF NOT v_status_ocupa THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'UPDATE' THEN
+    v_status_anterior_ocupava := NOT coalesce(OLD.is_deleted, false)
+      AND OLD.status IN (
+        'ASSINADA', 'ENVIADA', 'AUTORIZADA', 'PENDENTE_ENVIO',
+        'CONTINGENCIA', 'RESULTADO_INCERTO'
+      );
+
+    -- Transições como ASSINADA -> ENVIADA -> AUTORIZADA não criam uma nova
+    -- ocupação e precisam continuar funcionando inclusive no histórico legado.
+    IF v_status_anterior_ocupava
+       AND NEW.vendaid IS NOT DISTINCT FROM OLD.vendaid
+       AND NEW.ordemservicoid IS NOT DISTINCT FROM OLD.ordemservicoid
+       AND NEW.modelo IS NOT DISTINCT FROM OLD.modelo THEN
+      RETURN NEW;
+    END IF;
+  END IF;
+
+  IF NEW.vendaid IS NOT NULL THEN
+    PERFORM pg_advisory_xact_lock(
+      hashtextextended(format('nfe:venda:%s:modelo:%s', NEW.vendaid, NEW.modelo), 0)
+    );
+
+    IF EXISTS (
+      SELECT 1
+        FROM public.nfe existente
+       WHERE existente.id <> coalesce(NEW.id, -1)
+         AND existente.vendaid = NEW.vendaid
+         AND existente.modelo = NEW.modelo
+         AND existente.is_deleted = false
+         AND existente.status IN (
+           'ASSINADA', 'ENVIADA', 'AUTORIZADA', 'PENDENTE_ENVIO',
+           'CONTINGENCIA', 'RESULTADO_INCERTO'
+         )
+    ) THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23505',
+        MESSAGE = format(
+          'A venda %s já possui uma nota transmitida do modelo %s.',
+          NEW.vendaid,
+          NEW.modelo
+        ),
+        CONSTRAINT = 'nfe_origem_venda_modelo_transmitida_idx';
+    END IF;
+  END IF;
+
+  IF NEW.ordemservicoid IS NOT NULL THEN
+    PERFORM pg_advisory_xact_lock(
+      hashtextextended(format('nfe:os:%s:modelo:%s', NEW.ordemservicoid, NEW.modelo), 0)
+    );
+
+    IF EXISTS (
+      SELECT 1
+        FROM public.nfe existente
+       WHERE existente.id <> coalesce(NEW.id, -1)
+         AND existente.ordemservicoid = NEW.ordemservicoid
+         AND existente.modelo = NEW.modelo
+         AND existente.is_deleted = false
+         AND existente.status IN (
+           'ASSINADA', 'ENVIADA', 'AUTORIZADA', 'PENDENTE_ENVIO',
+           'CONTINGENCIA', 'RESULTADO_INCERTO'
+         )
+    ) THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23505',
+        MESSAGE = format(
+          'A OS %s já possui uma nota transmitida do modelo %s.',
+          NEW.ordemservicoid,
+          NEW.modelo
+        ),
+        CONSTRAINT = 'nfe_origem_os_modelo_transmitida_idx';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_nfe_origem_transmitida_unica ON public.nfe;
+CREATE TRIGGER trg_nfe_origem_transmitida_unica
+BEFORE INSERT OR UPDATE OF vendaid, ordemservicoid, modelo, status, is_deleted
+ON public.nfe
+FOR EACH ROW
+EXECUTE FUNCTION public.nfe_impedir_origem_transmitida_duplicada();
 
 -- ---------------------------------------------------------------------------
 -- Os dois estados novos SEGURAM o número
