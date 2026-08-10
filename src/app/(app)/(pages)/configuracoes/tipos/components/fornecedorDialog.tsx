@@ -7,12 +7,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Loader2, Search } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/lib/toast";
+import { isValidCnpj, onlyFiscalDigits } from "@/lib/nfe/recipientNormalization";
 import { formatCpfCnpj } from "../../../(financeiro)/fluxodecaixa/utils";
 import { formatCep } from "../../../clientes/components/customerDialogRegister/utils";
 
@@ -85,12 +86,91 @@ export default function FornecedorDialog({
 }: FornecedorDialogProps) {
   const [form, setForm] = useState<FornecedorForm>(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoadingCnpj, setIsLoadingCnpj] = useState(false);
+  const lastCnpjRequested = useRef("");
+  const cnpjRequestSequence = useRef(0);
+  const cnpjRequestController = useRef<AbortController | null>(null);
 
   function handleChange<K extends keyof FornecedorForm>(
     key: K,
     value: FornecedorForm[K],
   ) {
     setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function handleGetCnpj(document?: string) {
+    const cnpj = onlyFiscalDigits(document ?? form.cpfcnpj);
+    if (!isValidCnpj(cnpj)) {
+      toast.warning("Informe um CNPJ válido para realizar a consulta.");
+      return;
+    }
+
+    const requestId = ++cnpjRequestSequence.current;
+    cnpjRequestController.current?.abort();
+    const controller = new AbortController();
+    cnpjRequestController.current = controller;
+    lastCnpjRequested.current = cnpj;
+    setIsLoadingCnpj(true);
+
+    try {
+      const response = await fetch(`https://publica.cnpj.ws/cnpj/${cnpj}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        if (response.status === 429) {
+          throw new Error(
+            "Muitas consultas foram realizadas. Aguarde um pouco e tente novamente.",
+          );
+        }
+        if (response.status === 400 || response.status === 404) {
+          throw new Error("CNPJ não encontrado. Confira o número informado.");
+        }
+        throw new Error("Não foi possível consultar os dados do CNPJ.");
+      }
+
+      const company = await response.json();
+      const establishment = company?.estabelecimento;
+      const state = String(establishment?.estado?.sigla ?? "").trim().toUpperCase();
+      const city = String(establishment?.cidade?.nome ?? "").trim();
+      const cityCode = onlyFiscalDigits(establishment?.cidade?.ibge_id).slice(0, 7);
+
+      if (!company?.razao_social || !establishment || !state || !city || !cityCode) {
+        throw new Error("A consulta não retornou dados cadastrais suficientes.");
+      }
+
+      const phone = onlyFiscalDigits(
+        `${establishment.ddd1 ?? establishment.ddd2 ?? ""}${
+          establishment.telefone1 ?? establishment.telefone2 ?? ""
+        }`,
+      ).slice(0, 14);
+
+      if (requestId !== cnpjRequestSequence.current) return;
+
+      setForm((current) => ({
+        ...current,
+        cpfcnpj: cnpj,
+        nomerazaosocial: String(company.razao_social ?? "").trim(),
+        nomefantasia: String(establishment.nome_fantasia ?? "").trim(),
+        endereco: String(establishment.logradouro ?? "").trim(),
+        endereconumero: String(establishment.numero ?? "").trim(),
+        cidade: city,
+        bairro: String(establishment.bairro ?? "").trim(),
+        codigomunicipio: cityCode,
+        estado: state,
+        cep: onlyFiscalDigits(establishment.cep).slice(0, 8),
+        contato: phone,
+      }));
+      toast.success("Dados do CNPJ preenchidos com sucesso.");
+    } catch (error: any) {
+      if (error?.name === "AbortError") return;
+      toast.error(error?.message || "Erro ao consultar o CNPJ.");
+    } finally {
+      if (requestId === cnpjRequestSequence.current) {
+        setIsLoadingCnpj(false);
+      }
+    }
   }
 
   async function handleSave() {
@@ -176,6 +256,17 @@ export default function FornecedorDialog({
     }
   }, [fornecedorToEdit]);
 
+  useEffect(() => {
+    if (!dialogOpen) {
+      cnpjRequestSequence.current += 1;
+      cnpjRequestController.current?.abort();
+      lastCnpjRequested.current = "";
+      setIsLoadingCnpj(false);
+    }
+  }, [dialogOpen]);
+
+  useEffect(() => () => cnpjRequestController.current?.abort(), []);
+
   return (
     <Dialog
       open={dialogOpen}
@@ -200,12 +291,53 @@ export default function FornecedorDialog({
               <div className="grid gap-4 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,2fr)]">
                 <div className="space-y-1.5">
                   <Label>CPF/CNPJ</Label>
-                  <Input
-                    value={formatCpfCnpj(form.cpfcnpj || "")}
-                    onChange={(e) => handleChange("cpfcnpj", e.target.value)}
-                    placeholder="Somente números"
-                    maxLength={18}
-                  />
+                  <div className="relative">
+                    <Input
+                      className="pr-10"
+                      inputMode="numeric"
+                      value={formatCpfCnpj(form.cpfcnpj || "")}
+                      onChange={(event) => {
+                        const cnpj = onlyFiscalDigits(event.target.value).slice(0, 14);
+                        handleChange("cpfcnpj", cnpj);
+
+                        if (cnpj.length < 14) {
+                          cnpjRequestSequence.current += 1;
+                          cnpjRequestController.current?.abort();
+                          lastCnpjRequested.current = "";
+                          setIsLoadingCnpj(false);
+                        } else if (
+                          isValidCnpj(cnpj) &&
+                          cnpj !== lastCnpjRequested.current
+                        ) {
+                          void handleGetCnpj(cnpj);
+                        }
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void handleGetCnpj();
+                        }
+                      }}
+                      placeholder="00.000.000/0000-00"
+                      maxLength={18}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-9 w-9"
+                      disabled={isLoadingCnpj}
+                      onClick={() => void handleGetCnpj()}
+                      aria-label="Consultar CNPJ"
+                      title="Consultar CNPJ"
+                    >
+                      {isLoadingCnpj ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Search className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
                 </div>
                 <div className="space-y-1.5">
                   <Label>Nome/Razão Social</Label>
@@ -331,7 +463,11 @@ export default function FornecedorDialog({
               >
                 Cancelar
               </Button>
-              <Button type="button" onClick={handleSave} disabled={isSaving}>
+              <Button
+                type="button"
+                onClick={handleSave}
+                disabled={isSaving || isLoadingCnpj}
+              >
                 {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Salvar
               </Button>

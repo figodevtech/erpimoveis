@@ -77,6 +77,12 @@ interface RegisterContentProps {
   isDesktop?: boolean;
 }
 
+type CnpjInscricaoEstadual = {
+  ativo?: boolean | null;
+  inscricao_estadual?: string | number | null;
+  estado?: { sigla?: string | null } | null;
+};
+
 const statusOptionClass: Record<StatusCliente, string> = {
   ATIVO:
     "bg-emerald-100 text-emerald-800 focus:bg-emerald-100 focus:text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300 dark:focus:bg-emerald-950/50 dark:focus:text-emerald-300",
@@ -175,19 +181,46 @@ export default function RegisterContent({
       if (response.status === 200) {
         console.log(response.data);
         const juridica = response.data;
+        const estabelecimento = juridica.estabelecimento;
+        const uf = String(estabelecimento?.estado?.sigla ?? "")
+          .trim()
+          .toUpperCase();
+        const inscricoesEstaduais: CnpjInscricaoEstadual[] = Array.isArray(
+          estabelecimento?.inscricoes_estaduais,
+        )
+          ? estabelecimento.inscricoes_estaduais
+          : [];
+        const inscricaoEstadual =
+          inscricoesEstaduais.find(
+            (inscricao) =>
+              inscricao?.ativo !== false &&
+              String(inscricao?.estado?.sigla ?? "").toUpperCase() === uf,
+          ) ??
+          inscricoesEstaduais.find((inscricao) => inscricao?.ativo !== false) ??
+          inscricoesEstaduais.find(
+            (inscricao) =>
+              String(inscricao?.estado?.sigla ?? "").toUpperCase() === uf,
+          ) ??
+          inscricoesEstaduais[0];
+        const ie = String(inscricaoEstadual?.inscricao_estadual ?? "")
+          .replace(/\D/g, "")
+          .trim();
+
         setNewCustomer({
           ...newCustomer,
           nomerazaosocial: String(juridica.razao_social ?? "").toLocaleUpperCase("pt-BR"),
-          cep: juridica.estabelecimento.cep,
-          email: juridica.estabelecimento.email,
-          endereconumero: juridica.estabelecimento.numero,
-          telefone: `${juridica.estabelecimento.ddd1}${juridica.estabelecimento.telefone1}`,
-          estado: juridica.estabelecimento.estado.sigla,
-          cidade: juridica.estabelecimento.cidade.nome,
-          codigomunicipio: String(juridica.estabelecimento.cidade.ibge_id),
-          endereco: juridica.estabelecimento.logradouro,
-          enderecocomplemento: juridica.estabelecimento.complemento,
-          bairro: juridica.estabelecimento.bairro,
+          cep: estabelecimento.cep,
+          email: estabelecimento.email,
+          endereconumero: estabelecimento.numero,
+          telefone: `${estabelecimento.ddd1}${estabelecimento.telefone1}`,
+          estado: uf,
+          cidade: estabelecimento.cidade.nome,
+          codigomunicipio: String(estabelecimento.cidade.ibge_id),
+          endereco: estabelecimento.logradouro,
+          enderecocomplemento: estabelecimento.complemento,
+          bairro: estabelecimento.bairro,
+          inscricaoestadual: ie,
+          ind_ie_dest: ie ? 1 : newCustomer.ind_ie_dest,
         });
       }
     } catch (error) {
