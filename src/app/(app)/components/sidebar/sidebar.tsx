@@ -37,6 +37,7 @@ import {
   CreditCard,
   MonitorCheck,
   ChartNoAxesCombined,
+  Send,
 } from "lucide-react";
 
 import { NavMain } from "./components/nav-main";
@@ -289,6 +290,12 @@ const data = {
           title: "Checklist",
           url: "/configuracoes/checklist",
           icon: SquareCheckBig,
+          perm: PERMS.CONFIG,
+        },
+        {
+          title: "Telegram",
+          url: "/configuracoes/telegram",
+          icon: Send,
           perm: PERMS.CONFIG,
         },
         {

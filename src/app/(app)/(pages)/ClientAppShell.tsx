@@ -39,6 +39,7 @@ const routeTitles: Record<string, string> = {
   "/configuracoes/fiscal-pagamentos": "Configurações Fiscais e de Pagamentos",
   "/configuracoes/checklist": "Gerenciamento de Checklists",
   "/configuracoes/auditoria": "Auditoria",
+  "/configuracoes/telegram": "Integração com Telegram",
   "/nao-autorizado": "Acesso não autorizado",
   "/configuracoes/tipos": "Configurações de Tipos",
   "/historicovendas": "Histórico de Vendas",
