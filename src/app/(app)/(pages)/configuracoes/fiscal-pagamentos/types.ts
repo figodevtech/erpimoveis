@@ -1,5 +1,10 @@
 "use client";
 
+import type {
+  CodigosFiscaisForm,
+  ModeloEmissao,
+} from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/emissao-nfse-dialog/types";
+
 export type Empresa = {
   empresaId: number;
   cnpj: string;
@@ -96,6 +101,14 @@ export type NFSecfg = {
   token?: string;
   certificadoA1Base64?: string;
   senhaCertificado?: string;
+  /**
+   * Códigos que já vêm preenchidos ao emitir uma NFS-e, por modelo de emissão.
+   *
+   * Precisa viajar junto no formulário: o `PUT /api/config/nfse` regrava
+   * `padroes_emissao` com o que receber, então salvar a aba sem este campo
+   * apagaria o padrão inteiro.
+   */
+  padroesEmissao?: Partial<Record<ModeloEmissao, Partial<CodigosFiscaisForm>>>;
 };
 
 export type CartaoCfg = {

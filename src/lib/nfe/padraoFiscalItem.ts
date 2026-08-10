@@ -24,6 +24,16 @@ import type { CRT, ClassificacaoTributariaRtc, ModoCalculoPisCofins } from './ty
 
 /** De onde saiu o valor final de cada campo. */
 export const ORIGEM_PADRAO = 'PADRAO';
+/**
+ * Padrão do próprio modelo não existia e o da NF-e foi aproveitado.
+ *
+ * O perfil tributário de uma mercadoria não muda porque o documento é 55 ou 65
+ * — CSOSN, origem e CST de PIS/COFINS saem do produto e do regime, não do
+ * modelo. Só o CFOP realmente difere, e o prefixo dele é corrigido depois por
+ * `normalizeCfopForOperation`. Ainda assim o valor sai marcado, porque quem
+ * confere precisa saber que aquilo foi cadastrado pensando em outro documento.
+ */
+export const ORIGEM_PADRAO_HERDADO = 'PADRAO_NFE';
 export const ORIGEM_VAZIO = 'VAZIO';
 /** Valor imposto pela regra fiscal, não por cadastro (modo exigido pelo CST). */
 export const ORIGEM_REGRA = 'REGRA';
@@ -123,13 +133,14 @@ function primeiro(
   fontes: FonteValoresFiscais[],
   padrao: PadraoFiscalItem | null | undefined,
   campo: keyof ValoresFiscaisParciais,
+  rotuloPadrao: string,
 ): { valor: unknown; origem: string } {
   for (const fonte of fontes) {
     const valor = fonte.valores?.[campo];
     if (!vazio(valor)) return { valor, origem: fonte.origem };
   }
   const doPadrao = padrao?.[campo];
-  if (!vazio(doPadrao)) return { valor: doPadrao, origem: ORIGEM_PADRAO };
+  if (!vazio(doPadrao)) return { valor: doPadrao, origem: rotuloPadrao };
   return { valor: null, origem: ORIGEM_VAZIO };
 }
 
@@ -139,6 +150,11 @@ export type ResolverPadraoFiscalArgs = {
   padrao?: PadraoFiscalItem | null;
   /** Regime tributário do emitente. Decide entre CSOSN e CST de ICMS. */
   crt?: CRT | number | null;
+  /**
+   * Rótulo de procedência dos valores vindos do padrão. Use
+   * `ORIGEM_PADRAO_HERDADO` quando o padrão não é o do próprio modelo.
+   */
+  rotuloPadrao?: string;
 };
 
 /**
@@ -153,6 +169,7 @@ export function resolverPadraoFiscalItem({
   fontes,
   padrao,
   crt,
+  rotuloPadrao = ORIGEM_PADRAO,
 }: ResolverPadraoFiscalArgs): PadraoFiscalResolvido {
   const regime = Number(crt ?? 0);
   const usaCsosn = regime === 1 || regime === 4;
@@ -177,12 +194,12 @@ export function resolverPadraoFiscalItem({
     campo: K & keyof ValoresFiscaisParciais,
     tamanho?: number,
   ) => {
-    const { valor, origem } = primeiro(fontes, padrao, campo);
+    const { valor, origem } = primeiro(fontes, padrao, campo, rotuloPadrao);
     definir(campo, digitos(valor, tamanho) as CamposFiscaisResolvidos[K], origem);
   };
 
   const decimal = <K extends CampoFiscal>(campo: K & keyof ValoresFiscaisParciais) => {
-    const { valor, origem } = primeiro(fontes, padrao, campo);
+    const { valor, origem } = primeiro(fontes, padrao, campo, rotuloPadrao);
     definir(campo, numero(valor) as CamposFiscaisResolvidos[K], origem);
   };
 
@@ -190,8 +207,8 @@ export function resolverPadraoFiscalItem({
   texto('cfop', 4);
 
   // ---- ICMS ---------------------------------------------------------------
-  const icmsSn = primeiro(fontes, padrao, 'csosn');
-  const icmsNormal = primeiro(fontes, padrao, 'cst');
+  const icmsSn = primeiro(fontes, padrao, 'csosn', rotuloPadrao);
+  const icmsNormal = primeiro(fontes, padrao, 'cst', rotuloPadrao);
   definir('csosn', usaCsosn ? digitos(icmsSn.valor, 3) : null, icmsSn.origem);
   definir('cst', usaCstIcms ? digitos(icmsNormal.valor, 2) : null, icmsNormal.origem);
   decimal('aliquotaicms');
@@ -209,7 +226,7 @@ export function resolverPadraoFiscalItem({
     // O CST manda no modo. Quando ele exige um modo específico, nem o cadastro
     // nem o padrão podem contrariar — a validação recusaria a combinação.
     const exigido = getRequiredPisCofinsMode(cst);
-    const escolhido = primeiro(fontes, padrao, campoModo);
+    const escolhido = primeiro(fontes, padrao, campoModo, rotuloPadrao);
     const modoFinal = exigido ?? modo(escolhido.valor);
     definir(campoModo, modoFinal, exigido ? ORIGEM_REGRA : escolhido.origem);
 
@@ -225,8 +242,21 @@ export function resolverPadraoFiscalItem({
   }
 
   // ---- IBS/CBS (reforma tributária) ---------------------------------------
-  const rtc = primeiro(fontes, padrao, 'rtc_habilitado');
-  definir('rtc_habilitado', rtc.valor === true || String(rtc.valor) === 'true', rtc.origem);
+  //
+  // `rtc_habilitado` não passa pela precedência normal, e de propósito: no
+  // produto ele é `boolean NOT NULL DEFAULT false`, então não existe "não
+  // informado" para distinguir de "desligado de propósito". Tratar o `false`
+  // do cadastro como decisão faria o padrão nunca conseguir ligar o grupo —
+  // justamente o que se quer configurar num lugar só. Aqui vale o OU: liga se
+  // qualquer fonte ou o padrão disser que sim.
+  const ligado = (valor: unknown) => valor === true || String(valor) === 'true';
+  const fonteRtc = fontes.find((fonte) => ligado(fonte.valores?.rtc_habilitado));
+  const padraoRtc = ligado(padrao?.rtc_habilitado);
+  definir(
+    'rtc_habilitado',
+    Boolean(fonteRtc) || padraoRtc,
+    fonteRtc ? fonteRtc.origem : rotuloPadrao,
+  );
   texto('cst_ibscbs', 3);
   texto('cclass_trib', 6);
   decimal('aliquota_ibs_uf');
@@ -480,7 +510,12 @@ export function validarPadraoFiscalItem({
   return issues;
 }
 
-/** Ramo do padrão que vale para a operação. */
+/**
+ * Ramo do padrão que vale para a operação.
+ *
+ * Ramo sem nenhuma chave conta como ausente: é assim que o modelo cai para o
+ * padrão herdado em vez de emitir com tudo em branco.
+ */
 export function padraoDaOperacao(
   padroes: unknown,
   operacao: 'SAIDA' | 'ENTRADA',
@@ -488,5 +523,5 @@ export function padraoDaOperacao(
   if (!padroes || typeof padroes !== 'object' || Array.isArray(padroes)) return null;
   const ramo = (padroes as Record<string, unknown>)[operacao];
   if (!ramo || typeof ramo !== 'object' || Array.isArray(ramo)) return null;
-  return ramo as PadraoFiscalItem;
+  return Object.keys(ramo).length > 0 ? (ramo as PadraoFiscalItem) : null;
 }

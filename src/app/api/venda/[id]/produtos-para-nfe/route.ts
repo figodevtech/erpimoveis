@@ -130,7 +130,7 @@ export async function GET(
     // nasceu, e o padrão fiscal da NFC-e é outro.
     const modeloParam = new URL(req.url).searchParams.get("modelo");
     const modelo = modeloParam ? exigirModelo(modeloParam) : MODELO_NFE;
-    const { padrao, crt } = await buscarContextoPadraoFiscal(modelo, "SAIDA");
+    const { padrao, crt, rotuloPadrao } = await buscarContextoPadraoFiscal(modelo, "SAIDA");
     // 1) garantir que venda existe
     const { data: venda, error: vendaError } = await supabaseAdmin
       .from("venda")
@@ -246,6 +246,7 @@ export async function GET(
         fontes: [{ origem: "PRODUTO", valores: p }],
         padrao,
         crt,
+        rotuloPadrao,
       });
 
       return {

@@ -62,19 +62,32 @@ const ORIGENS = ORIGENS_MERCADORIA;
  * cadastrou este produto assim" — e é essa diferença que decide se corrigir o
  * item resolve uma nota ou todas as próximas.
  */
+const SELOS: Record<string, { texto: string; titulo: string }> = {
+  PADRAO: {
+    texto: "padrão",
+    titulo:
+      "Veio do padrão fiscal em Configurações › Fiscal, porque o produto não tem este campo.",
+  },
+  PADRAO_NFE: {
+    texto: "padrão NF-e",
+    titulo:
+      "A NFC-e ainda não tem padrão próprio, então aproveitou o da NF-e. Para separar os dois, preencha o padrão da NFC-e em Configurações › Fiscal.",
+  },
+  REGRA: {
+    texto: "regra",
+    titulo: "Imposto pelo CST escolhido; alterar aqui seria recusado na validação.",
+  },
+};
+
 function SeloProcedencia({ origem }: { origem?: string }) {
-  if (origem !== "PADRAO" && origem !== "REGRA") return null;
-  const padrao = origem === "PADRAO";
+  const selo = origem ? SELOS[origem] : undefined;
+  if (!selo) return null;
   return (
     <span
       className="ml-1 rounded border px-1 py-px align-middle text-[10px] font-normal text-muted-foreground"
-      title={
-        padrao
-          ? "Veio do padrão fiscal em Configurações › Fiscal, porque o produto não tem este campo."
-          : "Imposto pelo CST escolhido; alterar aqui seria recusado na validação."
-      }
+      title={selo.titulo}
     >
-      {padrao ? "padrão" : "regra"}
+      {selo.texto}
     </span>
   );
 }
