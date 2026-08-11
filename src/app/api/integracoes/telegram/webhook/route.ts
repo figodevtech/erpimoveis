@@ -20,7 +20,11 @@ async function reply(chatId: number, text: string) {
 
 async function handleStart(update: TelegramUpdate, token: string) {
   const message = update.message;
-  if (!message?.from || message.chat.type !== "private" || !token) return;
+  if (!message?.from || message.chat.type !== "private") return;
+  if (!token) {
+    await reply(message.chat.id, "Use o link de vínculo gerado em <b>Configurações &gt; Telegram</b> no ERP. O botão Iniciar sozinho não identifica o destinatário.");
+    return;
+  }
   const tokenHash = hashTelegramLinkToken(token);
   const now = new Date().toISOString();
   const { data: link, error: linkError } = await supabaseAdmin

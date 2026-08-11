@@ -62,12 +62,14 @@ function getBotToken() {
 export function getTelegramEnvironment() {
   const botUsername = String(process.env.TELEGRAM_BOT_USERNAME ?? "").trim().replace(/^@/, "");
   const webhookSecret = String(process.env.TELEGRAM_WEBHOOK_SECRET ?? "").trim();
+  const cronSecret = String(process.env.CRON_SECRET ?? "").trim();
   const appUrl = String(process.env.APP_URL ?? process.env.NEXTAUTH_URL ?? "").trim().replace(/\/$/, "");
   return {
     enabled: String(process.env.TELEGRAM_NOTIFICATIONS_ENABLED ?? "false").toLowerCase() === "true",
     configured: Boolean(String(process.env.TELEGRAM_BOT_TOKEN ?? "").trim() && botUsername),
     botUsername,
     webhookSecret,
+    cronSecret,
     appUrl,
   };
 }
