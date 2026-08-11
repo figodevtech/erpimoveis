@@ -19,7 +19,7 @@ export async function GET(_: Request, { params }: Params) {
 
     const { data: transaction, error } = await supabaseAdmin
       .from("transacao")
-      .select("id, valor, valor_acrescimos, tipo, ordemservicoid, vendaid, evento_financeiro_id, adiantamento_id, eh_adiantamento")
+      .select("id, valor, valor_acrescimos, tipo, ordemservicoid, vendaid, evento_financeiro_id, adiantamento_id, eh_adiantamento, pagamento_multiplo_id")
       .eq("id", id)
       .eq("is_deleted", false)
       .maybeSingle();
@@ -61,6 +61,70 @@ export async function GET(_: Request, { params }: Params) {
       };
     }
 
+    /*
+     * Pagamento múltiplo: a linha é uma perna de um pagamento maior. Excluir só
+     * ela deixaria o grupo cobrindo um valor que ninguém mais deve, então o
+     * caminho é desfazer o pagamento inteiro — que aqui, ao contrário do
+     * adiantamento, existe como operação (`DELETE /api/pagamento-multiplo/[id]`).
+     *
+     * A exceção é o parcelado com parcela já baixada: aí some dinheiro recebido,
+     * e a recusa é a mesma do adiantamento.
+     */
+    let pagamentoMultiplo:
+      | {
+          id: number;
+          valorTotal: number;
+          modo: string;
+          documentos: Array<{ tipo: "OS" | "VENDA"; id: number }>;
+          quantidadeBaixada: number;
+          bloqueado: boolean;
+          motivo?: string;
+        }
+      | null = null;
+
+    if (transaction.pagamento_multiplo_id != null) {
+      const grupoId = Number(transaction.pagamento_multiplo_id);
+      const [{ data: grupo }, { data: irmas }] = await Promise.all([
+        supabaseAdmin
+          .from("pagamento_multiplo")
+          .select("id, valor_total, modo, tipo_documento")
+          .eq("id", grupoId)
+          .maybeSingle(),
+        supabaseAdmin
+          .from("transacao")
+          .select("id, pendente, ordemservicoid, vendaid")
+          .eq("pagamento_multiplo_id", grupoId)
+          .eq("is_deleted", false),
+      ]);
+
+      if (grupo) {
+        const tipoDoGrupo = String(grupo.tipo_documento).toUpperCase() === "OS" ? "OS" : "VENDA";
+        const documentos = [
+          ...new Set(
+            (irmas ?? []).map((linha: any) => Number(linha.ordemservicoid ?? linha.vendaid)),
+          ),
+        ].map((documentoId) => ({ tipo: tipoDoGrupo as "OS" | "VENDA", id: documentoId }));
+
+        const quantidadeBaixada =
+          String(grupo.modo).toUpperCase() === "PARCELADO"
+            ? (irmas ?? []).filter((linha: any) => linha.pendente === false).length
+            : 0;
+
+        pagamentoMultiplo = {
+          id: grupoId,
+          valorTotal: Number(grupo.valor_total ?? 0),
+          modo: String(grupo.modo),
+          documentos,
+          quantidadeBaixada,
+          bloqueado: quantidadeBaixada > 0,
+          motivo:
+            quantidadeBaixada > 0
+              ? `Este pagamento tem ${quantidadeBaixada} parcela(s) já baixada(s). Estorne essas baixas antes de excluir o pagamento.`
+              : undefined,
+        };
+      }
+    }
+
     const targets: Array<{ tipo: "OS" | "VENDA"; id: number }> = [];
     const isPagamento = String(transaction.tipo).toUpperCase() === "RECEITA" && transaction.evento_financeiro_id == null;
 
@@ -90,7 +154,12 @@ export async function GET(_: Request, { params }: Params) {
       }
     }
 
-    return NextResponse.json({ reabriraPagamento: targets.length > 0, targets, adiantamento });
+    return NextResponse.json({
+      reabriraPagamento: targets.length > 0,
+      targets,
+      adiantamento,
+      pagamentoMultiplo,
+    });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Erro ao verificar impacto da exclusão." }, { status: 500 });
   }

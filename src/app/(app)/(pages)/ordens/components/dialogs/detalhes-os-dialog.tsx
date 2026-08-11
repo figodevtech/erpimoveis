@@ -1192,15 +1192,15 @@ export function OSDetalhesDialog({
   async function sincronizarUltimoCusto(eventoId: number) {
     if (!osId) return;
     setSincronizandoCustoId(eventoId);
-    const toastId = toast.loading("Sincronizando último valor de entrada...", { duration: Infinity });
+    const toastId = toast.loading("Sincronizando custo do produto...", { duration: Infinity });
     try {
       const response = await fetch(`/api/ordens/${osId}/eventos-financeiros/${eventoId}/sincronizar-ultimo-custo`, { method: "POST" });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload?.error || "Erro ao sincronizar último valor de entrada");
-      toast.success("Último valor de entrada sincronizado.", { id: toastId, duration: 3000 });
+      if (!response.ok) throw new Error(payload?.error || "Erro ao sincronizar custo do produto");
+      toast.success("Custo do produto sincronizado.", { id: toastId, duration: 3000 });
       await recarregarDetalhes();
     } catch (error: any) {
-      toast.error(error?.message || "Erro ao sincronizar último valor de entrada", { id: toastId, duration: 4000 });
+      toast.error(error?.message || "Erro ao sincronizar custo do produto", { id: toastId, duration: 4000 });
     }
     finally { setSincronizandoCustoId(null); }
   }
@@ -2681,7 +2681,7 @@ export function OSDetalhesDialog({
                                   {podeSincronizar(lancamento) && lancamento.tipo === "SAIDA" ? (
                                     <DropdownMenuItem disabled={sincronizandoCustoId === lancamento.id} onSelect={() => void sincronizarUltimoCusto(lancamento.id)}>
                                       <RefreshCw className={sincronizandoCustoId === lancamento.id ? "animate-spin" : ""} />
-                                      Sincronizar último valor de entrada
+                                      Sincronizar custo do produto
                                     </DropdownMenuItem>
                                   ) : null}
                                   {podeSincronizar(lancamento) && lancamento.tipo === "ENTRADA" ? (

@@ -56,13 +56,25 @@ export async function POST(_: NextRequest, { params }: { params: Promise<Params>
 
     const { data: produto, error: produtoError } = await supabaseAdmin
       .from("produto")
-      .select("id, ultimovalordecompra")
+      .select("id, ultimovalordecompra, precocompra")
       .eq("id", evento.produtoid)
       .maybeSingle();
     if (produtoError) throw produtoError;
-    const custoUnitario = Number(produto?.ultimovalordecompra ?? 0);
+    // Mesma ordem da geração do evento: última entrada e, na falta dela, o preço
+    // médio de compra.
+    const ultimaEntrada = Number(produto?.ultimovalordecompra ?? 0);
+    const precoMedio = Number(produto?.precocompra ?? 0);
+    const custoUnitario = Number.isFinite(ultimaEntrada) && ultimaEntrada > 0
+      ? ultimaEntrada
+      : precoMedio;
+    const custoOrigem = Number.isFinite(ultimaEntrada) && ultimaEntrada > 0
+      ? "ULTIMA_COMPRA"
+      : "PRECO_MEDIO";
     if (!produto || !Number.isFinite(custoUnitario) || custoUnitario <= 0) {
-      return NextResponse.json({ error: "O produto continua sem um último valor de entrada válido." }, { status: 409 });
+      return NextResponse.json(
+        { error: "O produto continua sem último valor de entrada nem preço médio de compra." },
+        { status: 409 },
+      );
     }
 
     let quantidade = Number(evento.quantidade_snapshot ?? 0);
@@ -88,6 +100,7 @@ export async function POST(_: NextRequest, { params }: { params: Promise<Params>
           ...((evento.dados_snapshot as Record<string, unknown> | null) ?? {}),
           custo_nao_informado: false,
           custo_estimado: true,
+          custo_origem: custoOrigem,
           ultimo_custo_sincronizado_em: sincronizadoEm,
         },
       })

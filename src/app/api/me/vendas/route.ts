@@ -27,6 +27,9 @@ const SELECT = `
   status,
   canal,
   datavenda,
+  orcamento_em,
+  pagamento_em,
+  baixada_em,
   valortotal,
   sub_total,
   valor_frete,
@@ -59,12 +62,17 @@ export async function GET(req: Request) {
       .select(SELECT, { count: "exact" })
       .eq("vendedor", userId);
 
-    if (periodo.inicio) query = query.gte("datavenda", periodo.inicio);
-    if (periodo.fim) query = query.lte("datavenda", periodo.fim);
+    // Eixo de periodo: `pagamento_em`, o momento em que a venda foi para
+    // pagamento — nao `datavenda`, que e quando o orcamento foi digitado. Mesma
+    // regra da aba de ordens, que usa `execucao_fim_em`. Consequencia desejada:
+    // orcamento ainda nao aprovado tem `pagamento_em` nulo e fica fora da aba,
+    // porque ainda nao virou receita de ninguem.
+    if (periodo.inicio) query = query.gte("pagamento_em", periodo.inicio);
+    if (periodo.fim) query = query.lte("pagamento_em", periodo.fim);
     if (status && status !== "TODOS") query = query.eq("status", status);
 
     const { data, error, count } = await query
-      .order("datavenda", { ascending: false })
+      .order("pagamento_em", { ascending: false, nullsFirst: false })
       .range(from, to);
 
     if (error) throw error;
@@ -95,6 +103,9 @@ export async function GET(req: Request) {
         status: texto(venda.status),
         canal: texto(venda.canal),
         dataVenda: texto(venda.datavenda),
+        orcamentoEm: texto(venda.orcamento_em),
+        pagamentoEm: texto(venda.pagamento_em),
+        baixadaEm: texto(venda.baixada_em),
         formaPagamento: texto(venda.forma_pagamento),
         subTotal: num(venda.sub_total),
         valorFrete: num(venda.valor_frete),

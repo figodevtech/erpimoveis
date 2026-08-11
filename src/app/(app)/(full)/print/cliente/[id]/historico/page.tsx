@@ -107,7 +107,7 @@ function iniciais(nome?: string | null) {
 /** Classe do selo de status, compartilhada por OS, venda e título. */
 function classeStatus(status?: string | null) {
   const upper = String(status ?? "").toUpperCase();
-  if (["FINALIZADA", "CONCLUIDO", "CONCLUIDA", "PAGO", "PAGO_EM_DIA"].includes(upper)) return "selo selo-ok";
+  if (["FINALIZADA", "CONCLUIDO", "CONCLUIDA", "PAGO", "PAGO_EM_DIA", "PAGO_A_VISTA"].includes(upper)) return "selo selo-ok";
   if (["CANCELADA", "CANCELADO", "VENCIDO", "PAGO_EM_ATRASO"].includes(upper)) return "selo selo-ruim";
   if (["PENDENTE", "PAGAMENTO", "APROVACAO_ORCAMENTO", "ORCAMENTO", "VENCE_HOJE"].includes(upper)) return "selo selo-atencao";
   return "selo";
@@ -117,6 +117,7 @@ const rotuloSituacao: Record<string, string> = {
   A_VENCER: "A vencer",
   VENCE_HOJE: "Vence hoje",
   VENCIDO: "Vencido",
+  PAGO_A_VISTA: "Pago à vista",
   PAGO_EM_DIA: "Pago em dia",
   PAGO_EM_ATRASO: "Pago em atraso",
 };
@@ -677,6 +678,14 @@ export default async function ClienteHistoricoPrintPage({ params }: PageProps) {
     letter-spacing:.1em;
     color: var(--brand-primary);
   }
+  .score-teto{
+    margin-top:6px;
+    padding-top:6px;
+    border-top:1px solid var(--border);
+    font-size:8px;
+    line-height:1.35;
+    color: var(--muted);
+  }
 
   .financeiro-kpis{ display:grid; grid-template-columns: repeat(2, 1fr); gap:6px; }
 
@@ -1005,6 +1014,13 @@ export default async function ClienteHistoricoPrintPage({ params }: PageProps) {
                   <div className="score-classificacao">
                     {rotuloClassificacao[financeiro.classificacao]}
                   </div>
+                  {financeiro.tetoAplicado != null && (
+                    <div className="score-teto">
+                      Limitado a {financeiro.tetoAplicado} por título vencido há{" "}
+                      {financeiro.maiorAtrasoEmAberto ?? 0} dia(s). Só pelo histórico seria{" "}
+                      {financeiro.scoreBase}.
+                    </div>
+                  )}
                 </div>
 
                 <div className="financeiro-kpis">
@@ -1085,7 +1101,7 @@ export default async function ClienteHistoricoPrintPage({ params }: PageProps) {
                   ) : (
                     <LinhaVazia
                       colSpan={8}
-                      texto="Nenhum título futuro de OS ou venda encontrado para este cliente."
+                      texto="Nenhum título de OS ou venda encontrado para este cliente."
                     />
                   )}
                 </tbody>

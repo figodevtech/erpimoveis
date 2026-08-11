@@ -35,6 +35,7 @@ type SituacaoTitulo =
   | "A_VENCER"
   | "VENCE_HOJE"
   | "VENCIDO"
+  | "PAGO_A_VISTA"
   | "PAGO_EM_DIA"
   | "PAGO_EM_ATRASO";
 
@@ -53,6 +54,9 @@ type TituloFinanceiro = {
 
 type ResumoFinanceiro = {
   score: number | null;
+  scoreBase: number | null;
+  tetoAplicado: number | null;
+  maiorAtrasoEmAberto: number | null;
   classificacao: "EXCELENTE" | "BOM" | "ATENCAO" | "CRITICO" | "SEM_HISTORICO";
   totalEmAberto: number;
   totalVencido: number;
@@ -158,6 +162,32 @@ const classesScore = {
   },
 } as const;
 
+/**
+ * Explica por que o número exibido é menor que o histórico. Sem isso, um cliente
+ * com histórico ótimo e um título vencido mostra 39 sem justificativa aparente.
+ */
+function AvisoTeto({ resumo }: { resumo: ResumoFinanceiro }) {
+  if (resumo.tetoAplicado == null) return null;
+
+  const grave = resumo.tetoAplicado <= 39;
+  const dias = resumo.maiorAtrasoEmAberto ?? 0;
+
+  return (
+    <p
+      className={cn(
+        "mt-3 rounded-lg border px-3 py-2 text-center text-xs leading-relaxed",
+        grave
+          ? "border-red-300 bg-red-50 text-red-900 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
+          : "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200",
+      )}
+    >
+      Limitado a <strong className="font-semibold tabular-nums">{resumo.tetoAplicado}</strong> por
+      título vencido há {dias} dia{dias === 1 ? "" : "s"}. Só pelo histórico seria{" "}
+      <strong className="font-semibold tabular-nums">{resumo.scoreBase}</strong>.
+    </p>
+  );
+}
+
 function ScoreCircular({ resumo }: { resumo: ResumoFinanceiro }) {
   const estilo = classesScore[resumo.classificacao];
   const score = resumo.score ?? 0;
@@ -170,7 +200,13 @@ function ScoreCircular({ resumo }: { resumo: ResumoFinanceiro }) {
       <div
         className="relative size-32"
         role="progressbar"
-        aria-label={resumo.score == null ? "Score ainda sem histórico" : `Score ${resumo.score} de 100`}
+        aria-label={
+          resumo.score == null
+            ? "Score ainda sem histórico"
+            : resumo.tetoAplicado != null
+              ? `Score ${resumo.score} de 100, limitado por título vencido em aberto`
+              : `Score ${resumo.score} de 100`
+        }
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={resumo.score ?? undefined}
@@ -216,8 +252,9 @@ function ScoreCircular({ resumo }: { resumo: ResumoFinanceiro }) {
       <p className="mt-1 text-center text-xs text-muted-foreground">
         {resumo.quantidadeAvaliada > 0
           ? `${resumo.quantidadeAvaliada} título${resumo.quantidadeAvaliada === 1 ? "" : "s"} avaliado${resumo.quantidadeAvaliada === 1 ? "" : "s"}`
-          : "Ainda não há títulos vencidos ou pagos para avaliar"}
+          : "Ainda não há recebimentos nem títulos vencidos para avaliar"}
       </p>
+      <AvisoTeto resumo={resumo} />
     </div>
   );
 }
@@ -366,6 +403,9 @@ function KpiCard({
 }
 
 function badgeTitulo(situacao: SituacaoTitulo) {
+  if (situacao === "PAGO_A_VISTA") {
+    return { texto: "Pago à vista", classe: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300" };
+  }
   if (situacao === "PAGO_EM_DIA") {
     return { texto: "Pago em dia", classe: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300" };
   }
@@ -417,6 +457,7 @@ function FinanceiroContent({ resumo }: { resumo: ResumoFinanceiro }) {
           <p className="mt-2 text-2xl font-semibold tabular-nums">
             {resumo.percentualPagoEmDia == null ? "—" : `${resumo.percentualPagoEmDia}%`}
           </p>
+          <p className="mt-1 text-xs text-muted-foreground">Somente títulos a prazo</p>
         </div>
         <div className="rounded-xl border bg-card p-4">
           <p className="text-sm text-muted-foreground">Média de atraso</p>
@@ -425,6 +466,7 @@ function FinanceiroContent({ resumo }: { resumo: ResumoFinanceiro }) {
               ? "—"
               : `${resumo.mediaDiasAtraso} dia${resumo.mediaDiasAtraso === 1 ? "" : "s"}`}
           </p>
+          <p className="mt-1 text-xs text-muted-foreground">Somente títulos a prazo</p>
         </div>
       </div>
 
@@ -434,9 +476,16 @@ function FinanceiroContent({ resumo }: { resumo: ResumoFinanceiro }) {
           <div>
             <p className="font-medium">Como o Score é calculado</p>
             <p className="mt-1 max-w-prose text-sm leading-relaxed text-muted-foreground">
-              Apenas títulos futuros de OS e vendas que já chegaram ao vencimento entram no cálculo.
-              Cada título começa com 100 pontos e perde 2 pontos por dia de atraso; o resultado é
-              ponderado pelo valor. Pagamentos à vista não alteram o Score.
+              Entram no cálculo os recebimentos de OS e vendas já pagos e os títulos em aberto que
+              já chegaram ao vencimento. Cada título começa com 100 pontos e perde 2 pontos por dia
+              de atraso; o resultado é ponderado pelo valor. Pagamento à vista mantém os 100 pontos.
+              Parcela ainda não vencida e não paga fica fora até o vencimento chegar.
+            </p>
+            <p className="mt-2 max-w-prose text-sm leading-relaxed text-muted-foreground">
+              <strong className="font-medium text-foreground">Enquanto houver título vencido em
+              aberto</strong>, o Score não passa de 59 (Atenção) — e não passa de 39 (Crítico) se o
+              atraso ultrapassar 30 dias. O histórico resume o passado; dívida em aberto é o
+              presente, e o presente manda.
             </p>
           </div>
         </div>
@@ -446,7 +495,7 @@ function FinanceiroContent({ resumo }: { resumo: ResumoFinanceiro }) {
         <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
           <div>
             <h3 id="titulos-cliente" className="font-semibold">Títulos considerados</h3>
-            <p className="text-sm text-muted-foreground">Parcelas futuras vinculadas a OS ou vendas</p>
+            <p className="text-sm text-muted-foreground">Recebimentos e parcelas vinculados a OS ou vendas</p>
           </div>
           <Badge variant="outline" className="tabular-nums">{resumo.quantidadeTitulos} no histórico</Badge>
         </div>
@@ -454,9 +503,9 @@ function FinanceiroContent({ resumo }: { resumo: ResumoFinanceiro }) {
         {resumo.titulos.length === 0 ? (
           <div className="rounded-xl border border-dashed p-6 text-center">
             <FileText className="mx-auto size-7 text-muted-foreground" aria-hidden="true" />
-            <p className="mt-3 font-medium">Nenhum título futuro encontrado</p>
+            <p className="mt-3 font-medium">Nenhum título encontrado</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              O Score aparecerá quando houver uma parcela de OS ou venda com vencimento alcançado.
+              O Score aparecerá no primeiro recebimento de OS ou venda vinculado a este cliente.
             </p>
           </div>
         ) : (

@@ -40,6 +40,12 @@ import {
 import { resumirBaixas } from "../../components/payment-settler";
 import { resumirPagamentos } from "../../components/payment-totals";
 import { TotalPago } from "../../components/total-pago";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Split } from "lucide-react";
+import TransactionDialog from "../../fluxodecaixa/components/transactionDialog/transactionDialog";
+import { PagamentoMultiploFooter } from "../../components/pagamento-multiplo-footer";
+import type { DocumentoSelecionavel } from "../../components/pagamento-multiplo";
+import { calcularResumoFinanceiroOs, podeRegistrarPagamentoOs } from "@/lib/ordens/financeiro";
 
 interface OsTableProps {
   ordens: Ordem[];
@@ -69,12 +75,66 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
     notaNumero: "",
   });
   const limitListboxId = `${limitUid}-os-limit-listbox`;
+  const [modoPagamentoMultiplo, setModoPagamentoMultiplo] = useState(false);
+  const [selecionadas, setSelecionadas] = useState<Set<number>>(new Set());
+  const [dialogPagamentoAberto, setDialogPagamentoAberto] = useState(false);
   const hasActiveFilters = Boolean(
     filters.cliente.trim() ||
       filters.notaNumero.trim() ||
       filters.dataInicio ||
       filters.dataFim,
   );
+
+  /**
+   * Saldo em aberto de cada OS pela MESMA função que o servidor usa — total menos
+   * o que já foi recebido e o que está comprometido em título pendente. Calcular
+   * "total menos pago" aqui ofereceria cobrar de novo o que já tem boleto emitido.
+   */
+  const saldoDaOrdem = (ordem: Ordem) =>
+    calcularResumoFinanceiroOs({
+      totalComercial: ordem.orcamentototal,
+      acrescimoFinanceiroTipo: ordem.acrescimo_financeiro_tipo,
+      acrescimoFinanceiroValor: ordem.acrescimo_financeiro_valor,
+      transacoes: (ordem.transacoes ?? []) as never[],
+    }).saldoDisponivelParaLancamento;
+
+  const podeSelecionar = (ordem: Ordem) =>
+    podeRegistrarPagamentoOs(ordem.status) && saldoDaOrdem(ordem) > 0;
+
+  const documentosSelecionados: DocumentoSelecionavel[] = ordens
+    .filter((ordem) => selecionadas.has(ordem.id))
+    .map((ordem) => ({
+      id: ordem.id,
+      rotulo: `OS #${ordem.id}`,
+      cliente: ordem.cliente?.nome ?? null,
+      saldo: saldoDaOrdem(ordem),
+    }));
+
+  const selecionaveis = ordens.filter(podeSelecionar);
+
+  const alternarSelecao = (id: number) =>
+    setSelecionadas((atual) => {
+      const proximo = new Set(atual);
+      if (proximo.has(id)) proximo.delete(id);
+      else proximo.add(id);
+      return proximo;
+    });
+
+  const sairDoModo = () => {
+    setModoPagamentoMultiplo(false);
+    setSelecionadas(new Set());
+  };
+
+  // Trocar de aba ou de página troca a lista debaixo da seleção; manter ids de
+  // linhas que sumiram da tela faria o rodapé somar o que ninguém está vendo.
+  // Ajuste durante o render, e não em efeito: o efeito só rodaria depois de uma
+  // pintura com a seleção velha, e ainda custaria um render a mais.
+  const chaveDaLista = `${selectedStatus}|${pagination.page}`;
+  const [chaveAnterior, setChaveAnterior] = useState(chaveDaLista);
+  if (chaveAnterior !== chaveDaLista) {
+    setChaveAnterior(chaveDaLista);
+    setSelecionadas(new Set());
+  }
 
   useEffect(() => {
     handleGetOrdens(selectedStatus, 1, pagination.limit, search, filters);
@@ -132,6 +192,18 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
           </div>
 
           <div className="flex items-center gap-2">
+            <Button
+              variant={modoPagamentoMultiplo ? "secondary" : "ghost"}
+              size="sm"
+              className="hover:cursor-pointer"
+              aria-pressed={modoPagamentoMultiplo}
+              onClick={() =>
+                modoPagamentoMultiplo ? sairDoModo() : setModoPagamentoMultiplo(true)
+              }
+            >
+              <Split className="h-4 w-4" aria-hidden />
+              Pagamento múltiplo
+            </Button>
             {hasActiveFilters && (
               <Button
                 variant="ghost"
@@ -196,6 +268,22 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
         <Table className="text-xs mt-6">
           <TableHeader>
             <TableRow>
+              {modoPagamentoMultiplo && (
+                <TableHead className="w-10">
+                  <Checkbox
+                    aria-label="Selecionar todas as ordens elegíveis desta página"
+                    checked={
+                      selecionaveis.length > 0 &&
+                      selecionaveis.every((ordem) => selecionadas.has(ordem.id))
+                    }
+                    onCheckedChange={(marcado) =>
+                      setSelecionadas(
+                        marcado ? new Set(selecionaveis.map((ordem) => ordem.id)) : new Set(),
+                      )
+                    }
+                  />
+                </TableHead>
+              )}
               <TableHead className="whitespace-nowrap">ID</TableHead>
               <TableHead className="whitespace-nowrap">Nota</TableHead>
               <TableHead>Descrição</TableHead>
@@ -228,6 +316,21 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
 
                 return (
                   <TableRow key={o.id} className="hover:cursor-pointer">
+                    {modoPagamentoMultiplo && (
+                      <TableCell>
+                        <Checkbox
+                          aria-label={`Selecionar OS ${o.id}`}
+                          checked={selecionadas.has(o.id)}
+                          disabled={!podeSelecionar(o)}
+                          title={
+                            podeSelecionar(o)
+                              ? undefined
+                              : "Sem saldo em aberto ou status que não aceita pagamento."
+                          }
+                          onCheckedChange={() => alternarSelecao(o.id)}
+                        />
+                      </TableCell>
+                    )}
                     {/* ... suas outras células (descrição, data etc.) aqui, se/quando tiver ... */}
                     <TableCell>{o.id}</TableCell>
                     <TableCell>{o.notaNumero ?? "-"}</TableCell>
@@ -405,6 +508,37 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
             </Select>
           </div>
         </div>
+
+        {modoPagamentoMultiplo && (
+          <>
+            {/* Espaçador: sem ele o rodapé fixo cobre a última linha da tabela. */}
+            <div aria-hidden className="h-24" />
+            <PagamentoMultiploFooter
+              documentos={documentosSelecionados}
+              totalNaPagina={selecionaveis.length}
+              processando={false}
+              onCancelar={sairDoModo}
+            >
+              <TransactionDialog
+                open={dialogPagamentoAberto}
+                setOpen={setDialogPagamentoAberto}
+                handleGetTransactions={() =>
+                  handleGetOrdens(selectedStatus, pagination.page, pagination.limit, search, filters)
+                }
+                pagamentoMultiplo={{
+                  tipoDocumento: "OS",
+                  documentos: documentosSelecionados,
+                  onConcluido: sairDoModo,
+                }}
+              >
+                <Button size="sm" className="h-9 hover:cursor-pointer">
+                  <Split className="h-4 w-4" aria-hidden />
+                  Registrar pagamento ({documentosSelecionados.length})
+                </Button>
+              </TransactionDialog>
+            </PagamentoMultiploFooter>
+          </>
+        )}
       </CardContent>
     </Card>
   );

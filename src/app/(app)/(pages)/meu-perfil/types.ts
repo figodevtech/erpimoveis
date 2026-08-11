@@ -42,6 +42,12 @@ export type MinhaVenda = {
   status: string | null;
   canal: string | null;
   dataVenda: string | null;
+  /** `venda.orcamento_em` — nulo quando a venda não passou por orçamento. */
+  orcamentoEm: string | null;
+  /** `venda.pagamento_em` — eixo de período da aba. */
+  pagamentoEm: string | null;
+  /** `venda.baixada_em` — nulo enquanto a venda não é quitada. */
+  baixadaEm: string | null;
   formaPagamento: string | null;
   subTotal: number;
   valorFrete: number;
