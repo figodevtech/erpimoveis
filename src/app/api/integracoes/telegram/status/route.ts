@@ -15,12 +15,13 @@ export async function GET() {
   try {
     await requireConfigAccess();
     const environment = getTelegramEnvironment();
-    const [{ count: connected }, pendingEvents, pendingDeliveries, failedDeliveries, latestRun] = await Promise.all([
+    const [{ count: connected }, pendingEvents, pendingDeliveries, failedDeliveries, latestRun, latestWebhookUpdate] = await Promise.all([
       supabaseAdmin.from("telegram_usuario_preferencia").select("usuario_id", { head: true, count: "exact" }).not("chat_id", "is", null),
       countRows("os_notificacao_evento", "status_processamento", ["PENDENTE", "PROCESSANDO", "ERRO"]),
       countRows("os_notificacao_entrega", "status", ["PENDENTE", "ENVIANDO"]),
       countRows("os_notificacao_entrega", "status", ["ERRO", "DESCARTADO"]),
       supabaseAdmin.from("telegram_processamento_execucao").select("status, resumo, erro, started_at, completed_at").order("id", { ascending: false }).limit(1).maybeSingle(),
+      supabaseAdmin.from("telegram_webhook_update").select("created_at").eq("resultado", "PROCESSADO").order("created_at", { ascending: false }).limit(1).maybeSingle(),
     ]);
 
     let bot = null;
@@ -30,7 +31,12 @@ export async function GET() {
       try {
         const [botData, webhookData] = await Promise.all([getTelegramBot(), getTelegramWebhookInfo()]);
         bot = botData;
-        webhook = webhookData;
+        webhook = {
+          ...webhookData,
+          last_success_date: latestWebhookUpdate.data?.created_at
+            ? Math.floor(new Date(latestWebhookUpdate.data.created_at).getTime() / 1000)
+            : undefined,
+        };
       } catch (error) {
         connectionError = error instanceof Error ? error.message : "Falha ao consultar o Telegram.";
       }
