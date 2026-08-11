@@ -6,6 +6,7 @@ import { toast } from "@/lib/toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TelegramRecipientsCard } from "./telegram-recipients-card";
 
 type Status = {
@@ -47,7 +48,16 @@ export default function TelegramConfigurationPage() {
     finally { setAction(null); }
   }
 
-  if (loading && !status) return <div className="flex min-h-64 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+  if (loading && !status) {
+    return (
+      <div className="flex h-[80vh] w-full items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <div className="size-8 animate-spin rounded-t-full border-t-2 border-primary" />
+          <p className="text-primary">Carregando configurações...</p>
+        </div>
+      </div>
+    );
+  }
   const environmentOk = status?.environment.configured && status.environment.hasWebhookSecret && status.environment.hasAppUrl;
   const webhookOk = Boolean(status?.webhook?.url) && (
     !status?.webhook?.last_error_message
@@ -66,10 +76,38 @@ export default function TelegramConfigurationPage() {
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={() => runAction("webhook", "/api/integracoes/telegram/configurar-webhook", "Webhook configurado.")} disabled={!environmentOk || action === "webhook"}>{action === "webhook" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}Configurar webhook</Button>
-              <Button size="sm" variant="outline" onClick={() => runAction("process", "/api/integracoes/telegram/executar", "Fila processada.")} disabled={!status?.environment.enabled || action === "process"}>{action === "process" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Activity className="h-4 w-4" />}Processar</Button>
-              <Button size="sm" variant="outline" onClick={() => runAction("retry", "/api/integracoes/telegram/reprocessar", "Falhas elegíveis recolocadas na fila.")} disabled={action === "retry"}>{action === "retry" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}Reprocessar</Button>
-              <Button size="icon" variant="ghost" onClick={() => void load()} disabled={loading} aria-label="Atualizar integração"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex">
+                    <Button size="sm" variant={webhookOk ? "outline" : "default"} onClick={() => runAction("webhook", "/api/integracoes/telegram/configurar-webhook", "Webhook configurado.")} disabled={!environmentOk || action === "webhook"}>{action === "webhook" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}{webhookOk ? "Reconfigurar" : "Configurar webhook"}</Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" sideOffset={6} className="max-w-64">Atualiza o webhook e o envio automático. Use após alterar domínio, bot ou segredos.</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex">
+                    <Button size="sm" variant="outline" onClick={() => runAction("process", "/api/integracoes/telegram/executar", "Fila processada.")} disabled={!status?.environment.enabled || action === "process"}>{action === "process" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Activity className="h-4 w-4" />}Processar</Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" sideOffset={6} className="max-w-64">Processa agora os eventos pendentes. O envio normal acontece automaticamente.</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex">
+                    <Button size="sm" variant="outline" onClick={() => runAction("retry", "/api/integracoes/telegram/reprocessar", "Falhas elegíveis recolocadas na fila.")} disabled={action === "retry"}>{action === "retry" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}Reprocessar</Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" sideOffset={6} className="max-w-64">Recoloca na fila notificações que falharam e ainda podem ser reenviadas.</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex">
+                    <Button size="icon" variant="ghost" onClick={() => void load()} disabled={loading} aria-label="Atualizar integração"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" sideOffset={6}>Atualiza o status da integração.</TooltipContent>
+              </Tooltip>
             </div>
           </div>
           {status?.connectionError ? <p role="alert" className="border-l-2 border-destructive pl-3 text-sm text-destructive">{status.connectionError}</p> : null}
