@@ -15,7 +15,7 @@ interface SearchFilterProps {
 }
 export default function SearchFilter ({search, setSearch, onSearch, onClear, setStatus, status}: SearchFilterProps) {
     return(
-          <div className="flex gap-6 flex-col md:flex-row">
+          <div className="flex gap-6 flex-col md:flex-row bg-card p-4 rounded-2xl shadow-sm border border-primary/30">
             <div className="relative w-full">
               <Button
                 type="button"

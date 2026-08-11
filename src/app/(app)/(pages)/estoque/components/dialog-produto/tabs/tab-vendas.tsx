@@ -32,7 +32,7 @@ export function TabVendas({ produto }: { produto: Produto }) {
   };
 
   return (
-    <TabsContent value="Vendas" className="h-full min-h-0 min-w-0 overflow-y-auto overflow-x-hidden dark:bg-muted-foreground/5 px-2 py-3 md:px-6 md:py-6 space-y-6">
+    <TabsContent value="Vendas" className="h-full min-h-0 w-full min-w-0 max-w-full overflow-y-auto overflow-x-hidden dark:bg-muted-foreground/5 px-2 py-3 md:px-6 md:py-6 space-y-6">
       <div className="space-y-4">
         <div className="flex min-w-0 flex-col gap-3 rounded-lg border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0 space-y-1">

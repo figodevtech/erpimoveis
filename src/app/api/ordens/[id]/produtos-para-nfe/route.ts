@@ -155,7 +155,7 @@ export async function GET(req: Request) {
     // nasceu, e o padrão fiscal da NFC-e é outro.
     const modeloParam = new URL(req.url).searchParams.get("modelo");
     const modelo = modeloParam ? exigirModelo(modeloParam) : MODELO_NFE;
-    const { padrao, crt } = await buscarContextoPadraoFiscal(modelo, "SAIDA");
+    const { padrao, crt, rotuloPadrao } = await buscarContextoPadraoFiscal(modelo, "SAIDA");
 
     console.log(
       "GET /api/ordens/[osId]/produtos-para-nfe -> idOs:",
@@ -300,6 +300,7 @@ export async function GET(req: Request) {
         fontes: [{ origem: "PRODUTO", valores: p }],
         padrao,
         crt,
+        rotuloPadrao,
       });
 
       return {

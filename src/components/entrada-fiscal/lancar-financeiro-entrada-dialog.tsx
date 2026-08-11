@@ -5,7 +5,6 @@ import axios from "axios";
 import {
   AlertCircle,
   AlertTriangle,
-  ArrowRight,
   Banknote,
   Building2,
   Calculator,
@@ -13,19 +12,12 @@ import {
   CalendarClock,
   CheckCircle2,
   CreditCard,
-  DollarSign,
-  FileSpreadsheet,
   FileText,
-  HelpCircle,
   Loader2,
   Plus,
-  Receipt,
-  Sparkles,
-  Tag,
   Trash2,
   UserRound,
   Wallet,
-  Zap,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/lib/toast";
+import { parcelasFechamTotalDocumento } from "@/lib/financeiro/entrada-fiscal";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { Banco, Metodo_pagamento } from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/types";
 import { useCategoriasTransacao } from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/hooks/use-categoria-transacao";
@@ -78,12 +71,10 @@ export function LancarFinanceiroEntradaDialog({
 
   const { categorias } = useCategoriasTransacao();
   const { gruposPlanosDeConta, loadingPlanos } = usePlanosDeConta();
-  const { centrosCusto, loadingCentrosCusto } = useCentrosCusto();
+  const { centrosCusto } = useCentrosCusto();
 
   const isUsoConsumo = inventory === "usoconsumo";
-  const apiEndpoint = isUsoConsumo
-    ? `/api/usoconsumo/entradas/${entryId}`
-    : `/api/entradas/${entryId}`;
+  const apiEndpoint = `/api/entradas/${entryId}/financeiro?inventory=${inventory}`;
 
   useEffect(() => {
     if (!open || !entryId) {
@@ -135,9 +126,15 @@ export function LancarFinanceiroEntradaDialog({
   }, [open]);
 
   const valorTotalEntrada = Number(entryData?.valor_total ?? 0);
+  const valorTotalProdutos = Number(entryData?.valor_total_produtos ?? 0);
+  const valorTotalUsoConsumo = Number(entryData?.valor_total_usoconsumo ?? 0);
+  const entradaMista = entryData?.mista === true;
   const somaParcelas = parcelas.reduce((acc, p) => acc + Number(p.valor || 0), 0);
   const diferenca = Number((valorTotalEntrada - somaParcelas).toFixed(2));
-  const parcelasValidas = Math.abs(diferenca) <= 0.05;
+  const parcelasValidas = parcelasFechamTotalDocumento(
+    valorTotalEntrada,
+    parcelas.map((parcela) => parcela.valor),
+  );
 
   const transacoesAtivas = (entryData?.transacoes ?? []).filter((t: any) => !t.is_deleted);
   const temLancamentoExistente = transacoesAtivas.length > 0;
@@ -277,6 +274,11 @@ export function LancarFinanceiroEntradaDialog({
                     <Badge variant="outline" className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-[10px] uppercase font-bold tracking-wide">
                       {isUsoConsumo ? "Uso & Consumo" : "Estoque de Produtos"}
                     </Badge>
+                    {entradaMista ? (
+                      <Badge variant="outline" className="text-[10px] uppercase font-bold tracking-wide">
+                        Nota mista
+                      </Badge>
+                    ) : null}
                     <span className="text-xs font-semibold text-foreground/80">
                       Entrada #{entryData?.id}
                     </span>
@@ -304,6 +306,12 @@ export function LancarFinanceiroEntradaDialog({
                   <span className="text-2xl font-extrabold tracking-tight text-foreground">
                     {formatarEmReal(valorTotalEntrada)}
                   </span>
+                  {entradaMista ? (
+                    <span className="mt-1 block text-[10px] text-muted-foreground">
+                      Revenda {formatarEmReal(valorTotalProdutos)} + uso e consumo{" "}
+                      {formatarEmReal(valorTotalUsoConsumo)}
+                    </span>
+                  ) : null}
                 </div>
               </div>
             </div>

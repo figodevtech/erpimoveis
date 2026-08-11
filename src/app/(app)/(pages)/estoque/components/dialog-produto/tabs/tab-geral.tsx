@@ -57,7 +57,7 @@ export function TabGeral({
   const qtdFabricante = (produto.fabricante ?? "").length;
 
   return (
-    <TabsContent value="Geral" className="h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 md:px-6 md:py-6">
+    <TabsContent value="Geral" className="h-full min-h-0 w-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto bg-muted-foreground/5 px-4 py-4 md:px-6 md:py-6">
       <div className="space-y-4">
         <div className="rounded-lg border bg-card p-4">
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">

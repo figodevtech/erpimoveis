@@ -1,8 +1,13 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { modeloParaDb, rotuloModelo } from "@/lib/nfe/modeloDocumento";
-import { padraoDaOperacao, type PadraoFiscalItem } from "@/lib/nfe/padraoFiscalItem";
+import { MODELO_NFCE, MODELO_NFE, modeloParaDb, rotuloModelo } from "@/lib/nfe/modeloDocumento";
+import {
+  ORIGEM_PADRAO,
+  ORIGEM_PADRAO_HERDADO,
+  padraoDaOperacao,
+  type PadraoFiscalItem,
+} from "@/lib/nfe/padraoFiscalItem";
 import type { CRT, ModeloDocumentoFiscal, ModeloDocumentoFiscalDb } from "@/lib/nfe/types";
 
 /**
@@ -73,6 +78,11 @@ export type ContextoPadraoFiscal = {
   padrao: PadraoFiscalItem | null;
   /** Regime tributário do emitente: decide entre CSOSN e CST de ICMS. */
   crt: CRT | null;
+  /**
+   * Rótulo de procedência a usar para os valores do padrão. Vira
+   * `ORIGEM_PADRAO_HERDADO` quando a NFC-e aproveitou o padrão da NF-e.
+   */
+  rotuloPadrao: string;
 };
 
 /**
@@ -81,6 +91,13 @@ export type ContextoPadraoFiscal = {
  * Não explode quando não há padrão cadastrado: o snapshot continua saindo com o
  * que o produto tiver, exatamente como antes desta camada existir. Só o CRT
  * precisa da empresa, e ele já é cobrado por `validarEmpresa` na emissão.
+ *
+ * Quando o pedido é NFC-e e ela ainda não tem padrão próprio, cai para o padrão
+ * de saída da NF-e. O perfil tributário da mercadoria é o mesmo nos dois
+ * modelos — quem escolhe CSOSN e CST de PIS/COFINS é o produto e o regime, não
+ * o documento. Cadastrar o mesmo perfil duas vezes só criaria a chance de as
+ * duas cópias divergirem. Os valores herdados vão marcados, e preencher a
+ * NFC-e em Configurações passa a mandar.
  */
 export async function buscarContextoPadraoFiscal(
   modelo: ModeloDocumentoFiscal,
@@ -101,9 +118,19 @@ export async function buscarContextoPadraoFiscal(
   if (error) throw error;
 
   const regime = Number(empresa?.regimetributario ?? 0);
+  const crt = [1, 2, 3, 4].includes(regime) ? (regime as CRT) : null;
+
+  const proprio = padraoDaOperacao(config?.padroes_emissao, operacao);
+  if (proprio || modelo !== MODELO_NFCE) {
+    return { padrao: proprio, crt, rotuloPadrao: ORIGEM_PADRAO };
+  }
+
+  const configNfe = await buscarFiscalConfig(MODELO_NFE, empresaId ?? config?.empresaid);
+  const herdado = padraoDaOperacao(configNfe?.padroes_emissao, "SAIDA");
   return {
-    padrao: padraoDaOperacao(config?.padroes_emissao, operacao),
-    crt: [1, 2, 3, 4].includes(regime) ? (regime as CRT) : null,
+    padrao: herdado,
+    crt,
+    rotuloPadrao: herdado ? ORIGEM_PADRAO_HERDADO : ORIGEM_PADRAO,
   };
 }
 

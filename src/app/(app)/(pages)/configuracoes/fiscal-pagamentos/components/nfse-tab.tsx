@@ -1,6 +1,6 @@
 "use client";
 
-import type { UseFormRegister, UseFormSetValue } from "react-hook-form";
+import type { UseFormRegister, UseFormSetValue, UseFormWatch } from "react-hook-form";
 import type { FormValues } from "../types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -8,17 +8,21 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Info } from "lucide-react";
 
+import { PadraoNFSeFields } from "./padrao-nfse-fields";
+
 export function NFSeTab({
   register,
-  
+  setValue,
+  watch,
 }: {
   register: UseFormRegister<FormValues>;
   setValue: UseFormSetValue<FormValues>;
+  watch: UseFormWatch<FormValues>;
 }) {
   return (
     <Card className="border-primary/10 bg-card/80 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/60">
       <CardContent className="p-5 sm:p-6 space-y-6">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {/* <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <Label className="mb-2 block">Provedor NFS-e</Label>
             <Input {...register("nfse.provedor")} placeholder="Ex.: Betha, Nota JP, Ginfes, etc." />
@@ -57,7 +61,19 @@ export function NFSeTab({
             <Label className="mb-2 block">Senha do certificado</Label>
             <Input {...register("nfse.senhaCertificado")} type="password" />
           </div>
-        </div>
+        </div> */}
+
+        <section className="space-y-4 border-t pt-6">
+          <div>
+            <h3 className="text-sm font-semibold">Padrão fiscal dos serviços</h3>
+            <p className="text-muted-foreground mt-1 text-xs">
+              Códigos que já vêm preenchidos ao emitir uma NFS-e. Ficavam em Configurações ›
+              Geral e passaram para cá, junto dos padrões de NF-e e NFC-e.
+            </p>
+          </div>
+
+          <PadraoNFSeFields register={register} setValue={setValue} watch={watch} />
+        </section>
 
         <div className="flex items-start gap-2 rounded-lg border p-3 text-sm">
           <Info className="h-4 w-4 mt-0.5 text-primary" />

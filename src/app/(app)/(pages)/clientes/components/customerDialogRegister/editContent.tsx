@@ -30,6 +30,9 @@ import {
   Ellipsis,
   Pen,
   ArrowLeftRight,
+  ShoppingBag,
+  Gauge,
+  File,
 } from "lucide-react";
 import {
   DialogClose,
@@ -50,7 +53,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { VeiculoDialog } from "../../../veiculos/dialgo-veiculo/dialog-veiculo";
 import {
   DropdownMenu,
@@ -67,6 +70,7 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import CustomerRelationshipTabs from "./customerRelationshipTabs";
 
 interface EditContentProps {
   customerId: number;
@@ -415,7 +419,39 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
           veiculoId={veiculoId}
           onRegister={() => handleGetClienteVeiculos()}
         />
-        <div className="flex h-full min-h-0 flex-col">
+        {/* min-w-0: o DialogContent e um grid, sem isso o min-content das abas
+            estica a track e o strip para de rolar no mobile. */}
+        <div className="relative flex h-full min-h-0 w-full min-w-0 max-w-full flex-col">
+          <div className="absolute top-4 right-16 z-10 flex flex-row items-center gap-2 p-2 bg-card rounded-lg shadow-sm">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label="Imprimir ficha cadastral do cliente"
+                onClick={() => window.open(`/print/cliente/${selectedCustomer.id}`, "_blank")}
+                className="flex size-6 items-center justify-center rounded transition-colors hover:cursor-pointer hover:bg-muted"
+              >
+                <FileText className="h-4 w-4 text-muted-foreground" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Imprimir cliente</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label="Imprimir histórico do cliente"
+                onClick={() =>
+                  window.open(`/print/cliente/${selectedCustomer.id}/historico`, "_blank")
+                }
+                className="flex size-6 items-center justify-center rounded transition-colors hover:cursor-pointer hover:bg-muted"
+              >
+                <File className="h-4 w-4 text-muted-foreground" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Impressão de histórico</TooltipContent>
+          </Tooltip>
+          </div>
           <DialogShellHeader className="shrink-0 border-b px-4 py-3 sm:px-6">
             <DialogShellTitle className="flex flex-row items-center gap-2 text-sm sm:text-lg">
               Cliente #{selectedCustomer.id}
@@ -449,13 +485,15 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
           </DialogShellHeader>
 
           {/* Área principal com abas */}
-          <Tabs defaultValue="Geral" className="flex-1 min-h-0 overflow-hidden pb-0">
-            <div className="sticky top-0 z-10 mt-4 shrink-0">
-              <div className="overflow-x-auto px-6 pb-2">
-                <TabsList className="h-auto min-w-full justify-start gap-1.5 rounded-2xl border bg-muted/40 p-1 backdrop-blur-sm">
+          <Tabs defaultValue="Geral" className="flex-1 min-h-0 w-full min-w-0 overflow-hidden pb-0">
+            <div className="sticky top-0 z-10 mt-4 w-full min-w-0 shrink-0">
+              {/* Wrapper flex (nao block) para o Chrome respeitar o padding final
+                  do scroll; touch-pan-x evita o drawer roubar o gesto. */}
+              <div className="flex w-full max-w-full touch-pan-x overflow-x-auto overscroll-x-contain px-4 pb-2 sm:px-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <TabsList className="h-auto w-max min-w-full shrink-0 justify-start gap-1.5 rounded-2xl border bg-muted/40 p-1 backdrop-blur-sm">
                   <TabsTrigger
                     value="Geral"
-                    className="group h-8 rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary dark:data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+                    className="group h-11 flex-none rounded-xl border border-transparent px-3 text-xs font-medium whitespace-nowrap text-muted-foreground transition-[background-color,color,box-shadow] hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary dark:data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
                   >
                     <span className="flex items-center gap-2">
                       <User className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
@@ -464,7 +502,7 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                   </TabsTrigger>
                   <TabsTrigger
                     value="Veículos"
-                    className="group h-8 rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary dark:data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+                    className="group h-11 flex-none rounded-xl border border-transparent px-3 text-xs font-medium whitespace-nowrap text-muted-foreground transition-[background-color,color,box-shadow] hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary dark:data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
                   >
                     <span className="flex items-center gap-2">
                       <Car className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
@@ -473,11 +511,29 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                   </TabsTrigger>
                   <TabsTrigger
                     value="Ordens"
-                    className="group h-8 rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary dark:data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+                    className="group h-11 flex-none rounded-xl border border-transparent px-3 text-xs font-medium whitespace-nowrap text-muted-foreground transition-[background-color,color,box-shadow] hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary dark:data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
                   >
                     <span className="flex items-center gap-2">
                       <ClipboardList className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
                       Ordens de Serviço
+                    </span>
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="Vendas"
+                    className="group h-11 flex-none rounded-xl border border-transparent px-3 text-xs font-medium whitespace-nowrap text-muted-foreground transition-[background-color,color,box-shadow] hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary dark:data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+                  >
+                    <span className="flex items-center gap-2">
+                      <ShoppingBag className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                      Vendas
+                    </span>
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="Financeiro"
+                    className="group h-11 flex-none rounded-xl border border-transparent px-3 text-xs font-medium whitespace-nowrap text-muted-foreground transition-[background-color,color,box-shadow] hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary dark:data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Gauge className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                      Financeiro
                     </span>
                   </TabsTrigger>
                 </TabsList>
@@ -1315,6 +1371,7 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                 </div>
               </div>
             </TabsContent>
+            <CustomerRelationshipTabs customer={selectedCustomer} />
           </Tabs>
 
           <DialogShellFooter className="border-t px-4 py-3 sm:px-6">

@@ -41,6 +41,7 @@ type Props = {
   /** ✅ NOVO */
   submitDisabled?: boolean;
   isDesktop?: boolean;
+  isDrawer?: boolean;
 };
 
 export function ProductDialogLayout({
@@ -57,13 +58,18 @@ export function ProductDialogLayout({
   onSubmit,
   submitDisabled = false,
   isDesktop = true,
+  isDrawer = false,
 }: Props) {
-  const DialogShellContent = isDesktop ? DialogContent : DrawerContent;
-  const DialogShellHeader = isDesktop ? DialogHeader : DrawerHeader;
-  const DialogShellFooter = isDesktop ? DialogFooter : DrawerFooter;
-  const DialogShellTitle = isDesktop ? DialogTitle : DrawerTitle;
-  const DialogShellDescription = isDesktop ? DialogDescription : DrawerDescription;
-  const DialogShellClose = isDesktop ? DialogClose : DrawerClose;
+  const DialogShellContent = isDrawer ? DrawerContent : DialogContent;
+  const DialogShellHeader = isDrawer ? DrawerHeader : DialogHeader;
+  const DialogShellFooter = isDrawer ? DrawerFooter : DialogFooter;
+  const DialogShellTitle = isDrawer ? DrawerTitle : DialogTitle;
+  const DialogShellDescription = isDrawer ? DrawerDescription : DialogDescription;
+  const DialogShellClose = isDrawer ? DrawerClose : DialogClose;
+
+  const mobileContentClass = isDrawer
+    ? "!inset-0 !m-0 !h-[100dvh] !min-h-[100dvh] !w-[100dvw] !max-w-[100dvw] !max-h-none !rounded-none !border-0 overflow-x-hidden overflow-y-hidden overscroll-contain [&>div:first-child]:hidden data-[vaul-drawer-direction=bottom]:!mt-0 data-[vaul-drawer-direction=bottom]:!max-h-none data-[vaul-drawer-direction=bottom]:!rounded-none"
+    : "flex h-[100dvh] min-h-[100dvh] w-[100dvw] max-w-[100dvw] flex-col gap-0 overflow-x-hidden overflow-y-hidden overscroll-contain rounded-none border-0 p-0 [&>[data-slot=dialog-close]]:right-2 [&>[data-slot=dialog-close]]:top-[max(0.5rem,env(safe-area-inset-top))] [&>[data-slot=dialog-close]]:grid [&>[data-slot=dialog-close]]:size-11 [&>[data-slot=dialog-close]]:place-items-center";
 
   return (
     <DialogShellContent
@@ -73,14 +79,20 @@ export function ProductDialogLayout({
         h-svh w-[100dvw] max-w-[100dvw] p-0 overflow-hidden min-w-0
         sm:max-w-[1100px] sm:max-h-[850px] sm:w-[95vw] sm:min-w-0
       `
-          : `h-[100dvh] min-h-dvh mt-0 rounded-none max-h-none flex flex-col`
+          : mobileContentClass
       }
     >
-      <div className="flex h-full min-h-0 min-w-0 flex-col">
+      <div className="flex h-full min-h-0 min-w-0 w-full max-w-full flex-col overflow-x-hidden">
         {!loading ? (
           <>
-            <DialogShellHeader className={isDesktop ? "shrink-0 border-b px-4 py-3 sm:px-6" : "shrink-0 border-b px-4 py-3"}>
-              <DialogShellTitle className={isDesktop ? "pr-4 text-sm sm:text-lg" : "text-sm"}>
+            <DialogShellHeader
+              className={
+                isDesktop
+                  ? "shrink-0 border-b px-4 py-3 sm:px-6"
+                  : "shrink-0 border-b pb-3 pl-4 pr-14 pt-[max(0.75rem,env(safe-area-inset-top))] text-left"
+              }
+            >
+              <DialogShellTitle className={isDesktop ? "pr-4 text-sm sm:text-lg" : "text-sm text-left"}>
                 {title}
               </DialogShellTitle>
               {description ? <DialogShellDescription>{description}</DialogShellDescription> : null}
@@ -89,21 +101,20 @@ export function ProductDialogLayout({
             <Tabs
               value={currentTab}
               defaultValue={defaultTab}
-              className="mt-4 flex-1 min-h-0 min-w-0 overflow-hidden"
+              className="mt-4 flex-1 min-h-0 min-w-0 w-full max-w-full overflow-hidden"
             >
-              <div className="sticky top-0 z-10 shrink-0">
+              <div className="sticky top-0 z-10 w-full min-w-0 max-w-full shrink-0 overflow-hidden">
                 <div
                   className={
                     isDesktop
                       ? `
-                    overflow-x-auto overflow-y-hidden px-6 pb-2
-                    [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border
+                    w-full min-w-0 max-w-full overflow-hidden px-6 pb-2
                   `
-                      : `overflow-x-auto overflow-y-hidden px-4 pb-2 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border`
+                      : "w-full min-w-0 max-w-full overflow-hidden px-4 pb-2"
                   }
                 >
                   <TabsList
-                    className="h-auto min-w-full justify-start gap-1.5 rounded-2xl border-border bg-muted/90 p-1 shadow-sm backdrop-blur-sm"
+                    className="!flex h-auto !w-full !min-w-0 !max-w-full justify-start gap-1.5 overflow-x-auto overflow-y-hidden overscroll-x-contain rounded-2xl border-border bg-muted/90 p-1 shadow-sm backdrop-blur-sm [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border"
                   >
                     {tabs}
                   </TabsList>
@@ -113,12 +124,24 @@ export function ProductDialogLayout({
               {children}
             </Tabs>
 
-            <DialogShellFooter className={isDesktop ? "shrink-0 border-t px-4 py-3 sm:px-6" : "shrink-0 border-t px-4 py-3"}>
-              <div className="flex w-full flex-row justify-end gap-2 overflow-x-auto">
+            <DialogShellFooter
+              className={
+                isDesktop
+                  ? "shrink-0 border-t px-4 py-3 sm:px-6"
+                  : "shrink-0 min-w-0 max-w-full overflow-x-hidden border-t px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3"
+              }
+            >
+              <div
+                className={
+                  isDesktop
+                    ? "flex w-full flex-row justify-end gap-2"
+                    : "grid w-full min-w-0 max-w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2"
+                }
+              >
                 <DialogShellClose asChild>
                   <Button
                     type="button"
-                    className="h-9 min-w-24 shrink-0 hover:cursor-pointer"
+                    className={isDesktop ? "h-9 min-w-24 shrink-0 hover:cursor-pointer" : "min-h-11 min-w-0 w-full px-2 hover:cursor-pointer"}
                     variant="outline"
                   >
                     Cancelar
@@ -129,7 +152,11 @@ export function ProductDialogLayout({
                     variant="secondary"
                     type="button"
                     disabled={submitting || submitDisabled}
-                    className="h-9 min-w-24 shrink-0 text-sm hover:cursor-pointer"
+                    className={
+                      isDesktop
+                        ? "h-9 min-w-24 shrink-0 text-sm hover:cursor-pointer"
+                        : "min-h-11 min-w-0 w-full whitespace-normal px-2 text-sm leading-tight hover:cursor-pointer"
+                    }
                     onClick={() => onSubmit(true)}
                   >
                     {submitting ? (
@@ -145,7 +172,11 @@ export function ProductDialogLayout({
                 <Button
                   type="button"
                   disabled={submitting || submitDisabled}
-                  className="h-9 min-w-24 shrink-0 text-sm hover:cursor-pointer"
+                  className={
+                    isDesktop
+                      ? "h-9 min-w-24 shrink-0 text-sm hover:cursor-pointer"
+                      : `min-h-11 min-w-0 w-full px-2 text-sm hover:cursor-pointer ${submitLabel2 ? "col-span-2" : ""}`
+                  }
                   onClick={() => onSubmit()}
                 >
                   {submitting ? (

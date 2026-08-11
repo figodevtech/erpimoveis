@@ -44,8 +44,6 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import type { Config } from "../../type";
-import { identificarModeloEmissao } from "@/lib/services/fiscais/nfse-service";
-import type { CodigosFiscaisForm, ModeloEmissao } from "../../ordens/components/dialogs/emissao-nota-dialog/emissao-nfse-dialog/types";
 
 type UsoConsultasPlaca = {
   limite: number;
@@ -183,12 +181,6 @@ function colorPickerValue(value: string | undefined, fallback: string) {
   return /^#[0-9a-fA-F]{6}$/.test(value ?? "") ? value! : fallback;
 }
 
-function getModeloFiscalLabel(modelo: ModeloEmissao) {
-  if (modelo === "NACIONAL") return "NFS-e Nacional (MEI)";
-  if (modelo === "MUNICIPAL_CABEDELO") return "NFS-e Cabedelo";
-  return "NFS-e João Pessoa";
-}
-
 export default function ConfigGeralPage() {
   const [salvando, setSalvando] = useState(false);
   const [carregando, setCarregando] = useState(true);
@@ -198,10 +190,6 @@ export default function ConfigGeralPage() {
   const [empresaResumo, setEmpresaResumo] = useState<EmpresaResumo | null>(null);
   const [mercadoLivreAccount, setMercadoLivreAccount] = useState<MercadoLivreAccount | null>(null);
   const [shopeeIntegration, setShopeeIntegration] = useState<ShopeeIntegration>({ configured: false, missing: [], account: null });
-  const [empresaFiscal, setEmpresaFiscal] = useState({ codigomunicipio: "", regimetributario: "" });
-  const [nfseConfig, setNfseConfig] = useState<Record<string, unknown> | null>(null);
-  const [padraoFiscalForm, setPadraoFiscalForm] = useState<Partial<CodigosFiscaisForm>>({});
-  const [salvandoPadraoFiscal, setSalvandoPadraoFiscal] = useState(false);
   const [setores, setSetores] = useState<SetorOption[]>([]);
   const [carregandoSetores, setCarregandoSetores] = useState(true);
 
@@ -231,19 +219,17 @@ export default function ConfigGeralPage() {
   const carregarConfig = useCallback(async () => {
     setCarregando(true);
     try {
-      const [response, empresaResponse, mercadoLivreResponse, shopeeResponse, nfseConfigResponse, setoresResponse] = await Promise.all([
+      const [response, empresaResponse, mercadoLivreResponse, shopeeResponse, setoresResponse] = await Promise.all([
         fetch("/api/config", { cache: "no-store" }),
         fetch("/api/config/empresa", { cache: "no-store" }),
         fetch("/api/config/integracoes/mercadolivre", { cache: "no-store" }),
         fetch("/api/config/integracoes/shopee", { cache: "no-store" }),
-        fetch("/api/config/nfse", { cache: "no-store" }),
         fetch("/api/tipos/setores", { cache: "no-store" }),
       ]);
       const data = await response.json();
       const empresaData = await empresaResponse.json().catch(() => ({}));
       const mercadoLivreData = await mercadoLivreResponse.json().catch(() => ({}));
       const shopeeData = await shopeeResponse.json().catch(() => ({}));
-      const nfseConfigData = await nfseConfigResponse.json().catch(() => ({}));
       const setoresData = await setoresResponse.json().catch(() => ({}));
       if (response.ok && data.config) {
         reset(data.config);
@@ -258,10 +244,6 @@ export default function ConfigGeralPage() {
           nome: empresa.nomefantasia || empresa.razaosocial || "Empresa",
           cnpj: empresa.cnpj || "",
         });
-        setEmpresaFiscal({
-          codigomunicipio: empresa.codigomunicipio || "",
-          regimetributario: String(empresa.regimetributario ?? ""),
-        });
         setUsoConsultasPlaca({
           limite: Number(empresa.placa_consulta_limite_mensal ?? 0),
           usadas: Number(empresa.placa_consulta_qtd_mes ?? 0),
@@ -270,7 +252,6 @@ export default function ConfigGeralPage() {
       } else {
         setUsoConsultasPlaca(null);
         setEmpresaResumo(null);
-        setEmpresaFiscal({ codigomunicipio: "", regimetributario: "" });
       }
       setMercadoLivreAccount(mercadoLivreResponse.ok ? mercadoLivreData?.account ?? null : null);
       setShopeeIntegration(shopeeResponse.ok ? {
@@ -278,7 +259,6 @@ export default function ConfigGeralPage() {
         missing: shopeeData?.missing ?? [],
         account: shopeeData?.account ?? null,
       } : { configured: false, missing: [], account: null });
-      setNfseConfig(nfseConfigResponse.ok ? nfseConfigData : null);
       setSetores(
         setoresResponse.ok && Array.isArray(setoresData?.items)
           ? setoresData.items.map((item: any) => ({ id: Number(item.id), nome: String(item.nome ?? "") }))
@@ -296,43 +276,6 @@ export default function ConfigGeralPage() {
   useEffect(() => {
     carregarConfig();
   }, [carregarConfig]);
-
-  const modeloFiscalAtual: ModeloEmissao | null = identificarModeloEmissao(empresaFiscal);
-
-  useEffect(() => {
-    const padroes = (nfseConfig?.padroesEmissao as Partial<Record<ModeloEmissao, Partial<CodigosFiscaisForm>>> | undefined) ?? {};
-    setPadraoFiscalForm(modeloFiscalAtual ? padroes[modeloFiscalAtual] ?? {} : {});
-  }, [nfseConfig, modeloFiscalAtual]);
-
-  const atualizarPadraoFiscal = (campo: keyof CodigosFiscaisForm, valor: string) => {
-    setPadraoFiscalForm((current) => ({ ...current, [campo]: valor }));
-  };
-
-  const onSalvarPadraoFiscal = async () => {
-    if (!modeloFiscalAtual) return;
-    setSalvandoPadraoFiscal(true);
-    try {
-      const padroesAtuais = (nfseConfig?.padroesEmissao as Record<string, unknown> | undefined) ?? {};
-      const response = await fetch("/api/config/nfse", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          nfse: {
-            ...nfseConfig,
-            padroesEmissao: { ...padroesAtuais, [modeloFiscalAtual]: padraoFiscalForm },
-          },
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok || !data.ok) throw new Error(data.error || "Erro ao salvar padrões fiscais");
-      setNfseConfig(data.nfse);
-      toast.success("Padrões fiscais atualizados com sucesso!");
-    } catch (error: any) {
-      toast.error(error.message || "Erro ao salvar padrões fiscais");
-    } finally {
-      setSalvandoPadraoFiscal(false);
-    }
-  };
 
   const onSalvar = async (values: Partial<Config>) => {
     setSalvando(true);
@@ -749,196 +692,6 @@ export default function ConfigGeralPage() {
                 </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
-
-        {/* PADRÕES FISCAIS DA NFS-e */}
-        <Card className="overflow-hidden border-primary/10 p-0 shadow-sm lg:col-span-12">
-          <CardHeader className="bg-primary/5 py-4">
-            <div className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-primary" />
-              <CardTitle>Padrões fiscais da NFS-e</CardTitle>
-            </div>
-            <CardDescription>
-              Códigos que já vêm preenchidos ao emitir uma NFS-e, com base no modelo de emissão da empresa.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-6 py-6">
-            {!modeloFiscalAtual ? (
-              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                Preencha o código IBGE do município e o regime tributário da empresa para habilitar os padrões de emissão.{" "}
-                <Link href="/configuracoes/fiscal-pagamentos" className="font-medium text-primary underline underline-offset-2">
-                  Alterar dados da empresa
-                </Link>
-              </div>
-            ) : (
-              <>
-                <p className="text-sm text-muted-foreground">
-                  Modelo ativo: <span className="font-semibold text-foreground">{getModeloFiscalLabel(modeloFiscalAtual)}</span>
-                </p>
-
-                {modeloFiscalAtual === "NACIONAL" ? (
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label>Código de Tributação Nacional do ISS</Label>
-                      <Input
-                        value={padraoFiscalForm.codigoTributacaoNacionalIss ?? ""}
-                        onChange={(event) => atualizarPadraoFiscal("codigoTributacaoNacionalIss", event.target.value)}
-                        placeholder="Ex.: 140101"
-                        inputMode="numeric"
-                        maxLength={12}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Alíquota do ISS (%)</Label>
-                      <Input
-                        value={padraoFiscalForm.aliquotaIss ?? ""}
-                        onChange={(event) => atualizarPadraoFiscal("aliquotaIss", event.target.value)}
-                        placeholder="Quando exigida"
-                        inputMode="decimal"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Tributação do ISS</Label>
-                      <Select
-                        value={padraoFiscalForm.tributacaoIss ?? ""}
-                        onValueChange={(value) => atualizarPadraoFiscal("tributacaoIss", value)}
-                      >
-                        <SelectTrigger className="w-full"><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="1">Operação tributável</SelectItem>
-                          <SelectItem value="2">Imunidade</SelectItem>
-                          <SelectItem value="3">Exportação de serviço</SelectItem>
-                          <SelectItem value="4">Não incidência</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Retenção do ISS</Label>
-                      <Select
-                        value={padraoFiscalForm.tipoRetencaoIss ?? ""}
-                        onValueChange={(value) => atualizarPadraoFiscal("tipoRetencaoIss", value)}
-                      >
-                        <SelectTrigger className="w-full"><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="1">Não retido</SelectItem>
-                          <SelectItem value="2">Retido pelo tomador</SelectItem>
-                          <SelectItem value="3">Retido pelo intermediário</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>CST do IBS/CBS</Label>
-                      <Input
-                        value={padraoFiscalForm.ibsCbsSituacaoTributaria ?? ""}
-                        onChange={(event) => atualizarPadraoFiscal("ibsCbsSituacaoTributaria", event.target.value)}
-                        placeholder="3 dígitos"
-                        inputMode="numeric"
-                        maxLength={3}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Classificação Tributária do IBS/CBS</Label>
-                      <Input
-                        value={padraoFiscalForm.ibsCbsClassificacaoTributaria ?? ""}
-                        onChange={(event) => atualizarPadraoFiscal("ibsCbsClassificacaoTributaria", event.target.value)}
-                        placeholder="6 dígitos"
-                        inputMode="numeric"
-                        maxLength={6}
-                      />
-                    </div>
-                    <div className="space-y-2 sm:col-span-2">
-                      <Label>Código NBS</Label>
-                      <Input
-                        value={padraoFiscalForm.codigoNbs ?? ""}
-                        onChange={(event) => atualizarPadraoFiscal("codigoNbs", event.target.value)}
-                        placeholder="9 dígitos, quando aplicável"
-                        inputMode="numeric"
-                        maxLength={14}
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label>Item da Lista de Serviço</Label>
-                      <Input
-                        value={padraoFiscalForm.itemListaServico ?? ""}
-                        onChange={(event) => atualizarPadraoFiscal("itemListaServico", event.target.value)}
-                        placeholder="Ex.: 14.01"
-                        maxLength={8}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>CNAE</Label>
-                      <Input
-                        value={padraoFiscalForm.codigoCnae ?? ""}
-                        onChange={(event) => atualizarPadraoFiscal("codigoCnae", event.target.value)}
-                        placeholder={modeloFiscalAtual === "MUNICIPAL_JOAO_PESSOA" ? "9 dígitos" : "7 a 9 dígitos"}
-                        inputMode="numeric"
-                        maxLength={12}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Natureza da operação</Label>
-                      <Select
-                        value={padraoFiscalForm.naturezaOperacao ?? ""}
-                        onValueChange={(value) => atualizarPadraoFiscal("naturezaOperacao", value)}
-                      >
-                        <SelectTrigger className="w-full"><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="1">Tributação no município</SelectItem>
-                          <SelectItem value="2">Tributação fora do município</SelectItem>
-                          <SelectItem value="3">Isenção</SelectItem>
-                          <SelectItem value="4">Imunidade</SelectItem>
-                          <SelectItem value="5">Exigibilidade suspensa — decisão judicial</SelectItem>
-                          <SelectItem value="6">Exigibilidade suspensa — processo administrativo</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>ISS retido</Label>
-                      <Select
-                        value={padraoFiscalForm.issRetido ?? ""}
-                        onValueChange={(value) => atualizarPadraoFiscal("issRetido", value)}
-                      >
-                        <SelectTrigger className="w-full"><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="false">Não</SelectItem>
-                          <SelectItem value="true">Sim</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Alíquota do ISS (%)</Label>
-                      <Input
-                        value={padraoFiscalForm.aliquotaIss ?? ""}
-                        onChange={(event) => atualizarPadraoFiscal("aliquotaIss", event.target.value)}
-                        placeholder="Ex.: 3,00"
-                        inputMode="decimal"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Código NBS</Label>
-                      <Input
-                        value={padraoFiscalForm.codigoNbs ?? ""}
-                        onChange={(event) => atualizarPadraoFiscal("codigoNbs", event.target.value)}
-                        placeholder="9 dígitos, quando aplicável"
-                        inputMode="numeric"
-                        maxLength={14}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex justify-end">
-                  <Button type="button" variant="outline" disabled={salvandoPadraoFiscal} onClick={onSalvarPadraoFiscal}>
-                    {salvandoPadraoFiscal ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                    Salvar padrões fiscais
-                  </Button>
-                </div>
-              </>
-            )}
           </CardContent>
         </Card>
 

@@ -21,7 +21,7 @@ export function TabImagensCreate({ pendentes, ordemItens, progressoUpload, savin
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
 
   return (
-    <TabsContent value="Imagens" className="h-full min-h-0 overflow-auto dark:bg-muted-foreground/5 px-2 py-3 md:px-6 md:py-6">
+    <TabsContent value="Imagens" className="h-full min-h-0 w-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto dark:bg-muted-foreground/5 px-2 py-3 md:px-6 md:py-6">
       <div className="space-y-4">
         <div className="flex flex-col gap-3 rounded-lg border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-1">

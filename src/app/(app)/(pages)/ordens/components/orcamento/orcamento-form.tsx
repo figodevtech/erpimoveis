@@ -195,6 +195,10 @@ export const OrcamentoForm = forwardRef<OrcamentoFormHandle, OrcamentoFormProps>
   const handleSelecionarProduto = (produtoSelecionado: any) => {
     const descricao = produtoSelecionado.titulo ?? produtoSelecionado.descricao ?? String(produtoSelecionado.id);
 
+    const referencia = String(
+      produtoSelecionado.referencia ?? produtoSelecionado.codigo ?? "",
+    ).trim();
+
     const codigo = String(
       produtoSelecionado.codigo ??
         produtoSelecionado.referencia ??
@@ -209,6 +213,8 @@ export const OrcamentoForm = forwardRef<OrcamentoFormHandle, OrcamentoFormProps>
     const adaptado: ProdutoBusca = {
       id: produtoSelecionado.id,
       codigo,
+      referencia: referencia || null,
+      etiqueta: String(produtoSelecionado.etiqueta ?? "").trim() || null,
       descricao,
       precounitario,
       estoque,
@@ -221,12 +227,14 @@ export const OrcamentoForm = forwardRef<OrcamentoFormHandle, OrcamentoFormProps>
   // 🔹 Adapta o serviço vindo do ServiceSelect para ServicoBusca
   const handleSelecionarServico = (servicoSelecionado: any) => {
     const descricao = servicoSelecionado.descricao ?? String(servicoSelecionado.id);
+    const referencia = String(servicoSelecionado.codigo ?? "").trim();
     const codigo = String(servicoSelecionado.codigo ?? servicoSelecionado.id);
     const precohora = Number(servicoSelecionado.precohora ?? servicoSelecionado.valor ?? servicoSelecionado.preco ?? 0);
 
     const adaptado: ServicoBusca = {
       id: servicoSelecionado.id,
       codigo,
+      referencia: referencia || null,
       descricao,
       precohora,
     };

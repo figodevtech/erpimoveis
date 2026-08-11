@@ -1,9 +1,17 @@
 "use client";
 
-import type { UseFormRegister, UseFormWatch } from "react-hook-form";
+import type { UseFormRegister, UseFormSetValue, UseFormWatch } from "react-hook-form";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { getNFeFiscalFieldRules, PIS_COFINS_CST_OPTIONS } from "@/lib/nfe/taxRules";
 import {
   CSOSN_DESCRICOES,
@@ -14,15 +22,34 @@ import type { CRT } from "@/lib/nfe/types";
 
 import type { FormValues, ModeloPadraoFiscal, OperacaoPadraoFiscal } from "../types";
 
-const CLASSES_SELECT =
-  "border-input bg-background ring-offset-background focus-visible:ring-ring h-10 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-none";
-
 const MODOS = [
-  ["", "—"],
-  ["PERCENTUAL", "Percentual sobre a base"],
-  ["QUANTIDADE", "Valor por unidade"],
-  ["NAO_TRIBUTADO", "Não tributado"],
+  { value: "PERCENTUAL", label: "Percentual sobre a base" },
+  { value: "QUANTIDADE", label: "Valor por unidade" },
+  { value: "NAO_TRIBUTADO", label: "Não tributado" },
 ] as const;
+
+/** Título de um grupo de campos, com a régua que separa do grupo anterior. */
+function Grupo({
+  titulo,
+  descricao,
+  children,
+}: {
+  titulo: string;
+  descricao?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <h4 className="text-foreground text-xs font-semibold tracking-wide uppercase">{titulo}</h4>
+        {descricao ? (
+          <p className="text-muted-foreground text-[11px] leading-snug">{descricao}</p>
+        ) : null}
+      </div>
+      {children}
+    </section>
+  );
+}
 
 function Campo({
   label,
@@ -37,11 +64,24 @@ function Campo({
 }) {
   return (
     <div className={`min-w-0 space-y-1.5 ${className}`}>
-      <Label className="text-xs">{label}</Label>
+      <Label className="text-xs font-normal">{label}</Label>
       {children}
-      {hint ? <p className="text-muted-foreground text-[11px] leading-snug">{hint}</p> : null}
+      {hint ? (
+        <p className="text-muted-foreground text-[11px] leading-snug">{hint}</p>
+      ) : null}
     </div>
   );
+}
+
+/** Grade padrão dos campos: uma coluna no celular, quatro no desktop. */
+function Grade({ children, colunas = 4 }: { children: React.ReactNode; colunas?: 2 | 3 | 4 }) {
+  const classe =
+    colunas === 2
+      ? "sm:grid-cols-2"
+      : colunas === 3
+        ? "sm:grid-cols-2 lg:grid-cols-3"
+        : "sm:grid-cols-2 lg:grid-cols-4";
+  return <div className={`grid grid-cols-1 gap-4 ${classe}`}>{children}</div>;
 }
 
 /**
@@ -53,12 +93,14 @@ function Campo({
  */
 export function PadraoFiscalFields({
   register,
+  setValue,
   watch,
   modelo,
   operacao,
   crt,
 }: {
   register: UseFormRegister<FormValues>;
+  setValue: UseFormSetValue<FormValues>;
   watch: UseFormWatch<FormValues>;
   modelo: ModeloPadraoFiscal;
   operacao: OperacaoPadraoFiscal;
@@ -66,147 +108,236 @@ export function PadraoFiscalFields({
 }) {
   const base = `nfe.padroesFiscais.${modelo}.${operacao}` as const;
   const regras = crt ? getNFeFiscalFieldRules(crt) : null;
-  const usaCsosn = regras?.icms.csosn === "REQUIRED";
-  const rtcLigado = Boolean(watch(`${base}.rtc_habilitado`));
 
-  const cstsSaida = PIS_COFINS_CST_OPTIONS.filter((opcao) =>
-    operacao === "ENTRADA" ? opcao.operation !== "SAIDA" : opcao.operation !== "ENTRADA",
-  );
+  /**
+   * `Select` e `Switch` não aceitam `register`. O caminho é montado em runtime
+   * a partir do modelo e da operação, então o tipo do campo não sobrevive à
+   * indexação — daí o cast.
+   */
+  const seletor = (campo: string) => {
+    const caminho = `${base}.${campo}` as never;
+    return {
+      value: (watch(caminho) as unknown as string | undefined) ?? "",
+      onValueChange: (valor: string) => setValue(caminho, valor as never),
+    };
+  };
+
+  const rtcLigado = Boolean(watch(`${base}.rtc_habilitado`));
 
   if (!regras) {
     return (
-      <p className="text-muted-foreground text-sm">
-        Defina o regime tributário na aba <strong>Empresa</strong> antes de cadastrar o padrão: é
-        ele que decide entre CSOSN e CST de ICMS.
-      </p>
+      <div className="rounded-lg border border-dashed p-4">
+        <p className="text-muted-foreground text-sm">
+          Defina o regime tributário na aba <strong className="text-foreground">Empresa</strong>{" "}
+          para cadastrar o padrão: é ele que decide entre CSOSN e CST de ICMS.
+        </p>
+      </div>
     );
   }
 
+  const usaCsosn = regras.icms.csosn === "REQUIRED";
+  const cstsDaOperacao = PIS_COFINS_CST_OPTIONS.filter((opcao) =>
+    operacao === "ENTRADA" ? opcao.operation !== "SAIDA" : opcao.operation !== "ENTRADA",
+  );
+
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Campo label="Origem da mercadoria" hint="Obrigatória no XML; quase nenhum produto tem.">
-          <select className={CLASSES_SELECT} {...register(`${base}.origem_mercadoria`)}>
-            <option value="">—</option>
-            {ORIGENS_MERCADORIA.map(([valor, rotulo]) => (
-              <option key={valor} value={valor}>
-                {valor} · {rotulo}
-              </option>
-            ))}
-          </select>
-        </Campo>
-
-        <Campo
-          label="CFOP"
-          hint="O primeiro dígito é ajustado sozinho conforme a UF do destinatário."
-        >
-          <Input
-            {...register(`${base}.cfop`)}
-            placeholder={operacao === "ENTRADA" ? "Ex.: 1102" : "Ex.: 5102"}
-            inputMode="numeric"
-          />
-        </Campo>
-
-        {usaCsosn ? (
-          <Campo label="CSOSN">
-            <select className={CLASSES_SELECT} {...register(`${base}.csosn`)}>
-              <option value="">—</option>
-              {regras.icms.csosnPermitidos.map((codigo) => (
-                <option key={codigo} value={codigo}>
-                  {codigo} · {CSOSN_DESCRICOES[codigo] ?? ""}
-                </option>
-              ))}
-            </select>
-          </Campo>
-        ) : (
-          <Campo label="CST de ICMS">
-            <select className={CLASSES_SELECT} {...register(`${base}.cst`)}>
-              <option value="">—</option>
-              {regras.icms.cstPermitidos.map((codigo) => (
-                <option key={codigo} value={codigo}>
-                  {codigo} · {CST_ICMS_DESCRICOES[codigo] ?? ""}
-                </option>
-              ))}
-            </select>
-          </Campo>
-        )}
-
-        <Campo label="Alíquota de ICMS (%)">
-          <Input {...register(`${base}.aliquotaicms`)} placeholder="Ex.: 18" inputMode="decimal" />
-        </Campo>
-      </div>
-
-      {(["pis", "cofins"] as const).map((tributo) => (
-        <div key={tributo} className="grid grid-cols-1 gap-4 border-t pt-4 sm:grid-cols-4">
-          <Campo label={`CST de ${tributo.toUpperCase()}`}>
-            <select className={CLASSES_SELECT} {...register(`${base}.cst_${tributo}`)}>
-              <option value="">—</option>
-              {cstsSaida.map((opcao) => (
-                <option key={opcao.value} value={opcao.value}>
-                  {opcao.value} · {opcao.description}
-                </option>
-              ))}
-            </select>
+      <Grupo titulo="Identificação" descricao="NCM e CEST continuam vindo do produto.">
+        <Grade colunas={3}>
+          <Campo label="Origem da mercadoria" hint="Obrigatória no XML.">
+            <Select {...seletor("origem_mercadoria")}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Selecione..." />
+              </SelectTrigger>
+              <SelectContent className="max-w-[min(32rem,calc(100vw-2rem))]">
+                {ORIGENS_MERCADORIA.map(([valor, rotulo]) => (
+                  <SelectItem
+                    key={valor}
+                    value={valor}
+                    className="py-2 break-words whitespace-normal"
+                  >
+                    {valor} — {rotulo}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </Campo>
 
-          <Campo label="Modo de cálculo" hint="Alguns CSTs já definem o modo sozinhos.">
-            <select className={CLASSES_SELECT} {...register(`${base}.modo_${tributo}`)}>
-              {MODOS.map(([valor, rotulo]) => (
-                <option key={valor} value={valor}>
-                  {rotulo}
-                </option>
-              ))}
-            </select>
+          <Campo label="CFOP" hint="O primeiro dígito se ajusta pela UF do destinatário.">
+            <Input
+              {...register(`${base}.cfop`)}
+              placeholder={operacao === "ENTRADA" ? "1102" : "5102"}
+              inputMode="numeric"
+              maxLength={4}
+            />
           </Campo>
+        </Grade>
+      </Grupo>
+
+      <Grupo
+        titulo="ICMS"
+        descricao={usaCsosn ? "Simples Nacional usa CSOSN." : "Regime normal usa CST."}
+      >
+        <Grade colunas={3}>
+          {usaCsosn ? (
+            <Campo label="CSOSN">
+              <Select {...seletor("csosn")}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Selecione..." />
+                </SelectTrigger>
+                <SelectContent className="max-w-[min(34rem,calc(100vw-2rem))]">
+                  {regras.icms.csosnPermitidos.map((codigo) => (
+                    <SelectItem
+                      key={codigo}
+                      value={codigo}
+                      className="py-2 break-words whitespace-normal"
+                    >
+                      {codigo} — {CSOSN_DESCRICOES[codigo] ?? codigo}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Campo>
+          ) : (
+            <Campo label="CST de ICMS">
+              <Select {...seletor("cst")}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Selecione..." />
+                </SelectTrigger>
+                <SelectContent className="max-w-[min(34rem,calc(100vw-2rem))]">
+                  {regras.icms.cstPermitidos.map((codigo) => (
+                    <SelectItem
+                      key={codigo}
+                      value={codigo}
+                      className="py-2 break-words whitespace-normal"
+                    >
+                      {codigo} — {CST_ICMS_DESCRICOES[codigo] ?? codigo}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Campo>
+          )}
 
           <Campo label="Alíquota (%)">
-            <Input
-              {...register(`${base}.aliquota_${tributo}`)}
-              placeholder={tributo === "pis" ? "Ex.: 1,65" : "Ex.: 7,60"}
-              inputMode="decimal"
-            />
+            <Input {...register(`${base}.aliquotaicms`)} placeholder="18" inputMode="decimal" />
           </Campo>
+        </Grade>
+      </Grupo>
 
-          <Campo label="Valor por unidade">
-            <Input
-              {...register(`${base}.aliquota_por_unidade_${tributo}`)}
-              placeholder="Só no modo por quantidade"
-              inputMode="decimal"
-            />
-          </Campo>
-        </div>
+      {(["pis", "cofins"] as const).map((tributo) => (
+        <Grupo
+          key={tributo}
+          titulo={tributo.toUpperCase()}
+          descricao="Alguns CSTs já definem o modo de cálculo sozinhos."
+        >
+          <Grade>
+            <Campo label="CST" className="sm:col-span-2">
+              <Select {...seletor(`cst_${tributo}`)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Selecione..." />
+                </SelectTrigger>
+                <SelectContent className="max-w-[min(38rem,calc(100vw-2rem))]">
+                  {cstsDaOperacao.map((opcao) => (
+                    <SelectItem
+                      key={opcao.value}
+                      value={opcao.value}
+                      className="py-2 break-words whitespace-normal"
+                    >
+                      {opcao.value} — {opcao.description}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Campo>
+
+            <Campo label="Modo de cálculo">
+              <Select {...seletor(`modo_${tributo}`)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Selecione..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {MODOS.map((modo) => (
+                    <SelectItem key={modo.value} value={modo.value}>
+                      {modo.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Campo>
+
+            <Campo label="Alíquota (%)">
+              <Input
+                {...register(`${base}.aliquota_${tributo}`)}
+                placeholder={tributo === "pis" ? "1,65" : "7,60"}
+                inputMode="decimal"
+              />
+            </Campo>
+
+            <Campo label="Valor por unidade" hint="Só no modo por quantidade.">
+              <Input
+                {...register(`${base}.aliquota_por_unidade_${tributo}`)}
+                placeholder="0,00"
+                inputMode="decimal"
+              />
+            </Campo>
+          </Grade>
+        </Grupo>
       ))}
 
-      <div className="space-y-4 border-t pt-4">
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" className="size-4" {...register(`${base}.rtc_habilitado`)} />
-          Destacar IBS/CBS nos itens
-        </label>
+      <Grupo titulo="IBS / CBS" descricao="Reforma tributária.">
+        <div className="bg-muted/30 flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+          <div className="min-w-0">
+            <Label htmlFor="rtc-habilitado" className="text-sm font-medium">
+              Destacar IBS/CBS nos itens
+            </Label>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              A classificação é conferida na tabela oficial vigente ao salvar.
+            </p>
+          </div>
+          <Switch
+            id="rtc-habilitado"
+            checked={rtcLigado}
+            onCheckedChange={(valor) =>
+              setValue(`${base}.rtc_habilitado` as never, valor as never)
+            }
+          />
+        </div>
 
         {rtcLigado ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-5">
+          <Grade>
             <Campo label="CST IBS/CBS">
-              <Input {...register(`${base}.cst_ibscbs`)} placeholder="Ex.: 000" inputMode="numeric" />
+              <Input
+                {...register(`${base}.cst_ibscbs`)}
+                placeholder="000"
+                inputMode="numeric"
+                maxLength={3}
+              />
             </Campo>
-            <Campo label="cClassTrib" hint="Conferido na tabela oficial vigente ao salvar.">
+            <Campo label="cClassTrib">
               <Input
                 {...register(`${base}.cclass_trib`)}
-                placeholder="Ex.: 000001"
+                placeholder="000001"
                 inputMode="numeric"
+                maxLength={6}
               />
             </Campo>
             <Campo label="IBS UF (%)">
-              <Input {...register(`${base}.aliquota_ibs_uf`)} inputMode="decimal" />
+              <Input {...register(`${base}.aliquota_ibs_uf`)} placeholder="0,00" inputMode="decimal" />
             </Campo>
             <Campo label="IBS Município (%)">
-              <Input {...register(`${base}.aliquota_ibs_municipio`)} inputMode="decimal" />
+              <Input
+                {...register(`${base}.aliquota_ibs_municipio`)}
+                placeholder="0,00"
+                inputMode="decimal"
+              />
             </Campo>
             <Campo label="CBS (%)">
-              <Input {...register(`${base}.aliquota_cbs`)} inputMode="decimal" />
+              <Input {...register(`${base}.aliquota_cbs`)} placeholder="0,00" inputMode="decimal" />
             </Campo>
-          </div>
+          </Grade>
         ) : null}
-      </div>
+      </Grupo>
     </div>
   );
 }

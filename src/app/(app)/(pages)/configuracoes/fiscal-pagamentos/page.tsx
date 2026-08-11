@@ -77,6 +77,7 @@ export default function ConfigFiscalPagamentosPage() {
         token: "",
         certificadoA1Base64: "",
         senhaCertificado: "",
+        padroesEmissao: {},
       },
     },
   });
@@ -149,6 +150,9 @@ export default function ConfigFiscalPagamentosPage() {
       setValue("nfse.token", n.token ?? "");
       setValue("nfse.certificadoA1Base64", n.certificadoA1Base64 ?? "");
       setValue("nfse.senhaCertificado", n.senhaCertificado ?? "");
+      // Sem recarregar isto, salvar a aba mandaria `padroesEmissao` vazio e o
+      // PUT apagaria o padrão fiscal inteiro.
+      setValue("nfse.padroesEmissao", n.padroesEmissao ?? {});
     },
     [setValue]
   );
@@ -325,7 +329,7 @@ export default function ConfigFiscalPagamentosPage() {
           </TabsContent>
 
           <TabsContent value="nfse" className="mt-6">
-            <NFSeTab register={register} setValue={setValue} />
+            <NFSeTab register={register} setValue={setValue} watch={watch} />
           </TabsContent>
         </Tabs>
       </main>

@@ -63,7 +63,7 @@ export async function GET(
         subtotal,
         desconto_tipo,
         desconto,
-        produto:produtoid (descricao, titulo)
+        produto:produtoid (id, descricao, titulo, referencia, etiqueta)
       `)
       .eq("ordemservicoid", osId);
 
@@ -72,6 +72,8 @@ export async function GET(
     const produtos = (prodRows ?? []).map((r: any) => ({
       produtoid: toNum(r.produtoid),
       descricao: String(r.produto?.titulo || r.produto?.descricao || ""),
+      referencia: String(r.produto?.referencia ?? "").trim() || null,
+      etiqueta: String(r.produto?.etiqueta ?? "").trim() || null,
       quantidade: toNum(r.quantidade ?? 1),
       precounitario: toNum(r.precounitario ?? 0),
       subtotal: toNum(r.subtotal ?? 0),
@@ -108,7 +110,7 @@ export async function GET(
         subtotal,
         desconto_tipo,
         desconto,
-        servico:servicoid (descricao)
+        servico:servicoid (id, codigo, descricao)
       `)
       .eq("ordemservicoid", osId);
 
@@ -117,6 +119,7 @@ export async function GET(
     const servicos = (servRows ?? []).map((r: any) => ({
       servicoid: toNum(r.servicoid),
       descricao: String(r.servico?.descricao ?? ""),
+      referencia: String(r.servico?.codigo ?? "").trim() || null,
       descricaoServico: r.descricao ? String(r.descricao) : null,
       quantidade: toNum(r.quantidade ?? 1),
       precounitario: toNum(r.precounitario ?? 0),

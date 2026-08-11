@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   normalizarPadraoFiscalItem,
   ORIGEM_PADRAO,
+  ORIGEM_PADRAO_HERDADO,
   ORIGEM_REGRA,
   ORIGEM_VAZIO,
   padraoDaOperacao,
@@ -205,6 +206,55 @@ test('rtc_habilitado do padrão liga o grupo IBS/CBS', () => {
   assert.equal(campos.aliquota_cbs, 0.9);
 });
 
+test('o false do produto não impede o padrão de ligar IBS/CBS', () => {
+  // `produto.rtc_habilitado` é NOT NULL DEFAULT false: todo produto chega aqui
+  // com `false`. Se isso contasse como decisão, o padrão nunca ligaria o grupo.
+  const { campos, procedencia } = resolverPadraoFiscalItem({
+    fontes: produto({ rtc_habilitado: false }),
+    padrao: { rtc_habilitado: true, cst_ibscbs: '000', cclass_trib: '000001' },
+    crt: 3,
+  });
+
+  assert.equal(campos.rtc_habilitado, true);
+  assert.equal(procedencia.rtc_habilitado, ORIGEM_PADRAO);
+  assert.equal(campos.cst_ibscbs, '000');
+});
+
+test('produto com IBS/CBS ligado vence padrão desligado', () => {
+  const { campos, procedencia } = resolverPadraoFiscalItem({
+    fontes: produto({ rtc_habilitado: true, cst_ibscbs: '200' }),
+    padrao: { rtc_habilitado: false },
+    crt: 3,
+  });
+
+  assert.equal(campos.rtc_habilitado, true);
+  assert.equal(procedencia.rtc_habilitado, 'PRODUTO');
+  assert.equal(campos.cst_ibscbs, '200');
+});
+
+test('sem ninguém pedindo, IBS/CBS fica desligado', () => {
+  const { campos, procedencia } = resolverPadraoFiscalItem({
+    fontes: produto({ rtc_habilitado: false }),
+    padrao: { csosn: '102' },
+    crt: 1,
+  });
+
+  assert.equal(campos.rtc_habilitado, false);
+  assert.equal(procedencia.rtc_habilitado, ORIGEM_VAZIO);
+});
+
+test('IBS/CBS herdado da NF-e liga na NFC-e e sai marcado', () => {
+  const { campos, procedencia } = resolverPadraoFiscalItem({
+    fontes: produto({ rtc_habilitado: false }),
+    padrao: { rtc_habilitado: true, cst_ibscbs: '000', cclass_trib: '000001' },
+    crt: 1,
+    rotuloPadrao: ORIGEM_PADRAO_HERDADO,
+  });
+
+  assert.equal(campos.rtc_habilitado, true);
+  assert.equal(procedencia.rtc_habilitado, ORIGEM_PADRAO_HERDADO);
+});
+
 test('NCM e CEST nunca saem do padrão', () => {
   const resolvido = resolverPadraoFiscalItem({
     fontes: produto(),
@@ -363,4 +413,28 @@ test('padraoDaOperacao separa saída de entrada e tolera lixo', () => {
   assert.equal(padraoDaOperacao('texto', 'SAIDA'), null);
   assert.equal(padraoDaOperacao([1, 2], 'SAIDA'), null);
   assert.equal(padraoDaOperacao({ SAIDA: 'x' }, 'SAIDA'), null);
+});
+
+test('ramo sem chave nenhuma conta como ausente', () => {
+  // É este `null` que faz a NFC-e cair para o padrão herdado da NF-e em vez de
+  // emitir com todos os campos em branco.
+  assert.equal(padraoDaOperacao({ SAIDA: {} }, 'SAIDA'), null);
+});
+
+test('padrão herdado da NF-e sai marcado como tal', () => {
+  const { campos, procedencia } = resolverPadraoFiscalItem({
+    fontes: produto({ csosn: '102' }),
+    padrao: PADRAO_SIMPLES,
+    crt: 1,
+    rotuloPadrao: ORIGEM_PADRAO_HERDADO,
+  });
+
+  // O que veio do produto continua marcado como do produto.
+  assert.equal(procedencia.csosn, 'PRODUTO');
+  // O que veio do padrão da NF-e é distinguível do padrão do próprio modelo.
+  assert.equal(campos.cst_pis, '01');
+  assert.equal(procedencia.cst_pis, ORIGEM_PADRAO_HERDADO);
+  assert.equal(procedencia.origem_mercadoria, ORIGEM_PADRAO_HERDADO);
+  // Campo vazio segue sem procedência, independente do rótulo.
+  assert.equal(procedencia.cst, ORIGEM_VAZIO);
 });

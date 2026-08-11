@@ -14,8 +14,65 @@ import { PadraoFiscalFields } from "./padrao-fiscal-fields";
 const CLASSES_SELECT =
   "border-input bg-background ring-offset-background focus-visible:ring-ring h-10 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-none";
 
+/** Um padrão só conta como cadastrado quando tem algum valor de verdade. */
+function temValor(padrao: unknown) {
+  if (!padrao || typeof padrao !== "object") return false;
+  return Object.values(padrao as Record<string, unknown>).some(
+    (valor) => valor !== "" && valor !== null && valor !== undefined && valor !== false,
+  );
+}
+
+/**
+ * Pílula de troca de variante.
+ *
+ * É navegação, não dado: fica visualmente distinta dos campos abaixo para
+ * ninguém confundir "estou editando este padrão" com "este é um valor que será
+ * salvo". O ponto ao lado diz se aquela variante já tem algo cadastrado, o que
+ * evita ter de clicar em cada uma para descobrir.
+ */
+function AbaVariante({
+  ativa,
+  rotulo,
+  preenchida,
+  onClick,
+}: {
+  ativa: boolean;
+  rotulo: string;
+  preenchida: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={ativa}
+      className={`focus-visible:ring-ring inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none ${
+        ativa
+          ? "bg-primary text-primary-foreground shadow-sm"
+          : "text-muted-foreground hover:text-foreground hover:bg-background/80"
+      }`}
+    >
+      <span
+        aria-hidden
+        className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+          preenchida
+            ? ativa
+              ? "bg-primary-foreground"
+              : "bg-emerald-500"
+            : ativa
+              ? "bg-primary-foreground/40"
+              : "bg-muted-foreground/40"
+        }`}
+      />
+      {rotulo}
+      <span className="sr-only">{preenchida ? " — configurado" : " — sem padrão"}</span>
+    </button>
+  );
+}
+
 export function NFeTab({
   register,
+  setValue,
   watch,
 }: {
   register: UseFormRegister<FormValues>;
@@ -34,6 +91,13 @@ export function NFeTab({
   // para ninguém cadastrar um padrão que nunca vai ser lido.
   const operacaoAtiva: OperacaoPadraoFiscal =
     modeloPadrao === "NFCE" ? "SAIDA" : operacaoPadrao;
+
+  const padroes = watch?.("nfe.padroesFiscais");
+  const temNfeSaida = temValor(padroes?.NFE?.SAIDA);
+  const temNfeEntrada = temValor(padroes?.NFE?.ENTRADA);
+  // Sem padrão próprio, a NFC-e aproveita o de saída da NF-e. Vale avisar: o
+  // campo em branco aqui não significa item sem tributação na emissão.
+  const temNfceSaida = temValor(padroes?.NFCE?.SAIDA);
 
   return (
     <Card className="border-primary/10 bg-card/80 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/60">
@@ -82,10 +146,7 @@ export function NFeTab({
 
           <div className="space-y-1.5">
             <Label className="mb-2 block">Leiaute do QR Code</Label>
-            <select
-              className="border-input bg-background ring-offset-background focus-visible:ring-ring h-10 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-none"
-              {...register("nfe.qrCodeVersao")}
-            >
+            <select className={CLASSES_SELECT} {...register("nfe.qrCodeVersao")}>
               <option value="3">Versão 3 — atual, dispensa CSC (NT 2025.001)</option>
               <option value="2">Versão 2 — legada, exige CSC</option>
             </select>
@@ -150,45 +211,49 @@ export function NFeTab({
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <Label className="mb-2 block text-xs">Modelo</Label>
-              <select
-                className={CLASSES_SELECT}
-                value={modeloPadrao}
-                onChange={(evento) =>
-                  setModeloPadrao(evento.target.value as ModeloPadraoFiscal)
-                }
-              >
-                <option value="NFE">NF-e · modelo 55</option>
-                <option value="NFCE">NFC-e · modelo 65</option>
-              </select>
-            </div>
-
-            {modeloPadrao === "NFE" ? (
-              <div>
-                <Label className="mb-2 block text-xs">Operação</Label>
-                <select
-                  className={CLASSES_SELECT}
-                  value={operacaoPadrao}
-                  onChange={(evento) =>
-                    setOperacaoPadrao(evento.target.value as OperacaoPadraoFiscal)
-                  }
-                >
-                  <option value="SAIDA">Saída — venda e ordem de serviço</option>
-                  <option value="ENTRADA">Entrada — compra e devolução</option>
-                </select>
-              </div>
-            ) : (
-              <p className="text-muted-foreground self-end text-xs">
-                A NFC-e só tem operação de saída.
-              </p>
-            )}
+          <div className="bg-muted/40 flex flex-wrap items-center gap-1 rounded-xl border p-1">
+            <AbaVariante
+              ativa={modeloPadrao === "NFE" && operacaoAtiva === "SAIDA"}
+              rotulo="NF-e · saída"
+              preenchida={temNfeSaida}
+              onClick={() => {
+                setModeloPadrao("NFE");
+                setOperacaoPadrao("SAIDA");
+              }}
+            />
+            <AbaVariante
+              ativa={modeloPadrao === "NFE" && operacaoAtiva === "ENTRADA"}
+              rotulo="NF-e · entrada"
+              preenchida={temNfeEntrada}
+              onClick={() => {
+                setModeloPadrao("NFE");
+                setOperacaoPadrao("ENTRADA");
+              }}
+            />
+            <AbaVariante
+              ativa={modeloPadrao === "NFCE"}
+              rotulo="NFC-e · saída"
+              preenchida={temNfceSaida}
+              onClick={() => setModeloPadrao("NFCE")}
+            />
           </div>
+
+          {modeloPadrao === "NFCE" && !temNfceSaida ? (
+            <div className="flex items-start gap-2 rounded-lg border border-sky-500/40 bg-sky-500/5 p-3 text-sm">
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-sky-600 dark:text-sky-400" />
+              <span>
+                Enquanto estes campos ficarem em branco, a NFC-e usa o padrão de{" "}
+                <strong>saída da NF-e</strong> — o perfil tributário da mercadoria é o mesmo nos
+                dois modelos. Preencha aqui só o que precisar ser diferente; na emissão, o que veio
+                da NF-e aparece marcado como <em>padrão NF-e</em>.
+              </span>
+            </div>
+          ) : null}
 
           {watch ? (
             <PadraoFiscalFields
               register={register}
+              setValue={setValue}
               watch={watch}
               modelo={modeloPadrao}
               operacao={operacaoAtiva}

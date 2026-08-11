@@ -40,6 +40,8 @@ const STATUS_OCUPAM_ORIGEM = [
   "ENVIADA",
   "AUTORIZADA",
   "PENDENTE_ENVIO",
+  "CONTINGENCIA",
+  "RESULTADO_INCERTO",
 ];
 
 async function buscarNotaAtivaDaOrigem(
@@ -52,6 +54,7 @@ async function buscarNotaAtivaDaOrigem(
     .select("id, numero, serie, status")
     .eq(COLUNA_ORIGEM[tipo], origemId)
     .eq("modelo", modeloParaDb(modelo))
+    .eq("is_deleted", false)
     .in("status", STATUS_OCUPAM_ORIGEM)
     .order("id", { ascending: false })
     .limit(1)
