@@ -30,6 +30,7 @@ interface ConteudoCadastroProdutoProps {
   handleSearchFornecedor?: () => void;
   onAfterSaveProduct?: () => void | Promise<void>;
   isDesktop?: boolean;
+  isDrawer?: boolean;
 }
 
 const initialNewProduct: Produto = {
@@ -51,6 +52,7 @@ export default function CadastroProduto({
   setNewProduct,
   onAfterSaveProduct,
   isDesktop = true,
+  isDrawer = false,
 }: ConteudoCadastroProdutoProps) {
   const [salvando, setSalvando] = useState(false);
   const [imagensPendentes, setImagensPendentes] = useState<ProdutoImagemPendente[]>([]);
@@ -65,7 +67,7 @@ export default function CadastroProduto({
   const precoMedioCompraObrigatorio = config?.produto_preco_medio_compra_obrigatorio === true;
 
   const tabTheme =
-    " group h-8 rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:text-foreground data-[state=active]:bg-primary dark:data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm";
+    " group !flex-none shrink-0 whitespace-nowrap h-11 rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-[background-color,color,box-shadow,transform] hover:text-foreground data-[state=active]:bg-primary dark:data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm sm:h-8";
 
   // Atualizacao funcional: campos fiscais como CST PIS/COFINS e a classificacao
   // do IBS/CBS disparam varios onChange no mesmo evento. Espalhando um
@@ -274,6 +276,7 @@ export default function CadastroProduto({
   return (
     <ProductDialogLayout
       isDesktop={isDesktop}
+      isDrawer={isDrawer}
       title={
         <>
           Produto

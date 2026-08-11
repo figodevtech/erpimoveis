@@ -26,6 +26,7 @@ interface EdicaoProdutoProps {
   productId: number;
   onAfterSaveProduct?: () => void;
   isDesktop?: boolean;
+  isDrawer?: boolean;
 }
 
 const EDITABLE_PRODUCT_FIELDS: (keyof Produto)[] = [
@@ -63,7 +64,12 @@ function fieldsToSave(current: Produto, original: Produto) {
   return [...dirtyFields];
 }
 
-export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop = true }: EdicaoProdutoProps) {
+export default function EdicaoProduto({
+  productId,
+  onAfterSaveProduct,
+  isDesktop = true,
+  isDrawer = false,
+}: EdicaoProdutoProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Produto | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
@@ -225,7 +231,7 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
   }, [productId]);
 
   const tabTheme =
-    " group h-8 rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:text-foreground data-[state=active]:bg-primary dark:data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm";
+    " group !flex-none shrink-0 whitespace-nowrap h-11 rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-[background-color,color,box-shadow,transform] hover:text-foreground data-[state=active]:bg-primary dark:data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm sm:h-8";
 
   const tabs = (
     <>
@@ -296,6 +302,7 @@ export default function EdicaoProduto({ productId, onAfterSaveProduct, isDesktop
       }
       description="Preencha dados para editar um produto"
       isDesktop={isDesktop}
+      isDrawer={isDrawer}
       defaultTab="Geral"
       currentTab={currentTab}
       loading={isLoading}

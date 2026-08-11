@@ -50,7 +50,7 @@ export function TabMarketplace({ produto, onChange }: Props) {
   }, [produtoId]);
 
   return (
-    <TabsContent value="MarketPlace" className="h-full min-h-0 space-y-4 overflow-auto bg-muted-foreground/5 px-3 py-3 md:px-6 md:py-6">
+    <TabsContent value="MarketPlace" className="h-full min-h-0 w-full min-w-0 max-w-full space-y-4 overflow-x-hidden overflow-y-auto bg-muted-foreground/5 px-3 py-3 md:px-6 md:py-6">
       
 
       <div className="rounded-lg border bg-card p-4">

@@ -103,7 +103,7 @@ export function TabFiscal({ produto, onChange }: Props) {
   };
 
   return (
-    <TabsContent value="Fiscal" className="h-full min-h-0 space-y-6 overflow-auto px-2 py-3 dark:bg-muted-foreground/5 md:px-6 md:py-6">
+    <TabsContent value="Fiscal" className="h-full min-h-0 w-full min-w-0 max-w-full space-y-6 overflow-x-hidden overflow-y-auto px-2 py-3 dark:bg-muted-foreground/5 md:px-6 md:py-6">
       <section className="space-y-4 rounded-xl border bg-card p-4">
         <SectionTitle icon={FileText}>Classificação fiscal</SectionTitle>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">

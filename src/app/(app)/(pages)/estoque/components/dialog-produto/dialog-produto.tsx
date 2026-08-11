@@ -87,7 +87,8 @@ export function DialogProduto({
             key={productId}
             productId={productId}
             onAfterSaveProduct={onAfterSaveProduct}
-            isDesktop={true}
+            isDesktop={isDesktop}
+            isDrawer={false}
           />
         ) : (
           <CadastroProduto
@@ -96,7 +97,8 @@ export function DialogProduto({
             setSelectedProductId={setSelectedProductId}
             newProduct={newProduct}
             setNewProduct={setNewProduct}
-            isDesktop={true}
+            isDesktop={isDesktop}
+            isDrawer={false}
           />
         )}
       </Dialog>
@@ -133,6 +135,7 @@ export function DialogProduto({
           productId={productId}
           onAfterSaveProduct={onAfterSaveProduct}
           isDesktop={false}
+          isDrawer
         />
       ) : (
         <CadastroProduto
@@ -142,6 +145,7 @@ export function DialogProduto({
           newProduct={newProduct}
           setNewProduct={setNewProduct}
           isDesktop={false}
+          isDrawer
         />
       )}
     </Drawer>

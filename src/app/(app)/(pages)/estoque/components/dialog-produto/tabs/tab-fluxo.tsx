@@ -191,7 +191,7 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
   };
 
   return (
-    <TabsContent value="Fluxo" className="h-full min-h-0 overflow-auto dark:bg-muted-foreground/5 px-2 py-3 md:px-6 md:py-6 space-y-6">
+    <TabsContent value="Fluxo" className="h-full min-h-0 w-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto dark:bg-muted-foreground/5 px-2 py-3 md:px-6 md:py-6 space-y-6">
       <EmissaoNotaDialog
         open={!!nfeDialogEntradaId}
         onOpenChange={(v) => !v && setNfeDialogEntradaId(null)}

@@ -15,7 +15,7 @@ type Props = {
 
 export function TabEstoque({ mode, produto, onChange }: Props) {
   return (
-    <TabsContent value="Estoque" className="h-full min-h-0 overflow-auto bg-muted-foreground/5 px-3 py-3 md:px-6 md:py-6">
+    <TabsContent value="Estoque" className="h-full min-h-0 w-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto bg-muted-foreground/5 px-3 py-3 md:px-6 md:py-6">
       <div className="space-y-3 md:space-y-4">
         <div className="rounded-md border bg-card p-3 md:rounded-lg md:p-4">
           <div className="grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-3">

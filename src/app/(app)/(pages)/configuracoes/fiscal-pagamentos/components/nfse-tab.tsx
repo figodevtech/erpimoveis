@@ -22,7 +22,7 @@ export function NFSeTab({
   return (
     <Card className="border-primary/10 bg-card/80 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/60">
       <CardContent className="p-5 sm:p-6 space-y-6">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {/* <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <Label className="mb-2 block">Provedor NFS-e</Label>
             <Input {...register("nfse.provedor")} placeholder="Ex.: Betha, Nota JP, Ginfes, etc." />
@@ -61,7 +61,7 @@ export function NFSeTab({
             <Label className="mb-2 block">Senha do certificado</Label>
             <Input {...register("nfse.senhaCertificado")} type="password" />
           </div>
-        </div>
+        </div> */}
 
         <section className="space-y-4 border-t pt-6">
           <div>
