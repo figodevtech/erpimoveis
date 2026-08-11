@@ -166,6 +166,15 @@ export interface Transaction {
   adiantamento_id?: number | null;
   /** `true` no lançamento que representa o movimento único da antecipação. */
   eh_adiantamento?: boolean | null;
+  /** Grupo do pagamento múltiplo que originou esta linha, quando houver. */
+  pagamento_multiplo_id?: number | null;
+  pagamento_multiplo?: {
+    id: number;
+    descricao: string | null;
+    modo: "AVISTA" | "PARCELADO";
+    valor_total: number;
+    data?: string | null;
+  } | null;
   data: Date;
   /** Regime de competência: define o período na DRE, ao contrário de `data`, que é de caixa. */
   competencia_em?: string | Date | null;

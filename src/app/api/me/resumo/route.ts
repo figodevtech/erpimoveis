@@ -31,12 +31,14 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const periodo = parsePeriodo(searchParams);
 
+    // Mesmo eixo da aba de vendas (`pagamento_em`): se o card somasse por
+    // `datavenda`, o total do periodo nunca bateria com a lista logo abaixo.
     let vendasQuery = supabaseAdmin
       .from("venda")
       .select("valortotal", { count: "exact" })
       .eq("vendedor", userId);
-    if (periodo.inicio) vendasQuery = vendasQuery.gte("datavenda", periodo.inicio);
-    if (periodo.fim) vendasQuery = vendasQuery.lte("datavenda", periodo.fim);
+    if (periodo.inicio) vendasQuery = vendasQuery.gte("pagamento_em", periodo.inicio);
+    if (periodo.fim) vendasQuery = vendasQuery.lte("pagamento_em", periodo.fim);
 
     // Mesma definicao da aba: OS abertas pelo usuario cujo trabalho terminou,
     // contadas no periodo em que a execucao foi encerrada.

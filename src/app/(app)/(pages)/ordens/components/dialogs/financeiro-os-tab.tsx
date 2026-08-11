@@ -2,11 +2,9 @@
 
 import {
   AlertCircle,
-  ArrowUpRight,
   CheckCircle2,
   Clock3,
   CreditCard,
-  DollarSign,
   Eye,
   Info,
   Loader2,
@@ -16,6 +14,7 @@ import {
   Receipt,
   RefreshCw,
   Sparkles,
+  Split,
   Trash2,
   TrendingUp,
   WalletCards,
@@ -60,12 +59,46 @@ import {
 import { toast } from "@/lib/toast";
 import formatarEmReal from "@/utils/formatarEmReal";
 
+type PagamentoMultiploDaLinha = {
+  id: number;
+  descricao: string | null;
+  modo: "AVISTA" | "PARCELADO";
+  valor_total: number;
+  documentos: number;
+};
+
 type TransacaoOs = Transaction & {
   data: Date;
   vencimento_em?: string | null;
   pago_em?: string | null;
   banco?: { id: number; titulo: string } | null;
+  pagamento_multiplo?: PagamentoMultiploDaLinha | null;
 };
+
+/**
+ * Selo do rateio.
+ *
+ * Uma linha de R$ 333,33 sem contexto parece valor arbitrário. O selo responde de
+ * onde ela veio: um pagamento maior, dividido entre vários documentos.
+ */
+function SeloPagamentoMultiplo({ grupo }: { grupo: PagamentoMultiploDaLinha }) {
+  return (
+    <span className="mt-1 inline-flex flex-wrap items-center gap-1.5">
+      <Badge
+        variant="outline"
+        className="gap-1 border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300"
+      >
+        <Split className="size-3 shrink-0" aria-hidden />
+        Pagamento múltiplo #{grupo.id}
+      </Badge>
+      <span className="text-[11px] text-muted-foreground">
+        Parte de {formatarEmReal(grupo.valor_total)} rateado entre {grupo.documentos}{" "}
+        documento{grupo.documentos === 1 ? "" : "s"}
+        {grupo.modo === "PARCELADO" ? " · parcelado" : ""}
+      </span>
+    </span>
+  );
+}
 
 type PayloadFinanceiro = {
   ordem: { id: number; status: string };
@@ -503,6 +536,9 @@ export function FinanceiroOsTab({
                           <p className="text-xs text-muted-foreground">{transacao.descricao_pagamento}</p>
                         ) : null}
                         <p className="text-[11px] text-muted-foreground/80">#{transacao.id}</p>
+                        {transacao.pagamento_multiplo ? (
+                          <SeloPagamentoMultiplo grupo={transacao.pagamento_multiplo} />
+                        ) : null}
                       </TableCell>
                       <TableCell>
                         <p className="font-medium text-foreground">
@@ -614,6 +650,9 @@ export function FinanceiroOsTab({
                       </h4>
                       {transacao.descricao_pagamento ? (
                         <p className="text-xs text-muted-foreground">{transacao.descricao_pagamento}</p>
+                      ) : null}
+                      {transacao.pagamento_multiplo ? (
+                        <SeloPagamentoMultiplo grupo={transacao.pagamento_multiplo} />
                       ) : null}
                     </div>
 

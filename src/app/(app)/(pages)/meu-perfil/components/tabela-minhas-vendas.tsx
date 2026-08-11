@@ -55,7 +55,8 @@ export function TabelaMinhasVendas({ periodo, ativo, usuarioId }: { periodo: Per
           <TableRow>
             <TableHead className="w-10" />
             <TableHead className="w-20">Venda</TableHead>
-            <TableHead className="w-28">Data</TableHead>
+            {/* Eixo de periodo da aba: a coluna mostra a mesma data que filtra. */}
+            <TableHead className="w-28">Pagamento</TableHead>
             <TableHead>Cliente</TableHead>
             <TableHead className="w-32">Canal</TableHead>
             <TableHead className="w-36">Status</TableHead>
@@ -87,7 +88,7 @@ export function TabelaMinhasVendas({ periodo, ativo, usuarioId }: { periodo: Per
                       />
                     </TableCell>
                     <TableCell className="font-medium tabular-nums">#{venda.id}</TableCell>
-                    <TableCell className="tabular-nums">{formatarData(venda.dataVenda)}</TableCell>
+                    <TableCell className="tabular-nums">{formatarData(venda.pagamentoEm)}</TableCell>
                     <TableCell className="max-w-[16rem] truncate">
                       {venda.cliente?.nome ?? "Consumidor final"}
                     </TableCell>
@@ -139,7 +140,25 @@ export function TabelaMinhasVendas({ periodo, ativo, usuarioId }: { periodo: Per
                           </ul>
                         )}
 
+                        {/* Trilha da venda: quando virou orçamento, quando foi
+                            para pagamento e quando foi baixada. Cada marco é
+                            nulo enquanto a venda não passou por ele. */}
                         <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
+                          <div className="flex gap-1.5">
+                            <dt>Orçamento:</dt>
+                            <dd className="tabular-nums">{formatarData(venda.orcamentoEm)}</dd>
+                          </div>
+                          <div className="flex gap-1.5">
+                            <dt>Pagamento:</dt>
+                            <dd className="tabular-nums">{formatarData(venda.pagamentoEm)}</dd>
+                          </div>
+                          <div className="flex gap-1.5">
+                            <dt>Baixa:</dt>
+                            <dd className="tabular-nums">{formatarData(venda.baixadaEm)}</dd>
+                          </div>
+                        </dl>
+
+                        <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
                           <div className="flex gap-1.5">
                             <dt>Subtotal:</dt>
                             <dd className="tabular-nums">{formatarMoeda(venda.subTotal)}</dd>
@@ -152,7 +171,7 @@ export function TabelaMinhasVendas({ periodo, ativo, usuarioId }: { periodo: Per
                           )}
                           {venda.formaPagamento && (
                             <div className="flex gap-1.5">
-                              <dt>Pagamento:</dt>
+                              <dt>Forma de pagamento:</dt>
                               <dd>{rotuloDeStatus(venda.formaPagamento)}</dd>
                             </div>
                           )}

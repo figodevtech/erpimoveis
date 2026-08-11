@@ -37,8 +37,11 @@ export async function GET(_: Request, { params }: Params) {
           metodopagamento, categoria, categoria_id, plano_de_conta,
           plano_de_conta_id, centro_custo, centro_custo_id, tipo, pendente,
           cliente_id, banco_id, ordemservicoid, evento_financeiro_id,
-          created_at, updated_at,
-          banco:bancoconta!transacao_banco_id_fkey ( id, titulo )
+          created_at, updated_at, pagamento_multiplo_id,
+          banco:bancoconta!transacao_banco_id_fkey ( id, titulo ),
+          pagamento_multiplo:pagamento_multiplo_id (
+            id, descricao, modo, valor_total, data
+          )
         `)
         .eq("ordemservicoid", osId)
         .eq("tipo", "RECEITA")
@@ -54,6 +57,37 @@ export async function GET(_: Request, { params }: Params) {
     }
     if (transacoesResult.error) throw transacoesResult.error;
 
+    // Quantos documentos cada pagamento múltiplo cobre. Sem isso o painel diria
+    // "parte de um pagamento de R$ 1.000" sem responder a pergunta seguinte, que
+    // é sempre "rateado com o quê?".
+    const gruposIds = [
+      ...new Set(
+        (transacoesResult.data ?? [])
+          .map((transacao: any) => transacao.pagamento_multiplo_id)
+          .filter((id: unknown): id is number => id != null),
+      ),
+    ];
+
+    const documentosPorGrupo = new Map<number, number>();
+    if (gruposIds.length > 0) {
+      const { data: irmas, error: erroIrmas } = await supabaseAdmin
+        .from("transacao")
+        .select("pagamento_multiplo_id, ordemservicoid, vendaid")
+        .in("pagamento_multiplo_id", gruposIds)
+        .eq("is_deleted", false);
+      if (erroIrmas) throw erroIrmas;
+
+      const vistos = new Map<number, Set<number>>();
+      for (const linha of (irmas ?? []) as any[]) {
+        const grupo = Number(linha.pagamento_multiplo_id);
+        const documento = Number(linha.ordemservicoid ?? linha.vendaid);
+        const conjunto = vistos.get(grupo) ?? new Set<number>();
+        conjunto.add(documento);
+        vistos.set(grupo, conjunto);
+      }
+      for (const [grupo, conjunto] of vistos) documentosPorGrupo.set(grupo, conjunto.size);
+    }
+
     const transacoes = (transacoesResult.data ?? []).map((transacao: any) => ({
       ...transacao,
       valor: Number(transacao.valor ?? 0),
@@ -62,6 +96,13 @@ export async function GET(_: Request, { params }: Params) {
       valor_acrescimos: Number(transacao.valor_acrescimos ?? 0),
       valor_descontos: Number(transacao.valor_descontos ?? 0),
       pendente: transacao.pendente === true,
+      pagamento_multiplo: transacao.pagamento_multiplo
+        ? {
+            ...transacao.pagamento_multiplo,
+            valor_total: Number(transacao.pagamento_multiplo.valor_total ?? 0),
+            documentos: documentosPorGrupo.get(Number(transacao.pagamento_multiplo_id)) ?? 1,
+          }
+        : null,
     }));
     const resumo = calcularResumoFinanceiroOs({
       totalComercial: ordemResult.data.orcamentototal,

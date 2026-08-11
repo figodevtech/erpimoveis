@@ -5,6 +5,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
 import { requireFinanceiroCreate, requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { calculateFinancialTotal } from "@/lib/financial-surcharge";
+import { distribuirPorPesos } from "@/lib/financeiro/rateio";
 import { valorDeFace } from "@/lib/financeiro/transacao";
 import { podeRegistrarPagamentoOs } from "@/lib/ordens/financeiro";
 import { aplicarCamposDocumento, erroDeDocumento } from "../_lib/documento";
@@ -81,23 +82,6 @@ const TARGET_VENDA_STATUS_CONCLUIDA = "FINALIZADA";
 
 function centsToNumber(cents: number): number {
   return Number((cents / 100).toFixed(2));
-}
-
-function distributeTotalByWeights(weights: number[], totalCents: number) {
-  const weightTotal = weights.reduce((acc, value) => acc + value, 0);
-  if (weightTotal <= 0) return weights.map(() => 0);
-
-  let allocated = 0;
-
-  return weights.map((weight, index) => {
-    if (index === weights.length - 1) {
-      return totalCents - allocated;
-    }
-
-    const proportional = Math.floor((weight * totalCents) / weightTotal);
-    allocated += proportional;
-    return proportional;
-  });
 }
 
 function sanitizeParcelasDetalhadas(raw: any) {
@@ -394,7 +378,7 @@ export async function POST(req: Request) {
     }
 
     const parcelasGrossCents = hasParcelamento
-      ? distributeTotalByWeights(parcelasNetCents, valorTotalCents)
+      ? distribuirPorPesos(parcelasNetCents, valorTotalCents)
       : [valorTotalCents];
     const totalNovoValorCents = parcelasGrossCents.reduce((acc, value) => acc + value, 0);
     const valorCents = totalNovoValorCents;

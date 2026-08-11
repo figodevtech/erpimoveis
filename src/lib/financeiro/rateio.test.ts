@@ -2,13 +2,22 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  RateioInvalidoError,
   distribuirPorPesos,
   distribuirValoresIguais,
   paraCentavos,
   paraReais,
+  ratearEmParcelas,
+  ratearEntreDocumentos,
   somarCentavos,
   validarRateio,
 } from "./rateio";
+
+/** Atalho para montar documentos nos testes de pagamento múltiplo. */
+const doc = (id: number, saldoEmCentavos: number) => ({ id, saldoEmCentavos });
+
+const somaDasFatias = (fatias: Array<{ valorEmCentavos: number }>) =>
+  fatias.reduce((total, fatia) => total + fatia.valorEmCentavos, 0);
 
 /** Atalho para montar linhas nos testes de rateio. */
 const linha = (id: number, valor: number, valorLiquido = valor) => ({
@@ -142,4 +151,88 @@ test("lista vazia nunca pode salvar", () => {
 test("reporta todas as linhas inválidas, não só a primeira", () => {
   const resultado = validarRateio([linha(1, 0), linha(2, 100, 150), linha(3, 200)], 30000);
   assert.deepEqual(resultado.invalidas, [1, 2]);
+});
+
+/* ===================== Pagamento múltiplo ===================== */
+
+test("rateia proporcionalmente ao saldo de cada documento", () => {
+  const fatias = ratearEntreDocumentos(
+    [doc(1, 60_000), doc(2, 40_000)],
+    100_000,
+  );
+
+  assert.deepEqual(fatias, [
+    { id: 1, valorEmCentavos: 60_000 },
+    { id: 2, valorEmCentavos: 40_000 },
+  ]);
+});
+
+test("pagamento parcial mantém a proporção", () => {
+  const fatias = ratearEntreDocumentos([doc(1, 60_000), doc(2, 40_000)], 50_000);
+
+  assert.deepEqual(fatias, [
+    { id: 1, valorEmCentavos: 30_000 },
+    { id: 2, valorEmCentavos: 20_000 },
+  ]);
+});
+
+test("a sobra de centavo fecha a soma exatamente", () => {
+  // 100 / 3 não divide: sem tratar o resíduo a soma daria 99,99.
+  const fatias = ratearEntreDocumentos(
+    [doc(1, 10_000), doc(2, 10_000), doc(3, 10_000)],
+    10_000,
+  );
+
+  assert.equal(somaDasFatias(fatias), 10_000);
+  assert.deepEqual(
+    fatias.map((f) => f.valorEmCentavos),
+    [3_333, 3_333, 3_334],
+  );
+});
+
+test("recusa valor acima do total em aberto", () => {
+  assert.throws(
+    () => ratearEntreDocumentos([doc(1, 10_000)], 10_001),
+    RateioInvalidoError,
+  );
+});
+
+test("recusa documento sem saldo em aberto", () => {
+  assert.throws(
+    () => ratearEntreDocumentos([doc(1, 10_000), doc(2, 0)], 5_000),
+    RateioInvalidoError,
+  );
+});
+
+test("recusa seleção vazia e valor não positivo", () => {
+  assert.throws(() => ratearEntreDocumentos([], 100), RateioInvalidoError);
+  assert.throws(() => ratearEntreDocumentos([doc(1, 100)], 0), RateioInvalidoError);
+});
+
+test("a grade documento x parcela fecha no total", () => {
+  const linhas = ratearEmParcelas([doc(1, 60_000), doc(2, 40_000)], 100_000, 3);
+
+  assert.equal(linhas.length, 6);
+  assert.equal(somaDasFatias(linhas), 100_000);
+});
+
+test("cada documento fecha na própria fatia, parcela a parcela", () => {
+  // 60.000 em 3x não divide redondo; o documento não pode perder centavo para o
+  // outro só porque o parcelamento arredondou.
+  const linhas = ratearEmParcelas([doc(1, 10_000), doc(2, 10_001)], 20_001, 3);
+
+  const porDocumento = (id: number) =>
+    somaDasFatias(linhas.filter((linha) => linha.id === id));
+
+  assert.equal(porDocumento(1), 10_000);
+  assert.equal(porDocumento(2), 10_001);
+});
+
+test("numera as parcelas a partir de 1, na ordem", () => {
+  const linhas = ratearEmParcelas([doc(1, 30_000)], 30_000, 3);
+
+  assert.deepEqual(
+    linhas.map((linha) => linha.parcela),
+    [1, 2, 3],
+  );
 });

@@ -57,6 +57,10 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  ContextoPagamentoMultiplo,
+  PreviaDoRateio,
+} from "@/app/(app)/(pages)/(financeiro)/components/pagamento-multiplo";
 import { distribuirValoresIguais, paraCentavos } from "@/lib/financeiro/rateio";
 import {
   CABECALHO_FIXO,
@@ -146,6 +150,7 @@ function DatePickerField({
 interface RegisterContentProps {
   osId?: number | undefined;
   vendaId?: number | undefined;
+  pagamentoMultiplo?: ContextoPagamentoMultiplo;
   setSelectedTransactionId?: (value: number | undefined) => void;
   newTransaction: NewTransaction;
   setNewTransaction: Dispatch<SetStateAction<NewTransaction>>;
@@ -167,6 +172,7 @@ export default function RegisterContent({
   selectedCustomer,
   osId,
   vendaId,
+  pagamentoMultiplo,
   setSelectedCustomer,
   handleGetTransactions,
   setOpen,
@@ -557,6 +563,48 @@ export default function RegisterContent({
         }));
       }
 
+      // Pagamento múltiplo: mesmo formulário, outro alvo. O rateio não vai daqui
+      // — o servidor relê os saldos e decide as fatias, senão uma tela aberta há
+      // dez minutos abateria valor que outro operador já recebeu.
+      if (pagamentoMultiplo) {
+        const resposta = await axios.post("/api/pagamento-multiplo", {
+          tipoDocumento: pagamentoMultiplo.tipoDocumento,
+          documentoIds: pagamentoMultiplo.documentos.map((documento) => documento.id),
+          valor: valorTotalParcelamento,
+          modo: canManageParcelas && parcelasDetalhadas.length > 1 ? "PARCELADO" : "AVISTA",
+          parcelas: parcelasDetalhadas.length || 1,
+          primeiroVencimento: dataParaDia(parcelasDetalhadas[0]?.dataVencimento),
+          data: dataParaDia(
+            newTransaction.data ? new Date(newTransaction.data) : new Date(),
+          ),
+          bancoId: newTransaction.banco_id ?? null,
+          metodoPagamento: newTransaction.metodopagamento ?? null,
+          descricao: newTransaction.descricao ?? null,
+          categoria: newTransaction.categoria ?? null,
+          categoriaId: newTransaction.categoria_id ?? null,
+          planoDeContaId: newTransaction.plano_de_conta_id ?? null,
+          centroCustoId: newTransaction.centro_custo_id ?? null,
+        });
+
+        if (resposta.status === 201) {
+          const criado = resposta.data?.data;
+          toast.success("Pagamento registrado!", {
+            description: `${criado?.linhas ?? 0} lançamento(s) em ${criado?.documentos ?? 0} documento(s).`,
+            duration: 3000,
+          });
+
+          handleGetTransactions?.();
+          pagamentoMultiplo.onConcluido?.();
+          setOpen?.(false);
+          setNewTransaction({});
+          setSelectedCustomer?.(undefined);
+          setParcelasDetalhadas([]);
+          setParcelasIguais(false);
+          setRelacionarDocumento(false);
+        }
+        return;
+      }
+
       const endpoint = osId ? "/api/transaction/os" : "/api/transaction";
 
       const response = await axios.post(endpoint, {
@@ -707,10 +755,30 @@ export default function RegisterContent({
               </span>
             </Title>
           )}
-          {!osId && !vendaId && <Title>Nova Transação</Title>}
-          <Description>Preencha dados para registrar uma transação</Description>
+          {pagamentoMultiplo && (
+            <Title>
+              Pagamento múltiplo{" "}
+              <span className="text-muted-foreground text-sm font-light">
+                | {pagamentoMultiplo.documentos.length}{" "}
+                {pagamentoMultiplo.tipoDocumento === "OS" ? "ORDENS" : "VENDAS"}
+              </span>
+            </Title>
+          )}
+          {!osId && !vendaId && !pagamentoMultiplo && <Title>Nova Transação</Title>}
+          <Description>
+            {pagamentoMultiplo
+              ? "Um lançamento só, rateado entre os documentos selecionados"
+              : "Preencha dados para registrar uma transação"}
+          </Description>
         </Header>
         <div className={`${MIOLO_ROLAVEL} space-y-4 bg-background px-6 py-4`}>
+          {pagamentoMultiplo && (
+            <PreviaDoRateio
+              documentos={pagamentoMultiplo.documentos}
+              valor={valorTotalParcelamento}
+              parcelas={parcelasDetalhadas.length || 1}
+            />
+          )}
           <div className="rounded-lg border bg-card p-4 gap-3 flex flex-col">
               {/* dados da transação */}
               <div className="space-y-4 grid sm:grid-cols-3 gap-4">

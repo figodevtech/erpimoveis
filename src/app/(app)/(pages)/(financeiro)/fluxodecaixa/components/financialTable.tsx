@@ -58,6 +58,7 @@ import { BaixaMultiplaFooter } from "./baixa-multipla-footer";
 import { BaixaMultiplaDialog } from "./baixa-multipla-dialog";
 import { AdiantamentoDialog } from "./adiantamento-dialog";
 import { TransactionDeleteAlert } from "../../components/transaction-delete-alert";
+import { excluirPagamentoMultiplo } from "../../components/pagamento-multiplo";
 import { toast } from "@/lib/toast";
 import axios, { isAxiosError } from "axios";
 import {
@@ -318,6 +319,20 @@ export default function FinancialTable({
   useEffect(() => {
     if (selectedTransactionId) setIsOpen(true);
   }, [selectedTransactionId]);
+
+  const handleDeleteGrupo = async (grupoId: number) => {
+    if (!canDelete) return;
+    setIsDeleting(true);
+    try {
+      await excluirPagamentoMultiplo(grupoId);
+      handleGetTransactions(pagination.page);
+      toast.success("Pagamento múltiplo desfeito.");
+    } catch (erro) {
+      toast.error(erro instanceof Error ? erro.message : "Não foi possível excluir o pagamento.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const handleDeleteTransaction = async (id: number) => {
     if (!canDelete) return;
@@ -846,7 +861,11 @@ export default function FinancialTable({
                         )}
 
                         {canDelete ? (
-                          <TransactionDeleteAlert transactionId={t.id} onDelete={handleDeleteTransaction}>
+                          <TransactionDeleteAlert
+                            transactionId={t.id}
+                            onDelete={handleDeleteTransaction}
+                            onDeleteGrupo={handleDeleteGrupo}
+                          >
                             <DropdownMenuItem
                               onSelect={(e) => e.preventDefault()}
                               variant="destructive"

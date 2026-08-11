@@ -18,6 +18,7 @@ import ValueInput from "@/components/ui/value-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ChevronDown, Eye, ExternalLink, FileText, Loader, Loader2, Package, Paperclip, Pencil, Percent, ReceiptText, Trash2Icon } from "lucide-react";
 import { TransactionDeleteAlert } from "../../../components/transaction-delete-alert";
+import { excluirPagamentoMultiplo } from "../../../components/pagamento-multiplo";
 import { toast } from "@/lib/toast";
 import { formatDate } from "@/utils/formatDate";
 import { VendaComItens } from "@/app/(app)/(pages)/(vendas)/historicovendas/types";
@@ -256,6 +257,19 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
       setAcrescimo(0);
     }
   }, [IsOpen]);
+
+  const handleDeleteGrupo = async (grupoId: number) => {
+    setIsDeleting(true);
+    try {
+      await excluirPagamentoMultiplo(grupoId);
+      handleGetTransactions(pagination.page);
+      toast.success("Pagamento múltiplo desfeito.");
+    } catch (erro) {
+      toast.error(erro instanceof Error ? erro.message : "Não foi possível excluir o pagamento.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const handleDeleteTransaction = async (id: number) => {
     setIsDeleting(true);
@@ -800,8 +814,19 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
                       transactions.map((t) => (
                         <TableRow key={t.id} className="hover:cursor-pointer">
                           <TableCell className="whitespace-nowrap">{t.id}</TableCell>
-                          <TableCell className="truncate max-w-[140px] sm:max-w-[220px]" title={t.descricao || "-"}>
-                            {t.descricao}
+                          <TableCell className="max-w-[140px] sm:max-w-[220px]">
+                            <span className="block truncate" title={t.descricao || "-"}>
+                              {t.descricao}
+                            </span>
+                            {/* De onde veio o valor: sem isto uma linha rateada
+                                parece um lançamento solto de valor estranho. */}
+                            {t.pagamento_multiplo ? (
+                              <span className="mt-1 block text-[11px] text-sky-700 dark:text-sky-300">
+                                Pagamento múltiplo #{t.pagamento_multiplo.id} ·{" "}
+                                {formatarEmReal(Number(t.pagamento_multiplo.valor_total ?? 0))}
+                                {t.pagamento_multiplo.modo === "PARCELADO" ? " · parcelado" : ""}
+                              </span>
+                            ) : null}
                           </TableCell>
                           <TableCell className="whitespace-nowrap">{formatDate(t.data)}</TableCell>
                           <TableCell
@@ -844,7 +869,11 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
                                     </>
                                   )}
                                 </DropdownMenuItem>
-                                <TransactionDeleteAlert transactionId={t.id} onDelete={handleDeleteTransaction}>
+                                <TransactionDeleteAlert
+                                  transactionId={t.id}
+                                  onDelete={handleDeleteTransaction}
+                                  onDeleteGrupo={handleDeleteGrupo}
+                                >
                                   <Button
                                     variant="default"
                                     className="size-full flex justify-start gap-5 px-0 rounded-sm py-2 hover:cursor-pointer bg-red-500/20 hover:bg-red-500 group hover:text-white transition-all"

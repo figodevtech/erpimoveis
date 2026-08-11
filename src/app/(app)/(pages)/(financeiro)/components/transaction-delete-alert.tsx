@@ -17,6 +17,18 @@ import {
 
 type ImpactTarget = { tipo: "OS" | "VENDA"; id: number };
 type Bloqueio = { bloqueado: true; motivo: string; quantidade?: number };
+type PagamentoMultiplo = {
+  id: number;
+  valorTotal: number;
+  modo: string;
+  documentos: ImpactTarget[];
+  quantidadeBaixada: number;
+  bloqueado: boolean;
+  motivo?: string;
+};
+
+const moeda = (valor: number) =>
+  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(valor || 0);
 
 /**
  * Confirmação de exclusão de transação.
@@ -36,15 +48,19 @@ export function TransactionDeleteAlert({
   children,
   transactionId,
   onDelete,
+  onDeleteGrupo,
 }: {
   children: ReactNode;
   transactionId: number;
   onDelete: (id: number) => void;
+  /** Desfazer o pagamento múltiplo inteiro, quando a linha pertence a um. */
+  onDeleteGrupo?: (grupoId: number) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [targets, setTargets] = useState<ImpactTarget[]>([]);
   const [bloqueio, setBloqueio] = useState<Bloqueio | null>(null);
+  const [grupo, setGrupo] = useState<PagamentoMultiplo | null>(null);
   const [falhou, setFalhou] = useState<string | null>(null);
 
   async function handleOpenChange(nextOpen: boolean) {
@@ -54,6 +70,7 @@ export function TransactionDeleteAlert({
     setLoading(true);
     setTargets([]);
     setBloqueio(null);
+    setGrupo(null);
     setFalhou(null);
 
     try {
@@ -69,6 +86,7 @@ export function TransactionDeleteAlert({
 
       setTargets(Array.isArray(payload.targets) ? payload.targets : []);
       setBloqueio(payload?.adiantamento?.bloqueado ? payload.adiantamento : null);
+      setGrupo(payload?.pagamentoMultiplo ?? null);
     } catch {
       setFalhou("Não foi possível verificar o impacto da exclusão.");
     } finally {
@@ -77,13 +95,19 @@ export function TransactionDeleteAlert({
   }
 
   const hasImpact = targets.length > 0;
-  const titulo = bloqueio
+  // O grupo bloqueado usa o mesmo caminho do adiantamento: não há o que prosseguir.
+  const travado = bloqueio ?? (grupo?.bloqueado ? { bloqueado: true as const, motivo: grupo.motivo ?? "" } : null);
+  const desfazGrupo = Boolean(grupo && !grupo.bloqueado && onDeleteGrupo);
+
+  const titulo = travado
     ? "Esta transação não pode ser excluída"
     : falhou
       ? "Não foi possível verificar"
-      : hasImpact
-        ? "Esta exclusão reabrirá um pagamento"
-        : "Excluir transação?";
+      : desfazGrupo
+        ? "Isto desfaz o pagamento inteiro"
+        : hasImpact
+          ? "Esta exclusão reabrirá um pagamento"
+          : "Excluir transação?";
 
   return (
     <AlertDialog open={open} onOpenChange={handleOpenChange}>
@@ -98,11 +122,26 @@ export function TransactionDeleteAlert({
                   <Loader2 className="h-4 w-4 animate-spin" /> Verificando o impacto da
                   exclusão...
                 </span>
-              ) : bloqueio ? (
+              ) : travado ? (
                 <span className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-destructive">
                   <Ban className="mt-0.5 h-4 w-4 shrink-0" />
-                  {bloqueio.motivo}
+                  {travado.motivo}
                 </span>
+              ) : desfazGrupo && grupo ? (
+                <>
+                  <span className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-amber-700 dark:text-amber-300">
+                    <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                    Esta linha faz parte do pagamento múltiplo #{grupo.id}, de{" "}
+                    {moeda(grupo.valorTotal)}. Excluir apaga o pagamento{" "}
+                    <strong>inteiro</strong>, em {grupo.documentos.length} documento
+                    {grupo.documentos.length === 1 ? "" : "s"} — não só esta parcela.
+                  </span>
+                  <span className="block">
+                    Voltarão a ficar em aberto:{" "}
+                    {grupo.documentos.map((documento) => `${documento.tipo} #${documento.id}`).join(", ")}.
+                  </span>
+                  <span>Deseja realmente prosseguir? Esta ação não pode ser desfeita.</span>
+                </>
               ) : falhou ? (
                 <>
                   <span className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-amber-700 dark:text-amber-300">
@@ -131,18 +170,20 @@ export function TransactionDeleteAlert({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>{bloqueio ? "Fechar" : "Cancelar"}</AlertDialogCancel>
+          <AlertDialogCancel>{travado ? "Fechar" : "Cancelar"}</AlertDialogCancel>
           {/*
             Bloqueio esconde o botão em vez de desabilitá-lo: não há o que
             prosseguir, e um botão apagado convida a insistir. Falha na
             verificação apenas desabilita — o problema pode ser momentâneo.
           */}
-          {bloqueio ? null : (
+          {travado ? null : (
             <AlertDialogAction
               disabled={loading || Boolean(falhou)}
-              onClick={() => onDelete(transactionId)}
+              onClick={() =>
+                desfazGrupo && grupo ? onDeleteGrupo?.(grupo.id) : onDelete(transactionId)
+              }
             >
-              Prosseguir
+              {desfazGrupo ? "Excluir o pagamento inteiro" : "Prosseguir"}
             </AlertDialogAction>
           )}
         </AlertDialogFooter>

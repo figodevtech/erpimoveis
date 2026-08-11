@@ -5,6 +5,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
 import { requireFinanceiroCreate, requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { calculateFinancialTotal } from "@/lib/financial-surcharge";
+import { distribuirPorPesos } from "@/lib/financeiro/rateio";
 import { aplicarCamposDocumento, erroDeDocumento } from "./_lib/documento";
 import { filtroDeBusca } from "./_lib/busca";
 
@@ -47,7 +48,7 @@ const ORDENAVEIS = new Set([
 const FORTALEZA_OFFSET = "-03:00";
 
 const TRANSACAO_FIELDS =
-  "id, descricao, descricao_pagamento, valor, valorLiquido, valor_base, valor_acrescimos, valor_descontos, adiantamento_id, eh_adiantamento, nomepagador, cpfcnpjpagador, pendente, data, competencia_em, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, fornecedor_id, banco_id, documento_tipo_id, documento_numero, documento_serie, documento_chave, documento_emitido_em, documento_valor, documento_observacao, created_at, updated_at";
+  "id, descricao, descricao_pagamento, valor, valorLiquido, valor_base, valor_acrescimos, valor_descontos, adiantamento_id, eh_adiantamento, pagamento_multiplo_id, nomepagador, cpfcnpjpagador, pendente, data, competencia_em, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, fornecedor_id, banco_id, documento_tipo_id, documento_numero, documento_serie, documento_chave, documento_emitido_em, documento_valor, documento_observacao, created_at, updated_at";
 
 const BANCO_FIELDS =
   "id, titulo, tipo, agencia, contanumero, proprietario, valorinicial, empresa_id, created_at, updated_at";
@@ -99,23 +100,6 @@ function centsToNumber(cents: number): number {
 
 function brl(cents: number): string {
   return `R$ ${(cents / 100).toFixed(2).replace(".", ",")}`;
-}
-
-function distributeTotalByWeights(weights: number[], totalCents: number) {
-  const weightTotal = weights.reduce((acc, value) => acc + value, 0);
-  if (weightTotal <= 0) return weights.map(() => 0);
-
-  let allocated = 0;
-
-  return weights.map((weight, index) => {
-    if (index === weights.length - 1) {
-      return totalCents - allocated;
-    }
-
-    const proportional = Math.floor((weight * totalCents) / weightTotal);
-    allocated += proportional;
-    return proportional;
-  });
 }
 
 function sanitizeParcelasDetalhadas(raw: any) {
@@ -251,7 +235,8 @@ export async function GET(req: Request) {
         categoria_dados:categoriatransacao!transacao_categoria_id_fkey ( id, nome, icone ),
         plano_de_conta_dados:planosdeconta!transacao_plano_de_conta_id_fkey ( id, codigo, nome ),
         centro_custo_dados:centrosdecusto!transacao_centro_custo_id_fkey ( id, nome, descricao, ativo ),
-        fornecedor:fornecedor!transacao_fornecedor_id_fkey ( id, nomerazaosocial, nomefantasia, cpfcnpj )
+        fornecedor:fornecedor!transacao_fornecedor_id_fkey ( id, nomerazaosocial, nomefantasia, cpfcnpj ),
+        pagamento_multiplo:pagamento_multiplo_id ( id, descricao, modo, valor_total, data )
         `,
         { count: "exact" }
       )
@@ -399,7 +384,7 @@ export async function POST(req: Request) {
     }
 
     const parcelasGrossCents = hasParcelamento
-      ? distributeTotalByWeights(parcelasNetCents, valorTotalCents)
+      ? distribuirPorPesos(parcelasNetCents, valorTotalCents)
       : [valorTotalCents];
     const totalNovoValorCents = parcelasGrossCents.reduce((acc, value) => acc + value, 0);
 

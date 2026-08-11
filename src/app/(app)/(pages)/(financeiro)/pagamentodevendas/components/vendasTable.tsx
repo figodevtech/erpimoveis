@@ -41,6 +41,12 @@ import {
 import { resumirBaixas } from "../../components/payment-settler";
 import { resumirPagamentos } from "../../components/payment-totals";
 import { TotalPago } from "../../components/total-pago";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Split } from "lucide-react";
+import TransactionDialog from "../../fluxodecaixa/components/transactionDialog/transactionDialog";
+import { PagamentoMultiploFooter } from "../../components/pagamento-multiplo-footer";
+import type { DocumentoSelecionavel } from "../../components/pagamento-multiplo";
+import { calcularResumoFinanceiroOs } from "@/lib/ordens/financeiro";
 
 interface OsTableProps {
   vendas: VendaComItens[];
@@ -71,12 +77,67 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
   });
   const limitUid = React.useId();
   const limitListboxId = `${limitUid}-os-limit-listbox`;
+  const [modoPagamentoMultiplo, setModoPagamentoMultiplo] = useState(false);
+  const [selecionadas, setSelecionadas] = useState<Set<number>>(new Set());
+  const [dialogPagamentoAberto, setDialogPagamentoAberto] = useState(false);
   const hasActiveFilters = Boolean(
     filters.cliente.trim() ||
       filters.notaNumero.trim() ||
       filters.dataInicio ||
       filters.dataFim,
   );
+
+  /**
+   * Saldo em aberto da venda pela mesma função da OS — ela só tem nome de OS: o
+   * cálculo é sobre total comercial + acréscimo financeiro + transações, que a
+   * venda também tem. Uma conta só para os dois, como no servidor.
+   */
+  const saldoDaVenda = (venda: VendaComItens) =>
+    calcularResumoFinanceiroOs({
+      totalComercial: venda.valortotal,
+      acrescimoFinanceiroTipo: venda.acrescimo_financeiro_tipo,
+      acrescimoFinanceiroValor: venda.acrescimo_financeiro_valor,
+      transacoes: (venda.transacoes ?? []) as never[],
+    }).saldoDisponivelParaLancamento;
+
+  const podeSelecionar = (venda: VendaComItens) =>
+    ["PAGAMENTO", "ABERTA"].includes(String(venda.status).toUpperCase()) &&
+    saldoDaVenda(venda) > 0;
+
+  const documentosSelecionados: DocumentoSelecionavel[] = vendas
+    .filter((venda) => selecionadas.has(venda.id))
+    .map((venda) => ({
+      id: venda.id,
+      rotulo: `Venda #${venda.id}`,
+      cliente: venda.cliente?.nomerazaosocial ?? null,
+      saldo: saldoDaVenda(venda),
+    }));
+
+  const selecionaveis = vendas.filter(podeSelecionar);
+
+  const alternarSelecao = (id: number) =>
+    setSelecionadas((atual) => {
+      const proximo = new Set(atual);
+      if (proximo.has(id)) proximo.delete(id);
+      else proximo.add(id);
+      return proximo;
+    });
+
+  const sairDoModo = () => {
+    setModoPagamentoMultiplo(false);
+    setSelecionadas(new Set());
+  };
+
+  // Trocar de aba ou de página troca a lista debaixo da seleção; manter ids de
+  // linhas que sumiram da tela faria o rodapé somar o que ninguém está vendo.
+  // Ajuste durante o render, e não em efeito: o efeito só rodaria depois de uma
+  // pintura com a seleção velha, e ainda custaria um render a mais.
+  const chaveDaLista = `${selectedStatus}|${pagination.page}`;
+  const [chaveAnterior, setChaveAnterior] = useState(chaveDaLista);
+  if (chaveAnterior !== chaveDaLista) {
+    setChaveAnterior(chaveDaLista);
+    setSelecionadas(new Set());
+  }
 
   useEffect(() => {
     handleGetVendas(selectedStatus, 1, pagination.limit, search, filters);
@@ -132,6 +193,18 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
           </div>
 
           <div className="flex items-center gap-2">
+            <Button
+              variant={modoPagamentoMultiplo ? "secondary" : "ghost"}
+              size="sm"
+              className="hover:cursor-pointer"
+              aria-pressed={modoPagamentoMultiplo}
+              onClick={() =>
+                modoPagamentoMultiplo ? sairDoModo() : setModoPagamentoMultiplo(true)
+              }
+            >
+              <Split className="h-4 w-4" aria-hidden />
+              Pagamento múltiplo
+            </Button>
             {hasActiveFilters && (
               <Button
                 variant="ghost"
@@ -194,6 +267,22 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
         <Table className="text-xs mt-6">
           <TableHeader>
             <TableRow className="font-bold">
+              {modoPagamentoMultiplo && (
+                <TableCell className="w-10">
+                  <Checkbox
+                    aria-label="Selecionar todas as vendas elegíveis desta página"
+                    checked={
+                      selecionaveis.length > 0 &&
+                      selecionaveis.every((venda) => selecionadas.has(venda.id))
+                    }
+                    onCheckedChange={(marcado) =>
+                      setSelecionadas(
+                        marcado ? new Set(selecionaveis.map((venda) => venda.id)) : new Set(),
+                      )
+                    }
+                  />
+                </TableCell>
+              )}
               <TableCell>ID</TableCell>
               <TableCell>Nota</TableCell>
               <TableCell>Cliente</TableCell>
@@ -222,6 +311,21 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
 
                 return (
                   <TableRow key={v.id} className="hover:cursor-pointer">
+                    {modoPagamentoMultiplo && (
+                      <TableCell>
+                        <Checkbox
+                          aria-label={`Selecionar venda ${v.id}`}
+                          checked={selecionadas.has(v.id)}
+                          disabled={!podeSelecionar(v)}
+                          title={
+                            podeSelecionar(v)
+                              ? undefined
+                              : "Sem saldo em aberto ou status que não aceita pagamento."
+                          }
+                          onCheckedChange={() => alternarSelecao(v.id)}
+                        />
+                      </TableCell>
+                    )}
                     {/* ... suas outras células (descrição, data etc.) aqui, se/quando tiver ... */}
                     <TableCell>{v.id}</TableCell>
                     <TableCell>{v.notaNumero ?? "-"}</TableCell>
@@ -410,6 +514,37 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
             </Select>
           </div>
         </div>
+
+        {modoPagamentoMultiplo && (
+          <>
+            {/* Espaçador: sem ele o rodapé fixo cobre a última linha da tabela. */}
+            <div aria-hidden className="h-24" />
+            <PagamentoMultiploFooter
+              documentos={documentosSelecionados}
+              totalNaPagina={selecionaveis.length}
+              processando={false}
+              onCancelar={sairDoModo}
+            >
+              <TransactionDialog
+                open={dialogPagamentoAberto}
+                setOpen={setDialogPagamentoAberto}
+                handleGetTransactions={() =>
+                  handleGetVendas(selectedStatus, pagination.page, pagination.limit, search, filters)
+                }
+                pagamentoMultiplo={{
+                  tipoDocumento: "VENDA",
+                  documentos: documentosSelecionados,
+                  onConcluido: sairDoModo,
+                }}
+              >
+                <Button size="sm" className="h-9 hover:cursor-pointer">
+                  <Split className="h-4 w-4" aria-hidden />
+                  Registrar pagamento ({documentosSelecionados.length})
+                </Button>
+              </TransactionDialog>
+            </PagamentoMultiploFooter>
+          </>
+        )}
       </CardContent>
     </Card>
   );

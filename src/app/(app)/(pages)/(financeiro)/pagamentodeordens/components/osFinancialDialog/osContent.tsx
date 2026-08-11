@@ -18,6 +18,7 @@ import { useSession } from "next-auth/react";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { useConfig } from "@/app/(app)/(pages)/config-context";
 import { TransactionDeleteAlert } from "../../../components/transaction-delete-alert";
+import { excluirPagamentoMultiplo } from "../../../components/pagamento-multiplo";
 import { toast } from "@/lib/toast";
 import { formatDate } from "@/utils/formatDate";
 import { calculateFinancialSurcharge, calculateFinancialTotal } from "@/lib/financial-surcharge";
@@ -413,6 +414,19 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
       setHasLoadedOnce(false);
     }
   }, [IsOpen]);
+
+  const handleDeleteGrupo = async (grupoId: number) => {
+    setIsDeleting(true);
+    try {
+      await excluirPagamentoMultiplo(grupoId);
+      handleGetTransactions(pagination.page);
+      toast.success("Pagamento múltiplo desfeito.");
+    } catch (erro) {
+      toast.error(erro instanceof Error ? erro.message : "Não foi possível excluir o pagamento.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const handleDeleteTransaction = async (id: number) => {
     setIsDeleting(true);
@@ -1177,7 +1191,11 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                                 </>
                               )}
                             </DropdownMenuItem>
-                            <TransactionDeleteAlert transactionId={t.id} onDelete={handleDeleteTransaction}>
+                            <TransactionDeleteAlert
+                              transactionId={t.id}
+                              onDelete={handleDeleteTransaction}
+                              onDeleteGrupo={handleDeleteGrupo}
+                            >
                               <Button
                                 variant="default"
                                 className="size-full flex justify-start gap-5 px-0 rounded-sm py-2 hover:cursor-pointer bg-red-500/20 hover:bg-red-500 group hover:text-white transition-all"

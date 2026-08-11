@@ -2,6 +2,8 @@
 
 import { ReactNode, useCallback, useState } from "react";
 
+import type { ContextoPagamentoMultiplo } from "@/app/(app)/(pages)/(financeiro)/components/pagamento-multiplo";
+import { somarSaldos } from "@/app/(app)/(pages)/(financeiro)/components/pagamento-multiplo";
 import { useConfig } from "@/app/(app)/(pages)/config-context";
 import { Dialog, DialogTrigger } from "@/components/ui/dialog";
 import { Drawer, DrawerTrigger } from "@/components/ui/drawer";
@@ -30,12 +32,18 @@ interface TransactionDialogProps {
   internalCompanyExpense?: boolean;
   lockValue?: boolean;
   editable?: boolean;
+  /**
+   * Quando presente, o diálogo deixa de criar uma transação avulsa e passa a
+   * registrar um pagamento rateado entre os documentos selecionados. É o mesmo
+   * formulário — só o alvo do envio muda.
+   */
+  pagamentoMultiplo?: ContextoPagamentoMultiplo;
 }
 
 type SementeProps = Pick<
   TransactionDialogProps,
   "osId" | "vendaId" | "initialMetodoPagamento" | "initialTransaction"
->;
+> & { pagamentoMultiplo?: ContextoPagamentoMultiplo };
 
 /**
  * Valores iniciais do formulário de cadastro.
@@ -48,7 +56,28 @@ function sementeDaTransacao({
   vendaId,
   initialMetodoPagamento,
   initialTransaction,
+  pagamentoMultiplo,
 }: SementeProps): NewTransaction {
+  // O valor já entra somado: é o total em aberto dos documentos marcados, que é
+  // o que o operador vai receber na maioria das vezes. Baixar menos é permitido
+  // — basta digitar por cima, e o rateio reage.
+  if (pagamentoMultiplo) {
+    const total = somarSaldos(pagamentoMultiplo.documentos);
+
+    return {
+      tipo: Tipo_transacao.RECEITA,
+      categoria: pagamentoMultiplo.tipoDocumento === "OS" ? "ORDEM DE SERVIÇO" : "VENDA",
+      descricao: `Pagamento de ${pagamentoMultiplo.documentos.length} ${
+        pagamentoMultiplo.tipoDocumento === "OS" ? "ordem(ns) de serviço" : "venda(s)"
+      }`,
+      valor: total,
+      valorLiquido: total,
+      metodopagamento: initialMetodoPagamento,
+      parcelas: 1,
+      ...initialTransaction,
+    };
+  }
+
   if (osId) {
     return {
       ordemservicoid: osId,
@@ -93,12 +122,14 @@ export default function TransactionDialog({
   internalCompanyExpense = false,
   lockValue = false,
   editable = false,
+  pagamentoMultiplo,
 }: TransactionDialogProps) {
   const semente: SementeProps = {
     osId,
     vendaId,
     initialMetodoPagamento,
     initialTransaction,
+    pagamentoMultiplo,
   };
 
   const [newTransaction, setNewTransaction] = useState<NewTransaction>(() =>
@@ -123,6 +154,7 @@ export default function TransactionDialog({
             vendaId,
             initialMetodoPagamento,
             initialTransaction,
+            pagamentoMultiplo,
           }),
         );
         return;
@@ -138,6 +170,7 @@ export default function TransactionDialog({
       vendaId,
       initialMetodoPagamento,
       initialTransaction,
+      pagamentoMultiplo,
       setSelectedTransactionId,
     ],
   );
@@ -165,6 +198,7 @@ export default function TransactionDialog({
       isDesktop={usarDialog}
       internalCompanyExpense={internalCompanyExpense}
       lockValue={lockValue}
+      pagamentoMultiplo={pagamentoMultiplo}
     />
   );
 
