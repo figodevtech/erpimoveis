@@ -110,6 +110,7 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
       id: venda.id,
       rotulo: `Venda #${venda.id}`,
       cliente: venda.cliente?.nomerazaosocial ?? null,
+      clienteId: venda.cliente?.id ?? null,
       saldo: saldoDaVenda(venda),
     }));
 

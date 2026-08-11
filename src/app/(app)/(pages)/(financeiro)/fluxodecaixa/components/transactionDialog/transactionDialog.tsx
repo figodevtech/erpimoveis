@@ -3,7 +3,11 @@
 import { ReactNode, useCallback, useState } from "react";
 
 import type { ContextoPagamentoMultiplo } from "@/app/(app)/(pages)/(financeiro)/components/pagamento-multiplo";
-import { somarSaldos } from "@/app/(app)/(pages)/(financeiro)/components/pagamento-multiplo";
+import {
+  categoriaDoPagamentoMultiplo,
+  descricaoDoPagamentoMultiplo,
+  somarSaldos,
+} from "@/app/(app)/(pages)/(financeiro)/components/pagamento-multiplo";
 import { useConfig } from "@/app/(app)/(pages)/config-context";
 import { Dialog, DialogTrigger } from "@/components/ui/dialog";
 import { Drawer, DrawerTrigger } from "@/components/ui/drawer";
@@ -64,17 +68,18 @@ function sementeDaTransacao({
   if (pagamentoMultiplo) {
     const total = somarSaldos(pagamentoMultiplo.documentos);
 
+    // Tipo, categoria e descrição vêm depois do spread: são determinados pelos
+    // documentos marcados e o formulário os mostra travados, então deixá-los
+    // sobrescrevíveis só abriria caminho para o registro divergir da tela.
     return {
-      tipo: Tipo_transacao.RECEITA,
-      categoria: pagamentoMultiplo.tipoDocumento === "OS" ? "ORDEM DE SERVIÇO" : "VENDA",
-      descricao: `Pagamento de ${pagamentoMultiplo.documentos.length} ${
-        pagamentoMultiplo.tipoDocumento === "OS" ? "ordem(ns) de serviço" : "venda(s)"
-      }`,
       valor: total,
       valorLiquido: total,
       metodopagamento: initialMetodoPagamento,
       parcelas: 1,
       ...initialTransaction,
+      tipo: Tipo_transacao.RECEITA,
+      categoria: categoriaDoPagamentoMultiplo(pagamentoMultiplo.tipoDocumento),
+      descricao: descricaoDoPagamentoMultiplo(pagamentoMultiplo),
     };
   }
 

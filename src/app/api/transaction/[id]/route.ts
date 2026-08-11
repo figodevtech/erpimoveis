@@ -366,6 +366,7 @@ async function validarEdicaoDeTransacao(id: string, body: any) {
     body?.valorLiquido !== undefined ||
     body?.tipo !== undefined ||
     body?.pendente !== undefined ||
+    body?.banco_id !== undefined ||
     body?.ordemservicoid !== undefined ||
     body?.vendaid !== undefined;
 
@@ -374,7 +375,7 @@ async function validarEdicaoDeTransacao(id: string, body: any) {
   const { data: atual, error } = await supabaseAdmin
     .from("transacao")
     .select(
-      "valor, tipo, pendente, ordemservicoid, vendaid, entrada_id, usoconsumo_entrada_id",
+      "valor, tipo, pendente, ordemservicoid, vendaid, entrada_id, usoconsumo_entrada_id, adiantamento_id",
     )
     .eq("id", id)
     .eq("is_deleted", false)
@@ -383,6 +384,29 @@ async function validarEdicaoDeTransacao(id: string, body: any) {
   if (error) throw error;
   if (!atual) {
     return NextResponse.json({ error: "Transação não encontrada." }, { status: 404 });
+  }
+
+  /*
+   * Título antecipado não tem banco, e isso não é campo esquecido.
+   *
+   * Quem trouxe o dinheiro foi a transação de antecipação — ela carrega o banco e
+   * o valor. A parcela fica quitada e sem conta justamente para não aparecer no
+   * fluxo de caixa ao lado dela, somando o mesmo dinheiro duas vezes. Como "sem
+   * banco" parece erro para quem escolheu um banco no adiantamento, este era o
+   * caminho fácil de dobrar o saldo sem nenhum aviso na tela.
+   *
+   * Limpar o banco continua livre: é o estado correto, e o conserto de uma linha
+   * já gravada errada passa por aqui.
+   */
+  if (body?.banco_id !== undefined && atual.adiantamento_id != null) {
+    if (toBigIntStringOrNull(body.banco_id) != null) {
+      return NextResponse.json(
+        {
+          error: `Este título foi liquidado pela antecipação #${atual.adiantamento_id}: o dinheiro entrou por ela, e o banco fica nela. Dar banco ao título o faria aparecer no fluxo de caixa duas vezes.`,
+        },
+        { status: 400 },
+      );
+    }
   }
 
   /*

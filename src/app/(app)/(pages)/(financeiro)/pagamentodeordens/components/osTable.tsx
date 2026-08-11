@@ -107,6 +107,7 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
       id: ordem.id,
       rotulo: `OS #${ordem.id}`,
       cliente: ordem.cliente?.nome ?? null,
+      clienteId: ordem.cliente?.id ?? null,
       saldo: saldoDaOrdem(ordem),
     }));
 

@@ -17,6 +17,8 @@ export type DocumentoSelecionavel = {
   id: number;
   rotulo: string;
   cliente: string | null;
+  /** Usado para decidir se o grupo inteiro tem um pagador só. */
+  clienteId?: number | null;
   saldo: number;
 };
 
@@ -51,6 +53,49 @@ export function somarSaldos(documentos: DocumentoSelecionavel[]) {
   return paraReais(
     documentos.reduce((total, documento) => total + paraCentavos(documento.saldo), 0),
   );
+}
+
+/**
+ * O cliente do grupo, quando há um só.
+ *
+ * Vários documentos do mesmo cliente têm um pagador óbvio, e é ele que a tela
+ * propõe. Misturando clientes não existe pagador único, e escolher um deles
+ * seria atribuir a alguém um pagamento que não é todo dele.
+ */
+export function clienteUnicoDoPagamento(documentos: DocumentoSelecionavel[]) {
+  const ids = new Set(
+    documentos
+      .map((documento) => documento.clienteId)
+      .filter((id): id is number => typeof id === "number" && id > 0),
+  );
+  return ids.size === 1 && ids.size === documentos.length ? [...ids][0] : null;
+}
+
+/** Categoria fixa do pagamento múltiplo: ele sempre quita OS ou venda. */
+export function categoriaDoPagamentoMultiplo(tipoDocumento: TipoDocumentoPagamento) {
+  return tipoDocumento === "OS" ? "ORDEM DE SERVIÇO" : "VENDA";
+}
+
+/**
+ * Descrição do pagamento, com os documentos identificados pelo id.
+ *
+ * O lançamento é um só e cobre vários documentos, então o texto é o único lugar
+ * do grupo onde fica registrado *o que* foi pago. Sem os ids, quem abrir o
+ * extrato meses depois vê "pagamento de 3 ordens" e não sabe quais. Cada
+ * transação rateada continua com a sua própria descrição individual.
+ */
+export function descricaoDoPagamentoMultiplo({
+  tipoDocumento,
+  documentos,
+}: Pick<ContextoPagamentoMultiplo, "tipoDocumento" | "documentos">) {
+  const quantidade = documentos.length;
+  const substantivo =
+    tipoDocumento === "OS"
+      ? `ordem${quantidade === 1 ? "" : "ns"} de serviço`
+      : `venda${quantidade === 1 ? "" : "s"}`;
+  const identificados = documentos.map((documento) => documento.rotulo).join(", ");
+
+  return `Pagamento de ${quantidade} ${substantivo}: ${identificados}`;
 }
 
 /**

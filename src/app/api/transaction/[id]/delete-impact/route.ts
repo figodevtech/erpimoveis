@@ -84,7 +84,7 @@ export async function GET(_: Request, { params }: Params) {
 
     if (transaction.pagamento_multiplo_id != null) {
       const grupoId = Number(transaction.pagamento_multiplo_id);
-      const [{ data: grupo }, { data: irmas }] = await Promise.all([
+      const [{ data: grupo }, { data: irmas }, { data: rateio }] = await Promise.all([
         supabaseAdmin
           .from("pagamento_multiplo")
           .select("id, valor_total, modo, tipo_documento")
@@ -92,17 +92,21 @@ export async function GET(_: Request, { params }: Params) {
           .maybeSingle(),
         supabaseAdmin
           .from("transacao")
-          .select("id, pendente, ordemservicoid, vendaid")
+          .select("id, pendente")
           .eq("pagamento_multiplo_id", grupoId)
           .eq("is_deleted", false),
+        // Os documentos do grupo vivem no rateio: a transação do recebimento não
+        // aponta para nenhum deles, justamente por cobrir vários.
+        supabaseAdmin
+          .from("pagamento_multiplo_rateio")
+          .select("tipo_documento, documento_id")
+          .eq("pagamento_multiplo_id", grupoId),
       ]);
 
       if (grupo) {
         const tipoDoGrupo = String(grupo.tipo_documento).toUpperCase() === "OS" ? "OS" : "VENDA";
         const documentos = [
-          ...new Set(
-            (irmas ?? []).map((linha: any) => Number(linha.ordemservicoid ?? linha.vendaid)),
-          ),
+          ...new Set((rateio ?? []).map((linha: any) => Number(linha.documento_id))),
         ].map((documentoId) => ({ tipo: tipoDoGrupo as "OS" | "VENDA", id: documentoId }));
 
         const quantidadeBaixada =
