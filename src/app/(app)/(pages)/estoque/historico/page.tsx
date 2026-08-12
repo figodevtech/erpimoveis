@@ -65,6 +65,7 @@ type Direction = "entrada" | "saida";
 type DirectionFilter = "todos" | Direction;
 type StatusFilter = "todos" | "CONFIRMADA" | "CANCELADA";
 type FiscalFilter = "todos" | "com_nf" | "sem_nf";
+type FinanceiroFilter = "todos" | "sem_lancamento";
 
 type Origem = "ENTRADA" | "SAIDA_MANUAL" | "VENDA" | "ORDEM_SERVICO" | "NAO_IDENTIFICADA";
 type OrigemFilter = "todas" | Origem;
@@ -153,6 +154,7 @@ type Filtros = {
   status: StatusFilter;
   origem: OrigemFilter;
   fiscal: FiscalFilter;
+  financeiro: FinanceiroFilter;
   dataInicial: string;
   dataFinal: string;
   page: number;
@@ -166,6 +168,7 @@ const FILTROS_INICIAIS: Filtros = {
   status: "todos",
   origem: "todas",
   fiscal: "todos",
+  financeiro: "todos",
   dataInicial: "",
   dataFinal: "",
   page: 1,
@@ -493,6 +496,8 @@ function MovementTable({
   const [draftStatus, setDraftStatus] = useState<StatusFilter>(filtros.status);
   const [draftOrigem, setDraftOrigem] = useState<OrigemFilter>(filtros.origem);
   const [draftFiscal, setDraftFiscal] = useState<FiscalFilter>(filtros.fiscal);
+  const [draftFinanceiro, setDraftFinanceiro] =
+    useState<FinanceiroFilter>(filtros.financeiro);
   const [draftDateFrom, setDraftDateFrom] = useState(filtros.dataInicial);
   const [draftDateTo, setDraftDateTo] = useState(filtros.dataFinal);
 
@@ -505,6 +510,7 @@ function MovementTable({
     Number(filtros.status !== "todos") +
     Number(filtros.origem !== "todas") +
     Number(filtros.fiscal !== "todos") +
+    Number(filtros.financeiro !== "todos") +
     Number(Boolean(filtros.dataInicial)) +
     Number(Boolean(filtros.dataFinal));
 
@@ -519,6 +525,7 @@ function MovementTable({
       setDraftStatus(filtros.status);
       setDraftOrigem(filtros.origem);
       setDraftFiscal(filtros.fiscal);
+      setDraftFinanceiro(filtros.financeiro);
       setDraftDateFrom(filtros.dataInicial);
       setDraftDateTo(filtros.dataFinal);
     }
@@ -527,10 +534,14 @@ function MovementTable({
 
   function applyFilters() {
     onFiltrosChange({
-      direcao: draftDirection,
-      status: draftStatus,
-      origem: draftOrigem,
+      direcao: draftFinanceiro === "sem_lancamento" ? "entrada" : draftDirection,
+      status: draftFinanceiro === "sem_lancamento" ? "CONFIRMADA" : draftStatus,
+      origem:
+        draftFinanceiro === "sem_lancamento" && filtros.inventory === "produtos"
+          ? "ENTRADA"
+          : draftOrigem,
       fiscal: draftFiscal,
+      financeiro: draftFinanceiro,
       dataInicial: draftDateFrom,
       dataFinal: draftDateTo,
     });
@@ -542,6 +553,7 @@ function MovementTable({
     setDraftStatus("todos");
     setDraftOrigem("todas");
     setDraftFiscal("todos");
+    setDraftFinanceiro("todos");
     setDraftDateFrom("");
     setDraftDateTo("");
   }
@@ -673,6 +685,34 @@ function MovementTable({
                           <SelectItem value="todos">Todos os lançamentos</SelectItem>
                           <SelectItem value="com_nf">Somente com Nota Fiscal (NF-e)</SelectItem>
                           <SelectItem value="sem_nf">Sem Nota Fiscal</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2 border-t pt-4">
+                      <Label>Financeiro</Label>
+                      <Select
+                        value={draftFinanceiro}
+                        onValueChange={(value) => {
+                          const financeiro = value as FinanceiroFilter;
+                          setDraftFinanceiro(financeiro);
+                          if (financeiro === "sem_lancamento") {
+                            setDraftDirection("entrada");
+                            setDraftStatus("CONFIRMADA");
+                            if (filtros.inventory === "produtos") {
+                              setDraftOrigem("ENTRADA");
+                            }
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="todos">Qualquer situação</SelectItem>
+                          <SelectItem value="sem_lancamento">
+                            Entradas sem lançamento financeiro
+                          </SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -937,6 +977,7 @@ export default function HistoricoEstoquePage() {
       if (filtros.direcao !== "todos") params.sentido = filtros.direcao;
       if (filtros.status !== "todos") params.status = filtros.status;
       if (filtros.fiscal !== "todos") params.fiscal = filtros.fiscal;
+      if (filtros.financeiro !== "todos") params.financeiro = filtros.financeiro;
       if (filtros.dataInicial) params.desde = new Date(`${filtros.dataInicial}T00:00:00`).toISOString();
       if (filtros.dataFinal) params.ate = new Date(`${filtros.dataFinal}T23:59:59.999`).toISOString();
 
@@ -979,6 +1020,7 @@ export default function HistoricoEstoquePage() {
     filtros.dataInicial,
     filtros.direcao,
     filtros.fiscal,
+    filtros.financeiro,
     filtros.inventory,
     filtros.limit,
     filtros.origem,

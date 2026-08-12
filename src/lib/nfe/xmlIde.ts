@@ -65,3 +65,22 @@ export function normalizarOrdemNfRefIde(xml: string): string {
     return semReferencias.replace('</ide>', `${referencias.join('')}</ide>`);
   });
 }
+
+/**
+ * Remove o `<NFref>` do `<ide>` quando os itens já citam a origem.
+ *
+ * Os dois níveis de referenciamento são excludentes — informar `<NFref>` junto
+ * com `<DFeReferenciado>` é a rejeição 1010. O nível de item é o mais
+ * específico e é o exigido em devolução a partir de 01/09/2026, então é o
+ * cabeçalho que sai.
+ *
+ * Existe para consertar rascunhos já gravados pela versão que emitia os dois:
+ * a autorização reenvia o XML guardado, e sem isto uma nota rejeitada só sairia
+ * depois de ser reaberta e salva de novo na tela.
+ */
+export function normalizarNiveisDeReferencia(xml: string): string {
+  if (!/<DFeReferenciado>/.test(xml)) return xml;
+  return xml.replace(/<ide>[\s\S]*?<\/ide>/, (ideXml) =>
+    ideXml.replace(/<NFref>[\s\S]*?<\/NFref>/g, ''),
+  );
+}

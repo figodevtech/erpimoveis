@@ -64,6 +64,10 @@ import { chaveAcessoValida } from "@/lib/nfe/chaveAcesso";
 import { normalizarIndIEDest, sugerirIndIEDest } from "@/lib/nfe/indIEDest";
 import { normalizeCfopForOperation } from "@/lib/nfe/cfopOperation";
 import { getRequiredPisCofinsMode, PIS_COFINS_CST_OPTIONS } from "@/lib/nfe/taxRules";
+import {
+  resolverPadraoFiscalItem,
+  type PadraoFiscalItem,
+} from "@/lib/nfe/padraoFiscalItem";
 import { aplicarSugestaoDifal } from "@/lib/nfe/difal-sugestao";
 import { descontoPorItem } from "@/lib/nfe/descontoOrigem";
 import { DanfeView, type DanfeViewData } from "@/components/danfe/danfe-view";
@@ -136,6 +140,13 @@ type SetupResponse = {
   certificadoStatus: string;
   clientes: ClienteSetup[];
   produtos: ProdutoSetup[];
+  /**
+   * Padrão fiscal de saída cadastrado em Configurações › Fiscal & Pagamentos.
+   * Preenche o item onde o produto está em branco — produto preenchido vence.
+   */
+  padraoFiscalItem: PadraoFiscalItem | null;
+  /** Regime do emitente: decide se o item sai com CSOSN ou com CST de ICMS. */
+  crt: number | null;
   unidades: string[];
   versaoRegraFiscal: string;
   regrasFiscais: {
@@ -1238,6 +1249,23 @@ export default function NFeAvulsaPage() {
   }
 
   function addItemFromProduct(produto: Produto) {
+    // O perfil tributário sai da mesma resolução que as notas de venda e de OS
+    // usam: o cadastro do produto vence, e o que ele deixou em branco recebe o
+    // padrão de saída da empresa. A avulsa era a única tela que lia só o
+    // produto, então o mesmo item saía completo por uma venda e pela metade
+    // aqui. O CRT decide sozinho entre CSOSN e CST — não precisa do teste de
+    // regime que existia nestas linhas.
+    const { campos } = resolverPadraoFiscalItem({
+      fontes: [{ origem: "PRODUTO", valores: produto }],
+      padrao: setup?.padraoFiscalItem ?? null,
+      crt: setup?.crt ?? (Number(crtEmitente) || null),
+    });
+    const texto = (valor: string | number | null | undefined) =>
+      valor == null ? "" : String(valor);
+    const modoPis = campos.modo_pis || inferPisCofinsMode(campos.cst_pis, campos.aliquota_pis);
+    const modoCofins =
+      campos.modo_cofins || inferPisCofinsMode(campos.cst_cofins, campos.aliquota_cofins);
+
     updateDraft((current) => ({
       ...current,
       itens: [
@@ -1246,37 +1274,38 @@ export default function NFeAvulsaPage() {
           ...emptyItem,
           produtoId: produto.id ?? null,
           codigo: String(produto.referencia ?? produto.codigobarras ?? produto.id ?? ""),
-            descricao: produto.titulo || produto.descricao || String(produto.id ?? ""),
+          descricao: produto.titulo || produto.descricao || String(produto.id ?? ""),
+          // NCM e CEST continuam só do produto: são do item, não do perfil.
           ncm: onlyDigits(produto.ncm ?? ""),
           cfop: normalizeCfopForOperation(
-            onlyDigits(produto.cfop ?? "") || "5102",
+            campos.cfop || "5102",
             current.operacao.tipoOperacao,
             setup?.empresa?.uf,
             current.destinatario.estado,
           ),
           unidade: produto.unidade || "UN",
           valorUnitario: String(produto.precovenda ?? 0),
-          orig: produto.origem_mercadoria || "",
-          csosn: crtEmitente === "1" || crtEmitente === "4" ? produto.csosn || "" : "",
-          cst: crtEmitente === "2" || crtEmitente === "3" ? produto.cst || "" : "",
-          aliquotaIcms: produto.aliquotaicms == null ? "" : String(produto.aliquotaicms),
-          cstPis: produto.cst_pis || "",
-          aliquotaPis: produto.aliquota_pis == null ? "" : String(produto.aliquota_pis),
-           modoPis: produto.modo_pis || inferPisCofinsMode(produto.cst_pis, produto.aliquota_pis),
-           quantidadePis: (produto.modo_pis || inferPisCofinsMode(produto.cst_pis, produto.aliquota_pis)) === "QUANTIDADE" ? "1" : "",
-           aliquotaPorUnidadePis: produto.aliquota_por_unidade_pis == null ? "" : String(produto.aliquota_por_unidade_pis),
-          cstCofins: produto.cst_cofins || "",
-          aliquotaCofins: produto.aliquota_cofins == null ? "" : String(produto.aliquota_cofins),
-           modoCofins: produto.modo_cofins || inferPisCofinsMode(produto.cst_cofins, produto.aliquota_cofins),
-           quantidadeCofins: (produto.modo_cofins || inferPisCofinsMode(produto.cst_cofins, produto.aliquota_cofins)) === "QUANTIDADE" ? "1" : "",
-           aliquotaPorUnidadeCofins: produto.aliquota_por_unidade_cofins == null ? "" : String(produto.aliquota_por_unidade_cofins),
-           cest: produto.cest || "",
-           rtcHabilitado: Boolean(produto.rtc_habilitado),
-           cstIbsCbs: produto.cst_ibscbs || "",
-           cClassTrib: produto.cclass_trib || "",
-           aliquotaIbsUf: produto.aliquota_ibs_uf == null ? "" : String(produto.aliquota_ibs_uf),
-           aliquotaIbsMunicipio: produto.aliquota_ibs_municipio == null ? "" : String(produto.aliquota_ibs_municipio),
-           aliquotaCbs: produto.aliquota_cbs == null ? "" : String(produto.aliquota_cbs),
+          orig: texto(campos.origem_mercadoria),
+          csosn: texto(campos.csosn),
+          cst: texto(campos.cst),
+          aliquotaIcms: texto(campos.aliquotaicms),
+          cstPis: texto(campos.cst_pis),
+          aliquotaPis: texto(campos.aliquota_pis),
+          modoPis,
+          quantidadePis: modoPis === "QUANTIDADE" ? "1" : "",
+          aliquotaPorUnidadePis: texto(campos.aliquota_por_unidade_pis),
+          cstCofins: texto(campos.cst_cofins),
+          aliquotaCofins: texto(campos.aliquota_cofins),
+          modoCofins,
+          quantidadeCofins: modoCofins === "QUANTIDADE" ? "1" : "",
+          aliquotaPorUnidadeCofins: texto(campos.aliquota_por_unidade_cofins),
+          cest: produto.cest || "",
+          rtcHabilitado: campos.rtc_habilitado,
+          cstIbsCbs: texto(campos.cst_ibscbs),
+          cClassTrib: texto(campos.cclass_trib),
+          aliquotaIbsUf: texto(campos.aliquota_ibs_uf),
+          aliquotaIbsMunicipio: texto(campos.aliquota_ibs_municipio),
+          aliquotaCbs: texto(campos.aliquota_cbs),
         },
       ],
     }));

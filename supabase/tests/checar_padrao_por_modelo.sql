@@ -9,8 +9,9 @@ BEGIN
       FROM public.nfe_config ORDER BY id
   LOOP
     RAISE NOTICE '--- % (id %) | serie % | % ---', r.modelo, r.id, r.serie, r.ambiente;
-    RAISE NOTICE '    SAIDA:   %', coalesce((r.padroes_emissao -> 'SAIDA')::text, '(vazio)');
-    RAISE NOTICE '    ENTRADA: %', coalesce((r.padroes_emissao -> 'ENTRADA')::text, '(vazio)');
+    RAISE NOTICE '    SAIDA (venda):     %', coalesce((r.padroes_emissao -> 'SAIDA')::text, '(vazio)');
+    RAISE NOTICE '    SAIDA (nao venda): %', coalesce((r.padroes_emissao -> 'SAIDA_NAO_VENDA')::text, '(vazio -- herda o de venda)');
+    RAISE NOTICE '    ENTRADA:           %', coalesce((r.padroes_emissao -> 'ENTRADA')::text, '(vazio)');
   END LOOP;
 END $$;
 

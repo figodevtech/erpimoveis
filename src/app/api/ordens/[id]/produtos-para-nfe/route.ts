@@ -155,6 +155,8 @@ export async function GET(req: Request) {
     // nasceu, e o padrão fiscal da NFC-e é outro.
     const modeloParam = new URL(req.url).searchParams.get("modelo");
     const modelo = modeloParam ? exigirModelo(modeloParam) : MODELO_NFE;
+    // A peça aplicada na OS é venda de mercadoria: vale o padrão de saída de
+    // venda, o mesmo do PDV. `SAIDA_NAO_VENDA` é da saída de estoque.
     const { padrao, crt, rotuloPadrao } = await buscarContextoPadraoFiscal(modelo, "SAIDA");
 
     console.log(

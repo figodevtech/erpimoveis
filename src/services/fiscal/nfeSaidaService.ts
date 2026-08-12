@@ -1,4 +1,8 @@
-import { isCfopCompatibleWithOperation, normalizeCfopForOperation } from "@/lib/nfe/cfopOperation";
+import { isCfopCompatibleWithOperation } from "@/lib/nfe/cfopOperation";
+import {
+  destinoDaCompraPorOperacao,
+  sugerirCfopDevolucaoDeCompra,
+} from "@/lib/nfe/cfopDevolucao";
 import { MODELO_NFE } from "@/lib/nfe/modeloDocumento";
 import {
   ORIGEM_NFE_ENTRADA,
@@ -489,11 +493,24 @@ export async function montarEspelhoFiscalSaida(
   saidaId: number,
   itens: EspelhoFiscalItemInput[],
   ufDestinatario?: string | null,
+  /**
+   * Natureza fiscal escolhida na tela. Decide o destino que a mercadoria teve
+   * na compra e, com isso, a linha da tabela de CFOP de devolução. Fora de
+   * devolução de compra não há CFOP a espelhar: vale o da própria natureza.
+   */
+  operacaoFiscalCodigo?: string | null,
 ): Promise<EspelhoFiscalItem[]> {
+  const destinoDaCompra = destinoDaCompraPorOperacao(operacaoFiscalCodigo);
   const saida = await carregarSaida(saidaId);
   const saidaItemById = new Map((saida.itens ?? []).map((item: any) => [Number(item.id), item]));
   const config = await buscarFiscalConfig(MODELO_NFE);
-  const { padrao, crt } = await buscarContextoPadraoFiscal(MODELO_NFE, "SAIDA", config?.empresaid);
+  // Devolução, remessa e retorno não são venda: o padrão que preenche o vão
+  // aqui é o de saída sem venda, não o da 5102.
+  const { padrao, crt, rotuloPadrao } = await buscarContextoPadraoFiscal(
+    MODELO_NFE,
+    "SAIDA_NAO_VENDA",
+    config?.empresaid,
+  );
   const ufEmitente = await buscarUfEmitente();
   // Sem UF de destino ainda escolhida, trata como operação interna: é o caso
   // mais comum da devolução ao fornecedor e o prefixo é corrigido de novo
@@ -530,15 +547,38 @@ export async function montarEspelhoFiscalSaida(
       }
     }
 
-    // O CFOP da compra descreve uma entrada. A devolução é saída, então o
-    // prefixo precisa ser invertido — é o que separa 5202 de 5411 sem chute.
-    const valoresOrigem = origem
-      ? {
-          ...origem.valoresFiscais,
-          cfop: origem.valoresFiscais.cfop
-            ? normalizeCfopForOperation(origem.valoresFiscais.cfop, "SAIDA", ufEmitente, ufDestino)
-            : null,
+    // O CFOP da devolução vem da compra original, por tabela — e não trocando o
+    // primeiro dígito, que transformaria a compra com ST 1.403 em 5.403 (uma
+    // venda) em vez de 5.411. É esse mapeamento que separa 5.202 de 5.411.
+    //
+    // Fora de devolução (remessa, retorno) não existe correspondência a aplicar:
+    // vale o CFOP da natureza escolhida, e o da compra é descartado.
+    let cfopEspelhado: string | null = null;
+    if (origem && destinoDaCompra) {
+      const sugerido = sugerirCfopDevolucaoDeCompra(
+        {
+          cfop: origem.valoresFiscais.cfop,
+          cst: origem.valoresFiscais.cst,
+          csosn: origem.valoresFiscais.csosn,
+        },
+        destinoDaCompra,
+        ufEmitente,
+        ufDestino,
+      );
+      if (sugerido) {
+        cfopEspelhado = sugerido.cfop;
+        if (sugerido.comSubstituicaoTributaria) {
+          aviso = [
+            aviso,
+            `A compra teve ICMS retido por substituição tributária, então a devolução ` +
+              `sai com CFOP ${sugerido.cfop}. Confira os valores de ST com a contabilidade.`,
+          ].filter(Boolean).join(" ");
         }
+      }
+    }
+
+    const valoresOrigem = origem
+      ? { ...origem.valoresFiscais, cfop: cfopEspelhado }
       : null;
 
     const { campos, procedencia } = resolverPadraoFiscalItem({
@@ -548,6 +588,7 @@ export async function montarEspelhoFiscalSaida(
       ],
       padrao,
       crt,
+      rotuloPadrao,
     });
 
     resultado.push({
@@ -755,6 +796,9 @@ export async function salvarNFeDaSaida(saidaId: number, input: NFeSaidaDraftInpu
       finalidade: contexto.finalidade,
       exigeDocumentoReferenciado: Boolean(contexto.documento_referenciado_obrigatorio),
       chaveAcesso: chave,
+      // Cada item já cita a origem no DFeReferenciado. Repetir no cabeçalho é a
+      // rejeição 1010: os dois níveis de referenciamento são excludentes.
+      temReferenciaPorItem: itens.some((item) => item.dfeReferenciado),
     }),
     destinatario,
     itens,

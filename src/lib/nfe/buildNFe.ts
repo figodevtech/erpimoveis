@@ -538,7 +538,16 @@ export function buildNFePreviewXml(
     ))
     : itensNumerados;
 
-  const ideXml = buildIdeXml(ide, options?.documentosReferenciados ?? []);
+  // Os dois níveis de referenciamento são EXCLUDENTES: informar <NFref> no
+  // <ide> junto com <DFeReferenciado> nos itens é a rejeição 1010. Quando algum
+  // item cita o documento de origem, essa referência já é a da nota inteira e o
+  // grupo de cabeçalho tem de sair — o nível de item é o mais específico e é o
+  // exigido em devolução a partir de 01/09/2026.
+  const temReferenciaPorItem = itens.some((item) => item.dfeReferenciado);
+  const ideXml = buildIdeXml(
+    ide,
+    temReferenciaPorItem ? [] : options?.documentosReferenciados ?? [],
+  );
   const emitXml = buildEmitXml(emitente);
   // Consumidor não identificado: sem grupo <dest>. Só a NFC-e chega aqui sem
   // destinatário — na NF-e o placeholder acima garante que sempre existe um.

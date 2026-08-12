@@ -1,17 +1,18 @@
 "use client";
 
 import type { UseFormRegister, UseFormSetValue, UseFormWatch } from "react-hook-form";
-import type { FormValues } from "../types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertCircle } from "lucide-react";
 
+import type { EmpresaFormValues } from "../types";
+
 type Props = {
-  register: UseFormRegister<FormValues>;
-  setValue: UseFormSetValue<FormValues>;
-  watch: UseFormWatch<FormValues>;
+  register: UseFormRegister<EmpresaFormValues>;
+  setValue: UseFormSetValue<EmpresaFormValues>;
+  watch: UseFormWatch<EmpresaFormValues>;
 };
 
 const REGIME_TRIBUTARIO_OPTIONS = [
@@ -51,7 +52,7 @@ const UF_OPTIONS = [
   "TO",
 ];
 
-export function EmpresaTab({ register, setValue, watch }: Props) {
+export function EmpresaForm({ register, setValue, watch }: Props) {
   const regTrib = watch("empresa.regimetributario") || "1";
   const ambiente = watch("empresa.ambiente") || "HOMOLOGACAO";
   const ufValue = watch("empresa.uf") || "";
@@ -205,6 +206,12 @@ export function EmpresaTab({ register, setValue, watch }: Props) {
                   ))}
                 </SelectContent>
               </Select>
+              {/* Regime e municipio decidem qual NFS-e a empresa emite e se o item
+                  usa CSOSN ou CST. Mexer aqui muda o que a tela fiscal mostra. */}
+              <p className="text-xs text-muted-foreground mt-1">
+                Junto com o codigo do municipio, define o modelo de NFS-e e o padrao de item em
+                Configuracoes › Fiscal &amp; Pagamentos.
+              </p>
             </div>
 
             <div>

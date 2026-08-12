@@ -39,6 +39,7 @@ import {
   ChartNoAxesCombined,
   Send,
   FileText,
+  Building2,
 } from "lucide-react";
 
 import { NavMain } from "./components/nav-main";
@@ -266,6 +267,12 @@ const data = {
           title: "Geral",
           url: "/configuracoes/geral",
           icon: Settings,
+          perm: PERMS.CONFIG,
+        },
+        {
+          title: "Empresa",
+          url: "/configuracoes/empresa",
+          icon: Building2,
           perm: PERMS.CONFIG,
         },
         {

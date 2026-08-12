@@ -13,10 +13,11 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
  * tela, porque venda e OS nao tinham registro de movimento - apenas a baixa
  * vigente, que some quando estornada.
  *
- * A consulta roda sobre `estoque_movimento_historico`, a visao que ja traz
- * status derivado, marca de nota fiscal, autor e o texto de busca. Busca,
- * filtro e paginacao acontecem no banco: a pagina devolvida e a pagina real, e
- * `pagination.total` conta o resultado inteiro, nao o lote baixado.
+ * A consulta roda sobre `estoque_movimento_financeiro_historico`, a visao que
+ * traz status derivado, marca de nota fiscal, autor, texto de busca e a
+ * existencia de lancamento financeiro. Busca, filtro e paginacao acontecem no
+ * banco: a pagina devolvida e a pagina real, e `pagination.total` conta o
+ * resultado inteiro, nao o lote baixado.
  */
 
 const SENTIDOS = new Set(["ENTRADA", "SAIDA"]);
@@ -51,11 +52,11 @@ function termosDeBusca(valor: string | null) {
 }
 
 /**
- * Consulta financeiro e disponibilidade do XML em lote para a pagina atual.
- * Uma entrada pode gerar varias linhas no razao (uma por produto), por isso os
- * IDs sao deduplicados antes das consultas.
+ * Consulta a disponibilidade do XML em lote para a pagina atual. Uma entrada
+ * pode gerar varias linhas no razao (uma por produto), por isso os IDs sao
+ * deduplicados antes da consulta.
  */
-async function metadadosDasEntradasFiscais(linhas: any[]) {
+async function entradasFiscaisComXml(linhas: any[]) {
   const entradaIds = [
     ...new Set(
       linhas
@@ -65,47 +66,26 @@ async function metadadosDasEntradasFiscais(linhas: any[]) {
     ),
   ];
 
-  if (!entradaIds.length) {
-    return {
-      entradasComFinanceiro: new Set<number>(),
-      entradasComXml: new Set<number>(),
-    };
-  }
+  if (!entradaIds.length) return new Set<number>();
 
-  const [transacoesResult, entradasResult] = await Promise.all([
-    supabaseAdmin
-      .from("transacao")
-      .select("entrada_id")
-      .in("entrada_id", entradaIds)
-      .eq("is_deleted", false),
-    supabaseAdmin
-      .from("entrada")
-      .select("id,fiscal_dfe_documento_id,notachave")
-      .in("id", entradaIds),
-  ]);
-  if (transacoesResult.error) throw transacoesResult.error;
+  const entradasResult = await supabaseAdmin
+    .from("entrada")
+    .select("id,fiscal_dfe_documento_id,notachave")
+    .in("id", entradaIds);
   if (entradasResult.error) throw entradasResult.error;
 
-  const entradasComFinanceiro = new Set(
-    (transacoesResult.data ?? [])
-      .map((transacao) => Number(transacao.entrada_id))
-      .filter((id) => Number.isInteger(id) && id > 0),
-  );
-  const entradasComXml = await entradasComXmlCompleto(
+  return entradasComXmlCompleto(
     (entradasResult.data ?? []).map((entrada) => ({
       entradaId: Number(entrada.id),
       documentoId: entrada.fiscal_dfe_documento_id,
       chave: entrada.notachave,
     })),
   );
-
-  return { entradasComFinanceiro, entradasComXml };
 }
 
 /** Devolve a linha da visao no formato aninhado que as telas ja consomem. */
 function paraMovimento(
   linha: any,
-  entradasComFinanceiro: Set<number>,
   entradasComXml: Set<number>,
 ) {
   return {
@@ -130,7 +110,7 @@ function paraMovimento(
     fiscal: linha.fiscal,
     financeiro_lancado:
       linha.fiscal === true && linha.entrada_id != null
-        ? entradasComFinanceiro.has(Number(linha.entrada_id))
+        ? linha.financeiro_lancado === true
         : null,
     xml_disponivel:
       linha.fiscal === true && linha.entrada_id != null
@@ -176,7 +156,7 @@ export async function GET(req: NextRequest) {
     const from = (page - 1) * limit;
 
     let query = supabaseAdmin
-      .from("estoque_movimento_historico")
+      .from("estoque_movimento_financeiro_historico")
       .select("*", { count: "exact" })
       .order("created_at", { ascending: false })
       .order("id", { ascending: false });
@@ -210,6 +190,16 @@ export async function GET(req: NextRequest) {
     if (fiscal === "com_nf") query = query.eq("fiscal", true);
     if (fiscal === "sem_nf") query = query.eq("fiscal", false);
 
+    const financeiro = (params.get("financeiro") ?? "").toLowerCase();
+    if (financeiro === "sem_lancamento") {
+      query = query
+        .eq("sentido", "ENTRADA")
+        .eq("origem", "ENTRADA")
+        .eq("acao", "REGISTRO")
+        .eq("status", "CONFIRMADA")
+        .eq("financeiro_lancado", false);
+    }
+
     const vendaId = Number(params.get("vendaId"));
     if (Number.isInteger(vendaId) && vendaId > 0) query = query.eq("venda_id", vendaId);
 
@@ -234,13 +224,10 @@ export async function GET(req: NextRequest) {
     if (error) throw error;
 
     const linhas = data ?? [];
-    const { entradasComFinanceiro, entradasComXml } =
-      await metadadosDasEntradasFiscais(linhas);
+    const entradasComXml = await entradasFiscaisComXml(linhas);
     const total = count ?? 0;
     return NextResponse.json({
-      data: linhas.map((linha) =>
-        paraMovimento(linha, entradasComFinanceiro, entradasComXml),
-      ),
+      data: linhas.map((linha) => paraMovimento(linha, entradasComXml)),
       pagination: {
         page,
         limit,

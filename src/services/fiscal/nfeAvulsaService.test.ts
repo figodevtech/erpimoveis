@@ -301,3 +301,38 @@ describe("emissão avulsa: NF-e referenciada", () => {
     assert.deepEqual(validarLimiteTotalDevolucao(500, 1092.26), []);
   });
 });
+
+describe("emissão avulsa: níveis de referenciamento", () => {
+  const chaveValida = "25260850114987000143550030000000011872971236";
+
+  function devolucao(overrides: Partial<Draft> = {}): Draft {
+    return draftBase({
+      operacao: {
+        ...draftBase().operacao,
+        finalidade: "DEVOLUCAO",
+        naturezaOperacao: "DEVOLUCAO DE MERCADORIA",
+        consumidorFinal: false,
+        indicadorPresenca: "0",
+      },
+      pagamentos: [{ meio: "90", valor: 0, tipoIntegracao: "2" }],
+      ...overrides,
+    });
+  }
+
+  it("recusa referência no cabeçalho e no item ao mesmo tempo", () => {
+    const draft = devolucao({
+      documentosReferenciados: [{ chaveAcesso: chaveValida }],
+      itens: [itemBase({ dfeReferenciado: { chaveAcesso: chaveValida, nItem: 1 } })],
+    });
+
+    assert.equal(erros(draft, "documentosReferenciados").length, 1);
+  });
+
+  it("aceita a devolução referenciada só no item", () => {
+    const draft = devolucao({
+      itens: [itemBase({ dfeReferenciado: { chaveAcesso: chaveValida, nItem: 1 } })],
+    });
+
+    assert.deepEqual(validarDraftAvulso(draft), []);
+  });
+});

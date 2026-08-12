@@ -78,6 +78,11 @@ const SELOS: Record<string, { texto: string; titulo: string }> = {
     titulo:
       "A NFC-e ainda não tem padrão próprio, então aproveitou o da NF-e. Para separar os dois, preencha o padrão da NFC-e em Configurações › Fiscal.",
   },
+  PADRAO_SAIDA_VENDA: {
+    texto: "padrão de venda",
+    titulo:
+      "Esta saída não é venda, mas o padrão de saída sem venda ainda está em branco, então valeu o de venda. Confira: devolução e remessa costumam ter outra tributação. Cadastre em Configurações › Fiscal › NF-e · saída (não venda).",
+  },
   REGRA: {
     texto: "regra",
     titulo: "Imposto pelo CST escolhido; alterar aqui seria recusado na validação.",

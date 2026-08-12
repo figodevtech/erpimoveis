@@ -1,39 +1,12 @@
 "use client";
 
+import type { Empresa } from "@/app/(app)/(pages)/configuracoes/empresa/types";
 import type {
   CodigosFiscaisForm,
   ModeloEmissao,
 } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/emissao-nfse-dialog/types";
 
-export type Empresa = {
-  empresaId: number;
-  cnpj: string;
-  razaosocial: string;
-  nomefantasia?: string;
-  inscricaoestadual?: string;
-  inscricaomunicipal?: string;
-  inscricaoestadualst?: string;
-  endereco: string;
-  numero?: string;
-  complemento?: string;
-  bairro?: string;
-  codigomunicipio: string;
-  cep?: string;
-  uf?: string;
-  codigopais?: string;
-  nomepais?: string;
-  telefone?: string;
-  cnae?: string;
-  regimetributario: "1" | "2" | "3" | "4";
-  ambiente: "HOMOLOGACAO" | "PRODUCAO";
-  certificadocaminho?: string;
-  certificadosenha?: string;
-  cschomologacao?: string;
-  cscproducao?: string;
-  placa_consulta_limite_mensal: number;
-  placa_consulta_qtd_mes: number;
-  placa_consulta_mes: string;
-};
+export type { Empresa };
 
 /** Um conjunto de padrões fiscais. Tudo string: são campos de formulário. */
 export type PadraoFiscalForm = {
@@ -59,7 +32,13 @@ export type PadraoFiscalForm = {
 };
 
 export type ModeloPadraoFiscal = "NFE" | "NFCE";
-export type OperacaoPadraoFiscal = "SAIDA" | "ENTRADA";
+/**
+ * `SAIDA` é a saída de venda (venda, OS, NFC-e, avulsa). `SAIDA_NAO_VENDA` é a
+ * saída de estoque que não vende: devolução de compra, remessa para conserto,
+ * retorno, garantia. Os nomes das chaves são os mesmos do jsonb em
+ * `nfe_config.padroes_emissao` — ver `src/lib/nfe/padraoFiscalItem.ts`.
+ */
+export type OperacaoPadraoFiscal = "SAIDA" | "SAIDA_NAO_VENDA" | "ENTRADA";
 
 export type PadroesFiscaisForm = Record<
   ModeloPadraoFiscal,
@@ -135,6 +114,12 @@ export type PixCfg = {
 export type DinheiroCfg = { habilitado: boolean };
 
 export type FormValues = {
+  /**
+   * Cadastro da empresa, só de leitura nesta tela — quem edita é Configurações ›
+   * Empresa. Viaja no formulário porque `regimetributario` e `codigomunicipio`
+   * decidem o modelo de NFS-e e se o item usa CSOSN ou CST; sem eles as abas não
+   * sabem o que mostrar. O `onSalvar` daqui nunca faz PUT em `/api/config/empresa`.
+   */
   empresa: Empresa;
   nfe: NFeCfg;
   nfse: NFSecfg;

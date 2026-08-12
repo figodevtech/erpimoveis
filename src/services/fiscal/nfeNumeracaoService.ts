@@ -157,6 +157,26 @@ export function rejeicaoConsomeNumero(codigo: unknown): boolean {
  * denegada, cancelada ou aguardando retorno de lote seguram o número.
  */
 export async function liberarNumeroNfe(nfeId: number, motivo: string): Promise<boolean> {
+  // Guarda para todos os caminhos que liberam número — inclusive a exclusão da
+  // nota. Uma rejeitada por duplicidade tem o número consumido na SEFAZ; se a
+  // exclusão o devolvesse para a fila, a próxima emissão o pegaria de volta e
+  // colheria a mesma rejeição.
+  const { data: nfe, error: leituraError } = await supabaseAdmin
+    .from("nfe")
+    .select("codigo_rejeicao")
+    .eq("id", nfeId)
+    .maybeSingle();
+
+  if (leituraError) {
+    console.warn("[nfe] falha ao ler a rejeição antes de liberar o número:", leituraError);
+  } else if (rejeicaoConsomeNumero(nfe?.codigo_rejeicao)) {
+    console.warn(
+      `[nfe] numero da nota ${nfeId} nao volta para a fila: rejeicao ` +
+        `${nfe?.codigo_rejeicao} indica que a SEFAZ ja tem esse numero.`,
+    );
+    return false;
+  }
+
   const { data, error } = await supabaseAdmin.rpc("nfe_liberar_numero", {
     p_nfe_id: nfeId,
     p_motivo: motivo.slice(0, 200),

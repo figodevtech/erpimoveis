@@ -36,6 +36,7 @@ const routeTitles: Record<string, string> = {
   "/pagamentodevendas": "Assistente de Pagamento",
   "/acompanhamento": "Acompanhamento",
   "/configuracoes/geral": "Configurações Gerais",
+  "/configuracoes/empresa": "Dados da Empresa",
   "/configuracoes/fiscal-pagamentos": "Configurações Fiscais e de Pagamentos",
   "/configuracoes/checklist": "Gerenciamento de Checklists",
   "/configuracoes/auditoria": "Auditoria",

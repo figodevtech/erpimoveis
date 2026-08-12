@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 import { buildNFePreviewXml } from "./buildNFe";
 import type { EmpresaRow, NFeDestinatario, NFeItem } from "./types";
-import { normalizarOrdemNfRefIde } from "./xmlIde";
+import { normalizarNiveisDeReferencia, normalizarOrdemNfRefIde } from "./xmlIde";
 
 const empresa: EmpresaRow = {
   id: 1,
@@ -165,10 +165,10 @@ describe("documentos referenciados e devolução", () => {
     assert.doesNotMatch(xml, /<cMunFG>[^<]+<\/cMunFG><NFref>/);
   });
 
-  it("leva cabeçalho e item juntos numa devolução, como a saída de estoque monta", () => {
-    // A regra VC02 cobra o NFref no <ide> (rejeição 321) e, desde 01/09/2026, o
-    // DFeReferenciado por item. Um não substitui o outro: a NF-e de saída já
-    // emitia o item e deixava o cabeçalho de fora, que é o que reprovava.
+  it("descarta o NFref quando os itens já referenciam a origem", () => {
+    // Rejeição 1010: os dois níveis de referenciamento são excludentes. Com
+    // DFeReferenciado no item, o grupo de cabeçalho não pode sair — mesmo que o
+    // chamador o informe, porque é ele que a SEFAZ recusa junto.
     const { xml } = buildNFePreviewXml(
       empresa,
       94,
@@ -189,7 +189,7 @@ describe("documentos referenciados e devolução", () => {
       },
     );
 
-    assert.match(xml, new RegExp(`<NFref><refNFe>${chaveOriginal}</refNFe></NFref></ide>`));
+    assert.doesNotMatch(xml, /<NFref>/);
     assert.match(xml, new RegExp(`<DFeReferenciado><chaveAcesso>${chaveOriginal}</chaveAcesso><nItem>1</nItem>`));
     // IPI zerado é o caso normal do Simples e não pode suprimir o pDevol.
     assert.match(xml, /<impostoDevol><pDevol>100\.00<\/pDevol><IPI><vIPIDevol>0\.00<\/vIPIDevol>/);
@@ -466,5 +466,36 @@ describe("desconto na NF-e", () => {
 
     assert.doesNotMatch(result.xml, /<prod>.*<vDesc>.*<\/prod>/);
     assert.match(result.xml, /<ICMSTot>.*<vDesc>0\.00<\/vDesc>.*<vNF>10\.00<\/vNF>/);
+  });
+});
+
+describe("normalização de rascunho legado", () => {
+  const chaveOriginal = "35260812345678000199550010000001231000001234";
+
+  it("tira o NFref do ide quando o item já referencia a origem", () => {
+    // Rejeição 1010 em rascunho gravado pela versão que emitia os dois níveis.
+    // A autorização reenvia o XML guardado, então a correção precisa acontecer
+    // aqui — senão a nota só sairia depois de ser reaberta e salva de novo.
+    const legado =
+      `<NFe><infNFe><ide><cMunFG>2503209</cMunFG><verProc>ERP</verProc>` +
+      `<NFref><refNFe>${chaveOriginal}</refNFe></NFref></ide>` +
+      `<det nItem="1"><vItem>10.00</vItem>` +
+      `<DFeReferenciado><chaveAcesso>${chaveOriginal}</chaveAcesso><nItem>1</nItem></DFeReferenciado>` +
+      `</det></infNFe></NFe>`;
+
+    const normalizado = normalizarNiveisDeReferencia(legado);
+
+    assert.doesNotMatch(normalizado, /<NFref>/);
+    assert.match(normalizado, new RegExp(`<DFeReferenciado><chaveAcesso>${chaveOriginal}</chaveAcesso>`));
+    assert.equal(normalizarNiveisDeReferencia(normalizado), normalizado);
+  });
+
+  it("preserva o NFref quando nenhum item referencia a origem", () => {
+    const soCabecalho =
+      `<NFe><infNFe><ide><verProc>ERP</verProc>` +
+      `<NFref><refNFe>${chaveOriginal}</refNFe></NFref></ide>` +
+      `<det nItem="1"><vItem>10.00</vItem></det></infNFe></NFe>`;
+
+    assert.equal(normalizarNiveisDeReferencia(soCabecalho), soCabecalho);
   });
 });

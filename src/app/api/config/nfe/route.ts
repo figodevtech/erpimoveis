@@ -14,6 +14,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
+import { buscarEmpresaAtual } from "@/services/fiscal/empresaAtual";
 import { mascararCsc } from "@/services/fiscal/nfeConfigService";
 import {
   descreverIssues,
@@ -22,8 +23,6 @@ import {
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
-
-const EMPRESA_ID = 1;
 
 type ConfigRow = {
   id: number;
@@ -46,24 +45,23 @@ function padroesDoModelo(config: ConfigRow | null) {
   return valor && typeof valor === "object" && !Array.isArray(valor) ? valor : {};
 }
 
-async function crtDaEmpresa(): Promise<number | null> {
-  const { data, error } = await supabase
-    .from("empresa")
-    .select("regimetributario")
-    .eq("id", EMPRESA_ID)
-    .maybeSingle();
-
-  if (error) throw error;
-  const regime = Number(data?.regimetributario ?? 0);
+function crtDaEmpresa(empresa: Awaited<ReturnType<typeof buscarEmpresaAtual>>): number | null {
+  const regime = Number(empresa?.regimetributario ?? 0);
   return [1, 2, 3, 4].includes(regime) ? regime : null;
 }
 
-async function carregarConfigs() {
-  const { data, error } = await supabase
-    .from("nfe_config")
-    .select(CAMPOS)
-    .eq("empresaid", EMPRESA_ID)
-    .order("id", { ascending: true });
+/**
+ * As linhas de configuração da empresa emitente.
+ *
+ * O filtro sai de `buscarEmpresaAtual`, não de um `1` fixo: em banco cuja
+ * empresa tem outro id, o filtro fixo devolvia zero linhas e a tela mostrava os
+ * padrões vazios enquanto a emissão usava a linha real.
+ */
+async function carregarConfigs(empresaId: number | null) {
+  let query = supabase.from("nfe_config").select(CAMPOS);
+  if (empresaId != null) query = query.eq("empresaid", empresaId);
+
+  const { data, error } = await query.order("id", { ascending: true });
 
   if (error) throw error;
 
@@ -127,7 +125,8 @@ function parseTexto(valor: unknown): string | null | undefined {
 
 export async function GET() {
   try {
-    const configs = await carregarConfigs();
+    const empresa = await buscarEmpresaAtual();
+    const configs = await carregarConfigs(empresa?.id ?? null);
     // Envelope `{ nfe }` para casar com o PUT e com o que a tela lê. Antes o GET
     // devolvia o objeto solto e a página, que procura `json.nfe`, nunca aplicava
     // nada — os campos ficavam nos defaults do formulário.
@@ -146,7 +145,8 @@ export async function PUT(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const nfe = body?.nfe ?? {};
 
-    const configs = await carregarConfigs();
+    const empresa = await buscarEmpresaAtual();
+    const configs = await carregarConfigs(empresa?.id ?? null);
     if (!configs.nfe) {
       return NextResponse.json(
         { error: "Configuração de NF-e não encontrada para a empresa." },
@@ -157,7 +157,7 @@ export async function PUT(req: NextRequest) {
     // ---- padrão fiscal dos itens ------------------------------------------
     // Validado antes de qualquer gravação: padrão inválido não estraga uma
     // nota, estraga todas as emitidas depois, e a rejeição aparece longe daqui.
-    const crt = await crtDaEmpresa();
+    const crt = crtDaEmpresa(empresa);
     const padroesRecebidos = (nfe.padroesFiscais ?? {}) as Record<string, unknown>;
     const padroesNFe =
       "NFE" in padroesRecebidos
@@ -234,7 +234,10 @@ export async function PUT(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ ok: true, nfe: serializar(await carregarConfigs()) });
+    return NextResponse.json({
+      ok: true,
+      nfe: serializar(await carregarConfigs(empresa?.id ?? null)),
+    });
   } catch (e: unknown) {
     console.error("PUT /api/config/nfe", e);
     return NextResponse.json({ error: "Falha ao salvar a configuração fiscal." }, { status: 500 });

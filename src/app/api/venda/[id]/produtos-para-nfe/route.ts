@@ -130,6 +130,8 @@ export async function GET(
     // nasceu, e o padrão fiscal da NFC-e é outro.
     const modeloParam = new URL(req.url).searchParams.get("modelo");
     const modelo = modeloParam ? exigirModelo(modeloParam) : MODELO_NFE;
+    // `SAIDA` é a saída de venda. A saída de estoque que não vende nada
+    // (devolução, remessa, garantia) tem padrão próprio, em `SAIDA_NAO_VENDA`.
     const { padrao, crt, rotuloPadrao } = await buscarContextoPadraoFiscal(modelo, "SAIDA");
     // 1) garantir que venda existe
     const { data: venda, error: vendaError } = await supabaseAdmin

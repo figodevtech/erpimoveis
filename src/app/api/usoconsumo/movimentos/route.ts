@@ -12,8 +12,8 @@ import { usoConsumoError } from "@/lib/usoconsumo/api";
  * A tela juntava `/entradas` e `/saidas` no navegador, o que so funcionava
  * enquanto os dois lotes baixados cobrissem o periodo olhado — a busca nao
  * enxergava o resto e o total exibido era o do lote. Aqui a uniao ja vem do
- * banco (`usoconsumo_movimento_historico`), com busca, filtro e paginacao
- * aplicados sobre o conjunto inteiro.
+ * banco (`usoconsumo_movimento_financeiro_historico`), com busca, filtro
+ * financeiro e paginacao aplicados sobre o conjunto inteiro.
  */
 
 const SENTIDOS = new Set(["entrada", "saida"]);
@@ -33,8 +33,8 @@ function termosDeBusca(valor: string | null) {
     .slice(0, MAX_TERMOS_BUSCA);
 }
 
-/** Busca em lote o financeiro e a disponibilidade do XML das entradas fiscais. */
-async function metadadosDasEntradasFiscais(linhas: any[]) {
+/** Busca em lote a disponibilidade do XML das entradas fiscais. */
+async function entradasFiscaisComXml(linhas: any[]) {
   const entradaIds = [
     ...new Set(
       linhas
@@ -49,41 +49,21 @@ async function metadadosDasEntradasFiscais(linhas: any[]) {
     ),
   ];
 
-  if (!entradaIds.length) {
-    return {
-      entradasComFinanceiro: new Set<number>(),
-      entradasComXml: new Set<number>(),
-    };
-  }
+  if (!entradaIds.length) return new Set<number>();
 
-  const [transacoesResult, entradasResult] = await Promise.all([
-    supabaseAdmin
-      .from("transacao")
-      .select("usoconsumo_entrada_id")
-      .in("usoconsumo_entrada_id", entradaIds)
-      .eq("is_deleted", false),
-    supabaseAdmin
-      .from("usoconsumo_entrada")
-      .select("id,documento_fiscal_recebido_id,chave_nfe")
-      .in("id", entradaIds),
-  ]);
-  if (transacoesResult.error) throw transacoesResult.error;
+  const entradasResult = await supabaseAdmin
+    .from("usoconsumo_entrada")
+    .select("id,documento_fiscal_recebido_id,chave_nfe")
+    .in("id", entradaIds);
   if (entradasResult.error) throw entradasResult.error;
 
-  const entradasComFinanceiro = new Set(
-    (transacoesResult.data ?? [])
-      .map((transacao) => Number(transacao.usoconsumo_entrada_id))
-      .filter((id) => Number.isInteger(id) && id > 0),
-  );
-  const entradasComXml = await entradasComXmlCompleto(
+  return entradasComXmlCompleto(
     (entradasResult.data ?? []).map((entrada) => ({
       entradaId: Number(entrada.id),
       documentoId: entrada.documento_fiscal_recebido_id,
       chave: entrada.chave_nfe,
     })),
   );
-
-  return { entradasComFinanceiro, entradasComXml };
 }
 
 export async function GET(req: NextRequest) {
@@ -96,7 +76,7 @@ export async function GET(req: NextRequest) {
     const from = (page - 1) * limit;
 
     let query = supabaseAdmin
-      .from("usoconsumo_movimento_historico")
+      .from("usoconsumo_movimento_financeiro_historico")
       .select("*", { count: "exact" })
       .order("created_at", { ascending: false })
       .order("id", { ascending: false });
@@ -110,6 +90,14 @@ export async function GET(req: NextRequest) {
     const fiscal = (params.get("fiscal") ?? "").toLowerCase();
     if (fiscal === "com_nf") query = query.eq("fiscal", true);
     if (fiscal === "sem_nf") query = query.eq("fiscal", false);
+
+    const financeiro = (params.get("financeiro") ?? "").toLowerCase();
+    if (financeiro === "sem_lancamento") {
+      query = query
+        .eq("sentido", "entrada")
+        .eq("status", "CONFIRMADA")
+        .eq("financeiro_lancado", false);
+    }
 
     const desde = params.get("desde");
     if (desde) query = query.gte("created_at", desde);
@@ -125,15 +113,14 @@ export async function GET(req: NextRequest) {
     if (error) throw error;
 
     const linhas = data ?? [];
-    const { entradasComFinanceiro, entradasComXml } =
-      await metadadosDasEntradasFiscais(linhas);
+    const entradasComXml = await entradasFiscaisComXml(linhas);
     const total = count ?? 0;
     return NextResponse.json({
       data: linhas.map((linha) => ({
         ...linha,
         financeiro_lancado:
           linha.sentido === "entrada" && linha.fiscal === true
-            ? entradasComFinanceiro.has(Number(linha.id))
+            ? linha.financeiro_lancado === true
             : null,
         xml_disponivel:
           linha.sentido === "entrada" && linha.fiscal === true

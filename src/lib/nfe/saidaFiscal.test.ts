@@ -107,3 +107,34 @@ describe("referência de cabeçalho da NF-e de saída", () => {
     );
   });
 });
+
+describe("níveis de referenciamento são excludentes", () => {
+  const chave = "1".repeat(44);
+
+  it("não cita a origem no cabeçalho quando os itens já citam", () => {
+    // Rejeição 1010: NFref no <ide> junto com DFeReferenciado no item derruba a
+    // nota. O nível de item é o mais específico e é o exigido em devolução a
+    // partir de 01/09/2026, então é ele que fica.
+    assert.deepEqual(
+      montarReferenciasFiscaisSaida({
+        finalidade: "DEVOLUCAO",
+        exigeDocumentoReferenciado: true,
+        chaveAcesso: chave,
+        temReferenciaPorItem: true,
+      }),
+      [],
+    );
+  });
+
+  it("usa o cabeçalho quando nenhum item referencia a origem", () => {
+    assert.deepEqual(
+      montarReferenciasFiscaisSaida({
+        finalidade: "DEVOLUCAO",
+        exigeDocumentoReferenciado: true,
+        chaveAcesso: chave,
+        temReferenciaPorItem: false,
+      }),
+      [{ chaveAcesso: chave }],
+    );
+  });
+});

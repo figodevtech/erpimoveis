@@ -396,7 +396,7 @@ export default function ConfigGeralPage() {
               </div>
             </div>
             <Button asChild variant="outline" size="sm" className="w-fit bg-transparent">
-              <Link href="/configuracoes/fiscal-pagamentos">Alterar dados da empresa</Link>
+              <Link href="/configuracoes/empresa">Alterar dados da empresa</Link>
             </Button>
           </section>
 

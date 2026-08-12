@@ -69,9 +69,9 @@ export function PadraoNFSeFields({
     return (
       <div className="rounded-lg border border-dashed p-4">
         <p className="text-muted-foreground text-sm">
-          Preencha o código IBGE do município e o regime tributário na aba{" "}
-          <strong className="text-foreground">Empresa</strong> para cadastrar o padrão: são eles
-          que determinam qual NFS-e a empresa emite.
+          Preencha o código IBGE do município e o regime tributário em{" "}
+          <strong className="text-foreground">Configurações › Empresa</strong> para cadastrar o
+          padrão: são eles que determinam qual NFS-e a empresa emite.
         </p>
       </div>
     );

@@ -5,7 +5,9 @@ import { MODELO_NFCE, MODELO_NFE, modeloParaDb, rotuloModelo } from "@/lib/nfe/m
 import {
   ORIGEM_PADRAO,
   ORIGEM_PADRAO_HERDADO,
+  ORIGEM_PADRAO_SAIDA_VENDA,
   padraoDaOperacao,
+  type OperacaoPadrao,
   type PadraoFiscalItem,
 } from "@/lib/nfe/padraoFiscalItem";
 import type { CRT, ModeloDocumentoFiscal, ModeloDocumentoFiscalDb } from "@/lib/nfe/types";
@@ -80,7 +82,8 @@ export type ContextoPadraoFiscal = {
   crt: CRT | null;
   /**
    * Rótulo de procedência a usar para os valores do padrão. Vira
-   * `ORIGEM_PADRAO_HERDADO` quando a NFC-e aproveitou o padrão da NF-e.
+   * `ORIGEM_PADRAO_HERDADO` quando a NFC-e aproveitou o padrão da NF-e, e
+   * `ORIGEM_PADRAO_SAIDA_VENDA` quando a saída sem venda aproveitou o da venda.
    */
   rotuloPadrao: string;
 };
@@ -92,16 +95,22 @@ export type ContextoPadraoFiscal = {
  * que o produto tiver, exatamente como antes desta camada existir. Só o CRT
  * precisa da empresa, e ele já é cobrado por `validarEmpresa` na emissão.
  *
- * Quando o pedido é NFC-e e ela ainda não tem padrão próprio, cai para o padrão
- * de saída da NF-e. O perfil tributário da mercadoria é o mesmo nos dois
+ * Há dois degraus de herança, e os dois existem para o mesmo motivo: padrão em
+ * branco não pode virar item sem tributação, que é rejeição certa na SEFAZ.
+ *
+ *   NFC-e sem padrão próprio      → padrão de saída de venda da NF-e
+ *   saída sem venda em branco     → padrão de saída de venda do mesmo modelo
+ *
+ * No primeiro, o perfil tributário da mercadoria é mesmo o mesmo nos dois
  * modelos — quem escolhe CSOSN e CST de PIS/COFINS é o produto e o regime, não
- * o documento. Cadastrar o mesmo perfil duas vezes só criaria a chance de as
- * duas cópias divergirem. Os valores herdados vão marcados, e preencher a
- * NFC-e em Configurações passa a mandar.
+ * o documento —, e cadastrar duas vezes só criaria a chance de divergirem. No
+ * segundo a operação é de fato outra, e a herança é só a ponte até o padrão de
+ * remessa/devolução ser cadastrado. Nos dois casos os valores vão marcados, e
+ * preencher o padrão próprio em Configurações passa a mandar.
  */
 export async function buscarContextoPadraoFiscal(
   modelo: ModeloDocumentoFiscal,
-  operacao: "SAIDA" | "ENTRADA",
+  operacao: OperacaoPadrao,
   empresaId?: number,
 ): Promise<ContextoPadraoFiscal> {
   const config = await buscarFiscalConfig(modelo, empresaId);
@@ -121,8 +130,22 @@ export async function buscarContextoPadraoFiscal(
   const crt = [1, 2, 3, 4].includes(regime) ? (regime as CRT) : null;
 
   const proprio = padraoDaOperacao(config?.padroes_emissao, operacao);
-  if (proprio || modelo !== MODELO_NFCE) {
-    return { padrao: proprio, crt, rotuloPadrao: ORIGEM_PADRAO };
+  if (proprio) return { padrao: proprio, crt, rotuloPadrao: ORIGEM_PADRAO };
+
+  // Degrau 1: a saída sem venda cai para a de venda do próprio modelo. Ela é a
+  // única que já tem padrão cadastrado nos bancos em uso, e sem esta ponte todo
+  // mundo que atualizasse passaria a emitir devolução e remessa sem CSOSN nem
+  // CST de PIS/COFINS até abrir Configurações.
+  if (operacao === "SAIDA_NAO_VENDA") {
+    const daVenda = padraoDaOperacao(config?.padroes_emissao, "SAIDA");
+    if (daVenda) {
+      return { padrao: daVenda, crt, rotuloPadrao: ORIGEM_PADRAO_SAIDA_VENDA };
+    }
+  }
+
+  // Degrau 2: a NFC-e cai para o padrão de saída de venda da NF-e.
+  if (modelo !== MODELO_NFCE) {
+    return { padrao: null, crt, rotuloPadrao: ORIGEM_PADRAO };
   }
 
   const configNfe = await buscarFiscalConfig(MODELO_NFE, empresaId ?? config?.empresaid);

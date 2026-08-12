@@ -863,6 +863,9 @@ export function GerarNotaDeOsDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ufDestinatario: entrySupplier.estado || null,
+          // A natureza decide o destino da compra e, com a presença de ST no
+          // documento de origem, a linha da tabela de CFOP de devolução.
+          operacaoFiscalCodigo: next.operacaoFiscalCodigo,
           itens: [{
             saidaItemId,
             entradaItemOrigemId: alvo.entradaItemOrigemId,

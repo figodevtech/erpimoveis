@@ -15,7 +15,7 @@ import { carregarCertificadoA1 } from "@/lib/nfe/certificado";
 import { assinarNFeXml } from "@/lib/nfe/assinatura";
 import { buildEnviNFeXml } from "@/lib/nfe/enviNFe";
 import { exigirModelo, MODELO_NFCE } from "@/lib/nfe/modeloDocumento";
-import { normalizarOrdemNfRefIde } from "@/lib/nfe/xmlIde";
+import { normalizarNiveisDeReferencia, normalizarOrdemNfRefIde } from "@/lib/nfe/xmlIde";
 import { atualizarDataEmissao } from "@/lib/nfe/nfce/dataEmissao";
 import { resolveSefazEndpoint } from "@/lib/nfe/webservices";
 import { anexarQrCodeNfce } from "@/services/fiscal/nfceQrCodeService";
@@ -462,7 +462,12 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
     // Compatibilidade com rascunhos criados pela versão que gravava NFref
     // depois de cMunFG. O XSD exige o grupo no fim de ide; a assinatura antiga
     // é descartada por assinarNFeXml e refeita abaixo.
-    const xmlRascunhoNormalizado = normalizarOrdemNfRefIde(xmlRascunhoSalvo);
+    // Duas correcoes de rascunho legado antes de numerar e assinar: a ordem do
+    // NFref dentro do <ide> e a convivencia proibida entre referencia de
+    // cabecalho e de item (rejeicao 1010).
+    const xmlRascunhoNormalizado = normalizarNiveisDeReferencia(
+      normalizarOrdemNfRefIde(xmlRascunhoSalvo),
+    );
     const numeracao = await garantirNumeroDefinitivo(nfeId, xmlRascunhoNormalizado);
     const modeloNota = exigirModelo(nfe.modelo);
 

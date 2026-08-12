@@ -136,8 +136,11 @@ export function PadraoFiscalFields({
   }
 
   const usaCsosn = regras.icms.csosn === "REQUIRED";
+  // As duas saídas — com e sem venda — usam a mesma tabela de CST: o que as
+  // separa é o perfil cadastrado, não o rol de códigos disponíveis.
+  const ehEntrada = operacao === "ENTRADA";
   const cstsDaOperacao = PIS_COFINS_CST_OPTIONS.filter((opcao) =>
-    operacao === "ENTRADA" ? opcao.operation !== "SAIDA" : opcao.operation !== "ENTRADA",
+    ehEntrada ? opcao.operation !== "SAIDA" : opcao.operation !== "ENTRADA",
   );
 
   return (
@@ -163,10 +166,17 @@ export function PadraoFiscalFields({
             </Select>
           </Campo>
 
-          <Campo label="CFOP" hint="O primeiro dígito se ajusta pela UF do destinatário.">
+          <Campo
+            label="CFOP"
+            hint={
+              operacao === "SAIDA_NAO_VENDA"
+                ? "Só vale como último recurso: na saída de estoque quem decide o CFOP é a natureza fiscal escolhida na emissão."
+                : "O primeiro dígito se ajusta pela UF do destinatário."
+            }
+          >
             <Input
               {...register(`${base}.cfop`)}
-              placeholder={operacao === "ENTRADA" ? "1102" : "5102"}
+              placeholder={ehEntrada ? "1102" : operacao === "SAIDA_NAO_VENDA" ? "5202" : "5102"}
               inputMode="numeric"
               maxLength={4}
             />

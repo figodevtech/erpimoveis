@@ -13,6 +13,7 @@ import { ReceiptText } from "lucide-react";
 
 import { GerarNotaDeOsDialog } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/gerarNotaDeOsDialog/gerarNotaDeOsDialog";
 import { AutorizarNfeButton } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/autorizarNfe-button";
+import { ExcluirRascunhoNfeButton } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/excluirRascunhoNfeButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
@@ -128,6 +129,20 @@ export function SaidaNfeActions({ saidaId }: { saidaId: number }) {
                 <AutorizarNfeButton nfeId={note.id} onAfterAuthorize={() => void loadNotes()}>
                   {note.status === "REJEITADA" ? "Transmitir de novo" : "Autorizar NF-e"}
                 </AutorizarNfeButton>
+              ) : null}
+              {/*
+                Rascunho e rejeitada nunca viraram documento na SEFAZ, então
+                podem ser descartadas — e sem isso a saída fica presa a uma nota
+                que não vai ser emitida.
+              */}
+              {STATUS_EDITAVEIS.includes(note.status) ? (
+                <div className="w-32">
+                  <ExcluirRascunhoNfeButton
+                    nfeId={note.id}
+                    status={note.status}
+                    onAfterDelete={() => void loadNotes()}
+                  />
+                </div>
               ) : null}
             </div>
           </div>

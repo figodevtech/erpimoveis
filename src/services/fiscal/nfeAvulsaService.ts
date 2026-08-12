@@ -19,6 +19,7 @@ import type {
   NFeDestinatario,
   NFeItem,
 } from "@/lib/nfe/types";
+import { padraoDaOperacao } from "@/lib/nfe/padraoFiscalItem";
 import { getNFeFiscalFieldRules, NFE_FISCAL_RULE_VERSION, validateNFeItemTax } from "@/lib/nfe/taxRules";
 import { resolverNomeMunicipioIbge } from "@/lib/ibge/municipio";
 import { isCfopCompatibleWithOperation } from "@/lib/nfe/cfopOperation";
@@ -36,6 +37,8 @@ type NFeConfigRow = {
   serie: number;
   ultimo_numero: number;
   ambiente: "HOMOLOGACAO" | "PRODUCAO";
+  /** Padrão fiscal dos itens, por operação. Ver `padraoFiscalItem.ts`. */
+  padroes_emissao: unknown;
 };
 
 export type NFeAvulsaItemInput = {
@@ -577,6 +580,18 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
         "Devolução sem documento referenciado é rejeitada pela SEFAZ (rejeição 321).",
     });
   }
+  // Os dois níveis não convivem: NFref no <ide> junto com DFeReferenciado nos
+  // itens é a rejeição 1010. Barrar aqui evita gastar uma transmissão para
+  // descobrir isso na SEFAZ.
+  if (referencias.length > 0 && referenciasDosItens.length > 0) {
+    errors.push({
+      step: "operation",
+      field: "documentosReferenciados",
+      message:
+        "A NF-e não pode referenciar o documento de origem no cabeçalho e nos itens ao mesmo tempo. " +
+        "Escolha um dos dois níveis (rejeição 1010).",
+    });
+  }
   referencias.forEach((referencia, index) => {
     if (!chaveAcessoValida(referencia?.chaveAcesso)) {
       errors.push({
@@ -942,7 +957,7 @@ async function validarTotalDevolucaoComDocumentosLocais(
 export async function getNFeAvulsaSetup(modelo: ModeloDocumentoFiscal = MODELO_NFE) {
   const { data: config, error: configError } = await supabaseAdmin
     .from("nfe_config")
-    .select("id, empresaid, modelo, serie, ultimo_numero, ambiente")
+    .select("id, empresaid, modelo, serie, ultimo_numero, ambiente, padroes_emissao")
     .eq("modelo", modeloParaDb(modelo))
     .order("id", { ascending: true })
     .limit(1)
@@ -1012,6 +1027,18 @@ export async function getNFeAvulsaSetup(modelo: ModeloDocumentoFiscal = MODELO_N
     empresa,
     config,
     proximoNumero,
+    /**
+     * Padrão fiscal de saída de venda dos itens, o mesmo que a venda e a OS
+     * usam — a avulsa é nota de venda, não remessa nem devolução; para essas há
+     * `SAIDA_NAO_VENDA`. A avulsa montava o item só com o produto e ignorava o
+     * padrão da empresa, então o operador redigitava CSOSN, origem e CST de
+     * PIS/COFINS aqui enquanto a mesma nota tirada de uma venda já vinha
+     * preenchida. Vai cru para a tela porque quem resolve a precedência
+     * (produto vence, padrão preenche o vão) é `resolverPadraoFiscalItem`, no
+     * momento em que o item entra.
+     */
+    padraoFiscalItem: padraoDaOperacao(config?.padroes_emissao, "SAIDA"),
+    crt,
     empresaErros: validarEmpresa(empresa, config, modelo),
     certificadoStatus,
     clientes: clientes ?? [],

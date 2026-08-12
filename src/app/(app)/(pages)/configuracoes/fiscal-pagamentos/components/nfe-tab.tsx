@@ -94,6 +94,7 @@ export function NFeTab({
 
   const padroes = watch?.("nfe.padroesFiscais");
   const temNfeSaida = temValor(padroes?.NFE?.SAIDA);
+  const temNfeSaidaNaoVenda = temValor(padroes?.NFE?.SAIDA_NAO_VENDA);
   const temNfeEntrada = temValor(padroes?.NFE?.ENTRADA);
   // Sem padrão próprio, a NFC-e aproveita o de saída da NF-e. Vale avisar: o
   // campo em branco aqui não significa item sem tributação na emissão.
@@ -209,16 +210,33 @@ export function NFeTab({
               vencendo — é assim que a exceção (peça monofásica, por exemplo) sobrevive. NCM e CEST
               ficam de fora: são do item, não do perfil.
             </p>
+            <p className="text-muted-foreground mt-2 text-xs">
+              <strong className="text-foreground">Saída (venda)</strong> vale para venda, PDV,
+              peça aplicada em OS e NF-e avulsa.{" "}
+              <strong className="text-foreground">Saída (não venda)</strong> vale para a saída de
+              estoque — devolução de compra, remessa para conserto, retorno e garantia —, que não
+              é fato gerador de venda e por isso tem perfil próprio.{" "}
+              <strong className="text-foreground">Entrada</strong> vale para a NF-e de compra.
+            </p>
           </div>
 
           <div className="bg-muted/40 flex flex-wrap items-center gap-1 rounded-xl border p-1">
             <AbaVariante
               ativa={modeloPadrao === "NFE" && operacaoAtiva === "SAIDA"}
-              rotulo="NF-e · saída"
+              rotulo="NF-e · saída (venda)"
               preenchida={temNfeSaida}
               onClick={() => {
                 setModeloPadrao("NFE");
                 setOperacaoPadrao("SAIDA");
+              }}
+            />
+            <AbaVariante
+              ativa={modeloPadrao === "NFE" && operacaoAtiva === "SAIDA_NAO_VENDA"}
+              rotulo="NF-e · saída (não venda)"
+              preenchida={temNfeSaidaNaoVenda}
+              onClick={() => {
+                setModeloPadrao("NFE");
+                setOperacaoPadrao("SAIDA_NAO_VENDA");
               }}
             />
             <AbaVariante
@@ -243,9 +261,23 @@ export function NFeTab({
               <Info className="mt-0.5 h-4 w-4 shrink-0 text-sky-600 dark:text-sky-400" />
               <span>
                 Enquanto estes campos ficarem em branco, a NFC-e usa o padrão de{" "}
-                <strong>saída da NF-e</strong> — o perfil tributário da mercadoria é o mesmo nos
-                dois modelos. Preencha aqui só o que precisar ser diferente; na emissão, o que veio
-                da NF-e aparece marcado como <em>padrão NF-e</em>.
+                <strong>saída (venda) da NF-e</strong> — o perfil tributário da mercadoria é o
+                mesmo nos dois modelos. Preencha aqui só o que precisar ser diferente; na emissão,
+                o que veio da NF-e aparece marcado como <em>padrão NF-e</em>.
+              </span>
+            </div>
+          ) : null}
+
+          {modeloPadrao === "NFE" && operacaoAtiva === "SAIDA_NAO_VENDA" && !temNfeSaidaNaoVenda ? (
+            <div className="flex items-start gap-2 rounded-lg border border-sky-500/40 bg-sky-500/5 p-3 text-sm">
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-sky-600 dark:text-sky-400" />
+              <span>
+                Enquanto estes campos ficarem em branco, a saída de estoque usa o padrão de{" "}
+                <strong>saída (venda)</strong> — é o que já acontecia antes desta separação
+                existir, e é melhor que emitir sem tributação nenhuma. Mas devolução e remessa não
+                são venda: preencha aqui o perfil correto. Na emissão, o que veio da venda aparece
+                marcado como <em>padrão de venda</em>. O CFOP não entra na conta — quem manda nele
+                é a natureza fiscal escolhida na própria saída.
               </span>
             </div>
           ) : null}

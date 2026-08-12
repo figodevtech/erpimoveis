@@ -1,6 +1,7 @@
 import { User, Mail, Phone, MapPin, FileText, Building2, Calendar, Package, Wrench } from "lucide-react"
 import { Customer } from "../../../clientes/types"
 import formatarTelefone from "@/utils/formatarTelefone"
+import { CustomerBlockedAlert } from "@/components/cliente/customer-blocked-alert"
 
 export type TipoPessoa = "FISICA" | "JURIDICA"
 export type ClientStatus = "ATIVO" | "INATIVO" | "PENDENTE"
@@ -67,6 +68,11 @@ export function ClienteInfoCard({ customer }: CustomerInfoCardProps) {
           </div>
         </div>
       </div>
+
+      <CustomerBlockedAlert
+        status={customer.status}
+        className="px-4 pt-4 md:px-6"
+      />
 
       {/* Content */}
       <div className="p-4 md:p-6 space-y-6">

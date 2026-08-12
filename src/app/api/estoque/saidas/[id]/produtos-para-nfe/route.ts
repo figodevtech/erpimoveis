@@ -50,7 +50,15 @@ export async function GET(_request: Request, context: Context) {
       .eq("id", config?.empresaid ?? 0)
       .maybeSingle();
     if (empresaError) throw empresaError;
-    const { padrao, crt } = await buscarContextoPadraoFiscal(MODELO_NFE, "SAIDA", config?.empresaid);
+    // Saída de estoque nunca é venda: devolução de compra, remessa para
+    // conserto, retorno e garantia têm perfil próprio, cadastrado à parte do
+    // padrão de venda. Enquanto ele estiver em branco, o serviço devolve o de
+    // venda com o rótulo dizendo isso.
+    const { padrao, crt, rotuloPadrao } = await buscarContextoPadraoFiscal(
+      MODELO_NFE,
+      "SAIDA_NAO_VENDA",
+      config?.empresaid,
+    );
 
     const entradaItemIds = (contexto?.itens ?? [])
       .map((item: any) => Number(item.entrada_item_origem_id ?? 0))
@@ -89,6 +97,7 @@ export async function GET(_request: Request, context: Context) {
         fontes: [{ origem: "PRODUTO", valores: produto }],
         padrao,
         crt,
+        rotuloPadrao,
       });
 
       return {

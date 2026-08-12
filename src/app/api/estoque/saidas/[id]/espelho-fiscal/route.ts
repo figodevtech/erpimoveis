@@ -28,7 +28,11 @@ export async function POST(request: NextRequest, context: Context) {
     }
 
     const body = (await request.json().catch(() => null)) as
-      | { itens?: EspelhoFiscalItemInput[]; ufDestinatario?: string | null }
+      | {
+          itens?: EspelhoFiscalItemInput[];
+          ufDestinatario?: string | null;
+          operacaoFiscalCodigo?: string | null;
+        }
       | null;
     if (!Array.isArray(body?.itens)) {
       return NextResponse.json(
@@ -37,7 +41,12 @@ export async function POST(request: NextRequest, context: Context) {
       );
     }
 
-    const itens = await montarEspelhoFiscalSaida(saidaId, body.itens, body.ufDestinatario);
+    const itens = await montarEspelhoFiscalSaida(
+      saidaId,
+      body.itens,
+      body.ufDestinatario,
+      body.operacaoFiscalCodigo,
+    );
     return NextResponse.json({ ok: true, itens });
   } catch (error: any) {
     return NextResponse.json(

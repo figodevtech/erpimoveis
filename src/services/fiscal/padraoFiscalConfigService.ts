@@ -3,6 +3,7 @@ import "server-only";
 import {
   normalizarPadraoFiscalItem,
   validarPadraoFiscalItem,
+  type OperacaoPadrao,
   type PadraoFiscalIssue,
   type PadraoFiscalItem,
 } from "@/lib/nfe/padraoFiscalItem";
@@ -13,12 +14,17 @@ import type { ClassificacaoTributariaRtc, CRT } from "@/lib/nfe/types";
  * Guarda e valida o padrão fiscal dos itens gravado em
  * `nfe_config.padroes_emissao`.
  *
- * O jsonb é `{ "SAIDA": {…}, "ENTRADA": {…} }` dentro da linha do modelo — a
- * linha NFE guarda o padrão da 55 e a NFCE o da 65. A NFC-e só usa SAIDA.
+ * O jsonb é `{ "SAIDA": {…}, "SAIDA_NAO_VENDA": {…}, "ENTRADA": {…} }` dentro da
+ * linha do modelo — a linha NFE guarda o padrão da 55 e a NFCE o da 65. A NFC-e
+ * só usa SAIDA: não é documento de entrada nem de remessa.
  */
-export type TipoOperacaoPadrao = "SAIDA" | "ENTRADA";
+export type TipoOperacaoPadrao = OperacaoPadrao;
 
-export const OPERACOES_PADRAO: TipoOperacaoPadrao[] = ["SAIDA", "ENTRADA"];
+export const OPERACOES_PADRAO: TipoOperacaoPadrao[] = [
+  "SAIDA",
+  "SAIDA_NAO_VENDA",
+  "ENTRADA",
+];
 
 export type PadroesPorOperacao = Partial<Record<TipoOperacaoPadrao, PadraoFiscalItem>>;
 
@@ -106,12 +112,15 @@ export async function prepararPadroesFiscais(
   return { padroes, issues };
 }
 
+const ROTULO_OPERACAO: Record<TipoOperacaoPadrao, string> = {
+  SAIDA: "Saída (venda)",
+  SAIDA_NAO_VENDA: "Saída (não venda)",
+  ENTRADA: "Entrada",
+};
+
 /** Mensagem única para a tela, já dizendo em qual operação está o problema. */
 export function descreverIssues(issues: PadraoFiscalIssueLocalizada[]): string {
   return issues
-    .map(
-      (issue) =>
-        `${issue.operacao === "ENTRADA" ? "Entrada" : "Saída"} · ${issue.mensagem}`,
-    )
+    .map((issue) => `${ROTULO_OPERACAO[issue.operacao] ?? issue.operacao} · ${issue.mensagem}`)
     .join(" ");
 }
