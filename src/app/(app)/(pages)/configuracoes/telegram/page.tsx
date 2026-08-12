@@ -10,7 +10,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { TelegramRecipientsCard } from "./telegram-recipients-card";
 
 type Status = {
-  environment: { enabled: boolean; configured: boolean; hasWebhookSecret: boolean; hasAppUrl: boolean; botUsername: string | null };
+  environment: { enabled: boolean; configured: boolean; hasWebhookSecret: boolean; hasCronSecret: boolean; hasAppUrl: boolean; botUsername: string | null };
   bot: { username?: string; first_name?: string } | null;
   webhook: { url: string; pending_update_count: number; last_error_date?: number; last_error_message?: string; last_success_date?: number } | null;
   connectionError: string | null;
@@ -58,7 +58,7 @@ export default function TelegramConfigurationPage() {
       </div>
     );
   }
-  const environmentOk = status?.environment.configured && status.environment.hasWebhookSecret && status.environment.hasAppUrl;
+  const environmentOk = status?.environment.configured && status.environment.hasWebhookSecret && status.environment.hasCronSecret && status.environment.hasAppUrl;
   const webhookOk = Boolean(status?.webhook?.url) && (
     !status?.webhook?.last_error_message
     || (status.webhook.last_success_date ?? 0) > (status.webhook.last_error_date ?? 0)
@@ -111,7 +111,7 @@ export default function TelegramConfigurationPage() {
             </div>
           </div>
           {status?.connectionError ? <p role="alert" className="border-l-2 border-destructive pl-3 text-sm text-destructive">{status.connectionError}</p> : null}
-          {!environmentOk ? <div className="grid gap-3 border-t pt-3 md:grid-cols-3"><StatusItem ok={Boolean(status?.environment.configured)} label="Token e username" detail={status?.environment.configured ? "Configurados" : "Ausentes"} /><StatusItem ok={Boolean(status?.environment.hasWebhookSecret)} label="Segredo" detail={status?.environment.hasWebhookSecret ? "Configurado" : "Ausente"} /><StatusItem ok={Boolean(status?.environment.hasAppUrl)} label="URL pública" detail={status?.environment.hasAppUrl ? "Configurada" : "Ausente"} /></div> : null}
+          {!environmentOk ? <div className="grid gap-3 border-t pt-3 md:grid-cols-4"><StatusItem ok={Boolean(status?.environment.configured)} label="Token e username" detail={status?.environment.configured ? "Configurados" : "Ausentes"} /><StatusItem ok={Boolean(status?.environment.hasWebhookSecret)} label="Segredo do webhook" detail={status?.environment.hasWebhookSecret ? "Configurado" : "Ausente"} /><StatusItem ok={Boolean(status?.environment.hasCronSecret)} label="Segredo do processador" detail={status?.environment.hasCronSecret ? "Configurado" : "Ausente"} /><StatusItem ok={Boolean(status?.environment.hasAppUrl)} label="URL pública" detail={status?.environment.hasAppUrl ? "Configurada" : "Ausente"} /></div> : null}
           {!webhookOk && status?.webhook?.last_error_message ? <p role="alert" className="text-sm text-destructive">Webhook: {status.webhook.last_error_message}</p> : null}
           {status?.latestRun?.erro ? <p role="alert" className="text-sm text-destructive">Processador: {status.latestRun.erro}</p> : null}
         </CardContent>

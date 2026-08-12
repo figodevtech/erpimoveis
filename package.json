@@ -10,7 +10,7 @@
     "lint:unused": "eslint . --config eslint-unused.config.mjs --no-error-on-unmatched-pattern",
     "test:nfe": "tsx --test src/lib/nfe/*.test.ts src/lib/nfe/nfce/*.test.ts",
     "test:financeiro": "tsx --test src/lib/financeiro/*.test.ts src/app/api/transaction/_lib/*.test.ts",
-    "test:telegram": "tsx --test src/lib/ordens/telegram-notifications.test.ts",
+    "test:telegram": "tsx --test src/lib/ordens/telegram-notifications.test.ts src/lib/financeiro/telegram-daily-summary.test.ts",
     "localidades:gerar": "node scripts/localidades/gerar-municipios.mjs",
     "db:status": "tsx scripts/db/status.ts",
     "db:test:sql": "tsx scripts/db/test-sql.ts",

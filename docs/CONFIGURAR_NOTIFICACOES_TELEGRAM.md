@@ -46,12 +46,15 @@ Regras:
 
 O arquivo `telegram.env.example` serve apenas como referência e não contém credenciais reais.
 
-## 4. Aplicar a migration
+## 4. Aplicar as migrations
 
-A migration é:
+As migrations da integração são:
 
 ```text
 supabase/migrations/20260810190000_notificacoes_os_telegram.sql
+supabase/migrations/20260810210000_notificacoes_os_telegram_tempo_real.sql
+supabase/migrations/20260811200000_notificacoes_os_telegram_dispatch_pg_net.sql
+supabase/migrations/20260812200000_telegram_resumo_diario_contas_pagar.sql
 ```
 
 Siga o fluxo seguro já adotado pelo projeto:
@@ -151,7 +154,32 @@ Todo o cadastro é administrado em `Configurações > Telegram`; a página `Meu 
 9. Reative, teste `Minhas OS` e confirme que OS de outro usuário não chega.
 10. Confira o painel de Configurações: fila vazia e nenhuma entrega com falha.
 
-## 11. Operação e solução de problemas
+## 11. Resumo diário de contas a pagar
+
+O resumo consulta as transações que aparecem em `Fluxo de caixa > A pagar`: despesas
+pendentes com vencimento no dia e, quando selecionado, também as vencidas. A mensagem
+separa os dois grupos e informa descrição, fornecedor, categoria, vencimento, valor,
+referência e totais.
+
+Para configurar:
+
+1. aplique a migration `20260812200000_telegram_resumo_diario_contas_pagar.sql`;
+2. publique a aplicação com `CRON_SECRET` configurado;
+3. em `Configurações > Telegram`, clique novamente em **Configurar webhook** para registrar também a URL do processador financeiro;
+4. edite um destinatário e ative **Resumo diário de contas a pagar**;
+5. escolha o horário, se deve incluir atrasadas e se deve avisar quando não houver contas;
+6. salve e, no menu de ações do destinatário, use **Testar resumo financeiro**.
+
+O horário é individual por destinatário e usa o fuso `America/Fortaleza`. O banco aciona
+o processador a cada cinco minutos; portanto, um resumo programado para 08:30 normalmente
+chega entre 08:30 e 08:34. O controle de envio impede que o mesmo destinatário receba o
+resumo automático duas vezes no mesmo dia, inclusive após uma nova publicação.
+
+Por segurança, a opção só pode ser ativada para usuários cujo perfil possua a permissão
+`Financeiro: visualizar`. Se essa permissão ou o acesso do destinatário for removido, os
+novos resumos deixam de ser enviados.
+
+## 12. Operação e solução de problemas
 
 - **Webhook sem URL:** publique a aplicação e clique em Configurar webhook novamente.
 - **Unauthorized no webhook:** `TELEGRAM_WEBHOOK_SECRET` do servidor não corresponde ao registrado; registre novamente.
@@ -159,6 +187,7 @@ Todo o cadastro é administrado em `Configurações > Telegram`; a página `Meu 
 - **Username não corresponde:** confirme que o `@usuário` informado no ERP é o mesmo da conta que abriu o bot.
 - **Eventos ficam pendentes:** confira o agendador e `CRON_SECRET`, ou use Processar agora.
 - **Só envia ao clicar em Processar:** aplique a migration de tempo real, publique a aplicação e clique novamente em **Configurar webhook** para registrar o disparo daquele cliente.
+- **Resumo financeiro não chega:** confirme `CRON_SECRET`, refaça **Configurar webhook**, verifique a permissão `Financeiro: visualizar` e aguarde a janela de até cinco minutos após o horário escolhido.
 - **Erro 403 do Telegram:** normalmente o usuário bloqueou o bot; desconecte e faça um novo vínculo.
 - **Mensagens duplicadas:** consulte as entregas no banco; a restrição única por evento/usuário deve impedir duplicidade.
 - **Alteração de token:** atualize `TELEGRAM_BOT_TOKEN`, publique novamente e registre o webhook outra vez.

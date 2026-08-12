@@ -14,12 +14,14 @@ export async function POST() {
     }
     const webhookUrl = `${environment.appUrl}/api/integracoes/telegram/webhook`;
     const dispatchUrl = `${environment.appUrl}/api/integracoes/telegram/processar`;
+    const financialDispatchUrl = `${environment.appUrl}/api/integracoes/telegram/financeiro/processar`;
     await configureTelegramWebhook(webhookUrl, environment.webhookSecret);
     const { error: dispatchError } = await supabaseAdmin
       .from("telegram_dispatch_configuracao")
       .upsert({
         id: 1,
         endpoint_url: dispatchUrl,
+        financeiro_endpoint_url: financialDispatchUrl,
         bearer_token: environment.cronSecret,
         ativo: true,
         updated_at: new Date().toISOString(),
