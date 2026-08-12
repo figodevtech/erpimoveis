@@ -49,8 +49,39 @@ function termosDeBusca(valor: string | null) {
     .slice(0, MAX_TERMOS_BUSCA);
 }
 
+/**
+ * Consulta o financeiro em lote para a pagina atual. Uma entrada pode gerar
+ * varias linhas no razao (uma por produto), por isso os IDs sao deduplicados
+ * antes da consulta.
+ */
+async function entradasComLancamentoFinanceiro(linhas: any[]) {
+  const entradaIds = [
+    ...new Set(
+      linhas
+        .filter((linha) => linha.fiscal === true && linha.entrada_id != null)
+        .map((linha) => Number(linha.entrada_id))
+        .filter((id) => Number.isInteger(id) && id > 0),
+    ),
+  ];
+
+  if (!entradaIds.length) return new Set<number>();
+
+  const { data, error } = await supabaseAdmin
+    .from("transacao")
+    .select("entrada_id")
+    .in("entrada_id", entradaIds)
+    .eq("is_deleted", false);
+  if (error) throw error;
+
+  return new Set(
+    (data ?? [])
+      .map((transacao) => Number(transacao.entrada_id))
+      .filter((id) => Number.isInteger(id) && id > 0),
+  );
+}
+
 /** Devolve a linha da visao no formato aninhado que as telas ja consomem. */
-function paraMovimento(linha: any) {
+function paraMovimento(linha: any, entradasComFinanceiro: Set<number>) {
   return {
     id: linha.id,
     produto_id: linha.produto_id,
@@ -71,6 +102,10 @@ function paraMovimento(linha: any) {
     created_at: linha.created_at,
     status: linha.status,
     fiscal: linha.fiscal,
+    financeiro_lancado:
+      linha.fiscal === true && linha.entrada_id != null
+        ? entradasComFinanceiro.has(Number(linha.entrada_id))
+        : null,
     produto: linha.produto_id
       ? {
           id: linha.produto_id,
@@ -168,9 +203,11 @@ export async function GET(req: NextRequest) {
     const { data, error, count } = await query.range(from, from + limit - 1);
     if (error) throw error;
 
+    const linhas = data ?? [];
+    const entradasComFinanceiro = await entradasComLancamentoFinanceiro(linhas);
     const total = count ?? 0;
     return NextResponse.json({
-      data: (data ?? []).map(paraMovimento),
+      data: linhas.map((linha) => paraMovimento(linha, entradasComFinanceiro)),
       pagination: {
         page,
         limit,

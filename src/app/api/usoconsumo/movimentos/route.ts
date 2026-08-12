@@ -32,6 +32,38 @@ function termosDeBusca(valor: string | null) {
     .slice(0, MAX_TERMOS_BUSCA);
 }
 
+/** Busca de uma vez quais entradas fiscais da pagina possuem transacao ativa. */
+async function entradasComLancamentoFinanceiro(linhas: any[]) {
+  const entradaIds = [
+    ...new Set(
+      linhas
+        .filter(
+          (linha) =>
+            linha.sentido === "entrada" &&
+            linha.fiscal === true &&
+            linha.id != null,
+        )
+        .map((linha) => Number(linha.id))
+        .filter((id) => Number.isInteger(id) && id > 0),
+    ),
+  ];
+
+  if (!entradaIds.length) return new Set<number>();
+
+  const { data, error } = await supabaseAdmin
+    .from("transacao")
+    .select("usoconsumo_entrada_id")
+    .in("usoconsumo_entrada_id", entradaIds)
+    .eq("is_deleted", false);
+  if (error) throw error;
+
+  return new Set(
+    (data ?? [])
+      .map((transacao) => Number(transacao.usoconsumo_entrada_id))
+      .filter((id) => Number.isInteger(id) && id > 0),
+  );
+}
+
 export async function GET(req: NextRequest) {
   try {
     await requireUsoConsumoAccess();
@@ -70,9 +102,17 @@ export async function GET(req: NextRequest) {
     const { data, error, count } = await query.range(from, from + limit - 1);
     if (error) throw error;
 
+    const linhas = data ?? [];
+    const entradasComFinanceiro = await entradasComLancamentoFinanceiro(linhas);
     const total = count ?? 0;
     return NextResponse.json({
-      data: data ?? [],
+      data: linhas.map((linha) => ({
+        ...linha,
+        financeiro_lancado:
+          linha.sentido === "entrada" && linha.fiscal === true
+            ? entradasComFinanceiro.has(Number(linha.id))
+            : null,
+      })),
       pagination: {
         page,
         limit,

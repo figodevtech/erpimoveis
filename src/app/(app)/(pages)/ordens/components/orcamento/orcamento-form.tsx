@@ -11,7 +11,12 @@ import { toast } from "@/lib/toast";
 import { OrcamentoFormHandle, OrcamentoFormProps, ProdutoBusca, ServicoBusca } from "./tipos";
 
 import { useCarrinhoOrcamento } from "./ganchos/use-carrinho-orcamento";
-import { salvarOrcamentoAPI, EstoqueInsuficienteError, vincularProdutoAvulsoAPI } from "./servicos/api-orcamento";
+import {
+  salvarOrcamentoAPI,
+  EstoqueInsuficienteError,
+  vincularProdutoAvulsoAPI,
+  carregarItensDaOSAPI,
+} from "./servicos/api-orcamento";
 
 import { TabelaItensProduto } from "./components/tabela-itens-produto";
 import { TabelaItensServico } from "./components/tabela-tens-servico";
@@ -32,11 +37,16 @@ export const OrcamentoForm = forwardRef<OrcamentoFormHandle, OrcamentoFormProps>
   const osId = ordemServico?.id;
   const config = useConfig();
 
+  const carregarDaOS = useCallback(
+    async () => carregarItensDaOSAPI(osId as number),
+    [osId],
+  );
+
   const {
     itensProduto,
     itensServico,
     itensProdutoAvulso,
-    carregarItensDaOS,
+    carregarItens,
     adicionarProduto,
     adicionarServico,
     atualizarProduto,
@@ -55,7 +65,7 @@ export const OrcamentoForm = forwardRef<OrcamentoFormHandle, OrcamentoFormProps>
     subtotal,
     descontoAplicado,
     totalGeral,
-  } = useCarrinhoOrcamento(osId, onTotaisChange);
+  } = useCarrinhoOrcamento(osId ? carregarDaOS : null, onTotaisChange);
 
   // Gate de render: só mostra o Card quando carregou os dados
   const [ready, setReady] = useState(false);
@@ -79,7 +89,7 @@ export const OrcamentoForm = forwardRef<OrcamentoFormHandle, OrcamentoFormProps>
       setReady(false);
 
       try {
-        await carregarItensDaOS();
+        await carregarItens();
         if (!alive) return;
 
         setErrosEstoque({});
@@ -98,7 +108,7 @@ export const OrcamentoForm = forwardRef<OrcamentoFormHandle, OrcamentoFormProps>
     return () => {
       alive = false;
     };
-  }, [osId, carregarItensDaOS, onLoadingChange]);
+  }, [osId, carregarItens, onLoadingChange]);
 
   const salvarOrcamento = useCallback(async () => {
     if (!osId) {
@@ -307,7 +317,7 @@ export const OrcamentoForm = forwardRef<OrcamentoFormHandle, OrcamentoFormProps>
                   if (!item.id) throw new Error("Salve o orçamento antes de vincular o item.");
                   try {
                     await vincularProdutoAvulsoAPI(osId, item.id, produtoId);
-                    await carregarItensDaOS();
+                    await carregarItens();
                     toast.success("Produto avulso convertido em produto da OS.");
                     window.dispatchEvent(new Event("os:refresh"));
                   } catch (error: any) {

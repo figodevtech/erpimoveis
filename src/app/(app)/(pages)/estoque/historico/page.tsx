@@ -85,6 +85,7 @@ type RawLedgerMovement = {
   created_at: string;
   status: string | null;
   fiscal: boolean | null;
+  financeiro_lancado: boolean | null;
   produto?: { titulo?: string | null; unidade?: string | null } | null;
   criador?: { nome?: string | null } | null;
   entrada?: {
@@ -112,6 +113,7 @@ type RawUsoConsumoMovement = {
   observacao: string | null;
   parte: string | null;
   fiscal: boolean | null;
+  financeiro_lancado: boolean | null;
   itens_resumo: string | null;
   criador_nome: string | null;
 };
@@ -128,6 +130,7 @@ type Movement = {
   total: number | null;
   status: string;
   fiscal?: boolean;
+  financeiroLancado?: boolean | null;
   numeroNota?: string | null;
   origem?: Origem;
   acao?: "REGISTRO" | "ESTORNO";
@@ -234,6 +237,7 @@ function normalizeLedgerMovement(raw: RawLedgerMovement): Movement {
     total: null,
     status: raw.status || "CONFIRMADA",
     fiscal: Boolean(raw.fiscal),
+    financeiroLancado: raw.financeiro_lancado,
     numeroNota: raw.entrada?.numero_nota ?? null,
     origem: raw.origem,
     acao: raw.acao,
@@ -263,6 +267,7 @@ function normalizeUsoConsumoMovement(raw: RawUsoConsumoMovement): Movement {
     total: raw.valor_total ?? null,
     status: raw.status || "CONFIRMADA",
     fiscal: Boolean(raw.fiscal),
+    financeiroLancado: raw.financeiro_lancado,
     numeroNota: raw.numero_nota ?? null,
     documentKind: raw.sentido,
     documentId: raw.id,
@@ -328,6 +333,19 @@ function MovementRow({
                 >
                   <FileText className="size-3 text-indigo-600 dark:text-indigo-400" />
                   <span>Fiscal</span>
+                </Badge>
+              ) : null}
+              {isEntrada &&
+              movement.fiscal &&
+              movement.status === "CONFIRMADA" &&
+              movement.financeiroLancado === false ? (
+                <Badge
+                  variant="outline"
+                  className="shrink-0 gap-1 border-red-500/40 bg-red-500/10 px-1.5 py-0 text-[10px] font-semibold text-red-700 dark:text-red-300"
+                  title="Entrada fiscal sem lançamento financeiro ativo"
+                >
+                  <Wallet className="size-3 text-red-600 dark:text-red-400" />
+                  <span>Não lançado</span>
                 </Badge>
               ) : null}
               {movement.reconstruido ? (

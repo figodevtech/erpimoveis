@@ -18,6 +18,11 @@ export const PERMS = {
   ORDENS_EVENTOS_FINANCEIROS: "ordens:eventos_financeiros",
   ORDENS_FINALIZAR_SEM_COBRANCA: "ordens:finalizar_sem_cobranca",
 
+  ORCAMENTOS: "orcamentos:visualizar",
+  ORCAMENTOS_CRIAR: "orcamentos:criar",
+  ORCAMENTOS_EDITAR: "orcamentos:editar",
+  ORCAMENTOS_EXCLUIR: "orcamentos:excluir",
+
   ESTOQUE: "estoque:visualizar",
   ESTOQUE_CRIAR: "estoque:criar",
   ESTOQUE_EDITAR: "estoque:editar",

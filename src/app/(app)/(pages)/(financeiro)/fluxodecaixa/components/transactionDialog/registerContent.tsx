@@ -40,6 +40,7 @@ import { useCategoriasTransacao } from "../../hooks/use-categoria-transacao";
 import { usePlanosDeConta } from "../../hooks/use-planos-de-conta";
 import { useCentrosCusto } from "../../hooks/use-centros-custo";
 import { useTiposDocumento } from "../../hooks/use-tipos-documento";
+import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
 import { PlanoContaCombobox } from "../plano-conta-combobox";
 import { SearchCombobox } from "../search-combobox";
 import {
@@ -204,6 +205,14 @@ export default function RegisterContent({
   const { centrosCusto, loadingCentrosCusto, errorCentrosCusto } = useCentrosCusto();
   const { tiposDocumento, loadingTiposDocumento, errorTiposDocumento } =
     useTiposDocumento();
+  const { options: paymentMethodOptions } = usePaymentMethodOptions();
+  const metodosPagamento =
+    paymentMethodOptions.length > 0
+      ? paymentMethodOptions
+      : Object.values(Metodo_pagamento).map((value) => ({
+          value,
+          label: value,
+        }));
   // Pagamento múltiplo é sempre entrada de dinheiro de OS ou venda: tipo,
   // categoria e descrição saem dos documentos marcados e o formulário só os
   // exibe. A despesa interna continua sendo o único caso de DESPESA travada.
@@ -889,9 +898,9 @@ export default function RegisterContent({
                       <SelectValue placeholder="Selecione" />
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.values(Metodo_pagamento).map((u) => (
-                        <SelectItem key={u} value={u}>
-                          {u}
+                      {metodosPagamento.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
                         </SelectItem>
                       ))}
                     </SelectContent>

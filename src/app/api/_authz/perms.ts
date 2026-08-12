@@ -289,6 +289,22 @@ export async function requireVeiculosDelete() {
   return requirePerm(PERMS.VEICULOS_EXCLUIR);
 }
 
+export async function hasOrcamentosAccess() {
+  return hasPerm(PERMS.ORCAMENTOS);
+}
+export async function requireOrcamentosAccess() {
+  return requirePerm(PERMS.ORCAMENTOS);
+}
+export async function requireOrcamentosCreate() {
+  return requirePerm(PERMS.ORCAMENTOS_CRIAR);
+}
+export async function requireOrcamentosEdit() {
+  return requirePerm(PERMS.ORCAMENTOS_EDITAR);
+}
+export async function requireOrcamentosDelete() {
+  return requirePerm(PERMS.ORCAMENTOS_EXCLUIR);
+}
+
 export async function hasDesmancheAccess() {
   return hasPerm(PERMS.DESMANCHE);
 }
