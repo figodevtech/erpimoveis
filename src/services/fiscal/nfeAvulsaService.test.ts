@@ -229,3 +229,50 @@ describe("emissão avulsa: destinatário e transporte", () => {
     assert.equal(erros(draft, "cpfCnpj").length, 1);
   });
 });
+
+describe("emissão avulsa: NF-e referenciada", () => {
+  // Chave real do rascunho da Garage Premium: serve porque o DV confere.
+  const chaveValida = "25260850114987000143550030000000011872971236";
+
+  function devolucao(overrides: Partial<Draft> = {}): Draft {
+    return draftBase({
+      operacao: {
+        ...draftBase().operacao,
+        finalidade: "DEVOLUCAO",
+        naturezaOperacao: "DEVOLUCAO DE MERCADORIA",
+        consumidorFinal: false,
+        indicadorPresenca: "0",
+      },
+      pagamentos: [{ meio: "90", valor: 0, tipoIntegracao: "2" }],
+      ...overrides,
+    });
+  }
+
+  it("cobra a nota de origem numa devolução", () => {
+    assert.equal(erros(devolucao(), "documentosReferenciados").length, 1);
+  });
+
+  it("aceita a devolução com a chave da NF-e original", () => {
+    const draft = devolucao({ documentosReferenciados: [{ chaveAcesso: chaveValida }] });
+    assert.deepEqual(validarDraftAvulso(draft), []);
+  });
+
+  it("recusa chave com dígito verificador errado", () => {
+    const chaveErrada = `${chaveValida.slice(0, 43)}0`;
+    const draft = devolucao({ documentosReferenciados: [{ chaveAcesso: chaveErrada }] });
+
+    assert.equal(erros(draft, "documentosReferenciados.0.chaveAcesso").length, 1);
+  });
+
+  it("recusa a mesma NF-e referenciada duas vezes", () => {
+    const draft = devolucao({
+      documentosReferenciados: [{ chaveAcesso: chaveValida }, { chaveAcesso: chaveValida }],
+    });
+
+    assert.equal(erros(draft, "documentosReferenciados").length, 1);
+  });
+
+  it("não exige referência numa nota normal", () => {
+    assert.deepEqual(erros(draftBase(), "documentosReferenciados"), []);
+  });
+});

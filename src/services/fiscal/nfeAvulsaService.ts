@@ -5,6 +5,7 @@ import {
   type NFeTransporteOptions,
 } from "@/lib/nfe/buildNFe";
 import { carregarCertificadoA1 } from "@/lib/nfe/certificado";
+import { chaveAcessoValida } from "@/lib/nfe/chaveAcesso";
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
 import { normalizarIndIEDest } from "@/lib/nfe/indIEDest";
 import { MODELO_NFE, MODELO_NFCE, modeloParaDb, rotuloModelo } from "@/lib/nfe/modeloDocumento";
@@ -94,6 +95,13 @@ export type NFeAvulsaItemInput = {
   aliquotaFcpDestino?: string | number | null;
   percentualPartilhaDestino?: string | number | null;
   baseCalculoFcpDestino?: string | number | null;
+  percentualDevolucao?: string | number | null;
+  valorIpiDevolvido?: string | number | null;
+  dfeReferenciado?: {
+    chaveAcesso: string;
+    nItem?: number | null;
+  } | null;
+  informacoesAdicionaisProduto?: string | null;
 };
 
 export type NFeAvulsaDraftInput = {
@@ -105,10 +113,11 @@ export type NFeAvulsaDraftInput = {
    */
   modelo?: ModeloDocumentoFiscal;
   origem?: {
-    tipo: "AVULSA" | "OS" | "VENDA" | "ENTRADA";
+    tipo: "AVULSA" | "OS" | "VENDA" | "ENTRADA" | "SAIDA";
     ordemServicoId?: number | null;
     vendaId?: number | null;
     entradaId?: number | null;
+    saidaId?: number | null;
     clienteId?: number | null;
     fornecedorId?: number | null;
   } | null;
@@ -190,6 +199,7 @@ export type NFeAvulsaDraftInput = {
     nomePais?: string | null;
   };
   itens: NFeAvulsaItemInput[];
+  documentosReferenciados?: Array<{ chaveAcesso: string }> | null;
 };
 
 type ValidationError = {
@@ -283,6 +293,15 @@ function mapInputToTaxItem(item: NFeAvulsaItemInput, index: number): NFeItem {
     aliquotaFcpDestino: toOptionalDecimal(item.aliquotaFcpDestino) ?? undefined,
     percentualPartilhaDestino: toOptionalDecimal(item.percentualPartilhaDestino) ?? undefined,
     baseCalculoFcpDestino: toOptionalDecimal(item.baseCalculoFcpDestino) ?? undefined,
+    percentualDevolucao: toOptionalDecimal(item.percentualDevolucao) ?? undefined,
+    valorIpiDevolvido: toOptionalDecimal(item.valorIpiDevolvido) ?? undefined,
+    dfeReferenciado: item.dfeReferenciado
+      ? {
+          chaveAcesso: onlyDigits(item.dfeReferenciado.chaveAcesso),
+          nItem: item.dfeReferenciado.nItem ?? null,
+        }
+      : undefined,
+    informacoesAdicionaisProduto: cleanText(item.informacoesAdicionaisProduto) || undefined,
     descricao: cleanText(item.descricao),
     ncm: onlyDigits(item.ncm),
     cfop: onlyDigits(item.cfop),
@@ -537,6 +556,40 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
       step: "operation",
       field: "naturezaOperacao",
       message: "Natureza da operação é obrigatória.",
+    });
+  }
+
+  // NF-e de devolução (finNFe=4) sem documento referenciado é rejeição 321 na
+  // SEFAZ, e o CFOP não é exceção da regra: a validação VC02-14 cobra o grupo
+  // NFref de toda devolução de mercadoria. Barrar aqui evita queimar o número.
+  const referencias = input.documentosReferenciados ?? [];
+  const exigeReferencia = finalidadeToFinNFe(input.operacao?.finalidade) === 4;
+  if (exigeReferencia && referencias.length === 0) {
+    errors.push({
+      step: "operation",
+      field: "documentosReferenciados",
+      message:
+        "Informe a chave de acesso da NF-e que está sendo devolvida. " +
+        "Devolução sem documento referenciado é rejeitada pela SEFAZ (rejeição 321).",
+    });
+  }
+  referencias.forEach((referencia, index) => {
+    if (!chaveAcessoValida(referencia?.chaveAcesso)) {
+      errors.push({
+        step: "operation",
+        field: `documentosReferenciados.${index}.chaveAcesso`,
+        message: "Chave de acesso da NF-e referenciada inválida: confira os 44 dígitos.",
+      });
+    }
+  });
+  if (
+    new Set(referencias.map((referencia) => onlyDigits(referencia?.chaveAcesso))).size !==
+    referencias.length
+  ) {
+    errors.push({
+      step: "operation",
+      field: "documentosReferenciados",
+      message: "A mesma NF-e foi referenciada mais de uma vez.",
     });
   }
 
@@ -1152,6 +1205,11 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
   const pagamentosDadosAvulsos = getPagamentosDadosAvulsos(input);
   const transporte = getTransporteFiscal(input);
   const transporteDadosAvulsos = getTransporteDadosAvulsos(input);
+  // A tela manda a chave como o usuário digitou (com pontos, espaço colado da
+  // consulta pública). O XML e o snapshot guardam só os 44 dígitos.
+  const documentosReferenciados = (input.documentosReferenciados ?? [])
+    .map((referencia) => ({ chaveAcesso: onlyDigits(referencia?.chaveAcesso) }))
+    .filter((referencia) => referencia.chaveAcesso.length === 44);
 
   // Validações do modelo 65 e da UF do emitente. Rodam com os totais já
   // calculados a partir dos itens fiscais — a regra da Paraíba depende do valor
@@ -1251,6 +1309,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
       pagamento,
       pagamentos,
       transporte,
+      documentosReferenciados,
     }));
 
     const { data: nfe, error: insertError } = await supabaseAdmin
@@ -1269,6 +1328,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
         ordemservicoid: origem?.ordemServicoId ?? null,
         vendaid: origem?.vendaId ?? null,
         entradaid: origem?.entradaId ?? null,
+        saidaid: origem?.saidaId ?? null,
         fornecedorid: fornecedorId,
         clienteid: clienteId,
         destinatario_snapshot: destinatario,
@@ -1297,6 +1357,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
           clienteSelecionadoId: input.destinatario.clienteId ?? null,
           fornecedorSelecionadoId: fornecedorId,
           versaoRegraFiscal: NFE_FISCAL_RULE_VERSION,
+          documentosReferenciados,
         },
         versao_regra_fiscal: NFE_FISCAL_RULE_VERSION,
         decisao_fiscal: {
@@ -1332,7 +1393,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
     const { data: nfe, error: nfeError } = await supabaseAdmin
       .from("nfe")
       .select(
-        "id, status, modelo, numero, serie, ordemservicoid, vendaid, entradaid, clienteid, fornecedorid, dados_avulsos",
+        "id, status, modelo, numero, serie, ordemservicoid, vendaid, entradaid, saidaid, clienteid, fornecedorid, dados_avulsos",
       )
       .eq("id", nfeId)
       .maybeSingle();
@@ -1359,10 +1420,11 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
       origem = {
         tipo:
           origemGravada?.tipo ??
-          (nfe.ordemservicoid ? "OS" : nfe.vendaid ? "VENDA" : nfe.entradaid ? "ENTRADA" : "AVULSA"),
+          (nfe.ordemservicoid ? "OS" : nfe.vendaid ? "VENDA" : nfe.entradaid ? "ENTRADA" : nfe.saidaid ? "SAIDA" : "AVULSA"),
         ordemServicoId: nfe.ordemservicoid ?? origemGravada?.ordemServicoId ?? null,
         vendaId: nfe.vendaid ?? origemGravada?.vendaId ?? null,
         entradaId: nfe.entradaid ?? origemGravada?.entradaId ?? null,
+        saidaId: nfe.saidaid ?? origemGravada?.saidaId ?? null,
         clienteId: nfe.clienteid ?? origemGravada?.clienteId ?? null,
         fornecedorId: nfe.fornecedorid ?? origemGravada?.fornecedorId ?? null,
       };
@@ -1390,6 +1452,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
       pagamento,
       pagamentos,
       transporte,
+      documentosReferenciados,
     }));
 
     const { error: updateError } = await supabaseAdmin
@@ -1399,6 +1462,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
         ordemservicoid: origem?.ordemServicoId ?? null,
         vendaid: origem?.vendaId ?? null,
         entradaid: origem?.entradaId ?? null,
+        saidaid: origem?.saidaId ?? null,
         fornecedorid: fornecedorId,
         clienteid: clienteId,
         destinatario_snapshot: destinatario,
@@ -1413,6 +1477,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
           clienteSelecionadoId: input.destinatario.clienteId ?? null,
           fornecedorSelecionadoId: fornecedorId,
           versaoRegraFiscal: NFE_FISCAL_RULE_VERSION,
+          documentosReferenciados,
         },
         versao_regra_fiscal: NFE_FISCAL_RULE_VERSION,
         decisao_fiscal: {
@@ -1448,7 +1513,11 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
   const totalProdutos = itensInsert.reduce((sum, item) => sum + Number(item.valor_total ?? 0), 0);
   const totalDesconto = itensInsert.reduce((sum, item) => sum + Number(item.valor_desconto ?? 0), 0);
   const totalFrete = itensInsert.reduce((sum, item) => sum + Number(item.valor_frete ?? 0), 0);
-  const totalNfe = Number((totalProdutos - totalDesconto + totalFrete).toFixed(2));
+  const totalIpiDevolvido = itensXml.reduce(
+    (sum, item) => sum + Number(item.valorIpiDevolvido ?? 0),
+    0,
+  );
+  const totalNfe = Number((totalProdutos - totalDesconto + totalFrete + totalIpiDevolvido).toFixed(2));
   const { error: totalError } = await supabaseAdmin.rpc("atualizar_totais_nfe", { p_nfe_id: nfeId });
   if (totalError) {
     const { error: updateTotalError } = await supabaseAdmin

@@ -192,6 +192,19 @@ export type NFeIde = {
   verProc: string;
 };
 
+/** Documento fiscal relacionado no grupo de identificação da NF-e. */
+export type NFeDocumentoReferenciado = {
+  /** Chave de acesso de uma NF-e modelo 55. */
+  chaveAcesso: string;
+};
+
+/** Referência granular introduzida no item pela NT 2025.002. */
+export type NFeDFeReferenciado = {
+  chaveAcesso: string;
+  /** Número do item no documento fiscal original. */
+  nItem?: number | null;
+};
+
 export type NFeDestinatario = {
   cpf?: string;
   cnpj?: string;
@@ -346,6 +359,16 @@ export interface NFeItem {
   quantidadeIpi?: number;
   valorUnidadeIpi?: number;
   valorIpi?: number;
+
+  // ---------- Devolução / documento referenciado ----------
+  /** Percentual da mercadoria devolvida, de 0,01 a 100%. */
+  percentualDevolucao?: number;
+  /** Parcela do IPI devolvida neste item. */
+  valorIpiDevolvido?: number;
+  /** Documento e linha de origem deste item (NT 2025.002). */
+  dfeReferenciado?: NFeDFeReferenciado;
+  /** Informações adicionais específicas do item. */
+  informacoesAdicionaisProduto?: string | null;
 
   // ---------- DIFAL (ICMSUFDest) ----------
   /**

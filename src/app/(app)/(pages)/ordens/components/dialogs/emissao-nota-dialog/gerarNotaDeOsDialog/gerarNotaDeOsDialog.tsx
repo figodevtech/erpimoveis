@@ -278,6 +278,7 @@ export interface GerarNotaDeOsDialogProps {
   osId?: number | null;
   vendaId?: number | null;
   entradaId?: number | null;
+  saidaId?: number | null;
   /**
    * 55 = NF-e (padrão), 65 = NFC-e.
    *
@@ -301,6 +302,7 @@ export function GerarNotaDeOsDialog({
   osId,
   vendaId,
   entradaId,
+  saidaId,
   modelo = MODELO_NFE,
   nfeId = null,
   onAfterGenerate,
@@ -362,8 +364,9 @@ export function GerarNotaDeOsDialog({
 
   const difalAtivo = items.some((item) => item.difalHabilitado);
 
-  const origin = osId ? "OS" : vendaId ? "VENDA" : entradaId ? "ENTRADA" : null;
-  const originId = osId ?? vendaId ?? entradaId ?? null;
+  const origin = osId ? "OS" : vendaId ? "VENDA" : entradaId ? "ENTRADA" : saidaId ? "SAIDA" : null;
+  const originId = osId ?? vendaId ?? entradaId ?? saidaId ?? null;
+  const usesEditableRecipient = origin === "ENTRADA" || origin === "SAIDA";
   const productsEndpoint = useMemo(() => {
     if (!origin || !originId) return null;
     // O modelo vai na query porque o padrão fiscal dos itens é por modelo: sem
@@ -371,7 +374,8 @@ export function GerarNotaDeOsDialog({
     // Entrada não tem modelo a escolher — é sempre 55.
     if (origin === "OS") return `/api/ordens/${originId}/produtos-para-nfe?modelo=${modelo}`;
     if (origin === "VENDA") return `/api/venda/${originId}/produtos-para-nfe?modelo=${modelo}`;
-    return `/api/entradas/${originId}/produtos-para-nfe`;
+    if (origin === "ENTRADA") return `/api/entradas/${originId}/produtos-para-nfe`;
+    return `/api/estoque/saidas/${originId}/produtos-para-nfe`;
   }, [origin, originId, modelo]);
   const generateEndpoint = useMemo(() => {
     if (!origin || !originId) return null;
@@ -384,7 +388,8 @@ export function GerarNotaDeOsDialog({
     }
     if (origin === "OS") return `/api/nfe/de-os/${originId}/gerar-rascunho`;
     if (origin === "VENDA") return `/api/nfe/de-venda/${originId}/gerar-rascunho`;
-    return `/api/nfe/de-entrada/${originId}/gerar-rascunho`;
+    if (origin === "ENTRADA") return `/api/nfe/de-entrada/${originId}/gerar-rascunho`;
+    return `/api/nfe/de-saida/${originId}/gerar-rascunho`;
   }, [origin, originId, isNfce]);
 
   async function load(signal?: AbortSignal) {
@@ -486,7 +491,7 @@ export function GerarNotaDeOsDialog({
   const issuesByItem = useMemo(() => {
     const map = new Map<string, AssistedItemIssue[]>();
     if (!setup) return map;
-    const parceiroUf = origin === "ENTRADA"
+    const parceiroUf = usesEditableRecipient
       ? entrySupplier.estado
       : (source?.fornecedor ?? source?.cliente)?.uf;
     for (const item of items) {
@@ -499,7 +504,7 @@ export function GerarNotaDeOsDialog({
       );
     }
     return map;
-  }, [entrySupplier.estado, items, origin, setup, source]);
+  }, [entrySupplier.estado, items, setup, source, usesEditableRecipient]);
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const selectedItems = useMemo(
@@ -552,14 +557,16 @@ export function GerarNotaDeOsDialog({
     ? `${verbo} ${rotulo} da Venda #${originId ?? ""}`
     : origin === "ENTRADA"
       ? `${verbo} ${rotulo} da Entrada #${originId ?? ""}`
+      : origin === "SAIDA"
+        ? `${verbo} ${rotulo} da Saída #${originId ?? ""}`
       : `${verbo} ${rotulo} da OS #${originId ?? ""}`;
-  const parceiro = origin === "ENTRADA"
+  const parceiro = usesEditableRecipient
     ? { nome: entrySupplier.nomeRazaoSocial, uf: entrySupplier.estado }
     : source?.fornecedor ?? source?.cliente;
-  const parceiroLabel = origin === "ENTRADA" ? "Fornecedor" : "Cliente";
+  const parceiroLabel = origin === "ENTRADA" ? "Fornecedor" : origin === "SAIDA" ? "Destinatário" : "Cliente";
   const entrySupplierErrors = useMemo(
-    () => origin === "ENTRADA" ? validateEntrySupplier(entrySupplier) : [],
-    [entrySupplier, origin],
+    () => usesEditableRecipient ? validateEntrySupplier(entrySupplier) : [],
+    [entrySupplier, usesEditableRecipient],
   );
   const customerErrors = useMemo(() => {
     if (!(origin === "OS" || origin === "VENDA")) return [];
@@ -605,7 +612,7 @@ export function GerarNotaDeOsDialog({
       { rotulo: "Emitente", concluida: (setup?.empresaErros.length ?? 0) === 0 },
       {
         rotulo: origin === "ENTRADA" ? "Fornecedor" : isNfce ? "Consumidor" : "Destinatário",
-        concluida: origin === "ENTRADA" ? entrySupplierErrors.length === 0 : customerErrors.length === 0,
+        concluida: usesEditableRecipient ? entrySupplierErrors.length === 0 : customerErrors.length === 0,
       },
       { rotulo: "Produtos", concluida: selectedItems.length > 0 && selectedIssues.length === 0 },
       { rotulo: "Pagamento", concluida: paymentErrors.length === 0 },
@@ -615,6 +622,7 @@ export function GerarNotaDeOsDialog({
     [
       setup?.empresaErros.length,
       origin,
+      usesEditableRecipient,
       isNfce,
       entrySupplierErrors.length,
       customerErrors.length,
@@ -633,10 +641,10 @@ export function GerarNotaDeOsDialog({
   const operationLabel =
     setup?.empresa?.uf && parceiro?.uf
       ? setup.empresa.uf === parceiro.uf
-        ? `${origin === "ENTRADA" ? "Entrada" : "Venda"} interna · ${setup.empresa.uf}`
+        ? `${origin === "ENTRADA" ? "Entrada" : origin === "SAIDA" ? "Saída" : "Venda"} interna · ${setup.empresa.uf}`
         : origin === "ENTRADA"
           ? `Entrada interestadual · ${parceiro.uf} → ${setup.empresa.uf}`
-          : `Venda interestadual · ${setup.empresa.uf} → ${parceiro.uf}`
+          : `${origin === "SAIDA" ? "Saída" : "Venda"} interestadual · ${setup.empresa.uf} → ${parceiro.uf}`
       : origin === "ENTRADA" ? "Operação de entrada" : "Operação de saída";
 
   function toggleItem(sourceItemId: string, checked: boolean) {
@@ -665,7 +673,7 @@ export function GerarNotaDeOsDialog({
           ...item,
           cfop: normalizeCfopForOperation(
             item.cfop,
-            "ENTRADA",
+            origin === "ENTRADA" ? "ENTRADA" : "SAIDA",
             setup.empresa?.uf,
             next.estado,
           ),
@@ -741,7 +749,7 @@ export function GerarNotaDeOsDialog({
       return;
     }
     if (entrySupplierErrors.length) {
-      toast.error("Preencha os dados fiscais do fornecedor antes de emitir.");
+      toast.error(`Preencha os dados fiscais do ${origin === "ENTRADA" ? "fornecedor" : "destinatário"} antes de emitir.`);
       return;
     }
     if (customerErrors.length) {
@@ -773,7 +781,7 @@ export function GerarNotaDeOsDialog({
             includeObservations && observations.trim()
               ? observations.trim().slice(0, 500)
               : null,
-          ...(origin === "ENTRADA"
+          ...(usesEditableRecipient
             ? {
                 destinatario: {
                   ...normalizeFiscalRecipient(entrySupplier),
@@ -867,7 +875,7 @@ export function GerarNotaDeOsDialog({
             badge={
               originId ? (
                 <Badge variant="outline" className="rounded-sm">
-                  {origin === "OS" ? "OS" : origin === "VENDA" ? "Venda" : "Entrada"} #{originId}
+                  {origin === "OS" ? "OS" : origin === "VENDA" ? "Venda" : origin === "ENTRADA" ? "Entrada" : "Saída"} #{originId}
                 </Badge>
               ) : null
             }
@@ -917,10 +925,18 @@ export function GerarNotaDeOsDialog({
                   </AlertDescription>
                 </Alert>
 
-                {origin === "ENTRADA" ? (
+                {usesEditableRecipient ? (
                   <NfeEntrySupplierEditor
                     value={entrySupplier}
                     onChange={updateEntrySupplier}
+                    {...(origin === "SAIDA"
+                      ? {
+                          title: "Destinatário da NF-e de saída",
+                          description: "Estes dados serão usados somente nesta nota e não alteram a saída de estoque.",
+                          linkedLabel: "Origem fiscal vinculada",
+                          unlinkedLabel: "Destinatário informado",
+                        }
+                      : {})}
                   />
                 ) : null}
 
@@ -1300,7 +1316,7 @@ export function GerarNotaDeOsDialog({
                 {entrySupplierErrors.length ? (
                   <Alert variant="destructive" className="min-w-0 overflow-hidden">
                     <AlertCircle className="h-4 w-4" />
-                    <AlertTitle>Complete os dados do fornecedor da nota</AlertTitle>
+                    <AlertTitle>Complete os dados do {origin === "ENTRADA" ? "fornecedor" : "destinatário"} da nota</AlertTitle>
                     <AlertDescription className="min-w-0 [overflow-wrap:anywhere]">
                       {entrySupplierErrors.join(" ")}
                     </AlertDescription>

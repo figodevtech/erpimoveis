@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireUsoConsumoAccess } from "@/app/api/_authz/perms";
+import { entradasComXmlCompleto } from "@/lib/fiscal/xml-disponibilidade";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { usoConsumoError } from "@/lib/usoconsumo/api";
 
@@ -32,8 +33,8 @@ function termosDeBusca(valor: string | null) {
     .slice(0, MAX_TERMOS_BUSCA);
 }
 
-/** Busca de uma vez quais entradas fiscais da pagina possuem transacao ativa. */
-async function entradasComLancamentoFinanceiro(linhas: any[]) {
+/** Busca em lote o financeiro e a disponibilidade do XML das entradas fiscais. */
+async function metadadosDasEntradasFiscais(linhas: any[]) {
   const entradaIds = [
     ...new Set(
       linhas
@@ -48,20 +49,41 @@ async function entradasComLancamentoFinanceiro(linhas: any[]) {
     ),
   ];
 
-  if (!entradaIds.length) return new Set<number>();
+  if (!entradaIds.length) {
+    return {
+      entradasComFinanceiro: new Set<number>(),
+      entradasComXml: new Set<number>(),
+    };
+  }
 
-  const { data, error } = await supabaseAdmin
-    .from("transacao")
-    .select("usoconsumo_entrada_id")
-    .in("usoconsumo_entrada_id", entradaIds)
-    .eq("is_deleted", false);
-  if (error) throw error;
+  const [transacoesResult, entradasResult] = await Promise.all([
+    supabaseAdmin
+      .from("transacao")
+      .select("usoconsumo_entrada_id")
+      .in("usoconsumo_entrada_id", entradaIds)
+      .eq("is_deleted", false),
+    supabaseAdmin
+      .from("usoconsumo_entrada")
+      .select("id,documento_fiscal_recebido_id,chave_nfe")
+      .in("id", entradaIds),
+  ]);
+  if (transacoesResult.error) throw transacoesResult.error;
+  if (entradasResult.error) throw entradasResult.error;
 
-  return new Set(
-    (data ?? [])
+  const entradasComFinanceiro = new Set(
+    (transacoesResult.data ?? [])
       .map((transacao) => Number(transacao.usoconsumo_entrada_id))
       .filter((id) => Number.isInteger(id) && id > 0),
   );
+  const entradasComXml = await entradasComXmlCompleto(
+    (entradasResult.data ?? []).map((entrada) => ({
+      entradaId: Number(entrada.id),
+      documentoId: entrada.documento_fiscal_recebido_id,
+      chave: entrada.chave_nfe,
+    })),
+  );
+
+  return { entradasComFinanceiro, entradasComXml };
 }
 
 export async function GET(req: NextRequest) {
@@ -103,7 +125,8 @@ export async function GET(req: NextRequest) {
     if (error) throw error;
 
     const linhas = data ?? [];
-    const entradasComFinanceiro = await entradasComLancamentoFinanceiro(linhas);
+    const { entradasComFinanceiro, entradasComXml } =
+      await metadadosDasEntradasFiscais(linhas);
     const total = count ?? 0;
     return NextResponse.json({
       data: linhas.map((linha) => ({
@@ -112,6 +135,10 @@ export async function GET(req: NextRequest) {
           linha.sentido === "entrada" && linha.fiscal === true
             ? entradasComFinanceiro.has(Number(linha.id))
             : null,
+        xml_disponivel:
+          linha.sentido === "entrada" && linha.fiscal === true
+            ? entradasComXml.has(Number(linha.id))
+            : false,
       })),
       pagination: {
         page,

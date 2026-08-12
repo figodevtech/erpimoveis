@@ -5,6 +5,7 @@ import type {
   ModeloDocumentoFiscal,
   NFeIde,
   NFeDestinatario,
+  NFeDocumentoReferenciado,
   NFeItem,
 } from './types';
 import { MODELO_NFE, MODELO_NFCE, modeloParaCodigo } from './modeloDocumento';
@@ -86,6 +87,7 @@ export interface IdeOptions {
   pagamento?: NFePagamentoOptions | null;
   pagamentos?: NFePagamentoOptions[] | null;
   transporte?: NFeTransporteOptions | null;
+  documentosReferenciados?: NFeDocumentoReferenciado[] | null;
 }
 
 export type NFePagamentoOptions = {
@@ -536,7 +538,7 @@ export function buildNFePreviewXml(
     ))
     : itensNumerados;
 
-  const ideXml = buildIdeXml(ide);
+  const ideXml = buildIdeXml(ide, options?.documentosReferenciados ?? []);
   const emitXml = buildEmitXml(emitente);
   // Consumidor não identificado: sem grupo <dest>. Só a NFC-e chega aqui sem
   // destinatário — na NF-e o placeholder acima garante que sempre existe um.
@@ -558,8 +560,10 @@ export function buildNFePreviewXml(
   const vCOFINS = soma.vCOFINS.toFixed(2);
   const valorFrete = itens.reduce((total, item) => total + Number(item.valorFrete ?? 0), 0);
   const vFrete = valorFrete.toFixed(2);
-  // vNF = vProd - vDesc + vFrete + vSeg + vOutro + vST + vFCPST + vIPI (leiaute 4.00).
-  const vNF = (soma.vProd - soma.vDesc + valorFrete + soma.vST + soma.vFCPST + soma.vIPI).toFixed(2);
+  // vNF inclui o IPI devolvido quando a operação usa o grupo impostoDevol.
+  const vNF = (
+    soma.vProd - soma.vDesc + valorFrete + soma.vST + soma.vFCPST + soma.vIPI + soma.vIPIDevol
+  ).toFixed(2);
 
   // Totais do DIFAL. Ficam entre vICMSDeson e vFCP, na ordem do leiaute 4.00,
   // e so aparecem quando a nota realmente gerou o grupo nos itens.
@@ -618,7 +622,7 @@ export function buildNFePreviewXml(
     `<vDesc>${vDesc}</vDesc>` +
     `<vII>0.00</vII>` +
     `<vIPI>${soma.vIPI.toFixed(2)}</vIPI>` +
-    `<vIPIDevol>0.00</vIPIDevol>` +
+    `<vIPIDevol>${soma.vIPIDevol.toFixed(2)}</vIPIDevol>` +
     `<vPIS>${vPIS}</vPIS>` +
     `<vCOFINS>${vCOFINS}</vCOFINS>` +
     `<vOutro>0.00</vOutro>` +

@@ -110,6 +110,60 @@ describe("destino da operação na NF-e", () => {
   });
 });
 
+describe("documentos referenciados e devolução", () => {
+  const chaveOriginal = "35260812345678000199550010000001231000001234";
+
+  it("gera a referência granular depois de vItem e o IPI devolvido nos totais", () => {
+    const { xml } = buildNFePreviewXml(
+      empresa,
+      91,
+      1,
+      [{
+        ...item,
+        cfop: "5202",
+        percentualDevolucao: 100,
+        valorIpiDevolvido: 2.5,
+        informacoesAdicionaisProduto: "Devolução do item recebido.",
+        dfeReferenciado: { chaveAcesso: chaveOriginal, nItem: 3 },
+      }],
+      destinatario("SP"),
+      {
+        nomeMunicipioEmitente: "SAO PAULO",
+        natOp: "DEVOLUCAO DE COMPRA",
+        finNFe: 4,
+      },
+    );
+
+    assert.match(
+      xml,
+      /<\/imposto><impostoDevol><pDevol>100\.00<\/pDevol><IPI><vIPIDevol>2\.50<\/vIPIDevol><\/IPI><\/impostoDevol><infAdProd>Devolucao do item recebido\.<\/infAdProd><vItem>10\.00<\/vItem><DFeReferenciado>/,
+    );
+    assert.match(xml, new RegExp(`<chaveAcesso>${chaveOriginal}</chaveAcesso><nItem>3</nItem>`));
+    assert.match(xml, /<vIPIDevol>2\.50<\/vIPIDevol><vPIS>/);
+    assert.match(xml, /<vNF>12\.50<\/vNF>/);
+    assert.doesNotMatch(xml, /<NFref>/);
+  });
+
+  it("preserva a NF-e de venda sem grupos de devolução ou referência", () => {
+    const { xml } = buildNFePreviewXml(empresa, 92, 1, [item], destinatario("SP"), {
+      nomeMunicipioEmitente: "SAO PAULO",
+    });
+    assert.doesNotMatch(xml, /<impostoDevol>|<DFeReferenciado>|<NFref>/);
+    assert.match(xml, /<vIPIDevol>0\.00<\/vIPIDevol>/);
+    assert.match(xml, /<vNF>10\.00<\/vNF>/);
+  });
+
+  it("gera NFref no bloco ide quando o chamador usa uma referência de cabeçalho", () => {
+    const { xml } = buildNFePreviewXml(empresa, 93, 1, [item], destinatario("SP"), {
+      nomeMunicipioEmitente: "SAO PAULO",
+      documentosReferenciados: [{ chaveAcesso: chaveOriginal }],
+    });
+    // NFref é B12a: entra logo depois de cMunFG e antes de tpImp. Fora dessa
+    // posição o lote volta com rejeição 225 (falha no schema).
+    assert.match(xml, new RegExp(`<cMunFG>[0-9]+</cMunFG><NFref><refNFe>${chaveOriginal}</refNFe></NFref><tpImp>`));
+  });
+});
+
 describe("DIFAL (ICMSUFDest)", () => {
   // Reproduz a NF 30: regime normal, SP -> MG, consumidor final nao
   // contribuinte, CST 60, R$ 2.000.

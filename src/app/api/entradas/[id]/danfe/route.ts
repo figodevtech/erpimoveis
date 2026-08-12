@@ -16,28 +16,44 @@ export async function GET(req: NextRequest, { params }: Context) {
 
     const { id } = await params;
     const entradaId = Number(id);
-    const inventory = req.nextUrl.searchParams.get("inventory") || "produto";
+    const inventory = (req.nextUrl.searchParams.get("inventory") || "produto").toLowerCase();
 
     if (!Number.isFinite(entradaId) || entradaId <= 0) {
       return NextResponse.json({ error: "ID de entrada inválido." }, { status: 400 });
     }
 
-    const table = inventory === "usoconsumo" ? "usoconsumo_entrada" : "entrada";
-    const { data: entrada, error: entradaErr } = await supabaseAdmin
-      .from(table)
-      .select("id, notachave, numero_nota, fiscal")
-      .eq("id", entradaId)
-      .maybeSingle();
+    const isUsoConsumo = inventory === "usoconsumo" || inventory === "uso-consumo";
+    const entradaResult = isUsoConsumo
+      ? await supabaseAdmin
+          .from("usoconsumo_entrada")
+          .select("id,chave_nfe,numero_nota,fiscal,documento_fiscal_recebido_id")
+          .eq("id", entradaId)
+          .maybeSingle()
+      : await supabaseAdmin
+          .from("entrada")
+          .select("id,notachave,numero_nota,fiscal,fiscal_dfe_documento_id")
+          .eq("id", entradaId)
+          .maybeSingle();
+    const entrada = entradaResult.data as Record<string, unknown> | null;
+    const entradaErr = entradaResult.error;
 
     if (entradaErr) throw entradaErr;
     if (!entrada) {
       return NextResponse.json({ error: "Entrada não encontrada." }, { status: 404 });
     }
 
-    const chave = entrada.notachave ? String(entrada.notachave).replace(/\D/g, "") : null;
+    const chaveRaw = isUsoConsumo ? entrada.chave_nfe : entrada.notachave;
+    const chave = chaveRaw ? String(chaveRaw).replace(/\D/g, "") : null;
     const numeroNota = entrada.numero_nota ? String(entrada.numero_nota).trim() : null;
 
-    let documentoId: number | null = null;
+    const documentoIdRaw = isUsoConsumo
+      ? entrada.documento_fiscal_recebido_id
+      : entrada.fiscal_dfe_documento_id;
+    const documentoIdNumerico = Number(documentoIdRaw);
+    let documentoId: number | null =
+      Number.isInteger(documentoIdNumerico) && documentoIdNumerico > 0
+        ? documentoIdNumerico
+        : null;
 
     if (chave && chave.length === 44) {
       const { data: dfeChave } = await supabaseAdmin
@@ -53,11 +69,12 @@ export async function GET(req: NextRequest, { params }: Context) {
       }
     }
 
-    if (!documentoId && numeroNota) {
+    if (!documentoId && numeroNota && /^\d+$/.test(numeroNota)) {
+      const numeroNormalizado = String(Number(numeroNota));
       const { data: dfeNumero } = await supabaseAdmin
         .from("fiscal_dfe_documento")
         .select("id")
-        .or(`resumo->>numeroNota.eq.${numeroNota},chave_acesso.like.%${numeroNota}%`)
+        .eq("resumo->>nNF", numeroNormalizado)
         .order("id", { ascending: false })
         .limit(1)
         .maybeSingle();

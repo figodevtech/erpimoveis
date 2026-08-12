@@ -33,8 +33,35 @@ type ItemServicoBanco = {
 
 const STATUS_ATIVOS = ["PROCESSANDO", "AUTORIZADA", "DENEGADA"];
 
+/**
+ * Grava o retorno da Focus no registro reservado, levando junto o JSON que foi
+ * enviado. O payload e carona: se a coluna ainda nao existir (codigo em produção
+ * antes da migration rodar nos quatro bancos), regrava so o retorno em vez de
+ * deixar a emissao morrer por causa do log.
+ */
+async function atualizarRegistroNFSe(
+  registroId: number,
+  retorno: Record<string, unknown>,
+  payloadEnviado: unknown,
+) {
+  if (payloadEnviado) {
+    const { error } = await supabaseAdmin
+      .from("nfse")
+      .update({ ...retorno, payload_enviado: payloadEnviado })
+      .eq("id", registroId);
+    if (!error) return null;
+    console.warn("[POST /api/nfse/de-os] Payload não gravado, seguindo sem ele", error);
+  }
+
+  const { error } = await supabaseAdmin.from("nfse").update(retorno).eq("id", registroId);
+  return error;
+}
+
 export async function POST(req: NextRequest, { params }: RouteParams) {
   let registroId: number | null = null;
+  // Guardado fora do try para que o catch tambem consiga registrar o que foi
+  // montado, inclusive quando a propria chamada a Focus estoura.
+  let payloadEnviado: unknown = null;
 
   try {
     const { id } = await params;
@@ -169,6 +196,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       : modeloEmissao.modelo === "MUNICIPAL_CABEDELO"
         ? nfseService.mapearOSParaFocusCabedelo(os, empresa, itensSelecionados, validacaoFiscal.codigos)
         : nfseService.mapearOSParaFocus(os, empresa, itensSelecionados, validacaoFiscal.codigos);
+    payloadEnviado = parametrosNacionais ?? parametrosMunicipais;
     const referencia = parametrosNacionais?.referencia ?? parametrosMunicipais?.referencia;
 
     if (!referencia) {
@@ -214,17 +242,22 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       ? await nfseService.emitirNacional(parametrosNacionais)
       : await nfseService.emitir(parametrosMunicipais!);
 
+    // O payload que a Focus recebeu de fato: o mapeador nao conhece o
+    // data_emissao, que e calculado na hora do envio.
+    payloadEnviado = resultado.payload ?? payloadEnviado;
+
     const statusFinal = resultado.ok
       ? normalizarStatusNFSe(resultado.status)
       : "REJEITADA";
 
-    const { error: updateError } = await supabaseAdmin
-      .from("nfse")
-      .update({
+    const updateError = await atualizarRegistroNFSe(
+      registroId,
+      {
         status: statusFinal,
         erros: resultado.ok ? null : resultado.erros,
-      })
-      .eq("id", registroId);
+      },
+      payloadEnviado,
+    );
 
     if (updateError) {
       console.error("[POST /api/nfse/de-os] Erro ao atualizar retorno Focus", updateError);
@@ -260,7 +293,11 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     if (registroId) {
       const message = error instanceof Error ? error.message : "Erro inesperado ao enviar a NFS-e.";
-      await supabaseAdmin.from("nfse").update({ status: "REJEITADA", erros: [{ mensagem: message }] }).eq("id", registroId);
+      await atualizarRegistroNFSe(
+        registroId,
+        { status: "REJEITADA", erros: [{ mensagem: message }] },
+        payloadEnviado,
+      );
     }
 
     if (error instanceof NFSeValidationError) {

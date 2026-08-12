@@ -1,12 +1,19 @@
 // src/lib/nfe/xmlIde.ts
 
-import type { NFeIde } from './types';
+import type { NFeDocumentoReferenciado, NFeIde } from './types';
 import { escapeXml } from './xmlUtils';
+
+function onlyDigits(value: unknown) {
+  return String(value ?? '').replace(/\D/g, '');
+}
 
 /**
  * Monta o XML do bloco <ide> na ORDEM exigida pelo schema da NF-e 4.00.
  */
-export function buildIdeXml(ide: NFeIde): string {
+export function buildIdeXml(
+  ide: NFeIde,
+  documentosReferenciados: NFeDocumentoReferenciado[] = [],
+): string {
   const p: string[] = [];
 
   p.push('<ide>');
@@ -20,6 +27,16 @@ export function buildIdeXml(ide: NFeIde): string {
   p.push(`<tpNF>${ide.tpNF}</tpNF>`);
   p.push(`<idDest>${ide.idDest}</idDest>`);
   p.push(`<cMunFG>${ide.cMunFG}</cMunFG>`);
+  // NFref (B12a) fica entre cMunFG (B12) e tpImp (B21) na sequência do leiaute
+  // 4.00. Emitir o grupo no fim do <ide> derruba o lote com rejeição 225
+  // (falha no schema) antes mesmo de a SEFAZ olhar a regra da devolução.
+  for (const documento of documentosReferenciados) {
+    const chave = onlyDigits(documento.chaveAcesso);
+    if (chave.length !== 44) {
+      throw new Error('NFE_REFERENCIA_INVALIDA: a chave referenciada deve ter 44 dígitos.');
+    }
+    p.push(`<NFref><refNFe>${chave}</refNFe></NFref>`);
+  }
   p.push(`<tpImp>${ide.tpImp}</tpImp>`);
   p.push(`<tpEmis>${ide.tpEmis}</tpEmis>`);
   p.push(`<cDV>${ide.cDV}</cDV>`); // DV ANTES do tpAmb

@@ -34,6 +34,17 @@ function calcularDV(chave43: string): number {
   return dv;
 }
 
+/**
+ * Confere uma chave de acesso digitada: 44 dígitos e DV coerente com os 43
+ * primeiros. Serve para barrar erro de digitação na NF-e referenciada antes de
+ * o lote chegar na SEFAZ — chave com DV errado volta como rejeição 240.
+ */
+export function chaveAcessoValida(chave: unknown): boolean {
+  const digitos = String(chave ?? '').replace(/\D/g, '');
+  if (digitos.length !== 44) return false;
+  return calcularDV(digitos.slice(0, 43)) === Number(digitos.charAt(43));
+}
+
 type ParamsChave = {
   cUF: string; // 2 dígitos
   ano: number; // AAAA

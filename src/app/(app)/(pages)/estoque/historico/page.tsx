@@ -48,6 +48,7 @@ import { toast } from "@/lib/toast";
 import { CancelMovementDialog, type CancelTarget } from "../components/cancel-movement-dialog";
 import { CancelarEntradaDialog } from "@/components/entrada-fiscal/cancelar-entrada-dialog";
 import { EntryDetailsDialog } from "../components/entry-details-dialog";
+import { ExitDetailsDialog } from "../components/exit-details-dialog";
 import { LancarFinanceiroEntradaDialog } from "@/components/entrada-fiscal/lancar-financeiro-entrada-dialog";
 
 /**
@@ -86,6 +87,7 @@ type RawLedgerMovement = {
   status: string | null;
   fiscal: boolean | null;
   financeiro_lancado: boolean | null;
+  xml_disponivel: boolean;
   produto?: { titulo?: string | null; unidade?: string | null } | null;
   criador?: { nome?: string | null } | null;
   entrada?: {
@@ -114,6 +116,7 @@ type RawUsoConsumoMovement = {
   parte: string | null;
   fiscal: boolean | null;
   financeiro_lancado: boolean | null;
+  xml_disponivel: boolean;
   itens_resumo: string | null;
   criador_nome: string | null;
 };
@@ -131,6 +134,7 @@ type Movement = {
   status: string;
   fiscal?: boolean;
   financeiroLancado?: boolean | null;
+  xmlDisponivel?: boolean;
   numeroNota?: string | null;
   origem?: Origem;
   acao?: "REGISTRO" | "ESTORNO";
@@ -238,6 +242,7 @@ function normalizeLedgerMovement(raw: RawLedgerMovement): Movement {
     status: raw.status || "CONFIRMADA",
     fiscal: Boolean(raw.fiscal),
     financeiroLancado: raw.financeiro_lancado,
+    xmlDisponivel: raw.xml_disponivel,
     numeroNota: raw.entrada?.numero_nota ?? null,
     origem: raw.origem,
     acao: raw.acao,
@@ -268,6 +273,7 @@ function normalizeUsoConsumoMovement(raw: RawUsoConsumoMovement): Movement {
     status: raw.status || "CONFIRMADA",
     fiscal: Boolean(raw.fiscal),
     financeiroLancado: raw.financeiro_lancado,
+    xmlDisponivel: raw.xml_disponivel,
     numeroNota: raw.numero_nota ?? null,
     documentKind: raw.sentido,
     documentId: raw.id,
@@ -296,12 +302,16 @@ function MovementRow({
   onBaixarDanfe: (movement: Movement) => void;
 }) {
   const isEntrada = movement.direction === "entrada";
-  const isEntradaFiscal =
+  const isEntradaConfirmada =
     isEntrada &&
     movement.status === "CONFIRMADA" &&
-    (Boolean(movement.fiscal) ||
-      movement.origem === "ENTRADA" ||
-      movement.documentKind === "entrada");
+    movement.documentKind === "entrada";
+  const isEntradaFiscal = isEntradaConfirmada && Boolean(movement.fiscal);
+  const canDownloadFiscal = isEntradaFiscal && movement.xmlDisponivel === true;
+  const hasRowActions =
+    Boolean(movement.documentKind && movement.documentId) ||
+    isEntradaConfirmada ||
+    cancellable;
 
   return (
     <TableRow>
@@ -390,48 +400,57 @@ function MovementRow({
 
       {showActions ? (
         <TableCell className="text-right">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8 hover:cursor-pointer">
-                <MoreHorizontal className="size-4" />
-                <span className="sr-only">Ações</span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem onClick={() => onViewDetails(movement)} className="hover:cursor-pointer">
-                <Eye className="mr-2 size-4 text-muted-foreground" />
-                Visualizar
-              </DropdownMenuItem>
+          {hasRowActions ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8 hover:cursor-pointer">
+                  <MoreHorizontal className="size-4" />
+                  <span className="sr-only">Ações</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                {movement.documentKind && movement.documentId ? (
+                  <DropdownMenuItem onClick={() => onViewDetails(movement)} className="hover:cursor-pointer">
+                    <Eye className="mr-2 size-4 text-muted-foreground" />
+                    Visualizar
+                  </DropdownMenuItem>
+                ) : null}
 
-              {isEntradaFiscal ? (
-                <>
+                {isEntradaConfirmada ? (
                   <DropdownMenuItem onClick={() => onLancarFinanceiro(movement)} className="hover:cursor-pointer">
                     <Wallet className="mr-2 size-4 text-emerald-600 dark:text-emerald-400" />
                     Lançar no Financeiro
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => onBaixarNfe(movement)} className="hover:cursor-pointer">
-                    <Download className="mr-2 size-4 text-emerald-600 dark:text-emerald-400" />
-                    Baixar XML
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => onBaixarDanfe(movement)} className="hover:cursor-pointer">
-                    <FileText className="mr-2 size-4 text-indigo-600 dark:text-indigo-400" />
-                    Baixar DANFE
-                  </DropdownMenuItem>
-                </>
-              ) : null}
+                ) : null}
 
-              {cancellable ? (
-                <DropdownMenuItem
-                  onClick={() => onCancel(movement)}
-                  disabled={isCanceling}
-                  className="text-destructive focus:text-destructive hover:cursor-pointer"
-                >
-                  <RotateCcw className="mr-2 size-4" />
-                  Cancelar
-                </DropdownMenuItem>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                {canDownloadFiscal ? (
+                  <>
+                    <DropdownMenuItem onClick={() => onBaixarNfe(movement)} className="hover:cursor-pointer">
+                      <Download className="mr-2 size-4 text-emerald-600 dark:text-emerald-400" />
+                      Baixar XML
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onBaixarDanfe(movement)} className="hover:cursor-pointer">
+                      <FileText className="mr-2 size-4 text-indigo-600 dark:text-indigo-400" />
+                      Baixar DANFE
+                    </DropdownMenuItem>
+                  </>
+                ) : null}
+
+                {cancellable ? (
+                  <DropdownMenuItem
+                    onClick={() => onCancel(movement)}
+                    disabled={isCanceling}
+                    className="text-destructive focus:text-destructive hover:cursor-pointer"
+                  >
+                    <RotateCcw className="mr-2 size-4" />
+                    Cancelar
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
         </TableCell>
       ) : null}
     </TableRow>
@@ -860,9 +879,10 @@ export default function HistoricoEstoquePage() {
   const [entradaCancelamento, setEntradaCancelamento] = useState<
     { id: number; origem: "ESTOQUE" | "USOCONSUMO" } | null
   >(null);
-  const [detalhesEntrada, setDetalhesEntrada] = useState<{
+  const [detalhesMovimento, setDetalhesMovimento] = useState<{
     id: number;
     inventory: "produto" | "usoconsumo";
+    kind: Direction;
   } | null>(null);
   const [lancarFinanceiroEntrada, setLancarFinanceiroEntrada] = useState<{
     id: number;
@@ -1088,10 +1108,11 @@ export default function HistoricoEstoquePage() {
         canceling={canceling}
         onReload={() => void carregar()}
         onViewDetails={(movement) => {
-          const docId = movement.documentId ?? movement.id;
-          setDetalhesEntrada({
-            id: docId,
+          if (!movement.documentKind || !movement.documentId) return;
+          setDetalhesMovimento({
+            id: movement.documentId,
             inventory: movement.inventory === "uso-consumo" ? "usoconsumo" : "produto",
+            kind: movement.documentKind,
           });
         }}
         onLancarFinanceiro={(movement) => {
@@ -1126,10 +1147,17 @@ export default function HistoricoEstoquePage() {
       />
 
       <EntryDetailsDialog
-        open={detalhesEntrada !== null}
-        onOpenChange={(open) => !open && setDetalhesEntrada(null)}
-        entryId={detalhesEntrada?.id ?? null}
-        inventory={detalhesEntrada?.inventory ?? "produto"}
+        open={detalhesMovimento?.kind === "entrada"}
+        onOpenChange={(open) => !open && setDetalhesMovimento(null)}
+        entryId={detalhesMovimento?.kind === "entrada" ? detalhesMovimento.id : null}
+        inventory={detalhesMovimento?.inventory ?? "produto"}
+      />
+
+      <ExitDetailsDialog
+        open={detalhesMovimento?.kind === "saida"}
+        onOpenChange={(open) => !open && setDetalhesMovimento(null)}
+        exitId={detalhesMovimento?.kind === "saida" ? detalhesMovimento.id : null}
+        inventory={detalhesMovimento?.inventory ?? "produto"}
       />
 
       <LancarFinanceiroEntradaDialog

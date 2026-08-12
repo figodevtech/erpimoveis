@@ -467,6 +467,7 @@ export class NFSeService {
         ok: false,
         message: msg,
         erros: errosArr,
+        payload,
       };
     }
 
@@ -474,6 +475,7 @@ export class NFSeService {
       ok: true,
       status: json?.status || "processando_autorizacao",
       referencia: json?.ref,
+      payload,
     };
   }
 
@@ -489,9 +491,9 @@ export class NFSeService {
     const json = await res.json().catch(() => null);
     if (!res.ok) {
       const erros = json?.erros || (json ? [json] : []);
-      return { ok: false, message: json?.mensagem || json?.codigo || `Erro ${res.status} ao emitir NFS-e Nacional`, erros };
+      return { ok: false, message: json?.mensagem || json?.codigo || `Erro ${res.status} ao emitir NFS-e Nacional`, erros, payload };
     }
-    return { ok: true, status: json?.status || "processando_autorizacao", referencia: json?.ref || referencia };
+    return { ok: true, status: json?.status || "processando_autorizacao", referencia: json?.ref || referencia, payload };
   }
 
   async consultar(referencia: string, modelo: "MUNICIPAL" | "NACIONAL" = "MUNICIPAL") {

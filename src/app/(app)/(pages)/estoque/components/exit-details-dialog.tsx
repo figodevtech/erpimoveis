@@ -5,6 +5,7 @@ import { Building2, CalendarClock, ClipboardList, PackageMinus, UserRound } from
 import { Badge } from "@/components/ui/badge";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { BalanceTrail, Field, Metric, MovementDialogShell, Section } from "./movement-dialog-shell";
+import { SaidaNfeActions } from "./emissao-nfe-saida-dialog";
 
 type Inventory = "produto" | "usoconsumo";
 
@@ -194,6 +195,10 @@ export function ExitDetailsDialog({ exitId, inventory, open, onOpenChange }: Pro
               hint="Custo aplicado no momento da saída"
             />
           </div>
+
+          {inventory === "produto" && exit.status === "CONFIRMADA" ? (
+            <SaidaNfeActions saidaId={exit.id} />
+          ) : null}
 
           <Section title="Dados da saída" icon={ClipboardList}>
             <dl className="grid gap-4 rounded-lg border bg-muted/20 p-4 sm:grid-cols-2 lg:grid-cols-4">
