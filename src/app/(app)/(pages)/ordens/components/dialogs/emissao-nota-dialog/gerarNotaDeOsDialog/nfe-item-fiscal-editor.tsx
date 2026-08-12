@@ -63,6 +63,11 @@ const ORIGENS = ORIGENS_MERCADORIA;
  * item resolve uma nota ou todas as próximas.
  */
 const SELOS: Record<string, { texto: string; titulo: string }> = {
+  NFE_ENTRADA: {
+    texto: "NF-e de origem",
+    titulo:
+      "Copiado da NF-e que trouxe a mercadoria. A devolução tem de espelhar a compra, então este valor vale mais que o cadastro do produto.",
+  },
   PADRAO: {
     texto: "padrão",
     titulo:

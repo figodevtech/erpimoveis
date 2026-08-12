@@ -35,6 +35,13 @@ export const ORIGEM_PADRAO = 'PADRAO';
  */
 export const ORIGEM_PADRAO_HERDADO = 'PADRAO_NFE';
 export const ORIGEM_VAZIO = 'VAZIO';
+/**
+ * Valor copiado da NF-e que originou a mercadoria.
+ *
+ * Vale mais que o cadastro do produto porque a devolução tem de espelhar a
+ * compra: o cadastro descreve como a peça é vendida, e não como ela entrou.
+ */
+export const ORIGEM_NFE_ENTRADA = 'NFE_ENTRADA';
 /** Valor imposto pela regra fiscal, não por cadastro (modo exigido pelo CST). */
 export const ORIGEM_REGRA = 'REGRA';
 

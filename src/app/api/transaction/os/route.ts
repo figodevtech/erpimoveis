@@ -1,6 +1,7 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
+import { carregarFatiasRateadas } from "@/lib/financeiro/rateio-documentos";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
 import { requireFinanceiroCreate, requireFinanceirosAccess } from "@/app/api/_authz/perms";
@@ -443,11 +444,20 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Erro ao somar pagamentos existentes da OS." }, { status: 500 });
       }
 
+      // O pagamento múltiplo não preenche `ordemservicoid`: sem somar o rateio,
+      // o saldo apareceria cheio e a tela ofereceria cobrar de novo o que já
+      // foi pago. O banco recusaria, mas com erro cru.
+      const fatias = await carregarFatiasRateadas("OS", [osId]);
+      const rateadoCents = (fatias.get(osId) ?? []).reduce(
+        (acc, fatia) => acc + (moneyToCents(fatia.valor as any) ?? 0),
+        0,
+      );
+
       preSumCents =
-        transacoes?.reduce((acc, t) => {
+        (transacoes?.reduce((acc, t) => {
           const cents = moneyToCents(valorDeFace(t) as any) ?? 0;
           return acc + cents;
-        }, 0) ?? 0;
+        }, 0) ?? 0) + rateadoCents;
 
       const novoTotal = preSumCents + valorCents;
       if (novoTotal > orcCents) {
@@ -509,11 +519,18 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Erro ao somar pagamentos existentes da Venda." }, { status: 500 });
       }
 
+      const fatiasVenda = await carregarFatiasRateadas("VENDA", [vendaId]);
+      const rateadoVendaCents = (fatiasVenda.get(vendaId) ?? []).reduce(
+        (acc, fatia) => acc + (moneyToCents(fatia.valor as any) ?? 0),
+        0,
+      );
+
       preSumCents =
-        transacoes?.reduce((acc, t) => {
+        rateadoVendaCents +
+        (transacoes?.reduce((acc, t) => {
           const cents = moneyToCents(t.valor as any) ?? 0;
           return acc + cents;
-        }, 0) ?? 0;
+        }, 0) ?? 0);
 
       const novoTotal = preSumCents + valorCents;
       if (novoTotal > orcCents) {

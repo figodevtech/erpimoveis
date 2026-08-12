@@ -1,5 +1,14 @@
-import { isCfopCompatibleWithOperation } from "@/lib/nfe/cfopOperation";
+import { isCfopCompatibleWithOperation, normalizeCfopForOperation } from "@/lib/nfe/cfopOperation";
+import { MODELO_NFE } from "@/lib/nfe/modeloDocumento";
 import {
+  ORIGEM_NFE_ENTRADA,
+  resolverPadraoFiscalItem,
+  type CamposFiscaisResolvidos,
+} from "@/lib/nfe/padraoFiscalItem";
+import { extrairItemFiscalNfe } from "@/services/fiscal/dfeXmlParser";
+import { buscarContextoPadraoFiscal, buscarFiscalConfig } from "@/services/fiscal/nfeConfigService";
+import {
+  montarReferenciasFiscaisSaida,
   OPERACOES_FISCAIS_SAIDA,
   type FinalidadeFiscalSaida,
   validarReferenciaFiscalSaida,
@@ -51,6 +60,13 @@ export type NFeSaidaDraftInput = {
   itens: Array<NFeAvulsaItemInput & { sourceItemId: string }>;
   destinatario: NFeAvulsaDraftInput["destinatario"];
   observacoesFiscais?: string | null;
+  /**
+   * Natureza fiscal, documento de origem e vínculo item↔entrada, escolhidos no
+   * diálogo de emissão. Quando vem preenchido, é gravado antes de montar a nota
+   * — assim a emissão inteira acontece numa chamada só, sem depender de um PUT
+   * anterior. Omitido, vale o contexto já gravado.
+   */
+  contextoFiscal?: Omit<SalvarContextoFiscalSaidaInput, "destinatario"> | null;
 };
 
 type DestinatarioFiscalSaida = NFeAvulsaDraftInput["destinatario"] & {
@@ -420,6 +436,134 @@ export async function salvarContextoFiscalSaida(
   return buscarContextoFiscalSaida(saidaId);
 }
 
+export type EspelhoFiscalItemInput = {
+  saidaItemId: number;
+  entradaItemOrigemId?: number | null;
+  numeroItemReferenciado?: number | null;
+};
+
+export type EspelhoFiscalItem = {
+  saidaItemId: number;
+  campos: CamposFiscaisResolvidos;
+  procedencia: Record<string, string>;
+  /** Preço unitário da compra, para a devolução sair pelo valor que entrou. */
+  valorUnitario: number | null;
+  /** Descrição do item na NF-e original, quando ela existir. */
+  descricaoOrigem: string | null;
+  /** ST retida na entrada — precisa voltar na devolução de mercadoria de ST. */
+  substituicaoTributaria: {
+    vBCSTRet: number | null;
+    vICMSSTRet: number | null;
+    pST: number | null;
+  } | null;
+  /** Por que o espelho não pôde ser usado, quando for o caso. */
+  aviso: string | null;
+};
+
+/** Carrega o XML da NF-e que originou a entrada, se ele estiver no sistema. */
+async function carregarXmlDaEntrada(entrada: any): Promise<string | null> {
+  const documentoId = Number(entrada?.fiscal_dfe_documento_id ?? 0) || null;
+  const chave = onlyDigits(entrada?.notachave);
+
+  const query = supabaseAdmin.from("fiscal_dfe_documento").select("xml");
+  const { data, error } = documentoId
+    ? await query.eq("id", documentoId).maybeSingle()
+    : chave.length === 44
+      ? await query.eq("chave_acesso", chave).limit(1).maybeSingle()
+      : { data: null, error: null };
+
+  if (error) throw error;
+  return cleanText(data?.xml) || null;
+}
+
+/**
+ * Perfil tributário de cada item da saída, espelhando a NF-e de entrada.
+ *
+ * A devolução deve repetir a operação de compra — mesmo CST/CSOSN, mesma
+ * tributação de PIS/COFINS, mesmo valor unitário —, e só o XML da nota recebida
+ * conta isso. Quando ele não está no sistema, cai para o cadastro do produto e
+ * o perfil da empresa, e a procedência devolvida diz qual fonte venceu campo a
+ * campo, para a tela poder marcar na tela o que veio de onde.
+ */
+export async function montarEspelhoFiscalSaida(
+  saidaId: number,
+  itens: EspelhoFiscalItemInput[],
+  ufDestinatario?: string | null,
+): Promise<EspelhoFiscalItem[]> {
+  const saida = await carregarSaida(saidaId);
+  const saidaItemById = new Map((saida.itens ?? []).map((item: any) => [Number(item.id), item]));
+  const config = await buscarFiscalConfig(MODELO_NFE);
+  const { padrao, crt } = await buscarContextoPadraoFiscal(MODELO_NFE, "SAIDA", config?.empresaid);
+  const ufEmitente = await buscarUfEmitente();
+  // Sem UF de destino ainda escolhida, trata como operação interna: é o caso
+  // mais comum da devolução ao fornecedor e o prefixo é corrigido de novo
+  // quando a tela souber a UF do destinatário.
+  const ufDestino = cleanText(ufDestinatario).toUpperCase() || ufEmitente;
+
+  const resultado: EspelhoFiscalItem[] = [];
+
+  for (const entradaItem of itens) {
+    const saidaItemId = Number(entradaItem.saidaItemId);
+    const saidaItem = saidaItemById.get(saidaItemId);
+    if (!saidaItem) continue;
+    const produto = relationOne<any>(saidaItem.produto);
+
+    let origem: Awaited<ReturnType<typeof extrairItemFiscalNfe>> = null;
+    let aviso: string | null = null;
+
+    const entradaItemId = Number(entradaItem.entradaItemOrigemId ?? 0) || null;
+    if (entradaItemId) {
+      const linha = await carregarEntradaItem(entradaItemId);
+      const entrada = relationOne<any>(linha?.entrada);
+      const xml = entrada ? await carregarXmlDaEntrada(entrada) : null;
+      const nItem = Number(entradaItem.numeroItemReferenciado ?? 0) || null;
+
+      if (!xml) {
+        aviso = "A NF-e desta entrada não está guardada no sistema; os tributos vieram do cadastro do produto.";
+      } else if (!nItem) {
+        aviso = "Informe o nº do item na NF-e recebida para espelhar os tributos da compra.";
+      } else {
+        origem = extrairItemFiscalNfe(xml, nItem);
+        if (!origem) {
+          aviso = `A NF-e de origem não tem o item ${nItem}; os tributos vieram do cadastro do produto.`;
+        }
+      }
+    }
+
+    // O CFOP da compra descreve uma entrada. A devolução é saída, então o
+    // prefixo precisa ser invertido — é o que separa 5202 de 5411 sem chute.
+    const valoresOrigem = origem
+      ? {
+          ...origem.valoresFiscais,
+          cfop: origem.valoresFiscais.cfop
+            ? normalizeCfopForOperation(origem.valoresFiscais.cfop, "SAIDA", ufEmitente, ufDestino)
+            : null,
+        }
+      : null;
+
+    const { campos, procedencia } = resolverPadraoFiscalItem({
+      fontes: [
+        { origem: ORIGEM_NFE_ENTRADA, valores: valoresOrigem },
+        { origem: "PRODUTO", valores: produto },
+      ],
+      padrao,
+      crt,
+    });
+
+    resultado.push({
+      saidaItemId,
+      campos,
+      procedencia,
+      valorUnitario: origem?.valorUnitario ?? null,
+      descricaoOrigem: origem?.descricao ?? null,
+      substituicaoTributaria: origem?.substituicaoTributaria ?? null,
+      aviso,
+    });
+  }
+
+  return resultado;
+}
+
 async function buscarNotaAtivaDaSaida(saidaId: number) {
   const { data, error } = await supabaseAdmin
     .from("nfe")
@@ -463,6 +607,27 @@ export async function salvarNFeDaSaida(saidaId: number, input: NFeSaidaDraftInpu
         errors: [{
           step: "operation",
           message: `Esta saída já tem NF-e ${String(existente.status).toLowerCase()} (nº ${existente.numero}).`,
+        }],
+      };
+    }
+  }
+
+  // A origem fiscal escolhida na tela é gravada aqui, antes de montar a nota.
+  // `salvarContextoFiscalSaida` já valida a entrada vinculada, a chave e o
+  // casamento entre destinatário e fornecedor da entrada — e lança com uma
+  // mensagem pronta quando algo não fecha.
+  if (input.contextoFiscal) {
+    try {
+      await salvarContextoFiscalSaida(saidaId, {
+        ...input.contextoFiscal,
+        destinatario: input.destinatario as SalvarContextoFiscalSaidaInput["destinatario"],
+      });
+    } catch (error: any) {
+      return {
+        ok: false as const,
+        errors: [{
+          step: "operation",
+          message: error?.message ?? "Não foi possível salvar a origem fiscal da saída.",
         }],
       };
     }
@@ -525,15 +690,20 @@ export async function salvarNFeDaSaida(saidaId: number, input: NFeSaidaDraftInpu
       ...(exigeReferencia
         ? { dfeReferenciado: { chaveAcesso: chave, nItem } }
         : {}),
-      ...(contexto.finalidade === "DEVOLUCAO" && numberValue(mapping.valor_ipi_devolvido) > 0
+      // O grupo impostoDevol carrega os dois campos juntos. Condicionar ao IPI
+      // descartava o percentual devolvido no caso normal do Simples, em que o
+      // IPI é zero mas a devolução ainda pode ser parcial.
+      ...(contexto.finalidade === "DEVOLUCAO"
         ? {
             percentualDevolucao: numberValue(mapping.percentual_devolucao || 100),
             valorIpiDevolvido: numberValue(mapping.valor_ipi_devolvido),
           }
         : {}),
-      informacoesAdicionaisProduto: exigeReferencia
-        ? `Documento fiscal de origem: ${chave}; item ${nItem}.`
-        : null,
+      // O que o operador escreveu no editor manda. Só preenche sozinho quando o
+      // campo vem vazio — antes, qualquer observação de item era sobrescrita.
+      informacoesAdicionaisProduto:
+        cleanText(item.informacoesAdicionaisProduto) ||
+        (exigeReferencia ? `Documento fiscal de origem: ${chave}; item ${nItem}.` : null),
     } satisfies NFeAvulsaItemInput];
   });
 
@@ -581,6 +751,11 @@ export async function salvarNFeDaSaida(saidaId: number, input: NFeSaidaDraftInpu
     pagamento: { meio: "90", tipoIntegracao: "2" },
     pagamentos: [{ meio: "90", valor: 0, tipoIntegracao: "2" }],
     transporte: { modFrete: "9" },
+    documentosReferenciados: montarReferenciasFiscaisSaida({
+      finalidade: contexto.finalidade,
+      exigeDocumentoReferenciado: Boolean(contexto.documento_referenciado_obrigatorio),
+      chaveAcesso: chave,
+    }),
     destinatario,
     itens,
   });

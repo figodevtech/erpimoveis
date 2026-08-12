@@ -79,6 +79,29 @@ export function sugerirCfopSaida(
     : operacao.cfopInterno;
 }
 
+/**
+ * Documentos que a NF-e de saída precisa citar no grupo `<NFref>` do `<ide>`.
+ *
+ * A regra VC02 cobra o documento referenciado no cabeçalho de toda nota com
+ * `finNFe=4`: sem ele a SEFAZ devolve a rejeição 321. O `<DFeReferenciado>` de
+ * cada item — obrigatório em devolução a partir de 01/09/2026 — complementa o
+ * cabeçalho, não substitui, então as duas referências saem juntas.
+ *
+ * Devolve lista vazia quando a operação não exige referência ou quando a chave
+ * ainda não está completa; quem cobra a chave faltante é
+ * `validarReferenciaFiscalSaida`.
+ */
+export function montarReferenciasFiscaisSaida(input: {
+  finalidade: FinalidadeFiscalSaida;
+  exigeDocumentoReferenciado: boolean;
+  chaveAcesso?: unknown;
+}): Array<{ chaveAcesso: string }> {
+  const exige = input.exigeDocumentoReferenciado || input.finalidade === "DEVOLUCAO";
+  if (!exige) return [];
+  const chave = String(input.chaveAcesso ?? "").replace(/\D/g, "");
+  return chave.length === 44 ? [{ chaveAcesso: chave }] : [];
+}
+
 export function validarReferenciaFiscalSaida(input: {
   finalidade: FinalidadeFiscalSaida;
   exigeDocumentoReferenciado: boolean;

@@ -32,14 +32,16 @@ export async function GET(_request: Request, context: Context) {
     }
 
     const { saida, contexto, destinatario } = await buscarContextoFiscalSaida(saidaId);
-    if (!contexto) {
-      return NextResponse.json(
-        { ok: false, message: "Defina a natureza e a origem fiscal da saída antes de revisar os itens." },
-        { status: 409 },
-      );
+    // Saída sem contexto gravado não é erro: a natureza fiscal, a origem e o
+    // destinatário são escolhidos no próprio diálogo de emissão. Responder 409
+    // aqui era o que obrigava a passar por uma tela anterior só para gravar o
+    // contexto antes de poder ver os itens.
+    const operacao = contexto
+      ? await buscarOperacaoFiscalSaida(contexto.operacao_fiscal_codigo)
+      : null;
+    if (contexto && !operacao) {
+      throw new Error("A natureza fiscal gravada para esta saída não é mais válida.");
     }
-    const operacao = await buscarOperacaoFiscalSaida(contexto.operacao_fiscal_codigo);
-    if (!operacao) throw new Error("A natureza fiscal gravada para esta saída não é mais válida.");
 
     const config = await buscarFiscalConfig(MODELO_NFE);
     const { data: empresa, error: empresaError } = await supabaseAdmin
@@ -50,7 +52,7 @@ export async function GET(_request: Request, context: Context) {
     if (empresaError) throw empresaError;
     const { padrao, crt } = await buscarContextoPadraoFiscal(MODELO_NFE, "SAIDA", config?.empresaid);
 
-    const entradaItemIds = (contexto.itens ?? [])
+    const entradaItemIds = (contexto?.itens ?? [])
       .map((item: any) => Number(item.entrada_item_origem_id ?? 0))
       .filter(Boolean);
     const entradaItemById = new Map<number, any>();
@@ -63,13 +65,17 @@ export async function GET(_request: Request, context: Context) {
       (data ?? []).forEach((item: any) => entradaItemById.set(Number(item.id), item));
     }
     const mappingByItemId = new Map<number, any>(
-      (contexto.itens ?? []).map((item: any) => [Number(item.saida_item_id), item]),
+      (contexto?.itens ?? []).map((item: any) => [Number(item.saida_item_id), item]),
     );
     const ufDestino = String(destinatario?.estado ?? "").trim().toUpperCase();
     const ufEmitente = String(empresa?.uf ?? "").trim().toUpperCase();
-    const cfopSugerido = ufEmitente && ufDestino && ufEmitente !== ufDestino
-      ? operacao.cfopInterestadual
-      : operacao.cfopInterno;
+    // Sem natureza escolhida ainda não há CFOP a sugerir. O diálogo preenche
+    // assim que o operador escolhe a operação e a entrada de origem.
+    const cfopSugerido = !operacao
+      ? ""
+      : ufEmitente && ufDestino && ufEmitente !== ufDestino
+        ? operacao.cfopInterestadual
+        : operacao.cfopInterno;
 
     const itens = (saida.itens ?? []).map((row: any) => {
       const produto = relationOne<any>(row.produto);
@@ -118,8 +124,8 @@ export async function GET(_request: Request, context: Context) {
       ok: true,
       saidaId,
       tipo_operacao: "SAIDA",
-      natureza_operacao: contexto.natureza_operacao,
-      observacoes_fiscais: contexto.observacoes_fiscais,
+      natureza_operacao: contexto?.natureza_operacao ?? "",
+      observacoes_fiscais: contexto?.observacoes_fiscais ?? null,
       cliente: null,
       fornecedor: {
         id: destinatario?.fornecedorId ?? null,

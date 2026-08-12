@@ -9,11 +9,13 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   garantirNumeroDefinitivo,
   liberarNumeroNfe,
+  rejeicaoConsomeNumero,
 } from "@/services/fiscal/nfeNumeracaoService";
 import { carregarCertificadoA1 } from "@/lib/nfe/certificado";
 import { assinarNFeXml } from "@/lib/nfe/assinatura";
 import { buildEnviNFeXml } from "@/lib/nfe/enviNFe";
 import { exigirModelo, MODELO_NFCE } from "@/lib/nfe/modeloDocumento";
+import { normalizarOrdemNfRefIde } from "@/lib/nfe/xmlIde";
 import { atualizarDataEmissao } from "@/lib/nfe/nfce/dataEmissao";
 import { resolveSefazEndpoint } from "@/lib/nfe/webservices";
 import { anexarQrCodeNfce } from "@/services/fiscal/nfceQrCodeService";
@@ -457,7 +459,11 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
     // número real é alocado e entra no XML (nNF, cDV, chave). Retransmissão de
     // nota que já foi numerada repete o mesmo número.
     // -------------------------------------------------------------------
-    const numeracao = await garantirNumeroDefinitivo(nfeId, xmlRascunhoSalvo);
+    // Compatibilidade com rascunhos criados pela versão que gravava NFref
+    // depois de cMunFG. O XSD exige o grupo no fim de ide; a assinatura antiga
+    // é descartada por assinarNFeXml e refeita abaixo.
+    const xmlRascunhoNormalizado = normalizarOrdemNfRefIde(xmlRascunhoSalvo);
+    const numeracao = await garantirNumeroDefinitivo(nfeId, xmlRascunhoNormalizado);
     const modeloNota = exigirModelo(nfe.modelo);
 
     // A NFC-e admite ~5 minutos entre a data de emissão e a autorização
@@ -778,11 +784,20 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
     // Rejeitada é nota que não existe na SEFAZ: o número volta para a fila e é
     // reaproveitado na próxima transmissão. Denegada e autorizada consomem o
     // número; retorno de lote em aberto também o mantém reservado.
+    //
+    // A exceção são as rejeições de duplicidade (204 e 539): elas dizem que a
+    // SEFAZ já tem esse número. Devolvê-lo à fila faria a transmissão seguinte
+    // pegar o mesmo número e colher a mesma rejeição indefinidamente.
     if (statusFinal === "REJEITADA") {
-      await liberarNumeroNfe(
-        nfeId,
-        `Rejeicao ${prot_cStat ?? lote_cStat ?? "sem codigo"}`,
-      );
+      const codigoRejeicao = prot_cStat ?? lote_cStat ?? null;
+      if (rejeicaoConsomeNumero(codigoRejeicao)) {
+        console.warn(
+          `[nfe] numero ${numeracao.numero} da serie ${numeracao.serie} ja existe na SEFAZ ` +
+            `(rejeicao ${codigoRejeicao}); mantido fora da fila de reaproveitamento.`,
+        );
+      } else {
+        await liberarNumeroNfe(nfeId, `Rejeicao ${codigoRejeicao ?? "sem codigo"}`);
+      }
     }
 
     // -------------------------------------------------------------------

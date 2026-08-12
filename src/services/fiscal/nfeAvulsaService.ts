@@ -8,6 +8,7 @@ import { carregarCertificadoA1 } from "@/lib/nfe/certificado";
 import { chaveAcessoValida } from "@/lib/nfe/chaveAcesso";
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
 import { normalizarIndIEDest } from "@/lib/nfe/indIEDest";
+import { calcularTotaisNFe } from "@/lib/nfe/fiscal";
 import { MODELO_NFE, MODELO_NFCE, modeloParaDb, rotuloModelo } from "@/lib/nfe/modeloDocumento";
 import { validarNfce } from "@/lib/nfe/nfce/validator";
 import type {
@@ -559,12 +560,15 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
     });
   }
 
-  // NF-e de devolução (finNFe=4) sem documento referenciado é rejeição 321 na
-  // SEFAZ, e o CFOP não é exceção da regra: a validação VC02-14 cobra o grupo
-  // NFref de toda devolução de mercadoria. Barrar aqui evita queimar o número.
+  // NF-e de devolução (finNFe=4) sem documento referenciado é rejeição 321.
+  // A referência pode estar no cabeçalho (NFref) ou, no leiaute RTC, em cada
+  // item (DFeReferenciado). O motor de saída usa a segunda forma.
   const referencias = input.documentosReferenciados ?? [];
+  const referenciasDosItens = input.itens
+    .map((item) => item.dfeReferenciado?.chaveAcesso)
+    .filter(Boolean);
   const exigeReferencia = finalidadeToFinNFe(input.operacao?.finalidade) === 4;
-  if (exigeReferencia && referencias.length === 0) {
+  if (exigeReferencia && referencias.length === 0 && referenciasDosItens.length === 0) {
     errors.push({
       step: "operation",
       field: "documentosReferenciados",
@@ -863,6 +867,67 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
   }
 
   return errors;
+}
+
+export function validarLimiteTotalDevolucao(
+  totalDevolucao: number,
+  totalDocumentosReferenciados: number,
+): ValidationError[] {
+  const devolucao = Number(totalDevolucao.toFixed(2));
+  const referenciado = Number(totalDocumentosReferenciados.toFixed(2));
+  if (devolucao <= referenciado) return [];
+
+  return [{
+    step: "products",
+    field: "valorUnitario",
+    message:
+      `O total da devolução (R$ ${devolucao.toFixed(2)}) supera o total da NF-e ` +
+      `referenciada (R$ ${referenciado.toFixed(2)}). Use os valores fiscais da compra; ` +
+      "a SEFAZ rejeita essa situação pelo código 545.",
+  }];
+}
+
+async function validarTotalDevolucaoComDocumentosLocais(
+  input: NFeAvulsaDraftInput,
+  itens: NFeItem[],
+  crt: CRT,
+) {
+  if (finalidadeToFinNFe(input.operacao.finalidade) !== 4) return [];
+
+  const chaves = Array.from(new Set([
+    ...(input.documentosReferenciados ?? []).map((item) => onlyDigits(item.chaveAcesso)),
+    ...input.itens.map((item) => onlyDigits(item.dfeReferenciado?.chaveAcesso)),
+  ].filter((chave) => chave.length === 44)));
+  if (!chaves.length) return [];
+
+  const { data, error } = await supabaseAdmin
+    .from("fiscal_dfe_documento")
+    .select("chave_acesso, valor_total, schema")
+    .in("chave_acesso", chaves);
+  if (error) throw error;
+
+  const documentos = new Map<string, { total: number; completo: boolean }>();
+  (data ?? []).forEach((row: any) => {
+    const chave = onlyDigits(row.chave_acesso);
+    const atual = documentos.get(chave);
+    const completo = String(row.schema ?? "").startsWith("procNFe");
+    if (!atual || (completo && !atual.completo)) {
+      documentos.set(chave, { total: toDecimalNumber(row.valor_total), completo });
+    }
+  });
+  // A regra da SEFAZ só compara quando conhece todas as notas referenciadas.
+  // Se o ERP ainda não baixou algum documento, não inventamos um limite.
+  if (chaves.some((chave) => !documentos.has(chave))) return [];
+
+  const soma = calcularTotaisNFe(itens, crt);
+  const frete = itens.reduce((total, item) => total + toDecimalNumber(item.valorFrete), 0);
+  const totalDevolucao =
+    soma.vProd - soma.vDesc + frete + soma.vST + soma.vFCPST + soma.vIPI + soma.vIPIDevol;
+  const totalReferenciado = chaves.reduce(
+    (total, chave) => total + (documentos.get(chave)?.total ?? 0),
+    0,
+  );
+  return validarLimiteTotalDevolucao(totalDevolucao, totalReferenciado);
 }
 
 /**
@@ -1193,6 +1258,15 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
     }));
   });
   if (taxErrors.length > 0) return { ok: false as const, errors: taxErrors };
+
+  const limiteDevolucaoErrors = await validarTotalDevolucaoComDocumentosLocais(
+    input,
+    itensXml,
+    crt,
+  );
+  if (limiteDevolucaoErrors.length > 0) {
+    return { ok: false as const, errors: limiteDevolucaoErrors };
+  }
 
   const nomeMunicipioEmitente = await resolverNomeMunicipioIbge(
     empresa.codigomunicipio,

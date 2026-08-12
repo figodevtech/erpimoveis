@@ -12,7 +12,10 @@ import "./__testEnv";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { validarDraftAvulso } from "./nfeAvulsaService";
+import {
+  validarDraftAvulso,
+  validarLimiteTotalDevolucao,
+} from "./nfeAvulsaService";
 
 type Draft = Parameters<typeof validarDraftAvulso>[0];
 
@@ -257,6 +260,14 @@ describe("emissão avulsa: NF-e referenciada", () => {
     assert.deepEqual(validarDraftAvulso(draft), []);
   });
 
+  it("aceita a referência granular usada pelo motor de saída", () => {
+    const draft = devolucao({
+      itens: [itemBase({ dfeReferenciado: { chaveAcesso: chaveValida, nItem: 1 } })],
+    });
+
+    assert.deepEqual(erros(draft, "documentosReferenciados"), []);
+  });
+
   it("recusa chave com dígito verificador errado", () => {
     const chaveErrada = `${chaveValida.slice(0, 43)}0`;
     const draft = devolucao({ documentosReferenciados: [{ chaveAcesso: chaveErrada }] });
@@ -274,5 +285,19 @@ describe("emissão avulsa: NF-e referenciada", () => {
 
   it("não exige referência numa nota normal", () => {
     assert.deepEqual(erros(draftBase(), "documentosReferenciados"), []);
+  });
+
+  it("bloqueia a rejeição 545 antes de gerar o rascunho", () => {
+    const errors = validarLimiteTotalDevolucao(3850, 1092.26);
+
+    assert.equal(errors.length, 1);
+    assert.match(errors[0].message, /3850\.00/);
+    assert.match(errors[0].message, /1092\.26/);
+    assert.match(errors[0].message, /545/);
+  });
+
+  it("aceita devolução que não supera o documento original", () => {
+    assert.deepEqual(validarLimiteTotalDevolucao(1092.26, 1092.26), []);
+    assert.deepEqual(validarLimiteTotalDevolucao(500, 1092.26), []);
   });
 });

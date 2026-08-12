@@ -134,6 +134,23 @@ export async function garantirNumeroDefinitivo(
 }
 
 /**
+ * Rejeições que provam que o número JÁ está consumido na SEFAZ.
+ *
+ * - 204: duplicidade de NF-e (mesma chave já autorizada).
+ * - 539: duplicidade de NF-e com diferença na chave — mesmo CNPJ, modelo, série
+ *   e número, chave diferente. É o caso de numeração usada fora deste banco.
+ *
+ * Devolver esses números para a fila cria um laço: a transmissão seguinte pega
+ * o mesmo número e colhe a mesma rejeição, para sempre. Eles têm de sair da
+ * sequência para a emissão andar.
+ */
+const REJEICOES_QUE_CONSOMEM_NUMERO = new Set(["204", "539"]);
+
+export function rejeicaoConsomeNumero(codigo: unknown): boolean {
+  return REJEICOES_QUE_CONSOMEM_NUMERO.has(String(codigo ?? "").trim());
+}
+
+/**
  * Devolve o número para a fila de reaproveitamento.
  *
  * A função no banco só libera notas que a SEFAZ nunca registrou; autorizada,

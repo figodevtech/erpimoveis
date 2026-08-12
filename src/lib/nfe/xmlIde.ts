@@ -27,16 +27,6 @@ export function buildIdeXml(
   p.push(`<tpNF>${ide.tpNF}</tpNF>`);
   p.push(`<idDest>${ide.idDest}</idDest>`);
   p.push(`<cMunFG>${ide.cMunFG}</cMunFG>`);
-  // NFref (B12a) fica entre cMunFG (B12) e tpImp (B21) na sequência do leiaute
-  // 4.00. Emitir o grupo no fim do <ide> derruba o lote com rejeição 225
-  // (falha no schema) antes mesmo de a SEFAZ olhar a regra da devolução.
-  for (const documento of documentosReferenciados) {
-    const chave = onlyDigits(documento.chaveAcesso);
-    if (chave.length !== 44) {
-      throw new Error('NFE_REFERENCIA_INVALIDA: a chave referenciada deve ter 44 dígitos.');
-    }
-    p.push(`<NFref><refNFe>${chave}</refNFe></NFref>`);
-  }
   p.push(`<tpImp>${ide.tpImp}</tpImp>`);
   p.push(`<tpEmis>${ide.tpEmis}</tpEmis>`);
   p.push(`<cDV>${ide.cDV}</cDV>`); // DV ANTES do tpAmb
@@ -46,7 +36,32 @@ export function buildIdeXml(
   p.push(`<indPres>${ide.indPres}</indPres>`);
   p.push(`<procEmi>${ide.procEmi}</procEmi>`);
   p.push(`<verProc>${escapeXml(ide.verProc)}</verProc>`);
+  // No XSD 4.00, NFref é o último grupo do <ide>: vem depois de verProc e,
+  // quando houver contingência, depois de dhCont/xJust. O identificador B12a
+  // do MOC não representa a posição física na sequência do schema.
+  for (const documento of documentosReferenciados) {
+    const chave = onlyDigits(documento.chaveAcesso);
+    if (chave.length !== 44) {
+      throw new Error('NFE_REFERENCIA_INVALIDA: a chave referenciada deve ter 44 dígitos.');
+    }
+    p.push(`<NFref><refNFe>${chave}</refNFe></NFref>`);
+  }
   p.push('</ide>');
 
   return p.join('');
+}
+
+/**
+ * Corrige rascunhos gravados pela versão que posicionava NFref após cMunFG.
+ * A autorização sempre remove a assinatura anterior e assina novamente, então
+ * esta normalização pode ocorrer imediatamente antes da numeração/assinatura.
+ */
+export function normalizarOrdemNfRefIde(xml: string): string {
+  return xml.replace(/<ide>([\s\S]*?)<\/ide>/, (ideXml) => {
+    const referencias = ideXml.match(/<NFref>[\s\S]*?<\/NFref>/g) ?? [];
+    if (!referencias.length) return ideXml;
+
+    const semReferencias = ideXml.replace(/<NFref>[\s\S]*?<\/NFref>/g, '');
+    return semReferencias.replace('</ide>', `${referencias.join('')}</ide>`);
+  });
 }

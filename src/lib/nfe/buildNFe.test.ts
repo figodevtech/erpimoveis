@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import { buildNFePreviewXml } from "./buildNFe";
 import type { EmpresaRow, NFeDestinatario, NFeItem } from "./types";
+import { normalizarOrdemNfRefIde } from "./xmlIde";
 
 const empresa: EmpresaRow = {
   id: 1,
@@ -158,9 +159,50 @@ describe("documentos referenciados e devolução", () => {
       nomeMunicipioEmitente: "SAO PAULO",
       documentosReferenciados: [{ chaveAcesso: chaveOriginal }],
     });
-    // NFref é B12a: entra logo depois de cMunFG e antes de tpImp. Fora dessa
-    // posição o lote volta com rejeição 225 (falha no schema).
-    assert.match(xml, new RegExp(`<cMunFG>[0-9]+</cMunFG><NFref><refNFe>${chaveOriginal}</refNFe></NFref><tpImp>`));
+    // No XSD 4.00, NFref é o último grupo de ide, depois de verProc. O código
+    // B12a do MOC é um identificador de campo, não a ordem física do XML.
+    assert.match(xml, new RegExp(`<verProc>[^<]+</verProc><NFref><refNFe>${chaveOriginal}</refNFe></NFref></ide>`));
+    assert.doesNotMatch(xml, /<cMunFG>[^<]+<\/cMunFG><NFref>/);
+  });
+
+  it("leva cabeçalho e item juntos numa devolução, como a saída de estoque monta", () => {
+    // A regra VC02 cobra o NFref no <ide> (rejeição 321) e, desde 01/09/2026, o
+    // DFeReferenciado por item. Um não substitui o outro: a NF-e de saída já
+    // emitia o item e deixava o cabeçalho de fora, que é o que reprovava.
+    const { xml } = buildNFePreviewXml(
+      empresa,
+      94,
+      1,
+      [{
+        ...item,
+        cfop: "5202",
+        percentualDevolucao: 100,
+        valorIpiDevolvido: 0,
+        dfeReferenciado: { chaveAcesso: chaveOriginal, nItem: 1 },
+      }],
+      destinatario("SP"),
+      {
+        nomeMunicipioEmitente: "SAO PAULO",
+        natOp: "DEVOLUCAO DE COMPRA PARA COMERCIALIZACAO",
+        finNFe: 4,
+        documentosReferenciados: [{ chaveAcesso: chaveOriginal }],
+      },
+    );
+
+    assert.match(xml, new RegExp(`<NFref><refNFe>${chaveOriginal}</refNFe></NFref></ide>`));
+    assert.match(xml, new RegExp(`<DFeReferenciado><chaveAcesso>${chaveOriginal}</chaveAcesso><nItem>1</nItem>`));
+    // IPI zerado é o caso normal do Simples e não pode suprimir o pDevol.
+    assert.match(xml, /<impostoDevol><pDevol>100\.00<\/pDevol><IPI><vIPIDevol>0\.00<\/vIPIDevol>/);
+  });
+
+  it("corrige a ordem de NFref em rascunho legado antes de uma nova autorização", () => {
+    const legado = `<NFe><infNFe><ide><cMunFG>2503209</cMunFG><NFref><refNFe>${chaveOriginal}</refNFe></NFref><tpImp>1</tpImp><verProc>ERP</verProc></ide></infNFe><Signature>antiga</Signature></NFe>`;
+    const normalizado = normalizarOrdemNfRefIde(legado);
+
+    assert.match(normalizado, new RegExp(`<verProc>ERP</verProc><NFref><refNFe>${chaveOriginal}</refNFe></NFref></ide>`));
+    assert.doesNotMatch(normalizado, /<cMunFG>[^<]+<\/cMunFG><NFref>/);
+    assert.equal(normalizarOrdemNfRefIde(normalizado), normalizado);
+    assert.match(normalizado, /<Signature>antiga<\/Signature>/);
   });
 });
 

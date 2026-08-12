@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   getOperacaoFiscalSaida,
+  montarReferenciasFiscaisSaida,
   sugerirCfopSaida,
   validarReferenciaFiscalSaida,
 } from "./saidaFiscal";
@@ -44,5 +45,65 @@ describe("natureza fiscal da saída de estoque", () => {
       itens: [{ numeroItemReferenciado: 2 }],
     });
     assert.deepEqual(errors, []);
+  });
+});
+
+describe("referência de cabeçalho da NF-e de saída", () => {
+  const chave = "1".repeat(44);
+
+  it("cita a nota de origem no NFref de uma devolução", () => {
+    assert.deepEqual(
+      montarReferenciasFiscaisSaida({
+        finalidade: "DEVOLUCAO",
+        exigeDocumentoReferenciado: false,
+        chaveAcesso: chave,
+      }),
+      [{ chaveAcesso: chave }],
+    );
+  });
+
+  it("cita a origem em operação que exige documento mesmo fora da devolução", () => {
+    assert.deepEqual(
+      montarReferenciasFiscaisSaida({
+        finalidade: "NORMAL",
+        exigeDocumentoReferenciado: true,
+        chaveAcesso: chave,
+      }),
+      [{ chaveAcesso: chave }],
+    );
+  });
+
+  it("limpa a máscara da chave digitada", () => {
+    const mascarada = chave.replace(/(\d{4})/g, "$1 ");
+    assert.deepEqual(
+      montarReferenciasFiscaisSaida({
+        finalidade: "DEVOLUCAO",
+        exigeDocumentoReferenciado: true,
+        chaveAcesso: mascarada,
+      }),
+      [{ chaveAcesso: chave }],
+    );
+  });
+
+  it("não cita nada numa remessa que dispensa documento de origem", () => {
+    assert.deepEqual(
+      montarReferenciasFiscaisSaida({
+        finalidade: "NORMAL",
+        exigeDocumentoReferenciado: false,
+        chaveAcesso: chave,
+      }),
+      [],
+    );
+  });
+
+  it("não inventa referência com chave incompleta", () => {
+    assert.deepEqual(
+      montarReferenciasFiscaisSaida({
+        finalidade: "DEVOLUCAO",
+        exigeDocumentoReferenciado: true,
+        chaveAcesso: "123",
+      }),
+      [],
+    );
   });
 });

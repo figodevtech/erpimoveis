@@ -316,6 +316,68 @@ export function createAssistedItem(
   };
 }
 
+/**
+ * Perfil tributário devolvido pelo espelho da NF-e de origem.
+ * Espelha `CamposFiscaisResolvidos` do servidor, em formato de transporte.
+ */
+export type EspelhoFiscalResposta = {
+  campos: Record<string, unknown>;
+  procedencia?: Record<string, string>;
+  valorUnitario?: number | null;
+};
+
+/**
+ * Reaplica num item já montado o perfil tributário lido da NF-e de origem.
+ *
+ * Serve à devolução, que precisa repetir a operação de compra: sobrepõe os
+ * campos fiscais e o preço unitário mantendo quantidade, desconto e o que o
+ * operador já tiver ajustado fora da tributação. A procedência entra junto para
+ * a tela poder marcar o que veio da nota original.
+ */
+export function aplicarCamposFiscais(
+  item: AssistedFiscalItem,
+  espelho: EspelhoFiscalResposta,
+): AssistedFiscalItem {
+  const campos = espelho.campos ?? {};
+  const texto = (valor: unknown) =>
+    valor === null || valor === undefined ? "" : String(valor);
+  // O espelho só manda o que conseguiu resolver: campo vazio mantém o valor
+  // atual, para não apagar um ajuste manual com um branco vindo do servidor.
+  const manter = (novo: unknown, atual: string) => texto(novo) || atual;
+
+  const modoPis =
+    (campos.modo_pis as AssistedFiscalItem["modoPis"]) ||
+    inferPisCofinsMode(campos.cst_pis, campos.aliquota_pis) ||
+    item.modoPis;
+  const modoCofins =
+    (campos.modo_cofins as AssistedFiscalItem["modoCofins"]) ||
+    inferPisCofinsMode(campos.cst_cofins, campos.aliquota_cofins) ||
+    item.modoCofins;
+  const valorUnitario =
+    espelho.valorUnitario == null ? item.valorUnitario : Number(espelho.valorUnitario);
+
+  return {
+    ...item,
+    valorUnitario,
+    subtotal: Number((item.quantidade * valorUnitario).toFixed(2)),
+    cfop: manter(campos.cfop, item.cfop),
+    orig: manter(campos.origem_mercadoria, item.orig),
+    csosn: manter(campos.csosn, item.csosn),
+    cst: manter(campos.cst, item.cst),
+    aliquotaIcms: manter(campos.aliquotaicms, item.aliquotaIcms),
+    cstPis: manter(campos.cst_pis, item.cstPis),
+    modoPis,
+    aliquotaPis: manter(campos.aliquota_pis, item.aliquotaPis),
+    cstCofins: manter(campos.cst_cofins, item.cstCofins),
+    modoCofins,
+    aliquotaCofins: manter(campos.aliquota_cofins, item.aliquotaCofins),
+    quantidadePis: modoPis === "QUANTIDADE" ? String(item.quantidade) : item.quantidadePis,
+    quantidadeCofins:
+      modoCofins === "QUANTIDADE" ? String(item.quantidade) : item.quantidadeCofins,
+    procedenciaFiscal: { ...item.procedenciaFiscal, ...(espelho.procedencia ?? {}) },
+  };
+}
+
 export function toNFeItem(item: AssistedFiscalItem, index = 0): NFeItem {
   const valorTotal = Number((item.quantidade * item.valorUnitario).toFixed(2));
   const valorDesconto = Math.min(Math.max(0, item.valorDesconto || 0), valorTotal);

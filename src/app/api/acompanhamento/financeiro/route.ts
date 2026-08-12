@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
+import { carregarFatiasRateadas, fatiaComoTransacao } from "@/lib/financeiro/rateio-documentos";
 import { requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getPaymentMethodValues } from "@/lib/payment-methods-server";
@@ -239,12 +240,34 @@ export async function GET(req: NextRequest) {
     if (transacoesOsResult.error) throw transacoesOsResult.error;
     if (transacoesVendasResult.error) throw transacoesVendasResult.error;
 
+    // As fatias do pagamento múltiplo entram na mesma lista: a transação de
+    // grupo não aponta para documento nenhum, e sem elas a OS ou venda paga em
+    // grupo apareceria como não recebida.
+    const [fatiasOs, fatiasVendas] = await Promise.all([
+      carregarFatiasRateadas("OS", ordemIds),
+      carregarFatiasRateadas("VENDA", vendaIds),
+    ]);
+    const transacoesOs = [
+      ...((transacoesOsResult.data ?? []) as any[]),
+      ...[...fatiasOs.values()].flat().map((fatia) => ({
+        ...fatiaComoTransacao(fatia),
+        ordemservicoid: fatia.documentoId,
+      })),
+    ];
+    const transacoesVendas = [
+      ...((transacoesVendasResult.data ?? []) as any[]),
+      ...[...fatiasVendas.values()].flat().map((fatia) => ({
+        ...fatiaComoTransacao(fatia),
+        vendaid: fatia.documentoId,
+      })),
+    ];
+
     // Transações pendentes (lançadas mas ainda não baixadas) contam como pagas aqui:
     // a OS/Venda já foi marcada como concluída pelo valor lançado, então o painel
     // precisa refletir isso para o item não ficar "preso" em Aguardando.
     const pagamentosOs = new Map<number, { total: number; ultimo: string | null }>();
     const transacoesPorOs = new Map<number, Array<{ metodopagamento: string | null; valor: unknown }>>();
-    for (const transacao of (transacoesOsResult.data ?? []) as any[]) {
+    for (const transacao of transacoesOs) {
       const id = Number(transacao.ordemservicoid);
       const atual = pagamentosOs.get(id) ?? { total: 0, ultimo: null };
       atual.total += valorDeFace(transacao);
@@ -257,7 +280,7 @@ export async function GET(req: NextRequest) {
 
     const pagamentosVendas = new Map<number, { total: number; ultimo: string | null }>();
     const transacoesPorVenda = new Map<number, Array<{ metodopagamento: string | null; valor: unknown }>>();
-    for (const transacao of (transacoesVendasResult.data ?? []) as any[]) {
+    for (const transacao of transacoesVendas) {
       const id = Number(transacao.vendaid);
       const atual = pagamentosVendas.get(id) ?? { total: 0, ultimo: null };
       atual.total += numero(transacao.valor);

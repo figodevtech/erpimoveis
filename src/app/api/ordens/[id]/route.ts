@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { NextRequest, NextResponse } from "next/server";
+import { carregarFatiasRateadas, fatiaComoTransacao } from "@/lib/financeiro/rateio-documentos";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
 import { requireOSEdit, requireOSAccess, hasOSRentabilidade } from "@/app/api/_authz/perms";
@@ -524,6 +525,14 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       .order("data", { ascending: false });
     if (trans_res.error) throw trans_res.error;
 
+    // Pagamento múltiplo não preenche `ordemservicoid`. Sem juntar as fatias, a
+    // OS paga em grupo aparece sem pagamento nenhum no detalhe.
+    const fatiasDaOs = await carregarFatiasRateadas("OS", [osId]);
+    const transacoesDaOs = [
+      ...(trans_res.data ?? []),
+      ...(fatiasDaOs.get(osId) ?? []).map(fatiaComoTransacao),
+    ];
+
     const despesas_servico_res = await supabase
       .from("eventos_financeiros")
       .select("id, servicoid, descricao, detalhe, valor, status, transacaoid")
@@ -536,7 +545,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       .order("id", { ascending: true });
     if (despesas_servico_res.error) throw despesas_servico_res.error;
 
-    const transacoes = (trans_res.data ?? []).map((t: any) => ({
+    const transacoes = transacoesDaOs.map((t: any) => ({
       ...t,
       valor: toNum(t.valor),
       valorLiquido: t.valorLiquido == null ? toNum(t.valor) : toNum(t.valorLiquido),

@@ -167,6 +167,142 @@ function parseEvento(parsed: any, schema: string, xml: string): ParsedDfe {
   };
 }
 
+/**
+ * Perfil tributário de um item da NF-e recebida, no formato que
+ * `resolverPadraoFiscalItem` consome como fonte.
+ *
+ * A devolução deve espelhar a operação de entrada — mesmo CFOP na direção
+ * inversa, mesmo CST/CSOSN, mesma tributação de PIS/COFINS. Ler isso do XML
+ * original é o que evita classificar a devolução pelo cadastro do produto, que
+ * descreve a venda e não a compra que está voltando.
+ */
+export type ItemFiscalNfeOrigem = {
+  nItem: number;
+  descricao: string | null;
+  ncm: string | null;
+  cest: string | null;
+  unidade: string | null;
+  quantidade: number | null;
+  valorUnitario: number | null;
+  /** Campos no formato de `ValoresFiscaisParciais` (lib/nfe/padraoFiscalItem). */
+  valoresFiscais: {
+    origem_mercadoria: string | null;
+    cfop: string | null;
+    csosn: string | null;
+    cst: string | null;
+    aliquotaicms: number | null;
+    cst_pis: string | null;
+    aliquota_pis: number | null;
+    cst_cofins: string | null;
+    aliquota_cofins: number | null;
+  };
+  /** Retenções de ST da entrada, necessárias para devolver mercadoria de ST. */
+  substituicaoTributaria: {
+    vBCSTRet: number | null;
+    vICMSSTRet: number | null;
+    pST: number | null;
+  };
+};
+
+function textoOuNulo(value: unknown) {
+  const texto = String(value ?? "").trim();
+  return texto || null;
+}
+
+function numeroOuNulo(value: unknown) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const numero = Number(value);
+  return Number.isFinite(numero) ? numero : null;
+}
+
+/**
+ * Código fiscal com o zero à esquerda de volta.
+ *
+ * O parser converte `<CST>07</CST>` em `7`, e "7" não é um CST válido — a nota
+ * sairia com PIS/COFINS de código inexistente. Só faz sentido para os campos
+ * que são código de tamanho fixo, nunca para valores.
+ */
+function codigoFiscal(value: unknown, tamanho: number) {
+  const texto = String(value ?? "").trim();
+  if (!texto) return null;
+  return texto.length >= tamanho ? texto : texto.padStart(tamanho, "0");
+}
+
+/** Achata ICMS00/ICMS60/ICMSSN500/… num objeto só: o grupo varia com o CST. */
+function achatarGrupo(grupo: unknown): Record<string, unknown> {
+  if (!grupo || typeof grupo !== "object") return {};
+  const valores = Object.values(grupo as Record<string, unknown>);
+  const interno = valores.find((valor) => valor && typeof valor === "object");
+  return (interno as Record<string, unknown>) ?? (grupo as Record<string, unknown>);
+}
+
+function localizarInfNFe(node: unknown): any | null {
+  // `findFirstObjectWithKey` já devolve o conteúdo da chave, então serve tanto
+  // para procNFe > NFe > infNFe quanto para uma NFe avulsa.
+  return findFirstObjectWithKey(node, "infNFe");
+}
+
+/**
+ * Lê os itens de uma NF-e recebida (procNFe ou NFe pura).
+ *
+ * Devolve lista vazia quando o XML não é uma NF-e completa — resumo (resNFe) e
+ * evento não trazem itens, e nesse caso quem chama cai para o cadastro.
+ */
+export function extrairItensFiscaisNfe(xml: string): ItemFiscalNfeOrigem[] {
+  let parsed: unknown;
+  try {
+    parsed = parser.parse(xml);
+  } catch {
+    return [];
+  }
+
+  const infNFe = localizarInfNFe(parsed);
+  if (!infNFe) return [];
+
+  return asArray<any>(infNFe.det).flatMap((det, index) => {
+    if (!det || typeof det !== "object") return [];
+    const prod = det.prod ?? {};
+    const imposto = det.imposto ?? {};
+    const icms = achatarGrupo(imposto.ICMS);
+    const pis = achatarGrupo(imposto.PIS);
+    const cofins = achatarGrupo(imposto.COFINS);
+    const nItem = Number(det["@_nItem"] ?? index + 1);
+
+    return [{
+      nItem: Number.isInteger(nItem) && nItem > 0 ? nItem : index + 1,
+      descricao: textoOuNulo(prod.xProd),
+      ncm: onlyDigits(prod.NCM) || null,
+      cest: onlyDigits(prod.CEST) || null,
+      unidade: textoOuNulo(prod.uCom),
+      quantidade: numeroOuNulo(prod.qCom),
+      valorUnitario: numeroOuNulo(prod.vUnCom),
+      valoresFiscais: {
+        origem_mercadoria: codigoFiscal(icms.orig, 1),
+        cfop: onlyDigits(prod.CFOP) || null,
+        csosn: codigoFiscal(icms.CSOSN, 3),
+        cst: codigoFiscal(icms.CST, 2),
+        aliquotaicms: numeroOuNulo(icms.pICMS),
+        cst_pis: codigoFiscal(pis.CST, 2),
+        aliquota_pis: numeroOuNulo(pis.pPIS),
+        cst_cofins: codigoFiscal(cofins.CST, 2),
+        aliquota_cofins: numeroOuNulo(cofins.pCOFINS),
+      },
+      substituicaoTributaria: {
+        vBCSTRet: numeroOuNulo(icms.vBCSTRet),
+        vICMSSTRet: numeroOuNulo(icms.vICMSSTRet),
+        pST: numeroOuNulo(icms.pST),
+      },
+    }];
+  });
+}
+
+/** Item de número `nItem`, ou `null` quando o XML não tem essa linha. */
+export function extrairItemFiscalNfe(xml: string, nItem: unknown): ItemFiscalNfeOrigem | null {
+  const numero = Number(nItem);
+  if (!Number.isInteger(numero) || numero <= 0) return null;
+  return extrairItensFiscaisNfe(xml).find((item) => item.nItem === numero) ?? null;
+}
+
 export function unzipDocZip(base64Gzip: string) {
   const compressed = Buffer.from(base64Gzip, "base64");
   return gunzipSync(compressed).toString("utf8");
