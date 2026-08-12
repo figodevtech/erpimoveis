@@ -47,7 +47,7 @@ type EntradaCandidate = {
   entrada?: {
     id: number;
     notachave?: string | null;
-    dataentrada?: string | null;
+    created_at?: string | null;
     fornecedor?: Fornecedor | null;
   } | null;
 };

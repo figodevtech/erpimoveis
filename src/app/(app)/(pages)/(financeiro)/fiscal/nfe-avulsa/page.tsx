@@ -559,8 +559,15 @@ const initialDraft: DraftPayload = {
   itens: [],
 };
 
-function onlyDigits(value: string) {
-  return value.replace(/\D/g, "");
+/**
+ * Aceita `unknown` de propósito: a consulta pública de CNPJ devolve campos
+ * numéricos (`cidade.ibge_id`) e omite outros (estabelecimento sem inscrição
+ * estadual). Tipar como `string` só escondia isso do compilador — o retorno da
+ * API chega como `any` — e estourava "value.replace is not a function" no meio
+ * do preenchimento do destinatário.
+ */
+function onlyDigits(value: unknown) {
+  return String(value ?? "").replace(/\D/g, "");
 }
 
 function parseCurrency(value: string) {

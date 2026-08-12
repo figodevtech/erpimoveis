@@ -267,7 +267,7 @@ export async function buscarEntradasCandidatasDaSaida(saidaId: number) {
     .select(`
       id, entrada_id, produto_id, quantidade, valor_unitario_compra, precovenda, titulo,
       entrada:entrada_id(
-        id, fiscal, status, notachave, dataentrada, fornecedorid,
+        id, fiscal, status, notachave, created_at, fornecedorid,
         fornecedor:fornecedorid(
           id, cpfcnpj, nomerazaosocial, nomefantasia, contato, endereco,
           endereconumero, enderecocomplemento, bairro, cidade, estado, cep,
