@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { Banknote, FileText, History, Layers, Link2, Loader2, Percent, User } from "lucide-react";
+import { Banknote, FileText, History, Layers, Link2, Loader2, Percent, Split, User } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -34,6 +34,7 @@ import { AjustesTab } from "./tabs/ajustes-tab";
 import { ClienteTab } from "./tabs/cliente-tab";
 import { DetalhesTab } from "./tabs/detalhes-tab";
 import { HistoricoTab } from "./tabs/historico-tab";
+import { PagamentoMultiploTab } from "./tabs/pagamento-multiplo-tab";
 import { ParcelasTab } from "./tabs/parcelas-tab";
 import { VinculoTab } from "./tabs/vinculo-tab";
 import { tabsListClass, tabTriggerClass } from "./tabs/shared";
@@ -135,13 +136,24 @@ export default function EditContent({
     setOpen?.(false);
   };
 
+  const grupo = contexto?.pagamentoMultiplo ?? null;
+
+  /**
+   * Transação de pagamento múltiplo não aponta para documento nenhum, e sem um
+   * aviso aqui ela parece um recebimento solto. A descrição do cabeçalho é o
+   * primeiro texto que a pessoa lê ao abrir — o detalhe fica na aba.
+   */
   const descricao = carregando
     ? "Carregando os dados da transação"
     : !form
       ? (erro ?? "Nenhuma transação selecionada.")
-      : editable
-        ? "Altere os dados da transação"
-        : "Visualize os dados da transação";
+      : grupo
+        ? `Parte do pagamento múltiplo #${grupo.id} — quitou ${grupo.documentos.length} ${
+            grupo.tipoDocumento === "OS" ? "ordem(ns) de serviço" : "venda(s)"
+          }. Veja a aba Pagamento múltiplo.`
+        : editable
+          ? "Altere os dados da transação"
+          : "Visualize os dados da transação";
 
   return (
     <Content className={classesDoConteudo(isDesktop)}>
@@ -211,6 +223,14 @@ export default function EditContent({
                       <span className="flex items-center gap-2">
                         <Link2 className="h-3.5 w-3.5" aria-hidden />
                         {contexto.vinculo.tipo === "OS" ? "Ordem de serviço" : "Venda"}
+                      </span>
+                    </TabsTrigger>
+                  ) : null}
+                  {grupo ? (
+                    <TabsTrigger value="pagamento-multiplo" className={tabTriggerClass}>
+                      <span className="flex items-center gap-2">
+                        <Split className="h-3.5 w-3.5" aria-hidden />
+                        Pagamento múltiplo
                       </span>
                     </TabsTrigger>
                   ) : null}
@@ -295,6 +315,12 @@ export default function EditContent({
               {contexto?.vinculo ? (
                 <TabsContent value="vinculo" className="mt-0">
                   <VinculoTab vinculo={contexto.vinculo} />
+                </TabsContent>
+              ) : null}
+
+              {grupo ? (
+                <TabsContent value="pagamento-multiplo" className="mt-0">
+                  <PagamentoMultiploTab pagamento={grupo} />
                 </TabsContent>
               ) : null}
 

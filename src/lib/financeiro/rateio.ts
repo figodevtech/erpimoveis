@@ -209,16 +209,53 @@ export function ratearEmParcelas(
     throw new RateioInvalidoError("Informe ao menos uma parcela.");
   }
 
-  return ratearEntreDocumentos(documentos, totalEmCentavos).flatMap((fatia) => {
-    const porParcela = distribuirIgualmenteEmCentavos(
+  // A grade documento × parcela tem que fechar nos DOIS sentidos:
+  //
+  //   por linha    a soma de uma parcela é o valor do título emitido, e precisa
+  //                bater com o parcelamento que a tela mostrou;
+  //   por coluna   a soma de um documento é a fatia dele, e precisa bater com o
+  //                que ele deve — senão sobra centavo e o documento nunca quita.
+  //
+  // Rateando por documento e parcelando cada fatia depois, só a coluna fechava:
+  // R$ 310,05 em 2x entre dois documentos gerava títulos de 150,01 e 149,99 com
+  // a tela exibindo 150,00 e 150,00. Fazendo o inverso, só a linha fechava, e um
+  // documento podia perder um centavo para o outro.
+  //
+  // A saída é preencher a grade parcela a parcela, sempre proporcional ao que
+  // AINDA falta de cada documento. Na última parcela o que falta de cada um é
+  // exatamente o que ela comporta, então as duas somas fecham juntas.
+  const totaisDasParcelas = distribuirIgualmenteEmCentavos(
+    totalEmCentavos,
+    quantidadeDeParcelas,
+  );
+  const restante = new Map(
+    ratearEntreDocumentos(documentos, totalEmCentavos).map((fatia) => [
+      fatia.id,
       fatia.valorEmCentavos,
-      quantidadeDeParcelas,
+    ]),
+  );
+
+  const linhas: Array<{ id: number; parcela: number; valorEmCentavos: number }> = [];
+
+  totaisDasParcelas.forEach((totalDaParcela, indice) => {
+    const pendentes = documentos.filter((documento) => (restante.get(documento.id) ?? 0) > 0);
+    if (pendentes.length === 0) return;
+
+    const fatias = distribuirPorPesos(
+      pendentes.map((documento) => restante.get(documento.id) ?? 0),
+      totalDaParcela,
     );
 
-    return porParcela.map((valorEmCentavos, indice) => ({
-      id: fatia.id,
-      parcela: indice + 1,
-      valorEmCentavos,
-    }));
+    pendentes.forEach((documento, posicao) => {
+      // O teto protege a última parcela de pedir mais do que o documento deve
+      // quando o resíduo de `distribuirPorPesos` cai numa coluna já quitada.
+      const valorEmCentavos = Math.min(fatias[posicao] ?? 0, restante.get(documento.id) ?? 0);
+      if (valorEmCentavos <= 0) return;
+
+      restante.set(documento.id, (restante.get(documento.id) ?? 0) - valorEmCentavos);
+      linhas.push({ id: documento.id, parcela: indice + 1, valorEmCentavos });
+    });
   });
+
+  return linhas;
 }

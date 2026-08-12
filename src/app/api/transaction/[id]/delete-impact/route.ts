@@ -38,26 +38,53 @@ export async function GET(_: Request, { params }: Params) {
      * operação. Melhor recusar com o motivo explícito do que deixar passar e
      * quebrar a conta.
      */
-    let adiantamento: { bloqueado: true; motivo: string; quantidade?: number } | null = null;
+    let adiantamento:
+      | {
+          bloqueado: boolean;
+          motivo: string;
+          quantidade?: number;
+          /** Verdadeiro no lançamento da antecipação: excluir reabre os títulos. */
+          desfaz?: boolean;
+          sentido?: "RECEBER" | "PAGAR";
+          titulos?: Array<{ id: number; descricao: string | null; valor: number }>;
+        }
+      | null = null;
 
     if (transaction.eh_adiantamento) {
-      const { count } = await supabaseAdmin
+      const { data: titulos } = await supabaseAdmin
         .from("transacao")
-        .select("id", { count: "exact", head: true })
+        .select("id, descricao, valor")
         .eq("adiantamento_id", id)
-        .eq("is_deleted", false);
+        .eq("is_deleted", false)
+        .order("id", { ascending: true });
 
-      if ((count ?? 0) > 0) {
+      const lista = titulos ?? [];
+      if (lista.length > 0) {
+        const recebe = String(transaction.tipo ?? "").toUpperCase() === "RECEITA";
         adiantamento = {
-          bloqueado: true,
-          quantidade: count ?? 0,
-          motivo: `Este lançamento liquidou ${count} título(s) por antecipação. Excluí-lo deixaria esses títulos pagos por um dinheiro que não existe mais.`,
+          bloqueado: false,
+          desfaz: true,
+          sentido: recebe ? "RECEBER" : "PAGAR",
+          quantidade: lista.length,
+          titulos: lista.map((titulo: any) => ({
+            id: Number(titulo.id),
+            descricao: titulo.descricao ?? null,
+            valor: Number(titulo.valor ?? 0),
+          })),
+          motivo: `Excluir esta antecipação devolve ${lista.length} título(s) para ${
+            recebe ? "a receber" : "a pagar"
+          }.`,
         };
       }
     } else if (transaction.adiantamento_id != null) {
+      // A outra ponta continua fechada: o bruto da antecipação é a soma dos
+      // líquidos dos títulos, e tirar um faria o lançamento cobrir valor que
+      // ninguém deve. O caminho é desfazer a antecipação.
       adiantamento = {
         bloqueado: true,
-        motivo: `Este título foi liquidado pela antecipação #${transaction.adiantamento_id}. Removê-lo faria a antecipação cobrir um valor que ninguém deve.`,
+        motivo:
+          `Este título foi liquidado pela antecipação #${transaction.adiantamento_id} e não pode ser excluído sozinho. ` +
+          `Exclua a antecipação primeiro: ela devolve este título e os demais para em aberto.`,
       };
     }
 
@@ -84,7 +111,7 @@ export async function GET(_: Request, { params }: Params) {
 
     if (transaction.pagamento_multiplo_id != null) {
       const grupoId = Number(transaction.pagamento_multiplo_id);
-      const [{ data: grupo }, { data: irmas }] = await Promise.all([
+      const [{ data: grupo }, { data: irmas }, { data: rateio }] = await Promise.all([
         supabaseAdmin
           .from("pagamento_multiplo")
           .select("id, valor_total, modo, tipo_documento")
@@ -92,17 +119,21 @@ export async function GET(_: Request, { params }: Params) {
           .maybeSingle(),
         supabaseAdmin
           .from("transacao")
-          .select("id, pendente, ordemservicoid, vendaid")
+          .select("id, pendente")
           .eq("pagamento_multiplo_id", grupoId)
           .eq("is_deleted", false),
+        // Os documentos do grupo vivem no rateio: a transação do recebimento não
+        // aponta para nenhum deles, justamente por cobrir vários.
+        supabaseAdmin
+          .from("pagamento_multiplo_rateio")
+          .select("tipo_documento, documento_id")
+          .eq("pagamento_multiplo_id", grupoId),
       ]);
 
       if (grupo) {
         const tipoDoGrupo = String(grupo.tipo_documento).toUpperCase() === "OS" ? "OS" : "VENDA";
         const documentos = [
-          ...new Set(
-            (irmas ?? []).map((linha: any) => Number(linha.ordemservicoid ?? linha.vendaid)),
-          ),
+          ...new Set((rateio ?? []).map((linha: any) => Number(linha.documento_id))),
         ].map((documentoId) => ({ tipo: tipoDoGrupo as "OS" | "VENDA", id: documentoId }));
 
         const quantidadeBaixada =

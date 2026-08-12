@@ -73,6 +73,30 @@ export interface VinculoContexto {
   veiculo?: { nome: string | null; placa: string | null } | null;
 }
 
+/**
+ * O grupo de um pagamento múltiplo visto de dentro de uma de suas transações.
+ *
+ * `documentos` é o rateio DESTE lançamento — no parcelado, o que esta parcela
+ * abate de cada documento; à vista, o rateio inteiro, já que o grupo tem uma
+ * transação só.
+ */
+export interface PagamentoMultiploContexto {
+  id: number;
+  descricao: string | null;
+  modo: string;
+  tipoDocumento: "OS" | "VENDA";
+  valorTotal: number;
+  data: string | null;
+  parcelas: number;
+  valorDesteLancamento: number;
+  documentos: Array<{
+    tipo: "OS" | "VENDA";
+    id: number;
+    valor: number;
+    href: string;
+  }>;
+}
+
 /** Uma linha de `transacao_valor_historico`: quem mexeu no valor, e para quanto. */
 export interface AjusteDeValor {
   id: number;
@@ -94,6 +118,8 @@ export interface TransacaoContexto {
   cliente: ClienteContexto | null;
   fornecedor: FornecedorContexto | null;
   vinculo: VinculoContexto | null;
+  /** Presente só quando a transação faz parte de um pagamento múltiplo. */
+  pagamentoMultiplo: PagamentoMultiploContexto | null;
   baixa: {
     vencimento_em: string | null;
     pago_em: string | null;

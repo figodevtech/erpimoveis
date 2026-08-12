@@ -292,7 +292,12 @@ export function useTransacaoEdicao(transacaoId: number | undefined) {
           plano_de_conta_id: form.plano_de_conta_id ?? null,
           centro_custo: form.centro_custo ?? null,
           centro_custo_id: form.centro_custo_id ?? null,
-          banco_id: form.banco_id ?? null,
+          // Título liquidado por antecipação vai sempre sem banco: o dinheiro
+          // entrou pelo lançamento da antecipação, e repetir a conta aqui o
+          // faria aparecer no fluxo de caixa duas vezes. Mandar `null` em vez de
+          // omitir o campo também conserta a linha que já tenha sido salva com
+          // banco antes de a trava existir.
+          banco_id: form.adiantamento_id != null ? null : (form.banco_id ?? null),
           nomepagador: form.nomepagador || null,
           cpfcnpjpagador: form.cpfcnpjpagador || null,
           // `pendente` fica de fora: a rota recusa alterá-lo, e mandar o valor

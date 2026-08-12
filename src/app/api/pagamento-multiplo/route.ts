@@ -137,12 +137,20 @@ export async function POST(req: NextRequest) {
         tipo_documento: tipoDocumento,
         modo,
         valor_total: valorEmCentavos / 100,
+        // O líquido é o que entra no banco depois da taxa; o valor é o que o
+        // cliente deve. Sem este campo a taxa não fica registrada em lugar nenhum.
+        valor_liquido: (paraCentavos(body?.valorLiquido) || valorEmCentavos) / 100,
         data: dataIso,
         banco_id: modo === "AVISTA" ? bancoId : null,
         metodopagamento: String(body?.metodoPagamento ?? "").trim() || null,
         descricao: String(body?.descricao ?? "").trim() || null,
         categoria: String(body?.categoria ?? "").trim() || null,
         categoria_id: body?.categoriaId ?? null,
+        // Pagador escolhido na tela. Quando não vem, a RPC assume o cliente dos
+        // documentos se todos forem o mesmo — e "Diversos" quando não forem.
+        cliente_id: body?.clienteId ?? null,
+        nomepagador: String(body?.nomePagador ?? "").trim() || null,
+        cpfcnpjpagador: String(body?.cpfCnpjPagador ?? "").trim() || null,
         plano_de_conta_id: body?.planoDeContaId ?? null,
         centro_custo_id: body?.centroCustoId ?? null,
         created_by: createdBy,

@@ -35,6 +35,7 @@ import {
 import { formatPaymentMethodLabel } from "@/lib/payment-methods";
 import { valorDeFace } from "@/lib/financeiro/transacao";
 import type { ResumoFinanceiroOs } from "@/lib/ordens/financeiro";
+import { ClienteResumoCard } from "@/components/cliente/cliente-resumo-card";
 
 interface OsContentProps {
   osId: number;
@@ -648,13 +649,11 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
 
             <TabsContent value="detalhes" className="mt-0 space-y-3">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-12">
-                <div className="rounded-lg border bg-card p-4 xl:col-span-4">
-                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Cliente</span>
-                  <p className="mt-1 text-sm font-medium">{ordem.cliente?.nome || ordem.cliente?.nomerazaosocial || "-"}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {ordem.cliente?.telefone || ordem.cliente?.email || "Sem contato"}
-                  </p>
-                </div>
+                <ClienteResumoCard
+                  cliente={ordem.cliente}
+                  className="xl:col-span-4"
+                  onClienteAtualizado={() => handleGetOrdem(ordem.id, { silent: true })}
+                />
                 <div className="rounded-lg border bg-card p-4 xl:col-span-4">
                   <span className="text-[11px] uppercase tracking-wide text-muted-foreground">OS</span>
                   <p className="mt-1 text-sm font-medium">{ordem.status || "-"}</p>

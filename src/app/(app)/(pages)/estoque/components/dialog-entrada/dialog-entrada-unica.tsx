@@ -1,19 +1,10 @@
 "use client";
 
-import { useIsMobile } from "@/app/(app)/hooks/use-mobile";
 import FornecedorSelect from "@/app/(app)/components/fornecedorSelect";
 import { Button } from "@/components/ui/button";
 import {
-  Drawer,
-  DrawerContent,
-  DrawerDescription,
-  DrawerFooter,
-  DrawerHeader,
-  DrawerTitle,
-  DrawerTrigger,
-} from "@/components/ui/drawer";
-import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -76,7 +67,6 @@ export default function DialogEntrada({
 }: DialogEntradaProps) {
   const [newQtd, setNewQtd] = useState(0);
   const [value, setValue] = useState(0);
-  const isMobile = useIsMobile();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [openFornecedor, setOpenFornecedor] = useState(false);
   const [selectedFornecedor, setSelectedFornecedor] = useState<Fornecedor | undefined>(undefined);
@@ -340,7 +330,7 @@ export default function DialogEntrada({
           type="button"
           size="icon"
           variant="outline"
-          className="sm:hidden shrink-0"
+          className="size-12 shrink-0 sm:hidden"
           onClick={() => setNewQtd((atual) => Math.max(0, (Number.isFinite(atual) ? atual : 0) - 1))}
           disabled={newQtd <= 0}
           aria-label="Diminuir quantidade"
@@ -361,7 +351,7 @@ export default function DialogEntrada({
           type="button"
           size="icon"
           variant="outline"
-          className="sm:hidden shrink-0"
+          className="size-12 shrink-0 sm:hidden"
           onClick={() => setNewQtd((atual) => (Number.isFinite(atual) ? atual : 0) + 1)}
           aria-label="Aumentar quantidade"
         >
@@ -425,7 +415,7 @@ export default function DialogEntrada({
             type="button"
             variant="ghost"
             size="icon"
-            className="h-10 w-10 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            className="size-12 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive sm:size-10"
             onClick={() => setSelectedFornecedor(undefined)}
             aria-label="Remover fornecedor selecionado"
           >
@@ -495,7 +485,8 @@ export default function DialogEntrada({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="text-destructive"
+                    className="size-12 text-destructive sm:size-9"
+                    aria-label={`Remover parcela ${index + 1}`}
                     onClick={() => {
                       if (parcelas.length === 1) return toast.error("Mantenha ao menos uma parcela.");
                       setParcelas((current) => current.filter((_, itemIndex) => itemIndex !== index));
@@ -507,6 +498,7 @@ export default function DialogEntrada({
                     <Label>Vencimento</Label>
                     <DatePicker
                       value={parcela.dataVencimento ?? ""}
+                      className="min-h-12 sm:min-h-9"
                       onChange={(date) => setParcelas((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, dataVencimento: date || undefined } : item))}
                     />
                   </div>
@@ -546,7 +538,7 @@ export default function DialogEntrada({
   );
 
   const corpo = (
-    <div className="space-y-5 rounded-2xl border bg-card p-4">
+    <div className="space-y-5 rounded-2xl border bg-card p-3 sm:p-4">
       {saldoPanel}
       {tipoField}
       {quantidadeField}
@@ -559,8 +551,9 @@ export default function DialogEntrada({
 
   const botaoRegistrar = (
     <Button
+      type="button"
       onClick={handleCreateEntrada}
-      className="hover:cursor-pointer"
+      className="min-h-12 w-full bg-emerald-600 text-white hover:cursor-pointer hover:bg-emerald-700 sm:min-h-9 sm:w-auto"
       disabled={isSubmitting || !entradaValida}
     >
       {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PackagePlus className="mr-2 h-4 w-4" />}
@@ -569,54 +562,6 @@ export default function DialogEntrada({
   );
 
   const titulo = `Entrada de ${inventory === "usoconsumo" ? "uso/consumo" : "estoque"}`;
-
-  if (isMobile) {
-    return (
-      <Drawer
-        open={isOpen}
-        onOpenChange={(nextOpen) => {
-          if (isSubmitting) return;
-          setIsOpen?.(nextOpen);
-          if (!nextOpen) onCloseReset();
-        }}
-      >
-        <DrawerTrigger asChild>{children}</DrawerTrigger>
-        <FornecedorSelect
-          OnSelect={(fornecedor) => {
-            setSelectedFornecedor(fornecedor);
-            setOpenFornecedor(false);
-          }}
-          open={openFornecedor}
-          setOpen={setOpenFornecedor}
-        />
-        <DrawerContent className="h-[95dvh] max-h-[95dvh] overflow-hidden" onDoubleClick={(e) => e.stopPropagation()}>
-          <div className="mx-auto flex h-full min-h-0 w-full max-w-sm flex-col overflow-hidden">
-            <DrawerHeader className="border-b px-4 py-3">
-              <DrawerTitle className="flex items-center gap-2">
-                <PackagePlus className="h-5 w-5 text-emerald-600" />
-                {titulo}
-              </DrawerTitle>
-              <DrawerDescription>{productDescription}</DrawerDescription>
-            </DrawerHeader>
-
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">{corpo}</div>
-
-            <DrawerFooter className="flex flex-row items-center justify-end gap-2">
-              <Button
-                variant="outline"
-                onClick={() => setIsOpen?.(false)}
-                disabled={isSubmitting}
-                className="hover:cursor-pointer"
-              >
-                Cancelar
-              </Button>
-              {botaoRegistrar}
-            </DrawerFooter>
-          </div>
-        </DrawerContent>
-      </Drawer>
-    );
-  }
 
   return (
     <Dialog
@@ -627,7 +572,7 @@ export default function DialogEntrada({
         if (!nextOpen) onCloseReset();
       }}
     >
-      <DialogTrigger asChild>{children}</DialogTrigger>
+      {children ? <DialogTrigger asChild>{children}</DialogTrigger> : null}
       <FornecedorSelect
         OnSelect={(fornecedor) => {
           setSelectedFornecedor(fornecedor);
@@ -637,33 +582,50 @@ export default function DialogEntrada({
         setOpen={setOpenFornecedor}
       />
       <DialogContent
-        className="flex max-h-[90dvh] flex-col overflow-hidden sm:max-w-[520px]"
-        showCloseButton={!isSubmitting}
+        showCloseButton={false}
+        className="left-0 top-0 flex h-dvh w-screen max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 p-0 shadow-none motion-reduce:animate-none motion-reduce:duration-0 sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[min(44rem,calc(100dvh-2rem))] sm:w-full sm:max-w-[520px] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:border sm:shadow-lg"
         onDoubleClick={(e) => e.stopPropagation()}
         onEscapeKeyDown={(event) => isSubmitting && event.preventDefault()}
         onInteractOutside={(event) => isSubmitting && event.preventDefault()}
       >
-        <DialogHeader className="shrink-0">
+        <DialogClose asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Fechar entrada"
+            disabled={isSubmitting}
+            className="absolute right-2 top-[max(0.5rem,env(safe-area-inset-top))] z-20 size-12 sm:right-4 sm:top-4 sm:size-9"
+          >
+            <X aria-hidden="true" />
+          </Button>
+        </DialogClose>
+
+        <DialogHeader className="shrink-0 border-b bg-background px-4 pb-4 pr-16 pt-[max(1rem,env(safe-area-inset-top))] text-left sm:px-6 sm:py-4 sm:pr-14">
           <DialogTitle className="flex items-center gap-2">
-            <PackagePlus className="h-5 w-5 text-emerald-600" />
+            <PackagePlus className="h-5 w-5 text-emerald-600" aria-hidden="true" />
             {titulo}
           </DialogTitle>
-          <DialogDescription className="truncate" title={productDescription}>
+          <DialogDescription className="line-clamp-2 text-left" title={productDescription}>
             {productDescription}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">{corpo}</div>
+        <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain bg-muted/20 px-4 py-4 [-webkit-overflow-scrolling:touch] sm:px-6 [&_input]:min-h-12 [&_[data-slot=button]]:min-h-12 [&_[data-slot=select-trigger]]:min-h-12 sm:[&_input]:min-h-9 sm:[&_[data-slot=button]]:min-h-9 sm:[&_[data-slot=select-trigger]]:min-h-9">
+          {corpo}
+        </div>
 
-        <DialogFooter className="shrink-0">
-          <Button
-            variant="outline"
-            onClick={() => setIsOpen?.(false)}
-            disabled={isSubmitting}
-            className="hover:cursor-pointer"
-          >
-            Cancelar
-          </Button>
+        <DialogFooter className="shrink-0 flex-col gap-2 border-t bg-background px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:flex-row sm:px-6 sm:py-4">
+          <DialogClose asChild>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isSubmitting}
+              className="min-h-12 w-full hover:cursor-pointer sm:min-h-9 sm:w-auto"
+            >
+              Cancelar
+            </Button>
+          </DialogClose>
           {botaoRegistrar}
         </DialogFooter>
       </DialogContent>

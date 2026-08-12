@@ -2,6 +2,7 @@
 export const runtime = "nodejs";
 
 import { NextResponse, NextRequest } from "next/server";
+import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireFinanceiroDelete, requireFinanceiroEdit, requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { respostaSeEdicaoBloqueada } from "@/app/api/transaction/_lib/edicao";
@@ -366,6 +367,7 @@ async function validarEdicaoDeTransacao(id: string, body: any) {
     body?.valorLiquido !== undefined ||
     body?.tipo !== undefined ||
     body?.pendente !== undefined ||
+    body?.banco_id !== undefined ||
     body?.ordemservicoid !== undefined ||
     body?.vendaid !== undefined;
 
@@ -374,7 +376,7 @@ async function validarEdicaoDeTransacao(id: string, body: any) {
   const { data: atual, error } = await supabaseAdmin
     .from("transacao")
     .select(
-      "valor, tipo, pendente, ordemservicoid, vendaid, entrada_id, usoconsumo_entrada_id",
+      "valor, tipo, pendente, ordemservicoid, vendaid, entrada_id, usoconsumo_entrada_id, adiantamento_id",
     )
     .eq("id", id)
     .eq("is_deleted", false)
@@ -383,6 +385,29 @@ async function validarEdicaoDeTransacao(id: string, body: any) {
   if (error) throw error;
   if (!atual) {
     return NextResponse.json({ error: "Transação não encontrada." }, { status: 404 });
+  }
+
+  /*
+   * Título antecipado não tem banco, e isso não é campo esquecido.
+   *
+   * Quem trouxe o dinheiro foi a transação de antecipação — ela carrega o banco e
+   * o valor. A parcela fica quitada e sem conta justamente para não aparecer no
+   * fluxo de caixa ao lado dela, somando o mesmo dinheiro duas vezes. Como "sem
+   * banco" parece erro para quem escolheu um banco no adiantamento, este era o
+   * caminho fácil de dobrar o saldo sem nenhum aviso na tela.
+   *
+   * Limpar o banco continua livre: é o estado correto, e o conserto de uma linha
+   * já gravada errada passa por aqui.
+   */
+  if (body?.banco_id !== undefined && atual.adiantamento_id != null) {
+    if (toBigIntStringOrNull(body.banco_id) != null) {
+      return NextResponse.json(
+        {
+          error: `Este título foi liquidado pela antecipação #${atual.adiantamento_id}: o dinheiro entrou por ela, e o banco fica nela. Dar banco ao título o faria aparecer no fluxo de caixa duas vezes.`,
+        },
+        { status: 400 },
+      );
+    }
   }
 
   /*
@@ -659,12 +684,28 @@ export async function DELETE(_: Request, ctx: Params) {
         .eq("is_deleted", false);
 
       if ((count ?? 0) > 0) {
-        return NextResponse.json(
+        // Excluir a antecipação e reabrir os títulos é uma coisa só: metade
+        // gravada deixaria título quitado sem origem, ou dinheiro no caixa sem
+        // contrapartida. Por isso a operação inteira vive no banco.
+        const sessao = await auth().catch(() => null);
+        const { data, error: desfazerError } = await supabaseAdmin.rpc(
+          "desfazer_adiantamento",
           {
-            error: `Esta antecipação liquidou ${count} título(s). Excluí-la deixaria esses títulos pagos por um dinheiro que não existe mais.`,
+            p_id: id,
+            p_deleted_by: (sessao?.user as { id?: string } | undefined)?.id ?? null,
           },
-          { status: 409 },
         );
+
+        if (desfazerError) {
+          const status = desfazerError.code === "P0002" ? 404 : 409;
+          return NextResponse.json({ error: desfazerError.message }, { status });
+        }
+
+        return NextResponse.json({
+          ok: true,
+          desfezAdiantamento: true,
+          titulosRevertidos: Number((data as any)?.titulos_revertidos ?? 0),
+        });
       }
     }
 

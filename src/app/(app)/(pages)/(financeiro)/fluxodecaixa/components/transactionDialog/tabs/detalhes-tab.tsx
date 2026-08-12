@@ -204,6 +204,16 @@ export function DetalhesTab({
   const { gruposPlanosDeConta, loadingPlanos } = usePlanosDeConta();
   const { centrosCusto, loadingCentrosCusto, errorCentrosCusto } = useCentrosCusto();
 
+  /**
+   * A antecipação que liquidou este título, quando há uma.
+   *
+   * O banco dela é o único que existe nessa operação: a parcela é baixada sem
+   * conta para não entrar no fluxo de caixa junto com o lançamento que a pagou.
+   * O campo fica travado porque escolher um banco aqui dobrava o saldo em
+   * silêncio — o servidor recusa, e a tela precisa dizer por quê antes.
+   */
+  const antecipadoPor = form.adiantamento_id ?? null;
+
   const rotuloLancamentoFuturo =
     form.tipo === Tipo_transacao.RECEITA
       ? "LANÇAMENTO A RECEBER"
@@ -361,9 +371,14 @@ export function DetalhesTab({
         />
 
         <div className="w-full space-y-2">
-          <Label htmlFor="banco">Banco</Label>
+          <Label htmlFor="banco" className="flex items-center gap-1.5">
+            Banco
+            {antecipadoPor != null ? (
+              <Lock className="h-3 w-3 text-muted-foreground" aria-hidden />
+            ) : null}
+          </Label>
           <SearchCombobox
-            disabled={!editavel || !!errorBancos}
+            disabled={!editavel || !!errorBancos || antecipadoPor != null}
             loading={loadingBancos}
             value={form.banco_id?.toString() || ""}
             onValueChange={(valor) => {
@@ -389,6 +404,14 @@ export function DetalhesTab({
               searchText: `${banco.proprietario ?? ""} ${banco.tipo ?? ""}`,
             }))}
           />
+          {antecipadoPor != null ? (
+            <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+              <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
+              Sem banco de propósito: o dinheiro entrou pela antecipação #
+              {antecipadoPor}, e é ela que carrega a conta. Preencher aqui faria o
+              mesmo valor aparecer duas vezes no fluxo de caixa.
+            </p>
+          ) : null}
         </div>
 
         <div className="w-full space-y-2">

@@ -23,6 +23,18 @@ export type Cliente = {
   telefone?: string | null;
   email?: string | null;
   documento?: string | null; // CPF/CNPJ
+  // A rota /api/ordens/[id] devolve a linha completa do cliente.
+  tipopessoa?: string | null;
+  cpfcnpj?: string | null;
+  endereco?: string | null;
+  endereconumero?: string | null;
+  enderecocomplemento?: string | null;
+  bairro?: string | null;
+  cidade?: string | null;
+  estado?: string | null;
+  cep?: string | null;
+  status?: string | null;
+  rank?: string | null;
 };
 
 export type Veiculo = {

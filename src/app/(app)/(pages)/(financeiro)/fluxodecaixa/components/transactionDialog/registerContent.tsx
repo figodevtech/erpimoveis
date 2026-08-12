@@ -58,6 +58,8 @@ import {
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  categoriaDoPagamentoMultiplo,
+  clienteUnicoDoPagamento,
   ContextoPagamentoMultiplo,
   PreviaDoRateio,
 } from "@/app/(app)/(pages)/(financeiro)/components/pagamento-multiplo";
@@ -202,18 +204,51 @@ export default function RegisterContent({
   const { centrosCusto, loadingCentrosCusto, errorCentrosCusto } = useCentrosCusto();
   const { tiposDocumento, loadingTiposDocumento, errorTiposDocumento } =
     useTiposDocumento();
+  // Pagamento múltiplo é sempre entrada de dinheiro de OS ou venda: tipo,
+  // categoria e descrição saem dos documentos marcados e o formulário só os
+  // exibe. A despesa interna continua sendo o único caso de DESPESA travada.
+  const tipoTravado = pagamentoMultiplo
+    ? Tipo_transacao.RECEITA
+    : internalCompanyExpense
+      ? Tipo_transacao.DESPESA
+      : Tipo_transacao.RECEITA;
+  const categoriaTravadaMultiplo = pagamentoMultiplo
+    ? categoriaDoPagamentoMultiplo(pagamentoMultiplo.tipoDocumento)
+    : null;
   const metodoPermiteParcelas =
     newTransaction.metodopagamento === Metodo_pagamento.BOLETO ||
     newTransaction.metodopagamento === Metodo_pagamento.CREDITO;
   const canManageParcelas = metodoPermiteParcelas && !!newTransaction.pendente;
-  const valorTotalParcelamento = isChecked
-    ? (newTransaction.valorLiquido ?? newTransaction.valor ?? 0)
-    : (newTransaction.valor ?? 0);
+  /**
+   * O que abate os documentos é o valor cobrado, não o que sobra depois da taxa
+   * da adquirente.
+   *
+   * No pagamento múltiplo o parcelamento saía sobre o líquido: com R$ 310,05
+   * cobrados e R$ 300,00 líquidos, só R$ 300,00 eram distribuídos entre
+   * documentos que somavam R$ 310,05 — os dois ficavam parcialmente pagos e
+   * nenhum quitava. A taxa é custo da empresa; a dívida do cliente é o valor
+   * cheio, e é ele que precisa ser parcelado, previsto e rateado.
+   */
+  const valorTotalParcelamento = pagamentoMultiplo
+    ? (newTransaction.valor ?? 0)
+    : isChecked
+      ? (newTransaction.valorLiquido ?? newTransaction.valor ?? 0)
+      : (newTransaction.valor ?? 0);
+  const valorRateado = valorTotalParcelamento;
+  const liquidoDoPagamento = isChecked
+    ? (newTransaction.valorLiquido ?? valorRateado)
+    : valorRateado;
   const nomeMetodoParcelado =
     newTransaction.metodopagamento === Metodo_pagamento.CREDITO
       ? "crédito"
       : "boleto";
-  const canUseMesmoCliente = Boolean(osId || vendaId) && !internalCompanyExpense;
+  // No pagamento múltiplo só existe "o mesmo cliente" quando todos os documentos
+  // marcados são dele; com clientes misturados não há pagador óbvio a propor.
+  const clienteUnicoMultiplo = pagamentoMultiplo
+    ? clienteUnicoDoPagamento(pagamentoMultiplo.documentos)
+    : null;
+  const canUseMesmoCliente =
+    (Boolean(osId || vendaId) || clienteUnicoMultiplo != null) && !internalCompanyExpense;
 
   const handleChange = (
     field: keyof NewTransaction,
@@ -254,6 +289,29 @@ export default function RegisterContent({
     }
 
     try {
+      // Todos os documentos do grupo são do mesmo cliente: qualquer um deles
+      // responde quem é o pagador, e o primeiro serve.
+      if (pagamentoMultiplo && clienteUnicoMultiplo != null) {
+        const primeiro = pagamentoMultiplo.documentos[0];
+        const rota =
+          pagamentoMultiplo.tipoDocumento === "OS"
+            ? `/api/ordens/${primeiro.id}`
+            : `/api/venda/${primeiro.id}`;
+        const response = await axios.get(rota);
+        const cliente =
+          response.data?.cliente ?? response.data?.os?.cliente ?? response.data?.data?.cliente;
+        if (!cliente?.id) return undefined;
+
+        const transactionCustomer = {
+          id: cliente.id,
+          nome: cliente.nomerazaosocial ?? cliente.nome ?? "",
+          cpfcnpj: cliente.cpfcnpj ?? "",
+        };
+
+        setClienteMesmoCache(transactionCustomer);
+        return transactionCustomer;
+      }
+
       if (osId) {
         const response = await axios.get(`/api/ordens/${osId}`);
         const cliente = response.data?.cliente ?? response.data?.os?.cliente;
@@ -550,7 +608,7 @@ export default function RegisterContent({
 
         if (somaParcelas !== valorTotal) {
           toast.error(
-            isChecked
+            isChecked && !pagamentoMultiplo
               ? "A soma das parcelas deve ser igual ao valor líquido."
               : "A soma das parcelas deve ser igual ao valor total.",
           );
@@ -570,7 +628,8 @@ export default function RegisterContent({
         const resposta = await axios.post("/api/pagamento-multiplo", {
           tipoDocumento: pagamentoMultiplo.tipoDocumento,
           documentoIds: pagamentoMultiplo.documentos.map((documento) => documento.id),
-          valor: valorTotalParcelamento,
+          valor: valorRateado,
+          valorLiquido: liquidoDoPagamento,
           modo: canManageParcelas && parcelasDetalhadas.length > 1 ? "PARCELADO" : "AVISTA",
           parcelas: parcelasDetalhadas.length || 1,
           primeiroVencimento: dataParaDia(parcelasDetalhadas[0]?.dataVencimento),
@@ -582,6 +641,9 @@ export default function RegisterContent({
           descricao: newTransaction.descricao ?? null,
           categoria: newTransaction.categoria ?? null,
           categoriaId: newTransaction.categoria_id ?? null,
+          clienteId: newTransaction.cliente_id ?? null,
+          nomePagador: newTransaction.nomepagador ?? null,
+          cpfCnpjPagador: newTransaction.cpfcnpjpagador ?? null,
           planoDeContaId: newTransaction.plano_de_conta_id ?? null,
           centroCustoId: newTransaction.centro_custo_id ?? null,
         });
@@ -786,29 +848,17 @@ export default function RegisterContent({
                   <Label htmlFor="tipo">
                     Tipo <span className="text-red-500">*</span>
                   </Label>
-                  {osId || vendaId ? (
+                  {osId || vendaId || pagamentoMultiplo ? (
                     <Select
                       disabled
-                      value={
-                        internalCompanyExpense
-                          ? Tipo_transacao.DESPESA
-                          : Tipo_transacao.RECEITA
-                      }
+                      value={tipoTravado}
                       onValueChange={(v) => handleChange("tipo", v)}
                     >
                       <SelectTrigger className="w-full">
                         <SelectValue placeholder="Selecione" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem
-                          value={
-                            internalCompanyExpense
-                              ? Tipo_transacao.DESPESA
-                              : Tipo_transacao.RECEITA
-                          }
-                        >
-                          {internalCompanyExpense ? "DESPESA" : "RECEITA"}
-                        </SelectItem>
+                        <SelectItem value={tipoTravado}>{tipoTravado}</SelectItem>
                       </SelectContent>
                     </Select>
                   ) : (
@@ -890,12 +940,16 @@ export default function RegisterContent({
                   </div>
                 </div>
 
-                <div className="hidden space-y-2 w-full col-span-full">
+                {/* Continua oculto no fluxo comum; no pagamento múltiplo aparece
+                    travado, porque é onde ficam registrados os documentos pagos. */}
+                <div
+                  className={`${pagamentoMultiplo ? "" : "hidden"} space-y-2 w-full col-span-full`}
+                >
                   <Label htmlFor="descricao">
                     Descrição <span className="text-red-500">*</span>
                   </Label>
                   <Input
-                    disabled={osId || vendaId ? true : false}
+                    disabled={osId || vendaId || pagamentoMultiplo ? true : false}
                     id="descricao"
                     value={newTransaction.descricao || ""}
                     onChange={(e) => handleChange("descricao", e.target.value)}
@@ -1027,7 +1081,23 @@ export default function RegisterContent({
                 </div>
                 <div className="space-y-2 w-full">
                   <Label htmlFor="categoria-topo">Categoria</Label>
-                  {osId && !internalCompanyExpense && (
+                  {categoriaTravadaMultiplo && (
+                    <Select
+                      disabled
+                      value={categoriaTravadaMultiplo}
+                      onValueChange={(v) => handleChange("categoria", v)}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Selecione" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={categoriaTravadaMultiplo}>
+                          {categoriaTravadaMultiplo}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {!pagamentoMultiplo && osId && !internalCompanyExpense && (
                     <Select
                       disabled
                       value={newTransaction.categoria}
@@ -1037,13 +1107,13 @@ export default function RegisterContent({
                         <SelectValue placeholder="Selecione" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="ORDEM DE SERVIÃ‡O">
-                          ORDEM DE SERVIÃ‡O
+                        <SelectItem value="ORDEM DE SERVIÇO">
+                          ORDEM DE SERVIÇO
                         </SelectItem>
                       </SelectContent>
                     </Select>
                   )}
-                  {vendaId && (
+                  {!pagamentoMultiplo && vendaId && (
                     <Select
                       disabled
                       value={newTransaction.categoria}
@@ -1057,7 +1127,8 @@ export default function RegisterContent({
                       </SelectContent>
                     </Select>
                   )}
-                  {((!osId && !vendaId) || (osId && internalCompanyExpense)) && (
+                  {!pagamentoMultiplo &&
+                    ((!osId && !vendaId) || (osId && internalCompanyExpense)) && (
                     <SearchCombobox
                       disabled={loadingCategorias || !!errorCategorias}
                       loading={loadingCategorias}

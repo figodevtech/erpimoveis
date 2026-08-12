@@ -90,7 +90,7 @@ export async function GET(_: Request, { params }: Params) {
     const { data: transacao, error: transacaoError } = await supabaseAdmin
       .from("transacao")
       .select(
-        "id, descricao, valor, data, tipo, pendente, created_at, updated_at, created_by, updated_by, baixado_por, cliente_id, fornecedor_id, ordemservicoid, vendaid, evento_financeiro_id",
+        "id, descricao, valor, data, tipo, pendente, created_at, updated_at, created_by, updated_by, baixado_por, cliente_id, fornecedor_id, ordemservicoid, vendaid, evento_financeiro_id, pagamento_multiplo_id",
       )
       .eq("id", id)
       .eq("is_deleted", false)
@@ -202,6 +202,22 @@ export async function GET(_: Request, { params }: Params) {
           href: `/print/venda/${venda.id}/orcamento`,
         };
       }
+    } else if (transacao.pagamento_multiplo_id != null) {
+      // Pagamento múltiplo: a transação não aponta para documento nenhum porque
+      // cobre vários. As irmãs são as outras parcelas do mesmo grupo, e aqui o
+      // vínculo é exato — não depende da heurística de descrição usada no
+      // parcelamento avulso.
+      const { data: irmas, error: irmasError } = await supabaseAdmin
+        .from("transacao")
+        .select(RELACIONADA_FIELDS)
+        .eq("pagamento_multiplo_id", transacao.pagamento_multiplo_id)
+        .eq("is_deleted", false)
+        .order("data", { ascending: true })
+        .order("id", { ascending: true });
+
+      if (irmasError) throw irmasError;
+      relacionadas = irmas ?? [];
+      if (relacionadas.length > 1) origem = "PARCELAMENTO";
     } else if (SUFIXO_PARCELA.test(String(transacao.descricao ?? ""))) {
       // Parcelamento avulso: nao existe coluna que agrupe as parcelas. As linhas
       // nascem de um unico insert, entao compartilham `created_at` exato e a mesma
@@ -220,6 +236,65 @@ export async function GET(_: Request, { params }: Params) {
 
       if (itensError) throw itensError;
       relacionadas = itens ?? [];
+    }
+
+    /* ---------- Pagamento múltiplo ---------- */
+
+    // Quais documentos este recebimento quitou, e quanto coube a cada um. É a
+    // única resposta possível para "o que foi baixado com este dinheiro": a
+    // transação sozinha não sabe, porque cobre vários documentos.
+    let pagamentoMultiplo: Record<string, any> | null = null;
+
+    if (transacao.pagamento_multiplo_id != null) {
+      const grupoId = Number(transacao.pagamento_multiplo_id);
+      const [{ data: grupo }, { data: rateio, error: rateioError }] = await Promise.all([
+        supabaseAdmin
+          .from("pagamento_multiplo")
+          .select("id, descricao, modo, tipo_documento, valor_total, data")
+          .eq("id", grupoId)
+          .maybeSingle(),
+        supabaseAdmin
+          .from("pagamento_multiplo_rateio")
+          .select("transacao_id, tipo_documento, documento_id, valor")
+          .eq("pagamento_multiplo_id", grupoId)
+          .order("documento_id", { ascending: true }),
+      ]);
+      if (rateioError) throw rateioError;
+
+      const linhas = rateio ?? [];
+      const desteLancamento = linhas.filter(
+        (linha: any) => Number(linha.transacao_id) === id,
+      );
+      // Numa parcela, o rateio dela; num pagamento à vista dá no mesmo, porque só
+      // existe uma transação no grupo.
+      const documentos = (desteLancamento.length > 0 ? desteLancamento : linhas).map(
+        (linha: any) => ({
+          tipo: String(linha.tipo_documento) === "OS" ? "OS" : "VENDA",
+          id: Number(linha.documento_id),
+          valor: Number(linha.valor ?? 0),
+          href:
+            String(linha.tipo_documento) === "OS"
+              ? `/print/ordemservico/${linha.documento_id}`
+              : `/print/venda/${linha.documento_id}/orcamento`,
+        }),
+      );
+
+      const parcelas = new Set(linhas.map((linha: any) => Number(linha.transacao_id))).size;
+
+      pagamentoMultiplo = {
+        id: grupoId,
+        descricao: grupo?.descricao ?? null,
+        modo: String(grupo?.modo ?? "AVISTA"),
+        tipoDocumento: String(grupo?.tipo_documento ?? "OS") === "OS" ? "OS" : "VENDA",
+        valorTotal: Number(grupo?.valor_total ?? 0),
+        data: grupo?.data ?? null,
+        parcelas,
+        documentos,
+        valorDesteLancamento: documentos.reduce(
+          (total: number, documento: any) => total + documento.valor,
+          0,
+        ),
+      };
     }
 
     /* ---------- Cliente / fornecedor ---------- */
@@ -287,6 +362,7 @@ export async function GET(_: Request, { params }: Params) {
       cliente: cliente ?? null,
       fornecedor: fornecedor ?? null,
       vinculo,
+      pagamentoMultiplo,
       baixa: baixa
         ? { ...baixa, baixadoPor: autor(baixa.baixado_por) }
         : null,

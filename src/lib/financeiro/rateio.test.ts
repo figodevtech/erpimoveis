@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   RateioInvalidoError,
+  distribuirIgualmenteEmCentavos,
   distribuirPorPesos,
   distribuirValoresIguais,
   paraCentavos,
@@ -226,6 +227,26 @@ test("cada documento fecha na própria fatia, parcela a parcela", () => {
 
   assert.equal(porDocumento(1), 10_000);
   assert.equal(porDocumento(2), 10_001);
+});
+
+test("cada parcela vale o que o parcelamento da tela mostrou", () => {
+  // O caso real: R$ 310,05 em 2x entre uma venda de R$ 300,00 e outra de R$
+  // 10,05. A tela emitiu títulos de 155,03 e 155,02 (distribuirIgualmenteEmCentavos);
+  // o rateio precisa somar exatamente isso em cada parcela, senão o título
+  // gerado vale diferente do combinado com o cliente.
+  const linhas = ratearEmParcelas([doc(1, 30_000), doc(2, 1_005)], 31_005, 2);
+  const esperado = distribuirIgualmenteEmCentavos(31_005, 2);
+
+  for (const [indice, totalDaParcela] of esperado.entries()) {
+    const somaDaParcela = somaDasFatias(
+      linhas.filter((linha) => linha.parcela === indice + 1),
+    );
+    assert.equal(somaDaParcela, totalDaParcela);
+  }
+
+  // E sem tirar centavo de documento nenhum.
+  assert.equal(somaDasFatias(linhas.filter((linha) => linha.id === 1)), 30_000);
+  assert.equal(somaDasFatias(linhas.filter((linha) => linha.id === 2)), 1_005);
 });
 
 test("numera as parcelas a partir de 1, na ordem", () => {

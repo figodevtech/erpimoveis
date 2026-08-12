@@ -784,25 +784,39 @@ export function EntradaFiscalDialog({
         }}
       >
         <DialogContent
-          className="h-[600px] overflow-hidden p-0"
+          showCloseButton={false}
+          className="left-0 top-0 h-dvh w-screen max-w-none translate-x-0 translate-y-0 gap-0 overflow-hidden rounded-none border-0 p-0 shadow-none motion-reduce:animate-none motion-reduce:duration-0 sm:left-1/2 sm:top-1/2 sm:h-[min(850px,calc(100dvh-2rem))] sm:w-[95vw] sm:max-w-5xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:border sm:shadow-lg"
           onDoubleClick={(evento) => evento.stopPropagation()}
         >
+          <DialogClose asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="Fechar entrada por nota fiscal"
+              disabled={submitting}
+              className="absolute right-2 top-[max(0.5rem,env(safe-area-inset-top))] z-20 size-12 sm:right-4 sm:top-4 sm:size-9"
+            >
+              <X aria-hidden="true" />
+            </Button>
+          </DialogClose>
+
           <div className="flex h-full min-h-0 flex-col">
-            <DialogHeader className="shrink-0 border-b px-6 py-4">
+            <DialogHeader className="shrink-0 border-b bg-background px-4 pb-4 pr-16 pt-[max(1rem,env(safe-area-inset-top))] text-left sm:px-6 sm:py-4 sm:pr-14">
               <DialogTitle>Entrada por Nota Fiscal</DialogTitle>
-              <DialogDescription className="text-xs">
+              <DialogDescription className="text-xs leading-relaxed">
                 Cada item da nota vai para o estoque de revenda ou para uso e
                 consumo.
               </DialogDescription>
             </DialogHeader>
 
             {carregandoNota ? (
-              <div className="flex h-full min-h-0 items-center justify-center gap-2 bg-muted px-6 py-10 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
+              <div className="flex min-h-0 flex-1 items-center justify-center gap-2 bg-muted px-4 py-8 text-sm text-muted-foreground sm:px-6 sm:py-10">
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                 Carregando nota fiscal...
               </div>
             ) : !parsed ? (
-              <div className="relative h-full min-h-0 space-y-2 overflow-auto bg-muted px-6 py-10 dark:bg-muted-foreground/5">
+              <div className="relative min-h-0 flex-1 space-y-2 overflow-x-hidden overflow-y-auto overscroll-contain bg-muted px-4 py-6 [-webkit-overflow-scrolling:touch] dark:bg-muted-foreground/5 sm:px-6 sm:py-10">
                 <BotaoNf
                   file={file}
                   setFile={setFile}
@@ -810,31 +824,37 @@ export function EntradaFiscalDialog({
                 />
               </div>
             ) : (
-              <div className="relative h-full min-h-0 space-y-2 overflow-auto bg-muted/60 px-6 py-10">
-                <div className="inline-flex items-center gap-2 rounded-md bg-muted px-2 py-1">
+              <div className="relative min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto overscroll-contain bg-muted/60 px-4 py-4 [-webkit-overflow-scrolling:touch] sm:px-6 sm:py-6 [&_input]:min-h-12 [&_[data-slot=button]]:min-h-12 [&_[data-slot=select-trigger]]:min-h-12 sm:[&_input]:min-h-9 sm:[&_[data-slot=button]]:min-h-9 sm:[&_[data-slot=select-trigger]]:min-h-9">
+                <div className="inline-flex min-h-12 items-center gap-1 rounded-md bg-muted py-1 pl-3 pr-1 sm:min-h-8">
                   <span className="text-xs text-muted-foreground">
                     1 nota selecionada
                   </span>
-                  <X
-                    className="h-4 w-4 cursor-pointer text-red-200 hover:text-red-400"
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Remover nota selecionada"
+                    className="size-10 text-destructive sm:size-7"
                     onClick={() => {
                       setFile(undefined);
                       receberNota(null);
                     }}
-                  />
+                  >
+                    <X className="h-4 w-4" aria-hidden="true" />
+                  </Button>
                 </div>
 
-                <Card className="mt-2 w-full max-w-full">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="flex items-center justify-between gap-2 text-base">
+                <Card className="w-full max-w-full gap-4 py-4 sm:py-6">
+                  <CardHeader className="px-4 pb-2 sm:px-6">
+                    <CardTitle className="flex flex-col items-start gap-3 text-base sm:flex-row sm:items-center sm:justify-between sm:gap-2">
                       <span>Dados da NF-e</span>
-                      <div className="flex items-center gap-2">
+                      <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
                         {parsed.documentoFiscalRecebidoId ? (
                           <Button
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="h-7 text-xs hover:cursor-pointer"
+                            className="min-h-12 text-xs hover:cursor-pointer sm:min-h-8"
                             onClick={() =>
                               window.open(
                                 `/nfe/${parsed.documentoFiscalRecebidoId}/danfe?origem=terceiros`,
@@ -847,7 +867,7 @@ export function EntradaFiscalDialog({
                             Ver DANFE
                           </Button>
                         ) : null}
-                        <Badge variant="outline">
+                        <Badge variant="outline" className="min-h-8">
                           NF nº {parsed.numeroNota || "—"}
                         </Badge>
                       </div>
@@ -856,13 +876,13 @@ export function EntradaFiscalDialog({
                       Informações identificadas a partir do XML enviado.
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-3 text-sm">
-                    <div className="flex items-start justify-between gap-3">
+                  <CardContent className="space-y-3 px-4 text-sm sm:px-6">
+                    <div className="flex flex-col items-stretch gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                       <div className="flex min-w-0 flex-1 flex-col space-y-1">
                         <p className="text-xs text-muted-foreground">
                           Fornecedor:
                         </p>
-                        <span className="max-w-[250px] text-wrap text-xs">
+                        <span className="max-w-full break-words text-xs sm:max-w-[250px]">
                           {parsed.emitente.nome ||
                             "Fornecedor não identificado"}
                         </span>
@@ -878,7 +898,7 @@ export function EntradaFiscalDialog({
                             <span>IE: {parsed.emitente.ie}</span>
                           ) : null}
                         </div>
-                        <div className="flex min-w-0 flex-row items-center gap-2">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
                           {parsed.fornecedorReferenteId ? (
                             <FornecedorSelect
                               open={fornecedorSelectOpen}
@@ -888,7 +908,7 @@ export function EntradaFiscalDialog({
                               <Button
                                 type="button"
                                 variant="ghost"
-                                className="h-auto min-w-0 max-w-[250px] justify-start gap-2 bg-muted px-2 py-1 text-left text-xs font-normal text-muted-foreground hover:bg-muted"
+                                className="min-h-12 min-w-0 max-w-full justify-start gap-2 bg-muted px-3 py-2 text-left text-xs font-normal text-muted-foreground hover:bg-muted sm:min-h-8 sm:max-w-[250px] sm:px-2 sm:py-1"
                               >
                                 <Building2 className="h-4 w-4 shrink-0" />
                                 <span className="min-w-0 truncate">
@@ -947,17 +967,21 @@ export function EntradaFiscalDialog({
                                 ativo: true,
                               }}
                             >
-                              <div
-                                className="rounded-full bg-primary/20 p-1.5 transition-all hover:cursor-pointer hover:bg-muted"
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                aria-label="Cadastrar fornecedor"
+                                className="size-12 rounded-full bg-primary/20 transition-all hover:cursor-pointer hover:bg-muted sm:size-9"
                                 title="Cadastrar fornecedor"
                               >
-                                <UserRoundPlus className="h-4 w-4" />
-                              </div>
+                                <UserRoundPlus className="h-4 w-4" aria-hidden="true" />
+                              </Button>
                             </FornecedorDialog>
                           ) : null}
                         </div>
                       </div>
-                      <div className="min-w-0 shrink-0 space-y-1 text-right text-xs text-muted-foreground">
+                      <div className="min-w-0 space-y-1 rounded-lg bg-muted/50 p-3 text-left text-xs text-muted-foreground sm:shrink-0 sm:bg-transparent sm:p-0 sm:text-right">
                         <div className="flex flex-col">
                           <span>Emissão:</span>
                           <span>
@@ -1036,19 +1060,19 @@ export function EntradaFiscalDialog({
                   </CardContent>
                 </Card>
 
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {parsed.itens.map((linha, indice) => {
                     const vinculando = vinculandoIndices.includes(indice);
                     const bloqueado = Boolean(linha.destinoApropriado);
                     return (
                       <div
                         key={`${linha.numeroItem}-${linha.codigo}`}
-                        className={`rounded-lg border p-4 text-xs not-dark:bg-white ${bloqueado ? "opacity-60" : ""}`}
+                        className={`min-w-0 rounded-xl border p-3 text-xs not-dark:bg-white sm:p-4 ${bloqueado ? "opacity-60" : ""}`}
                       >
                         <div className="space-y-2">
                           <div className="border-b pb-2">
-                            <div className="mb-2 flex flex-row items-center justify-between gap-2">
-                              <div className="flex min-w-0 items-center gap-2">
+                            <div className="mb-2 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
+                              <div className="flex min-w-0 flex-wrap items-center gap-2">
                                 <p className="font-semibold uppercase text-muted-foreground">
                                   Item {linha.numeroItem}
                                 </p>
@@ -1061,16 +1085,16 @@ export function EntradaFiscalDialog({
                                   </Badge>
                                 ) : null}
                               </div>
-                              <p className="shrink-0 font-bold">
+                              <p className="shrink-0 rounded-md bg-muted px-2 py-1 font-bold sm:bg-transparent sm:p-0">
                                 Total: {formatarEmReal(totalDaLinha(linha))}
                               </p>
                             </div>
-                            <p className="font-semibold text-muted-foreground">
+                            <p className="break-words font-semibold leading-relaxed text-muted-foreground">
                               {linha.descricao}
                             </p>
                           </div>
 
-                          <div className="grid grid-cols-2 gap-2 pt-2 text-xs md:grid-cols-3 lg:grid-cols-4">
+                          <div className="grid min-w-0 grid-cols-2 gap-3 pt-2 text-xs md:grid-cols-3 lg:grid-cols-4 [&>p]:min-w-0 [&>p]:break-words">
                             <p>
                               <span className="font-medium text-muted-foreground">
                                 Código:
@@ -1134,11 +1158,11 @@ export function EntradaFiscalDialog({
                           <Separator />
 
                           {!bloqueado ? (
-                            <div className="flex flex-wrap items-center gap-2">
+                            <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                               <span className="text-muted-foreground">
                                 Destino:
                               </span>
-                              <div className="inline-flex items-center gap-1 rounded-lg border bg-muted/40 p-1">
+                              <div className="grid w-full grid-cols-2 items-center gap-1 rounded-lg border bg-muted/40 p-1 sm:inline-flex sm:w-auto">
                                 {destinosPermitidos.map((destino) => (
                                   <button
                                     key={destino}
@@ -1146,7 +1170,7 @@ export function EntradaFiscalDialog({
                                     onClick={() =>
                                       escolherDestino(indice, destino)
                                     }
-                                    className={`inline-flex h-7 items-center rounded-md px-2 text-[11px] font-medium transition-all hover:cursor-pointer ${
+                                    className={`inline-flex min-h-12 items-center justify-center rounded-md px-3 text-xs font-medium transition-all hover:cursor-pointer sm:min-h-8 sm:text-[11px] ${
                                       linha.destino === destino
                                         ? "bg-primary text-primary-foreground shadow-sm"
                                         : "text-muted-foreground hover:bg-background/60 hover:text-foreground"
@@ -1165,10 +1189,10 @@ export function EntradaFiscalDialog({
                           ) : null}
 
                           <div
-                            className={`flex min-w-0 flex-row items-center gap-2 ${bloqueado || !linha.destino ? "pointer-events-none opacity-50" : ""}`}
+                            className={`flex min-w-0 flex-wrap items-center gap-2 ${bloqueado || !linha.destino ? "pointer-events-none opacity-50" : ""}`}
                           >
                             <div
-                              className={`relative inline-flex min-w-0 max-w-[300px] items-center gap-2 rounded-md bg-muted px-2 py-1 pr-6 text-xs ${
+                              className={`relative flex min-h-12 w-full min-w-0 items-center gap-2 rounded-md bg-muted py-2 pl-3 pr-12 text-xs sm:min-h-8 sm:w-auto sm:max-w-[300px] sm:px-2 sm:py-1 sm:pr-9 ${
                                 vinculando
                                   ? "text-primary"
                                   : linhaVinculada(linha)
@@ -1182,8 +1206,10 @@ export function EntradaFiscalDialog({
                                   : rotuloVinculo(linha)}
                               </span>
                               {linhaVinculada(linha) && !bloqueado ? (
-                                <X
-                                  className="absolute right-1 h-4 w-4 cursor-pointer text-red-200 hover:text-red-400"
+                                <button
+                                  type="button"
+                                  aria-label={`Remover vínculo do item ${linha.numeroItem}`}
+                                  className="absolute right-0 inline-flex size-12 items-center justify-center rounded-md text-destructive hover:bg-muted-foreground/10 sm:size-8"
                                   onClick={() =>
                                     atualizarLinha(indice, {
                                       produtoReferenciaId: undefined,
@@ -1192,7 +1218,9 @@ export function EntradaFiscalDialog({
                                       itemReferencia: undefined,
                                     })
                                   }
-                                />
+                                >
+                                  <X className="h-4 w-4" aria-hidden="true" />
+                                </button>
                               ) : null}
                             </div>
 
@@ -1212,12 +1240,16 @@ export function EntradaFiscalDialog({
                                     })
                                   }
                                 >
-                                  <div
-                                    className="rounded-full bg-primary/20 p-1.5 transition-all hover:cursor-pointer hover:bg-muted"
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    aria-label={`Selecionar produto para o item ${linha.numeroItem}`}
+                                    className="size-12 rounded-full bg-primary/20 transition-all hover:cursor-pointer hover:bg-muted sm:size-9"
                                     title="Selecionar produto"
                                   >
-                                    <Search className="h-4 w-4" />
-                                  </div>
+                                    <Search className="h-4 w-4" aria-hidden="true" />
+                                  </Button>
                                 </ProductSelect>
                                 {!linha.produtoReferenciaId ? (
                                   <DialogProduto
@@ -1258,12 +1290,16 @@ export function EntradaFiscalDialog({
                                       codigofornecedor: linha.codigo,
                                     }}
                                   >
-                                    <div
-                                      className="rounded-full bg-primary/20 p-1.5 transition-all hover:cursor-pointer hover:bg-muted"
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      aria-label={`Criar produto para o item ${linha.numeroItem}`}
+                                      className="size-12 rounded-full bg-primary/20 transition-all hover:cursor-pointer hover:bg-muted sm:size-9"
                                       title="Criar produto"
                                     >
-                                      <PackagePlus className="h-4 w-4" />
-                                    </div>
+                                      <PackagePlus className="h-4 w-4" aria-hidden="true" />
+                                    </Button>
                                   </DialogProduto>
                                 ) : null}
                               </>
@@ -1283,26 +1319,32 @@ export function EntradaFiscalDialog({
                                     })
                                   }
                                 >
-                                  <div
-                                    className="rounded-full bg-primary/20 p-1.5 transition-all hover:cursor-pointer hover:bg-muted"
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    aria-label={`Selecionar item de uso e consumo para o item ${linha.numeroItem}`}
+                                    className="size-12 rounded-full bg-primary/20 transition-all hover:cursor-pointer hover:bg-muted sm:size-9"
                                     title="Selecionar item"
                                   >
-                                    <Search className="h-4 w-4" />
-                                  </div>
+                                    <Search className="h-4 w-4" aria-hidden="true" />
+                                  </Button>
                                 </ItemSelectDialog>
                                 {!linha.itemReferenciaId ? (
                                   <button
                                     type="button"
-                                    className="rounded-full bg-primary/20 p-1.5 transition-all hover:cursor-pointer hover:bg-muted"
+                                    aria-label={`Criar item de uso e consumo para o item ${linha.numeroItem}`}
+                                    className="inline-flex size-12 items-center justify-center rounded-full bg-primary/20 transition-all hover:cursor-pointer hover:bg-muted sm:size-9"
                                     title="Criar item de uso e consumo"
                                     onClick={() => abrirCadastroItemUso(indice)}
                                   >
-                                    <PackagePlus className="h-4 w-4" />
+                                    <PackagePlus className="h-4 w-4" aria-hidden="true" />
                                   </button>
                                 ) : (
                                   <button
                                     type="button"
-                                    className="rounded-full bg-primary/20 p-1.5 transition-all hover:cursor-pointer hover:bg-muted"
+                                    aria-label={`Editar item de uso e consumo vinculado ao item ${linha.numeroItem}`}
+                                    className="inline-flex size-12 items-center justify-center rounded-full bg-primary/20 transition-all hover:cursor-pointer hover:bg-muted sm:size-9"
                                     title="Editar item vinculado"
                                     onClick={async () => {
                                       try {
@@ -1320,7 +1362,7 @@ export function EntradaFiscalDialog({
                                       }
                                     }}
                                   >
-                                    <Pencil className="h-4 w-4" />
+                                    <Pencil className="h-4 w-4" aria-hidden="true" />
                                   </button>
                                 )}
                               </>
@@ -1334,10 +1376,10 @@ export function EntradaFiscalDialog({
 
                 <Separator />
 
-                <div className="space-y-2 bg-card p-4 rounded-2xl">
-                  <div className="flex items-center gap-2">
+                <div className="space-y-3 rounded-2xl bg-card p-3 sm:p-4">
+                  <div className="flex min-h-12 items-center justify-between gap-3">
                     <span
-                      className={`text-xs ${pagamentoFuturo ? "text-accent-foreground" : "text-muted-foreground"}`}
+                      className={`min-w-0 text-xs leading-relaxed ${pagamentoFuturo ? "text-accent-foreground" : "text-muted-foreground"}`}
                     >
                       Lançar parcelas futuras no financeiro (opcional)
                     </span>
@@ -1377,7 +1419,7 @@ export function EntradaFiscalDialog({
                         {parcelas.map((parcela, indice) => (
                           <div
                             key={parcela.id}
-                            className="relative grid gap-2 rounded-xl bg-muted-foreground/5 px-3 py-6 sm:grid-cols-[auto_1fr_1fr] sm:items-end"
+                            className="relative grid gap-3 rounded-xl bg-muted-foreground/5 px-3 pb-3 pt-14 sm:grid-cols-[auto_1fr_1fr] sm:items-end sm:py-6"
                           >
                             <span className="absolute left-3 top-1 text-xs text-muted-foreground">
                               {indice + 1}ª parcela
@@ -1386,7 +1428,8 @@ export function EntradaFiscalDialog({
                               type="button"
                               variant="ghost"
                               size="icon"
-                              className="text-destructive"
+                              aria-label={`Remover ${indice + 1}ª parcela`}
+                              className="absolute right-2 top-2 size-12 text-destructive sm:static sm:size-9"
                               onClick={() =>
                                 parcelas.length === 1
                                   ? toast.error(
@@ -1403,6 +1446,7 @@ export function EntradaFiscalDialog({
                               <Label>Data de vencimento</Label>
                               <DatePicker
                                 value={parcela.dataVencimento || ""}
+                                className="min-h-12 sm:min-h-9"
                                 onChange={(valor) =>
                                   setParcelas((atual) =>
                                     atual.map((p, i) =>
@@ -1421,6 +1465,7 @@ export function EntradaFiscalDialog({
                               <Label>Valor</Label>
                               <ValueInput
                                 price={parcela.valor}
+                                className="min-h-12 sm:min-h-9"
                                 setPrice={(valor) =>
                                   setParcelas((atual) =>
                                     atual.map((p, i) =>
@@ -1432,11 +1477,12 @@ export function EntradaFiscalDialog({
                             </div>
                           </div>
                         ))}
-                        <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
                           <Button
                             type="button"
                             variant="outline"
                             size="sm"
+                            className="min-h-12 w-full sm:min-h-9 sm:w-auto"
                             onClick={() =>
                               setParcelas((atual) => [
                                 ...atual,
@@ -1454,7 +1500,7 @@ export function EntradaFiscalDialog({
                             <Plus className="mr-2 h-4 w-4" />
                             Adicionar parcela
                           </Button>
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-xs leading-relaxed text-muted-foreground sm:text-right">
                             Parcelas:{" "}
                             {formatarEmReal(
                               parcelas.reduce((soma, p) => soma + p.valor, 0),
@@ -1463,14 +1509,14 @@ export function EntradaFiscalDialog({
                           </span>
                         </div>
                       </div>
-                      <div className="p-4 bg-muted/50 rounded-2xl space-y-4">
+                      <div className="space-y-4 rounded-2xl bg-muted/50 p-3 sm:p-4">
                         <div className="space-y-1">
                           <Label>Categoria</Label>
                           <Select
                             value={categoria}
                             onValueChange={setCategoria}
                           >
-                            <SelectTrigger>
+                            <SelectTrigger className="min-h-12 w-full sm:min-h-9">
                               <SelectValue placeholder="Selecione" />
                             </SelectTrigger>
                             <SelectContent>
@@ -1486,11 +1532,11 @@ export function EntradaFiscalDialog({
                           </Select>
                         </div>
 
-                        <div className="grid gap-3 grid-cols-2 w-full">
-                          <div className="space-y-1 w-full">
+                        <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2">
+                          <div className="w-full space-y-1">
                             <Label>Banco</Label>
                             <Select value={bancoId} onValueChange={setBancoId}>
-                              <SelectTrigger className="w-full">
+                              <SelectTrigger className="min-h-12 w-full sm:min-h-9">
                                 <SelectValue placeholder="Não informado" />
                               </SelectTrigger>
                               <SelectContent>
@@ -1505,7 +1551,7 @@ export function EntradaFiscalDialog({
                               </SelectContent>
                             </Select>
                           </div>
-                          <div className="space-y-1 w-full">
+                          <div className="w-full space-y-1">
                             <Label>Método</Label>
                             <Select
                               value={metodo}
@@ -1513,7 +1559,7 @@ export function EntradaFiscalDialog({
                                 setMetodo(valor as Metodo_pagamento)
                               }
                             >
-                              <SelectTrigger className="w-full">
+                              <SelectTrigger className="min-h-12 w-full sm:min-h-9">
                                 <SelectValue placeholder="Não informado" />
                               </SelectTrigger>
                               <SelectContent>
@@ -1529,8 +1575,8 @@ export function EntradaFiscalDialog({
                           </div>
                         </div>
 
-                        <div className="grid gap-3 grid-cols-2">
-                          <div className="space-y-1">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <div className="min-w-0 space-y-1 [&_[role=combobox]]:min-h-12 sm:[&_[role=combobox]]:min-h-9">
                             <Label>Plano de conta</Label>
                             <PlanoContaCombobox
                               value={planoId}
@@ -1541,7 +1587,7 @@ export function EntradaFiscalDialog({
                               onValueChange={setPlanoId}
                             />
                           </div>
-                          <div className="space-y-1">
+                          <div className="min-w-0 space-y-1 [&_[role=combobox]]:min-h-12 sm:[&_[role=combobox]]:min-h-9">
                             <Label>Centro de custo</Label>
                             <SearchCombobox
                               value={centroCustoId}
@@ -1566,27 +1612,43 @@ export function EntradaFiscalDialog({
               </div>
             )}
 
-            <DialogFooter className="shrink-0 px-6 py-4">
-              <div className="flex gap-3 sm:flex-row sm:gap-4">
-                <Button
-                  className="hover:cursor-pointer"
-                  onClick={() => void registrar()}
-                  disabled={!podeRegistrar}
-                >
-                  {submitting ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : null}
-                  Registrar
-                </Button>
-                <DialogClose asChild>
+            <DialogFooter className="shrink-0 border-t bg-background px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:px-6 sm:py-4">
+              <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                {parsed ? (
+                  <div className="flex items-center justify-between gap-3 text-sm sm:block">
+                    <span className="text-muted-foreground">A destinar:</span>{" "}
+                    <span className="font-semibold tabular-nums">
+                      {formatarEmReal(totalDestinado)}
+                    </span>
+                  </div>
+                ) : (
+                  <span className="hidden sm:block" />
+                )}
+
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <DialogClose asChild>
+                    <Button
+                      type="button"
+                      className="min-h-12 w-full hover:cursor-pointer sm:min-h-9 sm:w-auto"
+                      variant="outline"
+                      disabled={submitting}
+                    >
+                      Cancelar
+                    </Button>
+                  </DialogClose>
+
                   <Button
-                    className="hover:cursor-pointer"
-                    variant="outline"
-                    disabled={submitting}
+                    type="button"
+                    className="min-h-12 w-full hover:cursor-pointer sm:min-h-9 sm:min-w-28 sm:w-auto"
+                    onClick={() => void registrar()}
+                    disabled={!podeRegistrar}
                   >
-                    Cancelar
+                    {submitting ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+                    ) : null}
+                    Registrar
                   </Button>
-                </DialogClose>
+                </div>
               </div>
             </DialogFooter>
           </div>

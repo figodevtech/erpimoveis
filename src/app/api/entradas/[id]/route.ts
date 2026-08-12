@@ -6,7 +6,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 type Params = { params: Promise<{ id: string }> };
 
 const SELECT_ENTRADA = `
-  id, created_at, fornecedorid, fiscal, notachave, tipo, status, origem,
+  id, created_at, fornecedorid, fiscal, notachave, tipo, status, origem, observacao,
   numero_nota, serie_nota, data_emissao, valor_total, cancelada_at, created_by,
   cancelada_by, motivo_cancelamento,
   fornecedor:fornecedorid(id, cpfcnpj, nomerazaosocial, nomefantasia),

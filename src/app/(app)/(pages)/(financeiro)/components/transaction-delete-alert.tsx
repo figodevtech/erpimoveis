@@ -17,6 +17,15 @@ import {
 
 type ImpactTarget = { tipo: "OS" | "VENDA"; id: number };
 type Bloqueio = { bloqueado: true; motivo: string; quantidade?: number };
+/** Antecipação que pode ser desfeita: excluí-la reabre os títulos que liquidou. */
+type Adiantamento = {
+  bloqueado: boolean;
+  motivo: string;
+  quantidade?: number;
+  desfaz?: boolean;
+  sentido?: "RECEBER" | "PAGAR";
+  titulos?: Array<{ id: number; descricao: string | null; valor: number }>;
+};
 type PagamentoMultiplo = {
   id: number;
   valorTotal: number;
@@ -60,6 +69,7 @@ export function TransactionDeleteAlert({
   const [loading, setLoading] = useState(false);
   const [targets, setTargets] = useState<ImpactTarget[]>([]);
   const [bloqueio, setBloqueio] = useState<Bloqueio | null>(null);
+  const [adiantamento, setAdiantamento] = useState<Adiantamento | null>(null);
   const [grupo, setGrupo] = useState<PagamentoMultiplo | null>(null);
   const [falhou, setFalhou] = useState<string | null>(null);
 
@@ -70,6 +80,7 @@ export function TransactionDeleteAlert({
     setLoading(true);
     setTargets([]);
     setBloqueio(null);
+    setAdiantamento(null);
     setGrupo(null);
     setFalhou(null);
 
@@ -86,6 +97,7 @@ export function TransactionDeleteAlert({
 
       setTargets(Array.isArray(payload.targets) ? payload.targets : []);
       setBloqueio(payload?.adiantamento?.bloqueado ? payload.adiantamento : null);
+      setAdiantamento(payload?.adiantamento?.desfaz ? payload.adiantamento : null);
       setGrupo(payload?.pagamentoMultiplo ?? null);
     } catch {
       setFalhou("Não foi possível verificar o impacto da exclusão.");
@@ -99,15 +111,19 @@ export function TransactionDeleteAlert({
   const travado = bloqueio ?? (grupo?.bloqueado ? { bloqueado: true as const, motivo: grupo.motivo ?? "" } : null);
   const desfazGrupo = Boolean(grupo && !grupo.bloqueado && onDeleteGrupo);
 
+  const reabrePara = adiantamento?.sentido === "PAGAR" ? "a pagar" : "a receber";
+
   const titulo = travado
     ? "Esta transação não pode ser excluída"
     : falhou
       ? "Não foi possível verificar"
-      : desfazGrupo
-        ? "Isto desfaz o pagamento inteiro"
-        : hasImpact
-          ? "Esta exclusão reabrirá um pagamento"
-          : "Excluir transação?";
+      : adiantamento
+        ? `Isto devolve ${adiantamento.quantidade} título(s) para ${reabrePara}`
+        : desfazGrupo
+          ? "Isto desfaz o pagamento inteiro"
+          : hasImpact
+            ? "Esta exclusão reabrirá um pagamento"
+            : "Excluir transação?";
 
   return (
     <AlertDialog open={open} onOpenChange={handleOpenChange}>
@@ -127,14 +143,37 @@ export function TransactionDeleteAlert({
                   <Ban className="mt-0.5 h-4 w-4 shrink-0" />
                   {travado.motivo}
                 </span>
+              ) : adiantamento ? (
+                <>
+                  <span className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-amber-700 dark:text-amber-300">
+                    <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                    Esta é a antecipação que liquidou {adiantamento.quantidade} título(s).
+                    Excluí-la remove o lançamento do caixa e devolve todos eles para{" "}
+                    <strong>{reabrePara}</strong>, em aberto.
+                  </span>
+                  <span className="block">Voltam a ficar em aberto:</span>
+                  <ul className="max-h-40 space-y-1 overflow-y-auto text-xs">
+                    {(adiantamento.titulos ?? []).map((titulo) => (
+                      <li key={titulo.id} className="flex justify-between gap-3">
+                        <span className="min-w-0 truncate">
+                          #{titulo.id} {titulo.descricao ?? ""}
+                        </span>
+                        <span className="shrink-0 tabular-nums">{moeda(titulo.valor)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <span>Deseja realmente prosseguir? Esta ação não pode ser desfeita.</span>
+                </>
               ) : desfazGrupo && grupo ? (
                 <>
                   <span className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-amber-700 dark:text-amber-300">
                     <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                    Esta linha faz parte do pagamento múltiplo #{grupo.id}, de{" "}
-                    {moeda(grupo.valorTotal)}. Excluir apaga o pagamento{" "}
-                    <strong>inteiro</strong>, em {grupo.documentos.length} documento
-                    {grupo.documentos.length === 1 ? "" : "s"} — não só esta parcela.
+                    <span className="min-w-0">
+                      Esta linha faz parte do pagamento múltiplo #{grupo.id}, de{" "}
+                      {moeda(grupo.valorTotal)}. Excluir apaga o pagamento{" "}
+                      <strong>inteiro</strong>, em {grupo.documentos.length} documento
+                      {grupo.documentos.length === 1 ? "" : "s"} — não só esta parcela.
+                    </span>
                   </span>
                   <span className="block">
                     Voltarão a ficar em aberto:{" "}
@@ -183,7 +222,11 @@ export function TransactionDeleteAlert({
                 desfazGrupo && grupo ? onDeleteGrupo?.(grupo.id) : onDelete(transactionId)
               }
             >
-              {desfazGrupo ? "Excluir o pagamento inteiro" : "Prosseguir"}
+              {desfazGrupo
+                ? "Excluir o pagamento inteiro"
+                : adiantamento
+                  ? "Excluir e reabrir os títulos"
+                  : "Prosseguir"}
             </AlertDialogAction>
           )}
         </AlertDialogFooter>

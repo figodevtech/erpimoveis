@@ -417,13 +417,26 @@ export default function RegisterContent({
 
   return (
     <DialogContent
-      className="h-svh min-w-screen p-0 overflow-hidden sm:max-w-[1100px] sm:max-h-[850px] sm:w-[95vw] sm:min-w-0"
-      showCloseButton={!loadingConcluirEntrada}
+      showCloseButton={false}
+      className="left-0 top-0 h-dvh w-screen max-w-none translate-x-0 translate-y-0 gap-0 overflow-hidden rounded-none border-0 p-0 shadow-none motion-reduce:animate-none motion-reduce:duration-0 sm:left-1/2 sm:top-1/2 sm:h-[min(850px,calc(100dvh-2rem))] sm:w-[95vw] sm:max-w-[1100px] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:border sm:shadow-lg"
       onEscapeKeyDown={(event) => loadingConcluirEntrada && event.preventDefault()}
       onInteractOutside={(event) => loadingConcluirEntrada && event.preventDefault()}
     >
-      <div className="flex h-full min-h-0 flex-col">
-        <DialogHeader className="shrink-0 px-6 py-4 border-b">
+      <DialogClose asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label="Fechar entrada"
+          disabled={loadingConcluirEntrada}
+          className="absolute right-2 top-[max(0.5rem,env(safe-area-inset-top))] z-20 size-12 sm:right-4 sm:top-4 sm:size-9"
+        >
+          <X aria-hidden="true" />
+        </Button>
+      </DialogClose>
+
+      <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+        <DialogHeader className="shrink-0 border-b bg-background px-4 pb-4 pr-16 pt-[max(1rem,env(safe-area-inset-top))] text-left sm:px-6 sm:py-4 sm:pr-14">
           <DialogTitle>Criar entrada</DialogTitle>
           <DialogDescription>
             Monte a entrada com fornecedor e itens. Depois, conclua.
@@ -448,9 +461,9 @@ export default function RegisterContent({
           setOpen={setOpenProduto}
         />
 
-        <div className="h-full min-h-0 overflow-auto px-6 py-6 space-y-4">
+        <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto overscroll-contain bg-muted/20 px-4 py-4 [-webkit-overflow-scrolling:touch] sm:px-6 sm:py-6 [&_input]:min-h-12 [&_[data-slot=button]]:min-h-12 [&_[data-slot=select-trigger]]:min-h-12 sm:[&_input]:min-h-9 sm:[&_[data-slot=button]]:min-h-9 sm:[&_[data-slot=select-trigger]]:min-h-9">
           {/* Dados da entrada */}
-          <div className="border rounded-xl p-4 space-y-4 bg-card">
+          <div className="min-w-0 max-w-full space-y-4 rounded-xl border bg-card p-3 sm:p-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label>Tipo da entrada</Label>
@@ -490,33 +503,41 @@ export default function RegisterContent({
               <Label>Fornecedor (opcional)</Label>
 
               {fornecedorSelecionado ? (
-                <div className="flex flex-row items-center gap-2">
-                  <div className="px-2 py-1 rounded-xl bg-muted text-xs">
+                <div className="flex min-w-0 items-center gap-2">
+                  <div className="min-w-0 flex-1 rounded-xl bg-muted px-3 py-2 text-xs">
                     <span className="font-medium text-muted-foreground">
                       #{fornecedorSelecionado.id}
                     </span>{" "}
-                    <span className="text-primary">
+                    <span className="break-words text-primary">
                       {fornecedorSelecionado?.nomerazaosocial}
                     </span>
                   </div>
-                  <div
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
                     onClick={() => setFornecedorSelecionado(undefined)}
-                    className="rounded-full p-1.5 bg-muted hover:cursor-pointer"
+                    className="size-12 shrink-0 rounded-full bg-muted text-destructive hover:cursor-pointer hover:text-destructive sm:size-9"
+                    aria-label="Remover fornecedor"
                     title="Remover fornecedor"
                   >
-                    <X className="text-red-500 w-3 h-3" />
-                  </div>
+                    <X className="h-4 w-4" aria-hidden="true" />
+                  </Button>
                 </div>
               ) : (
-                <div className="flex flex-row items-center gap-2 text-sm text-muted-foreground">
-                  <span>Nenhum fornecedor selecionado</span>
-                  <div
+                <div className="flex min-w-0 items-center justify-between gap-2 text-sm text-muted-foreground">
+                  <span className="min-w-0">Nenhum fornecedor selecionado</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
                     onClick={() => setOpenFornecedor(true)}
-                    className="group p-1.5 rounded-full bg-muted/50 hover:bg-muted transition-all hover:cursor-pointer"
+                    className="group size-12 shrink-0 rounded-full bg-muted/50 transition-all hover:cursor-pointer hover:bg-muted sm:size-9"
+                    aria-label="Selecionar fornecedor"
                     title="Selecionar fornecedor"
                   >
-                    <Search className="w-3 h-3 text-primary/80 group-hover:text-primary transition-all" />
-                  </div>
+                    <Search className="h-4 w-4 text-primary/80 transition-all group-hover:text-primary" aria-hidden="true" />
+                  </Button>
                 </div>
               )}
             </div>
@@ -526,12 +547,12 @@ export default function RegisterContent({
             <div className="space-y-2">
               <Label>Produtos</Label>
 
-              <div className="flex items-center gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
                 <Button
                   variant="outline"
                   type="button"
                   size="sm"
-                  className="gap-2 text-xs hover:cursor-pointer"
+                  className="min-h-12 min-w-0 gap-2 text-xs hover:cursor-pointer sm:min-h-9"
                   onClick={() => setOpenProduto(true)}
                 >
                   <Search className="h-3 w-3" />
@@ -541,7 +562,7 @@ export default function RegisterContent({
                 <Button
                   type="button"
                   variant="ghost"
-                  className="gap-2 text-xs hover:cursor-pointer"
+                  className="min-h-12 min-w-0 gap-2 text-xs hover:cursor-pointer sm:min-h-9"
                   size="sm"
                   onClick={() => setItens([])}
                   disabled={itens.length === 0}
@@ -568,9 +589,9 @@ export default function RegisterContent({
           </div>
 
           {/* Lista de itens */}
-          <div className="border rounded-xl p-4 min-h-0 bg-card">
-            <div className="flex items-center justify-between mb-3">
-              <div>
+          <div className="min-h-0 min-w-0 max-w-full overflow-hidden rounded-xl border bg-card p-3 sm:p-4">
+            <div className="mb-3 flex min-w-0 items-center justify-between">
+              <div className="min-w-0">
                 <h3 className="text-sm font-semibold">Itens da entrada</h3>
                 <p className="text-xs text-muted-foreground">
                   Edite os campos do item e remova quando quiser.
@@ -578,7 +599,7 @@ export default function RegisterContent({
               </div>
             </div>
 
-            <div className="space-y-4 ">
+            <div className="min-w-0 max-w-full space-y-4">
               {itens.length === 0 ? (
                 <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
                   Nenhum produto adicionado ainda.
@@ -587,15 +608,15 @@ export default function RegisterContent({
                 itens.map((item, index) => (
                   <div
                     key={`${item.produto_id}-${index}`}
-                    className="rounded-xl border p-4 space-y-4"
+                    className="min-w-0 max-w-full space-y-4 overflow-hidden rounded-xl border p-3 sm:p-4"
                   >
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 flex-col items-stretch gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0">
-                        <div className="text-sm font-semibold truncate">
+                        <div className="line-clamp-2 break-words text-sm font-semibold">
                           Produto #{item.produto_id} —{" "}
                           {item.titulo ?? "Sem título"}
                         </div>
-                        <div className="text-xs text-muted-foreground truncate">
+                        <div className="mt-1 break-words text-xs leading-relaxed text-muted-foreground">
                           Ref: {item.referencia ?? "-"} • NCM: {item.ncm ?? "-"}{" "}
                           • CFOP: {item.cfop ?? "-"} • CSOSN:{" "}
                           {item.csosn ?? "-"} • Unidade: {item.unidade ?? "-"}
@@ -605,7 +626,7 @@ export default function RegisterContent({
                       <Button
                         type="button"
                         variant="ghost"
-                        className="text-destructive hover:text-destructive gap-2 hover:cursor-pointer"
+                        className="min-h-12 w-full gap-2 text-destructive hover:cursor-pointer hover:text-destructive sm:min-h-9 sm:w-auto"
                         onClick={() => handleRemove(index)}
                       >
                         <Trash2 className="h-4 w-4" />
@@ -625,7 +646,7 @@ export default function RegisterContent({
                       />
                     </div>
                     <Separator />
-                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                    <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-5 [&>*]:min-w-0">
                       <div className="space-y-1.5">
                         <Label>Referência</Label>
                         <Input
@@ -783,7 +804,7 @@ export default function RegisterContent({
 
                     <Separator />
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-3 [&>*]:min-w-0">
                       <div className="space-y-1.5">
                         <Label>Quantidade</Label>
                         <Input
@@ -828,9 +849,9 @@ export default function RegisterContent({
             </div>
           </div>
 
-          <div className="space-y-4 rounded-xl border bg-card p-4">
-            <div className="flex items-center justify-between gap-4">
-              <div>
+          <div className="min-w-0 max-w-full space-y-4 overflow-hidden rounded-xl border bg-card p-3 sm:p-4">
+            <div className="flex min-w-0 items-center justify-between gap-4">
+              <div className="min-w-0">
                 <h3 className="text-sm font-semibold">Lançamento financeiro</h3>
                 <p className="text-xs text-muted-foreground">
                   Opcional. Registre a despesa agora ou como parcelas futuras.
@@ -850,7 +871,7 @@ export default function RegisterContent({
 
             {lancarFinanceiro ? (
               <div className="space-y-4 border-t pt-4">
-                <div className="flex flex-wrap items-center gap-3">
+                <div className="flex min-w-0 flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
                   <Label>Forma do lançamento</Label>
                   <Select
                     value={pagamentoFuturo ? "FUTURO" : "IMEDIATO"}
@@ -875,7 +896,7 @@ export default function RegisterContent({
                 {pagamentoFuturo ? (
                   <div className="space-y-3">
                     {parcelas.map((parcela, index) => (
-                      <div key={parcela.id} className="grid gap-3 rounded-lg border bg-muted/20 p-3 sm:grid-cols-[auto_1fr_1fr] sm:items-end">
+                      <div key={parcela.id} className="grid min-w-0 gap-3 overflow-hidden rounded-lg border bg-muted/20 p-3 sm:grid-cols-[auto_1fr_1fr] sm:items-end [&>*]:min-w-0">
                         <Button
                           type="button"
                           variant="ghost"
@@ -918,7 +939,7 @@ export default function RegisterContent({
                         </div>
                       </div>
                     ))}
-                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                    <div className="flex min-w-0 flex-col items-stretch gap-3 text-xs text-muted-foreground sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
                       <Button
                         type="button"
                         variant="outline"
@@ -928,13 +949,13 @@ export default function RegisterContent({
                         <Plus className="mr-2 h-4 w-4" />
                         Adicionar parcela
                       </Button>
-                      <span>
+                      <span className="break-words leading-relaxed sm:text-right">
                         Total da entrada: {formatarEmReal(totalGeral)} · Parcelas: {formatarEmReal(parcelas.reduce((sum, parcela) => sum + parcela.valor, 0))}
                       </span>
                     </div>
                   </div>
                 ) : (
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid min-w-0 gap-3 sm:grid-cols-2 [&>*]:min-w-0">
                     <div className="space-y-1.5">
                       <Label>Banco</Label>
                       <Select value={selectedBankId} onValueChange={setSelectedBankId}>
@@ -956,7 +977,7 @@ export default function RegisterContent({
                   </div>
                 )}
 
-                <div className="grid gap-3 sm:grid-cols-3">
+                <div className="grid min-w-0 gap-3 sm:grid-cols-3 [&>*]:min-w-0">
                   <div className="space-y-1.5">
                     <Label>Categoria</Label>
                     <Select value={selectedCategoria} onValueChange={setSelectedCategoria}>
@@ -995,18 +1016,18 @@ export default function RegisterContent({
           </div>
         </div>
 
-        <DialogFooter className="px-6 py-4 border-t">
-          <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between w-full">
-            <div className="text-sm">
+        <DialogFooter className="shrink-0 border-t bg-background px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:px-6 sm:py-4">
+          <div className="flex min-w-0 w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center justify-between gap-3 text-sm sm:block">
               <span className="text-muted-foreground">Total da entrada: </span>
-              <span className="font-semibold">
+              <span className="shrink-0 font-semibold tabular-nums">
                 {formatarEmReal(Number(totalGeral.toFixed(2)))}
               </span>
             </div>
 
-            <div className="flex gap-3 justify-end">
+            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:justify-end">
               <DialogClose asChild>
-                <Button type="button" variant="outline" disabled={loadingConcluirEntrada}>
+                <Button type="button" variant="outline" disabled={loadingConcluirEntrada} className="min-h-12 w-full sm:min-h-9 sm:w-auto">
                   Cancelar
                 </Button>
               </DialogClose>
@@ -1015,7 +1036,7 @@ export default function RegisterContent({
                 type="button"
                 onClick={handleRegistrarEntrada}
                 disabled={itens.length === 0 || loadingConcluirEntrada}
-                className="min-w-[170px] hover:cursor-pointer"
+                className="min-h-12 w-full hover:cursor-pointer sm:min-h-9 sm:w-auto sm:min-w-[170px]"
               >
                 {loadingConcluirEntrada ? (
                   <div className="flex flex-row items-center gap-1">

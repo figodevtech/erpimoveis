@@ -104,6 +104,7 @@ import { Tipo_transacao, type Transaction } from "../../../(financeiro)/fluxodec
 import { formatPaymentMethodLabel, type PlannedPayment } from "@/lib/payment-methods";
 import { ChecklistImagePreview } from "./checklist-image-preview";
 import { FinanceiroOsTab } from "./financeiro-os-tab";
+import { ClienteResumoCard } from "@/components/cliente/cliente-resumo-card";
 
 const PUBLIC_APPROVAL_BASE = "/aprovacao";
 function approvalUrlFromToken(token: string) {
@@ -283,7 +284,24 @@ type OS = {
   motivocancelamento?: string | null;
   motivosemcobranca?: string | null;
   setor?: { id: number; nome: string } | null;
-  cliente?: { id: number; nomerazaosocial: string } | null;
+  /** A rota /api/ordens/[id] devolve a linha completa do cliente. */
+  cliente?: {
+    id: number;
+    nomerazaosocial: string;
+    tipopessoa?: string | null;
+    cpfcnpj?: string | null;
+    email?: string | null;
+    telefone?: string | null;
+    endereco?: string | null;
+    endereconumero?: string | null;
+    enderecocomplemento?: string | null;
+    bairro?: string | null;
+    cidade?: string | null;
+    estado?: string | null;
+    cep?: string | null;
+    status?: string | null;
+    rank?: string | null;
+  } | null;
   veiculo?: {
     id: number;
     placa?: string | null;
@@ -1676,13 +1694,11 @@ export function OSDetalhesDialog({
                 <p className="text-xs text-muted-foreground">Dados principais para consulta rápida da ordem de serviço.</p>
               </div>
               <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                <div className="rounded-lg border bg-card p-4">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <User2 className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium">Cliente</span>
-                  </div>
-                  <div className="text-sm">{data.os.cliente?.nomerazaosocial ?? "—"}</div>
-                </div>
+                <ClienteResumoCard
+                  cliente={data.os.cliente}
+                  variant="default"
+                  onClienteAtualizado={() => void recarregarDetalhes()}
+                />
 
                 <div className="rounded-lg border bg-card p-4">
                   <div className="flex items-center gap-2 mb-1.5">

@@ -32,29 +32,42 @@ export type LinhaDoRateio = {
 export async function carregarSaldos(tipo: TipoDocumento, ids: number[]) {
   const tabela = tipo === "OS" ? "ordemservico" : "venda";
   const colunaTotal = tipo === "OS" ? "orcamentototal" : "valortotal";
-  const colunaFk = tipo === "OS" ? "ordemservicoid" : "vendaid";
 
-  const [documentos, transacoes] = await Promise.all([
+  const [documentos, recebimentos] = await Promise.all([
     supabaseAdmin
       .from(tabela)
-      .select(`id, status, ${colunaTotal}, acrescimo_financeiro_tipo, acrescimo_financeiro_valor`)
+      .select(
+        `id, status, clienteid, ${colunaTotal}, acrescimo_financeiro_tipo, acrescimo_financeiro_valor`,
+      )
       .in("id", ids),
+    // A view soma o vínculo direto e o rateio do pagamento múltiplo. Ler só
+    // `transacao.ordemservicoid` deixaria de fora o que já foi pago em grupo, e o
+    // documento apareceria em aberto duas vezes.
     supabaseAdmin
-      .from("transacao")
-      .select(`${colunaFk}, tipo, pendente, valor, valor_acrescimos, evento_financeiro_id`)
-      .in(colunaFk, ids)
-      .eq("is_deleted", false),
+      .from("recebimento_por_documento")
+      .select("documento_id, valor, pendente")
+      .eq("tipo_documento", tipo)
+      .in("documento_id", ids),
   ]);
 
   if (documentos.error) throw documentos.error;
-  if (transacoes.error) throw transacoes.error;
+  if (recebimentos.error) throw recebimentos.error;
 
   const porDocumento = new Map<number, any[]>();
-  for (const transacao of (transacoes.data ?? []) as any[]) {
-    const documentoId = Number(transacao[colunaFk]);
+  for (const recebimento of (recebimentos.data ?? []) as any[]) {
+    const documentoId = Number(recebimento.documento_id);
+    // `calcularResumoFinanceiroOs` espera o formato de transação; a fatia da view
+    // já é valor de face, então o acréscimo entra zerado.
+    const linha = {
+      tipo: "RECEITA",
+      pendente: recebimento.pendente === true,
+      valor: recebimento.valor,
+      valor_acrescimos: 0,
+      evento_financeiro_id: null,
+    };
     const atual = porDocumento.get(documentoId);
-    if (atual) atual.push(transacao);
-    else porDocumento.set(documentoId, [transacao]);
+    if (atual) atual.push(linha);
+    else porDocumento.set(documentoId, [linha]);
   }
 
   return (documentos.data ?? []).map((documento: any) => {
@@ -68,6 +81,7 @@ export async function carregarSaldos(tipo: TipoDocumento, ids: number[]) {
     return {
       id: Number(documento.id),
       status: String(documento.status ?? "").toUpperCase(),
+      clienteId: documento.clienteid == null ? null : Number(documento.clienteid),
       saldoEmCentavos: paraCentavos(resumo.saldoDisponivelParaLancamento),
     };
   });

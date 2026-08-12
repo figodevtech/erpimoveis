@@ -49,6 +49,7 @@ type EntryDetails = Record<string, unknown> & {
   status?: string | null;
   tipo?: string | null;
   origem?: string | null;
+  observacao?: string | null;
   fiscal?: boolean;
   numero_nota?: string | null;
   serie_nota?: string | null;
@@ -342,6 +343,11 @@ export function EntryDetailsDialog({ entryId, inventory, open, onOpenChange }: P
               <Field label="Registrado em">{formatDateTime(entry.created_at)}</Field>
               <Field label="Registrado por">{autor || "Não informado"}</Field>
               {entry.cancelada_at ? <Field label="Cancelada em">{formatDateTime(entry.cancelada_at)}</Field> : null}
+              {entry.observacao ? (
+                <Field label="Observação" className="sm:col-span-2 lg:col-span-4">
+                  {entry.observacao}
+                </Field>
+              ) : null}
             </dl>
           </Section>
 
