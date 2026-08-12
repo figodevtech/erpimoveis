@@ -110,6 +110,10 @@ export function TelegramRecipientsCard({ integrationEnabled }: { integrationEnab
           escopo: data.scope,
           notificarCriacao: data.selectedEvents.includes("CRIADA"),
           statusSelecionados: data.selectedEvents.filter((event) => event !== "CRIADA"),
+          notificarFinanceiroDiario: data.notifyFinancialDaily,
+          horarioResumoFinanceiro: data.financialSummaryTime,
+          financeiroIncluirAtrasadas: data.financialIncludeOverdue,
+          financeiroEnviarSemContas: data.financialSendWhenEmpty,
         }),
       });
       toast.success("Configuração de avisos salva.");
@@ -139,6 +143,17 @@ export function TelegramRecipientsCard({ integrationEnabled }: { integrationEnab
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ usuarioId: recipient.usuarioId }),
       });
       toast.success("Mensagem de teste enviada.");
+    } catch (error) { toast.error(errorMessage(error)); }
+    finally { setAction(null); }
+  }
+
+  async function testFinancialSummary(recipient: TelegramRecipient) {
+    setAction(`financial-test:${recipient.usuarioId}`);
+    try {
+      const body = await requestJson("/api/integracoes/telegram/destinatarios/teste-financeiro", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ usuarioId: recipient.usuarioId }),
+      });
+      toast.success(`Resumo financeiro de teste enviado em ${body.messages ?? 1} mensagem(ns).`);
     } catch (error) { toast.error(errorMessage(error)); }
     finally { setAction(null); }
   }
@@ -191,10 +206,10 @@ export function TelegramRecipientsCard({ integrationEnabled }: { integrationEnab
                 return <TableRow key={recipient.usuarioId}>
                   <TableCell><div className="font-medium">{recipientName(recipient)}</div><div className="text-xs text-muted-foreground">{recipient.user?.email || "—"}</div></TableCell>
                   <TableCell><div>@{recipient.telegramUsername}</div><div className="text-xs text-muted-foreground">{recipient.connected ? "Conta vinculada" : "Aguardando vínculo"}</div></TableCell>
-                  <TableCell><Badge variant="secondary">{eventCount} {eventCount === 1 ? "evento" : "eventos"}</Badge></TableCell>
+                  <TableCell><div className="flex flex-wrap gap-1"><Badge variant="secondary">{eventCount} {eventCount === 1 ? "evento de OS" : "eventos de OS"}</Badge>{recipient.notifyFinancialDaily ? <Badge variant="outline">Financeiro às {recipient.financialSummaryTime}</Badge> : null}</div></TableCell>
                   <TableCell>{SCOPE_LABELS[recipient.scope]}</TableCell>
                   <TableCell><div className="flex flex-wrap gap-1"><Badge variant={recipient.active ? "outline" : "secondary"}>{recipient.active ? "Ativo" : "Pausado"}</Badge><Badge variant={recipient.connected ? "outline" : "secondary"}>{recipient.connected ? "Vinculado" : "Pendente"}</Badge></div></TableCell>
-                  <TableCell className="text-right"><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" disabled={busy} aria-label={`Ações de ${recipientName(recipient)}`}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}</Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={() => openEdit(recipient)}><Edit3 className="mr-2 h-4 w-4" />Editar</DropdownMenuItem>{!recipient.connected ? <DropdownMenuItem onClick={() => generateLink(recipient)}><Link2 className="mr-2 h-4 w-4" />Gerar link</DropdownMenuItem> : <DropdownMenuItem onClick={() => testRecipient(recipient)} disabled={!integrationEnabled}><Send className="mr-2 h-4 w-4" />Testar mensagem</DropdownMenuItem>}<DropdownMenuSeparator /><DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => removeRecipient(recipient)}><Trash2 className="mr-2 h-4 w-4" />Remover</DropdownMenuItem></DropdownMenuContent></DropdownMenu></TableCell>
+                  <TableCell className="text-right"><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" disabled={busy} aria-label={`Ações de ${recipientName(recipient)}`}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}</Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={() => openEdit(recipient)}><Edit3 className="mr-2 h-4 w-4" />Editar</DropdownMenuItem>{!recipient.connected ? <DropdownMenuItem onClick={() => generateLink(recipient)}><Link2 className="mr-2 h-4 w-4" />Gerar link</DropdownMenuItem> : <><DropdownMenuItem onClick={() => testRecipient(recipient)} disabled={!integrationEnabled}><Send className="mr-2 h-4 w-4" />Testar mensagem</DropdownMenuItem>{recipient.notifyFinancialDaily ? <DropdownMenuItem onClick={() => testFinancialSummary(recipient)} disabled={!integrationEnabled}><Send className="mr-2 h-4 w-4" />Testar resumo financeiro</DropdownMenuItem> : null}</>}<DropdownMenuSeparator /><DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => removeRecipient(recipient)}><Trash2 className="mr-2 h-4 w-4" />Remover</DropdownMenuItem></DropdownMenuContent></DropdownMenu></TableCell>
                 </TableRow>;
               })}
             </TableBody>

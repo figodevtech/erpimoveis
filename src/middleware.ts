@@ -32,6 +32,7 @@ const PUBLIC_API_PREFIXES = [
   "/api/integracoes/shopee/cron",
   "/api/integracoes/telegram/webhook",
   "/api/integracoes/telegram/processar",
+  "/api/integracoes/telegram/financeiro/processar",
 ];
 
 function isStaticAsset(pathname: string) {

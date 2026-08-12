@@ -20,6 +20,10 @@ const recipientSchema = z.object({
   escopo: z.enum(["TODAS", "MINHAS", "MEU_SETOR"]),
   notificarCriacao: z.boolean(),
   statusSelecionados: z.array(z.enum(statusValues)).max(statusValues.length),
+  notificarFinanceiroDiario: z.boolean(),
+  horarioResumoFinanceiro: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+  financeiroIncluirAtrasadas: z.boolean(),
+  financeiroEnviarSemContas: z.boolean(),
 });
 
 function errorResponse(error: unknown, fallback: string) {
@@ -30,20 +34,33 @@ function errorResponse(error: unknown, fallback: string) {
 export async function GET() {
   try {
     await requireConfigAccess();
-    const [usersResult, preferencesResult] = await Promise.all([
-      supabaseAdmin.from("usuario").select("id, nome, email, ativo").order("nome", { ascending: true }),
+    const [usersResult, preferencesResult, financePermissionResult] = await Promise.all([
+      supabaseAdmin.from("usuario").select("id, nome, email, ativo, perfilid").order("nome", { ascending: true }),
       supabaseAdmin
         .from("telegram_usuario_preferencia")
-        .select("usuario_id, chat_id, telegram_username, telegram_nome, vinculado_em, ativo, modo, escopo, notificar_criacao, status_selecionados, ultimo_erro")
+        .select("usuario_id, chat_id, telegram_username, telegram_nome, vinculado_em, ativo, modo, escopo, notificar_criacao, status_selecionados, notificar_financeiro_diario, horario_resumo_financeiro, financeiro_incluir_atrasadas, financeiro_enviar_sem_contas, ultimo_erro")
         .order("updated_at", { ascending: false }),
+      supabaseAdmin.from("permissao").select("id").ilike("nome", "financeiro:visualizar").maybeSingle(),
     ]);
-    if (usersResult.error || preferencesResult.error) throw usersResult.error ?? preferencesResult.error;
+    if (usersResult.error || preferencesResult.error || financePermissionResult.error) {
+      throw usersResult.error ?? preferencesResult.error ?? financePermissionResult.error;
+    }
+    const financeProfiles = new Set<number>();
+    if (financePermissionResult.data?.id) {
+      const { data: links, error: linksError } = await supabaseAdmin
+        .from("perfilpermissao")
+        .select("perfilid")
+        .eq("permissaoid", financePermissionResult.data.id);
+      if (linksError) throw linksError;
+      for (const link of links ?? []) financeProfiles.add(Number(link.perfilid));
+    }
 
     const users = (usersResult.data ?? []).map((user) => ({
       id: String(user.id),
       name: String(user.nome ?? ""),
       email: String(user.email ?? ""),
       active: user.ativo !== false,
+      financialAccess: financeProfiles.has(Number(user.perfilid)),
     }));
     const userById = new Map(users.map((user) => [user.id, user]));
     const recipients = (preferencesResult.data ?? []).map((row) => ({
@@ -58,6 +75,10 @@ export async function GET() {
       scope: String(row.escopo),
       notifyCreation: row.notificar_criacao !== false,
       selectedStatuses: Array.isArray(row.status_selecionados) ? row.status_selecionados : [],
+      notifyFinancialDaily: row.notificar_financeiro_diario === true,
+      financialSummaryTime: String(row.horario_resumo_financeiro ?? "08:00").slice(0, 5),
+      financialIncludeOverdue: row.financeiro_incluir_atrasadas !== false,
+      financialSendWhenEmpty: row.financeiro_enviar_sem_contas === true,
       lastError: row.ultimo_erro ? String(row.ultimo_erro) : null,
     }));
     return NextResponse.json({ users, recipients });
@@ -96,6 +117,24 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: "Remova o vínculo atual antes de alterar o usuário do Telegram." }, { status: 409 });
     }
 
+    if (parsed.data.notificarFinanceiroDiario) {
+      const { data: target, error: targetError } = await supabaseAdmin
+        .from("usuario")
+        .select("perfilid")
+        .eq("id", parsed.data.usuarioId)
+        .single();
+      if (targetError) throw targetError;
+      const { data: permission } = await supabaseAdmin.from("permissao").select("id").ilike("nome", "financeiro:visualizar").maybeSingle();
+      const { data: link, error: linkError } = await supabaseAdmin
+        .from("perfilpermissao")
+        .select("perfilid")
+        .eq("perfilid", target.perfilid)
+        .eq("permissaoid", permission?.id ?? -1)
+        .maybeSingle();
+      if (linkError) throw linkError;
+      if (!link) return NextResponse.json({ error: "O usuário precisa ter acesso ao Financeiro para receber esse resumo." }, { status: 400 });
+    }
+
     const { error } = await supabaseAdmin.from("telegram_usuario_preferencia").upsert({
       usuario_id: parsed.data.usuarioId,
       telegram_username: telegramUsername,
@@ -104,6 +143,10 @@ export async function PUT(request: Request) {
       escopo: parsed.data.escopo,
       notificar_criacao: parsed.data.notificarCriacao,
       status_selecionados: Array.from(new Set(parsed.data.statusSelecionados)),
+      notificar_financeiro_diario: parsed.data.notificarFinanceiroDiario,
+      horario_resumo_financeiro: parsed.data.horarioResumoFinanceiro,
+      financeiro_incluir_atrasadas: parsed.data.financeiroIncluirAtrasadas,
+      financeiro_enviar_sem_contas: parsed.data.financeiroEnviarSemContas,
       ultimo_erro: null,
       updated_at: new Date().toISOString(),
     }, { onConflict: "usuario_id" });

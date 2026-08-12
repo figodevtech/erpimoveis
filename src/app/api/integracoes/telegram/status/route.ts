@@ -46,6 +46,7 @@ export async function GET() {
         enabled: environment.enabled,
         configured: environment.configured,
         hasWebhookSecret: Boolean(environment.webhookSecret),
+        hasCronSecret: Boolean(environment.cronSecret),
         hasAppUrl: Boolean(environment.appUrl),
         botUsername: environment.botUsername || null,
       },

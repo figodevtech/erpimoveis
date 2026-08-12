@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Clock3, Loader2, WalletCards } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -25,14 +25,18 @@ export const FINAL_EVENTS = ["CRIADA", "SEM_COBRANCA", "CONCLUIDO"];
 
 export type Mode = "CRIACAO" | "CRIACAO_FINALIZACAO" | "TODOS" | "PERSONALIZADO";
 export type Scope = "TODAS" | "MINHAS" | "MEU_SETOR";
-export type TelegramUser = { id: string; name: string; email: string; active: boolean };
+export type TelegramUser = { id: string; name: string; email: string; active: boolean; financialAccess: boolean };
 export type TelegramRecipient = {
   usuarioId: string; user: TelegramUser | null; connected: boolean; telegramUsername: string;
   telegramName: string | null; active: boolean; mode: Mode; scope: Scope;
   notifyCreation: boolean; selectedStatuses: string[]; lastError: string | null;
+  notifyFinancialDaily: boolean; financialSummaryTime: string;
+  financialIncludeOverdue: boolean; financialSendWhenEmpty: boolean;
 };
 export type RecipientFormData = {
   usuarioId: string; telegramUsername: string; active: boolean; scope: Scope; selectedEvents: string[];
+  notifyFinancialDaily: boolean; financialSummaryTime: string;
+  financialIncludeOverdue: boolean; financialSendWhenEmpty: boolean;
 };
 
 export function recipientEvents(recipient: TelegramRecipient) {
@@ -58,7 +62,14 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
       active: recipient.active,
       scope: recipient.scope,
       selectedEvents: recipientEvents(recipient),
-    } : { usuarioId: "", telegramUsername: "", active: true, scope: "MINHAS", selectedEvents: FINAL_EVENTS });
+      notifyFinancialDaily: recipient.notifyFinancialDaily,
+      financialSummaryTime: recipient.financialSummaryTime,
+      financialIncludeOverdue: recipient.financialIncludeOverdue,
+      financialSendWhenEmpty: recipient.financialSendWhenEmpty,
+    } : {
+      usuarioId: "", telegramUsername: "", active: true, scope: "MINHAS", selectedEvents: FINAL_EVENTS,
+      notifyFinancialDaily: false, financialSummaryTime: "08:00", financialIncludeOverdue: true, financialSendWhenEmpty: false,
+    });
 
   function setEvents(selectedEvents: readonly string[]) {
     setForm((current) => ({ ...current, selectedEvents: [...selectedEvents] }));
@@ -78,7 +89,14 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
       : Array.from(new Set([...current.selectedEvents, ...ids])) }));
   }
 
-  const valid = Boolean(form.usuarioId && form.telegramUsername.trim() && form.selectedEvents.length);
+  const selectedUser = users.find((user) => user.id === form.usuarioId) ?? recipient?.user ?? null;
+  const financialAllowed = selectedUser?.financialAccess === true;
+  const valid = Boolean(
+    form.usuarioId
+    && form.telegramUsername.trim()
+    && (form.selectedEvents.length || form.notifyFinancialDaily)
+    && (!form.notifyFinancialDaily || financialAllowed),
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -86,7 +104,7 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
         <div className="flex h-full min-h-0 flex-col">
           <DialogHeader className="shrink-0 border-b px-6 py-4">
             <DialogTitle>{recipient ? "Editar destinatário" : "Novo destinatário"}</DialogTitle>
-            <DialogDescription>Defina o contato e marque as alterações de OS que devem gerar mensagens.</DialogDescription>
+            <DialogDescription>Defina o contato e escolha os avisos de OS e financeiros enviados pelo Telegram.</DialogDescription>
           </DialogHeader>
 
           <ScrollArea className="min-h-0 flex-1">
@@ -106,6 +124,24 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
                   const checked = selectedCount === group.events.length ? true : selectedCount > 0 ? "indeterminate" : false;
                   return <div key={group.label} className="rounded-md border bg-background"><div className="flex items-center gap-3 border-b bg-muted/40 px-3 py-2"><Checkbox checked={checked} onCheckedChange={() => toggleGroup(group.events)} aria-label={`Selecionar etapa ${group.label}`} /><button type="button" className="flex flex-1 items-center justify-between gap-3 text-left" onClick={() => toggleGroup(group.events)}><span><span className="block text-sm font-medium">{group.label}</span><span className="block text-xs text-muted-foreground">{group.description}</span></span><span className="text-xs text-muted-foreground">{selectedCount}/{group.events.length}</span></button></div><div className="grid gap-1 p-2 sm:grid-cols-2">{group.events.map(([id, label]) => <label key={id} className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-muted/50"><Checkbox checked={form.selectedEvents.includes(id)} onCheckedChange={(value) => toggleEvent(id, value === true)} />{label}</label>)}</div></div>;
                 })}</div>
+              </div>
+
+              <div className="space-y-3 rounded-lg border p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><WalletCards className="size-4" /></span>
+                    <div><Label htmlFor="dialog-financial-daily">Resumo diário de contas a pagar</Label><p className="text-xs text-muted-foreground">Despesas atrasadas e com vencimento no dia, agrupadas com os totais.</p></div>
+                  </div>
+                  <Switch id="dialog-financial-daily" checked={form.notifyFinancialDaily} disabled={!financialAllowed} onCheckedChange={(notifyFinancialDaily) => setForm((current) => ({ ...current, notifyFinancialDaily }))} />
+                </div>
+                {!form.usuarioId ? <p className="text-xs text-muted-foreground">Selecione o usuário para verificar o acesso financeiro.</p> : !financialAllowed ? <p className="text-xs text-amber-700 dark:text-amber-400">Este usuário não possui a permissão Financeiro: visualizar.</p> : null}
+                {form.notifyFinancialDaily ? <div className="grid gap-4 border-t pt-4 md:grid-cols-2">
+                  <div className="space-y-2"><Label htmlFor="dialog-financial-time" className="flex items-center gap-1.5"><Clock3 className="size-3.5" />Horário do envio</Label><Input id="dialog-financial-time" type="time" value={form.financialSummaryTime} onChange={(event) => setForm((current) => ({ ...current, financialSummaryTime: event.target.value }))} /></div>
+                  <div className="space-y-3 md:pt-7">
+                    <label className="flex cursor-pointer items-center gap-3 text-sm"><Checkbox checked={form.financialIncludeOverdue} onCheckedChange={(checked) => setForm((current) => ({ ...current, financialIncludeOverdue: checked === true }))} />Incluir contas atrasadas</label>
+                    <label className="flex cursor-pointer items-center gap-3 text-sm"><Checkbox checked={form.financialSendWhenEmpty} onCheckedChange={(checked) => setForm((current) => ({ ...current, financialSendWhenEmpty: checked === true }))} />Avisar mesmo quando não houver contas</label>
+                  </div>
+                </div> : null}
               </div>
             </div>
           </ScrollArea>
