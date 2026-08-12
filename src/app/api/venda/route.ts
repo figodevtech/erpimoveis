@@ -444,6 +444,46 @@ export async function GET(req: Request) {
 
     const vendaIds = items.map((item: any) => Number(item.id)).filter(Number.isFinite);
 
+    // Pagamento múltiplo não preenche `vendaid` — a transação cobre várias
+    // vendas e o elo é o rateio. Sem juntar essas fatias aqui, a venda paga em
+    // grupo aparece em aberto na listagem e pode ser cobrada de novo.
+    if (vendaIds.length > 0) {
+      const { data: rateio, error: rateioError } = await supabaseAdmin
+        .from("pagamento_multiplo_rateio")
+        .select("documento_id, valor, transacao:transacao_id ( id, data, pendente, is_deleted )")
+        .eq("tipo_documento", "VENDA")
+        .in("documento_id", vendaIds);
+      if (rateioError) throw rateioError;
+
+      const fatiasPorVenda = new Map<number, any[]>();
+      for (const linha of (rateio ?? []) as any[]) {
+        const transacao = linha.transacao;
+        if (!transacao || transacao.is_deleted) continue;
+
+        const vendaId = Number(linha.documento_id);
+        const lista = fatiasPorVenda.get(vendaId) ?? [];
+        lista.push({
+          id: transacao.id,
+          valor: Number(linha.valor ?? 0),
+          valorLiquido: Number(linha.valor ?? 0),
+          data: transacao.data,
+          tipo: "RECEITA",
+          pendente: transacao.pendente === true,
+          is_deleted: false,
+          evento_financeiro_id: null,
+          baixado_por: null,
+          baixadoPor: null,
+          rateado: true,
+        });
+        fatiasPorVenda.set(vendaId, lista);
+      }
+
+      for (const item of items as any[]) {
+        const fatias = fatiasPorVenda.get(Number(item.id));
+        if (fatias?.length) item.transacoes = [...(item.transacoes ?? []), ...fatias];
+      }
+    }
+
     if (vendaIds.length > 0) {
       const { data: notasData, error: notasError } = await supabaseAdmin
         .from("nfe")

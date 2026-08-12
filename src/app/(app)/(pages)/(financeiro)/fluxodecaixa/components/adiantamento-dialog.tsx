@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from "react";
 import axios, { isAxiosError } from "axios";
-import { Banknote, Loader2 } from "lucide-react";
+import { Banknote, Loader2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -16,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -64,6 +66,7 @@ export function AdiantamentoDialog({
   const [metodo, setMetodo] = useState<Metodo_pagamento | "">("");
   const [dataPagamento, setDataPagamento] = useState("");
   const [taxa, setTaxa] = useState(0);
+  const [manterPendentes, setManterPendentes] = useState(false);
   const [descricao, setDescricao] = useState("");
   const [planoId, setPlanoId] = useState("");
   const [centroId, setCentroId] = useState("");
@@ -131,10 +134,13 @@ export function AdiantamentoDialog({
         descricao: descricao.trim() || null,
         planoContaId: planoId ? Number(planoId) : null,
         centroCustoId: centroId ? Number(centroId) : null,
+        manterTitulosPendentes: manterPendentes,
       });
 
       toast.success("Adiantamento registrado.", {
-        description: `${transacoes.length} título(s) liquidados · ${formatarEmReal(liquido)} na conta.`,
+        description: manterPendentes
+          ? `${transacoes.length} título(s) seguem em aberto · ${formatarEmReal(liquido)} na conta.`
+          : `${transacoes.length} título(s) liquidados · ${formatarEmReal(liquido)} na conta.`,
       });
       setAberto(false);
       onConcluido();
@@ -157,39 +163,59 @@ export function AdiantamentoDialog({
         if (!processando) setAberto(valor);
       }}
     >
-      <DialogContent className="max-h-[calc(100dvh-1rem)] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader className="text-left">
+      <DialogContent
+        showCloseButton={false}
+        className="left-0 top-0 grid h-dvh w-screen max-w-none translate-x-0 translate-y-0 grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden rounded-none border-0 p-0 shadow-none motion-reduce:animate-none motion-reduce:duration-0 sm:left-1/2 sm:top-1/2 sm:h-[min(48rem,calc(100dvh-2rem))] sm:w-full sm:max-w-2xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:border sm:shadow-lg"
+      >
+        <DialogClose asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Fechar"
+            disabled={processando}
+            className="absolute right-2 top-[max(0.5rem,env(safe-area-inset-top))] z-10 size-12 sm:right-4 sm:top-4 sm:size-9"
+          >
+            <X aria-hidden="true" />
+          </Button>
+        </DialogClose>
+
+        <DialogHeader className="shrink-0 border-b bg-background px-4 pb-4 pr-16 pt-[max(1rem,env(safe-area-inset-top))] text-left sm:px-6 sm:pb-4 sm:pr-14 sm:pt-6">
           <DialogTitle className="flex items-center gap-2">
-            <Banknote className="h-5 w-5 shrink-0 text-emerald-600" />
+            <Banknote className="h-5 w-5 shrink-0 text-emerald-600" aria-hidden="true" />
             {ehReceita ? "Antecipar recebimento" : "Pagamento antecipado"}
           </DialogTitle>
-          <DialogDescription>
-            {transacoes.length} título(s) serão liquidados por um lançamento único.
+          <DialogDescription className="leading-relaxed">
+            {manterPendentes
+              ? `${transacoes.length} título(s) ficarão marcados como antecipados, sem baixa, e um lançamento único traz o dinheiro.`
+              : `${transacoes.length} título(s) serão liquidados por um lançamento único.`}{" "}
             Confira os dados dele antes de gravar.
           </DialogDescription>
         </DialogHeader>
 
-        {/* A conta que o usuário precisa conferir, no topo e por extenso. */}
-        <div className="rounded-xl border bg-card p-4">
+        <div className="min-h-0 min-w-0 overflow-y-auto overscroll-contain bg-muted/20 px-4 py-4 [-webkit-overflow-scrolling:touch] sm:px-6">
+          <div className="space-y-4">
+            {/* A conta que o usuário precisa conferir, no topo e por extenso. */}
+            <div className="rounded-xl border bg-card p-4">
           <div className="space-y-1 text-sm">
-            <div className="flex items-center justify-between text-muted-foreground">
+            <div className="flex items-center justify-between gap-3 text-muted-foreground">
               <span>Soma dos títulos</span>
-              <span className="tabular-nums">{formatarEmReal(bruto)}</span>
+              <span className="shrink-0 tabular-nums">{formatarEmReal(bruto)}</span>
             </div>
-            <div className="flex items-center justify-between text-muted-foreground">
+            <div className="flex items-center justify-between gap-3 text-muted-foreground">
               <span>Taxa de antecipação</span>
-              <span className="tabular-nums text-destructive">
+              <span className="shrink-0 tabular-nums text-destructive">
                 {taxa > 0 ? `− ${formatarEmReal(taxa)}` : formatarEmReal(0)}
               </span>
             </div>
-            <div className="flex items-center justify-between border-t pt-1 text-base font-semibold">
+            <div className="flex items-center justify-between gap-3 border-t pt-1 text-base font-semibold">
               <span>{ehReceita ? "Entra na conta" : "Sai da conta"}</span>
-              <span className="tabular-nums text-primary">{formatarEmReal(liquido)}</span>
+              <span className="shrink-0 tabular-nums text-primary">{formatarEmReal(liquido)}</span>
             </div>
           </div>
-        </div>
+            </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 p-4 rounded-xl bg-card ">
+            <div className="grid min-w-0 gap-4 rounded-xl bg-card p-3 sm:grid-cols-2 sm:p-4">
           <div className="space-y-2 sm:col-span-2">
             <Label htmlFor="adi-descricao">Descrição</Label>
             <Input
@@ -197,6 +223,7 @@ export function AdiantamentoDialog({
               value={descricao}
               onChange={(evento) => setDescricao(evento.target.value)}
               disabled={processando}
+              className="min-h-12 sm:min-h-9"
             />
           </div>
 
@@ -209,6 +236,7 @@ export function AdiantamentoDialog({
               onChange={setDataPagamento}
               disabled={processando}
               placeholder="Selecione a data"
+              className="min-h-12 sm:min-h-9"
             />
           </div>
 
@@ -219,13 +247,14 @@ export function AdiantamentoDialog({
               value={taxa}
               onValueChange={setTaxa}
               disabled={processando}
+              className="min-h-12 sm:min-h-9"
             />
             <p className="text-xs text-muted-foreground">
               Em reais. Vira um desconto no lançamento, com tipo próprio.
             </p>
           </div>
 
-          <div className="space-y-2">
+          <div className="min-w-0 space-y-2 [&_[role=combobox]]:min-h-12 sm:[&_[role=combobox]]:min-h-9">
             <Label>
               Banco / conta <span className="text-destructive">*</span>
             </Label>
@@ -256,7 +285,7 @@ export function AdiantamentoDialog({
               onValueChange={(valor) => setMetodo(valor as Metodo_pagamento)}
               disabled={processando}
             >
-              <SelectTrigger id="adi-metodo" className="w-full">
+              <SelectTrigger id="adi-metodo" className="min-h-12 w-full sm:min-h-9">
                 <SelectValue placeholder="Selecione o método" />
               </SelectTrigger>
               <SelectContent>
@@ -269,7 +298,7 @@ export function AdiantamentoDialog({
             </Select>
           </div>
 
-          <div className="space-y-2">
+          <div className="min-w-0 space-y-2 [&_[role=combobox]]:min-h-12 sm:[&_[role=combobox]]:min-h-9">
             <Label>Plano de conta</Label>
             <PlanoContaCombobox
               value={planoId}
@@ -281,7 +310,7 @@ export function AdiantamentoDialog({
             />
           </div>
 
-          <div className="space-y-2">
+          <div className="min-w-0 space-y-2 [&_[role=combobox]]:min-h-12 sm:[&_[role=combobox]]:min-h-9">
             <Label>Centro de custo</Label>
             <SearchCombobox
               value={centroId}
@@ -300,24 +329,64 @@ export function AdiantamentoDialog({
               }))}
             />
           </div>
+          {/*
+            Antecipar boleto não é o mesmo que recebê-lo: o dinheiro entra, mas o
+            boleto segue em cobrança até o vencimento. Liquidar na hora apaga
+            justamente o que a cobrança precisa acompanhar.
+          */}
+          <div className="rounded-lg border bg-muted/30 p-3 sm:col-span-2">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 space-y-1">
+                <Label htmlFor="adi-manter" className="text-sm font-medium">
+                  Manter os títulos em aberto
+                </Label>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {manterPendentes ? (
+                    <>
+                      Os {transacoes.length} título(s) <strong>continuam em &quot;a receber&quot;</strong>,
+                      marcados como antecipados, para a cobrança acompanhar até o vencimento.
+                      Você os baixa depois, quando o boleto for pago de fato — e essa baixa
+                      não movimenta a conta de novo, porque o dinheiro já entrou por este
+                      adiantamento.
+                    </>
+                  ) : (
+                    <>
+                      Os {transacoes.length} título(s) serão <strong>liquidados agora</strong>,
+                      junto com o adiantamento. Ligue esta opção para antecipar o dinheiro sem
+                      dar baixa — útil quando o boleto continua em cobrança até o vencimento.
+                    </>
+                  )}
+                </p>
+              </div>
+              <Switch
+                id="adi-manter"
+                checked={manterPendentes}
+                onCheckedChange={setManterPendentes}
+                disabled={processando}
+                className="mt-1 shrink-0"
+              />
+            </div>
+          </div>
+            </div>
+
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Os títulos serão quitados sem banco: o dinheiro entra por este
+              lançamento, e contá-lo neles também dobraria o saldo.
+            </p>
+          </div>
         </div>
 
-        <p className="text-xs text-muted-foreground">
-          Os títulos serão quitados sem banco: o dinheiro entra por este
-          lançamento, e contá-lo neles também dobraria o saldo.
-        </p>
-
-        <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+        <DialogFooter className="shrink-0 flex-col gap-2 border-t bg-background px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:flex-row sm:px-6 sm:py-4">
           <Button
             variant="outline"
-            className="w-full sm:w-auto"
+            className="min-h-12 w-full sm:min-h-9 sm:w-auto"
             onClick={() => setAberto(false)}
             disabled={processando}
           >
             Cancelar
           </Button>
           <Button
-            className="w-full bg-emerald-600 text-white hover:bg-emerald-700 sm:w-auto"
+            className="min-h-12 w-full bg-emerald-600 text-white hover:bg-emerald-700 sm:min-h-9 sm:w-auto"
             onClick={confirmar}
             disabled={processando || !dataPagamento || taxa >= bruto}
           >

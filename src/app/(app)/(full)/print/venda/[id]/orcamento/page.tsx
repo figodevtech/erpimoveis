@@ -1,11 +1,14 @@
 ﻿import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ObservacoesToggle } from "../../../../components/ObservacoesToggle";
 import { PrintFilterToggles } from "../../../../components/PrintFilterToggles";
 import { PrintShareMenu } from "../../../../components/PrintShareMenu";
+import {
+  PRINT_DOCUMENT_HEADER_CSS,
+  PrintDocumentHeader,
+} from "../../../../components/PrintDocumentHeader";
 import { FileText, Power, ShoppingCart, Tag, User } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { formatCep } from "@/app/(app)/(pages)/clientes/components/customerDialogRegister/utils";
@@ -99,7 +102,7 @@ function CodigoProduto({ id, etiqueta }: { id?: unknown; etiqueta?: unknown }) {
       {idTexto}
       {etiquetaTexto ? (
         <span className="item-etiqueta">
-          <Tag className="item-etiqueta-icone" />
+          <Tag className="item-etiqueta-icone" aria-hidden="true" />
           {etiquetaTexto}
         </span>
       ) : null}
@@ -284,6 +287,7 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
           --a4w:794px;
           --a4h:1123px;
         }
+        ${PRINT_DOCUMENT_HEADER_CSS}
         *{ box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
         @page{ size:A4; margin:0; }
         .os-print-root{
@@ -310,61 +314,89 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
           box-shadow:0 20px 60px rgba(15,23,42,.15);
           margin:0 auto;
           overflow:hidden;
+          display:flex;
+          flex-direction:column;
         }
         .conteudo{
           padding:9mm;
+          flex:1 0 auto;
           display:flex;
           flex-direction:column;
           gap:8px;
-          min-height:var(--a4h);
+          min-height:0;
         }
         @media print{
           .venda-observacoes{ display:block !important; }
-          html, body{ margin:0 !important; padding:0 !important; background:#fff !important; }
+          html, body{
+            margin:0 !important;
+            padding:0 !important;
+            height:auto !important;
+            max-height:none !important;
+            overflow:visible !important;
+            background:#fff !important;
+          }
           .no-print{ display:none !important; }
-          .os-print-root{ padding:0 !important; background:none !important; min-height:auto !important; }
-          .folha{ width:210mm !important; min-height:297mm !important; margin:0 !important; border:0 !important; box-shadow:none !important; }
-          .conteudo{ min-height:auto !important; padding:8mm !important; }
+          .os-print-root{
+            padding:0 !important;
+            min-height:auto !important;
+            overflow:visible !important;
+            background:none !important;
+          }
+          .folha{
+            width:210mm !important;
+            min-height:297mm !important;
+            height:auto !important;
+            max-height:none !important;
+            margin:0 !important;
+            border:0 !important;
+            box-shadow:none !important;
+            overflow:visible !important;
+            display:flex !important;
+            flex-direction:column !important;
+          }
+          .conteudo{
+            min-height:0 !important;
+            height:auto !important;
+            max-height:none !important;
+            padding:8mm !important;
+            flex:1 0 auto !important;
+            display:flex !important;
+            flex-direction:column !important;
+            overflow:visible !important;
+          }
+          .header-os,
+          .meta-grid,
+          .grid-info,
+          .rodape,
+          .observacoes-box,
+          .totais-box,
+          .assinaturas,
+          .aceite-box{
+            break-inside:avoid;
+            page-break-inside:avoid;
+          }
+          .tabela-container{
+            overflow:visible !important;
+            border-radius:0 !important;
+            break-inside:auto !important;
+            page-break-inside:auto !important;
+          }
+          table,
+          tbody{
+            break-inside:auto;
+            page-break-inside:auto;
+          }
+          thead{ display:table-header-group; }
+          tbody{ display:table-row-group; }
+          tr{
+            break-inside:avoid;
+            page-break-inside:avoid;
+          }
         }
-        .header-os{
-          background:linear-gradient(135deg, var(--brand-primary), var(--brand-secondary));
-          padding:14px 16px;
-          color:white;
-          display:grid;
-          grid-template-columns:auto 1fr auto;
-          gap:16px;
-          align-items:center;
-        }
-        .logo-box{
-          width:70px;
-          height:70px;
-          background:#fff;
-          border-radius:10px;
-          display:flex;
-          align-items:center;
-          justify-content:center;
-          overflow:hidden;
-          color:var(--brand-primary);
-          font-size:24px;
-          font-weight:800;
-        }
-        .logo-img{ width:100%; height:100%; object-fit:contain; }
-        .empresa-nome{ font-size:18px; font-weight:700; margin-bottom:4px; }
-        .empresa-details{ font-size:9px; line-height:1.45; opacity:.95; }
-        .os-header-box{
-          background:rgba(255,255,255,.15);
-          border:1px solid rgba(255,255,255,.3);
-          border-radius:10px;
-          padding:10px 14px;
-          text-align:right;
-          min-width:170px;
-        }
-        .os-label{ font-size:8px; text-transform:uppercase; letter-spacing:.2em; font-weight:800; }
-        .os-numero{ font-size:22px; font-weight:900; margin:4px 0; }
         .meta-grid{ display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; }
         .meta-badge{ background:var(--soft-bg); border:1px solid var(--border); border-radius:8px; padding:8px; text-align:center; }
         .meta-badge .label{ font-size:8px; text-transform:uppercase; letter-spacing:.14em; color:var(--muted); font-weight:700; margin-bottom:4px; }
-        .meta-badge .valor{ font-size:10px; font-weight:700; }
+        .meta-badge .valor{ font-size:10px; font-weight:700; font-variant-numeric:tabular-nums; }
         .grid-info{ display:grid; grid-template-columns:1.4fr 1fr; gap:10px; }
         .cartao{ border:1px solid var(--border); border-radius:var(--radius); background:#fff; padding:10px; }
         .cartao-destaque{ background:linear-gradient(135deg, var(--primary-soft), var(--secondary-soft)); }
@@ -377,12 +409,12 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
         thead th{ font-size:9px; text-transform:uppercase; letter-spacing:.12em; font-weight:900; color:white; padding:8px; background:linear-gradient(135deg, var(--brand-primary), var(--brand-primary)); text-align:left; }
         tbody td{ font-size:10px; padding:7px 8px; border-bottom:1px solid #f1f5f9; vertical-align:middle; }
         tbody tr:last-child td{ border-bottom:none; }
-        .col-num{ width:38px; text-align:center; font-weight:700; }
+        .col-num{ width:38px; text-align:center; font-weight:700; font-variant-numeric:tabular-nums; }
         .item-codigo{ display:inline-flex; align-items:center; gap:5px; margin-left:6px; font-size:8px; font-weight:600; letter-spacing:.04em; color:color-mix(in srgb, var(--muted) 70%, #fff); white-space:nowrap; vertical-align:baseline; }
         .item-etiqueta{ display:inline-flex; align-items:center; gap:2px; }
         .item-etiqueta-icone{ width:8px; height:8px; flex-shrink:0; display:block; }
-        .col-qtd{ width:52px; text-align:center; font-weight:700; }
-        .col-unit, .col-sub{ width:110px; text-align:right; font-weight:700; }
+        .col-qtd{ width:52px; text-align:center; font-weight:700; font-variant-numeric:tabular-nums; }
+        .col-unit, .col-sub{ width:110px; text-align:right; font-weight:700; font-variant-numeric:tabular-nums; }
         .rodape{ margin-top:auto; display:grid; grid-template-columns:1fr 320px; gap:10px; padding-top:8px; }
         .observacoes-box{ border:1px solid var(--border); background:var(--soft-bg); border-radius:var(--radius); padding:10px; }
         .venda-observacoes{ display:none; }
@@ -399,10 +431,10 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
         .obs-titulo{ font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; color:var(--brand-primary); margin-bottom:6px; }
         .obs-texto{ font-size:10px; line-height:1.45; color:var(--muted); }
         .totais-box{ border:1px solid var(--brand-primary); background:linear-gradient(135deg, var(--primary-soft), #fff); border-radius:var(--radius); padding:12px; }
-        .linha-total{ display:flex; justify-content:space-between; font-size:11px; padding:4px 0; color:var(--muted); }
+        .linha-total{ display:flex; justify-content:space-between; font-size:11px; font-variant-numeric:tabular-nums; padding:4px 0; color:var(--muted); }
         .linha-total-final{ margin-top:8px; padding-top:8px; border-top:1px solid var(--brand-primary); display:flex; justify-content:space-between; align-items:center; }
         .total-label{ font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; color:var(--brand-primary); }
-        .total-valor{ font-size:16px; font-weight:800; color:var(--brand-primary); }
+        .total-valor{ font-size:16px; font-weight:800; font-variant-numeric:tabular-nums; color:var(--brand-primary); }
         .assinaturas{ margin-top:35px; display:grid; grid-template-columns:1fr 1fr; gap:12px; }
         .assinatura{ border-top:2px solid var(--border); padding-top:8px; text-align:center; }
         .assin-label{ font-size:9px; text-transform:uppercase; letter-spacing:.12em; color:var(--muted); font-weight:700; }
@@ -428,7 +460,7 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
             className="hover:cursor-pointer hover:text-black"
           >
             <Link href="/historicovendas">
-              <Power className="w-3 h-3" />
+              <Power className="w-3 h-3" aria-hidden="true" />
               Sair
             </Link>
           </Button>
@@ -447,19 +479,19 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
       </div>
 
       <div className="folha" data-print-export-target>
-        <div className="header-os">
-          <div className="logo-box">
-            {finalLogo ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={finalLogo} alt="Logo da empresa" className="logo-img" />
-            ) : (
-              "PDV"
-            )}
-          </div>
-
-          <div>
-            <div className="empresa-nome">{empresaNome}</div>
-            <div className="empresa-details">
+        <PrintDocumentHeader
+          logoUrl={finalLogo}
+          logoFallback="PDV"
+          companyName={empresaNome}
+          documentLabel="Venda"
+          documentNumber={venda.id}
+          status={
+            String(venda.status) === "PAGAMENTO"
+              ? "PEDIDO DE VENDA"
+              : String(venda.status)
+          }
+          companyDetails={
+            <>
               {empresaEndereco && <div>{empresaEndereco}</div>}
               {empresaLocal && <div>{empresaLocal}</div>}
               <div>
@@ -468,19 +500,9 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
                 )}
                 {empresa?.cnpj && <span> • CNPJ: {fmtDoc(empresa.cnpj)}</span>}
               </div>
-            </div>
-          </div>
-
-          <div className="os-header-box">
-            <div className="os-label ">Venda</div>
-            <div className="os-numero">#{venda.id}</div>
-            <Badge className="text-xs text-white" variant="outline">
-              {String(venda.status) === "PAGAMENTO"
-                ? "PEDIDO DE VENDA"
-                : String(venda.status)}
-            </Badge>
-          </div>
-        </div>
+            </>
+          }
+        />
 
         <div className="conteudo">
           <div className="meta-grid">
@@ -517,7 +539,7 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
           <div className="grid-info">
             <div className="cartao cartao-destaque bloco-cliente">
               <div className="titulo-secao">
-                <User className="w-4 h-4" />
+                <User className="w-4 h-4" aria-hidden="true" />
                 Cliente
               </div>
               <div className="text-sm font-semibold">
@@ -547,7 +569,7 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
 
             <div className="cartao cartao-destaque bloco-resumo">
               <div className="titulo-secao">
-                <ShoppingCart className="w-4 h-4" />
+                <ShoppingCart className="w-4 h-4" aria-hidden="true" />
                 Resumo
               </div>
               <div className="kv">
@@ -620,7 +642,7 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
               {venda.observacoes ? (
                 <div className="observacoes-box venda-observacoes">
                   <div className="obs-titulo">
-                    <FileText className="w-4 h-4 inline mr-1" />
+                    <FileText className="w-4 h-4 inline mr-1" aria-hidden="true" />
                     Observações
                   </div>
                   <div className="obs-texto">{venda.observacoes}</div>

@@ -21,7 +21,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -50,36 +50,20 @@ import { CancelarEntradaDialog } from "@/components/entrada-fiscal/cancelar-entr
 import { EntryDetailsDialog } from "../components/entry-details-dialog";
 import { LancarFinanceiroEntradaDialog } from "@/components/entrada-fiscal/lancar-financeiro-entrada-dialog";
 
+/**
+ * Historico de estoque.
+ *
+ * Busca, filtro e paginacao rodam no servidor (`/api/estoque/movimentos` e
+ * `/api/usoconsumo/movimentos`). A tela pede uma pagina por vez e mostra o
+ * total real do resultado — antes ela baixava um lote grande e filtrava no
+ * navegador, entao a busca so enxergava o que ja tinha vindo.
+ */
+
 type InventoryKind = "produtos" | "uso-consumo";
 type Direction = "entrada" | "saida";
 type DirectionFilter = "todos" | Direction;
 type StatusFilter = "todos" | "CONFIRMADA" | "CANCELADA";
-
-type MovementItem = {
-  quantidade?: number | null;
-  titulo?: string | null;
-  unidade?: string | null;
-  item?: { titulo?: string | null; unidade?: string | null } | null;
-  produto?: { titulo?: string | null; unidade?: string | null } | null;
-};
-
-type RawMovement = {
-  id: number;
-  created_at: string;
-  fiscal?: boolean | null;
-  numero_nota?: string | null;
-  origem?: string | null;
-  tipo?: string | null;
-  motivo?: string | null;
-  observacao?: string | null;
-  status?: string | null;
-  valor_total?: number | null;
-  funcionario?: string | null;
-  setor?: string | null;
-  fornecedor?: { nomerazaosocial?: string | null } | null;
-  centro_custo?: { nome?: string | null } | null;
-  itens?: MovementItem[] | null;
-};
+type FiscalFilter = "todos" | "com_nf" | "sem_nf";
 
 type Origem = "ENTRADA" | "SAIDA_MANUAL" | "VENDA" | "ORDEM_SERVICO" | "NAO_IDENTIFICADA";
 type OrigemFilter = "todas" | Origem;
@@ -99,6 +83,8 @@ type RawLedgerMovement = {
   documento_label: string | null;
   reconstruido: boolean;
   created_at: string;
+  status: string | null;
+  fiscal: boolean | null;
   produto?: { titulo?: string | null; unidade?: string | null } | null;
   criador?: { nome?: string | null } | null;
   entrada?: {
@@ -110,6 +96,24 @@ type RawLedgerMovement = {
     fornecedor?: { nomerazaosocial?: string | null } | null;
   } | null;
   saida?: { status?: string | null; motivo?: string | null; observacao?: string | null } | null;
+};
+
+/** Linha do historico de uso e consumo (/api/usoconsumo/movimentos). */
+type RawUsoConsumoMovement = {
+  sentido: Direction;
+  id: number;
+  created_at: string;
+  status: string | null;
+  valor_total: number | null;
+  numero_nota: string | null;
+  tipo: string | null;
+  origem: string | null;
+  motivo: string | null;
+  observacao: string | null;
+  parte: string | null;
+  fiscal: boolean | null;
+  itens_resumo: string | null;
+  criador_nome: string | null;
 };
 
 type Movement = {
@@ -130,6 +134,35 @@ type Movement = {
   documentKind?: Direction | null;
   documentId?: number | null;
   reconstruido?: boolean;
+};
+
+type Pagination = { page?: number; limit?: number; total?: number; totalPages?: number };
+
+/** Estado unico de consulta: tudo aqui vira parametro de requisicao. */
+type Filtros = {
+  inventory: InventoryKind;
+  busca: string;
+  direcao: DirectionFilter;
+  status: StatusFilter;
+  origem: OrigemFilter;
+  fiscal: FiscalFilter;
+  dataInicial: string;
+  dataFinal: string;
+  page: number;
+  limit: number;
+};
+
+const FILTROS_INICIAIS: Filtros = {
+  inventory: "produtos",
+  busca: "",
+  direcao: "todos",
+  status: "todos",
+  origem: "todas",
+  fiscal: "todos",
+  dataInicial: "",
+  dataFinal: "",
+  page: 1,
+  limit: 50,
 };
 
 const ROTULO_ORIGEM: Record<Origem, string> = {
@@ -157,18 +190,6 @@ function label(value: string | null | undefined) {
   return value?.trim().replaceAll("_", " ") || "—";
 }
 
-function movementItems(lines?: MovementItem[] | null) {
-  if (!lines?.length) return "—";
-  return lines
-    .map((line) => {
-      const related = line.item ?? line.produto;
-      const title = line.titulo || related?.titulo || "Item";
-      const unit = line.unidade || related?.unidade || "";
-      return `${title} (${Number(line.quantidade ?? 0)}${unit ? ` ${unit}` : ""})`;
-    })
-    .join(", ");
-}
-
 function formatDateTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
@@ -176,36 +197,6 @@ function formatDateTime(value: string) {
     dateStyle: "short",
     timeStyle: "short",
   }).format(date);
-}
-
-function normalizeMovement(
-  raw: RawMovement,
-  inventory: InventoryKind,
-  direction: Direction,
-): Movement {
-  const isFiscal = Boolean(
-    raw.fiscal ||
-      raw.numero_nota ||
-      (raw.origem && ["MANUAL_COM_NF", "XML"].includes(raw.origem)),
-  );
-
-  return {
-    key: `${inventory}-${direction}-${raw.id}`,
-    id: raw.id,
-    inventory,
-    direction,
-    createdAt: raw.created_at,
-    description:
-      raw.numero_nota
-        ? `Nota fiscal nº ${raw.numero_nota}`
-        : raw.motivo || raw.tipo || (direction === "entrada" ? "Entrada no estoque" : "Saída do estoque"),
-    party: raw.fornecedor?.nomerazaosocial || raw.funcionario || raw.setor || raw.centro_custo?.nome || "—",
-    items: movementItems(raw.itens),
-    total: raw.valor_total ?? null,
-    status: raw.status || "CONFIRMADA",
-    fiscal: isFiscal,
-    numeroNota: raw.numero_nota ?? null,
-  };
 }
 
 function normalizeLedgerMovement(raw: RawLedgerMovement): Movement {
@@ -227,13 +218,6 @@ function normalizeLedgerMovement(raw: RawLedgerMovement): Movement {
     documentId = raw.saida_id;
   }
 
-  const isFiscal = Boolean(
-    raw.entrada?.fiscal ||
-      raw.entrada?.numero_nota ||
-      (raw.entrada?.origem && ["MANUAL_COM_NF", "XML"].includes(raw.entrada.origem)),
-  );
-  const numeroNota = raw.entrada?.numero_nota ?? null;
-
   return {
     key: `ledger-${raw.id}`,
     id: raw.id,
@@ -248,14 +232,40 @@ function normalizeLedgerMovement(raw: RawLedgerMovement): Movement {
     party,
     items: movementItem,
     total: null,
-    status: isEstorno ? "CANCELADA" : raw.entrada?.status || raw.saida?.status || "CONFIRMADA",
-    fiscal: isFiscal,
-    numeroNota,
+    status: raw.status || "CONFIRMADA",
+    fiscal: Boolean(raw.fiscal),
+    numeroNota: raw.entrada?.numero_nota ?? null,
     origem: raw.origem,
     acao: raw.acao,
     documentKind,
     documentId,
     reconstruido: raw.reconstruido,
+  };
+}
+
+function normalizeUsoConsumoMovement(raw: RawUsoConsumoMovement): Movement {
+  const padrao = raw.sentido === "entrada" ? "Entrada no estoque" : "Saída do estoque";
+  const descricaoCrua = raw.motivo || raw.tipo;
+
+  return {
+    key: `uso-${raw.sentido}-${raw.id}`,
+    id: raw.id,
+    inventory: "uso-consumo",
+    direction: raw.sentido,
+    createdAt: raw.created_at,
+    description: raw.numero_nota
+      ? `Nota fiscal nº ${raw.numero_nota}`
+      : descricaoCrua
+        ? label(descricaoCrua)
+        : padrao,
+    party: raw.parte || raw.criador_nome || "—",
+    items: raw.itens_resumo || "—",
+    total: raw.valor_total ?? null,
+    status: raw.status || "CONFIRMADA",
+    fiscal: Boolean(raw.fiscal),
+    numeroNota: raw.numero_nota ?? null,
+    documentKind: raw.sentido,
+    documentId: raw.id,
   };
 }
 
@@ -410,12 +420,13 @@ function MovementRow({
   );
 }
 
-type FiscalFilter = "todos" | "com_nf" | "sem_nf";
-
 function MovementTable({
-  products,
-  useItems,
+  filtros,
+  movements,
   loading,
+  total,
+  totalPages,
+  onFiltrosChange,
   canCancel,
   canceling,
   onReload,
@@ -425,9 +436,12 @@ function MovementTable({
   onBaixarNfe,
   onBaixarDanfe,
 }: {
-  products: Movement[];
-  useItems: Movement[];
+  filtros: Filtros;
+  movements: Movement[];
   loading: boolean;
+  total: number;
+  totalPages: number;
+  onFiltrosChange: (patch: Partial<Filtros>) => void;
   canCancel: (movement: Movement) => boolean;
   canceling: string | null;
   onReload: () => void;
@@ -437,102 +451,52 @@ function MovementTable({
   onBaixarNfe: (movement: Movement) => void;
   onBaixarDanfe: (movement: Movement) => void;
 }) {
-  const [inventory, setInventory] = useState<InventoryKind>("produtos");
-  const [search, setSearch] = useState("");
-  const [directionFilter, setDirectionFilter] = useState<DirectionFilter>("todos");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("todos");
-  const [origemFilter, setOrigemFilter] = useState<OrigemFilter>("todas");
-  const [fiscalFilter, setFiscalFilter] = useState<FiscalFilter>("todos");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [draftDirection, setDraftDirection] = useState<DirectionFilter>("todos");
-  const [draftStatus, setDraftStatus] = useState<StatusFilter>("todos");
-  const [draftOrigem, setDraftOrigem] = useState<OrigemFilter>("todas");
-  const [draftFiscal, setDraftFiscal] = useState<FiscalFilter>("todos");
-  const [draftDateFrom, setDraftDateFrom] = useState("");
-  const [draftDateTo, setDraftDateTo] = useState("");
-  const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(20);
+  const [draftDirection, setDraftDirection] = useState<DirectionFilter>(filtros.direcao);
+  const [draftStatus, setDraftStatus] = useState<StatusFilter>(filtros.status);
+  const [draftOrigem, setDraftOrigem] = useState<OrigemFilter>(filtros.origem);
+  const [draftFiscal, setDraftFiscal] = useState<FiscalFilter>(filtros.fiscal);
+  const [draftDateFrom, setDraftDateFrom] = useState(filtros.dataInicial);
+  const [draftDateTo, setDraftDateTo] = useState(filtros.dataFinal);
 
-  const normalizedSearch = search.trim().toLocaleLowerCase("pt-BR");
-  const sourceMovements = inventory === "produtos" ? products : useItems;
-  const filteredMovements = useMemo(
-    () =>
-      sourceMovements.filter((movement) => {
-        if (directionFilter !== "todos" && movement.direction !== directionFilter) return false;
-        if (statusFilter !== "todos" && movement.status !== statusFilter) return false;
-        if (origemFilter !== "todas" && movement.origem !== origemFilter) return false;
-        if (fiscalFilter === "com_nf" && !movement.fiscal) return false;
-        if (fiscalFilter === "sem_nf" && movement.fiscal) return false;
-
-        const movementDate = new Date(movement.createdAt);
-        if (dateFrom && movementDate < new Date(`${dateFrom}T00:00:00`)) return false;
-        if (dateTo && movementDate > new Date(`${dateTo}T23:59:59.999`)) return false;
-
-        if (!normalizedSearch) return true;
-        return [
-          movement.id,
-          movement.description,
-          movement.party,
-          movement.items,
-          movement.status,
-          movement.numeroNota ? `nf-e nº ${movement.numeroNota} nota fiscal` : "",
-          movement.fiscal ? "nf-e nota fiscal" : "",
-        ]
-          .join(" ")
-          .toLocaleLowerCase("pt-BR")
-          .includes(normalizedSearch);
-      }),
-    [dateFrom, dateTo, directionFilter, fiscalFilter, normalizedSearch, origemFilter, sourceMovements, statusFilter],
-  );
-  const totalPages = Math.max(1, Math.ceil(filteredMovements.length / limit));
-  const start = (page - 1) * limit;
-  const pageMovements = filteredMovements.slice(start, start + limit);
-  const showActions = filteredMovements.length > 0;
+  const showActions = movements.length > 0;
   const colSpan = showActions ? 6 : 5;
-  const isEmpty = !loading && filteredMovements.length === 0;
+  const isEmpty = !loading && movements.length === 0;
+  const start = (filtros.page - 1) * filtros.limit;
   const activeFilterCount =
-    Number(directionFilter !== "todos") +
-    Number(statusFilter !== "todos") +
-    Number(origemFilter !== "todas") +
-    Number(fiscalFilter !== "todos") +
-    Number(Boolean(dateFrom)) +
-    Number(Boolean(dateTo));
-
-  useEffect(() => {
-    setPage(1);
-  }, [dateFrom, dateTo, directionFilter, fiscalFilter, inventory, limit, normalizedSearch, origemFilter, statusFilter]);
-
-  useEffect(() => {
-    setPage((current) => Math.min(current, totalPages));
-  }, [totalPages]);
+    Number(filtros.direcao !== "todos") +
+    Number(filtros.status !== "todos") +
+    Number(filtros.origem !== "todas") +
+    Number(filtros.fiscal !== "todos") +
+    Number(Boolean(filtros.dataInicial)) +
+    Number(Boolean(filtros.dataFinal));
 
   function changeInventory(value: string) {
     if (value !== "produtos" && value !== "uso-consumo") return;
-    setInventory(value);
-    if (value === "uso-consumo") setOrigemFilter("todas");
+    onFiltrosChange({ inventory: value });
   }
 
   function changeSheetOpen(open: boolean) {
     if (open) {
-      setDraftDirection(directionFilter);
-      setDraftStatus(statusFilter);
-      setDraftOrigem(origemFilter);
-      setDraftFiscal(fiscalFilter);
-      setDraftDateFrom(dateFrom);
-      setDraftDateTo(dateTo);
+      setDraftDirection(filtros.direcao);
+      setDraftStatus(filtros.status);
+      setDraftOrigem(filtros.origem);
+      setDraftFiscal(filtros.fiscal);
+      setDraftDateFrom(filtros.dataInicial);
+      setDraftDateTo(filtros.dataFinal);
     }
     setSheetOpen(open);
   }
 
   function applyFilters() {
-    setDirectionFilter(draftDirection);
-    setStatusFilter(draftStatus);
-    setOrigemFilter(draftOrigem);
-    setFiscalFilter(draftFiscal);
-    setDateFrom(draftDateFrom);
-    setDateTo(draftDateTo);
+    onFiltrosChange({
+      direcao: draftDirection,
+      status: draftStatus,
+      origem: draftOrigem,
+      fiscal: draftFiscal,
+      dataInicial: draftDateFrom,
+      dataFinal: draftDateTo,
+    });
     setSheetOpen(false);
   }
 
@@ -548,8 +512,8 @@ function MovementTable({
   return (
     <Card className="bg-card">
       <CardHeader className="border-b-2 pb-4">
-        <div className="relative flex min-w-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="min-w-0 md:max-w-sm xl:max-w-md">
+        <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between">
+          <div className="min-w-0 lg:max-w-xs">
             <CardTitle>Histórico de estoque</CardTitle>
             <CardDescription className="flex flex-col items-start gap-1">
               <span>Todas as entradas e saídas, separadas entre produtos e itens de uso/consumo.</span>
@@ -564,8 +528,8 @@ function MovementTable({
             </CardDescription>
           </div>
 
-          <div className="flex flex-1 items-center justify-center xl:absolute xl:left-1/2 xl:top-1/2 xl:-translate-x-1/2 xl:-translate-y-1/2">
-            <Tabs value={inventory} onValueChange={changeInventory}>
+          <div className="flex shrink-0 justify-center lg:order-2 lg:justify-start">
+            <Tabs value={filtros.inventory} onValueChange={changeInventory}>
               <TabsList className="h-auto gap-1.5 rounded-2xl border bg-muted/40 p-1 backdrop-blur-sm">
                 <TabsTrigger
                   value="produtos"
@@ -585,12 +549,12 @@ function MovementTable({
             </Tabs>
           </div>
 
-          <div className="flex w-full flex-col gap-2 sm:flex-row md:w-auto md:items-center md:justify-end">
+          <div className="flex w-full flex-col gap-2 sm:flex-row lg:order-3 lg:w-auto lg:items-center lg:justify-end">
             <div className="relative w-full sm:w-64">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                value={filtros.busca}
+                onChange={(event) => onFiltrosChange({ busca: event.target.value })}
                 placeholder="Buscar no histórico..."
                 className="h-9 pl-9"
               />
@@ -629,7 +593,7 @@ function MovementTable({
                       </Select>
                     </div>
 
-                    {inventory === "produtos" ? (
+                    {filtros.inventory === "produtos" ? (
                       <div className="space-y-2 border-t pt-4">
                         <Label>Origem</Label>
                         <Select value={draftOrigem} onValueChange={(value) => setDraftOrigem(value as OrigemFilter)}>
@@ -745,7 +709,7 @@ function MovementTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {pageMovements.map((movement) => (
+            {movements.map((movement) => (
               <MovementRow
                 key={movement.key}
                 movement={movement}
@@ -770,18 +734,18 @@ function MovementTable({
           </TableBody>
         </Table>
 
-        {loading && filteredMovements.length === 0 ? (
+        {loading && movements.length === 0 ? (
           <div className="flex h-32 items-center justify-center text-muted-foreground">
             <Loader2 className="mr-2 size-5 animate-spin" />
             Carregando histórico...
           </div>
         ) : null}
 
-        {!loading && filteredMovements.length > 0 ? (
+        {movements.length > 0 ? (
           <div className="mt-4 grid min-h-9 grid-cols-1 items-center gap-3 sm:grid-cols-[1fr_auto_1fr]">
             <div className="flex flex-nowrap justify-self-center text-xs text-muted-foreground sm:justify-self-start">
-              <span>{start + 1}</span> - <span>{Math.min(start + pageMovements.length, filteredMovements.length)}</span>
-              <span className="ml-1 hidden sm:block">de {filteredMovements.length}</span>
+              <span>{start + 1}</span> - <span>{start + movements.length}</span>
+              <span className="ml-1 hidden sm:block">de {total}</span>
             </div>
 
             <div className="flex items-center justify-center space-x-1 sm:space-x-3 sm:col-start-2 sm:row-start-1">
@@ -791,8 +755,8 @@ function MovementTable({
                   size="icon"
                   className="h-8 w-8"
                   aria-label="Primeira página"
-                  disabled={page === 1}
-                  onClick={() => setPage(1)}
+                  disabled={filtros.page === 1}
+                  onClick={() => onFiltrosChange({ page: 1 })}
                 >
                   <ChevronsLeft className="size-4" />
                 </Button>
@@ -802,13 +766,13 @@ function MovementTable({
                   size="icon"
                   className="h-8 w-8"
                   aria-label="Página anterior"
-                  disabled={page === 1}
-                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  disabled={filtros.page === 1}
+                  onClick={() => onFiltrosChange({ page: Math.max(1, filtros.page - 1) })}
                 >
                   <ChevronLeft className="size-4" />
                 </Button>
                 <span className="min-w-20 text-center text-xs text-muted-foreground">
-                  Pg. {page} de {totalPages}
+                  Pg. {filtros.page} de {totalPages}
                 </span>
                 <Button
                   type="button"
@@ -816,8 +780,8 @@ function MovementTable({
                   variant="outline"
                   className="h-8 w-8"
                   aria-label="Próxima página"
-                  disabled={page === totalPages}
-                  onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                  disabled={filtros.page >= totalPages}
+                  onClick={() => onFiltrosChange({ page: Math.min(totalPages, filtros.page + 1) })}
                 >
                   <ChevronRight className="size-4" />
                 </Button>
@@ -827,19 +791,16 @@ function MovementTable({
                   variant="outline"
                   className="h-8 w-8"
                   aria-label="Última página"
-                  disabled={page === totalPages}
-                  onClick={() => setPage(totalPages)}
+                  disabled={filtros.page >= totalPages}
+                  onClick={() => onFiltrosChange({ page: totalPages })}
                 >
                   <ChevronsRight className="size-4" />
                 </Button>
             </div>
 
             <Select
-              value={String(limit)}
-              onValueChange={(value) => {
-                setPage(1);
-                setLimit(Number(value));
-              }}
+              value={String(filtros.limit)}
+              onValueChange={(value) => onFiltrosChange({ limit: Number(value) })}
             >
               <SelectTrigger
                 className="w-auto justify-self-center hover:cursor-pointer sm:col-start-3 sm:row-start-1 sm:justify-self-end"
@@ -848,9 +809,11 @@ function MovementTable({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="10">10</SelectItem>
                 <SelectItem value="20">20</SelectItem>
                 <SelectItem value="50">50</SelectItem>
+                <SelectItem value="100">100</SelectItem>
+                <SelectItem value="200">200</SelectItem>
+                <SelectItem value="500">500</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -868,8 +831,11 @@ export default function HistoricoEstoquePage() {
   const canCancelUse = permissionSetHas(permissions, PERMS.USOCONSUMO_CANCELAR);
   const canCancelProducts = permissionSetHas(permissions, PERMS.ESTOQUE_EDITAR);
 
-  const [products, setProducts] = useState<Movement[]>([]);
-  const [useItems, setUseItems] = useState<Movement[]>([]);
+  const [filtros, setFiltros] = useState<Filtros>(FILTROS_INICIAIS);
+  const [buscaAplicada, setBuscaAplicada] = useState("");
+  const [movements, setMovements] = useState<Movement[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [canceling, setCanceling] = useState<string | null>(null);
   const [cancelTarget, setCancelTarget] = useState<{ movement: Movement; target: CancelTarget } | null>(null);
@@ -885,54 +851,107 @@ export default function HistoricoEstoquePage() {
     inventory: "produto" | "usoconsumo";
   } | null>(null);
 
-  const load = useCallback(async () => {
+  /** Descarta resposta de requisicao antiga: quem digita rapido nao ve o passado. */
+  const requisicaoAtual = useRef(0);
+
+  function alterarFiltros(patch: Partial<Filtros>) {
+    setFiltros((atual) => {
+      const proximo = { ...atual, ...patch };
+      // Mudou qualquer criterio? A pagina volta ao inicio — so a navegacao
+      // explicita de pagina mantem onde estava.
+      if (patch.page === undefined) proximo.page = 1;
+      // Origem so existe no razao de produtos.
+      if (proximo.inventory === "uso-consumo") proximo.origem = "todas";
+      return proximo;
+    });
+  }
+
+  // Quem so tem uso e consumo abre direto na aba que pode ver.
+  useEffect(() => {
+    if (sessionStatus !== "authenticated") return;
+    if (canProducts || !canUse) return;
+    setFiltros((atual) =>
+      atual.inventory === "produtos" ? { ...atual, inventory: "uso-consumo", origem: "todas", page: 1 } : atual,
+    );
+  }, [canProducts, canUse, sessionStatus]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setBuscaAplicada(filtros.busca.trim()), 350);
+    return () => clearTimeout(timer);
+  }, [filtros.busca]);
+
+  const carregar = useCallback(async () => {
+    const permitido = filtros.inventory === "produtos" ? canProducts : canUse;
+    const id = ++requisicaoAtual.current;
+
+    if (!permitido) {
+      setMovements([]);
+      setTotal(0);
+      setTotalPages(1);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
-      const requests: Promise<void>[] = [];
+      const params: Record<string, string | number> = { page: filtros.page, limit: filtros.limit };
+      if (buscaAplicada) params.q = buscaAplicada;
+      if (filtros.direcao !== "todos") params.sentido = filtros.direcao;
+      if (filtros.status !== "todos") params.status = filtros.status;
+      if (filtros.fiscal !== "todos") params.fiscal = filtros.fiscal;
+      if (filtros.dataInicial) params.desde = new Date(`${filtros.dataInicial}T00:00:00`).toISOString();
+      if (filtros.dataFinal) params.ate = new Date(`${filtros.dataFinal}T23:59:59.999`).toISOString();
 
-      if (canProducts) {
-        requests.push(
-          axios
-            .get("/api/estoque/movimentos", { params: { page: 1, limit: 200 } })
-            .then((response) => {
-              const linhas = (response.data.data ?? []) as RawLedgerMovement[];
-              setProducts(linhas.map(normalizeLedgerMovement));
-            }),
-        );
-      } else {
-        setProducts([]);
-      }
+      const produtos = filtros.inventory === "produtos";
+      if (produtos && filtros.origem !== "todas") params.origem = filtros.origem;
 
-      if (canUse) {
-        requests.push(
-          Promise.all([
-            axios.get("/api/usoconsumo/entradas", { params: { page: 1, limit: 100 } }),
-            axios.get("/api/usoconsumo/saidas", { params: { page: 1, limit: 100 } }),
-          ]).then(([entriesResponse, outputsResponse]) => {
-            const entries = (entriesResponse.data.data ?? []) as RawMovement[];
-            const outputs = (outputsResponse.data.data ?? []) as RawMovement[];
-            setUseItems([
-              ...entries.map((entry) => normalizeMovement(entry, "uso-consumo", "entrada")),
-              ...outputs.map((output) => normalizeMovement(output, "uso-consumo", "saida")),
-            ].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)));
-          }),
-        );
-      } else {
-        setUseItems([]);
-      }
+      const { data } = await axios.get(
+        produtos ? "/api/estoque/movimentos" : "/api/usoconsumo/movimentos",
+        { params },
+      );
+      if (id !== requisicaoAtual.current) return;
 
-      await Promise.all(requests);
+      const linhas = (data.data ?? []) as unknown[];
+      setMovements(
+        produtos
+          ? (linhas as RawLedgerMovement[]).map(normalizeLedgerMovement)
+          : (linhas as RawUsoConsumoMovement[]).map(normalizeUsoConsumoMovement),
+      );
+
+      const paginacao = (data.pagination ?? {}) as Pagination;
+      const paginas = Math.max(1, paginacao.totalPages ?? 1);
+      setTotal(paginacao.total ?? 0);
+      setTotalPages(paginas);
+      // Apagar filtro pode encolher o resultado abaixo da pagina em que se estava.
+      if (filtros.page > paginas) setFiltros((atual) => ({ ...atual, page: paginas }));
     } catch (error) {
+      if (id !== requisicaoAtual.current) return;
+      setMovements([]);
+      setTotal(0);
+      setTotalPages(1);
       toast.error("Histórico de estoque não carregado", { description: errorText(error) });
     } finally {
-      setLoading(false);
+      if (id === requisicaoAtual.current) setLoading(false);
     }
-  }, [canProducts, canUse]);
+  }, [
+    buscaAplicada,
+    canProducts,
+    canUse,
+    filtros.dataFinal,
+    filtros.dataInicial,
+    filtros.direcao,
+    filtros.fiscal,
+    filtros.inventory,
+    filtros.limit,
+    filtros.origem,
+    filtros.page,
+    filtros.status,
+  ]);
 
   useEffect(() => {
     if (sessionStatus !== "authenticated") return;
-    void load();
-  }, [load, sessionStatus]);
+    void carregar();
+  }, [carregar, sessionStatus]);
 
   function podeCancelar(movement: Movement) {
     if (movement.status !== "CONFIRMADA") return false;
@@ -960,7 +979,7 @@ export default function HistoricoEstoquePage() {
       await axios.post(endpoint, { motivo });
       toast.success("Movimentação cancelada.");
       setCancelTarget(null);
-      await load();
+      await carregar();
     } catch (error) {
       toast.error("Cancelamento não realizado", { description: errorText(error) });
     } finally {
@@ -1041,12 +1060,15 @@ export default function HistoricoEstoquePage() {
   return (
     <div className="mx-auto space-y-6">
       <MovementTable
-        products={products}
-        useItems={useItems}
+        filtros={filtros}
+        movements={movements}
         loading={loading}
+        total={total}
+        totalPages={totalPages}
+        onFiltrosChange={alterarFiltros}
         canCancel={podeCancelar}
         canceling={canceling}
-        onReload={() => void load()}
+        onReload={() => void carregar()}
         onViewDetails={(movement) => {
           const docId = movement.documentId ?? movement.id;
           setDetalhesEntrada({
@@ -1097,7 +1119,7 @@ export default function HistoricoEstoquePage() {
         onOpenChange={(open) => !open && setLancarFinanceiroEntrada(null)}
         entryId={lancarFinanceiroEntrada?.id ?? null}
         inventory={lancarFinanceiroEntrada?.inventory ?? "produto"}
-        onSuccess={() => void load()}
+        onSuccess={() => void carregar()}
       />
 
       <CancelMovementDialog

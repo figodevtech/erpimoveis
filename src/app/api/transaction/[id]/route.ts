@@ -2,6 +2,7 @@
 export const runtime = "nodejs";
 
 import { NextResponse, NextRequest } from "next/server";
+import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireFinanceiroDelete, requireFinanceiroEdit, requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { respostaSeEdicaoBloqueada } from "@/app/api/transaction/_lib/edicao";
@@ -683,12 +684,28 @@ export async function DELETE(_: Request, ctx: Params) {
         .eq("is_deleted", false);
 
       if ((count ?? 0) > 0) {
-        return NextResponse.json(
+        // Excluir a antecipação e reabrir os títulos é uma coisa só: metade
+        // gravada deixaria título quitado sem origem, ou dinheiro no caixa sem
+        // contrapartida. Por isso a operação inteira vive no banco.
+        const sessao = await auth().catch(() => null);
+        const { data, error: desfazerError } = await supabaseAdmin.rpc(
+          "desfazer_adiantamento",
           {
-            error: `Esta antecipação liquidou ${count} título(s). Excluí-la deixaria esses títulos pagos por um dinheiro que não existe mais.`,
+            p_id: id,
+            p_deleted_by: (sessao?.user as { id?: string } | undefined)?.id ?? null,
           },
-          { status: 409 },
         );
+
+        if (desfazerError) {
+          const status = desfazerError.code === "P0002" ? 404 : 409;
+          return NextResponse.json({ error: desfazerError.message }, { status });
+        }
+
+        return NextResponse.json({
+          ok: true,
+          desfezAdiantamento: true,
+          titulosRevertidos: Number((data as any)?.titulos_revertidos ?? 0),
+        });
       }
     }
 

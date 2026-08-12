@@ -1,12 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TabsContent } from "@/components/ui/tabs";
-import { ChevronDown, Undo2, Receipt, ArrowRightLeft, Eye, Loader2 } from "lucide-react";
+import {
+  ArrowRightLeft,
+  ChevronDown,
+  Eye,
+  Loader2,
+  PackageMinus,
+  PackagePlus,
+  Receipt,
+  Undo2,
+} from "lucide-react";
 import { Produto } from "../../../types";
 import { formatDate } from "@/utils/formatDate";
 import { EmissaoNotaDialog } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/emissao-nota-dialog";
@@ -15,6 +25,9 @@ import { EntryDetailsDialog } from "../../entry-details-dialog";
 import { ExitDetailsDialog } from "../../exit-details-dialog";
 import { CancelMovementDialog, type CancelTarget } from "../../cancel-movement-dialog";
 import { CancelarEntradaDialog } from "@/components/entrada-fiscal/cancelar-entrada-dialog";
+import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
+import EntradaDialog from "../../dialog-entrada/dialog-entrada-unica";
+import SaidaDialog from "../../dialog-saida/dialog-saida-unica";
 
 /**
  * Movimentacoes do produto, lidas do razao de estoque.
@@ -86,9 +99,17 @@ function descricaoMovimento(movimento: Movimento) {
 
 export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfterChange?: () => void | Promise<void> }) {
   const produtoId = Number((produto as any)?.id);
+  const estoqueAtual = Number(produto.estoque ?? 0);
+  const descricaoProduto = produto.titulo || produto.descricao || `Produto #${produtoId}`;
+  const { data: session } = useSession();
+  const permissoes = (session?.user as { permissoes?: unknown } | undefined)?.permissoes;
+  const podeRegistrarEntrada = permissionSetHas(permissoes, PERMS.ESTOQUE_CRIAR);
+  const podeRegistrarSaida = permissionSetHas(permissoes, PERMS.ESTOQUE_EDITAR);
 
   const [movimentacoes, setMovimentacoes] = useState<Movimento[]>([]);
   const [carregando, setCarregando] = useState(true);
+  const [entradaOpen, setEntradaOpen] = useState(false);
+  const [saidaOpen, setSaidaOpen] = useState(false);
   const [nfeDialogEntradaId, setNfeDialogEntradaId] = useState<number | null>(null);
   const [detailsEntradaId, setDetailsEntradaId] = useState<number | null>(null);
   const [detailsSaidaId, setDetailsSaidaId] = useState<number | null>(null);
@@ -192,6 +213,22 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
 
   return (
     <TabsContent value="Fluxo" className="h-full min-h-0 w-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto dark:bg-muted-foreground/5 px-2 py-3 md:px-6 md:py-6 space-y-6">
+      <EntradaDialog
+        isOpen={entradaOpen}
+        setIsOpen={setEntradaOpen}
+        productId={produtoId}
+        productDescription={descricaoProduto}
+        currentQuantity={estoqueAtual}
+        onSuccess={aposMudanca}
+      />
+      <SaidaDialog
+        isOpen={saidaOpen}
+        setIsOpen={setSaidaOpen}
+        productId={produtoId}
+        productDescription={descricaoProduto}
+        currentQuantity={estoqueAtual}
+        onSuccess={aposMudanca}
+      />
       <EmissaoNotaDialog
         open={!!nfeDialogEntradaId}
         onOpenChange={(v) => !v && setNfeDialogEntradaId(null)}
@@ -236,9 +273,35 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
               Entradas, saídas, vendas e ordens de serviço deste produto.
             </p>
           </div>
-          <div className="flex items-center gap-2 rounded-md bg-background px-3 py-1.5 border shadow-sm">
-            <span className="text-xs font-medium text-muted-foreground">Total:</span>
-            <span className="text-sm font-bold">{movimentacoes.length}</span>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+            {podeRegistrarEntrada ? (
+              <Button
+                type="button"
+                size="sm"
+                className="min-h-11 w-full bg-emerald-600 text-white hover:bg-emerald-700 sm:min-h-9 sm:w-auto"
+                onClick={() => setEntradaOpen(true)}
+              >
+                <PackagePlus className="h-4 w-4" aria-hidden="true" />
+                Entrada
+              </Button>
+            ) : null}
+            {podeRegistrarSaida ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="min-h-11 w-full border-amber-500/40 text-amber-700 hover:bg-amber-500/10 hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200 sm:min-h-9 sm:w-auto"
+                disabled={estoqueAtual <= 0}
+                onClick={() => setSaidaOpen(true)}
+              >
+                <PackageMinus className="h-4 w-4" aria-hidden="true" />
+                Saída
+              </Button>
+            ) : null}
+            <div className="flex min-h-11 items-center justify-center gap-2 rounded-md border bg-background px-3 py-1.5 shadow-sm sm:min-h-9">
+              <span className="text-xs font-medium text-muted-foreground">Total:</span>
+              <span className="text-sm font-bold">{movimentacoes.length}</span>
+            </div>
           </div>
         </div>
 

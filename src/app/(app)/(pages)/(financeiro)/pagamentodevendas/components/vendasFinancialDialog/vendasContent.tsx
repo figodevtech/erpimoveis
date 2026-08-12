@@ -27,6 +27,7 @@ import {
   type VendaAnexoCategoria,
 } from "@/lib/venda-anexo-categorias";
 import { calculateFinancialSurcharge, calculateFinancialTotal } from "@/lib/financial-surcharge";
+import { ClienteResumoCard } from "@/components/cliente/cliente-resumo-card";
 
 interface VendasContentProps {
   vendaId: number;
@@ -420,15 +421,11 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
 
             <TabsContent value="detalhes" className="mt-0 space-y-3">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-12">
-                <div className="rounded-lg border bg-card p-4 xl:col-span-4">
-                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Cliente</span>
-                  <p className="mt-1 truncate text-sm font-medium" title={venda.cliente?.nomerazaosocial || "-"}>
-                    {venda.cliente?.nomerazaosocial || "-"}
-                  </p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {venda.cliente?.telefone || venda.cliente?.email || "Sem contato"}
-                  </p>
-                </div>
+                <ClienteResumoCard
+                  cliente={venda.cliente}
+                  className="xl:col-span-4"
+                  onClienteAtualizado={() => handleGetVenda(venda.id, { silent: true })}
+                />
                 <div className="rounded-lg border bg-card p-4 xl:col-span-4">
                   <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Venda</span>
                   <p className="mt-1 text-sm font-medium">{venda.status || "-"}</p>

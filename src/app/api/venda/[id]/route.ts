@@ -46,10 +46,20 @@ const VENDA_SELECT = `
   clienteid,
   cliente:cliente (
     id,
+    tipopessoa,
     nomerazaosocial,
     cpfcnpj,
     email,
-    telefone
+    telefone,
+    endereco,
+    endereconumero,
+    enderecocomplemento,
+    bairro,
+    cidade,
+    estado,
+    cep,
+    status,
+    rank
   ),
   status,
   categoriavendaid,

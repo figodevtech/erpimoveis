@@ -137,6 +137,9 @@ export async function POST(req: NextRequest) {
         tipo_documento: tipoDocumento,
         modo,
         valor_total: valorEmCentavos / 100,
+        // O líquido é o que entra no banco depois da taxa; o valor é o que o
+        // cliente deve. Sem este campo a taxa não fica registrada em lugar nenhum.
+        valor_liquido: (paraCentavos(body?.valorLiquido) || valorEmCentavos) / 100,
         data: dataIso,
         banco_id: modo === "AVISTA" ? bancoId : null,
         metodopagamento: String(body?.metodoPagamento ?? "").trim() || null,

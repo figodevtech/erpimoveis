@@ -102,6 +102,9 @@ export async function POST(req: NextRequest) {
         fornecedor_id: body?.fornecedorId ?? null,
         nomepagador: body?.nomePagador ?? null,
         cpfcnpjpagador: body?.cpfCnpjPagador ?? null,
+        // Antecipação de boleto: o dinheiro entra, mas o título fica em aberto
+        // para a cobrança acompanhar até o vencimento.
+        manter_titulos_pendentes: body?.manterTitulosPendentes === true,
       },
       p_baixado_por: (session?.user as { id?: string } | undefined)?.id ?? null,
     });

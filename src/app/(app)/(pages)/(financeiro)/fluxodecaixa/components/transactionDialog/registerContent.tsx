@@ -219,9 +219,25 @@ export default function RegisterContent({
     newTransaction.metodopagamento === Metodo_pagamento.BOLETO ||
     newTransaction.metodopagamento === Metodo_pagamento.CREDITO;
   const canManageParcelas = metodoPermiteParcelas && !!newTransaction.pendente;
-  const valorTotalParcelamento = isChecked
-    ? (newTransaction.valorLiquido ?? newTransaction.valor ?? 0)
-    : (newTransaction.valor ?? 0);
+  /**
+   * O que abate os documentos é o valor cobrado, não o que sobra depois da taxa
+   * da adquirente.
+   *
+   * No pagamento múltiplo o parcelamento saía sobre o líquido: com R$ 310,05
+   * cobrados e R$ 300,00 líquidos, só R$ 300,00 eram distribuídos entre
+   * documentos que somavam R$ 310,05 — os dois ficavam parcialmente pagos e
+   * nenhum quitava. A taxa é custo da empresa; a dívida do cliente é o valor
+   * cheio, e é ele que precisa ser parcelado, previsto e rateado.
+   */
+  const valorTotalParcelamento = pagamentoMultiplo
+    ? (newTransaction.valor ?? 0)
+    : isChecked
+      ? (newTransaction.valorLiquido ?? newTransaction.valor ?? 0)
+      : (newTransaction.valor ?? 0);
+  const valorRateado = valorTotalParcelamento;
+  const liquidoDoPagamento = isChecked
+    ? (newTransaction.valorLiquido ?? valorRateado)
+    : valorRateado;
   const nomeMetodoParcelado =
     newTransaction.metodopagamento === Metodo_pagamento.CREDITO
       ? "crédito"
@@ -592,7 +608,7 @@ export default function RegisterContent({
 
         if (somaParcelas !== valorTotal) {
           toast.error(
-            isChecked
+            isChecked && !pagamentoMultiplo
               ? "A soma das parcelas deve ser igual ao valor líquido."
               : "A soma das parcelas deve ser igual ao valor total.",
           );
@@ -612,7 +628,8 @@ export default function RegisterContent({
         const resposta = await axios.post("/api/pagamento-multiplo", {
           tipoDocumento: pagamentoMultiplo.tipoDocumento,
           documentoIds: pagamentoMultiplo.documentos.map((documento) => documento.id),
-          valor: valorTotalParcelamento,
+          valor: valorRateado,
+          valorLiquido: liquidoDoPagamento,
           modo: canManageParcelas && parcelasDetalhadas.length > 1 ? "PARCELADO" : "AVISTA",
           parcelas: parcelasDetalhadas.length || 1,
           primeiroVencimento: dataParaDia(parcelasDetalhadas[0]?.dataVencimento),

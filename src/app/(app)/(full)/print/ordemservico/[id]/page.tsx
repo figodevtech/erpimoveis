@@ -1,7 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import Image from "next/image";
 import Script from "next/script";
 import { Car, ClipboardList, Cog, Tag, User, Power } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +10,10 @@ import Link from "next/link";
 import { ObservacoesToggle } from "../../../components/ObservacoesToggle";
 import { PrintFilterToggles } from "../../../components/PrintFilterToggles";
 import { PrintShareMenu } from "../../../components/PrintShareMenu";
+import {
+  PRINT_DOCUMENT_HEADER_CSS,
+  PrintDocumentHeader,
+} from "../../../components/PrintDocumentHeader";
 import { fetchPrimeiroLogoEmpresa } from "@/lib/empresa-logo";
 import { fetchPrintColors } from "@/lib/print-config";
 import { getTermoAceiteOS, type AceiteAlvo } from "@/lib/print-aceite";
@@ -112,7 +115,7 @@ function CodigoProduto({ id, etiqueta }: { id?: unknown; etiqueta?: unknown }) {
       {idTexto}
       {etiquetaTexto ? (
         <span className="item-etiqueta">
-          <Tag className="item-etiqueta-icone" />
+          <Tag className="item-etiqueta-icone" aria-hidden="true" />
           {etiquetaTexto}
         </span>
       ) : null}
@@ -418,7 +421,7 @@ export default async function OSFullPage({ params }: PageProps) {
   :root{
     --brand-primary:${printColors.primary};
     --brand-secondary:${printColors.secondary};
-    --brand-accent:#8b5cf6;
+    --brand-accent:#0f766e;
     
     --ink:#0f172a;
     --muted:#64748b;
@@ -441,6 +444,8 @@ export default async function OSFullPage({ params }: PageProps) {
     /* ✅ escala usada no preview */
     --os-scale: 1;
   }
+
+  ${PRINT_DOCUMENT_HEADER_CSS}
 
   @media print {
     .os-observacoes { display: block !important; }
@@ -511,15 +516,6 @@ export default async function OSFullPage({ params }: PageProps) {
   }
 
   @media print{
-    @page{
-      size: A4;
-      margin: 14mm 0 8mm;
-    }
-
-    @page :first{
-      margin-top: 8mm;
-    }
-
     html, body{
       margin:0 !important;
       padding:0 !important;
@@ -549,7 +545,7 @@ export default async function OSFullPage({ params }: PageProps) {
 
     .folha{
       width: 210mm !important;
-      min-height: auto !important;
+      min-height: 297mm !important;
       height: auto !important;
       max-height: none !important;
       margin: 0 !important;
@@ -564,15 +560,18 @@ export default async function OSFullPage({ params }: PageProps) {
       transform: none !important;
       zoom: 1 !important;
       inset: auto !important;
-      display: block !important;
+      display: flex !important;
+      flex-direction: column !important;
     }
 
     .conteudo{
       padding: 8mm !important;
       height: auto !important;
-      min-height: auto !important;
+      min-height: 0 !important;
       max-height: none !important;
-      display: block !important;
+      flex: 1 0 auto !important;
+      display: flex !important;
+      flex-direction: column !important;
       overflow: visible !important;
     }
 
@@ -640,82 +639,6 @@ export default async function OSFullPage({ params }: PageProps) {
   .h2{ font-size:12px; line-height:1.1; font-weight:500; }
 
   .muted{ color: var(--muted); }
-
-  .header-os{
-    background: linear-gradient(135deg, var(--brand-primary), var(--brand-secondary));
-    padding: 14px 16px;
-    color: white;
-    display:grid;
-    grid-template-columns: auto 1fr auto;
-    gap: 16px;
-    align-items: center;
-    box-shadow: 0 4px 12px color-mix(in srgb, var(--brand-primary) 20%, transparent);
-  }
-
-  .logo-container{
-    width: 70px;
-    height: 70px;
-    background: white;
-    border-radius: 10px;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    padding: 8px;
-    box-shadow: 0 4px 12px rgba(0,0,0,.15);
-  }
-
-  .logo-img{
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-  }
-
-  .logo-placeholder{
-    width: 70px;
-    height: 70px;
-    background: white;
-    border-radius: 10px;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    font-weight:700;
-    font-size: 24px;
-    color: var(--brand-primary);
-    box-shadow: 0 4px 12px rgba(0,0,0,.15);
-  }
-
-  .empresa-info{
-    flex: 1;
-  }
-
-  .empresa-nome{ font-size: 18px; font-weight: 700; margin-bottom: 4px; }
-  .empresa-details{ font-size: 9px; opacity: 0.95; line-height: 1.4; }
-
-  .os-header-box{
-    background: rgba(255,255,255,.15);
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(255,255,255,.3);
-    border-radius: 10px;
-    padding: 10px 14px;
-    text-align: right;
-    min-width: 140px;
-  }
-
-  .os-label{
-    font-size: 8px;
-    text-transform: uppercase;
-    letter-spacing: .2em;
-    opacity: 0.9;
-    font-weight: 800;
-  }
-
-  .os-numero{
-    font-size: 28px;
-    font-weight: 900;
-    line-height: 1;
-    margin: 4px 0;
-    letter-spacing: -.02em;
-  }
 
   .cartao{
     border: 1px solid var(--border);
@@ -802,6 +725,7 @@ export default async function OSFullPage({ params }: PageProps) {
   .meta-badge .valor{ 
     font-size: 10px; 
     font-weight:700; 
+    font-variant-numeric:tabular-nums;
     color: var(--ink);
   }
 
@@ -839,7 +763,7 @@ export default async function OSFullPage({ params }: PageProps) {
     border-bottom: none;
   }
 
-  .col-num{ width:38px; font-weight:700; text-align:center; }
+  .col-num{ width:38px; font-weight:700; font-variant-numeric:tabular-nums; text-align:center; }
   .col-tipo{ width:70px; font-weight:800; font-size:8px; text-transform:uppercase; letter-spacing:.08em; }
   .tipo-servico{ 
     color: white;
@@ -882,11 +806,11 @@ export default async function OSFullPage({ params }: PageProps) {
     display:block;
   }
 
-  .col-qtd{ width:50px; text-align:center; font-weight:700; }
-  .col-unit{ width:90px; text-align:right; font-weight:600; }
-  .col-desconto{ width:100px; text-align:right; font-weight:600; }
+  .col-qtd{ width:50px; text-align:center; font-weight:700; font-variant-numeric:tabular-nums; }
+  .col-unit{ width:90px; text-align:right; font-weight:600; font-variant-numeric:tabular-nums; }
+  .col-desconto{ width:100px; text-align:right; font-weight:600; font-variant-numeric:tabular-nums; }
   .desconto-percentual{ color: var(--muted); font-size:8px; margin-top:2px; }
-  .col-sub{ width:100px; text-align:right; font-weight:700; color: var(--brand-primary); }
+  .col-sub{ width:100px; text-align:right; font-weight:700; font-variant-numeric:tabular-nums; color: var(--brand-primary); }
 
   .rodape{
     margin-top:auto;
@@ -925,6 +849,7 @@ export default async function OSFullPage({ params }: PageProps) {
     display:flex;
     justify-content:space-between;
     font-size: 11px;
+    font-variant-numeric:tabular-nums;
     padding: 4px 0;
     color: var(--muted);
   }
@@ -949,6 +874,7 @@ export default async function OSFullPage({ params }: PageProps) {
   .total-valor{
     font-size: 16px;
     font-weight: 700;
+    font-variant-numeric:tabular-nums;
     color: var(--brand-primary);
     letter-spacing: -.02em;
   }
@@ -1042,7 +968,7 @@ export default async function OSFullPage({ params }: PageProps) {
             className="!border-slate-300 !bg-white !text-slate-900 hover:!bg-slate-100 hover:!text-slate-900 hover:cursor-pointer"
           >
             <Link href="/ordens">
-              <Power className="w-3 h-3" />
+              <Power className="w-3 h-3" aria-hidden="true" />
               Sair
             </Link>
           </Button>
@@ -1062,25 +988,15 @@ export default async function OSFullPage({ params }: PageProps) {
 
       <div className="folha-scaler">
         <div className="folha" data-print-export-target>
-          <div className="header-os">
-            {finalLogo ? (
-              <div className="logo-container">
-                <Image
-                  src={finalLogo || "/placeholder.svg"}
-                  alt="Logo da empresa"
-                  width={70}
-                  height={70}
-                  className="logo-img"
-                  priority
-                />
-              </div>
-            ) : (
-              <div className="logo-placeholder">OS</div>
-            )}
-
-            <div className="empresa-info">
-              <div className="empresa-nome">{empresaNome}</div>
-              <div className="empresa-details">
+          <PrintDocumentHeader
+            logoUrl={finalLogo}
+            logoFallback="OS"
+            companyName={empresaNome}
+            documentLabel="Ordem de Serviço"
+            documentNumber={os.id}
+            status={fmtEnum(os.status)}
+            companyDetails={
+              <>
                 {empresaEndereco && <div>{empresaEndereco}</div>}
                 {empresaLocal && <div>{empresaLocal}</div>}
                 <div>
@@ -1091,19 +1007,9 @@ export default async function OSFullPage({ params }: PageProps) {
                     <span> • CNPJ: {fmtDoc(empresa.cnpj)}</span>
                   )}
                 </div>
-              </div>
-            </div>
-
-            <div className="os-header-box">
-              <div className="os-label">Ordem de Serviço</div>
-              <div className="os-numero">#{os.id}</div>
-              <div className="t-xs" style={{ opacity: 1, fontWeight: 700 }}>
-                <Badge className="text-xs text-white" variant={"outline"}>
-                  {fmtEnum(os.status)}
-                </Badge>
-              </div>
-            </div>
-          </div>
+              </>
+            }
+          />
 
           <div className="conteudo">
             <div className="meta-grid">
@@ -1118,7 +1024,7 @@ export default async function OSFullPage({ params }: PageProps) {
             <div className="grid-info">
               <div className="cartao cartao-destaque col-span-3 bloco-cliente">
                 <div className="titulo-secao">
-                  <User className="w-4 h-4" />
+                  <User className="w-4 h-4" aria-hidden="true" />
                   Cliente
                 </div>
                 {os.cliente ? (
@@ -1157,9 +1063,9 @@ export default async function OSFullPage({ params }: PageProps) {
               <div className="cartao cartao-destaque col-span-2">
                 <div className="titulo-secao">
                   {alvoTipo !== "Veículo" ? (
-                    <Cog className="w-4 h-4" />
+                    <Cog className="w-4 h-4" aria-hidden="true" />
                   ) : (
-                    <Car className="w-4 h-4" />
+                    <Car className="w-4 h-4" aria-hidden="true" />
                   )}
                   {alvoTipo === "Peça" ? "Peça / Componente" : alvoTipo}
                 </div>
@@ -1247,7 +1153,7 @@ export default async function OSFullPage({ params }: PageProps) {
 
               <div className="cartao cartao-destaque col-span-2">
                 <div className="titulo-secao">
-                  <ClipboardList className="w-4 h-4" />
+                  <ClipboardList className="w-4 h-4" aria-hidden="true" />
                   Detalhes
                 </div>
                 <div style={{ marginTop: 8 }}>
