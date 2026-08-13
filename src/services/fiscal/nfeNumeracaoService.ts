@@ -134,12 +134,49 @@ export async function garantirNumeroDefinitivo(
 }
 
 /**
+ * Rejeições que provam que o número JÁ está consumido na SEFAZ.
+ *
+ * - 204: duplicidade de NF-e (mesma chave já autorizada).
+ * - 539: duplicidade de NF-e com diferença na chave — mesmo CNPJ, modelo, série
+ *   e número, chave diferente. É o caso de numeração usada fora deste banco.
+ *
+ * Devolver esses números para a fila cria um laço: a transmissão seguinte pega
+ * o mesmo número e colhe a mesma rejeição, para sempre. Eles têm de sair da
+ * sequência para a emissão andar.
+ */
+const REJEICOES_QUE_CONSOMEM_NUMERO = new Set(["204", "539"]);
+
+export function rejeicaoConsomeNumero(codigo: unknown): boolean {
+  return REJEICOES_QUE_CONSOMEM_NUMERO.has(String(codigo ?? "").trim());
+}
+
+/**
  * Devolve o número para a fila de reaproveitamento.
  *
  * A função no banco só libera notas que a SEFAZ nunca registrou; autorizada,
  * denegada, cancelada ou aguardando retorno de lote seguram o número.
  */
 export async function liberarNumeroNfe(nfeId: number, motivo: string): Promise<boolean> {
+  // Guarda para todos os caminhos que liberam número — inclusive a exclusão da
+  // nota. Uma rejeitada por duplicidade tem o número consumido na SEFAZ; se a
+  // exclusão o devolvesse para a fila, a próxima emissão o pegaria de volta e
+  // colheria a mesma rejeição.
+  const { data: nfe, error: leituraError } = await supabaseAdmin
+    .from("nfe")
+    .select("codigo_rejeicao")
+    .eq("id", nfeId)
+    .maybeSingle();
+
+  if (leituraError) {
+    console.warn("[nfe] falha ao ler a rejeição antes de liberar o número:", leituraError);
+  } else if (rejeicaoConsomeNumero(nfe?.codigo_rejeicao)) {
+    console.warn(
+      `[nfe] numero da nota ${nfeId} nao volta para a fila: rejeicao ` +
+        `${nfe?.codigo_rejeicao} indica que a SEFAZ ja tem esse numero.`,
+    );
+    return false;
+  }
+
   const { data, error } = await supabaseAdmin.rpc("nfe_liberar_numero", {
     p_nfe_id: nfeId,
     p_motivo: motivo.slice(0, 200),

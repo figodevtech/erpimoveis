@@ -15,6 +15,7 @@ import {
   Loader2,
   MoreHorizontal,
   Package,
+  ReceiptText,
   RotateCcw,
   Search,
   SlidersHorizontal,
@@ -48,6 +49,8 @@ import { toast } from "@/lib/toast";
 import { CancelMovementDialog, type CancelTarget } from "../components/cancel-movement-dialog";
 import { CancelarEntradaDialog } from "@/components/entrada-fiscal/cancelar-entrada-dialog";
 import { EntryDetailsDialog } from "../components/entry-details-dialog";
+import { ExitDetailsDialog } from "../components/exit-details-dialog";
+import { EmissaoNotaDialog } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/emissao-nota-dialog";
 import { LancarFinanceiroEntradaDialog } from "@/components/entrada-fiscal/lancar-financeiro-entrada-dialog";
 
 /**
@@ -64,6 +67,7 @@ type Direction = "entrada" | "saida";
 type DirectionFilter = "todos" | Direction;
 type StatusFilter = "todos" | "CONFIRMADA" | "CANCELADA";
 type FiscalFilter = "todos" | "com_nf" | "sem_nf";
+type FinanceiroFilter = "todos" | "sem_lancamento";
 
 type Origem = "ENTRADA" | "SAIDA_MANUAL" | "VENDA" | "ORDEM_SERVICO" | "NAO_IDENTIFICADA";
 type OrigemFilter = "todas" | Origem;
@@ -85,6 +89,8 @@ type RawLedgerMovement = {
   created_at: string;
   status: string | null;
   fiscal: boolean | null;
+  financeiro_lancado: boolean | null;
+  xml_disponivel: boolean;
   produto?: { titulo?: string | null; unidade?: string | null } | null;
   criador?: { nome?: string | null } | null;
   entrada?: {
@@ -112,6 +118,8 @@ type RawUsoConsumoMovement = {
   observacao: string | null;
   parte: string | null;
   fiscal: boolean | null;
+  financeiro_lancado: boolean | null;
+  xml_disponivel: boolean;
   itens_resumo: string | null;
   criador_nome: string | null;
 };
@@ -128,6 +136,8 @@ type Movement = {
   total: number | null;
   status: string;
   fiscal?: boolean;
+  financeiroLancado?: boolean | null;
+  xmlDisponivel?: boolean;
   numeroNota?: string | null;
   origem?: Origem;
   acao?: "REGISTRO" | "ESTORNO";
@@ -146,6 +156,7 @@ type Filtros = {
   status: StatusFilter;
   origem: OrigemFilter;
   fiscal: FiscalFilter;
+  financeiro: FinanceiroFilter;
   dataInicial: string;
   dataFinal: string;
   page: number;
@@ -159,6 +170,7 @@ const FILTROS_INICIAIS: Filtros = {
   status: "todos",
   origem: "todas",
   fiscal: "todos",
+  financeiro: "todos",
   dataInicial: "",
   dataFinal: "",
   page: 1,
@@ -234,6 +246,8 @@ function normalizeLedgerMovement(raw: RawLedgerMovement): Movement {
     total: null,
     status: raw.status || "CONFIRMADA",
     fiscal: Boolean(raw.fiscal),
+    financeiroLancado: raw.financeiro_lancado,
+    xmlDisponivel: raw.xml_disponivel,
     numeroNota: raw.entrada?.numero_nota ?? null,
     origem: raw.origem,
     acao: raw.acao,
@@ -263,6 +277,8 @@ function normalizeUsoConsumoMovement(raw: RawUsoConsumoMovement): Movement {
     total: raw.valor_total ?? null,
     status: raw.status || "CONFIRMADA",
     fiscal: Boolean(raw.fiscal),
+    financeiroLancado: raw.financeiro_lancado,
+    xmlDisponivel: raw.xml_disponivel,
     numeroNota: raw.numero_nota ?? null,
     documentKind: raw.sentido,
     documentId: raw.id,
@@ -279,6 +295,7 @@ function MovementRow({
   onLancarFinanceiro,
   onBaixarNfe,
   onBaixarDanfe,
+  onEmitirNfe,
 }: {
   movement: Movement;
   cancellable: boolean;
@@ -289,14 +306,28 @@ function MovementRow({
   onLancarFinanceiro: (movement: Movement) => void;
   onBaixarNfe: (movement: Movement) => void;
   onBaixarDanfe: (movement: Movement) => void;
+  onEmitirNfe: (movement: Movement) => void;
 }) {
   const isEntrada = movement.direction === "entrada";
-  const isEntradaFiscal =
+  const isEntradaConfirmada =
     isEntrada &&
     movement.status === "CONFIRMADA" &&
-    (Boolean(movement.fiscal) ||
-      movement.origem === "ENTRADA" ||
-      movement.documentKind === "entrada");
+    movement.documentKind === "entrada";
+  const isEntradaFiscal = isEntradaConfirmada && Boolean(movement.fiscal);
+  const canDownloadFiscal = isEntradaFiscal && movement.xmlDisponivel === true;
+  // Só a saída de produto emite NF-e. Uso e consumo não tem motor fiscal de
+  // saída, e saída cancelada ou estornada não documenta operação nenhuma.
+  const canEmitirNfeSaida =
+    movement.inventory === "produtos" &&
+    movement.documentKind === "saida" &&
+    Boolean(movement.documentId) &&
+    movement.status === "CONFIRMADA" &&
+    movement.acao !== "ESTORNO";
+  const hasRowActions =
+    Boolean(movement.documentKind && movement.documentId) ||
+    isEntradaConfirmada ||
+    canEmitirNfeSaida ||
+    cancellable;
 
   return (
     <TableRow>
@@ -328,6 +359,19 @@ function MovementRow({
                 >
                   <FileText className="size-3 text-indigo-600 dark:text-indigo-400" />
                   <span>Fiscal</span>
+                </Badge>
+              ) : null}
+              {isEntrada &&
+              movement.fiscal &&
+              movement.status === "CONFIRMADA" &&
+              movement.financeiroLancado === false ? (
+                <Badge
+                  variant="outline"
+                  className="shrink-0 gap-1 border-red-500/40 bg-red-500/10 px-1.5 py-0 text-[10px] font-semibold text-red-700 dark:text-red-300"
+                  title="Entrada fiscal sem lançamento financeiro ativo"
+                >
+                  <Wallet className="size-3 text-red-600 dark:text-red-400" />
+                  <span>Não lançado</span>
                 </Badge>
               ) : null}
               {movement.reconstruido ? (
@@ -372,48 +416,68 @@ function MovementRow({
 
       {showActions ? (
         <TableCell className="text-right">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8 hover:cursor-pointer">
-                <MoreHorizontal className="size-4" />
-                <span className="sr-only">Ações</span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem onClick={() => onViewDetails(movement)} className="hover:cursor-pointer">
-                <Eye className="mr-2 size-4 text-muted-foreground" />
-                Visualizar
-              </DropdownMenuItem>
+          {hasRowActions ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8 hover:cursor-pointer">
+                  <MoreHorizontal className="size-4" />
+                  <span className="sr-only">Ações</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                {movement.documentKind && movement.documentId ? (
+                  <DropdownMenuItem onClick={() => onViewDetails(movement)} className="hover:cursor-pointer">
+                    <Eye className="mr-2 size-4 text-muted-foreground" />
+                    Visualizar
+                  </DropdownMenuItem>
+                ) : null}
 
-              {isEntradaFiscal ? (
-                <>
+                {isEntradaConfirmada ? (
                   <DropdownMenuItem onClick={() => onLancarFinanceiro(movement)} className="hover:cursor-pointer">
                     <Wallet className="mr-2 size-4 text-emerald-600 dark:text-emerald-400" />
                     Lançar no Financeiro
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => onBaixarNfe(movement)} className="hover:cursor-pointer">
-                    <Download className="mr-2 size-4 text-emerald-600 dark:text-emerald-400" />
-                    Baixar XML
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => onBaixarDanfe(movement)} className="hover:cursor-pointer">
-                    <FileText className="mr-2 size-4 text-indigo-600 dark:text-indigo-400" />
-                    Baixar DANFE
-                  </DropdownMenuItem>
-                </>
-              ) : null}
+                ) : null}
 
-              {cancellable ? (
-                <DropdownMenuItem
-                  onClick={() => onCancel(movement)}
-                  disabled={isCanceling}
-                  className="text-destructive focus:text-destructive hover:cursor-pointer"
-                >
-                  <RotateCcw className="mr-2 size-4" />
-                  Cancelar
-                </DropdownMenuItem>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                {/*
+                  Abre a lista de notas desta saída — a mesma da venda e da OS —,
+                  e é de lá que sai o assistente de emissão.
+                */}
+                {canEmitirNfeSaida ? (
+                  <DropdownMenuItem onClick={() => onEmitirNfe(movement)} className="hover:cursor-pointer">
+                    <ReceiptText className="mr-2 size-4 text-blue-600 dark:text-blue-400" />
+                    Emitir NF-e
+                  </DropdownMenuItem>
+                ) : null}
+
+                {canDownloadFiscal ? (
+                  <>
+                    <DropdownMenuItem onClick={() => onBaixarNfe(movement)} className="hover:cursor-pointer">
+                      <Download className="mr-2 size-4 text-emerald-600 dark:text-emerald-400" />
+                      Baixar XML
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onBaixarDanfe(movement)} className="hover:cursor-pointer">
+                      <FileText className="mr-2 size-4 text-indigo-600 dark:text-indigo-400" />
+                      Baixar DANFE
+                    </DropdownMenuItem>
+                  </>
+                ) : null}
+
+                {cancellable ? (
+                  <DropdownMenuItem
+                    onClick={() => onCancel(movement)}
+                    disabled={isCanceling}
+                    className="text-destructive focus:text-destructive hover:cursor-pointer"
+                  >
+                    <RotateCcw className="mr-2 size-4" />
+                    Cancelar
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
         </TableCell>
       ) : null}
     </TableRow>
@@ -435,6 +499,7 @@ function MovementTable({
   onLancarFinanceiro,
   onBaixarNfe,
   onBaixarDanfe,
+  onEmitirNfe,
 }: {
   filtros: Filtros;
   movements: Movement[];
@@ -450,12 +515,15 @@ function MovementTable({
   onLancarFinanceiro: (movement: Movement) => void;
   onBaixarNfe: (movement: Movement) => void;
   onBaixarDanfe: (movement: Movement) => void;
+  onEmitirNfe: (movement: Movement) => void;
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [draftDirection, setDraftDirection] = useState<DirectionFilter>(filtros.direcao);
   const [draftStatus, setDraftStatus] = useState<StatusFilter>(filtros.status);
   const [draftOrigem, setDraftOrigem] = useState<OrigemFilter>(filtros.origem);
   const [draftFiscal, setDraftFiscal] = useState<FiscalFilter>(filtros.fiscal);
+  const [draftFinanceiro, setDraftFinanceiro] =
+    useState<FinanceiroFilter>(filtros.financeiro);
   const [draftDateFrom, setDraftDateFrom] = useState(filtros.dataInicial);
   const [draftDateTo, setDraftDateTo] = useState(filtros.dataFinal);
 
@@ -468,6 +536,7 @@ function MovementTable({
     Number(filtros.status !== "todos") +
     Number(filtros.origem !== "todas") +
     Number(filtros.fiscal !== "todos") +
+    Number(filtros.financeiro !== "todos") +
     Number(Boolean(filtros.dataInicial)) +
     Number(Boolean(filtros.dataFinal));
 
@@ -482,6 +551,7 @@ function MovementTable({
       setDraftStatus(filtros.status);
       setDraftOrigem(filtros.origem);
       setDraftFiscal(filtros.fiscal);
+      setDraftFinanceiro(filtros.financeiro);
       setDraftDateFrom(filtros.dataInicial);
       setDraftDateTo(filtros.dataFinal);
     }
@@ -490,10 +560,14 @@ function MovementTable({
 
   function applyFilters() {
     onFiltrosChange({
-      direcao: draftDirection,
-      status: draftStatus,
-      origem: draftOrigem,
+      direcao: draftFinanceiro === "sem_lancamento" ? "entrada" : draftDirection,
+      status: draftFinanceiro === "sem_lancamento" ? "CONFIRMADA" : draftStatus,
+      origem:
+        draftFinanceiro === "sem_lancamento" && filtros.inventory === "produtos"
+          ? "ENTRADA"
+          : draftOrigem,
       fiscal: draftFiscal,
+      financeiro: draftFinanceiro,
       dataInicial: draftDateFrom,
       dataFinal: draftDateTo,
     });
@@ -505,6 +579,7 @@ function MovementTable({
     setDraftStatus("todos");
     setDraftOrigem("todas");
     setDraftFiscal("todos");
+    setDraftFinanceiro("todos");
     setDraftDateFrom("");
     setDraftDateTo("");
   }
@@ -640,6 +715,34 @@ function MovementTable({
                       </Select>
                     </div>
 
+                    <div className="space-y-2 border-t pt-4">
+                      <Label>Financeiro</Label>
+                      <Select
+                        value={draftFinanceiro}
+                        onValueChange={(value) => {
+                          const financeiro = value as FinanceiroFilter;
+                          setDraftFinanceiro(financeiro);
+                          if (financeiro === "sem_lancamento") {
+                            setDraftDirection("entrada");
+                            setDraftStatus("CONFIRMADA");
+                            if (filtros.inventory === "produtos") {
+                              setDraftOrigem("ENTRADA");
+                            }
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="todos">Qualquer situação</SelectItem>
+                          <SelectItem value="sem_lancamento">
+                            Entradas sem lançamento financeiro
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
                     <div className="space-y-3 border-t pt-4">
                       <Label>Período</Label>
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -721,6 +824,7 @@ function MovementTable({
                 onLancarFinanceiro={onLancarFinanceiro}
                 onBaixarNfe={onBaixarNfe}
                 onBaixarDanfe={onBaixarDanfe}
+                onEmitirNfe={onEmitirNfe}
               />
             ))}
 
@@ -842,14 +946,17 @@ export default function HistoricoEstoquePage() {
   const [entradaCancelamento, setEntradaCancelamento] = useState<
     { id: number; origem: "ESTOQUE" | "USOCONSUMO" } | null
   >(null);
-  const [detalhesEntrada, setDetalhesEntrada] = useState<{
+  const [detalhesMovimento, setDetalhesMovimento] = useState<{
     id: number;
     inventory: "produto" | "usoconsumo";
+    kind: Direction;
   } | null>(null);
   const [lancarFinanceiroEntrada, setLancarFinanceiroEntrada] = useState<{
     id: number;
     inventory: "produto" | "usoconsumo";
   } | null>(null);
+  /** Saída cujas notas estão abertas. É de lá que sai a emissão. */
+  const [notasDaSaida, setNotasDaSaida] = useState<number | null>(null);
 
   /** Descarta resposta de requisicao antiga: quem digita rapido nao ve o passado. */
   const requisicaoAtual = useRef(0);
@@ -899,6 +1006,7 @@ export default function HistoricoEstoquePage() {
       if (filtros.direcao !== "todos") params.sentido = filtros.direcao;
       if (filtros.status !== "todos") params.status = filtros.status;
       if (filtros.fiscal !== "todos") params.fiscal = filtros.fiscal;
+      if (filtros.financeiro !== "todos") params.financeiro = filtros.financeiro;
       if (filtros.dataInicial) params.desde = new Date(`${filtros.dataInicial}T00:00:00`).toISOString();
       if (filtros.dataFinal) params.ate = new Date(`${filtros.dataFinal}T23:59:59.999`).toISOString();
 
@@ -941,6 +1049,7 @@ export default function HistoricoEstoquePage() {
     filtros.dataInicial,
     filtros.direcao,
     filtros.fiscal,
+    filtros.financeiro,
     filtros.inventory,
     filtros.limit,
     filtros.origem,
@@ -1070,10 +1179,11 @@ export default function HistoricoEstoquePage() {
         canceling={canceling}
         onReload={() => void carregar()}
         onViewDetails={(movement) => {
-          const docId = movement.documentId ?? movement.id;
-          setDetalhesEntrada({
-            id: docId,
+          if (!movement.documentKind || !movement.documentId) return;
+          setDetalhesMovimento({
+            id: movement.documentId,
             inventory: movement.inventory === "uso-consumo" ? "usoconsumo" : "produto",
+            kind: movement.documentKind,
           });
         }}
         onLancarFinanceiro={(movement) => {
@@ -1085,6 +1195,11 @@ export default function HistoricoEstoquePage() {
         }}
         onBaixarNfe={handleBaixarNfe}
         onBaixarDanfe={handleBaixarDanfe}
+        onEmitirNfe={(movement) => {
+          const saidaId = movement.documentId;
+          if (!saidaId) return;
+          setNotasDaSaida(saidaId);
+        }}
         onCancel={(movement) => {
           const kind = movement.documentKind ?? movement.direction;
           const documentId = movement.documentId ?? movement.id;
@@ -1108,10 +1223,32 @@ export default function HistoricoEstoquePage() {
       />
 
       <EntryDetailsDialog
-        open={detalhesEntrada !== null}
-        onOpenChange={(open) => !open && setDetalhesEntrada(null)}
-        entryId={detalhesEntrada?.id ?? null}
-        inventory={detalhesEntrada?.inventory ?? "produto"}
+        open={detalhesMovimento?.kind === "entrada"}
+        onOpenChange={(open) => !open && setDetalhesMovimento(null)}
+        entryId={detalhesMovimento?.kind === "entrada" ? detalhesMovimento.id : null}
+        inventory={detalhesMovimento?.inventory ?? "produto"}
+      />
+
+      <ExitDetailsDialog
+        open={detalhesMovimento?.kind === "saida"}
+        onOpenChange={(open) => !open && setDetalhesMovimento(null)}
+        exitId={detalhesMovimento?.kind === "saida" ? detalhesMovimento.id : null}
+        inventory={detalhesMovimento?.inventory ?? "produto"}
+      />
+
+      {/*
+        Mesmo diálogo da venda e da OS: lista as notas da saída e abre o
+        assistente de emissão. Recarrega o histórico ao fechar, porque emitir
+        pode ter marcado a saída como fiscal.
+      */}
+      <EmissaoNotaDialog
+        open={notasDaSaida !== null}
+        onOpenChange={(open) => {
+          if (open) return;
+          setNotasDaSaida(null);
+          void carregar();
+        }}
+        saidaId={notasDaSaida}
       />
 
       <LancarFinanceiroEntradaDialog

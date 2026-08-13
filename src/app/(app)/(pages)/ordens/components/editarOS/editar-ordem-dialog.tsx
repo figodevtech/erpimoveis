@@ -28,9 +28,12 @@ export function EditarOSDialog({
       title={ordemId ? `Ordem de Serviço #${ordemId}` : "Ordem de Serviço"}
       titleSuffix="Edição"
       description="Atualize os dados da ordem de serviço usando o mesmo formulário da criação."
+      eyebrow="Bancada de atendimento"
+      variant="workbench"
       loading={initialLoading}
-      maxW="lg:max-w-5xl xl:max-w-6xl"
+      maxW="md:max-w-[1100px]"
       mobileFull
+      fixedHeight
       footer={
         <>
           <Button

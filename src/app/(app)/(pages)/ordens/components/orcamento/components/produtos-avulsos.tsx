@@ -21,7 +21,12 @@ type Props = {
   onAdicionar: (item: ItemProdutoAvulso) => void;
   onAtualizar: (index: number, patch: Partial<ItemProdutoAvulso>) => void;
   onRemover: (index: number) => void;
-  onVincular: (item: ItemProdutoAvulso, produtoId: number) => Promise<void>;
+  /**
+   * Converte o avulso em produto de verdade. Só existe dentro de uma OS —
+   * no orçamento avulso não há OS para receber o item nem estoque a consumir,
+   * então a coluna de ações some quando esta prop não vem.
+   */
+  onVincular?: (item: ItemProdutoAvulso, produtoId: number) => Promise<void>;
 };
 
 const money = (value: number) =>
@@ -54,7 +59,7 @@ export function ProdutosAvulsos({ itens, onAdicionar, onAtualizar, onRemover, on
   }
 
   async function vincular(item: ItemProdutoAvulso, produtoId: number) {
-    if (!item.id || vinculando) return;
+    if (!item.id || vinculando || !onVincular) return;
     setVinculando(true);
     try {
       await onVincular(item, produtoId);
@@ -164,18 +169,22 @@ export function ProdutosAvulsos({ itens, onAdicionar, onAtualizar, onRemover, on
                   <TableCell className="text-right font-medium tabular-nums">{money(item.subtotal)}</TableCell>
                   <TableCell className="align-middle">
                     <div className="flex flex-nowrap items-center justify-end gap-2">
-                      <ProductSelect
-                        open={selectItem === item}
-                        setOpen={(next) => setSelectItem(next ? item : null)}
-                        OnSelect={(produto: any) => vincular(item, Number(produto.id))}
-                      >
-                        <Button type="button" size="sm" variant="outline" className="h-8 w-24 shrink-0" disabled={!item.id || vinculando} title={!item.id ? "Salve o orçamento primeiro" : undefined}>
-                          <Link2 className="h-4 w-4" /> Vincular
-                        </Button>
-                      </ProductSelect>
-                      <Button type="button" size="sm" variant="outline" className="h-8 w-24 shrink-0" disabled={!item.id || vinculando} title={!item.id ? "Salve o orçamento primeiro" : undefined} onClick={() => setCadastroItem(item)}>
-                        <PackagePlus className="h-4 w-4" /> Cadastrar
-                      </Button>
+                      {onVincular ? (
+                        <>
+                          <ProductSelect
+                            open={selectItem === item}
+                            setOpen={(next) => setSelectItem(next ? item : null)}
+                            OnSelect={(produto: any) => vincular(item, Number(produto.id))}
+                          >
+                            <Button type="button" size="sm" variant="outline" className="h-8 w-24 shrink-0" disabled={!item.id || vinculando} title={!item.id ? "Salve o orçamento primeiro" : undefined}>
+                              <Link2 className="h-4 w-4" /> Vincular
+                            </Button>
+                          </ProductSelect>
+                          <Button type="button" size="sm" variant="outline" className="h-8 w-24 shrink-0" disabled={!item.id || vinculando} title={!item.id ? "Salve o orçamento primeiro" : undefined} onClick={() => setCadastroItem(item)}>
+                            <PackagePlus className="h-4 w-4" /> Cadastrar
+                          </Button>
+                        </>
+                      ) : null}
                       <Button
                         type="button"
                         size="icon"

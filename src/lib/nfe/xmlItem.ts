@@ -17,6 +17,10 @@ function formatNumber(value: number, decimals: number): string {
   return Number(value ?? 0).toFixed(decimals);
 }
 
+function onlyDigits(value: unknown) {
+  return String(value ?? '').replace(/\D/g, '');
+}
+
 /**
  * Gera <det> no layout NF-e 4.00.
  *
@@ -82,10 +86,41 @@ export function buildDetXml(item: NFeItem, crt: string | number): string {
   partes.push(buildImpostoSeletivoXml(item));
   partes.push(buildRtcXml(item));
   partes.push('</imposto>');
+  if (item.percentualDevolucao != null || item.valorIpiDevolvido != null) {
+    const percentual = Number(item.percentualDevolucao ?? 0);
+    const valorIpi = Number(item.valorIpiDevolvido ?? 0);
+    if (!(percentual > 0 && percentual <= 100)) {
+      throw new Error(`NFE_PDEVOL_INVALIDO: item ${item.numeroItem}; informe percentual entre 0,01 e 100.`);
+    }
+    if (valorIpi < 0) {
+      throw new Error(`NFE_VIPIDEVOL_INVALIDO: item ${item.numeroItem}; o valor não pode ser negativo.`);
+    }
+    partes.push(
+      `<impostoDevol><pDevol>${formatNumber(percentual, 2)}</pDevol>` +
+      `<IPI><vIPIDevol>${formatNumber(valorIpi, 2)}</vIPIDevol></IPI></impostoDevol>`,
+    );
+  }
+  if (item.informacoesAdicionaisProduto?.trim()) {
+    partes.push(`<infAdProd>${escapeXml(item.informacoesAdicionaisProduto.trim())}</infAdProd>`);
+  }
   // vItem e o valor do item na operacao, ja liquido do desconto incondicional.
   // Nao acumula IBS/CBS destacados: em 2026 os tributos da reforma sao
   // informativos e nao elevam o valor comercial.
   partes.push(`<vItem>${formatNumber(valorLiquidoItem(item), 2)}</vItem>`);
+  if (item.dfeReferenciado) {
+    const chave = onlyDigits(item.dfeReferenciado.chaveAcesso);
+    if (chave.length !== 44) {
+      throw new Error(`NFE_DFE_REFERENCIADO_INVALIDO: item ${item.numeroItem}; a chave deve ter 44 dígitos.`);
+    }
+    const nItem = Number(item.dfeReferenciado.nItem ?? 0);
+    if (item.dfeReferenciado.nItem != null && (!Number.isInteger(nItem) || nItem <= 0 || nItem > 990)) {
+      throw new Error(`NFE_DFE_NITEM_INVALIDO: item ${item.numeroItem}; nItem deve estar entre 1 e 990.`);
+    }
+    partes.push(
+      `<DFeReferenciado><chaveAcesso>${chave}</chaveAcesso>` +
+      `${item.dfeReferenciado.nItem == null ? '' : `<nItem>${nItem}</nItem>`}</DFeReferenciado>`,
+    );
+  }
   partes.push('</det>');
 
   return partes.join('');

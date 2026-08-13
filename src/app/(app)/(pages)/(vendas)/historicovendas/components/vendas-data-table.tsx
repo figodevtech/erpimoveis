@@ -22,6 +22,7 @@ import {
   UserRound,
   Search,
   Ban,
+  Undo2,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -264,6 +265,9 @@ export default function VendasDataTable({
   const [cancelResumo, setCancelResumo] = useState<CancelamentoResumo | null>(null);
   const [loadingCancelamento, setLoadingCancelamento] = useState(false);
   const [cancelando, setCancelando] = useState(false);
+  const [orcamentoDialogOpen, setOrcamentoDialogOpen] = useState(false);
+  const [orcamentoVendaId, setOrcamentoVendaId] = useState<number | null>(null);
+  const [revertendoOrcamento, setRevertendoOrcamento] = useState(false);
   const [syncingMercadoLivre, setSyncingMercadoLivre] = useState(false);
   const config = useConfig();
   const canEdit = permissionSetHas((session?.user as any)?.permissoes, PERMS.VENDAS_EDITAR);
@@ -342,6 +346,32 @@ export default function VendasDataTable({
       } else {
         toast.error("Erro ao aprovar orçamento");
       }
+    }
+  };
+
+  const handleReverterParaOrcamento = async () => {
+    if (!canEdit || !orcamentoVendaId) return;
+
+    setRevertendoOrcamento(true);
+    try {
+      const response = await axios.post(`/api/venda/${orcamentoVendaId}/reverter-orcamento`);
+      const resultado = response.data?.data ?? {};
+
+      toast.success("Venda mantida como orçamento", {
+        description: `${resultado.transacoesExcluidas ?? 0} transação(ões) removida(s) e estoque devolvido.`,
+      });
+      setOrcamentoDialogOpen(false);
+      setOrcamentoVendaId(null);
+      await Promise.all([
+        handleGetVendas(pagination.page, pagination.limit, search, status, filters),
+        fetchStatusCounts(),
+      ]);
+    } catch (error) {
+      toast.error("Erro ao voltar a venda para orçamento", {
+        description: isAxiosError(error) ? error.response?.data?.error || "Tente novamente." : "Tente novamente.",
+      });
+    } finally {
+      setRevertendoOrcamento(false);
     }
   };
 
@@ -605,6 +635,18 @@ export default function VendasDataTable({
                           </DropdownMenuItem>
                         )}
 
+                        {canEdit && p.status === "PAGAMENTO" && (
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setOrcamentoVendaId(p.id);
+                              setOrcamentoDialogOpen(true);
+                            }}
+                          >
+                            <Undo2 className="h-4 w-4" />
+                            Manter como orçamento
+                          </DropdownMenuItem>
+                        )}
+
                         <DropdownMenuItem onClick={() => window.open(`/print/venda/${p.id}/orcamento`, "_blank")}>
                           <FileText className="h-4 w-4" />
                           Imprimir venda
@@ -773,6 +815,44 @@ export default function VendasDataTable({
               Cancelar
             </AlertDialogCancel>
             <AlertDialogAction onClick={() => handleApproveBudget()}>Confirmar</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        open={orcamentoDialogOpen}
+        onOpenChange={(open) => {
+          if (revertendoOrcamento) return;
+          setOrcamentoDialogOpen(open);
+          if (!open) setOrcamentoVendaId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Manter venda #{orcamentoVendaId} como orçamento</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>A venda volta para o status ORÇAMENTO e continua com os mesmos produtos e valores.</p>
+                <ul className="list-disc space-y-1 pl-4">
+                  <li>As transações vinculadas, inclusive pagamentos parciais já recebidos, serão apagadas.</li>
+                  <li>O estoque baixado na aprovação será devolvido.</li>
+                  <li>A forma de pagamento será limpa e escolhida de novo na próxima aprovação.</li>
+                </ul>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={revertendoOrcamento}>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={revertendoOrcamento}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleReverterParaOrcamento();
+              }}
+            >
+              {revertendoOrcamento && <Loader2 className="size-4 animate-spin" />}
+              Confirmar
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

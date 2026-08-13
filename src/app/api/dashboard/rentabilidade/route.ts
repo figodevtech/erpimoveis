@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { carregarFatiasRateadas, fatiaComoTransacao } from "@/lib/financeiro/rateio-documentos";
 import { requireDashboardAccess } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -82,9 +83,33 @@ export async function GET(request: Request) {
     const produtos = produtosResult.data ?? [];
     const servicos = servicosResult.data ?? [];
     const comissoes = comissoesResult.data ?? [];
-    const transacoes = transacoesResult.data ?? [];
+    // As fatias do pagamento múltiplo entram como se fossem transações do
+    // documento: sem elas o recebido da OS ou da venda paga em grupo sai zerado.
+    const [fatiasOs, fatiasVendas] = await Promise.all([
+      carregarFatiasRateadas("OS", ids),
+      carregarFatiasRateadas("VENDA", vendaIds),
+    ]);
+    const transacoes = [
+      ...(transacoesResult.data ?? []),
+      ...[...fatiasOs.values()].flat().map((fatia) => ({
+        ordemservicoid: fatia.documentoId,
+        tipo: "RECEITA",
+        valor: fatia.valor,
+        valorLiquido: fatia.valor,
+        pendente: fatia.pendente,
+      })),
+    ];
     const vendaProdutos = vendaProdutosResult.data ?? [];
-    const vendaTransacoes = vendaTransacoesResult.data ?? [];
+    const vendaTransacoes = [
+      ...(vendaTransacoesResult.data ?? []),
+      ...[...fatiasVendas.values()].flat().map((fatia) => ({
+        vendaid: fatia.documentoId,
+        tipo: "RECEITA",
+        valor: fatia.valor,
+        valorLiquido: fatia.valor,
+        pendente: fatia.pendente,
+      })),
+    ];
     const mlVendaIds = new Set((mlOrdersResult.data ?? []).map((item: any) => Number(item.venda_id)));
     const byOs = <T extends Record<string, any>>(rows: T[]) => rows.reduce<Record<number, T[]>>((map, row) => {
       (map[Number(row.ordemservicoid)] ??= []).push(row); return map;

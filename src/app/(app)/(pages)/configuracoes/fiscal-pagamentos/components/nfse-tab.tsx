@@ -67,8 +67,8 @@ export function NFSeTab({
           <div>
             <h3 className="text-sm font-semibold">Padrão fiscal dos serviços</h3>
             <p className="text-muted-foreground mt-1 text-xs">
-              Códigos que já vêm preenchidos ao emitir uma NFS-e. Ficavam em Configurações ›
-              Geral e passaram para cá, junto dos padrões de NF-e e NFC-e.
+              Códigos que já vêm preenchidos ao emitir uma NFS-e, junto dos padrões de NF-e e
+              NFC-e. O modelo sai do município e do regime cadastrados em Configurações › Empresa.
             </p>
           </div>
 

@@ -34,7 +34,24 @@ export const ORIGEM_PADRAO = 'PADRAO';
  * confere precisa saber que aquilo foi cadastrado pensando em outro documento.
  */
 export const ORIGEM_PADRAO_HERDADO = 'PADRAO_NFE';
+/**
+ * Padrão da saída sem venda não existia e o da saída de venda foi aproveitado.
+ *
+ * Mesma ideia do herdado da NF-e, por outro eixo: enquanto o padrão de remessa,
+ * devolução e garantia estiver em branco, a saída continua saindo com o perfil
+ * da venda em vez de sair sem tributação nenhuma — que é rejeição na certa. O
+ * valor sai marcado porque a operação é outra, e quem confere precisa saber que
+ * aquele CSOSN foi cadastrado pensando numa venda.
+ */
+export const ORIGEM_PADRAO_SAIDA_VENDA = 'PADRAO_SAIDA_VENDA';
 export const ORIGEM_VAZIO = 'VAZIO';
+/**
+ * Valor copiado da NF-e que originou a mercadoria.
+ *
+ * Vale mais que o cadastro do produto porque a devolução tem de espelhar a
+ * compra: o cadastro descreve como a peça é vendida, e não como ela entrou.
+ */
+export const ORIGEM_NFE_ENTRADA = 'NFE_ENTRADA';
 /** Valor imposto pela regra fiscal, não por cadastro (modo exigido pelo CST). */
 export const ORIGEM_REGRA = 'REGRA';
 
@@ -60,7 +77,22 @@ export type ValoresFiscaisParciais = {
   aliquota_cbs?: string | number | null;
 };
 
-/** O que fica gravado em `nfe_config.padroes_emissao.{SAIDA,ENTRADA}`. */
+/**
+ * Ramos do padrão gravado em `nfe_config.padroes_emissao`.
+ *
+ * `SAIDA` é a saída de venda — venda, OS, NFC-e e NF-e avulsa. Ela ficou com a
+ * chave curta porque é a que já existia e é a única com padrão cadastrado nos
+ * bancos em uso; renomeá-la exigiria migrar dado, e uma migração não aplicada
+ * faria a emissão sair sem tributação.
+ *
+ * `SAIDA_NAO_VENDA` é a saída de estoque que não vende nada: devolução de
+ * compra, remessa para conserto, retorno, remessa em garantia. O perfil é outro
+ * — a operação não é fato gerador de venda — e misturar os dois era o que fazia
+ * uma devolução sair com o CSOSN da 5102.
+ */
+export type OperacaoPadrao = 'SAIDA' | 'SAIDA_NAO_VENDA' | 'ENTRADA';
+
+/** O que fica gravado em cada ramo de `nfe_config.padroes_emissao`. */
 export type PadraoFiscalItem = ValoresFiscaisParciais;
 
 export type FonteValoresFiscais = {
@@ -514,11 +546,12 @@ export function validarPadraoFiscalItem({
  * Ramo do padrão que vale para a operação.
  *
  * Ramo sem nenhuma chave conta como ausente: é assim que o modelo cai para o
- * padrão herdado em vez de emitir com tudo em branco.
+ * padrão herdado — a NFC-e para o da NF-e, a saída sem venda para o da venda —
+ * em vez de emitir com tudo em branco.
  */
 export function padraoDaOperacao(
   padroes: unknown,
-  operacao: 'SAIDA' | 'ENTRADA',
+  operacao: OperacaoPadrao,
 ): PadraoFiscalItem | null {
   if (!padroes || typeof padroes !== 'object' || Array.isArray(padroes)) return null;
   const ramo = (padroes as Record<string, unknown>)[operacao];

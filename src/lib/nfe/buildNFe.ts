@@ -5,6 +5,7 @@ import type {
   ModeloDocumentoFiscal,
   NFeIde,
   NFeDestinatario,
+  NFeDocumentoReferenciado,
   NFeItem,
 } from './types';
 import { MODELO_NFE, MODELO_NFCE, modeloParaCodigo } from './modeloDocumento';
@@ -86,6 +87,7 @@ export interface IdeOptions {
   pagamento?: NFePagamentoOptions | null;
   pagamentos?: NFePagamentoOptions[] | null;
   transporte?: NFeTransporteOptions | null;
+  documentosReferenciados?: NFeDocumentoReferenciado[] | null;
 }
 
 export type NFePagamentoOptions = {
@@ -536,7 +538,16 @@ export function buildNFePreviewXml(
     ))
     : itensNumerados;
 
-  const ideXml = buildIdeXml(ide);
+  // Os dois níveis de referenciamento são EXCLUDENTES: informar <NFref> no
+  // <ide> junto com <DFeReferenciado> nos itens é a rejeição 1010. Quando algum
+  // item cita o documento de origem, essa referência já é a da nota inteira e o
+  // grupo de cabeçalho tem de sair — o nível de item é o mais específico e é o
+  // exigido em devolução a partir de 01/09/2026.
+  const temReferenciaPorItem = itens.some((item) => item.dfeReferenciado);
+  const ideXml = buildIdeXml(
+    ide,
+    temReferenciaPorItem ? [] : options?.documentosReferenciados ?? [],
+  );
   const emitXml = buildEmitXml(emitente);
   // Consumidor não identificado: sem grupo <dest>. Só a NFC-e chega aqui sem
   // destinatário — na NF-e o placeholder acima garante que sempre existe um.
@@ -558,8 +569,10 @@ export function buildNFePreviewXml(
   const vCOFINS = soma.vCOFINS.toFixed(2);
   const valorFrete = itens.reduce((total, item) => total + Number(item.valorFrete ?? 0), 0);
   const vFrete = valorFrete.toFixed(2);
-  // vNF = vProd - vDesc + vFrete + vSeg + vOutro + vST + vFCPST + vIPI (leiaute 4.00).
-  const vNF = (soma.vProd - soma.vDesc + valorFrete + soma.vST + soma.vFCPST + soma.vIPI).toFixed(2);
+  // vNF inclui o IPI devolvido quando a operação usa o grupo impostoDevol.
+  const vNF = (
+    soma.vProd - soma.vDesc + valorFrete + soma.vST + soma.vFCPST + soma.vIPI + soma.vIPIDevol
+  ).toFixed(2);
 
   // Totais do DIFAL. Ficam entre vICMSDeson e vFCP, na ordem do leiaute 4.00,
   // e so aparecem quando a nota realmente gerou o grupo nos itens.
@@ -618,7 +631,7 @@ export function buildNFePreviewXml(
     `<vDesc>${vDesc}</vDesc>` +
     `<vII>0.00</vII>` +
     `<vIPI>${soma.vIPI.toFixed(2)}</vIPI>` +
-    `<vIPIDevol>0.00</vIPIDevol>` +
+    `<vIPIDevol>${soma.vIPIDevol.toFixed(2)}</vIPIDevol>` +
     `<vPIS>${vPIS}</vPIS>` +
     `<vCOFINS>${vCOFINS}</vCOFINS>` +
     `<vOutro>0.00</vOutro>` +

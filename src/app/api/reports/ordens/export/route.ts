@@ -1,6 +1,7 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
+import { carregarFatiasRateadas, fatiaComoTransacao } from "@/lib/financeiro/rateio-documentos";
 import * as XLSX from "xlsx";
 
 import { requireRelatoriosAccess } from "@/app/api/_authz/perms";
@@ -177,6 +178,17 @@ export async function GET(request: Request) {
         .order("id", { ascending: true });
       if (error) throw error;
       transacoes.push(...(data ?? []));
+    }
+
+    // Pagamento em grupo não aponta para a OS; sem as fatias, a exportação
+    // mostraria a ordem sem nenhum recebimento.
+    const fatiasExport = await carregarFatiasRateadas("OS", ids);
+    for (const fatia of [...fatiasExport.values()].flat()) {
+      transacoes.push({
+        ...fatiaComoTransacao(fatia),
+        ordemservicoid: fatia.documentoId,
+        descricao_pagamento: null,
+      });
     }
 
     const totals = new Map<number, { receita: number; despesa: number }>();

@@ -38,6 +38,8 @@ import {
   MonitorCheck,
   ChartNoAxesCombined,
   Send,
+  FileText,
+  Building2,
 } from "lucide-react";
 
 import { NavMain } from "./components/nav-main";
@@ -92,6 +94,12 @@ const data = {
       icon: NotepadText,
       isActive: true,
       perm: PERMS.ORDENS,
+    },
+    {
+      title: "Orçamentos",
+      url: "/orcamentos",
+      icon: FileText,
+      perm: PERMS.ORCAMENTOS,
     },
     {
       title: "Agendamentos",
@@ -259,6 +267,12 @@ const data = {
           title: "Geral",
           url: "/configuracoes/geral",
           icon: Settings,
+          perm: PERMS.CONFIG,
+        },
+        {
+          title: "Empresa",
+          url: "/configuracoes/empresa",
+          icon: Building2,
           perm: PERMS.CONFIG,
         },
         {

@@ -90,7 +90,7 @@ export async function GET(_: Request, { params }: Params) {
     const { data: transacao, error: transacaoError } = await supabaseAdmin
       .from("transacao")
       .select(
-        "id, descricao, valor, data, tipo, pendente, created_at, updated_at, created_by, updated_by, baixado_por, cliente_id, fornecedor_id, ordemservicoid, vendaid, evento_financeiro_id, pagamento_multiplo_id",
+        "id, descricao, valor, data, tipo, pendente, created_at, updated_at, created_by, updated_by, baixado_por, cliente_id, fornecedor_id, ordemservicoid, vendaid, evento_financeiro_id, pagamento_multiplo_id, parcelamento_id",
       )
       .eq("id", id)
       .eq("is_deleted", false)
@@ -218,6 +218,22 @@ export async function GET(_: Request, { params }: Params) {
       if (irmasError) throw irmasError;
       relacionadas = irmas ?? [];
       if (relacionadas.length > 1) origem = "PARCELAMENTO";
+    } else if (transacao.parcelamento_id != null) {
+      // Parcelamento avulso com grupo formal: o vínculo é exato, e é ele que
+      // libera o reparcelamento. A heurística abaixo continua atendendo os grupos
+      // anteriores à coluna que o backfill não conseguiu amarrar.
+      origem = "PARCELAMENTO";
+
+      const { data: itens, error: itensError } = await supabaseAdmin
+        .from("transacao")
+        .select(RELACIONADA_FIELDS)
+        .eq("parcelamento_id", transacao.parcelamento_id)
+        .eq("is_deleted", false)
+        .order("data", { ascending: true })
+        .order("id", { ascending: true });
+
+      if (itensError) throw itensError;
+      relacionadas = itens ?? [];
     } else if (SUFIXO_PARCELA.test(String(transacao.descricao ?? ""))) {
       // Parcelamento avulso: nao existe coluna que agrupe as parcelas. As linhas
       // nascem de um unico insert, entao compartilham `created_at` exato e a mesma
@@ -362,6 +378,12 @@ export async function GET(_: Request, { params }: Params) {
       cliente: cliente ?? null,
       fornecedor: fornecedor ?? null,
       vinculo,
+      // Presente só no parcelamento avulso com grupo formal — é o que a aba
+      // Parcelas exige para oferecer o reparcelamento.
+      parcelamento:
+        transacao.parcelamento_id != null
+          ? { id: Number(transacao.parcelamento_id) }
+          : null,
       pagamentoMultiplo,
       baixa: baixa
         ? { ...baixa, baixadoPor: autor(baixa.baixado_por) }

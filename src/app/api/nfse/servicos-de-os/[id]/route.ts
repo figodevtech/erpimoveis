@@ -56,17 +56,21 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
     const { data: empresa } = await supabaseAdmin
       .from("empresa")
-      .select("cnpj, inscricaomunicipal, codigomunicipio, regimetributario")
+      .select("id, cnpj, inscricaomunicipal, codigomunicipio, regimetributario")
+      .order("id", { ascending: true })
       .limit(1)
       .maybeSingle();
 
     const codigoMunicipio = String(empresa?.codigomunicipio ?? "").replace(/\D/g, "");
     const modeloEmissao: NFSeModeloEmissao | null = identificarModeloEmissao(empresa);
 
+    // Mesma empresa que resolveu o modelo acima. Fixar `1` aqui fazia o padrão
+    // sumir em banco cuja empresa tem outro id, e a emissão abria sem código
+    // nenhum preenchido.
     const { data: nfseConfig } = await supabaseAdmin
       .from("nfse_config")
       .select("padroes_emissao")
-      .eq("empresa_id", 1)
+      .eq("empresa_id", empresa?.id ?? 1)
       .maybeSingle();
 
     const padroesEmissao = (nfseConfig?.padroes_emissao ?? {}) as Partial<

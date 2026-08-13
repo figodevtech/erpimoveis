@@ -5,6 +5,7 @@ import {
   normalizarPadraoFiscalItem,
   ORIGEM_PADRAO,
   ORIGEM_PADRAO_HERDADO,
+  ORIGEM_PADRAO_SAIDA_VENDA,
   ORIGEM_REGRA,
   ORIGEM_VAZIO,
   padraoDaOperacao,
@@ -403,11 +404,19 @@ test('normalizarPadraoFiscalItem tolera entrada que não é objeto', () => {
   assert.deepEqual(normalizarPadraoFiscalItem([1]), {});
 });
 
-test('padraoDaOperacao separa saída de entrada e tolera lixo', () => {
-  const padroes = { SAIDA: { cfop: '5102' }, ENTRADA: { cfop: '1102' } };
+test('padraoDaOperacao separa as três operações e tolera lixo', () => {
+  const padroes = {
+    SAIDA: { cfop: '5102' },
+    SAIDA_NAO_VENDA: { cfop: '5202' },
+    ENTRADA: { cfop: '1102' },
+  };
 
   assert.deepEqual(padraoDaOperacao(padroes, 'SAIDA'), { cfop: '5102' });
+  assert.deepEqual(padraoDaOperacao(padroes, 'SAIDA_NAO_VENDA'), { cfop: '5202' });
   assert.deepEqual(padraoDaOperacao(padroes, 'ENTRADA'), { cfop: '1102' });
+  // A saída de venda não vaza para a de não-venda: é a separação inteira que
+  // impede uma devolução de sair com o CSOSN da 5102.
+  assert.equal(padraoDaOperacao({ SAIDA: { cfop: '5102' } }, 'SAIDA_NAO_VENDA'), null);
   assert.equal(padraoDaOperacao({}, 'SAIDA'), null);
   assert.equal(padraoDaOperacao(null, 'SAIDA'), null);
   assert.equal(padraoDaOperacao('texto', 'SAIDA'), null);
@@ -416,9 +425,10 @@ test('padraoDaOperacao separa saída de entrada e tolera lixo', () => {
 });
 
 test('ramo sem chave nenhuma conta como ausente', () => {
-  // É este `null` que faz a NFC-e cair para o padrão herdado da NF-e em vez de
-  // emitir com todos os campos em branco.
+  // É este `null` que faz a NFC-e cair para o padrão herdado da NF-e — e a
+  // saída sem venda para o de venda — em vez de emitir tudo em branco.
   assert.equal(padraoDaOperacao({ SAIDA: {} }, 'SAIDA'), null);
+  assert.equal(padraoDaOperacao({ SAIDA_NAO_VENDA: {} }, 'SAIDA_NAO_VENDA'), null);
 });
 
 test('padrão herdado da NF-e sai marcado como tal', () => {
@@ -437,4 +447,25 @@ test('padrão herdado da NF-e sai marcado como tal', () => {
   assert.equal(procedencia.origem_mercadoria, ORIGEM_PADRAO_HERDADO);
   // Campo vazio segue sem procedência, independente do rótulo.
   assert.equal(procedencia.cst, ORIGEM_VAZIO);
+});
+
+test('padrão de venda herdado pela saída sem venda sai marcado como tal', () => {
+  // Devolução e remessa não são venda. Enquanto o padrão próprio não existe,
+  // vale o de venda — mas quem confere a nota precisa ver que aquele CSOSN foi
+  // cadastrado pensando numa 5102, e não nesta operação.
+  const { campos, procedencia } = resolverPadraoFiscalItem({
+    fontes: produto({ csosn: '400' }),
+    padrao: PADRAO_SIMPLES,
+    crt: 1,
+    rotuloPadrao: ORIGEM_PADRAO_SAIDA_VENDA,
+  });
+
+  assert.equal(campos.csosn, '400');
+  assert.equal(procedencia.csosn, 'PRODUTO');
+  assert.equal(campos.cst_pis, '01');
+  assert.equal(procedencia.cst_pis, ORIGEM_PADRAO_SAIDA_VENDA);
+  // O rótulo é distinto do da herança da NFC-e: são duas heranças diferentes e
+  // o selo na tela de emissão precisa dizer qual foi.
+  assert.notEqual(ORIGEM_PADRAO_SAIDA_VENDA, ORIGEM_PADRAO_HERDADO);
+  assert.notEqual(ORIGEM_PADRAO_SAIDA_VENDA, ORIGEM_PADRAO);
 });

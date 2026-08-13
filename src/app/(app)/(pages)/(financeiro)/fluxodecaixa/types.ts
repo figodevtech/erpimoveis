@@ -24,6 +24,7 @@ export enum Metodo_pagamento {
   TED = "TED",
   DOC = "DOC",
   DINHEIRO = "DINHEIRO",
+  PERMUTA = "PERMUTA",
 }
 
 export enum Banco_tipo {

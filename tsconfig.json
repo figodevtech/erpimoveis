@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2017",
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -19,9 +23,24 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": [
+        "./src/*"
+      ]
     }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "src/app/(app)/(pages)/dashboard/components/dashboard-clientes"],
-  "exclude": ["node_modules", "alphagaragepb", "central", "central.figosoftwares.com.br", "supabase/functions"]
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    "next-env.d.ts",
+    "src/app/(app)/(pages)/dashboard/components/dashboard-clientes",
+    ".next-verify-nfe/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "alphagaragepb",
+    "central",
+    "central.figosoftwares.com.br",
+    "supabase/functions"
+  ]
 }

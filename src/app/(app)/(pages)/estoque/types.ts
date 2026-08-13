@@ -109,6 +109,8 @@ export interface Fornecedor {
   endereconumero?: string;
   enderecocomplemento?: string;
   bairro?: string;
+  codigomunicipio?: string;
+  ativo?: boolean;
 }
 
 export interface Produto {

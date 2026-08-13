@@ -1,6 +1,7 @@
 "use client";
-import { ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 export function DialogShell({
   open,
@@ -14,6 +15,8 @@ export function DialogShell({
   maxW = "lg:max-w-5xl xl:max-w-6xl",
   mobileFull = false,
   fixedHeight = false,
+  variant = "default",
+  eyebrow,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -26,7 +29,10 @@ export function DialogShell({
   maxW?: string;
   mobileFull?: boolean;
   fixedHeight?: boolean;
+  variant?: "default" | "workbench";
+  eyebrow?: ReactNode;
 }) {
+  const isWorkbench = variant === "workbench";
   const fixedHeightClass = fixedHeight
     ? "h-[100dvh] max-h-[100dvh]"
     : "";
@@ -34,11 +40,14 @@ export function DialogShell({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className={
+        className={cn(
           mobileFull
-            ? `h-[100dvh] max-h-[100dvh] w-[100dvw] max-w-[100dvw] min-w-0 overflow-hidden rounded-none p-0 sm:w-[95vw] sm:max-w-[95vw] sm:rounded-lg md:max-w-3xl ${maxW}`
-            : `p-0 w-[96vw] sm:max-w-[95vw] md:max-w-3xl ${fixedHeightClass} ${maxW}`
-        }
+            ? "h-[100dvh] max-h-[100dvh] w-[100dvw] max-w-[100dvw] min-w-0 overflow-hidden rounded-none p-0 sm:w-[95vw] sm:max-w-[95vw] sm:rounded-lg md:max-w-3xl"
+            : `w-[96vw] p-0 sm:max-w-[95vw] md:max-w-3xl ${fixedHeightClass}`,
+          maxW,
+          isWorkbench && !loading &&
+            "border-foreground/20 shadow-2xl [&>[data-slot=dialog-close]]:text-background [&>[data-slot=dialog-close]]:ring-offset-foreground",
+        )}
         onInteractOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
         onOpenAutoFocus={(e) => e.preventDefault()}
@@ -60,33 +69,64 @@ export function DialogShell({
             </div>
           ) : null}
           {!loading ? (
-            <div className="flex items-start justify-between gap-4 border-b px-4 py-3 sm:px-6">
+            <header
+              className={cn(
+                "flex items-start justify-between gap-4 border-b px-4 py-3 pr-12 sm:px-6 sm:pr-14",
+                isWorkbench &&
+                  "relative overflow-hidden border-background/10 bg-card py-4 text-foreground before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-primary",
+              )}
+            >
               <div className="space-y-1">
-                <DialogTitle className="text-base font-semibold tracking-tight sm:text-lg">
+                {isWorkbench && eyebrow ? (
+                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-foreground/55">
+                    {eyebrow}
+                  </p>
+                ) : null}
+                <DialogTitle
+                  className={cn(
+                    "text-base font-semibold tracking-tight sm:text-lg",
+                    isWorkbench && "uppercase tracking-[0.06em]",
+                  )}
+                >
                   {title}
                   {titleSuffix ? (
-                    <span className="ml-1 text-sm font-normal text-muted-foreground">
+                    <span
+                      className={cn(
+                        "ml-1 text-sm font-normal text-muted-foreground",
+                        isWorkbench && "text-foreground/55",
+                      )}
+                    >
                       | {titleSuffix}
                     </span>
                   ) : null}
                 </DialogTitle>
                 {description ? (
-                  <DialogDescription className="text-sm">{description}</DialogDescription>
+                  <DialogDescription
+                    className={cn("text-sm", isWorkbench && "text-foreground/65")}
+                  >
+                    {description}
+                  </DialogDescription>
                 ) : null}
               </div>
-            </div>
+            </header>
           ) : null}
           <div
-            className={
+            className={cn(
               loading
                 ? "min-h-0 overflow-y-auto overscroll-contain"
-                : "min-h-0 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-6"
-            }
+                : "min-h-0 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-6",
+              isWorkbench && !loading && "bg-muted/25",
+            )}
           >
             {children}
           </div>
           {!loading ? (
-            <div className="z-10 flex shrink-0 items-center justify-end gap-2 overflow-x-auto border-t bg-background px-4 py-3 sm:px-6">
+            <div
+              className={cn(
+                "z-10 flex shrink-0 items-center justify-end gap-2 overflow-x-auto border-t bg-background px-4 py-3 sm:px-6",
+                isWorkbench && "border-foreground/15",
+              )}
+            >
               {footer}
             </div>
           ) : null}

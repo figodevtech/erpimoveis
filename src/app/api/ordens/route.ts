@@ -430,6 +430,53 @@ export async function GET(req: Request) {
 
     const ordemIds = items.map((item) => item.id).filter(Boolean);
 
+    // Pagamento múltiplo não preenche `ordemservicoid` — a transação cobre
+    // várias OS e o elo é o rateio. Sem juntar as fatias aqui, a OS paga em
+    // grupo aparece com total pago zero mesmo estando concluída.
+    if (ordemIds.length > 0) {
+      const { data: rateio, error: rateioError } = await supabaseAdmin
+        .from("pagamento_multiplo_rateio")
+        .select(
+          "documento_id, valor, transacao:transacao_id ( id, descricao, data, metodopagamento, categoria, pendente, is_deleted )",
+        )
+        .eq("tipo_documento", "OS")
+        .in("documento_id", ordemIds);
+      if (rateioError) throw rateioError;
+
+      const fatiasPorOrdem = new Map<number, any[]>();
+      for (const linha of (rateio ?? []) as any[]) {
+        const transacao = linha.transacao;
+        if (!transacao || transacao.is_deleted) continue;
+
+        const ordemId = Number(linha.documento_id);
+        const lista = fatiasPorOrdem.get(ordemId) ?? [];
+        lista.push({
+          id: Number(transacao.id),
+          descricao: String(transacao.descricao ?? ""),
+          // A fatia é o que coube a ESTA OS; o valor da linha é o recebimento
+          // inteiro, que pertence a várias.
+          valor: Number(linha.valor ?? 0),
+          valorLiquido: Number(linha.valor ?? 0),
+          data: transacao.data,
+          metodoPagamento: transacao.metodopagamento,
+          categoria: transacao.categoria,
+          tipo: "RECEITA",
+          evento_financeiro_id: null,
+          is_deleted: false,
+          pendente: Boolean(transacao.pendente),
+          baixado_por: null,
+          baixadoPor: null,
+          rateado: true,
+        });
+        fatiasPorOrdem.set(ordemId, lista);
+      }
+
+      for (const item of items as any[]) {
+        const fatias = fatiasPorOrdem.get(Number(item.id));
+        if (fatias?.length) item.transacoes = [...(item.transacoes ?? []), ...fatias];
+      }
+    }
+
     if (ordemIds.length > 0) {
       const { data: notasData, error: notasError } = await supabaseAdmin
         .from("nfe")

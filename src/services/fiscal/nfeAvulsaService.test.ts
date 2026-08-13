@@ -12,7 +12,10 @@ import "./__testEnv";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { validarDraftAvulso } from "./nfeAvulsaService";
+import {
+  validarDraftAvulso,
+  validarLimiteTotalDevolucao,
+} from "./nfeAvulsaService";
 
 type Draft = Parameters<typeof validarDraftAvulso>[0];
 
@@ -227,5 +230,109 @@ describe("emissão avulsa: destinatário e transporte", () => {
     });
 
     assert.equal(erros(draft, "cpfCnpj").length, 1);
+  });
+});
+
+describe("emissão avulsa: NF-e referenciada", () => {
+  // Chave real do rascunho da Garage Premium: serve porque o DV confere.
+  const chaveValida = "25260850114987000143550030000000011872971236";
+
+  function devolucao(overrides: Partial<Draft> = {}): Draft {
+    return draftBase({
+      operacao: {
+        ...draftBase().operacao,
+        finalidade: "DEVOLUCAO",
+        naturezaOperacao: "DEVOLUCAO DE MERCADORIA",
+        consumidorFinal: false,
+        indicadorPresenca: "0",
+      },
+      pagamentos: [{ meio: "90", valor: 0, tipoIntegracao: "2" }],
+      ...overrides,
+    });
+  }
+
+  it("cobra a nota de origem numa devolução", () => {
+    assert.equal(erros(devolucao(), "documentosReferenciados").length, 1);
+  });
+
+  it("aceita a devolução com a chave da NF-e original", () => {
+    const draft = devolucao({ documentosReferenciados: [{ chaveAcesso: chaveValida }] });
+    assert.deepEqual(validarDraftAvulso(draft), []);
+  });
+
+  it("aceita a referência granular usada pelo motor de saída", () => {
+    const draft = devolucao({
+      itens: [itemBase({ dfeReferenciado: { chaveAcesso: chaveValida, nItem: 1 } })],
+    });
+
+    assert.deepEqual(erros(draft, "documentosReferenciados"), []);
+  });
+
+  it("recusa chave com dígito verificador errado", () => {
+    const chaveErrada = `${chaveValida.slice(0, 43)}0`;
+    const draft = devolucao({ documentosReferenciados: [{ chaveAcesso: chaveErrada }] });
+
+    assert.equal(erros(draft, "documentosReferenciados.0.chaveAcesso").length, 1);
+  });
+
+  it("recusa a mesma NF-e referenciada duas vezes", () => {
+    const draft = devolucao({
+      documentosReferenciados: [{ chaveAcesso: chaveValida }, { chaveAcesso: chaveValida }],
+    });
+
+    assert.equal(erros(draft, "documentosReferenciados").length, 1);
+  });
+
+  it("não exige referência numa nota normal", () => {
+    assert.deepEqual(erros(draftBase(), "documentosReferenciados"), []);
+  });
+
+  it("bloqueia a rejeição 545 antes de gerar o rascunho", () => {
+    const errors = validarLimiteTotalDevolucao(3850, 1092.26);
+
+    assert.equal(errors.length, 1);
+    assert.match(errors[0].message, /3850\.00/);
+    assert.match(errors[0].message, /1092\.26/);
+    assert.match(errors[0].message, /545/);
+  });
+
+  it("aceita devolução que não supera o documento original", () => {
+    assert.deepEqual(validarLimiteTotalDevolucao(1092.26, 1092.26), []);
+    assert.deepEqual(validarLimiteTotalDevolucao(500, 1092.26), []);
+  });
+});
+
+describe("emissão avulsa: níveis de referenciamento", () => {
+  const chaveValida = "25260850114987000143550030000000011872971236";
+
+  function devolucao(overrides: Partial<Draft> = {}): Draft {
+    return draftBase({
+      operacao: {
+        ...draftBase().operacao,
+        finalidade: "DEVOLUCAO",
+        naturezaOperacao: "DEVOLUCAO DE MERCADORIA",
+        consumidorFinal: false,
+        indicadorPresenca: "0",
+      },
+      pagamentos: [{ meio: "90", valor: 0, tipoIntegracao: "2" }],
+      ...overrides,
+    });
+  }
+
+  it("recusa referência no cabeçalho e no item ao mesmo tempo", () => {
+    const draft = devolucao({
+      documentosReferenciados: [{ chaveAcesso: chaveValida }],
+      itens: [itemBase({ dfeReferenciado: { chaveAcesso: chaveValida, nItem: 1 } })],
+    });
+
+    assert.equal(erros(draft, "documentosReferenciados").length, 1);
+  });
+
+  it("aceita a devolução referenciada só no item", () => {
+    const draft = devolucao({
+      itens: [itemBase({ dfeReferenciado: { chaveAcesso: chaveValida, nItem: 1 } })],
+    });
+
+    assert.deepEqual(validarDraftAvulso(draft), []);
   });
 });

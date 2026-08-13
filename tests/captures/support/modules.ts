@@ -33,6 +33,7 @@ export const CAPTURE_MODULES: CaptureModule[] = [
   { name: "Relatórios", path: "/relatorios", slug: "relatorios" },
   { name: "Plano", path: "/plano", slug: "plano" },
   { name: "Configurações Gerais", path: "/configuracoes/geral", slug: "configuracoes-geral" },
+  { name: "Dados da Empresa", path: "/configuracoes/empresa", slug: "configuracoes-empresa" },
   { name: "Configurações Fiscais", path: "/configuracoes/fiscal-pagamentos", slug: "configuracoes-fiscal" },
   { name: "Configurações de Tipos", path: "/configuracoes/tipos", slug: "configuracoes-tipos" },
   { name: "Perfis e Permissões", path: "/configuracoes/perfis", slug: "perfis-permissoes" },

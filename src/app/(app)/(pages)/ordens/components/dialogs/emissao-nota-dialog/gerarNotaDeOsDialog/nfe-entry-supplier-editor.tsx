@@ -148,9 +148,17 @@ function Field({
 export function NfeEntrySupplierEditor({
   value,
   onChange,
+  title = "Fornecedor da NF-e de entrada",
+  description = "Estes dados serão usados somente nesta nota e não alteram o cadastro da entrada.",
+  linkedLabel = "Fornecedor vinculado",
+  unlinkedLabel = "Fornecedor avulso",
 }: {
   value: NFeEntrySupplierDraft;
   onChange: (next: NFeEntrySupplierDraft) => void;
+  title?: string;
+  description?: string;
+  linkedLabel?: string;
+  unlinkedLabel?: string;
 }) {
   const [loadingCep, setLoadingCep] = useState(false);
   const [loadingCnpj, setLoadingCnpj] = useState(false);
@@ -286,13 +294,13 @@ export function NfeEntrySupplierEditor({
     <section className="min-w-0 space-y-4 rounded-lg border bg-card p-3 sm:p-4">
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="font-medium">Fornecedor da NF-e de entrada</p>
+          <p className="font-medium">{title}</p>
           <p className="text-xs text-muted-foreground">
-            Estes dados serão usados somente nesta nota e não alteram o cadastro da entrada.
+            {description}
           </p>
         </div>
         <Badge variant={value.fornecedorId ? "secondary" : "outline"}>
-          {value.fornecedorId ? "Fornecedor vinculado" : "Fornecedor avulso"}
+          {value.fornecedorId ? linkedLabel : unlinkedLabel}
         </Badge>
       </div>
 

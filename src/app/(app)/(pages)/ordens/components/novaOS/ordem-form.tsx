@@ -1,13 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -21,7 +14,6 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -53,6 +45,7 @@ import { listarSetores } from "../../lib/api";
 import { ClienteInfoCard } from "./cliente-info-card";
 import { CustomerDialog } from "../../../clientes/components/customerDialogRegister/customerDialog";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
+import { OrdemFormSection } from "../form-section";
 
 export type FormularioNovaOSProps = {
   exposeSubmit?: (
@@ -438,23 +431,14 @@ export function FormularioNovaOS({
         </AlertDialogContent>
       </AlertDialog>
 
-      <div className="space-y-6">
-        <Card className="border-border">
-          <CardHeader className="">
-            <div className="flex items-center gap-2">
-              <User2 className="h-5 w-5 text-primary" />
-              <CardTitle className="text-base sm:text-lg">
-                Dados do Cliente
-              </CardTitle>
-            </div>
-            <CardDescription>
-              Selecione um cliente cadastrado ou deixe sem cliente.
-            </CardDescription>
-          </CardHeader>
-
-          <CardContent className="space-y-4">
-            <div className="w-full flex flex-row flex-wrap gap-2 justify-between">
-              <div className="flex flex-row items-center gap-2">
+      <div className="space-y-3">
+        <OrdemFormSection
+          icon={User2}
+          title="Cliente"
+          description="Selecione um cliente cadastrado ou mantenha a OS sem cliente."
+          contentClassName="space-y-3"
+        >
+            <div className="flex w-full flex-wrap items-center gap-2">
                 <CustomerSelect
                   open={openCustomer}
                   setOpen={setOpenCustomer}
@@ -463,22 +447,26 @@ export function FormularioNovaOS({
                   }}
                 >
                   <Button
+                    type="button"
                     variant="outline"
-                    className="hover:cursor-pointer w-min text-xs"
+                    className="h-9 text-xs transition-transform motion-safe:hover:-translate-y-0.5"
                   >
                     <Search className="h-3 w-3" />
                     Selecionar Cliente
                   </Button>
                 </CustomerSelect>
-                {cliente && (
-                  <div
+                {cliente ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Remover cliente selecionado"
                     onClick={() => applySelectedCustomer(null)}
-                    className="p-1.5 rounded-full hover:cursor-pointer bg-muted"
+                    className="size-9 text-destructive hover:text-destructive"
                   >
-                    <X className="w-3 h-3 text-red-500" />
-                  </div>
-                )}
-              </div>
+                    <X className="size-4" />
+                  </Button>
+                ) : null}
               <CustomerDialog
                 customerId={selectedCustomerId}
                 setSelectedCustomerId={setSelectedCustomerId}
@@ -491,46 +479,42 @@ export function FormularioNovaOS({
               />
               {cliente && canEditCustomer ? (
                 <Button
+                  type="button"
                   onClick={() => {
                     setSelectedCustomerId(cliente.id);
                     setCustomerRegisterOpen(true);
                   }}
                   variant="outline"
-                  className="hover:cursor-pointer w-min text-xs"
+                  className="h-9 text-xs transition-transform motion-safe:hover:-translate-y-0.5"
                 >
                   <Pencil className="h-3 w-3" />
                   Editar Cliente
                 </Button>
               ) : null}
               <Button
+                type="button"
                 onClick={() => {
                   setSelectedCustomerId(undefined);
                   setCustomerRegisterOpen(true);
                 }}
                 variant="outline"
-                className="hover:cursor-pointer w-min text-xs"
+                className="h-9 text-xs transition-transform motion-safe:hover:-translate-y-0.5"
               >
                 <Plus className="h-3 w-3" />
                 Novo Cliente
               </Button>
             </div>
             {cliente && <ClienteInfoCard customer={cliente} />}
-          </CardContent>
-        </Card>
+        </OrdemFormSection>
 
-        <Card className="border-border">
-          <CardHeader className="">
-            <div className="flex items-center gap-2">
-              <Building2 className="h-5 w-5 text-primary" />
-              <CardTitle className="text-base sm:text-lg">
-                Definição da OS
-              </CardTitle>
-            </div>
-          </CardHeader>
-
-          <CardContent className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="space-y-3">
+        <OrdemFormSection
+          icon={Building2}
+          title="Definição da OS"
+          description="Defina a responsabilidade, a prioridade e o alvo do reparo."
+          contentClassName="space-y-4"
+        >
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.6fr)_minmax(14rem,0.8fr)]">
+              <div className="space-y-1.5">
                 <Label>Setor responsável</Label>
                 <Select
                   value={setor}
@@ -539,7 +523,7 @@ export function FormularioNovaOS({
                     loadingSetores || (!!setoresError && setores.length === 0)
                   }
                 >
-                  <SelectTrigger className="h-10 w-full md:w-[380px] min-w-[260px] truncate">
+                  <SelectTrigger className="h-10 w-full truncate">
                     <SelectValue
                       placeholder={
                         loadingSetores
@@ -563,13 +547,13 @@ export function FormularioNovaOS({
                 )}
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-1.5">
                 <Label>Prioridade</Label>
                 <Select
                   value={prioridade}
                   onValueChange={(v) => setPrioridade(v as any)}
                 >
-                  <SelectTrigger className="h-10 w-full md:w-[380px] min-w-[260px] truncate">
+                  <SelectTrigger className="h-10 w-full truncate">
                     <SelectValue placeholder="Selecione a prioridade" />
                   </SelectTrigger>
                   <SelectContent>
@@ -581,9 +565,7 @@ export function FormularioNovaOS({
               </div>
             </div>
 
-            <Separator />
-
-            <div className="space-y-4">
+            <div className="space-y-3 border-t border-border pt-4">
               <div className="flex items-center gap-2">
                 <Wrench className="h-4 w-4 text-primary" />
                 <Label className="font-medium">Alvo do reparo</Label>
@@ -592,17 +574,17 @@ export function FormularioNovaOS({
               <RadioGroup
                 value={alvoTipo}
                 onValueChange={(v: AlvoTipo) => setAlvoTipo(v)}
-                className="flex flex-wrap gap-4"
+                className="grid grid-cols-1 gap-2 sm:grid-cols-3"
               >
-                <label className="flex items-center gap-2 cursor-pointer">
+                <label className="flex min-h-11 cursor-pointer items-center gap-2 border border-border bg-background px-3 text-sm transition-colors hover:bg-muted/50 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5">
                   <RadioGroupItem id="alvo-veic" value="VEICULO" />
                   <span>Veículo</span>
                 </label>
-                <label className="flex items-center gap-2 cursor-pointer">
+                <label className="flex min-h-11 cursor-pointer items-center gap-2 border border-border bg-background px-3 text-sm transition-colors hover:bg-muted/50 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5">
                   <RadioGroupItem id="alvo-peca" value="PECA" />
                   <span>Peça</span>
                 </label>
-                <label className="flex items-center gap-2 cursor-pointer">
+                <label className="flex min-h-11 cursor-pointer items-center gap-2 border border-border bg-background px-3 text-sm transition-colors hover:bg-muted/50 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5">
                   <RadioGroupItem id="alvo-equipamento" value="EQUIPAMENTO" />
                   <span>Máquina/Equipamento</span>
                 </label>
@@ -835,78 +817,48 @@ export function FormularioNovaOS({
                 </div>
               )}
             </div>
-          </CardContent>
-        </Card>
+        </OrdemFormSection>
 
-        <Card className="border-border">
-          <CardHeader className="pb-2">
-            <div className="flex items-center gap-2">
-              <ClipboardList className="h-5 w-5 text-primary" />
-              <CardTitle className="text-base sm:text-lg">
-                Descrição do Problema
-              </CardTitle>
-            </div>
-            <CardDescription className="text-sm text-muted-foreground">
-              Informe os detalhes do problema relatado para orientar o
-              atendimento.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+        <OrdemFormSection
+          icon={ClipboardList}
+          title="Relato do problema"
+          description="Registre os sintomas e o contexto informado pelo cliente."
+        >
             <Textarea
               placeholder="Descreva o problema..."
-              className="min-h-[100px] resize-y"
+              className="min-h-24 resize-y"
               value={descricao}
               onChange={(e) => setDescricao(e.target.value)}
             />
-          </CardContent>
-        </Card>
+        </OrdemFormSection>
 
-        <Card className="border-border">
-          <CardHeader className="pb-2">
-            <div className="flex gap-2 items-center">
-              <TriangleAlert className="h-5 w-5 text-primary" />
-
-              <CardTitle className="text-base sm:text-lg">
-                Observações (Interno)
-              </CardTitle>
-            </div>{" "}
-            <CardDescription className="text-sm text-muted-foreground">
-              Espaço para anotações internas da equipe, como detalhes adicionais
-              do atendimento ou histórico relevante.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
+          <OrdemFormSection
+            icon={TriangleAlert}
+            title="Notas internas"
+            description="Anotações exclusivas da equipe e histórico relevante."
+          >
             <Textarea
               placeholder="Informações adicionais..."
-              className="min-h-[80px] resize-y"
+              className="min-h-24 resize-y"
               value={observacoes}
               onChange={(e) => setObservacoes(e.target.value)}
             />
-          </CardContent>
-        </Card>
+          </OrdemFormSection>
 
-        <Card className="border-border">
-          <CardHeader className="pb-2">
-            <div className="flex gap-2 items-center">
-              <FileText className="h-5 w-5 text-primary" />
-              <CardTitle className="text-base sm:text-lg">
-                Observações Fiscais
-              </CardTitle>
-            </div>
-            <CardDescription className="text-sm text-muted-foreground">
-              Informações fiscais adicionais relevantes para emissão de notas ou
-              processos relacionados.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+          <OrdemFormSection
+            icon={FileText}
+            title="Notas fiscais"
+            description="Informações úteis para emissão de notas e processos fiscais."
+          >
             <Textarea
               placeholder="Informações fiscais adicionais..."
-              className="min-h-[80px] resize-y"
+              className="min-h-24 resize-y"
               value={observacoesFiscais}
               onChange={(e) => setObservacoesFiscais(e.target.value)}
             />
-          </CardContent>
-        </Card>
+          </OrdemFormSection>
+        </div>
       </div>
     </>
   );

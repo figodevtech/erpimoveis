@@ -65,6 +65,7 @@ import type { ModeloDocumentoFiscal } from "@/lib/nfe/types";
 import { ConfirmarIndicadorIe } from "@/components/fiscal/confirmar-indicador-ie";
 
 import {
+  aplicarCamposFiscais,
   aplicarSugestaoDifal,
   createAssistedItem,
   type AssistedFiscalItem,
@@ -83,6 +84,72 @@ import {
   type NFeEntrySupplierDraft,
   validateEntrySupplier,
 } from "./nfe-entry-supplier-editor";
+import {
+  NfeSaidaOrigemEditor,
+  relacaoUnica,
+  validarOrigemFiscalSaida,
+  type EntradaCandidata,
+  type OperacaoFiscalSaidaOption,
+  type SaidaOrigemDraft,
+} from "./nfe-saida-origem-editor";
+
+/** Contexto fiscal da saída, carregado junto dos itens quando origin = SAIDA. */
+type SaidaFiscalResponse = {
+  ok: boolean;
+  contexto?: {
+    operacao_fiscal_codigo?: string | null;
+    natureza_operacao?: string | null;
+    finalidade?: string | null;
+    documento_referenciado_obrigatorio?: boolean | null;
+    chave_acesso_referenciada?: string | null;
+    itens?: Array<{
+      saida_item_id: number;
+      entrada_item_origem_id?: number | null;
+      numero_item_referenciado?: number | null;
+      percentual_devolucao?: number | null;
+      valor_ipi_devolvido?: number | null;
+    }> | null;
+  } | null;
+  entradasCandidatas?: EntradaCandidata[];
+  operacoes?: OperacaoFiscalSaidaOption[];
+};
+
+/**
+ * Fornecedor da entrada como destinatário da devolução.
+ *
+ * Numa devolução a mercadoria volta para quem vendeu, e o servidor recusa a
+ * gravação se o documento do destinatário não bater com o fornecedor da entrada
+ * escolhida. Preencher aqui poupa o operador de redigitar o cadastro inteiro só
+ * para satisfazer essa conferência.
+ */
+function fornecedorParaDestinatario(fornecedor: any): NFeEntrySupplierDraft {
+  const documento = onlyDigits(fornecedor?.cpfcnpj);
+  return {
+    ...emptyEntrySupplier,
+    fornecedorId: Number(fornecedor?.id ?? 0) || null,
+    tipoPessoa: documento.length === 11 ? "FISICA" : "JURIDICA",
+    cpfCnpj: documento,
+    nomeRazaoSocial: fornecedor?.nomerazaosocial || fornecedor?.nomefantasia || "",
+    telefone: onlyDigits(fornecedor?.contato),
+    endereco: fornecedor?.endereco || "",
+    numero: fornecedor?.endereconumero || "",
+    complemento: fornecedor?.enderecocomplemento || "",
+    bairro: fornecedor?.bairro || "",
+    cidade: fornecedor?.cidade || "",
+    estado: String(fornecedor?.estado || "").toUpperCase(),
+    cep: onlyDigits(fornecedor?.cep),
+    codigoMunicipio: onlyDigits(fornecedor?.codigomunicipio),
+  };
+}
+
+const emptySaidaOrigem: SaidaOrigemDraft = {
+  operacaoFiscalCodigo: "",
+  naturezaOperacao: "",
+  finalidade: "NORMAL",
+  documentoReferenciadoObrigatorio: false,
+  chaveAcessoReferenciada: "",
+  itens: [],
+};
 
 type SourceResponse = {
   ok: boolean;
@@ -278,6 +345,7 @@ export interface GerarNotaDeOsDialogProps {
   osId?: number | null;
   vendaId?: number | null;
   entradaId?: number | null;
+  saidaId?: number | null;
   /**
    * 55 = NF-e (padrão), 65 = NFC-e.
    *
@@ -301,6 +369,7 @@ export function GerarNotaDeOsDialog({
   osId,
   vendaId,
   entradaId,
+  saidaId,
   modelo = MODELO_NFE,
   nfeId = null,
   onAfterGenerate,
@@ -328,6 +397,12 @@ export function GerarNotaDeOsDialog({
   const [fiscalConfig, setFiscalConfig] = useState<AssistedFiscalConfig>(defaultFiscalConfig);
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
   const [paymentMethodsOpen, setPaymentMethodsOpen] = useState(false);
+  // Origem fiscal da saída: natureza, chave referenciada e vínculo item↔entrada.
+  // Vive aqui porque é decidido no mesmo diálogo e viaja no mesmo POST.
+  const [saidaOrigem, setSaidaOrigem] = useState<SaidaOrigemDraft>(emptySaidaOrigem);
+  const [saidaOperacoes, setSaidaOperacoes] = useState<OperacaoFiscalSaidaOption[]>([]);
+  const [entradasCandidatas, setEntradasCandidatas] = useState<EntradaCandidata[]>([]);
+  const [espelhando, setEspelhando] = useState(false);
 
   // Consumidor final e a IE do destinatário mudam a exigência do DIFAL. Reavalia
   // na hora, preservando o que já foi digitado nos campos.
@@ -362,8 +437,9 @@ export function GerarNotaDeOsDialog({
 
   const difalAtivo = items.some((item) => item.difalHabilitado);
 
-  const origin = osId ? "OS" : vendaId ? "VENDA" : entradaId ? "ENTRADA" : null;
-  const originId = osId ?? vendaId ?? entradaId ?? null;
+  const origin = osId ? "OS" : vendaId ? "VENDA" : entradaId ? "ENTRADA" : saidaId ? "SAIDA" : null;
+  const originId = osId ?? vendaId ?? entradaId ?? saidaId ?? null;
+  const usesEditableRecipient = origin === "ENTRADA" || origin === "SAIDA";
   const productsEndpoint = useMemo(() => {
     if (!origin || !originId) return null;
     // O modelo vai na query porque o padrão fiscal dos itens é por modelo: sem
@@ -371,7 +447,8 @@ export function GerarNotaDeOsDialog({
     // Entrada não tem modelo a escolher — é sempre 55.
     if (origin === "OS") return `/api/ordens/${originId}/produtos-para-nfe?modelo=${modelo}`;
     if (origin === "VENDA") return `/api/venda/${originId}/produtos-para-nfe?modelo=${modelo}`;
-    return `/api/entradas/${originId}/produtos-para-nfe`;
+    if (origin === "ENTRADA") return `/api/entradas/${originId}/produtos-para-nfe`;
+    return `/api/estoque/saidas/${originId}/produtos-para-nfe`;
   }, [origin, originId, modelo]);
   const generateEndpoint = useMemo(() => {
     if (!origin || !originId) return null;
@@ -384,7 +461,8 @@ export function GerarNotaDeOsDialog({
     }
     if (origin === "OS") return `/api/nfe/de-os/${originId}/gerar-rascunho`;
     if (origin === "VENDA") return `/api/nfe/de-venda/${originId}/gerar-rascunho`;
-    return `/api/nfe/de-entrada/${originId}/gerar-rascunho`;
+    if (origin === "ENTRADA") return `/api/nfe/de-entrada/${originId}/gerar-rascunho`;
+    return `/api/nfe/de-saida/${originId}/gerar-rascunho`;
   }, [origin, originId, isNfce]);
 
   async function load(signal?: AbortSignal) {
@@ -393,7 +471,7 @@ export function GerarNotaDeOsDialog({
     setLoadError(null);
     setServerError(null);
     try {
-      const [productsResponse, setupResponse] = await Promise.all([
+      const [productsResponse, setupResponse, saidaFiscalResponse] = await Promise.all([
         fetch(productsEndpoint, { cache: "no-store", signal }),
         // O modelo vai na query: sem ele o setup responde sempre a NF-e, e a
         // tela da NFC-e mostraria a série, o número e o ambiente do modelo 55.
@@ -401,6 +479,12 @@ export function GerarNotaDeOsDialog({
           cache: "no-store",
           signal,
         }),
+        // Natureza fiscal, entradas candidatas e o contexto já gravado da saída.
+        // Vem no mesmo carregamento para a origem fiscal ser decidida aqui, sem
+        // a tela anterior que existia só para gravá-la antes.
+        origin === "SAIDA"
+          ? fetch(`/api/estoque/saidas/${originId}/fiscal`, { cache: "no-store", signal })
+          : null,
       ]);
       const productsJson = (await productsResponse.json().catch(() => null)) as SourceResponse | null;
       const setupJson = (await setupResponse.json().catch(() => null)) as
@@ -454,6 +538,57 @@ export function GerarNotaDeOsDialog({
           ...productsJson.configuracao_fiscal?.transportadora,
         },
       });
+      if (origin === "SAIDA") {
+        const saidaJson = (await saidaFiscalResponse?.json().catch(() => null)) as
+          | SaidaFiscalResponse
+          | null;
+        const operacoes = saidaJson?.operacoes ?? [];
+        const contexto = saidaJson?.contexto ?? null;
+        const gravadoPorItem = new Map(
+          (contexto?.itens ?? []).map((item) => [Number(item.saida_item_id), item]),
+        );
+        // Sem contexto gravado a natureza abre em branco de propósito: escolher
+        // a operação é uma decisão fiscal, não um default a ser herdado.
+        const operacaoGravada = operacoes.find(
+          (operacao) => operacao.codigo === contexto?.operacao_fiscal_codigo,
+        );
+
+        setSaidaOperacoes(operacoes);
+        setEntradasCandidatas(saidaJson?.entradasCandidatas ?? []);
+        setSaidaOrigem({
+          operacaoFiscalCodigo: operacaoGravada?.codigo ?? "",
+          naturezaOperacao: contexto?.natureza_operacao ?? operacaoGravada?.naturezaOperacao ?? "",
+          finalidade: contexto?.finalidade ?? operacaoGravada?.finalidade ?? "NORMAL",
+          documentoReferenciadoObrigatorio: Boolean(
+            contexto?.documento_referenciado_obrigatorio ??
+              operacaoGravada?.exigeDocumentoReferenciado,
+          ),
+          chaveAcessoReferenciada: contexto?.chave_acesso_referenciada ?? "",
+          itens: mapped.map((item) => {
+            // `sourceItemId` é "saida:{saidaId}:{itemId}" — o último segmento é
+            // a linha da saída, que é a chave do contexto fiscal.
+            const saidaItemId = Number(item.sourceItemId.split(":").at(-1));
+            const gravado = gravadoPorItem.get(saidaItemId);
+            return {
+              sourceItemId: item.sourceItemId,
+              saidaItemId,
+              produtoId: item.produtoId,
+              titulo: item.titulo,
+              quantidade: item.quantidade,
+              entradaItemOrigemId: gravado?.entrada_item_origem_id
+                ? Number(gravado.entrada_item_origem_id)
+                : null,
+              numeroItemReferenciado: gravado?.numero_item_referenciado
+                ? Number(gravado.numero_item_referenciado)
+                : null,
+              percentualDevolucao: Number(gravado?.percentual_devolucao ?? 100),
+              valorIpiDevolvido: Number(gravado?.valor_ipi_devolvido ?? 0),
+              aviso: null,
+            };
+          }),
+        });
+      }
+
       setDescontoGeral(Math.max(0, Number(productsJson.desconto_geral ?? 0)));
       const existingObservations = productsJson.observacoes_fiscais ?? "";
       setObservations(existingObservations);
@@ -486,7 +621,7 @@ export function GerarNotaDeOsDialog({
   const issuesByItem = useMemo(() => {
     const map = new Map<string, AssistedItemIssue[]>();
     if (!setup) return map;
-    const parceiroUf = origin === "ENTRADA"
+    const parceiroUf = usesEditableRecipient
       ? entrySupplier.estado
       : (source?.fornecedor ?? source?.cliente)?.uf;
     for (const item of items) {
@@ -499,7 +634,7 @@ export function GerarNotaDeOsDialog({
       );
     }
     return map;
-  }, [entrySupplier.estado, items, origin, setup, source]);
+  }, [entrySupplier.estado, items, setup, source, usesEditableRecipient]);
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const selectedItems = useMemo(
@@ -552,14 +687,16 @@ export function GerarNotaDeOsDialog({
     ? `${verbo} ${rotulo} da Venda #${originId ?? ""}`
     : origin === "ENTRADA"
       ? `${verbo} ${rotulo} da Entrada #${originId ?? ""}`
+      : origin === "SAIDA"
+        ? `${verbo} ${rotulo} da Saída #${originId ?? ""}`
       : `${verbo} ${rotulo} da OS #${originId ?? ""}`;
-  const parceiro = origin === "ENTRADA"
+  const parceiro = usesEditableRecipient
     ? { nome: entrySupplier.nomeRazaoSocial, uf: entrySupplier.estado }
     : source?.fornecedor ?? source?.cliente;
-  const parceiroLabel = origin === "ENTRADA" ? "Fornecedor" : "Cliente";
+  const parceiroLabel = origin === "ENTRADA" ? "Fornecedor" : origin === "SAIDA" ? "Destinatário" : "Cliente";
   const entrySupplierErrors = useMemo(
-    () => origin === "ENTRADA" ? validateEntrySupplier(entrySupplier) : [],
-    [entrySupplier, origin],
+    () => usesEditableRecipient ? validateEntrySupplier(entrySupplier) : [],
+    [entrySupplier, usesEditableRecipient],
   );
   const customerErrors = useMemo(() => {
     if (!(origin === "OS" || origin === "VENDA")) return [];
@@ -605,7 +742,7 @@ export function GerarNotaDeOsDialog({
       { rotulo: "Emitente", concluida: (setup?.empresaErros.length ?? 0) === 0 },
       {
         rotulo: origin === "ENTRADA" ? "Fornecedor" : isNfce ? "Consumidor" : "Destinatário",
-        concluida: origin === "ENTRADA" ? entrySupplierErrors.length === 0 : customerErrors.length === 0,
+        concluida: usesEditableRecipient ? entrySupplierErrors.length === 0 : customerErrors.length === 0,
       },
       { rotulo: "Produtos", concluida: selectedItems.length > 0 && selectedIssues.length === 0 },
       { rotulo: "Pagamento", concluida: paymentErrors.length === 0 },
@@ -615,6 +752,7 @@ export function GerarNotaDeOsDialog({
     [
       setup?.empresaErros.length,
       origin,
+      usesEditableRecipient,
       isNfce,
       entrySupplierErrors.length,
       customerErrors.length,
@@ -633,10 +771,10 @@ export function GerarNotaDeOsDialog({
   const operationLabel =
     setup?.empresa?.uf && parceiro?.uf
       ? setup.empresa.uf === parceiro.uf
-        ? `${origin === "ENTRADA" ? "Entrada" : "Venda"} interna · ${setup.empresa.uf}`
+        ? `${origin === "ENTRADA" ? "Entrada" : origin === "SAIDA" ? "Saída" : "Venda"} interna · ${setup.empresa.uf}`
         : origin === "ENTRADA"
           ? `Entrada interestadual · ${parceiro.uf} → ${setup.empresa.uf}`
-          : `Venda interestadual · ${setup.empresa.uf} → ${parceiro.uf}`
+          : `${origin === "SAIDA" ? "Saída" : "Venda"} interestadual · ${setup.empresa.uf} → ${parceiro.uf}`
       : origin === "ENTRADA" ? "Operação de entrada" : "Operação de saída";
 
   function toggleItem(sourceItemId: string, checked: boolean) {
@@ -665,7 +803,7 @@ export function GerarNotaDeOsDialog({
           ...item,
           cfop: normalizeCfopForOperation(
             item.cfop,
-            "ENTRADA",
+            origin === "ENTRADA" ? "ENTRADA" : "SAIDA",
             setup.empresa?.uf,
             next.estado,
           ),
@@ -674,6 +812,100 @@ export function GerarNotaDeOsDialog({
     }
     setEntrySupplier(next);
     setServerError(null);
+  }
+
+  /**
+   * Aponta o destinatário para o fornecedor da entrada escolhida.
+   *
+   * Só em devolução, e só quando o documento ainda não bate: fora disso a
+   * mercadoria não está voltando para quem vendeu, e sobrescrever o que o
+   * operador digitou seria errado. O cadastro do fornecedor costuma vir
+   * incompleto para fins fiscais, então os campos seguem editáveis abaixo.
+   */
+  function vincularFornecedorDaEntrada(next: SaidaOrigemDraft, saidaItemId: number) {
+    if (next.finalidade !== "DEVOLUCAO") return;
+    const alvo = next.itens.find((item) => item.saidaItemId === saidaItemId);
+    const candidato = entradasCandidatas.find(
+      (item) => Number(item.id) === Number(alvo?.entradaItemOrigemId),
+    );
+    const entrada = relacaoUnica<any>(candidato?.entrada);
+    const fornecedor = relacaoUnica<any>(entrada?.fornecedor);
+    if (!fornecedor?.id) return;
+    if (onlyDigits(fornecedor.cpfcnpj) === onlyDigits(entrySupplier.cpfCnpj)) return;
+
+    updateEntrySupplier({
+      // Mantém o que já foi completado à mão (IE, indicador, e-mail) quando o
+      // cadastro do fornecedor não traz esses campos.
+      ...fornecedorParaDestinatario(fornecedor),
+      indicadorIe: entrySupplier.indicadorIe,
+      inscricaoEstadual: entrySupplier.inscricaoEstadual,
+      email: entrySupplier.email,
+    });
+  }
+
+  /**
+   * Busca o perfil tributário da NF-e que trouxe a mercadoria e aplica no item.
+   *
+   * A devolução tem de espelhar a compra, então o que vem do XML de origem
+   * sobrepõe o que o cadastro do produto sugeriu — inclusive o CFOP, já
+   * convertido para saída, que é o que decide entre 5202 e 5411. Quando a nota
+   * de entrada não está guardada no sistema, o servidor devolve um aviso e os
+   * campos continuam com o que veio do cadastro.
+   */
+  async function aplicarEspelhoFiscal(next: SaidaOrigemDraft, saidaItemId: number) {
+    const alvo = next.itens.find((item) => item.saidaItemId === saidaItemId);
+    if (!originId || !alvo?.entradaItemOrigemId) return;
+
+    setEspelhando(true);
+    try {
+      const response = await fetch(`/api/estoque/saidas/${originId}/espelho-fiscal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ufDestinatario: entrySupplier.estado || null,
+          // A natureza decide o destino da compra e, com a presença de ST no
+          // documento de origem, a linha da tabela de CFOP de devolução.
+          operacaoFiscalCodigo: next.operacaoFiscalCodigo,
+          itens: [{
+            saidaItemId,
+            entradaItemOrigemId: alvo.entradaItemOrigemId,
+            numeroItemReferenciado: alvo.numeroItemReferenciado,
+          }],
+        }),
+      });
+      const json = await response.json().catch(() => null);
+      if (!response.ok || !json?.ok) {
+        throw new Error(json?.message || "Não foi possível ler a NF-e de origem.");
+      }
+
+      const espelho = (json.itens ?? [])[0];
+      if (!espelho) return;
+
+      setSaidaOrigem((current) => ({
+        ...current,
+        itens: current.itens.map((item) =>
+          item.saidaItemId === saidaItemId ? { ...item, aviso: espelho.aviso ?? null } : item,
+        ),
+      }));
+      setItems((current) =>
+        current.map((item) =>
+          item.sourceItemId === alvo.sourceItemId
+            ? aplicarCamposFiscais(item, espelho)
+            : item,
+        ),
+      );
+    } catch (error: any) {
+      setSaidaOrigem((current) => ({
+        ...current,
+        itens: current.itens.map((item) =>
+          item.saidaItemId === saidaItemId
+            ? { ...item, aviso: error?.message || "Erro ao ler a NF-e de origem." }
+            : item,
+        ),
+      }));
+    } finally {
+      setEspelhando(false);
+    }
   }
 
   function togglePaymentMethod(meio: string) {
@@ -741,7 +973,7 @@ export function GerarNotaDeOsDialog({
       return;
     }
     if (entrySupplierErrors.length) {
-      toast.error("Preencha os dados fiscais do fornecedor antes de emitir.");
+      toast.error(`Preencha os dados fiscais do ${origin === "ENTRADA" ? "fornecedor" : "destinatário"} antes de emitir.`);
       return;
     }
     if (customerErrors.length) {
@@ -756,6 +988,13 @@ export function GerarNotaDeOsDialog({
     if (paymentErrors.length) {
       toast.error(paymentErrors[0]);
       return;
+    }
+    if (origin === "SAIDA") {
+      const origemErros = validarOrigemFiscalSaida(saidaOrigem);
+      if (origemErros.length) {
+        toast.error("Complete a origem fiscal da saída.", { description: origemErros[0] });
+        return;
+      }
     }
 
     setSaving(true);
@@ -773,11 +1012,33 @@ export function GerarNotaDeOsDialog({
             includeObservations && observations.trim()
               ? observations.trim().slice(0, 500)
               : null,
-          ...(origin === "ENTRADA"
+          ...(usesEditableRecipient
             ? {
                 destinatario: {
                   ...normalizeFiscalRecipient(entrySupplier),
                   clienteId: null,
+                },
+              }
+            : {}),
+          // A origem fiscal da saída viaja no mesmo POST: o servidor grava o
+          // contexto e monta a nota numa chamada só, em vez de depender de um
+          // PUT anterior feito por outra tela.
+          ...(origin === "SAIDA"
+            ? {
+                contextoFiscal: {
+                  operacaoFiscalCodigo: saidaOrigem.operacaoFiscalCodigo,
+                  naturezaOperacao: saidaOrigem.naturezaOperacao,
+                  finalidade: saidaOrigem.finalidade,
+                  documentoReferenciadoObrigatorio:
+                    saidaOrigem.documentoReferenciadoObrigatorio,
+                  chaveAcessoReferenciada: saidaOrigem.chaveAcessoReferenciada,
+                  itens: saidaOrigem.itens.map((item) => ({
+                    saidaItemId: item.saidaItemId,
+                    entradaItemOrigemId: item.entradaItemOrigemId,
+                    numeroItemReferenciado: item.numeroItemReferenciado,
+                    percentualDevolucao: item.percentualDevolucao,
+                    valorIpiDevolvido: item.valorIpiDevolvido,
+                  })),
                 },
               }
             : {}),
@@ -867,7 +1128,7 @@ export function GerarNotaDeOsDialog({
             badge={
               originId ? (
                 <Badge variant="outline" className="rounded-sm">
-                  {origin === "OS" ? "OS" : origin === "VENDA" ? "Venda" : "Entrada"} #{originId}
+                  {origin === "OS" ? "OS" : origin === "VENDA" ? "Venda" : origin === "ENTRADA" ? "Entrada" : "Saída"} #{originId}
                 </Badge>
               ) : null
             }
@@ -917,10 +1178,32 @@ export function GerarNotaDeOsDialog({
                   </AlertDescription>
                 </Alert>
 
-                {origin === "ENTRADA" ? (
+                {origin === "SAIDA" ? (
+                  <NfeSaidaOrigemEditor
+                    value={saidaOrigem}
+                    onChange={setSaidaOrigem}
+                    operacoes={saidaOperacoes}
+                    entradasCandidatas={entradasCandidatas}
+                    espelhando={espelhando}
+                    onEscolherEntrada={(next, saidaItemId) => {
+                      vincularFornecedorDaEntrada(next, saidaItemId);
+                      void aplicarEspelhoFiscal(next, saidaItemId);
+                    }}
+                  />
+                ) : null}
+
+                {usesEditableRecipient ? (
                   <NfeEntrySupplierEditor
                     value={entrySupplier}
                     onChange={updateEntrySupplier}
+                    {...(origin === "SAIDA"
+                      ? {
+                          title: "Destinatário da NF-e de saída",
+                          description: "Estes dados serão usados somente nesta nota e não alteram a saída de estoque.",
+                          linkedLabel: "Origem fiscal vinculada",
+                          unlinkedLabel: "Destinatário informado",
+                        }
+                      : {})}
                   />
                 ) : null}
 
@@ -1300,7 +1583,7 @@ export function GerarNotaDeOsDialog({
                 {entrySupplierErrors.length ? (
                   <Alert variant="destructive" className="min-w-0 overflow-hidden">
                     <AlertCircle className="h-4 w-4" />
-                    <AlertTitle>Complete os dados do fornecedor da nota</AlertTitle>
+                    <AlertTitle>Complete os dados do {origin === "ENTRADA" ? "fornecedor" : "destinatário"} da nota</AlertTitle>
                     <AlertDescription className="min-w-0 [overflow-wrap:anywhere]">
                       {entrySupplierErrors.join(" ")}
                     </AlertDescription>

@@ -1,13 +1,29 @@
 // src/app/(app)/(pages)/ordens/components/orcamento/ganchos/use-carrinho-orcamento.ts
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ItemProduto, ItemProdutoAvulso, ItemServico, ProdutoBusca, ServicoBusca, TipoDesconto } from "../tipos";
-import { carregarItensDaOSAPI } from "../servicos/api-orcamento";
 import { calcularDescontoAplicado, calcularTotalComDesconto } from "../util";
 
 const toNum = (v: any) => (v === null || v === undefined || isNaN(+v) ? 0 : +v);
 
+/** Estado que o carrinho aceita ao ser preenchido a partir de algo ja salvo. */
+export type CarrinhoCarregado = {
+  produtos: ItemProduto[];
+  produtosAvulsos: ItemProdutoAvulso[];
+  servicos: ItemServico[];
+  descontoTipo: TipoDesconto | null;
+  desconto: number;
+  valorFrete: number;
+};
+
+/**
+ * Carrinho de orcamento — estado e matematica, sem saber de onde os itens vem.
+ *
+ * `carregar` e opcional de proposito: o orcamento da OS carrega o que ja esta
+ * gravado, enquanto um orcamento avulso novo comeca vazio e so existe no banco
+ * quando o usuario salva.
+ */
 export function useCarrinhoOrcamento(
-  osId: number | undefined,
+  carregar?: (() => Promise<CarrinhoCarregado>) | null,
   onTotaisChange?: (tot: {
     subtotal: number;
     totalProdutos: number;
@@ -45,17 +61,16 @@ export function useCarrinhoOrcamento(
     onTotaisChange?.({ subtotal, totalProdutos, totalServicos, desconto: descontoAplicado, valorFrete, totalGeral });
   }, [descontoAplicado, onTotaisChange, subtotal, totalGeral, totalProdutos, totalServicos, valorFrete]);
 
-  const carregarItensDaOS = useCallback(async () => {
-    if (!osId) return;
-    const data = await carregarItensDaOSAPI(osId);
-    const { produtos, produtosAvulsos, servicos } = data;
-    setItensProduto(produtos);
-    setItensProdutoAvulso(produtosAvulsos);
-    setItensServico(servicos);
+  const carregarItens = useCallback(async () => {
+    if (!carregar) return;
+    const data = await carregar();
+    setItensProduto(data.produtos);
+    setItensProdutoAvulso(data.produtosAvulsos);
+    setItensServico(data.servicos);
     setDescontoTipo(data.descontoTipo);
     setDesconto(data.desconto);
     setValorFrete(data.valorFrete);
-  }, [osId]);
+  }, [carregar]);
 
   const adicionarProduto = (p: ProdutoBusca) => {
     setItensProduto((prev) => {
@@ -193,7 +208,7 @@ export function useCarrinhoOrcamento(
     setDescontoTipo,
     setDesconto,
     setValorFrete,
-    carregarItensDaOS,
+    carregarItens,
     adicionarProduto,
     adicionarServico,
     atualizarProduto,

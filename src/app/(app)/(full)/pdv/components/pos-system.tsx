@@ -79,6 +79,7 @@ import { useConfig } from "@/app/(app)/(pages)/config-context";
 import { formatCurrencyBRL } from "@/app/(app)/(pages)/dashboard/components/dashboard-ordemservico/lib/format";
 import type { PaymentMethodOption } from "@/lib/payment-methods";
 import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
+import { CustomerBlockedAlert } from "@/components/cliente/customer-blocked-alert";
 
 interface CartItem {
   id: number;
@@ -1046,6 +1047,10 @@ export function POSSystem() {
                       </CustomerSelect>
                     )}
                   </div>
+                  <CustomerBlockedAlert
+                    status={selectedCustomer?.status}
+                    className="px-0 pt-1 text-left"
+                  />
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">

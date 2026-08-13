@@ -16,6 +16,7 @@ export type TotaisNFe = {
   vPIS: number;
   vCOFINS: number;
   vIPI: number;
+  vIPIDevol: number;
   vIS: number;
   vBCIBSCBS: number;
   vIBSUF: number;
@@ -312,7 +313,7 @@ function contributionValue(item: NFeItem, type: 'PIS' | 'COFINS') {
 }
 
 export function calcularTotaisNFe(itens: NFeItem[], crt: CRT): TotaisNFe {
-  const initial: TotaisNFe = { vProd: 0, vDesc: 0, vBC: 0, vICMS: 0, vICMSDeson: 0, vFCP: 0, vBCST: 0, vST: 0, vFCPST: 0, vFCPSTRet: 0, vPIS: 0, vCOFINS: 0, vIPI: 0, vIS: 0, vBCIBSCBS: 0, vIBSUF: 0, vIBSMun: 0, vIBS: 0, vCBS: 0 };
+  const initial: TotaisNFe = { vProd: 0, vDesc: 0, vBC: 0, vICMS: 0, vICMSDeson: 0, vFCP: 0, vBCST: 0, vST: 0, vFCPST: 0, vFCPSTRet: 0, vPIS: 0, vCOFINS: 0, vIPI: 0, vIPIDevol: 0, vIS: 0, vBCIBSCBS: 0, vIBSUF: 0, vIBSMun: 0, vIBS: 0, vCBS: 0 };
   return itens.reduce((total, item) => {
     validarItemFiscal(item, crt);
     // vProd continua sendo o bruto: o desconto vai para vDesc, nunca embutido
@@ -327,7 +328,8 @@ export function calcularTotaisNFe(itens: NFeItem[], crt: CRT): TotaisNFe {
     total.vBCST += Number(item.vBCST ?? 0); total.vST += Number(item.vICMSST ?? 0);
     total.vFCPST += Number(item.vFCPST ?? 0); total.vFCPSTRet += Number(item.vFCPSTRet ?? 0);
     total.vPIS += contributionValue(item, 'PIS'); total.vCOFINS += contributionValue(item, 'COFINS');
-    total.vIPI += Number(item.valorIpi ?? 0); total.vIS += Number(item.impostoSeletivo?.valor ?? 0);
+    total.vIPI += Number(item.valorIpi ?? 0); total.vIPIDevol += Number(item.valorIpiDevolvido ?? 0);
+    total.vIS += Number(item.impostoSeletivo?.valor ?? 0);
     if (item.rtc) {
       total.vBCIBSCBS += item.rtc.baseCalculo; total.vIBSUF += item.rtc.ibsUf.valor;
       total.vIBSMun += item.rtc.ibsMunicipio.valor; total.vIBS += item.rtc.valorIbs; total.vCBS += item.rtc.cbs.valor;
