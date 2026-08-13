@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { ensureValidShopeeAccount, type ShopeeAccount } from "@/lib/integrations/shopee-account";
+import { getShopeeAccount, type ShopeeAccount } from "@/lib/integrations/shopee-account";
 import { shopeeShopApi } from "@/lib/integrations/shopee";
 
 type ShopeeOrder = {
@@ -38,11 +38,10 @@ export type ShopeeImportResult = {
 };
 
 export async function syncShopeeOrders(params: { empresaId: number; accountId?: number; days?: number }) {
-  const account = await getAccount(params.empresaId, params.accountId);
-  const validAccount = await ensureValidShopeeAccount(account);
+  const account = await getShopeeAccount(params.empresaId, params.accountId);
   const now = Math.floor(Date.now() / 1000);
   const timeFrom = now - Math.min(Math.max(params.days ?? 15, 1), 15) * 86400;
-  const orderSns = await listUpdatedOrderSns(validAccount, timeFrom, now);
+  const orderSns = await listUpdatedOrderSns(timeFrom, now);
   const results: ShopeeImportResult[] = [];
 
   for (let index = 0; index < orderSns.length; index += 50) {
@@ -50,8 +49,6 @@ export async function syncShopeeOrders(params: { empresaId: number; accountId?: 
     try {
       const detail = await shopeeShopApi<{ response?: { order_list?: ShopeeOrder[] } }>({
         path: "/api/v2/order/get_order_detail",
-        accessToken: validAccount.access_token,
-        shopId: validAccount.shop_id,
         query: {
           order_sn_list: batch.join(","),
           response_optional_fields: "buyer_user_id,buyer_username,recipient_address,item_list,total_amount,payment_method,shipping_carrier,package_list",
@@ -59,7 +56,7 @@ export async function syncShopeeOrders(params: { empresaId: number; accountId?: 
       });
       for (const order of detail.response?.order_list ?? []) {
         try {
-          results.push(await importShopeeOrder(validAccount, order));
+          results.push(await importShopeeOrder(account, order));
         } catch (error: any) {
           results.push({ orderSn: order.order_sn, vendaId: null, created: false, error: error?.message || "Falha ao importar pedido Shopee." });
         }
@@ -73,7 +70,7 @@ export async function syncShopeeOrders(params: { empresaId: number; accountId?: 
   return results;
 }
 
-async function listUpdatedOrderSns(account: ShopeeAccount, timeFrom: number, timeTo: number) {
+async function listUpdatedOrderSns(timeFrom: number, timeTo: number) {
   const orderSns = new Set<string>();
   let cursor = "";
   for (let page = 0; page < 100; page += 1) {
@@ -81,8 +78,6 @@ async function listUpdatedOrderSns(account: ShopeeAccount, timeFrom: number, tim
       response?: { order_list?: Array<{ order_sn?: string }>; more?: boolean; next_cursor?: string };
     }>({
       path: "/api/v2/order/get_order_list",
-      accessToken: account.access_token,
-      shopId: account.shop_id,
       query: {
         time_range_field: "update_time",
         time_from: timeFrom,
@@ -170,16 +165,6 @@ export async function importShopeeOrder(account: ShopeeAccount, order: ShopeeOrd
     }).eq("empresa_id", account.empresa_id).eq("order_sn", orderSn);
     throw error;
   }
-}
-
-async function getAccount(empresaId: number, accountId?: number) {
-  let query = supabaseAdmin.from("shopee_account")
-    .select("id, empresa_id, shop_id, shop_name, access_token, refresh_token, expires_at")
-    .eq("empresa_id", empresaId);
-  if (accountId) query = query.eq("id", accountId);
-  const { data, error } = await query.order("updated_at", { ascending: false }).limit(1).single();
-  if (error) throw error;
-  return data as ShopeeAccount;
 }
 
 async function findOrder(empresaId: number, orderSn: string) {
