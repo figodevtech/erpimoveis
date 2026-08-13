@@ -83,6 +83,12 @@ export async function registrarEntradaFiscalMista(body: any, createdBy?: string 
     data_emissao: text(body?.dataEmissao),
     fiscal_dfe_documento_id: documentoId,
     created_by: createdBy ?? null,
+    // A RPC mista o retira antes de criar as sub-entradas: cada metade fecha
+    // pelos próprios itens, e este total serve só para conferir o pagamento.
+    valor_total_documento:
+      body?.valorTotalDocumento === null || body?.valorTotalDocumento === undefined
+        ? null
+        : nonNegative(body.valorTotalDocumento, "Total do documento"),
   };
 
   // A metade de uso e consumo passa pelo mesmo schema da entrada avulsa, para herdar

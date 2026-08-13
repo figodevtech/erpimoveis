@@ -266,11 +266,15 @@ export function DetalhesTab({
       return;
     }
 
-    if (form.pendente && selecionada.getTime() < agora.getTime()) {
-      toast.warning("Um lançamento a vencer não pode ter data passada.");
-      return;
-    }
-
+    /*
+     * Vencimento no passado é permitido.
+     *
+     * A trava aqui recusava "lançamento a vencer com data passada", o que fazia
+     * sentido ao criar e nenhum ao corrigir: título vencido em aberto é estado
+     * legítimo do sistema, e era impossível mexer na data de uma parcela que já
+     * tinha vencido. Como `selecionada` é meia-noite do dia escolhido e `agora`
+     * tem hora, ela recusava até o dia de hoje depois do primeiro minuto.
+     */
     setCampo("data", selecionada);
   };
 
@@ -500,7 +504,9 @@ export function DetalhesTab({
             disabled={!editavel}
             value={paraValorDeInputDate(form.data)}
             className="w-full sm:max-w-xs"
-            min={form.pendente ? paraValorDeInputDate(new Date()) : undefined}
+            // Sem piso: um título a vencer pode estar vencido, e a data dele
+            // precisa continuar editável. O teto para transação já realizada
+            // fica: dinheiro que entrou não entra amanhã.
             max={!form.pendente ? paraValorDeInputDate(new Date()) : undefined}
             onChange={alterarData}
           />

@@ -1,3 +1,5 @@
+import type { DuplicataDaNota, FaturaDaNota } from "@/lib/nfe/duplicatas";
+
 import { Fornecedor, Produto } from "../../types";
 
 export interface NF {
@@ -12,6 +14,9 @@ export interface NF {
   destinatario: Destinatario;
   totais: Totais;
   itens: ItemNF[];
+  /** Cobrança do XML. Ausente em nota à vista e em resposta antiga em cache. */
+  fatura?: FaturaDaNota | null;
+  duplicatas?: DuplicataDaNota[];
   fornecedorReferenteId?: number;
   fornecedorReferente?: Fornecedor;
 }

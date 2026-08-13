@@ -96,16 +96,25 @@ BEGIN
     RAISE NOTICE 'OK 1: soma diferente recusada -> %', SQLERRM;
   END;
 
-  /* ---------------- 2. vencimento no passado ---------------- */
+  /* ---------------- 2. vencimento no passado é aceito ----------------
+   *
+   * Reparcelar é o que se faz com título vencido: exigir data futura impedia
+   * até manter a data da parcela que venceu. Como este caminho é o feliz, ele
+   * grava — e o RAISE logo depois desfaz a subtransação para os testes
+   * seguintes continuarem partindo do mesmo estado.
+   */
   BEGIN
     PERFORM public.reparcelar_transacao_avulsa(v_grupo, jsonb_build_array(
       jsonb_build_object('valor', 200.01, 'data', now() - interval '1 day')
     ));
-    v_falhou := v_falhou + 1;
-    RAISE NOTICE 'FALHOU 2: vencimento no passado foi aceito';
-  EXCEPTION WHEN sqlstate '22023' THEN
-    v_ok := v_ok + 1;
-    RAISE NOTICE 'OK 2: vencimento no passado recusado -> %', SQLERRM;
+    RAISE EXCEPTION 'desfazer' USING ERRCODE = 'P0001';
+  EXCEPTION
+    WHEN sqlstate 'P0001' THEN
+      v_ok := v_ok + 1;
+      RAISE NOTICE 'OK 2: vencimento no passado aceito';
+    WHEN OTHERS THEN
+      v_falhou := v_falhou + 1;
+      RAISE NOTICE 'FALHOU 2: vencimento no passado recusado -> % (%)', SQLERRM, SQLSTATE;
   END;
 
   /* ---------------- 3. parcela zerada (soma fecha mesmo assim) ---------------- */
@@ -275,11 +284,21 @@ BEGIN
       jsonb_build_object('valor', 55.00, 'data', now() + interval '30 days'),
       jsonb_build_object('valor', 55.00, 'data', now() + interval '60 days')
     ));
+
+    -- A linha de acréscimo não se move: fica na parcela daquela posição, e o
+    -- gatilho `transacao_valor_coerente` refaz a face a partir do novo valor.
+    SELECT valor_base INTO v_soma FROM public.transacao WHERE id = v_p3;
+
+    IF v_soma = 45.00 THEN
+      v_ok := v_ok + 1;
+      RAISE NOTICE 'OK 12: parcela com acréscimo reparcelada, face virou % (55,00 - 10,00)', v_soma;
+    ELSE
+      v_falhou := v_falhou + 1;
+      RAISE NOTICE 'FALHOU 12: face ficou % (esperado 45.00)', v_soma;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
     v_falhou := v_falhou + 1;
-    RAISE NOTICE 'FALHOU 12: parcela com acréscimo foi reparcelada';
-  EXCEPTION WHEN sqlstate '22023' THEN
-    v_ok := v_ok + 1;
-    RAISE NOTICE 'OK 12: parcela com acréscimo recusada -> %', SQLERRM;
+    RAISE NOTICE 'FALHOU 12: parcela com acréscimo foi recusada -> % (%)', SQLERRM, SQLSTATE;
   END;
 
   RAISE NOTICE '---';

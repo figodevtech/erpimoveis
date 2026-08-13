@@ -95,6 +95,9 @@ export const entradaUsoConsumoSchema = z.object({
   origem: z.enum(["AJUSTE_RAPIDO","MANUAL","NFE_TERCEIRO","INVENTARIO"]).default("MANUAL"),
   documento_fiscal_recebido_id: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().optional()),
   observacao: createText,
+  // Total da nota quando ele passa da soma dos itens — frete no cabeçalho, por
+  // exemplo. É contra ele que a RPC confere as parcelas; ausente, vale a soma.
+  valor_total_documento: z.preprocess(emptyToUndefined, z.coerce.number().nonnegative().optional()),
   itens: z.array(entradaItemSchema).min(1),
   transacoes: z.array(transacaoUsoConsumoSchema).default([]),
 }).strict().superRefine((value, ctx) => {

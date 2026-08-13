@@ -26,14 +26,9 @@ export interface ResultadoDoReparcelamento {
   fecha: boolean;
   /** Posições (1-based) com valor menor ou igual a zero. */
   semValor: number[];
-  /** Posições (1-based) sem data ou com vencimento já passado. */
-  vencimentoInvalido: number[];
+  /** Posições (1-based) sem data escolhida. */
+  semVencimento: number[];
   podeSalvar: boolean;
-}
-
-/** Meia-noite local: comparar vencimento com `new Date()` reprovaria o dia de hoje. */
-function inicioDoDia(data: Date): number {
-  return new Date(data.getFullYear(), data.getMonth(), data.getDate()).getTime();
 }
 
 /**
@@ -96,10 +91,17 @@ export function redistribuirIgualmente(
   }));
 }
 
+/**
+ * O vencimento pode ser passado de propósito.
+ *
+ * Reparcelar é o que se faz com título que não foi pago, e nesse ponto ele já
+ * está vencido: exigir data futura impedia até manter a data da parcela que
+ * venceu. Título vencido em aberto é estado legítimo — quem trata disso é o
+ * acompanhamento financeiro, não uma trava no formulário.
+ */
 export function validarReparcelamento(
   parcelas: ParcelaPlanejada[],
   alvoEmCentavos: number,
-  hoje: Date = new Date(),
 ): ResultadoDoReparcelamento {
   const somaEmCentavos = parcelas.reduce(
     (total, parcela) => total + paraCentavos(parcela.valor),
@@ -107,17 +109,11 @@ export function validarReparcelamento(
   );
 
   const semValor: number[] = [];
-  const vencimentoInvalido: number[] = [];
-  const limite = inicioDoDia(hoje);
+  const semVencimento: number[] = [];
 
   parcelas.forEach((parcela, indice) => {
     if (paraCentavos(parcela.valor) <= 0) semValor.push(indice + 1);
-
-    // Parcela a vencer não nasce vencida — é a mesma regra que a aba Detalhes
-    // aplica à data de uma transação pendente.
-    if (!parcela.vencimento || inicioDoDia(parcela.vencimento) < limite) {
-      vencimentoInvalido.push(indice + 1);
-    }
+    if (!parcela.vencimento) semVencimento.push(indice + 1);
   });
 
   const diferencaEmCentavos = alvoEmCentavos - somaEmCentavos;
@@ -128,11 +124,11 @@ export function validarReparcelamento(
     diferencaEmCentavos,
     fecha,
     semValor,
-    vencimentoInvalido,
+    semVencimento,
     podeSalvar:
       fecha &&
       semValor.length === 0 &&
-      vencimentoInvalido.length === 0 &&
+      semVencimento.length === 0 &&
       parcelas.length > 0 &&
       parcelas.length <= MAXIMO_DE_PARCELAS,
   };

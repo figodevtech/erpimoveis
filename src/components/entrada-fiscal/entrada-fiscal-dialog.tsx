@@ -12,13 +12,16 @@ import {
   PackagePlus,
   Pencil,
   Plus,
+  ReceiptText,
   Search,
   TriangleAlert,
+  Truck,
   UserRoundPlus,
   X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Card,
   CardContent,
@@ -47,6 +50,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/lib/toast";
+import { totalDasDuplicatas } from "@/lib/nfe/duplicatas";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { formatDate } from "@/utils/formatDate";
 
@@ -104,6 +108,17 @@ type Props = {
 
 const TODOS_DESTINOS: DestinoEntrada[] = ["ESTOQUE", "USOCONSUMO"];
 
+/**
+ * "2026-09-10" → "10/09/2026".
+ *
+ * Sem passar por `Date`: `new Date("2026-09-10")` é meia-noite UTC e, no fuso da
+ * operação, o `formatDate` mostraria 09/09 às 21h. Vencimento não tem hora.
+ */
+function vencimentoFormatado(dia: string) {
+  const [ano, mes, data] = dia.split("-");
+  return ano && mes && data ? `${data}/${mes}/${ano}` : dia;
+}
+
 function textoErro(error: unknown) {
   return isAxiosError(error)
     ? (error.response?.data?.details ??
@@ -151,6 +166,9 @@ export function EntradaFiscalDialog({
 
   const [pagamentoFuturo, setPagamentoFuturo] = useState(true);
   const [parcelas, setParcelas] = useState<Parcela[]>([]);
+  const [usarDuplicatas, setUsarDuplicatas] = useState(false);
+  /** O que o usuário tinha digitado antes de aceitar as duplicatas. */
+  const [parcelasManuais, setParcelasManuais] = useState<Parcela[]>([]);
   const [bancos, setBancos] = useState<Banco[]>([]);
   const [bancoId, setBancoId] = useState("");
   const [metodo, setMetodo] = useState<Metodo_pagamento | "">("");
@@ -161,6 +179,9 @@ export function EntradaFiscalDialog({
   const { categorias } = useCategoriasTransacao();
   const { gruposPlanosDeConta, loadingPlanos } = usePlanosDeConta();
   const { centrosCusto, loadingCentrosCusto } = useCentrosCusto();
+
+  /** Chave da nota cujas duplicatas já foram oferecidas, para não reoferecer. */
+  const duplicatasAplicadasRef = useRef<string | null>(null);
 
   const linhasRef = useRef<LinhaFiscal[]>([]);
   useEffect(() => {
@@ -188,6 +209,75 @@ export function EntradaFiscalDialog({
     () => linhasDisponiveis.filter((linha) => linha.destino === "USOCONSUMO"),
     [linhasDisponiveis],
   );
+  /*
+   * Frete que o emitente não repartiu entre os itens.
+   *
+   * O custo de entrada de cada linha soma o `vFrete` DELA (`totalDaLinha`), e é
+   * assim que o frete chega ao preço de compra do produto. Quando a nota declara
+   * frete só em `ICMSTot/vFrete` — comum em CIF —, esse valor não pertence a item
+   * nenhum: fica de fora do custo, mas continua dentro do `vNF` e das duplicatas.
+   *
+   * A comparação é sobre a nota toda, não sobre o que está sendo destinado agora:
+   * o frete do cabeçalho é da nota, e reparti-lo entre entradas parciais seria
+   * justamente o rateio que se decidiu não fazer.
+   */
+  const freteDaNota = Number(parsed?.totais?.valorFrete ?? 0);
+  const freteNosItensEmCentavos = useMemo(
+    () =>
+      (parsed?.itens ?? []).reduce(
+        (soma, linha) => soma + Math.round(Number(linha.valorFrete ?? 0) * 100),
+        0,
+      ),
+    [parsed?.itens],
+  );
+  const freteNaoDistribuidoEmCentavos = Math.max(
+    0,
+    Math.round(freteDaNota * 100) - freteNosItensEmCentavos,
+  );
+
+  /*
+   * O valor a pagar ao fornecedor é o da NOTA, não o custo dos itens.
+   *
+   * O frete de cabeçalho não pertence a item nenhum, mas está no `vNF` e nas
+   * duplicatas: é dívida, e as parcelas precisam cobri-la. Só entra quando esta
+   * entrada cobre a nota inteira — com parte já destinada em outra entrada, não
+   * há como saber a qual delas o frete pertence, e somá-lo nas duas o pagaria
+   * duas vezes.
+   */
+  const notaInteira =
+    Boolean(parsed) && linhasDisponiveis.length === (parsed?.itens.length ?? 0);
+  const freteAPagarEmCentavos = notaInteira ? freteNaoDistribuidoEmCentavos : 0;
+  const totalAPagar = Number(
+    (totalDestinado + freteAPagarEmCentavos / 100).toFixed(2),
+  );
+
+  /*
+   * A cobrança do XML: o parcelamento que o fornecedor já emitiu.
+   *
+   * As duplicatas cobrem a nota inteira. Do lado de cá, o que se deve é o valor a
+   * pagar — os itens desta entrada mais o frete sem dono. Quando os dois números
+   * batem, o preenchimento é exato; quando não (nota destinada em partes, por
+   * exemplo), o aviso mostra a diferença e o ajuste fica com o usuário.
+   */
+  const duplicatas = useMemo(() => parsed?.duplicatas ?? [], [parsed?.duplicatas]);
+  const totalDuplicatasEmCentavos = useMemo(
+    () => totalDasDuplicatas(duplicatas),
+    [duplicatas],
+  );
+  const duplicatasBatemComDestinado =
+    duplicatas.length > 0 &&
+    totalDuplicatasEmCentavos === Math.round(totalAPagar * 100);
+
+  const parcelasDasDuplicatas = useCallback(
+    () =>
+      duplicatas.map((duplicata, indice) => ({
+        id: Date.now() + indice,
+        dataVencimento: duplicata.vencimento ?? undefined,
+        valor: duplicata.valor,
+      })),
+    [duplicatas],
+  );
+
   const semDestino = linhasDisponiveis.some((linha) => !linha.destino);
   const semVinculo = linhasDisponiveis.some((linha) => !linhaVinculada(linha));
   const notaDividida = linhasEstoque.length > 0 && linhasUsoConsumo.length > 0;
@@ -219,6 +309,9 @@ export function EntradaFiscalDialog({
     setItemValoresIniciais(undefined);
     setPagamentoFuturo(true);
     setParcelas([]);
+    setUsarDuplicatas(false);
+    setParcelasManuais([]);
+    duplicatasAplicadasRef.current = null;
     setBancoId("");
     setMetodo("");
     setCategoria("");
@@ -241,15 +334,23 @@ export function EntradaFiscalDialog({
   }, [open, carregarGrupos]);
 
   const receberNota = useCallback((nota: NF | null) => {
-    if (!nota) {
-      setParsed(null);
+    // Toda troca de nota zera o estado derivado da anterior — inclusive as
+    // parcelas vindas da cobrança, que são da nota que estava aqui antes.
+    const limparDerivados = () => {
       setDuplicidades([]);
       setVinculandoIndices([]);
+      setUsarDuplicatas(false);
+      setParcelasManuais([]);
+      setParcelas([]);
+      duplicatasAplicadasRef.current = null;
+    };
+
+    if (!nota) {
+      setParsed(null);
+      limparDerivados();
       return;
     }
-    // Toda troca de nota zera o estado derivado da anterior.
-    setDuplicidades([]);
-    setVinculandoIndices([]);
+    limparDerivados();
     setParsed({
       ...nota,
       fornecedorReferente: undefined,
@@ -427,6 +528,32 @@ export function EntradaFiscalDialog({
       cancelado = true;
     };
   }, [parsed?.chaveAcesso]);
+
+  /*
+   * Aceita as duplicatas sozinho quando elas fecham com o valor a destinar.
+   *
+   * Esperar as apropriações carregarem é essencial: enquanto a consulta não
+   * volta, o valor a destinar ainda é o da nota inteira, e o preenchimento
+   * pareceria certo para logo depois deixar a soma errada. Uma vez por nota — se
+   * o usuário desmarcar, não volta a marcar sozinho.
+   */
+  useEffect(() => {
+    const chave = String(parsed?.chaveAcesso ?? "");
+    if (!chave || carregandoApropriacoes || !duplicatasBatemComDestinado) return;
+    if (duplicatasAplicadasRef.current === chave) return;
+
+    duplicatasAplicadasRef.current = chave;
+    // Nada a restaurar: neste ponto as parcelas são só o esqueleto que o switch
+    // criou. O que o usuário digitar depois é guardado ao marcar na mão.
+    setParcelasManuais([]);
+    setParcelas(parcelasDasDuplicatas());
+    setUsarDuplicatas(true);
+  }, [
+    parsed?.chaveAcesso,
+    carregandoApropriacoes,
+    duplicatasBatemComDestinado,
+    parcelasDasDuplicatas,
+  ]);
 
   function atualizarLinha(indice: number, mudanca: Partial<LinhaFiscal>) {
     setParsed((atual) =>
@@ -676,9 +803,14 @@ export function EntradaFiscalDialog({
         (total, parcela) => total + parcela.valor,
         0,
       );
-      if (Math.abs(soma - totalDestinado) > 0.01) {
+      // O alvo é o que se paga ao fornecedor: os itens desta entrada mais o
+      // frete que a nota trouxe sem repartir. É o mesmo número que as RPCs
+      // conferem do outro lado, via `valorTotalDocumento`.
+      if (Math.abs(soma - totalAPagar) > 0.01) {
         return toast.error(
-          "A soma das parcelas deve ser igual ao valor destinado.",
+          freteAPagarEmCentavos > 0
+            ? `A soma das parcelas deve ser ${formatarEmReal(totalAPagar)} — itens mais o frete da nota.`
+            : "A soma das parcelas deve ser igual ao valor destinado.",
         );
       }
     }
@@ -691,6 +823,10 @@ export function EntradaFiscalDialog({
       dataEmissao: parsed.dataEmissao ?? null,
       notaChave: parsed.chaveAcesso ?? null,
       documentoFiscalRecebidoId: parsed.documentoFiscalRecebidoId ?? null,
+      // O total do documento é o que se paga; a soma dos itens é o custo. Os dois
+      // só diferem quando a nota trouxe frete sem repartir, e é contra este
+      // número que as RPCs conferem os lançamentos financeiros.
+      valorTotalDocumento: totalAPagar,
     };
 
     setSubmitting(true);
@@ -707,7 +843,6 @@ export function EntradaFiscalDialog({
           ...comum,
           ...financeiro,
           fiscal: true,
-          valorTotalDocumento: totalDestinado,
           itens: itensEstoquePayload(),
         });
       } else {
@@ -718,6 +853,7 @@ export function EntradaFiscalDialog({
           serie_nota: String(parsed.serie ?? ""),
           data_emissao: parsed.dataEmissao,
           documento_fiscal_recebido_id: parsed.documentoFiscalRecebidoId,
+          valor_total_documento: totalAPagar,
           itens: itensUsoConsumoPayload(),
           transacoes: pagamentoFuturo
             ? montarTransacoesUsoConsumo(financeiro)
@@ -1004,6 +1140,16 @@ export function EntradaFiscalDialog({
                             {formatarEmReal(totalDestinado)}
                           </span>
                         </p>
+                        {freteAPagarEmCentavos > 0 ? (
+                          // Só aparece quando os dois números divergem: repetir
+                          // "a pagar" igual ao "a destinar" seria ruído.
+                          <p>
+                            A pagar:{" "}
+                            <span className="font-semibold">
+                              {formatarEmReal(totalAPagar)}
+                            </span>
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                     <Separator />
@@ -1018,6 +1164,22 @@ export function EntradaFiscalDialog({
                         Série:{" "}
                         <span className="font-semibold">{parsed.serie}</span>
                       </span>
+                      {duplicatas.length ? (
+                        <span>
+                          Duplicatas:{" "}
+                          <span className="font-semibold">
+                            {duplicatas.length}
+                          </span>
+                        </span>
+                      ) : null}
+                      {freteDaNota > 0 ? (
+                        <span>
+                          Frete:{" "}
+                          <span className="font-semibold">
+                            {formatarEmReal(freteDaNota)}
+                          </span>
+                        </span>
+                      ) : null}
                       {linhasEstoque.length ? (
                         <span>
                           Revenda:{" "}
@@ -1039,6 +1201,36 @@ export function EntradaFiscalDialog({
                       <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
                         <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
                         Escolha o destino de cada item para liberar o registro.
+                      </div>
+                    ) : null}
+                    {freteNaoDistribuidoEmCentavos > 0 ? (
+                      <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+                        <Truck className="mt-0.5 h-4 w-4 shrink-0" />
+                        <div>
+                          <p className="font-semibold">
+                            Frete não distribuído nos itens
+                          </p>
+                          <p>
+                            A nota traz{" "}
+                            {formatarEmReal(freteNaoDistribuidoEmCentavos / 100)}{" "}
+                            de frete que o emitente não repartiu entre os itens.
+                            Ele não entra no custo de cada produto —{" "}
+                            {notaInteira ? (
+                              <>
+                                mas entra no que se paga ao fornecedor, então as
+                                parcelas somam {formatarEmReal(totalAPagar)}.
+                              </>
+                            ) : (
+                              <>
+                                e, como parte desta nota já foi destinada em
+                                outra entrada, ele fica de fora daqui: não há
+                                como saber a qual das entradas pertence, e somá-lo
+                                nas duas o pagaria duas vezes. Lance esse frete à
+                                parte.
+                              </>
+                            )}
+                          </p>
+                        </div>
                       </div>
                     ) : null}
                     {linhasUsoConsumo.length && duplicidades.length ? (
@@ -1395,6 +1587,11 @@ export function EntradaFiscalDialog({
                           );
                         } else {
                           setParcelas([]);
+                          // Sem parcelas não há o que ter vindo da duplicata: a
+                          // marca ficaria dizendo que um preenchimento que não
+                          // existe mais veio do XML.
+                          setUsarDuplicatas(false);
+                          setParcelasManuais([]);
                           setBancoId("");
                           setMetodo("");
                           setCategoria("");
@@ -1415,6 +1612,84 @@ export function EntradaFiscalDialog({
                           nota inteira.
                         </p>
                       ) : null}
+
+                      {duplicatas.length ? (
+                        <div className="space-y-3 rounded-md border border-sky-300 bg-sky-50 p-3 text-[11px] text-sky-900 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-200">
+                          <div className="flex items-start gap-2">
+                            <ReceiptText className="mt-0.5 h-4 w-4 shrink-0" />
+                            <div className="min-w-0 space-y-1">
+                              <p className="text-xs font-semibold">
+                                {duplicatas.length === 1
+                                  ? "A NF-e traz 1 duplicata"
+                                  : `A NF-e traz ${duplicatas.length} duplicatas`}{" "}
+                                — {formatarEmReal(totalDuplicatasEmCentavos / 100)}
+                                {parsed.fatura?.numero
+                                  ? ` (fatura ${parsed.fatura.numero})`
+                                  : ""}
+                              </p>
+                              <ul className="space-y-0.5">
+                                {duplicatas.map((duplicata, indice) => (
+                                  <li
+                                    key={`${duplicata.numero ?? indice}-${duplicata.vencimento ?? indice}`}
+                                    className="flex flex-wrap gap-x-2 tabular-nums"
+                                  >
+                                    <span className="font-medium">
+                                      {duplicata.numero
+                                        ? `Dup. ${duplicata.numero}`
+                                        : `${indice + 1}ª`}
+                                    </span>
+                                    <span>
+                                      {duplicata.vencimento
+                                        ? vencimentoFormatado(duplicata.vencimento)
+                                        : "sem vencimento no XML"}
+                                    </span>
+                                    <span className="font-semibold">
+                                      {formatarEmReal(duplicata.valor)}
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                              {!duplicatasBatemComDestinado ? (
+                                <p className="text-amber-700 dark:text-amber-400">
+                                  As duplicatas cobrem a nota inteira
+                                  {" "}({formatarEmReal(totalDuplicatasEmCentavos / 100)}) e
+                                  esta entrada paga{" "}
+                                  {formatarEmReal(totalAPagar)}. Usando os dados
+                                  da duplicata, ajuste os valores antes de
+                                  registrar.
+                                </p>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          <label className="flex min-h-12 cursor-pointer items-center gap-2 sm:min-h-0">
+                            <Checkbox
+                              checked={usarDuplicatas}
+                              onCheckedChange={(marcado) => {
+                                if (marcado === true) {
+                                  // Guarda o que estava digitado: desmarcar tem
+                                  // que devolver o trabalho do usuário, não um
+                                  // formulário em branco.
+                                  setParcelasManuais(parcelas);
+                                  setParcelas(parcelasDasDuplicatas());
+                                  setUsarDuplicatas(true);
+                                  return;
+                                }
+                                setParcelas(
+                                  parcelasManuais.length
+                                    ? parcelasManuais
+                                    : [{ id: Date.now(), valor: 0 }],
+                                );
+                                setUsarDuplicatas(false);
+                              }}
+                            />
+                            <span className="text-xs">
+                              Preencher as parcelas com as duplicatas do XML
+                            </span>
+                          </label>
+                        </div>
+                      ) : null}
+
                       <div className="space-y-2">
                         {parcelas.map((parcela, indice) => (
                           <div
@@ -1505,7 +1780,7 @@ export function EntradaFiscalDialog({
                             {formatarEmReal(
                               parcelas.reduce((soma, p) => soma + p.valor, 0),
                             )}{" "}
-                            de {formatarEmReal(totalDestinado)}
+                            de {formatarEmReal(totalAPagar)}
                           </span>
                         </div>
                       </div>
@@ -1616,9 +1891,11 @@ export function EntradaFiscalDialog({
               <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 {parsed ? (
                   <div className="flex items-center justify-between gap-3 text-sm sm:block">
-                    <span className="text-muted-foreground">A destinar:</span>{" "}
+                    <span className="text-muted-foreground">
+                      {freteAPagarEmCentavos > 0 ? "A pagar:" : "A destinar:"}
+                    </span>{" "}
                     <span className="font-semibold tabular-nums">
-                      {formatarEmReal(totalDestinado)}
+                      {formatarEmReal(totalAPagar)}
                     </span>
                   </div>
                 ) : (
