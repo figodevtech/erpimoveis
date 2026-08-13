@@ -27,12 +27,37 @@ export type ServicoCadastro = {
   aliquotaiss?: number | null;
 };
 
+export type PendenciaOrigem = "EMPRESA" | "CLIENTE" | "SERVICO";
+
+export type PendenciaCadastro = {
+  origem: PendenciaOrigem;
+  mensagem: string;
+};
+
+export type ClienteResumo = {
+  id: number;
+  nomerazaosocial?: string | null;
+  tipopessoa?: "FISICA" | "JURIDICA" | null;
+  cpfcnpj?: string | null;
+  email?: string | null;
+  telefone?: string | null;
+  endereco?: string | null;
+  endereconumero?: string | null;
+  enderecocomplemento?: string | null;
+  bairro?: string | null;
+  cidade?: string | null;
+  estado?: string | null;
+  cep?: string | null;
+  codigomunicipio?: string | null;
+  inscricaomunicipal?: string | null;
+};
+
 export type ServicoOS = {
   servicoid: number;
   quantidade: number | null;
   precounitario: number | null;
   servico?: ServicoCadastro | null;
-  pendenciasCadastro?: string[];
+  pendenciasCadastro?: PendenciaCadastro[];
   notaFiscalStatus?: string | null;
   notaFiscalId?: number | null;
   notaFiscalErros?: unknown;
@@ -47,6 +72,7 @@ export type ServicosOSResponse = {
   servicos?: ServicoOS[];
   modeloEmissao?: ModeloEmissao | null;
   padraoFiscal?: Partial<CodigosFiscaisForm> | null;
+  cliente?: ClienteResumo | null;
 };
 
 export type ValoresServicosForm = Record<number, string>;

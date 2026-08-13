@@ -25,7 +25,10 @@ export async function POST(
     });
 
     if (error) {
-      const conflict = error.code === "23505" || error.code === "P0001";
+      // 23514 vem do `sincronizar_baixa_estoque_os_produto` quando falta saldo
+      // para baixar o produto vinculado — conflito de estado, não requisição
+      // malformada.
+      const conflict = ["23505", "P0001", "23514"].includes(String(error.code));
       return NextResponse.json(
         { error: error.message || "Não foi possível vincular o produto avulso." },
         { status: conflict ? 409 : 400 },

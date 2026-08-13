@@ -28,7 +28,7 @@ import { CancelarNfeButton } from "./cancelarNfeButton";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ExcluirRascunhoNfeButton } from "./excluirRascunhoNfeButton";
 import { CancelarNotaDialog } from "./cancelar-nota-dialog";
-import { nfseEntregaPdf, nfseMotivoSemPdf } from "@/lib/nfse-modelos";
+import { nfseEntregaPdf } from "@/lib/nfse-modelos";
 import { MODELO_NFCE } from "@/lib/nfe/modeloDocumento";
 
 type NfeResumo = {
@@ -905,35 +905,28 @@ export function EmissaoNotaDialog({
                                     </Button>
                                   )}
 
-                                  {isAutorizada && nfe.ordemservicoid && (
-                                    nfseEntregaPdf(nfe.modelo_emissao) ? (
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="text-xs hover:cursor-pointer"
-                                        disabled={anexandoDanfeId === nfe.id || !nfe.url_pdf}
-                                        title={
-                                          nfe.url_pdf
-                                            ? undefined
-                                            : "Consulte a NFS-e para obter o link do documento."
-                                        }
-                                        onClick={() => void anexarNfse(nfe)}
-                                      >
-                                        {anexandoDanfeId === nfe.id ? (
-                                          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                                        ) : (
-                                          <Paperclip className="mr-1.5 h-3.5 w-3.5" />
-                                        )}
-                                        Anexar na OS
-                                      </Button>
-                                    ) : (
-                                      <span
-                                        className="px-2 py-1 text-[11px] leading-tight text-muted-foreground"
-                                        title={nfseMotivoSemPdf(nfe.modelo_emissao)}
-                                      >
-                                        {nfseMotivoSemPdf(nfe.modelo_emissao)}
-                                      </span>
-                                    )
+                                  {/* Modelo sem PDF (Cabedelo, Nacional) não tem o que anexar:
+                                      o botão simplesmente não aparece. */}
+                                  {isAutorizada && nfe.ordemservicoid && nfseEntregaPdf(nfe.modelo_emissao) && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="text-xs hover:cursor-pointer"
+                                      disabled={anexandoDanfeId === nfe.id || !nfe.url_pdf}
+                                      title={
+                                        nfe.url_pdf
+                                          ? undefined
+                                          : "Consulte a NFS-e para obter o link do documento."
+                                      }
+                                      onClick={() => void anexarNfse(nfe)}
+                                    >
+                                      {anexandoDanfeId === nfe.id ? (
+                                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        <Paperclip className="mr-1.5 h-3.5 w-3.5" />
+                                      )}
+                                      Anexar na OS
+                                    </Button>
                                   )}
 
                                   {!nfe.url_pdf && statusUpper === "CANCELADA" && (

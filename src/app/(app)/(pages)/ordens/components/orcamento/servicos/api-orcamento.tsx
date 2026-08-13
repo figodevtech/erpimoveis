@@ -115,6 +115,9 @@ export async function carregarItensDaOSAPI(osId: number) {
     produtos,
     produtosAvulsos,
     servicos,
+    statusOS: String(j?.statusOS ?? ""),
+    /** Vincular um avulso agora consome estoque na hora, sem passar pelo salvar. */
+    baixaAoVincularAvulso: Boolean(j?.baixaAoVincularAvulso),
     descontoTipo: (j?.descontoTipo ?? null) as TipoDesconto | null,
     desconto: toNum(j?.desconto ?? 0),
     valorFrete: toNum(j?.valorFrete ?? 0),

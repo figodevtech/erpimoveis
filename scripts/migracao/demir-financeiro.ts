@@ -55,6 +55,41 @@ const FAZ_RECEBER = SO_RECEBER || !SO_PAGAR;
 // Identifica a carga dentro da origem generica, para trava e reversao por arquivo.
 const marcador = (fonte: "RECEBER" | "PAGAR") => `DATASYSTEM ${fonte} #`;
 
+/**
+ * Carga complementar: grava so o que ainda nao existe, em vez de recusar ou
+ * apagar tudo.
+ *
+ * A trava original e por arquivo inteiro — encontrou linha da carga, ou aborta
+ * ou (com --refazer) apaga as 600 e regrava. Isso servia quando o CSV era o
+ * retrato completo. Deixou de servir quando o DATASYSTEM passou a exportar o
+ * complemento: o rabo vencido que ficou fora da primeira exportacao. Regravar
+ * levaria junto as baixas que a operadora ja fez no ERP.
+ *
+ * Aqui a comparacao e titulo a titulo, pelo marcador, que e unico. Rodar duas
+ * vezes o mesmo arquivo nao duplica nada.
+ */
+const SOMENTE_NOVOS = flags.has("--somente-novos");
+
+/**
+ * Entra sem plano de conta e sem centro de custo.
+ *
+ * Nao mexe nas tabelas de conversao — elas continuam valendo para as cargas que
+ * as usam. Quando a classificacao vai ser feita no ERP, titulo a titulo, chutar
+ * um plano na carga so cria trabalho de correcao.
+ */
+const SEM_CLASSIFICACAO = flags.has("--sem-classificacao");
+
+/**
+ * Aponta o CSV direto, para exportacoes que nao seguem o nome antigo.
+ * Exige --pagar ou --receber: com os dois, nao daria para saber qual arquivo e.
+ */
+const ARQUIVO =
+  [...flags].find((flag) => flag.startsWith("--arquivo="))?.slice("--arquivo=".length) ?? null;
+
+/** O que identifica um titulo dentro da carga; e a chave da comparacao. */
+const marcadorDoTitulo = (titulo: { fonte: "RECEBER" | "PAGAR"; registro: string; parcelaTexto: string }) =>
+  `${marcador(titulo.fonte)}${titulo.registro}${titulo.parcelaTexto ? ` parcela ${titulo.parcelaTexto}` : ""}`;
+
 // --simular-regra aplica a migracao do DRE dentro da propria transacao de teste,
 // so para medir o efeito dela antes de aplica-la de verdade. Como a transacao
 // termina em ROLLBACK, nem a regra nem a carga sobrevivem. Recusado junto com
@@ -212,7 +247,10 @@ function lerCsv(arquivo: string): Linha[] {
   // O DATASYSTEM exporta em Windows-1252, separado por ponto e virgula.
   const texto = fs.readFileSync(arquivo, "latin1").replace(/\r/g, "");
   const linhas = texto.split("\n").filter((linha) => linha.trim().length);
-  const cabecalho = linhas[0].split(";").map((coluna) => coluna.trim());
+  // Alguns exports marcam a coluna ordenada com "> " na frente ("> Vencimento").
+  // Como as colunas sao lidas pelo nome, o prefixo faria `linha["Vencimento"]`
+  // vir vazio e os titulos entrarem sem vencimento, sem erro nenhum.
+  const cabecalho = linhas[0].split(";").map((coluna) => coluna.replace(/^[\s>]+/, "").trim());
 
   return linhas.slice(1).map((linha) => {
     const celulas = linha.split(";");
@@ -233,6 +271,21 @@ function acharCsv(prefixo: string) {
     throw new Error(`Nao encontrei o CSV "${prefixo}..." em docs/migracao_demir.`);
   }
   return path.join(pasta, encontrado);
+}
+
+/** O arquivo de uma fonte: o de --arquivo, quando dado, ou o do nome de sempre. */
+function arquivoDaFonte(fonte: "RECEBER" | "PAGAR") {
+  if (!ARQUIVO) {
+    return acharCsv(fonte === "PAGAR" ? "CONTAS A PAGAR" : "CONTAS A RECEBER");
+  }
+  if (FAZ_PAGAR && FAZ_RECEBER) {
+    throw new Error("--arquivo aponta um CSV so: use junto com --pagar ou --receber.");
+  }
+  const caminho = path.isAbsolute(ARQUIVO) ? ARQUIVO : path.join(projectRoot, ARQUIVO);
+  if (!fs.existsSync(caminho)) {
+    throw new Error(`Nao encontrei o CSV informado em --arquivo: ${caminho}`);
+  }
+  return caminho;
 }
 
 const dinheiro = (texto: string) => {
@@ -458,7 +511,7 @@ function amarrarParcelas(titulos: Titulo[], instante: number) {
 }
 
 function lerReceber(): Titulo[] {
-  return lerCsv(acharCsv("CONTAS A RECEBER")).map((linha) => {
+  return lerCsv(arquivoDaFonte("RECEBER")).map((linha) => {
     const historico = linha["Histórico"] || "";
     const cliente = linha["Razão Social"] || linha["Cliente"] || "SEM IDENTIFICACAO";
     const parcela = lerParcela(linha["Parcela"]);
@@ -483,8 +536,12 @@ function lerReceber(): Titulo[] {
       parcelas: parcela.total,
       documento: linha["Pedido"] || "",
       createdAt: null,
-      planoCodigo: converter(PLANO_RECEBER, linha["Plano Conta"], "Plano Conta (receber)"),
-      centroNome: converter(CENTRO, linha["Centro Resultado"], "Centro Resultado (receber)"),
+      planoCodigo: SEM_CLASSIFICACAO
+        ? null
+        : converter(PLANO_RECEBER, linha["Plano Conta"], "Plano Conta (receber)"),
+      centroNome: SEM_CLASSIFICACAO
+        ? null
+        : converter(CENTRO, linha["Centro Resultado"], "Centro Resultado (receber)"),
       bancoTitulo: converter(BANCO, linha["Conta Boleto"], "Conta Boleto"),
       nomePagador: cliente,
       documentoPagador: soDigitos(linha["CNPJ/CPF"]) || "NÃO INFORMADO",
@@ -493,7 +550,7 @@ function lerReceber(): Titulo[] {
 }
 
 function lerPagar(): Titulo[] {
-  return lerCsv(acharCsv("CONTAS A PAGAR")).map((linha) => {
+  return lerCsv(arquivoDaFonte("PAGAR")).map((linha) => {
     const favorecido = linha["Fornecedor/Favorecido/Transportador"] || "SEM IDENTIFICACAO";
     const historico = linha["Histórico"] || linha["Obs"] || "";
     const parcela = lerParcela(linha["Parcela"]);
@@ -516,8 +573,12 @@ function lerPagar(): Titulo[] {
       parcelas: parcela.total,
       documento: linha["Nº Doc"] || "",
       createdAt: null,
-      planoCodigo: converter(PLANO_PAGAR, linha["Plano de Contas"], "Plano de Contas (pagar)"),
-      centroNome: converter(CENTRO, linha["Centro Resultado"], "Centro Resultado (pagar)"),
+      planoCodigo: SEM_CLASSIFICACAO
+        ? null
+        : converter(PLANO_PAGAR, linha["Plano de Contas"], "Plano de Contas (pagar)"),
+      centroNome: SEM_CLASSIFICACAO
+        ? null
+        : converter(CENTRO, linha["Centro Resultado"], "Centro Resultado (pagar)"),
       // O contas a pagar nao traz banco: a coluna Conta vem vazia nas 609 linhas.
       bancoTitulo: null,
       nomePagador: favorecido,
@@ -725,8 +786,9 @@ async function main() {
   ];
   console.log(`Arquivos desta carga: ${fontes.join(" + ")}\n`);
 
-  const { acordos, linhasAmarradas: amarradas, corrigidas } = amarrarParcelas(titulos, Date.now());
-  const parceladas = titulos.filter((titulo) => titulo.parcelas > 1).length;
+  // Os totais desta chamada valem para o arquivo inteiro. A conferencia usa os
+  // do lote de fato gravado, calculados depois de saber o que ja existia.
+  const { corrigidas } = amarrarParcelas(titulos, Date.now());
   const somaReceber = titulos
     .filter((t) => t.fonte === "RECEBER")
     .reduce((total, t) => total + t.valor, 0);
@@ -768,9 +830,47 @@ async function main() {
 
     let removidas = 0;
 
+    /*
+     * Carga complementar: em vez de recusar ou apagar, separa o que ja existe.
+     *
+     * A comparacao e pelo marcador de cada titulo, que carrega registro e
+     * parcela e por isso e unico. O que ja esta gravado fica como esta — com as
+     * baixas, os ajustes e o que mais a operadora tenha feito nele.
+     */
+    let titulosNovos = titulos;
+    let jaExistiam = 0;
+
+    if (SOMENTE_NOVOS) {
+      const padroesFonte = fontes.map((fonte) => `${marcador(fonte)}%`);
+      const gravados = new Set(
+        (
+          await client.query<{ chave: string }>(
+            `select descricao_pagamento chave
+               from public.transacao
+              where origem = $1 and descricao_pagamento like any($2)`,
+            [ORIGEM, padroesFonte],
+          )
+        ).rows.map((linha) => linha.chave),
+      );
+
+      titulosNovos = titulos.filter((titulo) => !gravados.has(marcadorDoTitulo(titulo)));
+      jaExistiam = titulos.length - titulosNovos.length;
+
+      console.log(
+        `\nCarga complementar: ${titulosNovos.length} novos, ${jaExistiam} ja no banco (mantidos como estao).`,
+      );
+
+      if (titulosNovos.length === 0) {
+        console.log("Nada a gravar.");
+        await client.query("ROLLBACK");
+        confirmado = true;
+        return;
+      }
+    }
+
     // Trava por arquivo: so olha as linhas desta carga, para que carregar um
     // arquivo depois nao esbarre no outro nem o apague.
-    for (const fonte of fontes) {
+    for (const fonte of SOMENTE_NOVOS ? [] : fontes) {
       const jaCarregado = await client.query<{ n: string }>(
         "select count(*) n from public.transacao where origem = $1 and descricao_pagamento like $2",
         [ORIGEM, `${marcador(fonte)}%`],
@@ -869,7 +969,7 @@ async function main() {
     }
 
     const criados: string[] = [];
-    for (const titulo of titulos) {
+    for (const titulo of titulosNovos) {
       const doc = titulo.documentoPagador;
       if (titulo.fonte !== "RECEBER") continue;
       if (doc === "NÃO INFORMADO" || clientes.has(doc)) continue;
@@ -904,9 +1004,59 @@ async function main() {
       criados.push(`${doc} - ${titulo.nomePagador}`);
     }
 
+    /*
+     * -- Parcelas irmas ja carregadas --------------------------------------
+     *
+     * `amarrarParcelas` so enxerga o arquivo. Numa carga complementar as irmas
+     * costumam ter vindo antes: a 20/21 chega agora, a 21/21 esta no banco desde
+     * a primeira carga. Sem isto o emprestimo apareceria como 20 avulsa mais um
+     * acordo de uma parcela.
+     *
+     * O ERP agrupa por `created_at` exato somado a descricao terminada em
+     * " - Parcela N/M" (ver /api/transaction/[id]/contexto). Entao herdar os dois
+     * da irma e o que amarra. A irma e achada pelo favorecido, pela emissao e
+     * pelo total de parcelas — o mesmo trio que identifica um acordo no CSV.
+     */
+    let herdadas = 0;
+    if (SOMENTE_NOVOS) {
+      for (const titulo of titulosNovos) {
+        if (titulo.parcelas < 2 || !titulo.emissao) continue;
+
+        const irma = await client.query<{ created_at: string; base: string }>(
+          `select created_at::text,
+                  regexp_replace(descricao, ' - Parcela [0-9]+/[0-9]+$', '') base
+             from public.transacao
+            where origem = $1
+              and nomepagador = $2
+              and (competencia_em at time zone 'America/Fortaleza')::date = $3::date
+              and descricao ~ ($4 || '$')
+            order by created_at
+            limit 1`,
+          [
+            ORIGEM,
+            titulo.nomePagador.slice(0, 200),
+            titulo.emissao,
+            ` - Parcela [0-9]+/${titulo.parcelas}`,
+          ],
+        );
+
+        const encontrada = irma.rows[0];
+        if (!encontrada) continue;
+
+        titulo.createdAt = encontrada.created_at;
+        titulo.descricaoBase = encontrada.base;
+        titulo.descricao = `${encontrada.base} - Parcela ${titulo.parcelaNumero}/${titulo.parcelas}`;
+        herdadas += 1;
+      }
+
+      if (herdadas) {
+        console.log(`${herdadas} parcela(s) amarrada(s) a irmas ja carregadas.`);
+      }
+    }
+
     // -- Transacoes --------------------------------------------------------
     let gravadas = 0;
-    for (const titulo of titulos) {
+    for (const titulo of titulosNovos) {
       const planoId = titulo.planoCodigo ? planos.get(titulo.planoCodigo) ?? null : null;
       const centroId = titulo.centroNome ? centros.get(titulo.centroNome) ?? null : null;
       const bancoId = titulo.bancoTitulo ? bancos.get(titulo.bancoTitulo) ?? null : null;
@@ -957,7 +1107,37 @@ async function main() {
     // -- Conferencia -------------------------------------------------------
     // A conferencia olha so o que esta carga gravou; cargas anteriores de outro
     // arquivo nao podem entrar nas somas.
-    const padroes = fontes.map((fonte) => `${marcador(fonte)}%`);
+    /*
+     * A conferencia tem que olhar so o que esta execucao gravou.
+     *
+     * Com o padrao amplo (`DATASYSTEM PAGAR #%`) as somas viriam da carga
+     * inteira — 608 titulos anteriores incluidos — e nao fechariam com o
+     * arquivo, reprovando uma carga correta. Os marcadores exatos recortam o
+     * lote; sem curinga, o `like any` compara por igualdade.
+     */
+    const padroes = SOMENTE_NOVOS
+      ? titulosNovos.map((titulo) => marcadorDoTitulo(titulo))
+      : fontes.map((fonte) => `${marcador(fonte)}%`);
+
+    // Somas e agrupamentos do lote, para bater com o que o banco devolve acima.
+    const somaReceberCarga = titulosNovos
+      .filter((t) => t.fonte === "RECEBER")
+      .reduce((total, t) => total + t.valor, 0);
+    const somaPagarCarga = titulosNovos
+      .filter((t) => t.fonte === "PAGAR")
+      .reduce((total, t) => total + t.valor, 0);
+
+    // Parcelas amarradas dentro do lote: o `grupos` acima conta o que o ERP
+    // enxerga no recorte, e e com isso que a barreira compara.
+    const gruposDoLote = new Map<string, number>();
+    for (const titulo of titulosNovos) {
+      if (titulo.parcelas < 2) continue;
+      const chave = `${titulo.createdAt ?? ""}|${titulo.descricaoBase}`;
+      gruposDoLote.set(chave, (gruposDoLote.get(chave) ?? 0) + 1);
+    }
+    const acordosDoLote = [...gruposDoLote.values()].filter((n) => n > 1);
+    const amarradasDoLote = acordosDoLote.reduce((total, n) => total + n, 0);
+    const parceladasDoLote = titulosNovos.filter((titulo) => titulo.parcelas > 1).length;
 
     const conferencia = await client.query<{
       tipo: string;
@@ -1017,9 +1197,9 @@ async function main() {
     console.log(`Clientes criados: ${criados.length}`);
     console.log(`Transacoes gravadas: ${gravadas}`);
     console.log(
-      `Parcelas: ${parceladas} titulos fazem parte de acordo | ` +
-        `${amarradas} amarrados em ${acordos} acordos | ` +
-        `${parceladas - amarradas} sozinhos (unica parcela em aberto)`,
+      `Parcelas: ${parceladasDoLote} titulos fazem parte de acordo | ` +
+        `${amarradasDoLote} amarrados em ${acordosDoLote.length} acordos | ` +
+        `${parceladasDoLote - amarradasDoLote} sozinhos (unica parcela em aberto)`,
     );
     console.log(
       `  conferido no banco: ${grupos.rows[0].acordos} acordos, ${grupos.rows[0].linhas} linhas agrupadas`,
@@ -1069,9 +1249,8 @@ async function main() {
     // ao ser convertida, o usuario ve um dia a menos — que foi o erro da primeira
     // carga. Confere contra o vencimento que veio do CSV.
     const esperado = new Map<string, string>();
-    for (const titulo of titulos) {
-      const chave = `${marcador(titulo.fonte)}${titulo.registro}${titulo.parcelaTexto ? ` parcela ${titulo.parcelaTexto}` : ""}`;
-      if (titulo.vencimento) esperado.set(chave, titulo.vencimento);
+    for (const titulo of titulosNovos) {
+      if (titulo.vencimento) esperado.set(marcadorDoTitulo(titulo), titulo.vencimento);
     }
 
     const datas = await client.query<{ chave: string; dia: string }>(
@@ -1100,8 +1279,8 @@ async function main() {
 
     // Barreiras: qualquer uma reprovada desfaz tudo.
     const problemas: string[] = [];
-    if (gravadas !== titulos.length) {
-      problemas.push(`gravadas ${gravadas} de ${titulos.length} linhas`);
+    if (gravadas !== titulosNovos.length) {
+      problemas.push(`gravadas ${gravadas} de ${titulosNovos.length} linhas`);
     }
     if (Number(eventos.rows[0].n) !== 0) {
       problemas.push(`${eventos.rows[0].n} eventos de DRE gerados; deveriam ser 0`);
@@ -1114,13 +1293,13 @@ async function main() {
       problemas.push(`${diasErrados.length} titulos com data em dia errado (${amostra})`);
     }
     // O que o script amarrou tem que ser exatamente o que o ERP vai enxergar.
-    if (Number(grupos.rows[0].linhas) !== amarradas) {
+    if (Number(grupos.rows[0].linhas) !== amarradasDoLote) {
       problemas.push(
-        `amarrei ${amarradas} parcelas, mas a regra do ERP encontra ${grupos.rows[0].linhas}`,
+        `amarrei ${amarradasDoLote} parcelas, mas a regra do ERP encontra ${grupos.rows[0].linhas}`,
       );
     }
     for (const linha of conferencia.rows) {
-      const esperado = linha.tipo === "RECEITA" ? somaReceber : somaPagar;
+      const esperado = linha.tipo === "RECEITA" ? somaReceberCarga : somaPagarCarga;
       const diferenca = Math.abs(Number(linha.total) - esperado);
       if (diferenca > 0.01) {
         problemas.push(

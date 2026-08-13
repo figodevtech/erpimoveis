@@ -152,9 +152,9 @@ export function NfseServiceCard({
               </p>
               <ul className="mt-1.5 space-y-1">
                 {servico.pendenciasCadastro?.map((pendencia) => (
-                  <li key={pendencia} className="flex gap-1.5 text-xs leading-relaxed text-foreground">
+                  <li key={pendencia.mensagem} className="flex gap-1.5 text-xs leading-relaxed text-foreground">
                     <span aria-hidden="true" className="text-amber-700 dark:text-amber-500">•</span>
-                    <span>{pendencia}</span>
+                    <span>{pendencia.mensagem}</span>
                   </li>
                 ))}
               </ul>

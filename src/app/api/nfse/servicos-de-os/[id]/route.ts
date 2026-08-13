@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   identificarModeloEmissao,
-  validarDadosObrigatoriosNFSe,
+  listarPendenciasNFSe,
   type NFSeModeloEmissao,
 } from "@/lib/services/fiscais/nfse-service";
 import type { CodigosFiscaisForm } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/emissao-nfse-dialog/types";
@@ -91,8 +91,8 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       return {
         ...item,
         pendenciasCadastro: modeloEmissao
-          ? validarDadosObrigatoriosNFSe(os, empresa, item, modeloEmissao)
-          : ["município da empresa sem modelo de NFS-e configurado"],
+          ? listarPendenciasNFSe(os, empresa, item, modeloEmissao)
+          : [{ origem: "EMPRESA" as const, mensagem: "município da empresa sem modelo de NFS-e configurado" }],
         notaFiscalStatus: notaGerada ? notaGerada.status : null,
         notaFiscalId: notaGerada ? notaGerada.id : null,
         notaFiscalErros: notaGerada ? notaGerada.erros : null,
@@ -102,12 +102,36 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       };
     });
 
+    // O dialog de emissão mostra e edita o cadastro do tomador sem sair da tela.
+    // Só os campos que entram na nota — o resto do cadastro fica com o dialog do
+    // cliente, que busca por conta própria.
+    const clienteOS = os.cliente as any;
+
     return NextResponse.json({
       ok: true,
       servicos: servicosMapeados,
       modeloEmissao,
       codigoMunicipio,
       padraoFiscal,
+      cliente: clienteOS
+        ? {
+            id: Number(clienteOS.id),
+            nomerazaosocial: clienteOS.nomerazaosocial ?? null,
+            tipopessoa: clienteOS.tipopessoa ?? null,
+            cpfcnpj: clienteOS.cpfcnpj ?? null,
+            email: clienteOS.email ?? null,
+            telefone: clienteOS.telefone ?? null,
+            endereco: clienteOS.endereco ?? null,
+            endereconumero: clienteOS.endereconumero ?? null,
+            enderecocomplemento: clienteOS.enderecocomplemento ?? null,
+            bairro: clienteOS.bairro ?? null,
+            cidade: clienteOS.cidade ?? null,
+            estado: clienteOS.estado ?? null,
+            cep: clienteOS.cep ?? null,
+            codigomunicipio: clienteOS.codigomunicipio ?? null,
+            inscricaomunicipal: clienteOS.inscricaomunicipal ?? null,
+          }
+        : null,
     });
   } catch (e: any) {
     console.error("[GET /api/nfse/servicos-de-os]", e);

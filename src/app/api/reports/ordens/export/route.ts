@@ -86,12 +86,16 @@ export async function GET(request: Request) {
     const setorId = integer(searchParams.get("setorId"));
     const natureza = safeText(searchParams.get("natureza"), 20);
     const eventoStatus = safeText(searchParams.get("eventoStatus"), 20);
+    // Eixo do período. Conclusão usa `execucao_fim_em`, carimbado pelo sistema
+    // quando a execução termina — é a mesma referência do DRE. `datasaida` fica
+    // de fora de propósito: é digitada à mão e há OS com saída antes da entrada.
+    const colunaPeriodo = searchParams.get("campoData") === "conclusao" ? "execucao_fim_em" : "dataentrada";
 
     const buildOsQuery = () => {
       let query = supabaseAdmin
         .from("ordemservico")
         .select(`
-          id, descricao, status, prioridade, dataentrada, datasaida, orcamentototal,
+          id, descricao, status, prioridade, dataentrada, datasaida, execucao_fim_em, orcamentototal,
           equipamento_nome, equipamento_patrimonio, equipamento_ano, equipamento_horimetro,
           cliente:clienteid(id, nomerazaosocial, cpfcnpj),
           veiculo:veiculoid(id, placa, marca, modelo),
@@ -100,11 +104,11 @@ export async function GET(request: Request) {
           usuario:usuario!usuariocriadorid(id, nome)
         `)
         .eq("is_deleted", false)
-        .order("dataentrada", { ascending: true })
+        .order(colunaPeriodo, { ascending: true })
         .order("id", { ascending: true });
       if (status && status !== "TODAS") query = query.eq("status", status);
-      if (dateFrom) query = query.gte("dataentrada", startOfDay(dateFrom));
-      if (dateTo) query = query.lt("dataentrada", nextDay(dateTo));
+      if (dateFrom) query = query.gte(colunaPeriodo, startOfDay(dateFrom));
+      if (dateTo) query = query.lt(colunaPeriodo, nextDay(dateTo));
       if (ordemId) query = query.eq("id", ordemId);
       if (clienteId) query = query.eq("clienteid", clienteId);
       if (setorId) query = query.eq("setorid", setorId);
@@ -123,6 +127,7 @@ export async function GET(request: Request) {
       const rows = ordens.map((os) => [
         os.id,
         formatDate(os.dataentrada),
+        formatDate(os.execucao_fim_em),
         formatDate(os.datasaida),
         os.status ?? "",
         os.prioridade ?? "",
@@ -135,9 +140,9 @@ export async function GET(request: Request) {
         Number(os.orcamentototal ?? 0),
       ]);
       const buffer = makeWorkbook(
-        ["OS", "Entrada", "Saída", "Status", "Prioridade", "Cliente", "CPF/CNPJ", "Alvo atendido", "Setor", "Responsável", "Descrição", "Orçamento (R$)"],
+        ["OS", "Entrada", "Conclusão", "Saída", "Status", "Prioridade", "Cliente", "CPF/CNPJ", "Alvo atendido", "Setor", "Responsável", "Descrição", "Orçamento (R$)"],
         rows,
-        [9, 20, 20, 24, 12, 35, 20, 35, 22, 26, 45, 18],
+        [9, 20, 20, 20, 24, 12, 35, 20, 35, 22, 26, 45, 18],
       );
       return new NextResponse(buffer, {
         headers: {
@@ -213,6 +218,7 @@ export async function GET(request: Request) {
         evento.ordemservicoid,
         os?.status ?? "",
         formatDate(os?.dataentrada),
+        formatDate(os?.execucao_fim_em),
         formatDate(os?.datasaida),
         os?.usuario?.nome ?? "Não informado",
         os?.cliente?.nomerazaosocial ?? "Sem cliente",
@@ -255,9 +261,9 @@ export async function GET(request: Request) {
     const buffer = makeWorkbookFrom([
       {
         name: "Relatório",
-        headers: ["OS", "Status da OS", "Entrada da OS", "Conclusão da OS", "Criador da OS", "Cliente", "Alvo atendido", "Evento", "Data do evento", "Origem", "Chave origem", "Natureza", "Descrição", "Detalhe", "Valor (R$)", "Status do evento", "Transação", "Quantidade snapshot", "Valor unitário snapshot", "Percentual snapshot", "Base snapshot", "Receitas da OS", "Despesas da OS", "Resultado da OS"],
+        headers: ["OS", "Status da OS", "Entrada da OS", "Conclusão da OS", "Saída da OS", "Criador da OS", "Cliente", "Alvo atendido", "Evento", "Data do evento", "Origem", "Chave origem", "Natureza", "Descrição", "Detalhe", "Valor (R$)", "Status do evento", "Transação", "Quantidade snapshot", "Valor unitário snapshot", "Percentual snapshot", "Base snapshot", "Receitas da OS", "Despesas da OS", "Resultado da OS"],
         rows,
-        widths: [9, 22, 20, 20, 26, 32, 32, 10, 20, 14, 16, 12, 42, 32, 16, 18, 12, 18, 22, 20, 18, 18, 18, 18],
+        widths: [9, 22, 20, 20, 20, 26, 32, 32, 10, 20, 14, 16, 12, 42, 32, 16, 18, 12, 18, 22, 20, 18, 18, 18, 18],
       },
       {
         name: "Transações",
