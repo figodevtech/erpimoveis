@@ -208,7 +208,7 @@ Deno.serve(async (request: Request) => {
     }
 
     const supabaseToken = requiredEnv("ERP_MONITOR_SUPABASE_TOKEN");
-    const botToken = requiredEnv("TELEGRAM_BOT_TOKEN");
+    const botToken = requiredEnv("ERP_MONITOR_TELEGRAM_BOT_TOKEN");
     const chatId = requiredEnv("TELEGRAM_ALERT_CHAT_ID");
     const { start, end } = windowFor();
     const results: Record<string, string> = {};

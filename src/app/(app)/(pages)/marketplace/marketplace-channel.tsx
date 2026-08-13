@@ -1,11 +1,11 @@
 "use client";
 
 import { createContext, useContext } from "react";
-import { Check, ChevronDown, ShoppingBag, Store } from "lucide-react";
+import { Check, ChevronDown, Layers3, ShoppingBag, Store } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
-export type MarketplaceChannel = "mercadolivre" | "shopee";
+export type MarketplaceChannel = "all" | "mercadolivre" | "shopee";
 
 const MarketplaceChannelContext = createContext<{
   channel: MarketplaceChannel;
@@ -64,6 +64,7 @@ export function MarketplaceChannelSwitcher() {
 }
 
 const CHANNELS = [
+  { id: "all", label: "Todos os canais", description: "Visão consolidada da operação", icon: Layers3, iconClass: "bg-violet-500/15 text-violet-700 dark:text-violet-400" },
   { id: "mercadolivre", label: "Mercado Livre", description: "Anúncios, pedidos e atendimento", icon: Store, iconClass: "bg-amber-500/15 text-amber-700 dark:text-amber-400" },
   { id: "shopee", label: "Shopee", description: "Pedidos, catálogo e sincronização", icon: ShoppingBag, iconClass: "bg-orange-500/15 text-orange-700 dark:text-orange-400" },
 ] satisfies Array<{ id: MarketplaceChannel; label: string; description: string; icon: typeof Store; iconClass: string }>;

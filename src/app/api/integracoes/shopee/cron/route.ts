@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { syncShopeeOrders } from "@/lib/integrations/shopee-orders";
+import { syncShopeeProductInventory } from "@/lib/integrations/shopee-products";
 
 export async function GET(req: NextRequest) {
   try {
@@ -13,7 +14,8 @@ export async function GET(req: NextRequest) {
     const summaries = [];
     for (const account of accounts ?? []) {
       const results = await syncShopeeOrders({ empresaId: Number(account.empresa_id), accountId: Number(account.id), days: 2 });
-      summaries.push({ accountId: account.id, total: results.length, created: results.filter((row) => row.created).length, failed: results.filter((row) => row.error).length });
+      const products = await syncShopeeProductInventory(Number(account.empresa_id));
+      summaries.push({ accountId: account.id, total: results.length, created: results.filter((row) => row.created).length, failed: results.filter((row) => row.error).length, products });
     }
     return NextResponse.json({ ok: true, accounts: summaries });
   } catch (error: any) {
