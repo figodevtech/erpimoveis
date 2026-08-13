@@ -22,6 +22,8 @@ export function NovaOSDialog({ open, onOpenChange }: Props) {
       title="Ordem de Serviço"
       titleSuffix="Nova"
       description="Preencha o formulário para criação da ordem de serviço."
+      eyebrow="Bancada de atendimento"
+      variant="workbench"
       maxW="md:max-w-[1100px]"
       mobileFull
       fixedHeight

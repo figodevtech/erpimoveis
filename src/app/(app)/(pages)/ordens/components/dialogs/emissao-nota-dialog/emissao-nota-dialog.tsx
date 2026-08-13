@@ -84,11 +84,21 @@ type ListarNfeResponsePorEntrada = {
   nfes: NfeResumo[];
 };
 
+type ListarNfeResponsePorSaida = {
+  ok: boolean;
+  message?: string;
+  saidaId?: number;
+  nfes: NfeResumo[];
+};
+
 type EmpresaFiscal = {
   ambiente: string | null;
   codigomunicipio: string | null;
   regimetributario: string | null;
 };
+
+/** Quantos produtos e serviços a OS tem. `null` enquanto não se sabe. */
+type ComposicaoOs = { produtos: number; servicos: number };
 
 const nfeStatusClasses: Record<string, string> = {
   AUTORIZADA: "bg-emerald-600/15 text-emerald-400",
@@ -201,6 +211,7 @@ export function EmissaoNotaDialog({
   osId,
   vendaId,
   entradaId,
+  saidaId,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -213,6 +224,16 @@ export function EmissaoNotaDialog({
 
   /** opcional: uso na tela de entrada */
   entradaId?: number | null;
+
+  /**
+   * opcional: uso no histórico de estoque, na saída de produto.
+   *
+   * A saída passou a entrar por aqui em vez de ter um cartão de emissão dentro
+   * dos detalhes: a lista de notas e as ações de cada nota são as mesmas —
+   * autorizar, consultar, ver DANFE, baixar XML, cancelar, descartar rascunho —
+   * e mantê-las duplicadas fazia a saída ficar com metade delas.
+   */
+  saidaId?: number | null;
 }) {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
@@ -224,17 +245,32 @@ export function EmissaoNotaDialog({
   const [contingenciaOferecida, setContingenciaOferecida] = useState<number | null>(null);
   /** NFC-e rejeitada sendo corrigida: o assistente reabre esse rascunho. */
   const [nfceParaCorrigir, setNfceParaCorrigir] = useState<number | null>(null);
+  /**
+   * NF-e de saída sendo corrigida ou revisada: o assistente reabre esse
+   * rascunho. A saída não passa pelo editor avulso porque a natureza fiscal, o
+   * documento de origem e o destinatário só existem lá dentro.
+   */
+  const [nfeSaidaParaCorrigir, setNfeSaidaParaCorrigir] = useState<number | null>(null);
   const [emitindoContingencia, setEmitindoContingencia] = useState(false);
   const [openGerarNfse, setOpenGerarNfse] = useState(false);
   const [empresaFiscal, setEmpresaFiscal] = useState<EmpresaFiscal | null>(null);
+  const [composicaoOs, setComposicaoOs] = useState<ComposicaoOs | null>(null);
   const [openCancelNfseDialog, setOpenCancelNfseDialog] = useState(false);
   const [selectedNfseId, setSelectedNfseId] = useState<number | null>(null);
   const [downloadingXmlId, setDownloadingXmlId] = useState<number | null>(null);
   const [anexandoDanfeId, setAnexandoDanfeId] = useState<number | null>(null);
   const [clienteEmRevisao, setClienteEmRevisao] = useState<number | null>(null);
 
-  const origem = osId ? "OS" : vendaId ? "VENDA" : entradaId ? "ENTRADA" : null;
-  const origemId = osId ?? vendaId ?? entradaId ?? null;
+  const origem = osId
+    ? "OS"
+    : vendaId
+      ? "VENDA"
+      : entradaId
+        ? "ENTRADA"
+        : saidaId
+          ? "SAIDA"
+          : null;
+  const origemId = osId ?? vendaId ?? entradaId ?? saidaId ?? null;
 
   const canFetch = open && !!origem && !!origemId;
 
@@ -254,6 +290,7 @@ export function EmissaoNotaDialog({
     if (!origem || !origemId) return null;
     if (origem === "OS") return `/api/nfe/por-os/${origemId}`;
     if (origem === "VENDA") return `/api/nfe/por-venda/${origemId}`;
+    if (origem === "SAIDA") return `/api/nfe/por-saida/${origemId}`;
     return `/api/nfe/por-entrada/${origemId}`;
   }, [origem, origemId]);
 
@@ -428,6 +465,7 @@ export function EmissaoNotaDialog({
         | ListarNfeResponsePorOs
         | ListarNfeResponsePorVenda
         | ListarNfeResponsePorEntrada
+        | ListarNfeResponsePorSaida
         | null;
 
       const erroNfe = !res.ok || !json?.ok
@@ -499,6 +537,30 @@ export function EmissaoNotaDialog({
     }
   };
 
+  /**
+   * Descobre se a OS tem produtos, serviços ou os dois.
+   *
+   * Só a OS mistura os dois documentos. Venda e saída são sempre mercadoria, e
+   * entrada nunca é serviço — nessas o botão não depende de nada.
+   */
+  const fetchComposicaoOs = async (signal?: AbortSignal) => {
+    if (!osId) return;
+    try {
+      const res = await fetch(`/api/ordens/${osId}/composicao-fiscal`, { signal });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok || signal?.aborted) return;
+      setComposicaoOs({
+        produtos: Number(json.produtos ?? 0),
+        servicos: Number(json.servicos ?? 0),
+      });
+    } catch (e: any) {
+      if (e?.name === "AbortError") return;
+      // Falhar aqui não pode esconder a emissão: sem resposta, `composicaoOs`
+      // fica `null` e os botões continuam aparecendo, como antes desta checagem.
+      console.error("Erro ao buscar a composição da OS:", e);
+    }
+  };
+
   const fetchEmpresa = async () => {
     try {
       const res = await fetch("/api/empresa");
@@ -522,6 +584,7 @@ export function EmissaoNotaDialog({
     const ac = new AbortController();
     fetchNfes(ac.signal);
     fetchEmpresa();
+    void fetchComposicaoOs(ac.signal);
 
     return () => {
       ac.abort();
@@ -564,8 +627,22 @@ export function EmissaoNotaDialog({
     if (!origem || !origemId) return "Emissão de Nota Fiscal";
     if (origem === "OS") return `Emissão de Nota Fiscal - OS #${origemId}`;
     if (origem === "VENDA") return `Emissão de Nota Fiscal - Venda #${origemId}`;
+    if (origem === "SAIDA") return `Emissão de Nota Fiscal - Saída #${origemId}`;
     return `Emissão de Nota Fiscal - Entrada #${origemId}`;
   }, [origem, origemId]);
+
+  // Numa OS, cada botão só aparece se houver o que ele documenta: NF-e e NFC-e
+  // com produto, NFS-e com serviço. Emitir nota de produto numa OS só de mão de
+  // obra abria um assistente sem item nenhum.
+  //
+  // Enquanto a contagem não chega — ou se ela falhar — os botões continuam
+  // visíveis: esconder por falta de resposta seria pior que deixar o assistente
+  // reclamar depois.
+  const composicaoPendente = origem === "OS" && composicaoOs === null;
+  const temProdutos = origem !== "OS" || composicaoOs === null || composicaoOs.produtos > 0;
+  const temServicos = origem === "OS" && (composicaoOs === null || composicaoOs.servicos > 0);
+  /** OS sem produto e sem serviço: nada a emitir, e vale dizer por quê. */
+  const osVazia = origem === "OS" && composicaoOs !== null && !composicaoOs.produtos && !composicaoOs.servicos;
 
   return (
     <Dialog
@@ -575,6 +652,9 @@ export function EmissaoNotaDialog({
         if (!nextOpen) {
           setNfes([]);
           setAvisoListagem(null);
+          // Zerado junto com a lista: reabrir em outra OS não pode oferecer os
+          // botões da anterior enquanto a contagem nova não chega.
+          setComposicaoOs(null);
         }
       }}
     >
@@ -650,21 +730,35 @@ export function EmissaoNotaDialog({
                 </Button>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    disabled={loading}
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => setOpenGerarNfe(true)}
-                    className="h-8 gap-2 text-xs hover:cursor-pointer"
-                  >
-                    <Plus className="h-3.5 w-3.5" /> NF-e (Produto)
-                  </Button>
+                  {osVazia ? (
+                    <span className="text-xs text-muted-foreground">
+                      Esta OS não tem produtos nem serviços lançados — nada a emitir.
+                    </span>
+                  ) : null}
+
+                  {temProdutos && (
+                    <Button
+                      disabled={loading || composicaoPendente}
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        // Nota nova, e não a revisão de um rascunho: sem limpar,
+                        // o assistente reabriria a última nota corrigida.
+                        setNfeSaidaParaCorrigir(null);
+                        setOpenGerarNfe(true);
+                      }}
+                      className="h-8 gap-2 text-xs hover:cursor-pointer"
+                    >
+                      <Plus className="h-3.5 w-3.5" />{" "}
+                      {origem === "SAIDA" ? "NF-e de saída" : "NF-e (Produto)"}
+                    </Button>
+                  )}
 
                   {/* NFC-e só documenta saída ao consumidor: não aparece em
                       entrada de mercadoria, que é sempre modelo 55. */}
-                  {(origem === "OS" || origem === "VENDA") && (
+                  {(origem === "OS" || origem === "VENDA") && temProdutos && (
                     <Button
-                      disabled={loading}
+                      disabled={loading || composicaoPendente}
                       variant="secondary"
                       size="sm"
                       onClick={() => setOpenGerarNfce(true)}
@@ -674,9 +768,9 @@ export function EmissaoNotaDialog({
                     </Button>
                   )}
 
-                  {origem === "OS" && (
+                  {temServicos && (
                     <Button
-                      disabled={loading}
+                      disabled={loading || composicaoPendente}
                       variant="secondary"
                       size="sm"
                       onClick={() => setOpenGerarNfse(true)}
@@ -858,13 +952,20 @@ export function EmissaoNotaDialog({
                                   */}
                                   {(nfe.status === "RASCUNHO" || isRejeitada) && (
                                     <div className="flex flex-col gap-1">
-                                      {isRejeitada ? (
-                                        // Corrige a nota reaproveitando o mesmo id: sem
-                                        // rascunho novo e sem consumir outro número.
-                                        //
-                                        // A NFC-e volta para o assistente do modelo 65. O
-                                        // editor avulso é exclusivo da NF-e — mandar uma
-                                        // NFC-e para lá misturaria os dois motores.
+                                      {/*
+                                        Corrige a nota reaproveitando o mesmo id: sem
+                                        rascunho novo e sem consumir outro número.
+
+                                        A NFC-e volta para o assistente do modelo 65. O
+                                        editor avulso é exclusivo da NF-e — mandar uma
+                                        NFC-e para lá misturaria os dois motores.
+
+                                        Na saída aparece também no rascunho: a saída só
+                                        aceita uma nota ativa por vez, então sem esta
+                                        porta o rascunho ficaria sem como ser revisado e
+                                        emitir de novo só devolveria a recusa do servidor.
+                                      */}
+                                      {isRejeitada || origem === "SAIDA" ? (
                                         <Button
                                           size="sm"
                                           className="text-xs hover:cursor-pointer"
@@ -874,11 +975,21 @@ export function EmissaoNotaDialog({
                                               setOpenGerarNfce(true);
                                               return;
                                             }
+                                            // A NF-e de saída volta para o
+                                            // assistente: o editor avulso não
+                                            // conhece natureza fiscal, entrada
+                                            // de origem nem destinatário, que
+                                            // é o que a saída precisa revisar.
+                                            if (origem === "SAIDA") {
+                                              setNfeSaidaParaCorrigir(nfe.id);
+                                              setOpenGerarNfe(true);
+                                              return;
+                                            }
                                             onOpenChange(false);
                                             router.push(`/fiscal/nfe-avulsa?id=${nfe.id}`);
                                           }}
                                         >
-                                          Corrigir dados
+                                          {isRejeitada ? "Corrigir dados" : "Revisar emissão"}
                                         </Button>
                                       ) : null}
                                       <AutorizarNfeButton
@@ -1208,11 +1319,18 @@ export function EmissaoNotaDialog({
             open={openGerarNfe}
             onOpenChange={(v) => {
               setOpenGerarNfe(v);
-              if (!v) fetchNfes();
+              // Fechar encerra a revisão: reabrir pelo botão do cabeçalho volta
+              // a criar nota nova, e não a editar o rascunho da saída.
+              if (!v) {
+                setNfeSaidaParaCorrigir(null);
+                fetchNfes();
+              }
             }}
             osId={osId ?? null}
             vendaId={vendaId ?? null}
             entradaId={entradaId ?? null}
+            saidaId={saidaId ?? null}
+            nfeId={nfeSaidaParaCorrigir}
             onAfterGenerate={() => fetchNfes()}
           />
         )}

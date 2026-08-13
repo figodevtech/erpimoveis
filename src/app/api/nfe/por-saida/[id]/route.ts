@@ -16,7 +16,12 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     }
     const { data, error } = await supabaseAdmin
       .from("nfe")
-      .select("id, modelo, serie, numero, chave_acesso, ambiente, status, dataemissao, dataautorizacao, protocolo, total_nfe, codigo_rejeicao, motivo_rejeicao, createdat")
+      // Mesmo conjunto de colunas que `por-os` e `por-venda`: a saída lista as
+      // notas no mesmo diálogo, e campo faltando aqui vira "—" na tela ou tira
+      // uma ação do menu (a justificativa do cancelamento, por exemplo).
+      .select(
+        "id, modelo, serie, numero, chave_acesso, ambiente, status, dataemissao, dataautorizacao, protocolo, total_produtos, total_servicos, total_nfe, justificativacancelamento, codigo_rejeicao, motivo_rejeicao, rejeitada_em, ordemservicoid, vendaid, clienteid, empresaid, createdat, updatedat",
+      )
       .eq("saidaid", saidaId)
       .eq("is_deleted", false)
       .order("createdat", { ascending: false });

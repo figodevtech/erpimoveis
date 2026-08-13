@@ -15,6 +15,7 @@ import {
   Loader2,
   MoreHorizontal,
   Package,
+  ReceiptText,
   RotateCcw,
   Search,
   SlidersHorizontal,
@@ -49,6 +50,7 @@ import { CancelMovementDialog, type CancelTarget } from "../components/cancel-mo
 import { CancelarEntradaDialog } from "@/components/entrada-fiscal/cancelar-entrada-dialog";
 import { EntryDetailsDialog } from "../components/entry-details-dialog";
 import { ExitDetailsDialog } from "../components/exit-details-dialog";
+import { EmissaoNotaDialog } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/emissao-nota-dialog";
 import { LancarFinanceiroEntradaDialog } from "@/components/entrada-fiscal/lancar-financeiro-entrada-dialog";
 
 /**
@@ -293,6 +295,7 @@ function MovementRow({
   onLancarFinanceiro,
   onBaixarNfe,
   onBaixarDanfe,
+  onEmitirNfe,
 }: {
   movement: Movement;
   cancellable: boolean;
@@ -303,6 +306,7 @@ function MovementRow({
   onLancarFinanceiro: (movement: Movement) => void;
   onBaixarNfe: (movement: Movement) => void;
   onBaixarDanfe: (movement: Movement) => void;
+  onEmitirNfe: (movement: Movement) => void;
 }) {
   const isEntrada = movement.direction === "entrada";
   const isEntradaConfirmada =
@@ -311,9 +315,18 @@ function MovementRow({
     movement.documentKind === "entrada";
   const isEntradaFiscal = isEntradaConfirmada && Boolean(movement.fiscal);
   const canDownloadFiscal = isEntradaFiscal && movement.xmlDisponivel === true;
+  // Só a saída de produto emite NF-e. Uso e consumo não tem motor fiscal de
+  // saída, e saída cancelada ou estornada não documenta operação nenhuma.
+  const canEmitirNfeSaida =
+    movement.inventory === "produtos" &&
+    movement.documentKind === "saida" &&
+    Boolean(movement.documentId) &&
+    movement.status === "CONFIRMADA" &&
+    movement.acao !== "ESTORNO";
   const hasRowActions =
     Boolean(movement.documentKind && movement.documentId) ||
     isEntradaConfirmada ||
+    canEmitirNfeSaida ||
     cancellable;
 
   return (
@@ -426,6 +439,17 @@ function MovementRow({
                   </DropdownMenuItem>
                 ) : null}
 
+                {/*
+                  Abre a lista de notas desta saída — a mesma da venda e da OS —,
+                  e é de lá que sai o assistente de emissão.
+                */}
+                {canEmitirNfeSaida ? (
+                  <DropdownMenuItem onClick={() => onEmitirNfe(movement)} className="hover:cursor-pointer">
+                    <ReceiptText className="mr-2 size-4 text-blue-600 dark:text-blue-400" />
+                    Emitir NF-e
+                  </DropdownMenuItem>
+                ) : null}
+
                 {canDownloadFiscal ? (
                   <>
                     <DropdownMenuItem onClick={() => onBaixarNfe(movement)} className="hover:cursor-pointer">
@@ -475,6 +499,7 @@ function MovementTable({
   onLancarFinanceiro,
   onBaixarNfe,
   onBaixarDanfe,
+  onEmitirNfe,
 }: {
   filtros: Filtros;
   movements: Movement[];
@@ -490,6 +515,7 @@ function MovementTable({
   onLancarFinanceiro: (movement: Movement) => void;
   onBaixarNfe: (movement: Movement) => void;
   onBaixarDanfe: (movement: Movement) => void;
+  onEmitirNfe: (movement: Movement) => void;
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [draftDirection, setDraftDirection] = useState<DirectionFilter>(filtros.direcao);
@@ -798,6 +824,7 @@ function MovementTable({
                 onLancarFinanceiro={onLancarFinanceiro}
                 onBaixarNfe={onBaixarNfe}
                 onBaixarDanfe={onBaixarDanfe}
+                onEmitirNfe={onEmitirNfe}
               />
             ))}
 
@@ -928,6 +955,8 @@ export default function HistoricoEstoquePage() {
     id: number;
     inventory: "produto" | "usoconsumo";
   } | null>(null);
+  /** Saída cujas notas estão abertas. É de lá que sai a emissão. */
+  const [notasDaSaida, setNotasDaSaida] = useState<number | null>(null);
 
   /** Descarta resposta de requisicao antiga: quem digita rapido nao ve o passado. */
   const requisicaoAtual = useRef(0);
@@ -1166,6 +1195,11 @@ export default function HistoricoEstoquePage() {
         }}
         onBaixarNfe={handleBaixarNfe}
         onBaixarDanfe={handleBaixarDanfe}
+        onEmitirNfe={(movement) => {
+          const saidaId = movement.documentId;
+          if (!saidaId) return;
+          setNotasDaSaida(saidaId);
+        }}
         onCancel={(movement) => {
           const kind = movement.documentKind ?? movement.direction;
           const documentId = movement.documentId ?? movement.id;
@@ -1200,6 +1234,21 @@ export default function HistoricoEstoquePage() {
         onOpenChange={(open) => !open && setDetalhesMovimento(null)}
         exitId={detalhesMovimento?.kind === "saida" ? detalhesMovimento.id : null}
         inventory={detalhesMovimento?.inventory ?? "produto"}
+      />
+
+      {/*
+        Mesmo diálogo da venda e da OS: lista as notas da saída e abre o
+        assistente de emissão. Recarrega o histórico ao fechar, porque emitir
+        pode ter marcado a saída como fiscal.
+      */}
+      <EmissaoNotaDialog
+        open={notasDaSaida !== null}
+        onOpenChange={(open) => {
+          if (open) return;
+          setNotasDaSaida(null);
+          void carregar();
+        }}
+        saidaId={notasDaSaida}
       />
 
       <LancarFinanceiroEntradaDialog
