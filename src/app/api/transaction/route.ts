@@ -455,6 +455,33 @@ export async function POST(req: Request) {
     }
 
     const baseDescricao = String(payload.descricao ?? "").trim();
+
+    /*
+     * Parcelamento avulso nasce com grupo formal.
+     *
+     * Sem ele as parcelas só se reconhecem pela descrição e pela `created_at`, e
+     * em cima dessa heurística não dá para escrever: basta alguém editar uma
+     * descrição para o grupo vir pela metade. Com documento de origem o grupo já
+     * é a OS ou a venda, e quem redistribui valores ali é o rateio.
+     */
+    let parcelamentoId: number | null = null;
+
+    if (
+      hasParcelamento &&
+      payload.ordemservicoid == null &&
+      payload.vendaid == null &&
+      payload.evento_financeiro_id == null
+    ) {
+      const { data: grupo, error: grupoError } = await supabaseAdmin
+        .from("transacao_parcelamento")
+        .insert({ descricao: baseDescricao, created_by: baixadoPor })
+        .select("id")
+        .single();
+
+      if (grupoError) throw grupoError;
+      parcelamentoId = Number(grupo.id);
+    }
+
     // O documento vem no spread do payload e por isso se repete em toda parcela.
     // É o que se quer: uma nota paga em três vezes continua sendo uma nota só, e
     // cada parcela precisa apontar para ela.
@@ -464,6 +491,7 @@ export async function POST(req: Request) {
 
         return {
           ...payload,
+          ...(parcelamentoId != null ? { parcelamento_id: parcelamentoId } : {}),
           descricao:
             totalParcelas > 1
               ? `${baseDescricao} - Parcela ${index + 1}/${totalParcelas}`
@@ -536,6 +564,12 @@ export async function POST(req: Request) {
     }
 
     if (error) {
+      // As parcelas não entraram: o grupo criado logo acima ficaria sem nenhuma
+      // linha apontando para ele. Ninguém o veria, mas é lixo com id reservado.
+      if (parcelamentoId != null) {
+        await supabaseAdmin.from("transacao_parcelamento").delete().eq("id", parcelamentoId);
+      }
+
       if ((error as any).code === "23503") {
         const msg = (error as any).message ?? "Violação de chave estrangeira. Verifique banco_id e cliente_id.";
         const detail = (error as any).details || (error as any).hint || "";

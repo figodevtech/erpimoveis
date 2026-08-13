@@ -1,7 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Clock, SlidersHorizontal } from "lucide-react";
+import {
+  AlertTriangle,
+  CalendarClock,
+  CheckCircle2,
+  Clock,
+  SlidersHorizontal,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,6 +18,7 @@ import { valorLiquidoEfetivo } from "@/lib/financeiro/transacao";
 
 import { EstadoVazio, fmtDate, fmtDateTime } from "./shared";
 import { RateioEditor } from "./rateio-editor";
+import { ReparcelarEditor } from "./reparcelar-editor";
 import type { LancamentoRelacionado, ResumoRelacionadas, OrigemRelacionadas } from "./types";
 
 function Indicador({
@@ -44,18 +51,28 @@ export function ParcelasTab({
   itens,
   resumo,
   transacaoAtualId,
+  parcelamentoId = null,
+  agrupamentoIncerto = false,
   editavel = false,
   onAjustado,
+  onTransacaoRemovida,
 }: {
   origem: OrigemRelacionadas;
   itens: LancamentoRelacionado[];
   resumo: ResumoRelacionadas;
   transacaoAtualId: number;
+  /** Grupo do parcelamento avulso. Sem ele não há o que reparcelar. */
+  parcelamentoId?: number | null;
+  /** As irmãs vieram da heurística de descrição, não de um grupo no banco. */
+  agrupamentoIncerto?: boolean;
   /** Libera o rateio. Reflete a permissão do usuário e a config do sistema. */
   editavel?: boolean;
   onAjustado?: () => void;
+  /** A parcela aberta sumiu no reparcelamento: não há o que recarregar. */
+  onTransacaoRemovida?: () => void;
 }) {
   const [modoAjuste, setModoAjuste] = useState(false);
+  const [modoReparcelar, setModoReparcelar] = useState(false);
 
   // Só os lançamentos que abatem o documento entram no rateio: uma despesa
   // vinculada à OS aparece na lista, mas não faz parte do que o cliente pagou.
@@ -91,9 +108,49 @@ export function ParcelasTab({
   const rotuloDocumento = origem === "OS" ? "desta OS" : "desta venda";
 
   // O rateio só existe com documento de origem: é ele que define o grupo e o
-  // total que precisa ser mantido. Parcelamento avulso não tem vínculo formal
-  // no banco, então não há grupo confiável para travar a soma.
+  // total que precisa ser mantido. Parcelamento avulso não tem documento, e o
+  // caminho dele é o reparcelamento abaixo.
   const podeAjustar = editavel && temDocumento && itensDoRateio.length > 0;
+
+  /*
+   * Reparcelar exige grupo formal (`parcelamento_id`) e parcela em aberto.
+   *
+   * Sem o grupo, o que a aba mostra é uma reconstrução por descrição e horário
+   * de criação — escrever em cima disso poderia reparcelar meio grupo. Sem
+   * pendente não há o que redividir: o que foi baixado é dinheiro que andou, e
+   * corrigir isso continua sendo excluir e lançar de novo.
+   */
+  const temPendente = itens.some((item) => item.pendente);
+  const podeReparcelar =
+    editavel && origem === "PARCELAMENTO" && parcelamentoId != null && temPendente;
+
+  if (modoReparcelar && podeReparcelar) {
+    return (
+      <div className="space-y-4">
+        <div>
+          <p className="text-sm font-semibold">Reparcelar</p>
+          <p className="text-xs text-muted-foreground">
+            Quantidade, valores e vencimentos do que ainda está em aberto.
+          </p>
+        </div>
+
+        <ReparcelarEditor
+          itens={itens}
+          transacaoAtualId={transacaoAtualId}
+          onCancelar={() => setModoReparcelar(false)}
+          onSalvo={() => {
+            setModoReparcelar(false);
+            onAjustado?.();
+          }}
+          onTransacaoRemovida={onTransacaoRemovida}
+          onConflito={() => {
+            setModoReparcelar(false);
+            onAjustado?.();
+          }}
+        />
+      </div>
+    );
+  }
 
   if (modoAjuste && podeAjustar) {
     return (
@@ -147,16 +204,29 @@ export function ParcelasTab({
             Ajustar valores
           </Button>
         ) : null}
+
+        {podeReparcelar ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8"
+            onClick={() => setModoReparcelar(true)}
+          >
+            <CalendarClock className="h-3.5 w-3.5" />
+            Reparcelar
+          </Button>
+        ) : null}
       </div>
 
-      {origem === "PARCELAMENTO" && (
+      {agrupamentoIncerto && (
         <div className="flex items-start gap-2 rounded-lg border border-dashed bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
-            Parcelamento avulso: as parcelas não têm vínculo formal no banco, então
-            foram agrupadas pelo momento do registro e pela descrição. Se alguma
+            Este parcelamento é anterior ao registro de grupos, então as parcelas
+            foram reunidas pelo momento do registro e pela descrição. Se alguma
             descrição tiver sido editada, o grupo pode ficar incompleto — por isso o
-            rateio em lote não fica disponível aqui.
+            reparcelamento não fica disponível aqui.
           </span>
         </div>
       )}

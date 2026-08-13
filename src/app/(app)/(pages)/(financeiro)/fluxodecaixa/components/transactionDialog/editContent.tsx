@@ -264,10 +264,22 @@ export default function EditContent({
                     itens={contexto.relacionadas.itens}
                     resumo={contexto.relacionadas.resumo}
                     transacaoAtualId={form.id}
+                    parcelamentoId={contexto.parcelamento?.id ?? null}
+                    // Sem grupo formal e sem pagamento múltiplo, as irmãs vieram
+                    // da heurística de descrição — e é isso que a aba avisa.
+                    agrupamentoIncerto={
+                      contexto.relacionadas.origem === "PARCELAMENTO" &&
+                      contexto.parcelamento == null &&
+                      contexto.pagamentoMultiplo == null
+                    }
                     editavel={editable}
                     onAjustado={() => {
                       recarregar();
                       handleGetTransactions?.();
+                    }}
+                    onTransacaoRemovida={() => {
+                      handleGetTransactions?.();
+                      setOpen?.(false);
                     }}
                   />
                 )}

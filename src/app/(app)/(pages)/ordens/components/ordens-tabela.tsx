@@ -1131,7 +1131,7 @@ export function OrdensTabela({
                       animate={{ opacity: 1, scale: 1 }}
                       exit={{ opacity: 0, scale: 0.95 }}
                       transition={{ duration: 0.2 }}
-                      className={`group relative flex h-full flex-col justify-between rounded-xl border p-4 sm:p-5 transition-all shadow-sm hover:shadow-md ${
+                      className={`group relative flex h-full flex-col justify-between rounded-sm border p-4 sm:p-5 transition-all shadow-sm hover:shadow-md ${
                         r.destacada
                           ? "border-l-4 border-l-red-500 border-red-500/50 bg-red-500/10 hover:bg-red-500/15 dark:bg-red-950/30"
                           : "bg-card border-slate-300 dark:border-slate-700/80 hover:border-primary/60 dark:hover:border-primary/50"
@@ -1168,7 +1168,7 @@ export function OrdensTabela({
                                   <PopoverTrigger asChild>
                                     <button
                                       type="button"
-                                      className="inline-flex size-7 touch-manipulation items-center justify-center rounded-md text-red-600 outline-none hover:bg-red-500/10 focus-visible:ring-2 focus-visible:ring-red-500 dark:text-red-400"
+                                      className="inline-flex size-7 touch-manipulation items-center justify-center rounded-sm text-red-600 outline-none hover:bg-red-500/10 focus-visible:ring-2 focus-visible:ring-red-500 dark:text-red-400"
                                       aria-label={`OS destacada: ${r.destaque_motivo || "motivo não informado"}`}
                                     >
                                       <AlertTriangle className="h-4 w-4 fill-red-500/15" />

@@ -118,6 +118,13 @@ export interface TransacaoContexto {
   cliente: ClienteContexto | null;
   fornecedor: FornecedorContexto | null;
   vinculo: VinculoContexto | null;
+  /**
+   * O grupo do parcelamento avulso. `null` quando a transação é à vista, quando
+   * as parcelas pertencem a um documento, ou quando o grupo é antigo demais para
+   * ter ganhado identidade — nesse último caso a aba Parcelas ainda lista as
+   * irmãs pela heurística, mas não oferece o reparcelamento.
+   */
+  parcelamento: { id: number } | null;
   /** Presente só quando a transação faz parte de um pagamento múltiplo. */
   pagamentoMultiplo: PagamentoMultiploContexto | null;
   baixa: {
