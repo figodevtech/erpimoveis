@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireVendasAccess } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getShopeeGatewayConfig } from "@/lib/integrations/shopee";
 
 export const dynamic = "force-dynamic";
 
@@ -17,13 +18,14 @@ export async function GET() {
     if (accountError) throw accountError;
     if (orderError) throw orderError;
     if (linksError) throw linksError;
+    const gateway = getShopeeGatewayConfig();
     return NextResponse.json({
       accounts: accounts ?? [],
       orders: orders ?? [],
       links: links ?? [],
       configuration: {
-        ready: Boolean(process.env.SHOPEE_PARTNER_ID && process.env.SHOPEE_PARTNER_KEY && process.env.SHOPEE_REDIRECT_URI),
-        missing: ["SHOPEE_PARTNER_ID", "SHOPEE_PARTNER_KEY", "SHOPEE_REDIRECT_URI"].filter((key) => !process.env[key]?.trim()),
+        ready: gateway.configured,
+        missing: gateway.missing,
       },
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (error: any) {
