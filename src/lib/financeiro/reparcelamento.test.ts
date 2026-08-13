@@ -71,35 +71,29 @@ test("redistribuir igualmente mantém as datas escolhidas", () => {
 });
 
 test("só destrava quando a soma bate com o que está pendente", () => {
-  const hoje = dia(2026, 8, 12);
   const parcelas = [
     parcela(1, 100, dia(2026, 9, 12)),
     parcela(2, 100, dia(2026, 10, 12)),
   ];
 
-  const fecha = validarReparcelamento(parcelas, 20000, hoje);
+  const fecha = validarReparcelamento(parcelas, 20000);
   assert.equal(fecha.fecha, true);
   assert.equal(fecha.diferencaEmCentavos, 0);
   assert.equal(fecha.podeSalvar, true);
 
-  const falta = validarReparcelamento(parcelas, 25000, hoje);
+  const falta = validarReparcelamento(parcelas, 25000);
   assert.equal(falta.diferencaEmCentavos, 5000);
   assert.equal(falta.podeSalvar, false);
 
-  const sobra = validarReparcelamento(parcelas, 15000, hoje);
+  const sobra = validarReparcelamento(parcelas, 15000);
   assert.equal(sobra.diferencaEmCentavos, -5000);
   assert.equal(sobra.podeSalvar, false);
 });
 
 test("aponta parcela sem valor mesmo com a soma fechando", () => {
-  const hoje = dia(2026, 8, 12);
   const resultado = validarReparcelamento(
-    [
-      parcela(1, 200, dia(2026, 9, 12)),
-      parcela(2, 0, dia(2026, 10, 12)),
-    ],
+    [parcela(1, 200, dia(2026, 9, 12)), parcela(2, 0, dia(2026, 10, 12))],
     20000,
-    hoje,
   );
 
   assert.equal(resultado.fecha, true);
@@ -107,43 +101,29 @@ test("aponta parcela sem valor mesmo com a soma fechando", () => {
   assert.equal(resultado.podeSalvar, false);
 });
 
-test("recusa vencimento no passado e aceita o dia de hoje", () => {
-  const hoje = new Date(2026, 7, 12, 15, 30);
-
-  const ontem = validarReparcelamento(
-    [parcela(1, 100, dia(2026, 8, 11))],
+test("vencimento no passado é aceito", () => {
+  // Reparcelar é o que se faz com título vencido: exigir data futura impedia
+  // até manter a data da parcela que venceu (o IPVA #1330 do Demir).
+  const resultado = validarReparcelamento(
+    [parcela(1, 100, dia(2019, 3, 4))],
     10000,
-    hoje,
   );
-  assert.deepEqual(ontem.vencimentoInvalido, [1]);
-  assert.equal(ontem.podeSalvar, false);
 
-  // Vencer hoje é legítimo: o título está em aberto até o fim do dia.
-  const agora = validarReparcelamento(
-    [parcela(1, 100, dia(2026, 8, 12))],
-    10000,
-    hoje,
-  );
-  assert.deepEqual(agora.vencimentoInvalido, []);
-  assert.equal(agora.podeSalvar, true);
+  assert.deepEqual(resultado.semVencimento, []);
+  assert.equal(resultado.podeSalvar, true);
 });
 
 test("parcela sem data escolhida não salva", () => {
-  const resultado = validarReparcelamento(
-    [parcela(1, 100, undefined)],
-    10000,
-    dia(2026, 8, 12),
-  );
+  const resultado = validarReparcelamento([parcela(1, 100, undefined)], 10000);
 
-  assert.deepEqual(resultado.vencimentoInvalido, [1]);
+  assert.deepEqual(resultado.semVencimento, [1]);
   assert.equal(resultado.podeSalvar, false);
 });
 
 test("recusa mais parcelas do que o teto de sanidade", () => {
-  const hoje = dia(2026, 8, 12);
   const parcelas = gerarParcelas(6100, 61, dia(2026, 9, 12));
 
-  const resultado = validarReparcelamento(parcelas, 6100, hoje);
+  const resultado = validarReparcelamento(parcelas, 6100);
 
   assert.equal(resultado.fecha, true);
   assert.equal(resultado.podeSalvar, false);

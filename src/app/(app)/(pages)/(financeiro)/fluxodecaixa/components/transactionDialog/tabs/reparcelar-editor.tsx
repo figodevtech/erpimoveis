@@ -102,12 +102,9 @@ export function ReparcelarEditor({
     [baixadas],
   );
 
-  const hoje = hojeSemHora();
   const resultado = useMemo(
-    () => validarReparcelamento(parcelas, alvoEmCentavos, hoje),
-    // `hoje` é recriado a cada render de propósito: a validação é barata e a data
-    // não pode congelar numa tela que fica aberta virando o dia.
-    [parcelas, alvoEmCentavos, hoje],
+    () => validarReparcelamento(parcelas, alvoEmCentavos),
+    [parcelas, alvoEmCentavos],
   );
 
   const { somaEmCentavos, diferencaEmCentavos: diferenca, fecha } = resultado;
@@ -254,7 +251,9 @@ export function ReparcelarEditor({
       <ul className="space-y-2">
         {parcelas.map((parcela, indice) => {
           const semValor = resultado.semValor.includes(indice + 1);
-          const vencimentoRuim = resultado.vencimentoInvalido.includes(indice + 1);
+          const semVencimento = resultado.semVencimento.includes(indice + 1);
+          const vencida =
+            parcela.vencimento != null && parcela.vencimento < hojeSemHora();
 
           return (
             <li
@@ -292,18 +291,24 @@ export function ReparcelarEditor({
                   <Label htmlFor={`vencimento-${parcela.id}`} className="text-xs">
                     Vencimento
                   </Label>
+                  {/* Sem `min`: renegociar um título vencido é justamente quando
+                      se reparcela, e a data que já passou precisa continuar
+                      escolhível. */}
                   <DatePicker
                     value={paraValorDeInputDate(parcela.vencimento)}
-                    min={paraValorDeInputDate(hoje)}
                     disabled={salvando}
-                    className={vencimentoRuim ? "border-destructive" : undefined}
+                    className={semVencimento ? "border-destructive" : undefined}
                     onChange={(valor) =>
                       atualizarParcela(parcela.id, { vencimento: dataDoInput(valor) })
                     }
                   />
-                  {vencimentoRuim ? (
+                  {semVencimento ? (
                     <p className="text-[11px] text-destructive">
-                      Escolha uma data de hoje em diante.
+                      Escolha a data de vencimento.
+                    </p>
+                  ) : vencida ? (
+                    <p className="text-[11px] text-amber-600">
+                      Vencida — o título nasce em atraso.
                     </p>
                   ) : null}
                 </div>
@@ -360,7 +365,7 @@ export function ReparcelarEditor({
             <AlertTriangle className="h-4 w-4" />
           )}
           {fecha
-            ? resultado.semValor.length || resultado.vencimentoInvalido.length
+            ? resultado.semValor.length || resultado.semVencimento.length
               ? "A soma fecha, mas há parcela com dado inválido."
               : "A soma bate com o que está em aberto."
             : diferenca > 0

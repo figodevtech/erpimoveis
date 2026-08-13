@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { XMLParser } from "fast-xml-parser";
 import { PERMS, requireAny } from "@/app/api/_authz/perms";
+import { extrairCobranca } from "@/lib/nfe/duplicatas";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -126,6 +127,9 @@ export async function POST(req: NextRequest) {
     const dest = infNFe.dest || {};
     const total = infNFe.total?.ICMSTot || {};
     const items = Array.isArray(infNFe.det) ? infNFe.det : [infNFe.det];
+    // A cobrança é o parcelamento que o fornecedor já emitiu. Sem ela, a tela de
+    // entrada pedia para digitar de novo o que estava no XML.
+    const cobranca = extrairCobranca(infNFe);
 
     const result = {
       // Chave de acesso
@@ -182,6 +186,10 @@ export async function POST(req: NextRequest) {
         valorICMS: total.vICMS || null,
         valorIPI: total.vIPI || null,
       },
+
+      // Cobrança (grupo `cobr`): fatura e duplicatas, quando a nota é a prazo.
+      fatura: cobranca.fatura,
+      duplicatas: cobranca.duplicatas,
 
       // Itens da nota
       itens: items
