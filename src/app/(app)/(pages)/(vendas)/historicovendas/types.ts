@@ -95,6 +95,17 @@ export interface VendaComItens {
   acrescimo_financeiro_tipo?: "FIXO" | "PORCENTAGEM" | null;
   acrescimo_financeiro_valor?: number | null;
   forma_pagamento?: string | null;
+  /** Formas previstas com valor e parcelas, como combinadas no fechamento. */
+  pagamentos_previstos?: Array<{
+    metodo: string;
+    valor: number;
+    parcelas?: number | null;
+  }> | null;
+  /** Orientações deixadas ao financeiro no fechamento da venda. */
+  descricao_financeiro?: string | null;
+  /** Garantia prometida ao cliente. */
+  garantia?: string | null;
+  parcelas_pagamento?: number | null;
   sub_total: number;
   observacoes?: string | null;
   observacoes_fiscais?: string | null;

@@ -9,6 +9,8 @@ import { requireVendasAccess, requireVendasCreate } from "@/app/api/_authz/perms
 import { carregarAutores } from "@/lib/movement-authors";
 import { syncPendingMercadoLivreStock } from "@/lib/integrations/mercadolivre-stock-sync";
 import { buscarModoBaixaEstoqueOS } from "@/lib/ordens/estoque-os";
+import { normalizarDadosParaFinanceiro } from "@/lib/financeiro/dados-para-financeiro";
+import type { PlannedPayment } from "@/lib/payment-methods";
 
 type Status =
   | "ORCAMENTO"
@@ -48,6 +50,10 @@ type VendaPostBody = {
   vendedor: string; // uuid
   status: string; // enum_status_venda, ex: 'ABERTA', 'FINALIZADA', etc.
   formaPagamento?: string | null;
+  /** O que a venda manda ao financeiro; ver lib/financeiro/dados-para-financeiro. */
+  pagamentosPrevistos?: PlannedPayment[] | null;
+  descricaoFinanceiro?: string | null;
+  garantia?: string | null;
   descontoTipo?: string | null; // enum_tipo_desconto_venda
   descontoValor?: number | null;
   categoriaVendaId?: number | null;
@@ -751,11 +757,26 @@ export async function POST(req: Request) {
       );
     }
 
+    /*
+     * O que a venda manda ao financeiro, do mesmo jeito que a OS manda: formas
+     * previstas com valor e parcelas, orientação da negociação e garantia.
+     *
+     * A soma não é conferida contra o total aqui: o total já foi gravado pela
+     * `fn_criar_venda_com_itens`, e recusar a venda agora deixaria os itens
+     * criados sem os dados do financeiro. Quem fecha a conta é o diálogo, antes
+     * de enviar.
+     */
+    const dadosFinanceiro = await normalizarDadosParaFinanceiro(body, null);
+    if ("erro" in dadosFinanceiro) {
+      return NextResponse.json({ error: dadosFinanceiro.erro, vendaId }, { status: 400 });
+    }
+
     if (body.formaPagamento !== undefined) {
       const { error: formaPagamentoError } = await supabaseAdmin
         .from("venda")
         .update({
           forma_pagamento: body.formaPagamento || null,
+          ...dadosFinanceiro.colunas,
           vendedor: session.user.id,
           categoriavendaid: categoriaVendaId,
           updatedat: new Date().toISOString(),
@@ -776,6 +797,7 @@ export async function POST(req: Request) {
       const { error: vendedorError } = await supabaseAdmin
         .from("venda")
         .update({
+          ...dadosFinanceiro.colunas,
           vendedor: session.user.id,
           categoriavendaid: categoriaVendaId,
           updatedat: new Date().toISOString(),

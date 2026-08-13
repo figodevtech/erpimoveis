@@ -9,6 +9,8 @@ import { auth } from "@/lib/auth";
 import { requireVendasAccess, requireVendasDelete, requireVendasEdit } from "@/app/api/_authz/perms";
 import { syncPendingMercadoLivreStock } from "@/lib/integrations/mercadolivre-stock-sync";
 import { calculateFinancialTotal, sanitizeFinancialSurchargeType } from "@/lib/financial-surcharge";
+import { normalizarDadosParaFinanceiro } from "@/lib/financeiro/dados-para-financeiro";
+import type { PlannedPayment } from "@/lib/payment-methods";
 
 type Status =
   | "ORCAMENTO"
@@ -103,6 +105,10 @@ const VENDA_SELECT = `
   observacoes,
   observacoes_fiscais,
   forma_pagamento,
+  pagamentos_previstos,
+  descricao_financeiro,
+  garantia,
+  parcelas_pagamento,
   sub_total,
   itens:vendaproduto (
     id,
@@ -151,6 +157,10 @@ type VendaPatchBody = {
   acrescimoFinanceiroTipo?: string | null;
   acrescimoFinanceiroValor?: number | null;
   formaPagamento?: string | null;
+  /** O que a venda manda ao financeiro; ver lib/financeiro/dados-para-financeiro. */
+  pagamentosPrevistos?: PlannedPayment[] | null;
+  descricaoFinanceiro?: string | null;
+  garantia?: string | null;
   subTotal?: number;
   valorTotal?: number;
   dataVenda?: string | null; // ISO string
@@ -335,6 +345,9 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       acrescimoFinanceiroTipo,
       acrescimoFinanceiroValor,
       formaPagamento,
+      pagamentosPrevistos,
+      descricaoFinanceiro,
+      garantia,
       subTotal,
       valorTotal,
       dataVenda,
@@ -359,6 +372,9 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       acrescimoFinanceiroTipo === undefined &&
       acrescimoFinanceiroValor === undefined &&
       formaPagamento === undefined &&
+      pagamentosPrevistos === undefined &&
+      descricaoFinanceiro === undefined &&
+      garantia === undefined &&
       subTotal === undefined &&
       valorTotal === undefined &&
       dataVenda === undefined &&
@@ -689,6 +705,20 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       updatePayload.acrescimo_financeiro_valor = normalizedValue;
     }
     if (formaPagamento !== undefined) updatePayload.forma_pagamento = formaPagamento;
+
+    /*
+     * Sem conferir a soma contra o total: a edição altera desconto, frete e itens
+     * no mesmo request, e o total daqui a duas linhas não é o que está gravado.
+     * Cobrar o fechamento contra o valor antigo recusaria alteração legítima.
+     */
+    const dadosFinanceiro = await normalizarDadosParaFinanceiro(
+      { pagamentosPrevistos, descricaoFinanceiro, garantia },
+      null,
+    );
+    if ("erro" in dadosFinanceiro) {
+      return NextResponse.json({ error: dadosFinanceiro.erro }, { status: 400 });
+    }
+    Object.assign(updatePayload, dadosFinanceiro.colunas);
     if (subTotal !== undefined || normalizedItems) {
       if (!Number.isFinite(Number(resolvedSubTotal)) || Number(resolvedSubTotal) < 0) {
         return NextResponse.json({ error: "Subtotal inválido." }, { status: 400 });

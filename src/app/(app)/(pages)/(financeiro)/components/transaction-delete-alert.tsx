@@ -17,6 +17,15 @@ import {
 
 type ImpactTarget = { tipo: "OS" | "VENDA"; id: number };
 type Bloqueio = { bloqueado: true; motivo: string; quantidade?: number };
+/** Título liquidado: não sai enquanto o pagamento existir, mas dá para tirá-lo do fluxo. */
+type Liquidado = {
+  bloqueado: true;
+  estornavel: true;
+  motivo: string;
+  sentido: "RECEBER" | "PAGAR";
+  valorReaberto: number;
+  acrescimos: number;
+};
 /** Antecipação que pode ser desfeita: excluí-la reabre os títulos que liquidou. */
 type Adiantamento = {
   bloqueado: boolean;
@@ -58,17 +67,25 @@ export function TransactionDeleteAlert({
   transactionId,
   onDelete,
   onDeleteGrupo,
+  onEstornar,
 }: {
   children: ReactNode;
   transactionId: number;
   onDelete: (id: number) => void;
   /** Desfazer o pagamento múltiplo inteiro, quando a linha pertence a um. */
   onDeleteGrupo?: (grupoId: number) => void;
+  /**
+   * Tirar do fluxo de caixa. Sem esta prop a recusa de título liquidado apenas
+   * explica o motivo — é o caso das telas que listam transação sem oferecer a
+   * operação, onde um botão levaria a lugar nenhum.
+   */
+  onEstornar?: (id: number) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [targets, setTargets] = useState<ImpactTarget[]>([]);
   const [bloqueio, setBloqueio] = useState<Bloqueio | null>(null);
+  const [liquidado, setLiquidado] = useState<Liquidado | null>(null);
   const [adiantamento, setAdiantamento] = useState<Adiantamento | null>(null);
   const [grupo, setGrupo] = useState<PagamentoMultiplo | null>(null);
   const [falhou, setFalhou] = useState<string | null>(null);
@@ -80,6 +97,7 @@ export function TransactionDeleteAlert({
     setLoading(true);
     setTargets([]);
     setBloqueio(null);
+    setLiquidado(null);
     setAdiantamento(null);
     setGrupo(null);
     setFalhou(null);
@@ -97,6 +115,7 @@ export function TransactionDeleteAlert({
 
       setTargets(Array.isArray(payload.targets) ? payload.targets : []);
       setBloqueio(payload?.adiantamento?.bloqueado ? payload.adiantamento : null);
+      setLiquidado(payload?.liquidado ?? null);
       setAdiantamento(payload?.adiantamento?.desfaz ? payload.adiantamento : null);
       setGrupo(payload?.pagamentoMultiplo ?? null);
     } catch {
@@ -108,12 +127,20 @@ export function TransactionDeleteAlert({
 
   const hasImpact = targets.length > 0;
   // O grupo bloqueado usa o mesmo caminho do adiantamento: não há o que prosseguir.
-  const travado = bloqueio ?? (grupo?.bloqueado ? { bloqueado: true as const, motivo: grupo.motivo ?? "" } : null);
+  const travado =
+    bloqueio ??
+    (grupo?.bloqueado ? { bloqueado: true as const, motivo: grupo.motivo ?? "" } : null) ??
+    liquidado;
+  // Único bloqueio com saída na própria tela: em vez de só recusar, o diálogo
+  // oferece o passo que destrava — tirar do fluxo e reabrir o título.
+  const podeEstornar = Boolean(travado && liquidado && travado === liquidado && onEstornar);
   const desfazGrupo = Boolean(grupo && !grupo.bloqueado && onDeleteGrupo);
 
   const reabrePara = adiantamento?.sentido === "PAGAR" ? "a pagar" : "a receber";
 
-  const titulo = travado
+  const titulo = podeEstornar
+    ? "Esta transação está liquidada"
+    : travado
     ? "Esta transação não pode ser excluída"
     : falhou
       ? "Não foi possível verificar"
@@ -138,6 +165,26 @@ export function TransactionDeleteAlert({
                   <Loader2 className="h-4 w-4 animate-spin" /> Verificando o impacto da
                   exclusão...
                 </span>
+              ) : podeEstornar && liquidado ? (
+                <>
+                  <span className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-amber-700 dark:text-amber-300">
+                    <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span className="min-w-0">
+                      Este título está liquidado e o pagamento aparece no fluxo de caixa.
+                      Excluí-lo apagaria a dívida junto com o pagamento — primeiro ele sai
+                      do fluxo e volta a{" "}
+                      <strong>{liquidado.sentido === "PAGAR" ? "a pagar" : "a receber"}</strong>.
+                    </span>
+                  </span>
+                  {liquidado.acrescimos > 0 ? (
+                    <span className="block">
+                      Os juros lançados na baixa saem junto com ela: o título reabre valendo{" "}
+                      <strong>{moeda(liquidado.valorReaberto)}</strong>, sem os{" "}
+                      {moeda(liquidado.acrescimos)} de acréscimo.
+                    </span>
+                  ) : null}
+                  <span>Depois disso ele pode ser excluído, se for o caso.</span>
+                </>
               ) : travado ? (
                 <span className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-destructive">
                   <Ban className="mt-0.5 h-4 w-4 shrink-0" />
@@ -215,7 +262,11 @@ export function TransactionDeleteAlert({
             prosseguir, e um botão apagado convida a insistir. Falha na
             verificação apenas desabilita — o problema pode ser momentâneo.
           */}
-          {travado ? null : (
+          {podeEstornar ? (
+            <AlertDialogAction onClick={() => onEstornar?.(transactionId)}>
+              Excluir do fluxo de caixa
+            </AlertDialogAction>
+          ) : travado ? null : (
             <AlertDialogAction
               disabled={loading || Boolean(falhou)}
               onClick={() =>

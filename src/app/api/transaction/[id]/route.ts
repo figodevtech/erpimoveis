@@ -416,7 +416,8 @@ async function validarEdicaoDeTransacao(id: string, body: any) {
    * e a revalidação do status da OS/venda. Era um caminho de baixa sem auditoria.
    *
    * Dar baixa é `POST /[id]/baixar` (a ação "Pago"), que passa pela RPC.
-   * Desfazer baixa não existe no sistema: o caminho é excluir e relançar.
+   * Desfazer é `POST /[id]/estornar-baixa` ("Excluir do fluxo de caixa"), que
+   * devolve o título para em aberto e registra o estorno no mesmo livro.
    */
   if (body?.pendente !== undefined) {
     const desejado = body.pendente === true || body.pendente === "true";
@@ -427,7 +428,7 @@ async function validarEdicaoDeTransacao(id: string, body: any) {
         {
           error: atualPendente
             ? "Use a ação “Pago” para dar baixa: ela registra data, autor e histórico."
-            : "Uma transação já baixada não volta a ser lançamento futuro. Exclua e lance de novo.",
+            : "Use “Excluir do fluxo de caixa” para reabrir o título: ela desfaz o pagamento e registra o estorno.",
         },
         { status: 400 },
       );
@@ -657,12 +658,37 @@ export async function DELETE(_: Request, ctx: Params) {
 
     const { data: transaction, error: transactionError } = await supabaseAdmin
       .from("transacao")
-      .select("id, tipo, ordemservicoid, vendaid, evento_financeiro_id, adiantamento_id, eh_adiantamento")
+      .select("id, tipo, pendente, ordemservicoid, vendaid, evento_financeiro_id, adiantamento_id, eh_adiantamento")
       .eq("id", id)
       .maybeSingle();
     if (transactionError) throw transactionError;
     if (!transaction) {
       return NextResponse.json({ error: "Transação não encontrada." }, { status: 404 });
+    }
+
+    /*
+     * Título liquidado não se exclui.
+     *
+     * A exclusão apaga o título, não a baixa. Num lançamento de OS ou venda isso
+     * passava despercebido porque o documento regera o título; num avulso ou
+     * migrado, some a dívida junto com o pagamento — e o saldo do banco sobe
+     * sozinho, sem que nada tenha acontecido no mundo. Foi assim que a Demir
+     * perdeu um título a pagar de R$ 311,36 já quitado.
+     *
+     * Tirar do fluxo de caixa é o passo que faltava: desfeito o pagamento, o
+     * título volta a em aberto e aí já não há dinheiro para se perder junto.
+     *
+     * A antecipação é exceção porque ela não é baixa de si mesma: excluí-la é
+     * justamente a operação que devolve os títulos, logo abaixo.
+     */
+    if (transaction.pendente === false && !transaction.eh_adiantamento) {
+      return NextResponse.json(
+        {
+          error:
+            "Esta transação está liquidada e aparece no fluxo de caixa. Tire-a do fluxo primeiro: o título volta a ficar em aberto, e aí pode ser excluído.",
+        },
+        { status: 409 },
+      );
     }
 
     /*

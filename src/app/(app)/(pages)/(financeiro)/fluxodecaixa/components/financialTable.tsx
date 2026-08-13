@@ -43,6 +43,7 @@ import {
   Plus,
   Pencil,
   Trash2Icon,
+  Undo2,
 } from "lucide-react";
 import formatarEmReal from "@/utils/formatarEmReal";
 import TransactionDialog from "./transactionDialog/transactionDialog";
@@ -58,6 +59,10 @@ import { BaixaMultiplaFooter } from "./baixa-multipla-footer";
 import { BaixaMultiplaDialog } from "./baixa-multipla-dialog";
 import { AdiantamentoDialog } from "./adiantamento-dialog";
 import { TransactionDeleteAlert } from "../../components/transaction-delete-alert";
+import {
+  TransactionEstornoAlert,
+  estornarBaixa,
+} from "../../components/transaction-estorno-alert";
 import { excluirPagamentoMultiplo } from "../../components/pagamento-multiplo";
 import { toast } from "@/lib/toast";
 import axios, { isAxiosError } from "axios";
@@ -329,6 +334,33 @@ export default function FinancialTable({
       toast.success("Pagamento múltiplo desfeito.");
     } catch (erro) {
       toast.error(erro instanceof Error ? erro.message : "Não foi possível excluir o pagamento.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  /**
+   * Tira a transação do fluxo de caixa: desfaz a baixa e devolve o título para
+   * em aberto. É o passo obrigatório antes de excluir um título liquidado —
+   * excluir direto apagaria a dívida junto com o pagamento.
+   */
+  const handleEstornarBaixa = async (id: number) => {
+    if (!canEdit) return;
+    setIsDeleting(true);
+    try {
+      const { acrescimos_removidos } = await estornarBaixa(id);
+      const removidos = Number(acrescimos_removidos ?? 0);
+      handleGetTransactions(pagination.page, pagination.limit);
+      handleGetStatusCounter();
+      toast.success(
+        removidos > 0
+          ? `Título reaberto. Os ${formatarEmReal(removidos)} de acréscimo saíram junto com a baixa.`
+          : "Título reaberto: voltou a ficar em aberto.",
+      );
+    } catch (erro) {
+      toast.error(
+        erro instanceof Error ? erro.message : "Não foi possível tirar do fluxo de caixa.",
+      );
     } finally {
       setIsDeleting(false);
     }
@@ -860,11 +892,37 @@ export default function FinancialTable({
                           </DropdownMenuItem>
                         )}
 
+                        {/*
+                          Fica ao lado de "Pago" e é o seu inverso: um dá baixa,
+                          o outro a desfaz. A antecipação não aparece aqui —
+                          liquidada ela é, mas quem a desfaz é a exclusão, que
+                          devolve os títulos que ela pagou.
+                        */}
+                        {canEdit &&
+                          !t.pendente &&
+                          !t.eh_adiantamento &&
+                          t.adiantamento_id == null &&
+                          t.pagamento_multiplo_id == null && (
+                          <TransactionEstornoAlert
+                            transactionId={t.id}
+                            sentido={t.tipo === Tipo_transacao.RECEITA ? "RECEBER" : "PAGAR"}
+                            valorReaberto={Number(t.valor_base ?? t.valor ?? 0)}
+                            acrescimos={Number(t.valor_acrescimos ?? 0)}
+                            onEstornar={handleEstornarBaixa}
+                          >
+                            <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                              <Undo2 className="mr-2 h-4 w-4" />
+                              Excluir do fluxo de caixa
+                            </DropdownMenuItem>
+                          </TransactionEstornoAlert>
+                        )}
+
                         {canDelete ? (
                           <TransactionDeleteAlert
                             transactionId={t.id}
                             onDelete={handleDeleteTransaction}
                             onDeleteGrupo={handleDeleteGrupo}
+                            onEstornar={canEdit ? handleEstornarBaixa : undefined}
                           >
                             <DropdownMenuItem
                               onSelect={(e) => e.preventDefault()}
