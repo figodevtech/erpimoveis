@@ -51,6 +51,7 @@ function ItemCard({
       item={item}
       matchBy={match.matchBy}
       subtitle="Resultado da consulta de etiqueta"
+      showPurchaseValues
       onEdit={canEdit ? onEdit : undefined}
       onBaixa={canBaixa ? onBaixa : undefined}
     />
@@ -160,9 +161,9 @@ function RegistrarEtiquetaContent() {
       <form className="space-y-3 rounded-lg border bg-card p-4" onSubmit={submit}>
         <QrCodeInput
           id="consultar-etiqueta-compartilhada"
-          label="Etiqueta ou código de barras"
+          label="Etiqueta"
           value={code}
-          placeholder="Leia o QR Code ou informe o código"
+          placeholder="Leia o QR Code"
           loading={loading}
           loadingLabel="Consultando"
           uppercase

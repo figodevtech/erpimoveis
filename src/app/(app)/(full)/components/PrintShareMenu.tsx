@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ChevronDown, ImageDown, Loader2, Printer, Share2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { toBlob } from "html-to-image";
+import { toCanvas } from "html-to-image";
 
 type PrintShareMenuProps = {
   documentId: number | string;
@@ -18,15 +18,43 @@ type PrintShareMenuProps = {
   fixedHeight?: number;
 };
 
-const EXPORT_PIXEL_RATIO = 3;
 const DEFAULT_EXPORT_WIDTH = 794;
 const DEFAULT_TARGET_SELECTOR = "[data-print-export-target]";
 
 function detectMobile() {
+  if (typeof window === "undefined") return false;
   return (
     window.matchMedia("(hover: none) and (pointer: coarse)").matches ||
-    window.matchMedia("(max-width: 768px)").matches
+    window.matchMedia("(max-width: 768px)").matches ||
+    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
   );
+}
+
+/**
+ * Tetos de canvas do Safari no iOS: 16.7M px de área total e lado máximo de
+ * 4096 em aparelhos mais antigos. Estourar qualquer um dos dois não dá erro —
+ * o canvas volta em branco e o PNG sai quebrado. A margem abaixo é proposital.
+ */
+const MAX_CANVAS_SIDE = 4096;
+const MAX_CANVAS_AREA = 12_000_000;
+/** PNG de canvas em branco comprime para poucos KB, independente do tamanho. */
+const MIN_VALID_PNG_BYTES = 4_096;
+
+function safePixelRatio(width: number, height: number, mobile: boolean) {
+  const desejado = mobile ? 1.5 : 2;
+  if (!mobile) return desejado;
+
+  const porLado = Math.min(MAX_CANVAS_SIDE / width, MAX_CANVAS_SIDE / height);
+  const porArea = Math.sqrt(MAX_CANVAS_AREA / (width * height));
+  // Abaixo de 0.5 a folha fica ilegível; nesse ponto o documento é longo demais
+  // para virar uma imagem só e o caminho é imprimir.
+  return Math.max(0.5, Math.min(desejado, porLado, porArea));
+}
+
+function canvasToPngBlob(canvas: HTMLCanvasElement) {
+  return new Promise<Blob | null>((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), "image/png");
+  });
 }
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -38,8 +66,90 @@ function downloadBlob(blob: Blob, filename: string) {
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 15_000);
 }
+
+async function waitForImages(root: Element) {
+  const pending = Array.from(root.querySelectorAll("img"))
+    .filter((image) => !image.complete)
+    .map(
+      (image) =>
+        new Promise<void>((resolve) => {
+          image.addEventListener("load", () => resolve(), { once: true });
+          image.addEventListener("error", () => resolve(), { once: true });
+        }),
+    );
+
+  return Promise.race([
+    Promise.all(pending),
+    new Promise<void>((resolve) => window.setTimeout(resolve, 1_500)),
+  ]);
+}
+
+const PRINT_EXPORT_OVERRIDE_CSS = `
+  html[data-print-exporting] {
+    --os-scale: 1 !important;
+    --orc-scale: 1 !important;
+  }
+
+  html[data-print-exporting] .folha-scaler {
+    position: static !important;
+    width: 794px !important;
+    min-height: 1123px !important;
+    height: auto !important;
+    margin: 0 auto !important;
+    transform: none !important;
+    zoom: 1 !important;
+  }
+
+  html[data-print-exporting] .folha {
+    position: static !important;
+    width: 794px !important;
+    min-height: 1123px !important;
+    height: auto !important;
+    transform: none !important;
+    zoom: 1 !important;
+    box-shadow: none !important;
+    margin: 0 auto !important;
+  }
+
+  html[data-print-exporting] [data-print-pagination-root] {
+    width: 794px !important;
+    max-width: none !important;
+    margin: 0 auto !important;
+  }
+
+  html[data-print-exporting] .print-generated-holder {
+    position: static !important;
+    width: 794px !important;
+    min-height: 1123px !important;
+    height: auto !important;
+    margin: 0 auto !important;
+    transform: none !important;
+    zoom: 1 !important;
+  }
+
+  html[data-print-exporting] .print-generated-page {
+    position: static !important;
+    width: 794px !important;
+    min-height: 1123px !important;
+    height: 1123px !important;
+    transform: none !important;
+    zoom: 1 !important;
+    box-shadow: none !important;
+    margin: 0 auto !important;
+  }
+
+  html[data-print-exporting] [data-print-export-target] {
+    width: 794px !important;
+    max-width: none !important;
+    margin: 0 auto !important;
+    transform: none !important;
+    zoom: 1 !important;
+  }
+`;
 
 export function PrintShareMenu({
   documentId,
@@ -68,111 +178,176 @@ export function PrintShareMenu({
 
     const target = document.querySelector<HTMLElement>(targetSelector);
     if (!target) {
-      alert("Nao foi possivel localizar o documento para exportar.");
+      alert("Não foi possível localizar o documento para exportar.");
       return;
     }
 
     setIsExporting(true);
 
+    const rootEl = document.documentElement;
+    const prevOsScale = rootEl.style.getPropertyValue("--os-scale");
+    const prevOrcScale = rootEl.style.getPropertyValue("--orc-scale");
+
     try {
+      // 1. Temporarily prepare document at 100% scale for export
+      rootEl.setAttribute("data-print-exporting", "true");
+      rootEl.style.setProperty("--os-scale", "1");
+      rootEl.style.setProperty("--orc-scale", "1");
+
+      // 2. Wait for fonts, images and layout recalculation
       await document.fonts?.ready;
+      await waitForImages(target);
+      await new Promise((resolve) => window.requestAnimationFrame(resolve));
+      await new Promise((resolve) => window.requestAnimationFrame(resolve));
 
       const width = DEFAULT_EXPORT_WIDTH;
-      const height =
-        fixedHeight ??
+      const measuredHeight = Math.ceil(
         Math.max(
-          1123,
-          Math.ceil(target.scrollHeight || target.getBoundingClientRect().height),
-        );
+          target.scrollHeight,
+          target.offsetHeight,
+          target.getBoundingClientRect().height,
+        ),
+      );
+      const height = fixedHeight ?? Math.max(1123, measuredHeight);
 
-      const blob = await toBlob(target, {
-        backgroundColor: "#ffffff",
-        cacheBust: true,
-        pixelRatio: EXPORT_PIXEL_RATIO,
-        width,
-        height,
-        style: {
-          border: "0",
-          boxShadow: "none",
-          height: `${height}px`,
-          left: "0",
-          margin: "0",
-          minHeight: `${height}px`,
-          overflow: "visible",
-          position: "static",
-          right: "auto",
-          top: "0",
-          transform: "none",
-          width: `${width}px`,
-        },
-      });
+      const mobile = detectMobile();
 
-      if (!blob) {
+      // 3. Gerar o PNG.
+      // Não passamos canvasWidth/canvasHeight: o html-to-image multiplica esses
+      // valores pelo pixelRatio de novo, então mandá-los já multiplicados
+      // elevava o canvas ao quadrado do ratio (794x1123 @2 virava 3176x4492).
+      // No desktop passava; no iOS estourava o teto e devolvia canvas em branco.
+      const render = async (pixelRatio: number) => {
+        const canvas = await toCanvas(target, {
+          backgroundColor: "#ffffff",
+          cacheBust: true,
+          pixelRatio,
+          width,
+          height,
+          style: {
+            border: "0",
+            boxShadow: "none",
+            height: `${height}px`,
+            left: "0",
+            margin: "0",
+            minHeight: `${height}px`,
+            overflow: "visible",
+            position: "static",
+            right: "auto",
+            top: "0",
+            transform: "none",
+            width: `${width}px`,
+            zoom: "1",
+          },
+        });
+
+        return canvasToPngBlob(canvas);
+      };
+
+      const ratioInicial = safePixelRatio(width, height, mobile);
+      let blob = await render(ratioInicial);
+
+      // O iOS não avisa quando desiste do canvas: devolve um PNG válido, porém
+      // vazio. Só o tamanho do arquivo denuncia — vale uma segunda tentativa
+      // menor antes de desistir.
+      if (!blob || blob.size < MIN_VALID_PNG_BYTES) {
+        const ratioReduzido = Math.max(0.5, Math.min(1, ratioInicial * 0.6));
+        blob = await render(ratioReduzido);
+      }
+
+      if (!blob || blob.size < MIN_VALID_PNG_BYTES) {
         throw new Error("Falha ao gerar a imagem.");
       }
 
       const filename = `${filenamePrefix}-${documentId}.png`;
       const file = new File([blob], filename, { type: "image/png" });
+
       const canShareFile =
         typeof navigator !== "undefined" &&
         "canShare" in navigator &&
         navigator.canShare?.({ files: [file] });
 
-      if (isMobile && canShareFile) {
-        await navigator.share({ files: [file] });
-        return;
+      if (mobile && canShareFile) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: filename,
+          });
+          return;
+        } catch (shareErr: any) {
+          if (shareErr?.name === "AbortError") {
+            return;
+          }
+          console.warn("Compartilhamento nativo falhou, baixando imagem:", shareErr);
+        }
       }
 
       downloadBlob(blob, filename);
     } catch (error) {
       console.error("Erro ao exportar documento como imagem:", error);
-      alert("Nao foi possivel exportar a imagem do documento.");
+      alert("Não foi possível exportar a imagem do documento.");
     } finally {
+      rootEl.removeAttribute("data-print-exporting");
+      if (prevOsScale) {
+        rootEl.style.setProperty("--os-scale", prevOsScale);
+      } else {
+        rootEl.style.removeProperty("--os-scale");
+      }
+      if (prevOrcScale) {
+        rootEl.style.setProperty("--orc-scale", prevOrcScale);
+      } else {
+        rootEl.style.removeProperty("--orc-scale");
+      }
+      window.dispatchEvent(new Event("resize"));
       setIsExporting(false);
     }
   }
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          className="print:hidden !border-slate-300 !bg-white !text-slate-900 hover:!bg-slate-100 hover:!text-slate-900 hover:cursor-pointer"
-        >
-          <Share2 className="w-4 h-4 mr-2" />
-          Compartilhar
-          <ChevronDown className="w-4 h-4 ml-1" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-44">
-        <DropdownMenuItem
-          disabled={isExporting}
-          onSelect={(event) => {
-            event.preventDefault();
-            void exportImage();
-          }}
-          className="cursor-pointer"
-        >
-          {isExporting ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <ImageDown className="w-4 h-4" />
-          )}
-          {isExporting
-            ? "Gerando..."
-            : isMobile
-              ? "Compartilhar imagem"
-              : "Baixar imagem"}
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => window.print()}
-          className="cursor-pointer"
-        >
-          <Printer className="w-4 h-4" />
-          Imprimir
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <style>{PRINT_EXPORT_OVERRIDE_CSS}</style>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            className="print:hidden !border-slate-300 !bg-white !text-slate-900 hover:!bg-slate-100 hover:!text-slate-900 hover:cursor-pointer"
+          >
+            <Share2 className="w-4 h-4 mr-2" />
+            Compartilhar
+            <ChevronDown className="w-4 h-4 ml-1" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuItem
+            disabled={isExporting}
+            onSelect={(event) => {
+              event.preventDefault();
+              void exportImage();
+            }}
+            className="cursor-pointer"
+          >
+            {isExporting ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <ImageDown className="w-4 h-4" />
+            )}
+            {isExporting
+              ? "Gerando..."
+              : isMobile
+                ? "Compartilhar imagem"
+                : "Baixar imagem"}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => window.print()}
+            className="cursor-pointer"
+          >
+            <Printer className="w-4 h-4" />
+            Imprimir
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
   );
 }
+
