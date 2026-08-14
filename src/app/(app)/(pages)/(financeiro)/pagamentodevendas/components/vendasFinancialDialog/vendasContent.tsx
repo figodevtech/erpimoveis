@@ -18,6 +18,7 @@ import ValueInput from "@/components/ui/value-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ChevronDown, Eye, ExternalLink, FileText, Loader, Loader2, Package, Paperclip, Pencil, Percent, ReceiptText, Trash2Icon } from "lucide-react";
 import { TransactionDeleteAlert } from "../../../components/transaction-delete-alert";
+import { estornarBaixa } from "../../../components/transaction-estorno-alert";
 import { excluirPagamentoMultiplo } from "../../../components/pagamento-multiplo";
 import { toast } from "@/lib/toast";
 import { formatDate } from "@/utils/formatDate";
@@ -143,6 +144,23 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
   };
   const isImageAnexo = (anexo: VendaAnexo) => String(anexo.tipo ?? "").startsWith("image/");
   const paymentMethods = (() => {
+    /*
+     * `pagamentos_previstos` é a fonte quando existe: guarda forma, valor e
+     * parcelas separados, e é de lá que sai o "3x" que `forma_pagamento` nunca
+     * soube dizer. Vendas anteriores à coluna caem no texto de sempre.
+     */
+    if (Array.isArray(venda?.pagamentos_previstos) && venda.pagamentos_previstos.length > 0) {
+      return venda.pagamentos_previstos.map((pagamento) => {
+        const key = String(pagamento?.metodo ?? "").toUpperCase();
+        const parcelas = Number(pagamento?.parcelas ?? 0);
+        return {
+          method: PAYMENT_METHOD_LABELS[key] ?? key,
+          amount: formatarEmReal(Number(pagamento?.valor ?? 0)),
+          parcelas: parcelas > 1 ? `${parcelas}x` : null,
+        };
+      });
+    }
+
     const raw = String(venda?.forma_pagamento ?? "").trim();
     if (!raw) return [];
 
@@ -153,6 +171,7 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
         return {
           method: PAYMENT_METHOD_LABELS[key] ?? method.trim(),
           amount: amountParts.join(":").trim() || null,
+          parcelas: null as string | null,
         };
       });
     }
@@ -166,6 +185,7 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
         return {
           method: PAYMENT_METHOD_LABELS[key] ?? method,
           amount: null,
+          parcelas: null as string | null,
         };
       });
   })();
@@ -267,6 +287,33 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
       toast.success("Pagamento múltiplo desfeito.");
     } catch (erro) {
       toast.error(erro instanceof Error ? erro.message : "Não foi possível excluir o pagamento.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  /**
+   * Tira o pagamento do fluxo de caixa e devolve o título para em aberto.
+   *
+   * Pagamento de venda é quase sempre título liquidado, e liquidado não se
+   * exclui: a exclusão apagaria o título junto com o pagamento. Sem esta ação a
+   * tela ficaria só com a recusa, sem caminho.
+   */
+  const handleEstornarBaixa = async (id: number) => {
+    setIsDeleting(true);
+    try {
+      const { acrescimos_removidos } = await estornarBaixa(id);
+      const removidos = Number(acrescimos_removidos ?? 0);
+      handleGetTransactions(pagination.page);
+      toast.success(
+        removidos > 0
+          ? `Título reaberto. Os ${formatarEmReal(removidos)} de acréscimo saíram junto com a baixa.`
+          : "Título reaberto: voltou a ficar em aberto.",
+      );
+    } catch (erro) {
+      toast.error(
+        erro instanceof Error ? erro.message : "Não foi possível tirar do fluxo de caixa.",
+      );
     } finally {
       setIsDeleting(false);
     }
@@ -504,6 +551,11 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
                     {paymentMethods.map((item, index) => (
                       <div key={`${item.method}-${index}`} className="flex items-center justify-between gap-3 px-3 py-2 text-sm w-min border rounded-xl">
                         <span className="truncate font-medium">{item.method}</span>
+                        {item.parcelas ? (
+                          <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                            {item.parcelas}
+                          </span>
+                        ) : null}
                         <span className="shrink-0 text-muted-foreground">{item.amount ?? "Valor não informado"}</span>
                       </div>
                     ))}
@@ -514,6 +566,30 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
                     Nenhum método informado.
                   </div>
                 )}
+              </div>
+
+              {/*
+                O que o vendedor combinou e não está em número nenhum. Fica ao
+                lado dos métodos porque é a mesma conversa: como esta venda vai
+                ser cobrada, e o que foi prometido ao cliente.
+              */}
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                <div className="rounded-lg border bg-card p-4">
+                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    Descrição para o financeiro
+                  </span>
+                  <p className="mt-1 whitespace-pre-wrap break-words text-sm">
+                    {venda.descricao_financeiro?.trim() || "Nenhuma orientação informada."}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-card p-4">
+                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    Garantia
+                  </span>
+                  <p className="mt-1 whitespace-pre-wrap break-words text-sm">
+                    {venda.garantia?.trim() || "Nenhuma garantia informada."}
+                  </p>
+                </div>
               </div>
 
               {venda.observacoes_fiscais ? (
@@ -870,6 +946,7 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
                                   transactionId={t.id}
                                   onDelete={handleDeleteTransaction}
                                   onDeleteGrupo={handleDeleteGrupo}
+                                  onEstornar={handleEstornarBaixa}
                                 >
                                   <Button
                                     variant="default"

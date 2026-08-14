@@ -19,7 +19,7 @@ export async function GET(_: Request, { params }: Params) {
 
     const { data: transaction, error } = await supabaseAdmin
       .from("transacao")
-      .select("id, valor, valor_acrescimos, tipo, ordemservicoid, vendaid, evento_financeiro_id, adiantamento_id, eh_adiantamento, pagamento_multiplo_id")
+      .select("id, valor, valor_base, valor_acrescimos, tipo, pendente, ordemservicoid, vendaid, evento_financeiro_id, adiantamento_id, eh_adiantamento, pagamento_multiplo_id")
       .eq("id", id)
       .eq("is_deleted", false)
       .maybeSingle();
@@ -185,11 +185,41 @@ export async function GET(_: Request, { params }: Params) {
       }
     }
 
+    /*
+     * Título liquidado não sai: excluí-lo apagaria a dívida junto com o
+     * pagamento. Vem por último de propósito — antecipação e pagamento múltiplo
+     * também são liquidados, e a recusa deles é mais específica, dizendo qual
+     * operação desfaz aquele conjunto. Só sobra este aviso quando a baixa é
+     * desta transação sozinha, que é o caso em que estornar resolve.
+     */
+    const liquidado =
+      transaction.pendente === false &&
+      !transaction.eh_adiantamento &&
+      transaction.adiantamento_id == null &&
+      transaction.pagamento_multiplo_id == null
+        ? {
+            bloqueado: true as const,
+            estornavel: true as const,
+            motivo:
+              "Esta transação está liquidada e aparece no fluxo de caixa. Tire-a do fluxo primeiro: o título volta a ficar em aberto, e aí pode ser excluído.",
+            sentido:
+              String(transaction.tipo ?? "").toUpperCase() === "RECEITA"
+                ? ("RECEBER" as const)
+                : ("PAGAR" as const),
+            // Juros e multa saem junto com o pagamento que os gerou, então o
+            // título não reabre pelo valor que está na tela. Dizer por quanto
+            // ele volta evita a surpresa de ver outro número depois.
+            valorReaberto: Number(transaction.valor_base ?? transaction.valor ?? 0),
+            acrescimos: Number(transaction.valor_acrescimos ?? 0),
+          }
+        : null;
+
     return NextResponse.json({
       reabriraPagamento: targets.length > 0,
       targets,
       adiantamento,
       pagamentoMultiplo,
+      liquidado,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Erro ao verificar impacto da exclusão." }, { status: 500 });

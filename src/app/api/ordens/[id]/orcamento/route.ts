@@ -47,7 +47,7 @@ export async function GET(
     // Produtos com descrição
     const { data: osRow, error: osErr } = await supabase
       .from("ordemservico")
-      .select("subtotal, desconto_tipo, desconto, valor_frete, acrescimo_financeiro_tipo, acrescimo_financeiro_valor")
+      .select("status, subtotal, desconto_tipo, desconto, valor_frete, acrescimo_financeiro_tipo, acrescimo_financeiro_valor")
       .eq("id", osId)
       .maybeSingle();
 
@@ -128,11 +128,20 @@ export async function GET(
       desconto: toNum(r.desconto ?? 0),
     }));
 
+    // A tela precisa avisar antes de vincular um avulso: com a OS já em
+    // execução no modo EXECUCAO, o vínculo baixa o estoque na hora.
+    const statusOS = String((osRow as any)?.status ?? "").toUpperCase();
+    const baixaAoVincularAvulso =
+      ["EM_ANDAMENTO", "PAGAMENTO"].includes(statusOS) &&
+      (await buscarModoBaixaEstoqueOS()) === "EXECUCAO";
+
     return NextResponse.json(
       {
         produtos,
         produtosAvulsos,
         servicos,
+        statusOS,
+        baixaAoVincularAvulso,
         subtotal: toNum((osRow as any)?.subtotal ?? 0),
         descontoTipo: (osRow as any)?.desconto_tipo ?? null,
         desconto: toNum((osRow as any)?.desconto ?? 0),

@@ -38,7 +38,7 @@ export async function DELETE(_: Request, ctx: Params) {
     // 1) Buscar a transação para obter OS ou VENDA e tipo
     const { data: tx, error: txErr } = await supabaseAdmin
       .from("transacao")
-      .select("id, ordemservicoid, tipo, vendaid, evento_financeiro_id")
+      .select("id, ordemservicoid, tipo, vendaid, evento_financeiro_id, pendente, eh_adiantamento")
       .eq("id", id)
       .maybeSingle();
 
@@ -52,6 +52,25 @@ export async function DELETE(_: Request, ctx: Params) {
       return NextResponse.json(
         { error: "Transação não encontrada." },
         { status: 404 }
+      );
+    }
+
+    /*
+     * A mesma trava de `DELETE /api/transaction/[id]`: título liquidado não se
+     * exclui, porque a exclusão apaga o título e não a baixa.
+     *
+     * Precisa estar aqui também — esta é a rota que a tela de pagamentos de
+     * venda usa, e é justamente ela que lista título quase sempre liquidado.
+     * Uma trava só na outra rota deixaria a regra valendo por acaso, conforme a
+     * tela de onde o clique veio.
+     */
+    if (tx.pendente === false && !tx.eh_adiantamento) {
+      return NextResponse.json(
+        {
+          error:
+            "Esta transação está liquidada e aparece no fluxo de caixa. Tire-a do fluxo primeiro: o título volta a ficar em aberto, e aí pode ser excluído.",
+        },
+        { status: 409 },
       );
     }
 

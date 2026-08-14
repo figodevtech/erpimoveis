@@ -68,7 +68,11 @@ export function NfseFiscalForm({
 }) {
   const isNacional = modelo === "NACIONAL";
   const isCabedelo = modelo === "MUNICIPAL_CABEDELO";
-  const pendencias = [...new Set(servicos.flatMap((servico) => servico.pendenciasCadastro ?? []))];
+  const pendencias = [...new Map(
+    servicos
+      .flatMap((servico) => servico.pendenciasCadastro ?? [])
+      .map((pendencia) => [pendencia.mensagem, pendencia] as const),
+  ).values()];
   const total = servicos.reduce((sum, servico) => {
     const value = numeroMonetario(valores[servico.servicoid] ?? "");
     return sum + (Number.isFinite(value) ? value : 0);
@@ -108,7 +112,7 @@ export function NfseFiscalForm({
             <AlertTitle id="pendencias-cadastro-title">Cadastros obrigatórios incompletos</AlertTitle>
             <AlertDescription>
               <ul className="mt-2 list-disc space-y-1 pl-5">
-                {pendencias.map((pendencia) => <li key={pendencia}>{pendencia}</li>)}
+                {pendencias.map((pendencia) => <li key={pendencia.mensagem}>{pendencia.mensagem}</li>)}
               </ul>
             </AlertDescription>
           </Alert>

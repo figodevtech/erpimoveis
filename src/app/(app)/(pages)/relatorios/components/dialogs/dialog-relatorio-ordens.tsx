@@ -18,6 +18,8 @@ type Mode = "simples" | "financeiro";
 type Sector = { id: number; nome: string };
 /** Como as OS se distribuem nas folhas do PDF. */
 type PrintLayout = "VARIAS_OS" | "UMA_OS";
+/** Qual data da OS o período filtra. */
+type DateField = "entrada" | "conclusao";
 
 const STATUS_OPTIONS = [
   ["TODAS", "Todos os status"],
@@ -37,6 +39,7 @@ export function DialogRelatorioOrdens({ mode }: { mode: Mode }) {
   const financial = mode === "financeiro";
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [dateField, setDateField] = useState<DateField>("conclusao");
   const [status, setStatus] = useState("TODAS");
   const [sectorId, setSectorId] = useState("");
   const [orderId, setOrderId] = useState("");
@@ -67,6 +70,7 @@ export function DialogRelatorioOrdens({ mode }: { mode: Mode }) {
   const params = new URLSearchParams({ mode });
   if (dateFrom) params.set("dateFrom", dateFrom);
   if (dateTo) params.set("dateTo", dateTo);
+  params.set("campoData", dateField);
   if (status !== "TODAS") params.set("status", status);
   if (sectorId) params.set("setorId", sectorId);
   if (orderId) params.set("ordemId", orderId);
@@ -127,6 +131,20 @@ export function DialogRelatorioOrdens({ mode }: { mode: Mode }) {
 
         <ReportFiltersPanel>
           <ReportPeriod dateFrom={dateFrom} dateTo={dateTo} onDateFromChange={setDateFrom} onDateToChange={setDateTo} />
+          <Field label="Filtrar período por">
+            <Select value={dateField} onValueChange={(value) => setDateField(value as DateField)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="entrada">Data de entrada</SelectItem>
+                <SelectItem value="conclusao">Data de conclusão</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {dateField === "conclusao"
+                ? "Usa a conclusão da execução, carimbada pelo sistema. Ordens que ainda não foram concluídas ficam de fora."
+                : "Usa a data de abertura da OS."}
+            </p>
+          </Field>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Status da OS">
               <Select value={status} onValueChange={setStatus}>

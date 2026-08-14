@@ -10,6 +10,7 @@ import {
   RefreshCw,
   ShieldCheck,
 } from "lucide-react";
+import { CustomerDialog } from "@/app/(app)/(pages)/clientes/components/customerDialogRegister/customerDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,10 +27,12 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/lib/supabase";
 import { toast } from "@/lib/toast";
+import { NfseClienteCard } from "./nfse-cliente-card";
 import { NfseFiscalForm } from "./nfse-fiscal-form";
 import { NfseServiceCard } from "./nfse-service-card";
 import {
   EMPTY_CODIGOS,
+  type ClienteResumo,
   type CodigosFiscaisForm,
   type ModeloEmissao,
   type ServicoOS,
@@ -180,6 +183,8 @@ export function EmissaoNfseDialog({ open, onOpenChange, osId, onAfterGenerate }:
   const [servicos, setServicos] = useState<ServicoOS[]>([]);
   const [modeloEmissao, setModeloEmissao] = useState<ModeloEmissao | null>(null);
   const [padraoFiscal, setPadraoFiscal] = useState<Partial<CodigosFiscaisForm> | null>(null);
+  const [cliente, setCliente] = useState<ClienteResumo | null>(null);
+  const [editandoCliente, setEditandoCliente] = useState(false);
   const [selecionados, setSelecionados] = useState<number[]>([]);
   const [valores, setValores] = useState<ValoresServicosForm>({});
   const [revisando, setRevisando] = useState(false);
@@ -206,6 +211,7 @@ export function EmissaoNfseDialog({ open, onOpenChange, osId, onAfterGenerate }:
       setServicos(nextServices);
       setModeloEmissao(payload.modeloEmissao ?? null);
       setPadraoFiscal(payload.padraoFiscal ?? null);
+      setCliente(payload.cliente ?? null);
       setSelecionados((current) => current.filter((id) => nextServices.some((item) => item.servicoid === id)));
     } catch {
       toast.error("Erro ao carregar serviços da OS");
@@ -222,6 +228,8 @@ export function EmissaoNfseDialog({ open, onOpenChange, osId, onAfterGenerate }:
     setServicos([]);
     setModeloEmissao(null);
     setPadraoFiscal(null);
+    setCliente(null);
+    setEditandoCliente(false);
     setSelecionados([]);
     setValores({});
     setRevisando(false);
@@ -254,7 +262,9 @@ export function EmissaoNfseDialog({ open, onOpenChange, osId, onAfterGenerate }:
       toast.error("Selecione ao menos um serviço para continuar.");
       return;
     }
-    const pendencias = [...new Set(servicosSelecionados.flatMap((servico) => servico.pendenciasCadastro ?? []))];
+    const pendencias = [...new Set(
+      servicosSelecionados.flatMap((servico) => servico.pendenciasCadastro ?? []).map((item) => item.mensagem),
+    )];
     if (pendencias.length) {
       toast.error(`Preencha os dados obrigatórios antes de emitir: ${pendencias.join(", ")}.`);
       return;
@@ -270,6 +280,18 @@ export function EmissaoNfseDialog({ open, onOpenChange, osId, onAfterGenerate }:
     setValidationError(null);
     setRevisando(true);
   };
+
+  // O que falta no tomador vale para a nota inteira, não para um serviço só:
+  // junta a lista de todos os serviços e mostra uma vez, no card do cliente.
+  const pendenciasCliente = useMemo(
+    () => [...new Set(
+      servicos
+        .flatMap((servico) => servico.pendenciasCadastro ?? [])
+        .filter((pendencia) => pendencia.origem === "CLIENTE")
+        .map((pendencia) => pendencia.mensagem),
+    )],
+    [servicos],
+  );
 
   const atualizarCodigo = (campo: keyof CodigosFiscaisForm, valor: string) => {
     setValidationError(null);
@@ -350,6 +372,7 @@ export function EmissaoNfseDialog({ open, onOpenChange, osId, onAfterGenerate }:
   const currentStep: 1 | 2 | 3 = loading ? 3 : revisando ? 2 : 1;
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex h-[100dvh] w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none border-0 p-0 [&>[data-slot=dialog-close]]:grid [&>[data-slot=dialog-close]]:size-11 [&>[data-slot=dialog-close]]:place-items-center sm:h-[min(92dvh,880px)] sm:w-[calc(100vw-2rem)] sm:max-w-[1080px] sm:rounded-sm sm:border">
         <DialogHeader className="shrink-0 border-b bg-card pb-5 pl-5 pr-16 pt-[max(1.5rem,env(safe-area-inset-top))] text-left sm:pl-7 sm:pt-6">
@@ -376,6 +399,15 @@ export function EmissaoNfseDialog({ open, onOpenChange, osId, onAfterGenerate }:
             <div className="mx-auto max-w-4xl space-y-5">
               {!modeloEmissao && !fetching && <Alert variant="destructive" className="rounded-sm border-l-4"><AlertCircle aria-hidden="true" className="size-4" /><AlertTitle>Emissão não configurada</AlertTitle><AlertDescription>Preencha o código IBGE e o regime tributário da empresa.</AlertDescription></Alert>}
               {rejeitadas > 0 && !revisando && <Alert variant="destructive" className="rounded-sm border-l-4"><AlertCircle aria-hidden="true" className="size-4" /><AlertTitle>{rejeitadas} emissões rejeitadas</AlertTitle><AlertDescription>Os serviços rejeitados podem ser selecionados novamente após a correção.</AlertDescription></Alert>}
+
+              {cliente && (
+                <NfseClienteCard
+                  cliente={cliente}
+                  pendencias={pendenciasCliente}
+                  loading={loading}
+                  onEditar={() => setEditandoCliente(true)}
+                />
+              )}
 
               {revisando && modeloEmissao ? (
                 <NfseFiscalForm
@@ -423,5 +455,23 @@ export function EmissaoNfseDialog({ open, onOpenChange, osId, onAfterGenerate }:
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {/* O cadastro do tomador é a origem mais comum das pendências, então ele é
+        editável sem fechar a emissão — ao salvar, as pendências são revalidadas. */}
+    {cliente ? (
+      <CustomerDialog
+        customerId={cliente.id}
+        isOpen={editandoCliente}
+        setIsOpen={setEditandoCliente}
+        onUpdate={() => {
+          setEditandoCliente(false);
+          setValidationError(null);
+          void carregarServicos();
+        }}
+      >
+        <span className="hidden" />
+      </CustomerDialog>
+    ) : null}
+    </>
   );
 }

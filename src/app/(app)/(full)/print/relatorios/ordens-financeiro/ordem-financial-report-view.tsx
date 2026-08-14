@@ -141,6 +141,12 @@ function periodLabel(endpoint: string) {
   return "Todo o período";
 }
 
+/** Qual data da OS o período recortou — o filtro vem no próprio endpoint. */
+function periodAxisLabel(endpoint: string) {
+  const params = new URLSearchParams(endpoint.split("?")[1] ?? "");
+  return params.get("campoData") === "conclusao" ? "Conclusão da OS" : "Entrada da OS";
+}
+
 function quantityOf(value: Cell) {
   if (value == null || value === "") return "—";
   const parsed = Number(value);
@@ -413,6 +419,7 @@ export function OrdemFinancialReportView({
 
   const pages = useMemo(() => paginate(groups, umaPorPagina), [groups, umaPorPagina]);
   const periodo = useMemo(() => periodLabel(endpoint), [endpoint]);
+  const eixoPeriodo = useMemo(() => periodAxisLabel(endpoint), [endpoint]);
 
   if (loading) return <div className="flex min-h-screen items-center justify-center gap-2 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" />Organizando eventos por OS...</div>;
   if (error) return <div className="flex min-h-screen items-center justify-center p-8 text-destructive">{error}</div>;
@@ -444,7 +451,7 @@ export function OrdemFinancialReportView({
                     <p className="text-[9px] text-neutral-500">Snapshots econômicos vinculados às ordens de serviço</p>
                   </div>
                   <div className="shrink-0 text-right">
-                    <p className="text-[9px] uppercase text-neutral-500">Entrada da OS</p>
+                    <p className="text-[9px] uppercase text-neutral-500">{eixoPeriodo}</p>
                     <p className="text-[10px] font-bold tabular-nums">{periodo}</p>
                     <p className="text-[9px] text-neutral-500">Página 1 de {pages.length}</p>
                   </div>

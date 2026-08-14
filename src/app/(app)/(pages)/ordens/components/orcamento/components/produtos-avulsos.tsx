@@ -2,6 +2,16 @@
 
 import { useState } from "react";
 import { AlertTriangle, Link2, PackagePlus, Trash2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -27,12 +37,20 @@ type Props = {
    * então a coluna de ações some quando esta prop não vem.
    */
   onVincular?: (item: ItemProdutoAvulso, produtoId: number) => Promise<void>;
+  /**
+   * Aviso a confirmar antes de escolher o produto. Vem preenchido quando o
+   * vínculo vai baixar estoque na hora — OS já em execução no modo EXECUÇÃO.
+   */
+  avisoVinculo?: string | null;
 };
+
+/** Qual caminho de vínculo o usuário escolheu antes de confirmar o aviso. */
+type AcaoVinculo = { item: ItemProdutoAvulso; via: "SELECIONAR" | "CADASTRAR" };
 
 const money = (value: number) =>
   value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-export function ProdutosAvulsos({ itens, onAdicionar, onAtualizar, onRemover, onVincular }: Props) {
+export function ProdutosAvulsos({ itens, onAdicionar, onAtualizar, onRemover, onVincular, avisoVinculo }: Props) {
   const [open, setOpen] = useState(false);
   const [titulo, setTitulo] = useState("");
   const [valor, setValor] = useState(0);
@@ -40,6 +58,24 @@ export function ProdutosAvulsos({ itens, onAdicionar, onAtualizar, onRemover, on
   const [selectItem, setSelectItem] = useState<ItemProdutoAvulso | null>(null);
   const [cadastroItem, setCadastroItem] = useState<ItemProdutoAvulso | null>(null);
   const [vinculando, setVinculando] = useState(false);
+  const [acaoAConfirmar, setAcaoAConfirmar] = useState<AcaoVinculo | null>(null);
+
+  /**
+   * Sem aviso o clique abre direto a busca. Com aviso, o alerta vem antes de
+   * escolher o produto: depois da escolha a baixa já aconteceu.
+   */
+  function iniciarVinculo(acao: AcaoVinculo) {
+    if (avisoVinculo) {
+      setAcaoAConfirmar(acao);
+      return;
+    }
+    abrirEscolhaDoProduto(acao);
+  }
+
+  function abrirEscolhaDoProduto({ item, via }: AcaoVinculo) {
+    if (via === "SELECIONAR") setSelectItem(item);
+    else setCadastroItem(item);
+  }
 
   function adicionar() {
     const nome = titulo.trim();
@@ -175,12 +211,27 @@ export function ProdutosAvulsos({ itens, onAdicionar, onAtualizar, onRemover, on
                             open={selectItem === item}
                             setOpen={(next) => setSelectItem(next ? item : null)}
                             OnSelect={(produto: any) => vincular(item, Number(produto.id))}
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-8 w-24 shrink-0"
+                            disabled={!item.id || vinculando}
+                            title={!item.id ? "Salve o orçamento primeiro" : undefined}
+                            onClick={() => iniciarVinculo({ item, via: "SELECIONAR" })}
                           >
-                            <Button type="button" size="sm" variant="outline" className="h-8 w-24 shrink-0" disabled={!item.id || vinculando} title={!item.id ? "Salve o orçamento primeiro" : undefined}>
-                              <Link2 className="h-4 w-4" /> Vincular
-                            </Button>
-                          </ProductSelect>
-                          <Button type="button" size="sm" variant="outline" className="h-8 w-24 shrink-0" disabled={!item.id || vinculando} title={!item.id ? "Salve o orçamento primeiro" : undefined} onClick={() => setCadastroItem(item)}>
+                            <Link2 className="h-4 w-4" /> Vincular
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-8 w-24 shrink-0"
+                            disabled={!item.id || vinculando}
+                            title={!item.id ? "Salve o orçamento primeiro" : undefined}
+                            onClick={() => iniciarVinculo({ item, via: "CADASTRAR" })}
+                          >
                             <PackagePlus className="h-4 w-4" /> Cadastrar
                           </Button>
                         </>
@@ -204,6 +255,29 @@ export function ProdutosAvulsos({ itens, onAdicionar, onAtualizar, onRemover, on
           </Table>
         </div>
       ) : null}
+
+      <AlertDialog
+        open={Boolean(acaoAConfirmar)}
+        onOpenChange={(next) => { if (!next) setAcaoAConfirmar(null); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Vincular vai baixar o estoque</AlertDialogTitle>
+            <AlertDialogDescription>{avisoVinculo}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (acaoAConfirmar) abrirEscolhaDoProduto(acaoAConfirmar);
+                setAcaoAConfirmar(null);
+              }}
+            >
+              Entendi, escolher produto
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>

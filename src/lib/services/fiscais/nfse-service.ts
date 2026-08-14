@@ -120,52 +120,74 @@ export class NFSeValidationError extends Error {
 const textoObrigatorio = (value: unknown) => String(value ?? "").trim();
 const somenteDigitos = (value: unknown) => textoObrigatorio(value).replace(/\D/g, "");
 
-export function validarDadosObrigatoriosNFSe(
+export type NFSePendenciaOrigem = "EMPRESA" | "CLIENTE" | "SERVICO";
+
+export type NFSePendencia = {
+  origem: NFSePendenciaOrigem;
+  mensagem: string;
+};
+
+// A origem acompanha cada pendência para a tela de emissão saber o que ela
+// consegue resolver ali mesmo — o cadastro do cliente abre em um dialog; os
+// dados da empresa e do serviço ficam em outras telas.
+export function listarPendenciasNFSe(
   os: any,
   empresa: any,
   itensServico: any | any[],
   modelo: NFSeModeloEmissao,
-): string[] {
-  const pendencias: string[] = [];
+): NFSePendencia[] {
+  const pendencias: NFSePendencia[] = [];
   const cliente = os?.cliente;
   const itens = Array.isArray(itensServico) ? itensServico : [itensServico];
   const documentoEmpresa = somenteDigitos(empresa?.cnpj);
   const municipioEmpresa = somenteDigitos(empresa?.codigomunicipio);
+  const registrar = (origem: NFSePendenciaOrigem, mensagem: string) => {
+    pendencias.push({ origem, mensagem });
+  };
 
-  if (documentoEmpresa.length !== 14) pendencias.push("CNPJ da empresa com 14 dígitos");
-  if (municipioEmpresa.length !== 7) pendencias.push("código IBGE do município da empresa com 7 dígitos");
-  if (!textoObrigatorio(empresa?.regimetributario)) pendencias.push("regime tributário da empresa");
+  if (documentoEmpresa.length !== 14) registrar("EMPRESA", "CNPJ da empresa com 14 dígitos");
+  if (municipioEmpresa.length !== 7) registrar("EMPRESA", "código IBGE do município da empresa com 7 dígitos");
+  if (!textoObrigatorio(empresa?.regimetributario)) registrar("EMPRESA", "regime tributário da empresa");
   if (modelo !== "NACIONAL" && !somenteDigitos(empresa?.inscricaomunicipal)) {
-    pendencias.push("inscrição municipal da empresa");
+    registrar("EMPRESA", "inscrição municipal da empresa");
   }
 
   if (!cliente) {
-    pendencias.push("cliente/tomador vinculado à OS");
+    registrar("CLIENTE", "cliente/tomador vinculado à OS");
   } else {
     const documentoCliente = somenteDigitos(cliente.cpfcnpj);
     const municipioCliente = somenteDigitos(cliente.codigomunicipio);
     const cepCliente = somenteDigitos(cliente.cep);
     const ufCliente = textoObrigatorio(cliente.estado).toUpperCase();
 
-    if (![11, 14].includes(documentoCliente.length)) pendencias.push("CPF ou CNPJ do cliente com 11 ou 14 dígitos");
-    if (!textoObrigatorio(cliente.nomerazaosocial)) pendencias.push("nome ou razão social do cliente");
-    if (!textoObrigatorio(cliente.endereco)) pendencias.push("logradouro do cliente");
-    if (!textoObrigatorio(cliente.endereconumero)) pendencias.push("número do endereço do cliente");
-    if (!textoObrigatorio(cliente.bairro)) pendencias.push("bairro do cliente");
-    if (municipioCliente.length !== 7) pendencias.push("código IBGE do município do cliente com 7 dígitos");
-    if (ufCliente.length !== 2) pendencias.push("UF do cliente com 2 letras");
-    if (cepCliente.length !== 8) pendencias.push("CEP do cliente com 8 dígitos");
+    if (![11, 14].includes(documentoCliente.length)) registrar("CLIENTE", "CPF ou CNPJ do cliente com 11 ou 14 dígitos");
+    if (!textoObrigatorio(cliente.nomerazaosocial)) registrar("CLIENTE", "nome ou razão social do cliente");
+    if (!textoObrigatorio(cliente.endereco)) registrar("CLIENTE", "logradouro do cliente");
+    if (!textoObrigatorio(cliente.endereconumero)) registrar("CLIENTE", "número do endereço do cliente");
+    if (!textoObrigatorio(cliente.bairro)) registrar("CLIENTE", "bairro do cliente");
+    if (municipioCliente.length !== 7) registrar("CLIENTE", "código IBGE do município do cliente com 7 dígitos");
+    if (ufCliente.length !== 2) registrar("CLIENTE", "UF do cliente com 2 letras");
+    if (cepCliente.length !== 8) registrar("CLIENTE", "CEP do cliente com 8 dígitos");
   }
 
   itens.forEach((itemServico, index) => {
     const quantidade = Number(itemServico?.quantidade);
     const descricao = textoObrigatorio(itemServico?.servico?.descricao);
     const identificador = itens.length > 1 ? ` do serviço ${index + 1}` : " do serviço";
-    if (!Number.isFinite(quantidade) || quantidade <= 0) pendencias.push(`quantidade${identificador} maior que zero`);
-    if (!descricao) pendencias.push(`descrição${identificador}`);
+    if (!Number.isFinite(quantidade) || quantidade <= 0) registrar("SERVICO", `quantidade${identificador} maior que zero`);
+    if (!descricao) registrar("SERVICO", `descrição${identificador}`);
   });
 
   return pendencias;
+}
+
+export function validarDadosObrigatoriosNFSe(
+  os: any,
+  empresa: any,
+  itensServico: any | any[],
+  modelo: NFSeModeloEmissao,
+): string[] {
+  return listarPendenciasNFSe(os, empresa, itensServico, modelo).map((pendencia) => pendencia.mensagem);
 }
 
 function exigirDadosObrigatoriosNFSe(

@@ -21,7 +21,6 @@ import {
   ArrowLeftToLine,
   ReceiptText,
   Info,
-  ChevronsUpDown,
   X,
   ChevronLeft,
   ChevronRight,
@@ -62,13 +61,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import {
-  Command,
-  CommandGroup,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
 import axios, { isAxiosError } from "axios";
 import { toast } from "@/lib/toast";
 import CustomerSelect from "@/app/(app)/components/customerSelect";
@@ -77,9 +69,15 @@ import { useGruposProduto } from "@/app/(app)/(pages)/estoque/components/dialog-
 import { useRouter } from "next/navigation";
 import { useConfig } from "@/app/(app)/(pages)/config-context";
 import { formatCurrencyBRL } from "@/app/(app)/(pages)/dashboard/components/dashboard-ordemservico/lib/format";
-import type { PaymentMethodOption } from "@/lib/payment-methods";
-import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
 import { CustomerBlockedAlert } from "@/components/cliente/customer-blocked-alert";
+import {
+  DadosParaFinanceiroFields,
+  dadosParaFinanceiroVazios,
+  montarFormaPagamento,
+  montarPagamentosPrevistos,
+  validarDadosParaFinanceiro,
+  type DadosParaFinanceiro,
+} from "@/components/financeiro/dados-para-financeiro";
 
 interface CartItem {
   id: number;
@@ -91,8 +89,6 @@ interface CartItem {
 }
 
 type DiscountType = "FIXO" | "PORCENTAGEM";
-type PaymentMethod = PaymentMethodOption | "NAO_INFORMAR";
-type PaymentAmounts = Partial<Record<PaymentMethodOption, string>>;
 type CategoriaVenda = {
   id: number;
   nome: string;
@@ -102,35 +98,7 @@ type CategoriaVenda = {
 
 const moneyToCents = (value: number) => Math.round((Number.isFinite(value) ? value : 0) * 100);
 
-const amountInputToCents = (value: string): number | null => {
-  const raw = value.trim();
-  if (!raw) return null;
-
-  const digits = raw.replace(/\D/g, "");
-  if (digits) return Number(digits);
-
-  const normalized = raw.includes(",")
-    ? raw.replace(/\./g, "").replace(",", ".")
-    : raw;
-
-  const parsed = Number(normalized);
-  if (!Number.isFinite(parsed) || parsed < 0) return null;
-
-  return moneyToCents(parsed);
-};
-
-const centsToNumber = (value: number) => value / 100;
-
-const formatCentsToPaymentInput = (value: number) =>
-  formatCurrencyBRL(centsToNumber(Math.max(0, value)));
-
 export function POSSystem() {
-  const {
-    options: paymentMethodOptions,
-    isLoading: isLoadingPaymentMethods,
-    error: paymentMethodsError,
-    reload: reloadPaymentMethods,
-  } = usePaymentMethodOptions();
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingProductsPage, setLoadingProductsPage] = useState(false);
@@ -153,11 +121,11 @@ export function POSSystem() {
   const [discountType, setDiscountType] = useState<DiscountType | null>(null);
   const [hasFreight, setHasFreight] = useState(false);
   const [freight, setFreight] = useState(0);
-  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>(
-    ["NAO_INFORMAR"]
+  // Formas previstas, orientação ao financeiro e garantia — o mesmo conjunto que
+  // a OS recolhe ao ser enviada ao financeiro.
+  const [dadosFinanceiro, setDadosFinanceiro] = useState<DadosParaFinanceiro>(
+    dadosParaFinanceiroVazios,
   );
-  const [paymentAmounts, setPaymentAmounts] = useState<PaymentAmounts>({});
-  const [paymentMethodsOpen, setPaymentMethodsOpen] = useState(false);
   const [selectedProductInfo, setSelectedProductInfo] = useState<Produto>();
   const [isAlertOpen, setIsAlertOpen] = useState(false);
   const { grupos } = useGruposProduto();
@@ -338,137 +306,22 @@ export function POSSystem() {
       : Math.min(subtotal, normalizedDiscountInput);
   const freightAmount = hasFreight && Number.isFinite(freight) ? Math.max(0, freight) : 0;
   const total = Math.max(0, subtotal - discountAmount + freightAmount);
-  const hasPaymentMethodSelected = paymentMethods.some(
-    (method) => method !== "NAO_INFORMAR"
-  );
-  const selectedPaymentMethods = paymentMethods.filter(
-    (method): method is PaymentMethodOption => method !== "NAO_INFORMAR"
-  );
-  const hasAnyPaymentAmount = selectedPaymentMethods.some((method) =>
-    Boolean(paymentAmounts[method]?.trim())
-  );
-  const paymentAmountEntries = selectedPaymentMethods.map((method) => ({
-    method,
-    label:
-      paymentMethodOptions.find((option) => option.value === method)?.label ??
-      method,
-    cents: amountInputToCents(paymentAmounts[method] ?? ""),
-  }));
-  const paymentAmountsTotalCents = paymentAmountEntries.reduce(
-    (sum, item) => sum + (item.cents ?? 0),
-    0,
-  );
   const soleSelectedPaymentMethod =
-    selectedPaymentMethods.length === 1 ? selectedPaymentMethods[0] : null;
+    dadosFinanceiro.metodos.length === 1 ? dadosFinanceiro.metodos[0] : null;
 
-  // Com um único método selecionado, o valor só pode ser o total da venda —
+  // Com uma única forma selecionada, o valor só pode ser o total da venda —
   // preenche automaticamente para não exigir digitação redundante.
   useEffect(() => {
     if (!soleSelectedPaymentMethod) return;
-    setPaymentAmounts((current) => ({
-      ...current,
-      [soleSelectedPaymentMethod]: formatCentsToPaymentInput(moneyToCents(total)),
-    }));
-  }, [soleSelectedPaymentMethod, total]);
-
-  const togglePaymentMethod = (method: PaymentMethodOption) => {
-    setPaymentMethods((current) => {
-      const hasMethod = current.includes(method);
-
-      if (hasMethod) {
-        const next = current.filter((value) => value !== method);
-        setPaymentAmounts((amounts) => {
-          const remaining = { ...amounts };
-          delete remaining[method];
-          return remaining;
-        });
-        return next.length > 0 ? next : ["NAO_INFORMAR"];
-      }
-
-      return [
-        ...current.filter((value) => value !== "NAO_INFORMAR"),
-        method,
-      ];
-    });
-  };
-
-  const toggleNaoInformar = (checked: boolean) => {
-    setPaymentMethods(checked ? ["NAO_INFORMAR"] : []);
-    if (checked) setPaymentAmounts({});
-  };
-
-  const updatePaymentAmount = (method: PaymentMethodOption, value: string) => {
-    const digits = value.replace(/\D/g, "");
-    if (!digits) {
-      setPaymentAmounts((current) => ({
-        ...current,
-        [method]: "",
-      }));
-      return;
-    }
-
-    const requestedCents = Number(digits);
-    const totalCents = moneyToCents(total);
-    const otherMethodsTotalCents = selectedPaymentMethods
-      .filter((selectedMethod) => selectedMethod !== method)
-      .reduce(
-        (sum, selectedMethod) =>
-          sum + (amountInputToCents(paymentAmounts[selectedMethod] ?? "") ?? 0),
-        0,
-      );
-    const maxAllowedCents = Math.max(0, totalCents - otherMethodsTotalCents);
-    const nextCents = Math.min(requestedCents, maxAllowedCents);
-
-    setPaymentAmounts((current) => ({
-      ...current,
-      [method]: formatCentsToPaymentInput(nextCents),
-    }));
-  };
-
-  const buildFormaPagamento = (): string | null => {
-    if (!hasPaymentMethodSelected) return null;
-
-    if (!hasAnyPaymentAmount) {
-      return selectedPaymentMethods.join(", ");
-    }
-
-    return paymentAmountEntries
-      .map((item) => `${item.method}: ${formatCurrencyBRL(centsToNumber(item.cents ?? 0))}`)
-      .join(", ");
-  };
-
-  const validatePaymentAmounts = (): boolean => {
-    if (!hasPaymentMethodSelected) return true;
-
-    const invalidEntry = paymentAmountEntries.find(
-      (item) => item.cents === null || item.cents <= 0,
+    setDadosFinanceiro((current) =>
+      current.valores[soleSelectedPaymentMethod] === total
+        ? current
+        : {
+            ...current,
+            valores: { ...current.valores, [soleSelectedPaymentMethod]: total },
+          },
     );
-
-    if (invalidEntry) {
-      toast.error("Informe valores válidos para os métodos selecionados.", {
-        description: "Ao preencher valores, cada método selecionado precisa ter um valor maior que zero.",
-      });
-      return false;
-    }
-
-    const totalCents = moneyToCents(total);
-    if (paymentAmountsTotalCents !== totalCents) {
-      toast.error("A soma dos pagamentos precisa fechar o total da venda.", {
-        description: `Total informado: ${formatCurrencyBRL(centsToNumber(paymentAmountsTotalCents))}. Total da venda: ${formatCurrencyBRL(total)}.`,
-      });
-      return false;
-    }
-
-    return true;
-  };
-
-  const paymentMethodsLabel = !hasPaymentMethodSelected
-    ? "Não informar"
-    : paymentMethodOptions.filter((method) =>
-        paymentMethods.includes(method.value)
-      )
-        .map((method) => method.label)
-        .join(", ");
+  }, [soleSelectedPaymentMethod, total]);
 
   const handleSaveBudget = async () => {
     if (cart.length === 0) {
@@ -524,8 +377,7 @@ export function POSSystem() {
       setHasFreight(false);
       setFreight(0);
       setSelectedSaleCategoryId(null);
-      setPaymentMethods(["NAO_INFORMAR"]);
-      setPaymentAmounts({});
+      setDadosFinanceiro(dadosParaFinanceiroVazios());
       setSelectedCustomer(undefined);
     } catch (error) {
       if (axios.isAxiosError(error)) {
@@ -551,7 +403,9 @@ export function POSSystem() {
         return false;
       }
 
-      if (!validatePaymentAmounts()) {
+      const recusa = validarDadosParaFinanceiro(dadosFinanceiro, moneyToCents(total));
+      if (recusa) {
+        toast.error(recusa);
         return false;
       }
 
@@ -574,8 +428,13 @@ export function POSSystem() {
       subTotal: subtotal,
       valorFrete: freightAmount,
       valorTotal: total,
-      formaPagamento:
-        buildFormaPagamento(),
+      formaPagamento: montarFormaPagamento(dadosFinanceiro),
+      // O que o financeiro precisa saber e mais ninguém tem como reconstituir:
+      // em quantas parcelas ficou combinado, o que o vendedor prometeu e a
+      // garantia dada ao cliente.
+      pagamentosPrevistos: montarPagamentosPrevistos(dadosFinanceiro),
+      descricaoFinanceiro: dadosFinanceiro.descricaoFinanceiro.trim() || null,
+      garantia: dadosFinanceiro.garantia.trim() || null,
       dataVenda: null,
       itens: cart.map((item) => ({
         produtoId: item.id,
@@ -598,8 +457,7 @@ export function POSSystem() {
       setHasFreight(false);
       setFreight(0);
       setSelectedSaleCategoryId(null);
-      setPaymentMethods(["NAO_INFORMAR"]);
-      setPaymentAmounts({});
+      setDadosFinanceiro(dadosParaFinanceiroVazios());
       setSelectedCustomer(undefined);
       return true;
     } catch (error: any) {
@@ -1320,108 +1178,12 @@ export function POSSystem() {
                             Ao selecionar esta opção, o pagamento da venda ficará em aberto
                           </AlertDialogDescription>
                         </AlertDialogHeader>
-                        <div className="space-y-2">
-                          <span className="text-sm font-medium text-foreground">
-                            Métodos de pagamento
-                          </span>
-                          <Popover
-                            open={paymentMethodsOpen}
-                            onOpenChange={setPaymentMethodsOpen}
-                          >
-                            <PopoverTrigger asChild>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className="w-full justify-between font-normal"
-                              >
-                                <span className="truncate">
-                                  {paymentMethodsLabel}
-                                </span>
-                                <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-60" />
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent
-                              align="start"
-                              className="w-[var(--radix-popover-trigger-width)] p-0"
-                            >
-                              <Command>
-                                <CommandList>
-                                  <CommandGroup>
-                                    <CommandItem
-                                      value="nao-informar"
-                                      onSelect={() =>
-                                        toggleNaoInformar(!paymentMethods.includes("NAO_INFORMAR"))
-                                      }
-                                      className="flex items-center gap-3"
-                                    >
-                                      <Checkbox checked={!hasPaymentMethodSelected} />
-                                      <span>Não informar</span>
-                                    </CommandItem>
-                                    {isLoadingPaymentMethods ? (
-                                      <CommandItem disabled>Carregando formas de pagamento...</CommandItem>
-                                    ) : paymentMethodsError ? (
-                                      <CommandItem onSelect={() => void reloadPaymentMethods()}>
-                                        Falha ao carregar. Clique para tentar novamente.
-                                      </CommandItem>
-                                    ) : paymentMethodOptions.length === 0 ? (
-                                      <CommandItem disabled>Nenhuma forma de pagamento cadastrada.</CommandItem>
-                                    ) : paymentMethodOptions.map((method) => (
-                                      <CommandItem
-                                        key={method.value}
-                                        value={method.value}
-                                        onSelect={() => togglePaymentMethod(method.value)}
-                                        className="flex items-center gap-3"
-                                      >
-                                        <Checkbox checked={paymentMethods.includes(method.value)} />
-                                        <span>{method.label}</span>
-                                      </CommandItem>
-                                    ))}
-                                  </CommandGroup>
-                                </CommandList>
-                              </Command>
-                            </PopoverContent>
-                          </Popover>
-                          {hasPaymentMethodSelected && (
-                            <div className="space-y-2 rounded-md border bg-muted/20 p-3">
-                              <div className="flex items-center justify-between gap-3">
-                                <span className="text-xs font-medium text-muted-foreground">
-                                  Valores por método
-                                </span>
-                                {hasAnyPaymentAmount && (
-                                  <span className="text-xs text-muted-foreground">
-                                    {formatCurrencyBRL(centsToNumber(paymentAmountsTotalCents))} / {formatCurrencyBRL(total)}
-                                  </span>
-                                )}
-                              </div>
-
-                              <div className="space-y-2">
-                                {selectedPaymentMethods.map((method) => {
-                                  const label =
-                                    paymentMethodOptions.find((option) => option.value === method)?.label ??
-                                    method;
-
-                                  return (
-                                    <div key={method} className="grid grid-cols-[minmax(0,1fr)_minmax(7rem,9rem)] items-center gap-2">
-                                      <span className="truncate text-sm text-foreground">{label}</span>
-                                      <ValueInput
-                                        value={centsToNumber(amountInputToCents(paymentAmounts[method] ?? "") ?? 0)}
-                                        onValueChange={(value) =>
-                                          updatePaymentAmount(method, formatCentsToPaymentInput(moneyToCents(value)))
-                                        }
-                                        className="h-9 text-right"
-                                      />
-                                    </div>
-                                  );
-                                })}
-                              </div>
-
-                              {hasAnyPaymentAmount && paymentAmountsTotalCents !== moneyToCents(total) && (
-                                <p className="text-xs text-muted-foreground">
-                                  Restante: {formatCurrencyBRL(centsToNumber(moneyToCents(total) - paymentAmountsTotalCents))}
-                                </p>
-                              )}
-                            </div>
-                          )}
+                        <div className="space-y-2 p-4 bg-card rounded-2xl">
+                          <DadosParaFinanceiroFields
+                            value={dadosFinanceiro}
+                            onChange={setDadosFinanceiro}
+                            totalCents={moneyToCents(total)}
+                          />
                         </div>
                         <AlertDialogFooter>
                           <AlertDialogCancel className="hover:cursor-pointer">Cancelar</AlertDialogCancel>

@@ -100,6 +100,45 @@ function SeloPagamentoMultiplo({ grupo }: { grupo: PagamentoMultiploDaLinha }) {
   );
 }
 
+/**
+ * Valor da transação: líquido em destaque, bruto abaixo.
+ *
+ * O líquido é o que entrou na conta; o bruto é o que foi cobrado do cliente. Em
+ * recebimento por maquineta os dois diferem pela taxa, e a linha só mostrava um
+ * deles. A face aparece quando o acréscimo do pagamento a separa do bruto: é ela
+ * que abate a OS, não o que o cliente pagou a mais por atraso.
+ */
+function ValoresDaTransacao({
+  transacao,
+  compacto = false,
+}: {
+  transacao: TransacaoOs;
+  compacto?: boolean;
+}) {
+  const brutoCru = Number(transacao.valor ?? 0);
+  const bruto = Number.isFinite(brutoCru) ? brutoCru : 0;
+  const face = valorDeFace(transacao);
+  const mostrarFace = Math.round(face * 100) !== Math.round(bruto * 100);
+
+  return (
+    <>
+      <p
+        className={
+          compacto
+            ? "text-base font-bold tabular-nums text-foreground"
+            : "font-semibold tabular-nums text-foreground"
+        }
+      >
+        {formatarEmReal(valorLiquidoEfetivo(transacao))}
+      </p>
+      <p className={`${compacto ? "text-[10px]" : "text-[11px]"} tabular-nums text-muted-foreground`}>
+        Bruto {formatarEmReal(bruto)}
+        {mostrarFace ? ` · Face ${formatarEmReal(face)}` : ""}
+      </p>
+    </>
+  );
+}
+
 type PayloadFinanceiro = {
   ordem: { id: number; status: string };
   resumo: ResumoFinanceiroOs;
@@ -504,7 +543,7 @@ export function FinanceiroOsTab({
                     <TableHead>Descrição</TableHead>
                     <TableHead>Vencimento / Pagamento</TableHead>
                     <TableHead>Conta e Método</TableHead>
-                    <TableHead className="text-right">Valor de Face</TableHead>
+                    <TableHead className="text-right">Valor líquido</TableHead>
                     <TableHead className="w-14" />
                   </TableRow>
                 </TableHeader>
@@ -559,14 +598,7 @@ export function FinanceiroOsTab({
                         </p>
                       </TableCell>
                       <TableCell className="text-right">
-                        <p className="font-semibold tabular-nums text-foreground">
-                          {formatarEmReal(valorDeFace(transacao))}
-                        </p>
-                        {Number(transacao.valor_acrescimos ?? 0) > 0 || Number(transacao.valor_descontos ?? 0) > 0 ? (
-                          <p className="text-[11px] text-muted-foreground">
-                            Cobrado {formatarEmReal(transacao.valor)} · Líquido {formatarEmReal(valorLiquidoEfetivo(transacao))}
-                          </p>
-                        ) : null}
+                        <ValoresDaTransacao transacao={transacao} />
                       </TableCell>
                       <TableCell>
                         <DropdownMenu>
@@ -726,15 +758,8 @@ export function FinanceiroOsTab({
 
                   <div className="flex items-center justify-between pt-1 border-t border-border/50">
                     <div>
-                      <span className="text-xs text-muted-foreground">Valor de face</span>
-                      <p className="text-base font-bold tabular-nums text-foreground">
-                        {formatarEmReal(valorDeFace(transacao))}
-                      </p>
-                      {Number(transacao.valor_acrescimos ?? 0) > 0 || Number(transacao.valor_descontos ?? 0) > 0 ? (
-                        <p className="text-[10px] text-muted-foreground">
-                          Líquido: {formatarEmReal(valorLiquidoEfetivo(transacao))}
-                        </p>
-                      ) : null}
+                      <span className="text-xs text-muted-foreground">Valor líquido</span>
+                      <ValoresDaTransacao transacao={transacao} compacto />
                     </div>
 
                     {transacao.pendente && podeEditar ? (

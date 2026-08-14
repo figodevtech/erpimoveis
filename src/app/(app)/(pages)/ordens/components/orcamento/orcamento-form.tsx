@@ -37,8 +37,18 @@ export const OrcamentoForm = forwardRef<OrcamentoFormHandle, OrcamentoFormProps>
   const osId = ordemServico?.id;
   const config = useConfig();
 
+  // Com a OS já em execução o vínculo do avulso baixa estoque na hora, sem
+  // esperar o salvar. Quem decide é o backend (status + modo de baixa).
+  const [baixaAoVincularAvulso, setBaixaAoVincularAvulso] = useState(false);
+  const [statusOS, setStatusOS] = useState("");
+
   const carregarDaOS = useCallback(
-    async () => carregarItensDaOSAPI(osId as number),
+    async () => {
+      const dados = await carregarItensDaOSAPI(osId as number);
+      setBaixaAoVincularAvulso(dados.baixaAoVincularAvulso);
+      setStatusOS(dados.statusOS);
+      return dados;
+    },
     [osId],
   );
 
@@ -313,12 +323,21 @@ export const OrcamentoForm = forwardRef<OrcamentoFormHandle, OrcamentoFormProps>
                 onAdicionar={adicionarProdutoAvulso}
                 onAtualizar={atualizarProdutoAvulso}
                 onRemover={removerProdutoAvulso}
+                avisoVinculo={
+                  baixaAoVincularAvulso
+                    ? `Atenção: a OS está ${statusOS === "PAGAMENTO" ? "em pagamento" : "em andamento"} e o estoque já foi baixado. Ao vincular, o produto escolhido será baixado automaticamente do estoque.`
+                    : null
+                }
                 onVincular={async (item, produtoId) => {
                   if (!item.id) throw new Error("Salve o orçamento antes de vincular o item.");
                   try {
                     await vincularProdutoAvulsoAPI(osId, item.id, produtoId);
                     await carregarItens();
-                    toast.success("Produto avulso convertido em produto da OS.");
+                    toast.success(
+                      baixaAoVincularAvulso
+                        ? "Produto vinculado e baixado do estoque."
+                        : "Produto avulso convertido em produto da OS.",
+                    );
                     window.dispatchEvent(new Event("os:refresh"));
                   } catch (error: any) {
                     toast.error(error?.message || "Não foi possível vincular o produto avulso.");

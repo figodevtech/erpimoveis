@@ -18,6 +18,7 @@ import { useSession } from "next-auth/react";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { useConfig } from "@/app/(app)/(pages)/config-context";
 import { TransactionDeleteAlert } from "../../../components/transaction-delete-alert";
+import { estornarBaixa } from "../../../components/transaction-estorno-alert";
 import { excluirPagamentoMultiplo } from "../../../components/pagamento-multiplo";
 import { toast } from "@/lib/toast";
 import { formatDate } from "@/utils/formatDate";
@@ -424,6 +425,34 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
       toast.success("Pagamento múltiplo desfeito.");
     } catch (erro) {
       toast.error(erro instanceof Error ? erro.message : "Não foi possível excluir o pagamento.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  /**
+   * Tira o pagamento do fluxo de caixa e devolve o título para em aberto.
+   *
+   * Pagamento de OS é quase sempre título liquidado, e liquidado não se exclui:
+   * a exclusão apagaria o título junto com o pagamento. Sem esta ação a tela
+   * ficaria só com a recusa, mandando a operadora procurar a saída em outro
+   * lugar.
+   */
+  const handleEstornarBaixa = async (id: number) => {
+    setIsDeleting(true);
+    try {
+      const { acrescimos_removidos } = await estornarBaixa(id);
+      const removidos = Number(acrescimos_removidos ?? 0);
+      handleGetTransactions(pagination.page);
+      toast.success(
+        removidos > 0
+          ? `Título reaberto. Os ${formatarEmReal(removidos)} de acréscimo saíram junto com a baixa.`
+          : "Título reaberto: voltou a ficar em aberto.",
+      );
+    } catch (erro) {
+      toast.error(
+        erro instanceof Error ? erro.message : "Não foi possível tirar do fluxo de caixa.",
+      );
     } finally {
       setIsDeleting(false);
     }
@@ -1194,6 +1223,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                               transactionId={t.id}
                               onDelete={handleDeleteTransaction}
                               onDeleteGrupo={handleDeleteGrupo}
+                              onEstornar={handleEstornarBaixa}
                             >
                               <Button
                                 variant="default"
