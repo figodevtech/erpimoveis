@@ -31,24 +31,31 @@ function detectMobile() {
 }
 
 /**
- * Tetos de canvas do Safari no iOS: 16.7M px de área total e lado máximo de
- * 4096 em aparelhos mais antigos. Estourar qualquer um dos dois não dá erro —
- * o canvas volta em branco e o PNG sai quebrado. A margem abaixo é proposital.
+ * Resolução alvo. O documento é vetorial até o `drawImage`, então o ratio é o
+ * único fator de nitidez do PNG: 3 rasteriza a folha A4 em ~2382x3369.
  */
-const MAX_CANVAS_SIDE = 4096;
-const MAX_CANVAS_AREA = 12_000_000;
+const TARGET_PIXEL_RATIO = 3;
+
+/**
+ * Tetos de canvas por plataforma. No iOS o Safari corta em 16.7M px de área e
+ * em 4096 de lado nos aparelhos mais antigos; estourar não dá erro, devolve
+ * canvas em branco. No desktop o limite prático é o lado de 16384 — acima
+ * disso o próprio html-to-image reescala o canvas e distorce a folha.
+ */
+const CANVAS_LIMITS = {
+  mobile: { side: 4_096, area: 12_000_000 },
+  desktop: { side: 16_384, area: 100_000_000 },
+};
 /** PNG de canvas em branco comprime para poucos KB, independente do tamanho. */
 const MIN_VALID_PNG_BYTES = 4_096;
 
 function safePixelRatio(width: number, height: number, mobile: boolean) {
-  const desejado = mobile ? 1.5 : 2;
-  if (!mobile) return desejado;
-
-  const porLado = Math.min(MAX_CANVAS_SIDE / width, MAX_CANVAS_SIDE / height);
-  const porArea = Math.sqrt(MAX_CANVAS_AREA / (width * height));
+  const limites = mobile ? CANVAS_LIMITS.mobile : CANVAS_LIMITS.desktop;
+  const porLado = Math.min(limites.side / width, limites.side / height);
+  const porArea = Math.sqrt(limites.area / (width * height));
   // Abaixo de 0.5 a folha fica ilegível; nesse ponto o documento é longo demais
   // para virar uma imagem só e o caminho é imprimir.
-  return Math.max(0.5, Math.min(desejado, porLado, porArea));
+  return Math.max(0.5, Math.min(TARGET_PIXEL_RATIO, porLado, porArea));
 }
 
 function canvasToPngBlob(canvas: HTMLCanvasElement) {
