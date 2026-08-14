@@ -54,7 +54,7 @@ A Central guarda as credenciais Shopee:
 ```env
 SHOPEE_PARTNER_ID=
 SHOPEE_PARTNER_KEY=
-SHOPEE_BASE_URL=https://partner.test-stable.shopeemobile.com
+SHOPEE_BASE_URL=https://openplatform.sandbox.test-stable.shopee.sg
 SHOPEE_REDIRECT_URI=https://central.figosoftwares.com.br/api/integracoes/shopee/callback
 SHOPEE_TOKEN_ENCRYPTION_KEY=
 ```

@@ -36,6 +36,7 @@ import {
   ImageIcon,
   Link2,
   List,
+  LayoutDashboard,
   Loader2,
   MessageCircle,
   MoreHorizontal,
@@ -55,7 +56,11 @@ import {
   XCircle,
 } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { MarketplaceChannelSwitcher } from "./marketplace-channel";
+import { MarketplaceAttentionCenter, MarketplaceChatLauncher, MarketplaceHeader, MarketplaceListToolbar, MarketplaceLoadingLine, MarketplacePagination, MarketplaceSectionNav, useMarketplaceQueryValue, useMarketplaceSection, type MarketplaceAttentionItem } from "./marketplace-layout";
+import { MarketplaceConversationPanel } from "./marketplace-conversation-panel";
+
+type MlMarketplaceSection = "overview" | "products" | "listings" | "orders" | "performance" | "atendimento" | "logs";
+const ML_MARKETPLACE_SECTIONS: readonly MlMarketplaceSection[] = ["overview", "products", "listings", "orders", "performance", "atendimento", "logs"];
 
 type Account = {
   id: number;
@@ -1567,7 +1572,11 @@ export default function MarketplacePage() {
   const [performance, setPerformance] = useState<MarketplacePerformance>(EMPTY_PERFORMANCE);
   const [stockSync, setStockSync] = useState<MarketplaceStockSync>({ pending: 0, failed: 0, lastError: null, updatedAt: null });
   const [search, setSearch] = useState("");
-  const [activeTab, setActiveTab] = useState("products");
+  const [activeTab, setActiveTab] = useMarketplaceSection(ML_MARKETPLACE_SECTIONS, "overview");
+  const [orderSearch, setOrderSearch] = useMarketplaceQueryValue("ml_pedido_busca");
+  const [orderStatusFilter, setOrderStatusFilter] = useMarketplaceQueryValue("ml_pedido_status", "all");
+  const [orderPage, setOrderPage] = useState(1);
+  const [orderPageSize, setOrderPageSize] = useState(20);
   const [questionStatusFilter, setQuestionStatusFilter] = useState("UNANSWERED");
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [productsPage, setProductsPage] = useState(1);
@@ -1738,6 +1747,18 @@ export default function MarketplacePage() {
   const unansweredQuestions = questions.filter((question) => String(question.status ?? "").toUpperCase() === "UNANSWERED").length;
   const selectedChatConversation =
     chatConversations.find((conversation) => conversation.orderDbId === selectedChatOrderId) ?? chatConversations[0] ?? null;
+  const normalizedChatConversations = useMemo(() => chatConversations.map((conversation) => ({
+    id: String(conversation.orderDbId),
+    name: `Pedido ${conversation.mlOrderId}`,
+    preview: conversation.title || `${conversation.messages.length} mensagem(ns)`,
+    unreadCount: conversation.messages.filter((message) => !message.fromSeller && String(message.status ?? "").toLowerCase() === "unread").length,
+  })), [chatConversations]);
+  const normalizedChatMessages = useMemo(() => (selectedChatConversation?.messages ?? []).map((message) => ({
+    id: String(message.id),
+    text: message.text || "",
+    fromBuyer: !message.fromSeller,
+    date: message.dateCreated,
+  })), [selectedChatConversation]);
   const claimsByOrderId = useMemo(() => {
     const map = new Map<number, MlClaim[]>();
     for (const claim of claims) {
@@ -1749,6 +1770,23 @@ export default function MarketplacePage() {
     }
     return map;
   }, [claims]);
+  const filteredOrders = useMemo(() => {
+    const term = orderSearch.trim().toLocaleLowerCase("pt-BR");
+    return orders.filter((order) => {
+      const matchesSearch = !term || [order.ml_order_id, order.venda_id, getOrderBuyerLabel(order), getOrderItemTitle(order), getOrderItemSku(order)]
+        .some((value) => String(value ?? "").toLocaleLowerCase("pt-BR").includes(term));
+      const status = String(order.status ?? "").toLowerCase();
+      const activeClaim = (claimsByOrderId.get(order.id) ?? []).some(isActiveClaim);
+      const matchesStatus = orderStatusFilter === "all"
+        || (orderStatusFilter === "claim" && activeClaim)
+        || (orderStatusFilter === "pending_erp" && !order.venda_id)
+        || status === orderStatusFilter;
+      return matchesSearch && matchesStatus;
+    });
+  }, [claimsByOrderId, orderSearch, orderStatusFilter, orders]);
+  const orderTotalPages = Math.max(1, Math.ceil(filteredOrders.length / orderPageSize));
+  const safeOrderPage = Math.min(orderPage, orderTotalPages);
+  const paginatedOrders = filteredOrders.slice((safeOrderPage - 1) * orderPageSize, safeOrderPage * orderPageSize);
   const selectedOrderClaims = selectedOrderDetails ? claimsByOrderId.get(selectedOrderDetails.id) ?? [] : [];
   const loadingOrdersView = activeTab === "orders" && (loadingDashboard || syncing || loadingClaims);
   const unreadChatMessageCount = chatConversations.reduce(
@@ -1761,6 +1799,7 @@ export default function MarketplacePage() {
   useEffect(() => {
     if (productsPage > productsTotalPages) setProductsPage(productsTotalPages);
   }, [productsPage, productsTotalPages]);
+  useEffect(() => { setOrderPage(1); }, [orderSearch, orderStatusFilter, orderPageSize]);
   const previewImages = listingForm.pictureUrl
     .split(/\r?\n/)
     .map((url) => url.trim())
@@ -1837,6 +1876,14 @@ export default function MarketplacePage() {
   const notificationErrors = notifications.filter((notification) => String(notification.status ?? "").toUpperCase() === "ERRO").length;
   const diagnosticAlerts = diagnostics.checks.filter((check) => check.status !== "ok").length;
   const integrationAlerts = Math.max(notificationErrors + stockSync.failed, diagnosticAlerts);
+  const marketplaceAttentionItems: MarketplaceAttentionItem[] = [];
+  if (!connected) marketplaceAttentionItems.push({ id: "connection", title: requiresReconnect ? "Reconectar Mercado Livre" : "Conectar Mercado Livre", description: "A conta precisa estar autorizada para sincronizar e operar o canal.", tone: "danger", actionLabel: "Configurar", onAction: () => window.location.assign("/configuracoes/geral") });
+  if (integrationAlerts > 0) marketplaceAttentionItems.push({ id: "integration", title: "Alertas de integração", description: "Existem webhooks, diagnósticos ou sincronizações com falha.", count: integrationAlerts, tone: "danger", actionLabel: "Ver integração", onAction: () => changeMainTab("logs") });
+  if (stockSync.pending > 0) marketplaceAttentionItems.push({ id: "stock", title: "Estoque aguardando sincronização", description: "Produtos possuem atualizações ainda não enviadas ao canal.", count: stockSync.pending, actionLabel: "Ver produtos", onAction: () => changeMainTab("products") });
+  if (unansweredQuestions > 0) marketplaceAttentionItems.push({ id: "questions", title: "Perguntas sem resposta", description: "Compradores aguardam retorno nos anúncios.", count: unansweredQuestions, actionLabel: "Responder", onAction: () => changeMainTab("atendimento") });
+  const ordersWithoutSale = orders.filter((order) => !order.venda_id).length;
+  if (ordersWithoutSale > 0) marketplaceAttentionItems.push({ id: "orders", title: "Pedidos sem venda no ERP", description: "Revise pedidos que ainda não foram vinculados ao fluxo interno.", count: ordersWithoutSale, actionLabel: "Revisar", onAction: () => { setOrderStatusFilter("pending_erp"); changeMainTab("orders"); } });
+  if (unlinkedPublishedListings.length > 0) marketplaceAttentionItems.push({ id: "listings", title: "Anúncios sem vínculo", description: "Anúncios do Mercado Livre ainda não apontam para um produto do ERP.", count: unlinkedPublishedListings.length, actionLabel: "Vincular", onAction: () => changeMainTab("listings") });
 
   const listingFieldClass =
     "border-border/80 bg-white shadow-sm ring-1 ring-border/50 focus-visible:border-primary/50 focus-visible:ring-primary/20 dark:bg-input/40";
@@ -1915,6 +1962,10 @@ export default function MarketplacePage() {
   }
 
   const tabHeader = {
+    overview: {
+      title: "Visão geral",
+      description: "Acompanhe a operação e acesse rapidamente o que exige atenção.",
+    },
     products: {
       title: "Produtos e anúncios",
       description: "Vincule anúncios existentes e sincronize preço/estoque.",
@@ -1943,6 +1994,13 @@ export default function MarketplacePage() {
     title: "Marketplace",
     description: "Gerencie produtos, anúncios e pedidos.",
   };
+  const tabResultLabel = activeTab === "products"
+    ? `${products.length} produto(s)`
+    : activeTab === "listings"
+      ? `${publishedListings.length || linkedCount} anúncio(s)`
+      : activeTab === "orders"
+        ? `${filteredOrders.length} pedido(s)`
+        : null;
 
   async function loadDashboard(options: { silent?: boolean } = {}) {
     if (!options.silent) setLoadingDashboard(true);
@@ -3222,7 +3280,9 @@ export default function MarketplacePage() {
   }
 
   function changeMainTab(value: string) {
-    setActiveTab(value);
+    if (ML_MARKETPLACE_SECTIONS.includes(value as MlMarketplaceSection)) {
+      setActiveTab(value as MlMarketplaceSection);
+    }
   }
 
   async function loadPublishedListings() {
@@ -3472,34 +3532,16 @@ export default function MarketplacePage() {
 
   return (
     <div className="mx-auto space-y-4">
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border bg-card shadow-sm">
-            <Store className="h-5 w-5 text-primary" />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-xl font-semibold">Marketplace</h1>
-            <p className="truncate text-sm text-muted-foreground">Produtos, vendas, atendimento e desempenho do Mercado Livre.</p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
-          <MarketplaceChannelSwitcher />
-          <div className="flex min-w-0 items-center gap-3 rounded-md border bg-card px-3 py-2 shadow-sm">
-            <div className={`h-2 w-2 shrink-0 rounded-full ${connected ? "bg-emerald-500" : "bg-orange-500"}`} />
-            <div className="min-w-0">
-              <div className="truncate text-sm font-medium">
-                {requiresReconnect ? "Sessão inválida" : activeAccount ? activeAccount.nickname || activeAccount.ml_user_id : "Conta desconectada"}
-              </div>
-              <div className="truncate text-xs text-muted-foreground">
-                {activeAccount ? `Mercado Livre · User ID ${activeAccount.ml_user_id}` : "Configure a integração em Configurações Gerais"}
-              </div>
-            </div>
-            {connected && <Check className="h-4 w-4 shrink-0 text-emerald-600" />}
-          </div>
-        </div>
-      </header>
+      <MarketplaceHeader
+        icon={Store}
+        iconClassName="text-amber-600"
+        description="Produtos, vendas, atendimento e desempenho dos seus canais."
+        connected={connected}
+        accountName={requiresReconnect ? "Sessão inválida" : activeAccount ? String(activeAccount.nickname || activeAccount.ml_user_id) : "Conta desconectada"}
+        accountDescription={activeAccount ? `Mercado Livre · User ID ${activeAccount.ml_user_id}` : "Configure a integração em Configurações Gerais"}
+      />
 
-      <Card className="gap-0 overflow-hidden py-2 shadow-sm">
+      {activeTab === "overview" ? <Card className="gap-0 overflow-hidden py-2 shadow-sm">
         <section aria-label="Resumo do marketplace" className="grid grid-cols-2 xl:grid-cols-4">
           <button type="button" className="group min-w-0 border-b border-r text-left transition-colors hover:bg-muted/30 xl:border-b-0" onClick={() => changeMainTab("products")}>
             <div className="flex items-center justify-between gap-2 px-4 py-3">
@@ -3550,7 +3592,7 @@ export default function MarketplacePage() {
             </div>
           </button>
         </section>
-      </Card>
+      </Card> : null}
 
       <Tabs value={activeTab} onValueChange={changeMainTab}>
         <Card className="gap-0 bg-card">
@@ -3568,9 +3610,13 @@ export default function MarketplacePage() {
                     <span>Recarregar</span>
                     <Loader2 className={`h-3 w-3 ${loadingDashboard || loadingProducts ? "animate-spin" : ""}`} />
                   </button>
+                  {tabResultLabel ? <><span aria-hidden="true">·</span><span>{tabResultLabel}</span></> : null}
                 </CardDescription>
               </div>
-              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+              <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+                {activeTab === "orders" ? <MarketplaceListToolbar compact search={orderSearch} onSearchChange={setOrderSearch} searchPlaceholder="Buscar pedido, comprador, produto ou SKU..." filter={orderStatusFilter} onFilterChange={setOrderStatusFilter} filterOptions={[
+                  { value: "all", label: "Todos os pedidos" }, { value: "claim", label: "Com reclamação" }, { value: "pending_erp", label: "Sem venda no ERP" }, { value: "paid", label: "Pagos" }, { value: "confirmed", label: "Confirmados" }, { value: "cancelled", label: "Cancelados" },
+                ]} resultLabel={`${filteredOrders.length} pedido(s)`} /> : null}
                 {(activeTab === "products" || activeTab === "listings") && (
                   <div className="relative hidden w-[360px] xl:block">
                     <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -3651,77 +3697,20 @@ export default function MarketplacePage() {
             )}
 
           </CardHeader>
+          <MarketplaceLoadingLine loading={loadingDashboard || loadingProducts || loadingQuestions || syncing || loadingPublishedListings} />
 
-          <div className="relative z-10 -mt-0.5 h-0.5 w-full overflow-hidden">
-            <div
-              className={`absolute inset-0 bg-slate-400 transition-opacity ${
-                loadingDashboard || loadingProducts || loadingQuestions ? "opacity-100" : "opacity-0"
-              }`}
-            >
-              <div
-                className={`absolute left-0 h-full w-1/2 -translate-x-[100%] rounded-lg bg-primary ${
-                  loadingDashboard || loadingProducts || loadingQuestions ? "animate-slideIn" : ""
-                }`}
-              />
-            </div>
-          </div>
-
-          <div className="grid min-h-10 min-w-0 gap-2 px-3 pt-3 sm:px-6 md:grid-cols-[1fr_auto_1fr] md:items-center">
-              <div className="min-w-0 max-w-full overflow-x-auto md:col-start-2">
-                <TabsList className="mx-auto h-auto min-w-max justify-start gap-1 rounded-xl border bg-muted/40 p-1">
-                  <TabsTrigger
-                    value="products"
-                    className="h-8 gap-1.5 rounded-lg border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
-                  >
-                    <PackageCheck className="h-3.5 w-3.5" />
-                    Produtos
-                    <span className="rounded bg-background/20 px-1 text-[10px] tabular-nums">{products.length}</span>
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="listings"
-                    className="h-8 gap-1.5 rounded-lg border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
-                  >
-                    <Store className="h-3.5 w-3.5" />
-                    Mercado Livre
-                    <span className="rounded bg-background/20 px-1 text-[10px] tabular-nums">
-                      {publishedListings.length || linkedCount}
-                    </span>
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="orders"
-                    className="h-8 gap-1.5 rounded-lg border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
-                  >
-                    <ClipboardList className="h-3.5 w-3.5" />
-                    Pedidos
-                    <span className="rounded bg-background/20 px-1 text-[10px] tabular-nums">{orders.length}</span>
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="performance"
-                    className="h-8 gap-1.5 rounded-lg border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
-                  >
-                    <TrendingUp className="h-3.5 w-3.5" />
-                    Desempenho
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="atendimento"
-                    className="h-8 gap-1.5 rounded-lg border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
-                  >
-                    <MessageCircle className="h-3.5 w-3.5" />
-                    Atendimento
-                    {unansweredQuestions > 0 && <span className="rounded bg-amber-500/20 px-1 text-[10px] tabular-nums">{unansweredQuestions}</span>}
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="logs"
-                    className="h-8 gap-1.5 rounded-lg border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
-                  >
-                    <AlertTriangle className="h-3.5 w-3.5" />
-                    Logs
-                    {integrationAlerts > 0 && <span className="rounded bg-rose-500/20 px-1 text-[10px] tabular-nums">{integrationAlerts}</span>}
-                  </TabsTrigger>
-                </TabsList>
-              </div>
-              {activeTab === "products" && (
-                <div className="flex shrink-0 self-end justify-self-end rounded-xl border bg-muted/40 p-1 md:col-start-3 md:self-auto">
+          <MarketplaceSectionNav
+            items={[
+              { value: "overview", label: "Visão geral", icon: LayoutDashboard },
+              { value: "products", label: "Produtos", icon: PackageCheck, count: products.length },
+              { value: "listings", label: "Anúncios", icon: Store, count: publishedListings.length || linkedCount },
+              { value: "orders", label: "Pedidos", icon: ClipboardList, count: orders.length },
+              { value: "performance", label: "Desempenho", icon: TrendingUp },
+              { value: "atendimento", label: "Atendimento", icon: MessageCircle, count: unansweredQuestions, attention: unansweredQuestions > 0 },
+              { value: "logs", label: "Integração", icon: AlertTriangle, count: integrationAlerts, attention: integrationAlerts > 0 },
+            ]}
+            trailing={activeTab === "products" ? (
+                <div className="flex rounded-xl border bg-muted/40 p-1">
                   <Button title="Visualização em lista" size="sm" variant={viewMode === "list" ? "secondary" : "ghost"} className="h-8 w-8 rounded-lg p-0" onClick={() => setViewMode("list")}>
                     <List className="h-4 w-4" />
                   </Button>
@@ -3729,10 +3718,26 @@ export default function MarketplacePage() {
                     <Grid2X2 className="h-4 w-4" />
                   </Button>
                 </div>
-              )}
-          </div>
+              ) : undefined}
+          />
 
           <CardContent className="relative min-h-[300px] pt-4">
+            <TabsContent value="overview" className="mt-0 grid gap-4 lg:grid-cols-2">
+              <div className="rounded-lg border bg-muted/10 p-5">
+                <p className="text-sm font-semibold">Operação Mercado Livre</p>
+                <p className="mt-1 text-sm text-muted-foreground">Situação atual da integração e dos processos automáticos.</p>
+                <div className="mt-5 space-y-3 text-sm">
+                  <div className="flex items-center justify-between gap-3"><span>Conta conectada</span><Badge variant={connected ? "secondary" : "destructive"}>{connected ? "Pronta" : "Pendente"}</Badge></div>
+                  <div className="flex items-center justify-between gap-3"><span>Estoque aguardando sincronização</span><Badge variant="outline">{stockSync.pending}</Badge></div>
+                  <div className="flex items-center justify-between gap-3"><span>Alertas de integração</span><Badge variant={integrationAlerts ? "destructive" : "secondary"}>{integrationAlerts}</Badge></div>
+                </div>
+              </div>
+              <div className="rounded-lg border p-5">
+                <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-semibold">Pedidos recentes</p><p className="text-xs text-muted-foreground">Vendas recebidas do Mercado Livre</p></div><Button variant="ghost" size="sm" onClick={() => changeMainTab("orders")}>Ver todos</Button></div>
+                <div className="mt-4 divide-y">{orders.slice(0, 5).map((order) => <div key={order.id} className="flex items-center justify-between gap-3 py-3"><div><p className="text-sm font-medium">Pedido #{order.ml_order_id}</p><p className="text-xs text-muted-foreground">{order.status || "Sem status"}</p></div><p className="text-sm font-medium">{formatCurrency(order.total_amount)}</p></div>)}{!orders.length ? <p className="py-8 text-center text-sm text-muted-foreground">Nenhum pedido recebido.</p> : null}</div>
+              </div>
+              <div className="lg:col-span-2"><MarketplaceAttentionCenter items={marketplaceAttentionItems} /></div>
+            </TabsContent>
             <TabsContent value="products" className="mt-0">
               {viewMode === "list" ? (
                 <div className="overflow-hidden rounded-md border">
@@ -4166,7 +4171,7 @@ export default function MarketplacePage() {
                     </div>
                   ) : (
                     <Accordion type="multiple" className="space-y-3">
-                      {orders.map((order) => {
+                      {paginatedOrders.map((order) => {
                     const vendaId = Number(order.venda_id);
                     const hasVenda = Number.isFinite(vendaId) && vendaId > 0;
                     const syncingShipment = actionKey === `shipment:${vendaId}`;
@@ -4346,13 +4351,14 @@ export default function MarketplacePage() {
                     </Accordion>
                   )}
 
-                  {!loadingOrdersView && orders.length === 0 && (
+                  {!loadingOrdersView && filteredOrders.length === 0 && (
                     <div className="rounded-lg border bg-background py-16 text-center text-muted-foreground">
-                      Nenhum pedido importado.
+                      {orders.length ? "Nenhum pedido corresponde aos filtros." : "Nenhum pedido importado."}
                     </div>
                   )}
                 </div>
               </ScrollArea>
+              <MarketplacePagination page={safeOrderPage} totalPages={orderTotalPages} pageSize={orderPageSize} total={filteredOrders.length} visible={paginatedOrders.length} onPageChange={setOrderPage} onPageSizeChange={setOrderPageSize} />
             </TabsContent>
 
             <TabsContent value="atendimento" className="mt-0">
@@ -6689,11 +6695,7 @@ export default function MarketplacePage() {
         </DialogContent>
       </Dialog>
 
-      <Button type="button" className="fixed bottom-5 right-5 z-40 h-12 rounded-full px-4 shadow-lg" onClick={() => openMarketplaceChat()} disabled={!connected}>
-        <MessageCircle className="h-5 w-5" />
-        Chat
-        {unreadChatMessageCount > 0 && <Badge className="ml-1 bg-background text-foreground">{unreadChatMessageCount}</Badge>}
-      </Button>
+      <MarketplaceChatLauncher onClick={() => void openMarketplaceChat()} disabled={!connected} unreadCount={unreadChatMessageCount} />
 
       <Sheet open={chatOpen} onOpenChange={setChatOpen}>
         <SheetContent className="w-full gap-0 p-0 sm:max-w-2xl">
@@ -6702,91 +6704,20 @@ export default function MarketplacePage() {
             <SheetDescription>Conversas pós-venda vinculadas aos pedidos importados.</SheetDescription>
           </SheetHeader>
 
-          <div className="grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)] overflow-hidden">
-            <div className="border-r bg-muted/20">
-              <div className="flex items-center justify-between border-b px-3 py-2">
-                <span className="text-sm font-medium">Pedidos</span>
-                <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => loadChatConversations()} disabled={loadingChat}>
-                  {loadingChat ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
-                </Button>
-              </div>
-              <ScrollArea className="h-[calc(100vh-121px)]">
-                <div className="space-y-1 p-2">
-                  {chatConversations.map((conversation) => (
-                    <button
-                      key={conversation.orderDbId}
-                      type="button"
-                      onClick={() => setSelectedChatOrderId(conversation.orderDbId)}
-                      className={`w-full rounded-md px-3 py-2 text-left text-sm transition-colors ${
-                        selectedChatConversation?.orderDbId === conversation.orderDbId ? "bg-primary text-primary-foreground" : "hover:bg-muted"
-                      }`}
-                    >
-                      <div className="truncate font-medium">Pedido {conversation.mlOrderId}</div>
-                      <div className="truncate text-xs opacity-80">{conversation.title}</div>
-                      <div className="mt-1 text-xs opacity-70">{conversation.messages.length} mensagem(ns)</div>
-                    </button>
-                  ))}
-                  {!loadingChat && chatConversations.length === 0 && (
-                    <div className="px-3 py-6 text-center text-xs text-muted-foreground">Nenhum pedido importado com conversa.</div>
-                  )}
-                </div>
-              </ScrollArea>
-            </div>
-
-            <div className="flex min-h-0 flex-col">
-              <div className="border-b px-4 py-3">
-                <div className="truncate text-sm font-semibold">
-                  {selectedChatConversation ? `Pedido ${selectedChatConversation.mlOrderId}` : "Selecione um pedido"}
-                </div>
-                <div className="truncate text-xs text-muted-foreground">
-                  {selectedChatConversation?.title || "As mensagens aparecem após importar a venda."}
-                </div>
-              </div>
-
-              <ScrollArea className="h-[calc(100vh-185px)]">
-                <div className="flex min-h-full flex-col justify-end space-y-3 p-4">
-                  {selectedChatConversation?.error && (
-                    <div className="rounded-md border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-sm">{selectedChatConversation.error}</div>
-                  )}
-                  {selectedChatConversation?.messages.map((message) => (
-                    <div key={message.id} className={`flex ${message.fromSeller ? "justify-end" : "justify-start"}`}>
-                      <div className={`max-w-[78%] rounded-lg px-3 py-2 text-sm shadow-sm ${message.fromSeller ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
-                        <div>{message.text || "-"}</div>
-                        <div className="mt-1 flex items-center justify-end gap-1 text-[11px] opacity-70">
-                          <span>{formatDate(message.dateCreated)}</span>
-                          {message.fromSeller && (String(message.status ?? "").toLowerCase() === "read" ? <CheckCheck className="h-3 w-3" /> : <Check className="h-3 w-3" />)}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {selectedChatConversation && !selectedChatConversation.error && selectedChatConversation.messages.length === 0 && (
-                    <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">Nenhuma mensagem nesta conversa.</div>
-                  )}
-                </div>
-              </ScrollArea>
-
-              <div className="border-t bg-background p-3">
-                <div className="flex items-end gap-2">
-                  <Textarea
-                    value={chatMessageText}
-                    onChange={(event) => setChatMessageText(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" && !event.shiftKey) {
-                        event.preventDefault();
-                        sendChatMessage();
-                      }
-                    }}
-                    placeholder="Digite uma mensagem para o comprador"
-                    className="max-h-28 min-h-11 flex-1 resize-none py-2"
-                    disabled={!selectedChatConversation || sendingChatMessage}
-                  />
-                  <Button className="h-11 w-11 shrink-0 p-0" onClick={sendChatMessage} disabled={!selectedChatConversation || !chatMessageText.trim() || sendingChatMessage}>
-                    {sendingChatMessage ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
+          <MarketplaceConversationPanel
+            channelName="Mercado Livre"
+            conversations={normalizedChatConversations}
+            selectedId={selectedChatConversation ? String(selectedChatConversation.orderDbId) : null}
+            selectedName={selectedChatConversation ? `Pedido ${selectedChatConversation.mlOrderId}` : null}
+            messages={normalizedChatMessages}
+            loading={loadingChat || sendingChatMessage}
+            error={selectedChatConversation?.error}
+            messageText={chatMessageText}
+            onMessageTextChange={setChatMessageText}
+            onRefresh={() => void loadChatConversations()}
+            onSelect={(id) => setSelectedChatOrderId(Number(id))}
+            onSend={() => void sendChatMessage()}
+          />
         </SheetContent>
       </Sheet>
 
