@@ -13,7 +13,7 @@ import {
 import { FileText, Power, ShoppingCart, Tag, User } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { formatCep } from "@/app/(app)/(pages)/clientes/components/customerDialogRegister/utils";
-import { fetchPrimeiroLogoEmpresa } from "@/lib/empresa-logo";
+import { fetchLogoEmpresaDataUrl } from "@/lib/empresa-logo";
 import { fetchPrintColors } from "@/lib/print-config";
 import { getTermoAceiteVenda } from "@/lib/print-aceite";
 
@@ -201,7 +201,7 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
   }
 
   const empresa = await fetchEmpresa();
-  const finalLogo = await fetchPrimeiroLogoEmpresa();
+  const finalLogo = await fetchLogoEmpresaDataUrl();
   const printColors = await fetchPrintColors();
   const cliente = Array.isArray(venda.cliente)
     ? venda.cliente[0]

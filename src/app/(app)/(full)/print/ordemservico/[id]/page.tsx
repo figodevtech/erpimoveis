@@ -15,7 +15,7 @@ import {
   PRINT_DOCUMENT_HEADER_CSS,
   PrintDocumentHeader,
 } from "../../../components/PrintDocumentHeader";
-import { fetchPrimeiroLogoEmpresa } from "@/lib/empresa-logo";
+import { fetchLogoEmpresaDataUrl } from "@/lib/empresa-logo";
 import { fetchPrintColors } from "@/lib/print-config";
 import { getTermoAceiteOS, type AceiteAlvo } from "@/lib/print-aceite";
 
@@ -235,7 +235,7 @@ export default async function OSFullPage({ params }: PageProps) {
   }
 
   const empresa = await fetchEmpresa();
-  const finalLogo = await fetchPrimeiroLogoEmpresa();
+  const finalLogo = await fetchLogoEmpresaDataUrl();
   const printColors = await fetchPrintColors();
 
   const totalProdutos =
