@@ -7,16 +7,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { LABEL_SIZES, type LabelSizeKey } from "@/lib/etiquetas/label-sizes";
 
-const LABEL_SIZES = {
-  "50x30": { label: "50 x 30 mm", widthMm: 50, heightMm: 30 },
-  "60x30": { label: "60 x 30 mm", widthMm: 60, heightMm: 30 },
-  "60x40": { label: "60 x 40 mm", widthMm: 60, heightMm: 40 },
-  "80x40": { label: "80 x 40 mm", widthMm: 80, heightMm: 40 },
-  "100x50": { label: "100 x 50 mm", widthMm: 100, heightMm: 50 },
-};
-
-type LabelSizeKey = keyof typeof LABEL_SIZES;
 const PRINT_STORAGE_PREFIX = "erpoficina:etiquetas-print:";
 /** Teto de etiquetas por geracao, o mesmo para faixa numerada e apenas prefixo. */
 const MAX_ETIQUETAS = 500;

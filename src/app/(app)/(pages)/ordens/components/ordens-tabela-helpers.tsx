@@ -13,7 +13,7 @@ export type OrdemComDatas = Ordem & {
 };
 
 // ---- Ordenação (apenas colunas desejadas)
-export type SortKey = "setor" | "entrada" | "saida" | "status" | "prioridade" | "tempo" | null;
+export type SortKey = "setor" | "entrada" | "saida" | "status" | "prioridade" | "tempo" | "concluido" | null;
 export type SortDir = "asc" | "desc";
 
 export type PrioFiltro = "TODAS" | "ALTA" | "NORMAL" | "BAIXA";

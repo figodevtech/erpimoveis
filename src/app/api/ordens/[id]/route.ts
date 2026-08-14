@@ -50,6 +50,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
           "pagamento_concluido_em",
           "destacada",
           "destaque_motivo",
+          "destaque_cor",
           "destacada_por",
           "destacada_em",
           "orcamentototal",
@@ -104,6 +105,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       pagamento_concluido_em: string | null;
       destacada: boolean;
       destaque_motivo: string | null;
+      destaque_cor?: string | null;
       destacada_por: string | null;
       destacada_em: string | null;
       orcamentototal: number | null;
@@ -761,6 +763,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       pagamento_concluido_em: osRow.pagamento_concluido_em ?? null,
       destacada: osRow.destacada === true,
       destaque_motivo: osRow.destaque_motivo ?? null,
+      destaque_cor: osRow.destaque_cor ?? "vermelho",
       destacada_por: osRow.destacada_por ?? null,
       destacada_em: osRow.destacada_em ?? null,
       alvo_tipo: (osRow.alvo_tipo ?? "VEICULO") as AlvoTipo,

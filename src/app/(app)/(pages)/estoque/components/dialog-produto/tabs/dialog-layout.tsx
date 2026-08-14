@@ -42,6 +42,9 @@ type Props = {
   submitDisabled?: boolean;
   isDesktop?: boolean;
   isDrawer?: boolean;
+
+  /** Atalhos flutuantes no cabeçalho (ex.: imprimir etiqueta). */
+  headerActions?: React.ReactNode;
 };
 
 export function ProductDialogLayout({
@@ -59,6 +62,7 @@ export function ProductDialogLayout({
   submitDisabled = false,
   isDesktop = true,
   isDrawer = false,
+  headerActions,
 }: Props) {
   const DialogShellContent = isDrawer ? DrawerContent : DialogContent;
   const DialogShellHeader = isDrawer ? DrawerHeader : DialogHeader;
@@ -82,7 +86,13 @@ export function ProductDialogLayout({
           : mobileContentClass
       }
     >
-      <div className="flex h-full min-h-0 min-w-0 w-full max-w-full flex-col overflow-x-hidden">
+      <div className="relative flex h-full min-h-0 min-w-0 w-full max-w-full flex-col overflow-x-hidden">
+        {!loading && headerActions ? (
+          // right responsivo: no mobile o X do dialog ocupa 44px na direita.
+          <div className="absolute right-14 top-3 z-20 flex flex-row items-center gap-2 rounded-lg bg-card p-2 shadow-sm sm:right-16 sm:top-4">
+            {headerActions}
+          </div>
+        ) : null}
         {!loading ? (
           <>
             <DialogShellHeader

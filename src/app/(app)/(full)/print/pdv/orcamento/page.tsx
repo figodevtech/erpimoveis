@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PrintButton } from "../../../components/PrintButton";
 import { PrintFilterToggles } from "../../../components/PrintFilterToggles";
+import { PrintA4Paginator } from "../../../components/PrintA4Paginator";
 import { FileText, Power, ShoppingCart, User } from "lucide-react";
 import {
   PDV_ORCAMENTO_STORAGE_PREFIX,
@@ -548,7 +549,10 @@ function PrintPdvOrcamentoContent() {
         </div>
       </div>
 
-      <div className="folha">
+      <div data-print-pagination-root data-print-export-target>
+        <PrintA4Paginator />
+        <div data-print-pagination-source-holder>
+          <div className="folha" data-print-pagination-source>
         <div className="header-os">
           <div className="logo-box">
             {logoUrl ? (
@@ -658,7 +662,7 @@ function PrintPdvOrcamentoContent() {
             </div>
           </div>
 
-          <div className="tabela-container">
+          <div className="tabela-container" data-print-items-table>
             <table>
               <thead>
                 <tr>
@@ -685,7 +689,8 @@ function PrintPdvOrcamentoContent() {
             </table>
           </div>
 
-          <div className="rodape">
+          <div data-print-final-block>
+            <div className="rodape">
             <div>
               <div className="observacoes-box">
                 <div className="obs-titulo">
@@ -721,20 +726,23 @@ function PrintPdvOrcamentoContent() {
                 <span className="total-valor">{fmtMoney(draft.total)}</span>
               </div>
             </div>
-          </div>
-
-          {TERMO_ACEITE_PDV && (
-            <div className="aceite-box">
-              <div className="aceite-titulo">{TERMO_ACEITE_PDV.titulo}</div>
-              <div className="aceite-intro">{TERMO_ACEITE_PDV.intro}</div>
-              {TERMO_ACEITE_PDV.itens.map((item, idx) => (
-                <div key={idx} className="aceite-item">
-                  {item}
-                </div>
-              ))}
             </div>
-          )}
+
+            {TERMO_ACEITE_PDV && (
+              <div className="aceite-box">
+                <div className="aceite-titulo">{TERMO_ACEITE_PDV.titulo}</div>
+                <div className="aceite-intro">{TERMO_ACEITE_PDV.intro}</div>
+                {TERMO_ACEITE_PDV.itens.map((item, idx) => (
+                  <div key={idx} className="aceite-item">
+                    {item}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
+      </div>
+      </div>
       </div>
     </div>
   );

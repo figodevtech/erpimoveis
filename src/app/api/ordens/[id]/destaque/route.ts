@@ -58,14 +58,17 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       );
     }
 
+    const corRecebida = body.cor ?? body.destaque_cor;
+    const corValida = corRecebida === "amarelo" ? "amarelo" : "vermelho";
+
     const { data: destaqueAtual, error: destaqueAtualError } = await supabaseAdmin
       .from("ordemservico")
-      .select("id, destacada, destacada_por, destacada_em")
+      .select("id, destacada, destaque_cor, destacada_por, destacada_em")
       .eq("id", osId)
       .maybeSingle();
     if (destaqueAtualError) throw destaqueAtualError;
     if (!destaqueAtual) {
-      return NextResponse.json({ error: "OS n\u00e3o encontrada." }, { status: 404 });
+      return NextResponse.json({ error: "OS não encontrada." }, { status: 404 });
     }
 
     const jaEstavaDestacada = destaqueAtual.destacada === true;
@@ -74,6 +77,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       ? {
           destacada: true,
           destaque_motivo: motivo || null,
+          destaque_cor: corRecebida ? corValida : ((destaqueAtual as any).destaque_cor || "vermelho"),
           destacada_por: jaEstavaDestacada && destaqueAtual.destacada_por
             ? destaqueAtual.destacada_por
             : usuarioId,
@@ -84,6 +88,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       : {
           destacada: false,
           destaque_motivo: null,
+          destaque_cor: "vermelho",
           destacada_por: null,
           destacada_em: null,
         };
@@ -92,12 +97,12 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       .from("ordemservico")
       .update(patch)
       .eq("id", osId)
-      .select("id, destacada, destaque_motivo, destacada_por, destacada_em")
+      .select("id, destacada, destaque_motivo, destaque_cor, destacada_por, destacada_em")
       .maybeSingle();
 
     if (error) throw error;
     if (!data) {
-      return NextResponse.json({ error: "OS n\u00e3o encontrada." }, { status: 404 });
+      return NextResponse.json({ error: "OS não encontrada." }, { status: 404 });
     }
 
     return NextResponse.json({ ok: true, destaque: data });

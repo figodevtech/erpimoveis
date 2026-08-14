@@ -92,6 +92,7 @@ export type Ordem = {
   acrescimo_financeiro_valor?: number | null;
   destacada?: boolean;
   destaque_motivo?: string | null;
+  destaque_cor?: "vermelho" | "amarelo" | string | null;
   destacada_por?: string | null;
   destacada_em?: string | null;
   transacoes: Transaction[] | null

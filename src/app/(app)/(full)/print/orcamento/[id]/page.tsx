@@ -14,6 +14,7 @@ import { FileText, User } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { Button } from "@/components/ui/button";
 import { PrintShareMenu } from "../../../components/PrintShareMenu";
+import { PrintA4Paginator } from "../../../components/PrintA4Paginator";
 import {
   PRINT_DOCUMENT_HEADER_CSS,
   PrintDocumentHeader,
@@ -401,8 +402,10 @@ export default async function OrcamentoPrintPage({ params }: PageProps) {
         <PrintShareMenu documentId={String(orcamento.id)} filenamePrefix="orcamento" />
       </div>
 
-      <div className="folha-scaler">
-        <div className="folha" data-print-export-target>
+      <div data-print-pagination-root data-print-export-target>
+        <PrintA4Paginator />
+        <div className="folha-scaler" data-print-pagination-source-holder>
+          <div className="folha" data-print-pagination-source>
           <PrintDocumentHeader
             logoUrl={logo}
             logoFallback="ORC"
@@ -481,7 +484,7 @@ export default async function OrcamentoPrintPage({ params }: PageProps) {
             </div>
 
             {itens.length > 0 ? (
-              <div className="tabela-container">
+              <div className="tabela-container" data-print-items-table>
                 <table>
                   <thead>
                     <tr>
@@ -551,7 +554,8 @@ export default async function OrcamentoPrintPage({ params }: PageProps) {
               </div>
             )}
 
-            <div className="rodape">
+            <div data-print-final-block>
+              <div className="rodape">
               <div>
                 {orcamento.observacoes ? (
                   <div className="observacoes-box">
@@ -606,9 +610,11 @@ export default async function OrcamentoPrintPage({ params }: PageProps) {
                   <span>{fmtMoney(total)}</span>
                 </div>
               </div>
+              </div>
             </div>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );

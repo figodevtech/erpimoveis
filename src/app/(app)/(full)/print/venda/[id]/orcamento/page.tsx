@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { ObservacoesToggle } from "../../../../components/ObservacoesToggle";
 import { PrintFilterToggles } from "../../../../components/PrintFilterToggles";
 import { PrintShareMenu } from "../../../../components/PrintShareMenu";
+import { PrintA4Paginator } from "../../../../components/PrintA4Paginator";
 import {
   PRINT_DOCUMENT_HEADER_CSS,
   PrintDocumentHeader,
@@ -478,8 +479,11 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
         </div>
       </div>
 
-      <div className="folha" data-print-export-target>
-        <PrintDocumentHeader
+      <div data-print-pagination-root data-print-export-target>
+        <PrintA4Paginator />
+        <div data-print-pagination-source-holder>
+          <div className="folha" data-print-pagination-source>
+            <PrintDocumentHeader
           logoUrl={finalLogo}
           logoFallback="PDV"
           companyName={empresaNome}
@@ -595,7 +599,7 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
             </div>
           </div>
 
-          <div className="tabela-container">
+          <div className="tabela-container" data-print-items-table>
             <table>
               <thead>
                 <tr>
@@ -637,7 +641,8 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
             </table>
           </div>
 
-          <div className="rodape">
+          <div data-print-final-block>
+            <div className="rodape">
             <div>
               {venda.observacoes ? (
                 <div className="observacoes-box venda-observacoes">
@@ -683,20 +688,23 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
                 </span>
               </div>
             </div>
-          </div>
-
-          {termoAceite && (
-            <div className="aceite-box">
-              <div className="aceite-titulo">{termoAceite.titulo}</div>
-              <div className="aceite-intro">{termoAceite.intro}</div>
-              {termoAceite.itens.map((item, idx) => (
-                <div key={idx} className="aceite-item">
-                  {item}
-                </div>
-              ))}
             </div>
-          )}
+
+            {termoAceite && (
+              <div className="aceite-box">
+                <div className="aceite-titulo">{termoAceite.titulo}</div>
+                <div className="aceite-intro">{termoAceite.intro}</div>
+                {termoAceite.itens.map((item, idx) => (
+                  <div key={idx} className="aceite-item">
+                    {item}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
+      </div>
+      </div>
       </div>
     </div>
   );

@@ -32,6 +32,7 @@ const ORDENACOES: Record<string, { coluna: string; inverter?: boolean }> = {
   prioridade: { coluna: "prioridade" },
   setor: { coluna: COLUNA_SETOR_POR_NOME },
   tempo: { coluna: "dataentrada", inverter: true },
+  concluido: { coluna: "pagamento_concluido_em" },
 };
 
 function parseStatuses(param?: string | null): StatusOS[] {
@@ -170,6 +171,7 @@ export async function GET(req: Request) {
           pagamento_concluido_em,
           destacada,
           destaque_motivo,
+          destaque_cor,
           destacada_por,
           destacada_em,
           alvo_tipo,
@@ -310,6 +312,8 @@ export async function GET(req: Request) {
         const coluna = sort === "setor" ? colunaOrdenacaoSetor : ordenacao.coluna;
         const ascendente = ordenacao.inverter ? dir !== "asc" : dir === "asc";
         query = query.order(coluna, { ascending: ascendente, nullsFirst: false });
+      } else if (status === "CONCLUIDO" || statuses.includes("CONCLUIDO")) {
+        query = query.order("pagamento_concluido_em", { ascending: false, nullsFirst: false });
       } else {
         query = query.order("dataentrada", { ascending: false });
       }
@@ -340,6 +344,7 @@ export async function GET(req: Request) {
       pagamentoConcluidoEm: r.pagamento_concluido_em as string | null,
       destacada: Boolean(r.destacada),
       destaque_motivo: (r.destaque_motivo as string | null) ?? null,
+      destaque_cor: (r.destaque_cor as string | null) ?? "vermelho",
       destacada_por: (r.destacada_por as string | null) ?? null,
       destacada_em: (r.destacada_em as string | null) ?? null,
       notaNumero: null as number | null,

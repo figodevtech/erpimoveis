@@ -560,6 +560,25 @@ export default function TabelaProdutos({
                           </DropdownMenuItem>
                         ) : null}
 
+                        {/* Imprimir é leitura: quem enxerga a lista pode gerar
+                            a etiqueta, sem exigir permissão de edição. */}
+                        <DropdownMenuItem
+                          disabled={!canAct || !p.etiqueta?.trim()}
+                          onClick={() =>
+                            window.open(`/print/produto/${id}/etiqueta`, "_blank")
+                          }
+                        >
+                          <Tag className="mr-2 h-4 w-4" />
+                          Etiqueta
+                          {canAct && !p.etiqueta?.trim() ? (
+                            // Item desabilitado em menu não comporta tooltip:
+                            // o motivo vem escrito ao lado.
+                            <span className="ml-auto pl-2 text-[10px] text-muted-foreground">
+                              sem etiqueta
+                            </span>
+                          ) : null}
+                        </DropdownMenuItem>
+
                         {canEdit ? (
                           <DropdownMenuItem
                             disabled={!canAct}

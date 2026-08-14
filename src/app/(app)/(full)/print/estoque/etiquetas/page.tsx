@@ -8,16 +8,13 @@ import QRCode from "qrcode";
 import { Power } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PrintButton } from "@/app/(app)/(full)/components/PrintButton";
+import type { LabelSize } from "@/lib/etiquetas/label-sizes";
 
 const ETIQUETAS_PRINT_STORAGE_PREFIX = "erpoficina:etiquetas-print:";
 
 type EtiquetasPrintDraft = {
   codes: string[];
-  size: {
-    label: string;
-    widthMm: number;
-    heightMm: number;
-  };
+  size: LabelSize;
   createdAt: string;
 };
 

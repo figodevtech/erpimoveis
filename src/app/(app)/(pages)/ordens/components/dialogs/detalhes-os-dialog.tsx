@@ -7,90 +7,90 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
-Dialog,
-DialogContent,
-DialogDescription,
-DialogHeader,
-DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
-AlertTriangle,
-ArrowDown,
-ArrowUp,
-Building2,
-Calculator,
-Car,
-CheckSquare,
-Copy,
-CreditCard,
-Download,
-ExternalLink,
-FileText,
-History,
-ImageIcon,
-Link2,
-ListChecks,
-ListTree,
-Loader2,
-Package,
-Paperclip,
-Pencil,
-RefreshCw,
-Eye,
-MoreHorizontal,
-StickyNote,
-Trash2,
-Upload,
-User2,
-Users,
-Wrench
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  Building2,
+  Calculator,
+  Car,
+  CheckSquare,
+  Copy,
+  CreditCard,
+  Download,
+  ExternalLink,
+  FileText,
+  History,
+  ImageIcon,
+  Link2,
+  ListChecks,
+  ListTree,
+  Loader2,
+  Package,
+  Paperclip,
+  Pencil,
+  RefreshCw,
+  Eye,
+  MoreHorizontal,
+  StickyNote,
+  Trash2,
+  Upload,
+  User2,
+  Users,
+  Wrench
 } from "lucide-react";
-import { Fragment,useCallback,useEffect,useMemo,useRef,useState,type ChangeEvent } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { toast } from "@/lib/toast";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-AlertDialog,
-AlertDialogAction,
-AlertDialogCancel,
-AlertDialogContent,
-AlertDialogDescription,
-AlertDialogFooter,
-AlertDialogHeader,
-AlertDialogTitle,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-Command,
-CommandEmpty,
-CommandGroup,
-CommandInput,
-CommandItem,
-CommandList,
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
 } from "@/components/ui/command";
-import { Popover,PopoverContent,PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-Select,
-SelectContent,
-SelectItem,
-SelectTrigger,
-SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import {
-OS_ANEXO_CATEGORIAS,
-getOsAnexoCategoriaLabel,
-type OsAnexoCategoria,
+  OS_ANEXO_CATEGORIAS,
+  getOsAnexoCategoriaLabel,
+  type OsAnexoCategoria,
 } from "@/lib/os-anexo-categorias";
 
 import { useSession } from "next-auth/react";
 
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { competenciaEmMesFechado } from "@/app/api/ordens/[id]/eventos-financeiros/_lib/competencia";
-import { carregarDetalhesOS,listarRealizadoresDisponiveis,type UsuarioAtivo } from "../../lib/api";
+import { carregarDetalhesOS, listarRealizadoresDisponiveis, type UsuarioAtivo } from "../../lib/api";
 import {
   arredondarMoeda,
   calcularDescontoAplicado,
@@ -277,6 +277,7 @@ type OS = {
   pagamento_concluido_em?: string | null;
   destacada?: boolean;
   destaque_motivo?: string | null;
+  destaque_cor?: "vermelho" | "amarelo" | string | null;
   destacada_por?: string | null;
   destacada_em?: string | null;
   /** Entrega: fim do andamento, quando o ultimo servico da execucao e finalizado. */
@@ -418,19 +419,19 @@ type AuditoriaResumoItem = {
   id: string;
   ocorridoEm: string;
   tipo:
-    | "criacao"
-    | "status"
-    | "orcamento"
-    | "checklist"
-    | "atribuicao"
-    | "execucao"
-    | "aprovacao"
-    | "anexo"
-    | "estoque"
-    | "saida"
-    | "financeiro"
-    | "destaque"
-    | "dados";
+  | "criacao"
+  | "status"
+  | "orcamento"
+  | "checklist"
+  | "atribuicao"
+  | "execucao"
+  | "aprovacao"
+  | "anexo"
+  | "estoque"
+  | "saida"
+  | "financeiro"
+  | "destaque"
+  | "dados";
   titulo: string;
   detalhe: string | null;
   usuario: { id: string | null; nome: string };
@@ -637,11 +638,11 @@ function MultiSelectRealizadores({
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent 
-      onWheel={(e) => e.stopPropagation()}
-                        onTouchMove={(e) => e.stopPropagation()}
-                        onOpenAutoFocus={(e) => e.preventDefault()}
-      align="start" className="w-[320px] p-0">
+      <PopoverContent
+        onWheel={(e) => e.stopPropagation()}
+        onTouchMove={(e) => e.stopPropagation()}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        align="start" className="w-[320px] p-0">
         <Command>
           <CommandInput className="text-base" placeholder="Buscar usuário..." />
           <CommandList>
@@ -725,6 +726,7 @@ export function OSDetalhesDialog({
   const [data, setData] = useState<OSDetalhesResponse | null>(null);
   const [destaqueAtivo, setDestaqueAtivo] = useState(false);
   const [destaqueMotivo, setDestaqueMotivo] = useState("");
+  const [destaqueCor, setDestaqueCor] = useState<"vermelho" | "amarelo">("vermelho");
   const [salvandoDestaque, setSalvandoDestaque] = useState(false);
 
   const [responsaveis, setResponsaveis] = useState<UsuarioAtivo[]>([]);
@@ -939,7 +941,8 @@ export function OSDetalhesDialog({
   useEffect(() => {
     setDestaqueAtivo(data?.os?.destacada === true);
     setDestaqueMotivo(data?.os?.destaque_motivo ?? "");
-  }, [data?.os?.destacada, data?.os?.destaque_motivo, data?.os?.id]);
+    setDestaqueCor(data?.os?.destaque_cor === "amarelo" ? "amarelo" : "vermelho");
+  }, [data?.os?.destacada, data?.os?.destaque_motivo, data?.os?.destaque_cor, data?.os?.id]);
 
   // Se a permissao cair enquanto o dialog esta aberto, volta para uma aba visivel.
   useEffect(() => {
@@ -1281,18 +1284,18 @@ export function OSDetalhesDialog({
       !prev
         ? prev
         : {
-            ...prev,
-            itensServico: prev.itensServico.map((s) =>
-              s.ordemservicoid === item.ordemservicoid && s.servicoid === item.servicoid
-                ? {
-                    ...s,
-                    realizadores: otimista,
-                    idusuariorealizador: principal,
-                    realizador: principal ? { id: principal, nome: otimista[0]?.nome ?? null } : null,
-                  }
-                : s
-            ),
-          }
+          ...prev,
+          itensServico: prev.itensServico.map((s) =>
+            s.ordemservicoid === item.ordemservicoid && s.servicoid === item.servicoid
+              ? {
+                ...s,
+                realizadores: otimista,
+                idusuariorealizador: principal,
+                realizador: principal ? { id: principal, nome: otimista[0]?.nome ?? null } : null,
+              }
+              : s
+          ),
+        }
     );
 
     try {
@@ -1302,23 +1305,23 @@ export function OSDetalhesDialog({
         !prev
           ? prev
           : {
-              ...prev,
-              itensServico: prev.itensServico.map((s) =>
-                s.ordemservicoid === resp.ordemservicoid && s.servicoid === resp.servicoid
-                  ? {
-                      ...s,
-                      realizadores: resp.realizadores ?? [],
-                      idusuariorealizador: resp.idusuariorealizador,
-                      realizador: resp.idusuariorealizador
-                        ? {
-                            id: resp.idusuariorealizador,
-                            nome: resp.realizadores?.find((r) => r.id === resp.idusuariorealizador)?.nome ?? null,
-                          }
-                        : null,
+            ...prev,
+            itensServico: prev.itensServico.map((s) =>
+              s.ordemservicoid === resp.ordemservicoid && s.servicoid === resp.servicoid
+                ? {
+                  ...s,
+                  realizadores: resp.realizadores ?? [],
+                  idusuariorealizador: resp.idusuariorealizador,
+                  realizador: resp.idusuariorealizador
+                    ? {
+                      id: resp.idusuariorealizador,
+                      nome: resp.realizadores?.find((r) => r.id === resp.idusuariorealizador)?.nome ?? null,
                     }
-                  : s
-              ),
-            }
+                    : null,
+                }
+                : s
+            ),
+          }
       );
 
       toast.success("Realizadores atualizados");
@@ -1335,25 +1338,31 @@ export function OSDetalhesDialog({
     const versaoEdicao = ++destaqueEdicaoVersaoRef.current;
     destaqueSaveTimerRef.current = setTimeout(() => {
       destaqueSaveTimerRef.current = null;
-      void persistirDestaque(true, motivo, { silencioso: true, versaoEdicao });
+      void persistirDestaque(true, motivo, destaqueCor, { silencioso: true, versaoEdicao });
     }, 1000);
   }
 
   async function persistirDestaque(
     destacada: boolean,
     motivo: string,
+    cor?: "vermelho" | "amarelo",
     opcoes?: { silencioso?: boolean; versaoEdicao?: number },
   ) {
     if (!osId) return false;
 
     const osIdDaRequisicao = osId;
     const motivoNormalizado = motivo.trim();
+    const corNormalizada = cor === "amarelo" ? "amarelo" : "vermelho";
     setSalvandoDestaque(true);
     try {
       const response = await fetch(`/api/ordens/${osId}/destaque`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ destacada, motivo: motivoNormalizado }),
+        body: JSON.stringify({
+          destacada,
+          motivo: motivoNormalizado,
+          cor: corNormalizada,
+        }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -1368,21 +1377,24 @@ export function OSDetalhesDialog({
       const podeAplicarMotivo =
         opcoes?.versaoEdicao === undefined
         || opcoes.versaoEdicao === destaqueEdicaoVersaoRef.current;
+      const corFinal = destaque.destaque_cor === "amarelo" ? "amarelo" : "vermelho";
       setData((prev) => !prev
         ? prev
         : {
-            ...prev,
-            os: {
-              ...prev.os,
-              destacada: destaque.destacada === true,
-              destaque_motivo: podeAplicarMotivo
-                ? destaque.destaque_motivo ?? null
-                : prev.os.destaque_motivo,
-              destacada_por: destaque.destacada_por ?? null,
-              destacada_em: destaque.destacada_em ?? null,
-            },
-          });
+          ...prev,
+          os: {
+            ...prev.os,
+            destacada: destaque.destacada === true,
+            destaque_motivo: podeAplicarMotivo
+              ? destaque.destaque_motivo ?? null
+              : prev.os.destaque_motivo,
+            destaque_cor: corFinal,
+            destacada_por: destaque.destacada_por ?? null,
+            destacada_em: destaque.destacada_em ?? null,
+          },
+        });
       setDestaqueAtivo(destaque.destacada === true);
+      setDestaqueCor(corFinal);
       if (podeAplicarMotivo) setDestaqueMotivo(destaque.destaque_motivo ?? "");
       if (!opcoes?.silencioso) {
         toast.success(destacada ? "OS destacada." : "Destaque removido.");
@@ -1390,7 +1402,7 @@ export function OSDetalhesDialog({
       onDestaqueChange?.();
       return true;
     } catch (error: any) {
-      toast.error(error?.message || "N\u00e3o foi poss\u00edvel atualizar o destaque da OS");
+      toast.error(error?.message || "Não foi possível atualizar o destaque da OS");
       return false;
     } finally {
       if (destaqueOsIdAtualRef.current === osIdDaRequisicao) {
@@ -1408,7 +1420,8 @@ export function OSDetalhesDialog({
 
     if (ativo) {
       setDestaqueAtivo(true);
-      const destacado = await persistirDestaque(true, destaqueMotivo, { versaoEdicao });
+      setDestaqueCor("vermelho");
+      const destacado = await persistirDestaque(true, destaqueMotivo, "vermelho", { versaoEdicao });
       if (!destacado) {
         if (destaqueSaveTimerRef.current) {
           clearTimeout(destaqueSaveTimerRef.current);
@@ -1421,12 +1434,31 @@ export function OSDetalhesDialog({
     }
 
     const motivoAnterior = destaqueMotivo;
+    const corAnterior = destaqueCor;
     setDestaqueAtivo(false);
     setDestaqueMotivo("");
-    const removido = await persistirDestaque(false, "", { versaoEdicao });
+    setDestaqueCor("vermelho");
+    const removido = await persistirDestaque(false, "", "vermelho", { versaoEdicao });
     if (!removido) {
       setDestaqueAtivo(true);
       setDestaqueMotivo(motivoAnterior);
+      setDestaqueCor(corAnterior);
+    }
+  }
+
+  async function alternarCorDestaque() {
+    if (!destaqueAtivo || !podeEditarOS || salvandoDestaque) return;
+
+    if (destaqueSaveTimerRef.current) {
+      clearTimeout(destaqueSaveTimerRef.current);
+      destaqueSaveTimerRef.current = null;
+    }
+    const versaoEdicao = ++destaqueEdicaoVersaoRef.current;
+    const novaCor = destaqueCor === "amarelo" ? "vermelho" : "amarelo";
+    setDestaqueCor(novaCor);
+    const ok = await persistirDestaque(true, destaqueMotivo, novaCor, { silencioso: true, versaoEdicao });
+    if (!ok) {
+      setDestaqueCor(destaqueCor);
     }
   }
 
@@ -1516,97 +1548,126 @@ export function OSDetalhesDialog({
         showCloseButton={!loading}
       >
         {!loading ? (
-        <div className="shrink-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-b relative">
-          <DialogHeader className="gap-0 px-5 py-4 pr-12">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0 space-y-1">
-                <DialogTitle className="flex flex-wrap items-center gap-2">
-                  <span className="inline-flex min-w-0 items-center gap-2">
-                    <Link2 className="h-5 w-5 shrink-0 text-primary" />
-                    <span className="truncate">{titulo}</span>
-                  </span>
-                  {statusBadge}
-                  {prioBadge}
-                </DialogTitle>
-                <DialogDescription className="text-sm">
-                  Informações completas da OS, itens, checklist, responsáveis e links de aprovação.
-                </DialogDescription>
-                {data?.os ? (
-                  <div
-                    className={`mt-2 flex min-h-9 flex-nowrap items-center gap-1.5 rounded-md border px-2.5 py-1.5 sm:gap-2 ${
-                      destaqueAtivo
-                        ? "border-red-500/40 bg-red-500/10"
+          <div className="shrink-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-b relative">
+            <DialogHeader className="gap-0 px-5 py-4 pr-12">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0 space-y-1">
+                  <DialogTitle className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex min-w-0 items-center gap-2">
+                      <Link2 className="h-5 w-5 shrink-0 text-primary" />
+                      <span className="truncate">{titulo}</span>
+                    </span>
+                    {statusBadge}
+                    {prioBadge}
+                  </DialogTitle>
+                  <DialogDescription className="text-sm">
+                    Informações completas da OS, itens, checklist, responsáveis e links de aprovação.
+                  </DialogDescription>
+                  {data?.os ? (
+                    <div
+                      className={`mt-2 flex min-h-9 flex-nowrap items-center gap-1.5 rounded-md border px-2.5 py-1.5 sm:gap-2 transition-colors ${destaqueAtivo
+                        ? destaqueCor === "amarelo"
+                          ? "border-amber-500/40 bg-amber-500/10 dark:bg-amber-950/20"
+                          : "border-red-500/40 bg-red-500/10 dark:bg-red-950/20"
                         : "border-border bg-muted/25"
-                    }`}
-                  >
-                    <Switch
-                      id={`destacar-os-${data.os.id}`}
-                      checked={destaqueAtivo}
-                      onCheckedChange={(checked) => void alterarDestaqueAtivo(checked)}
-                      disabled={!podeEditarOS || salvandoDestaque}
-                      aria-label="Destacar ordem de servi\u00e7o"
-                      className="shrink-0"
-                    />
-                    <Label
-                      htmlFor={`destacar-os-${data.os.id}`}
-                      className={`shrink-0 ${destaqueAtivo ? "text-red-700 dark:text-red-300" : ""}`}
+                        }`}
                     >
-                      Destacar
-                    </Label>
-                    {destaqueAtivo ? (
-                      <>
-                        <Input
-                          value={destaqueMotivo}
-                          onChange={(event) => {
-                            const motivo = event.target.value;
-                            setDestaqueMotivo(motivo);
-                            agendarSalvamentoDestaque(motivo);
-                          }}
-                          maxLength={200}
-                          placeholder="Motivo do destaque"
-                          className="h-7 min-w-0 flex-1 text-xs sm:max-w-[280px]"
-                          disabled={!podeEditarOS}
-                          autoFocus={data.os.destacada !== true}
-                        />
-                        {salvandoDestaque ? (
-                          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-red-600 dark:text-red-400" />
-                        ) : null}
-                      </>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
+                      <Switch
+                        id={`destacar-os-${data.os.id}`}
+                        checked={destaqueAtivo}
+                        onCheckedChange={(checked) => void alterarDestaqueAtivo(checked)}
+                        disabled={!podeEditarOS || salvandoDestaque}
+                        aria-label="Destacar ordem de serviço"
+                        className="shrink-0"
+                      />
+                      <Label
+                        htmlFor={!destaqueAtivo ? `destacar-os-${data.os.id}` : undefined}
+                        onClick={(e) => {
+                          if (destaqueAtivo && podeEditarOS && !salvandoDestaque) {
+                            e.preventDefault();
+                            void alternarCorDestaque();
+                          }
+                        }}
+                        title={destaqueAtivo ? "Clique para alternar a cor do destaque" : undefined}
+                        className={`inline-flex items-center shrink-0 select-none ${destaqueAtivo
+                          ? destaqueCor === "amarelo"
+                            ? "cursor-pointer font-medium text-amber-700 hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200"
+                            : "cursor-pointer font-medium text-red-700 hover:text-red-800 dark:text-red-300 dark:hover:text-red-200"
+                          : "cursor-pointer"
+                          }`}
+                      >
+                        {!destaqueAtivo
+                          ? "Destacar"
+                          : destaqueCor === "amarelo"
+                            ? <div className="flex flex-row items-center justify-center gap-1">
+                              <span className="text-[10px]">DESTACAR</span>
+                              <div className="w-2 h-2 rounded-full bg-amber-500 shrink-0"></div>
+                            </div>
+                            : <div className="flex flex-row items-center justify-center gap-1">
+                              <span className="text-[10px]">DESTACAR</span>
+                              <div className="w-2 h-2 rounded-full bg-red-500 shrink-0"></div>
+                            </div>
+                        }
+                      </Label>
+                      {destaqueAtivo ? (
+                        <>
+                          <Input
+                            value={destaqueMotivo}
+                            onChange={(event) => {
+                              const motivo = event.target.value;
+                              setDestaqueMotivo(motivo);
+                              agendarSalvamentoDestaque(motivo);
+                            }}
+                            maxLength={200}
+                            placeholder="Motivo do destaque"
+                            className="h-7 min-w-0 flex-1 text-md sm:max-w-[280px]"
+                            disabled={!podeEditarOS}
+                            autoFocus={data.os.destacada !== true}
+                          />
+                          {salvandoDestaque ? (
+                            <Loader2
+                              className={`h-3.5 w-3.5 shrink-0 animate-spin ${destaqueCor === "amarelo"
+                                ? "text-amber-600 dark:text-amber-400"
+                                : "text-red-600 dark:text-red-400"
+                                }`}
+                            />
+                          ) : null}
+                        </>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
 
-              <span className="grid grid-cols-3 gap-2 text-left sm:ml-auto sm:min-w-[390px] sm:text-right">
-                <span className="rounded-md border bg-card px-2.5 py-1.5">
-                  <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Entrada
+                <span className="grid grid-cols-3 gap-2 text-left sm:ml-auto sm:min-w-[390px] sm:text-right">
+                  <span className="rounded-md border bg-card px-2.5 py-1.5">
+                    <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Entrada
+                    </span>
+                    <span className="block text-xs font-semibold text-foreground">{fmtDate(data?.os?.dataentrada)}</span>
                   </span>
-                  <span className="block text-xs font-semibold text-foreground">{fmtDate(data?.os?.dataentrada)}</span>
+                  <span
+                    className="rounded-md border bg-card px-2.5 py-1.5"
+                    title="Quando o andamento foi finalizado"
+                  >
+                    <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Pagamento concluído
+                    </span>
+                    <span className="block text-xs font-semibold text-foreground">
+                      {fmtDate(data?.os?.pagamento_concluido_em)}
+                    </span>
+                  </span>
+                  <span className="rounded-md border bg-card px-2.5 py-1.5" title="Quando ocorreu a retirada física">
+                    <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Saída
+                    </span>
+                    <span className={`block text-xs font-semibold ${data?.os?.datasaida ? "text-foreground" : "text-amber-600"}`}>
+                      {data?.os?.datasaida ? fmtDate(data.os.datasaida) : ["PAGAMENTO", "CONCLUIDO", "SEM_COBRANCA"].includes(String(data?.os?.status ?? "")) ? "Saída não registrada" : "—"}
+                    </span>
+                  </span>
                 </span>
-                <span
-                  className="rounded-md border bg-card px-2.5 py-1.5"
-                  title="Quando o andamento foi finalizado"
-                >
-                  <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Pagamento concluído
-                  </span>
-                  <span className="block text-xs font-semibold text-foreground">
-                    {fmtDate(data?.os?.pagamento_concluido_em)}
-                  </span>
-                </span>
-                <span className="rounded-md border bg-card px-2.5 py-1.5" title="Quando ocorreu a retirada física">
-                  <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Saída
-                  </span>
-                  <span className={`block text-xs font-semibold ${data?.os?.datasaida ? "text-foreground" : "text-amber-600"}`}>
-                    {data?.os?.datasaida ? fmtDate(data.os.datasaida) : ["PAGAMENTO", "CONCLUIDO", "SEM_COBRANCA"].includes(String(data?.os?.status ?? "")) ? "Saída não registrada" : "—"}
-                  </span>
-                </span>
-              </span>
-            </div>
-          </DialogHeader>
-        </div>
+              </div>
+            </DialogHeader>
+          </div>
         ) : null}
 
         <div className={loading ? "min-h-0 flex-1 overflow-hidden p-0" : "min-h-0 flex-1 overflow-hidden pb-0"}>
@@ -1628,524 +1689,524 @@ export function OSDetalhesDialog({
               <Tabs value={currentTab} onValueChange={setCurrentTab} className="flex-1 min-h-0 overflow-hidden pb-0">
                 <div className="sticky top-0 z-10 mt-4 shrink-0">
                   <div className="overflow-x-auto px-2 pb-2 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border">
-                  <TabsList className="h-auto min-w-full justify-start gap-1.5 rounded-2xl border bg-muted/40 p-1 backdrop-blur-sm">
-                    <TabsTrigger value="resumo" className={tabTriggerClass}>
-                      <span className="flex items-center gap-2">
-                        <FileText className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
-                        Resumo
-                      </span>
-                    </TabsTrigger>
-                    <TabsTrigger value="itens" className={tabTriggerClass}>
-                      <span className="flex items-center gap-2">
-                        <Package className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
-                        Itens
-                      </span>
-                    </TabsTrigger>
-                    <TabsTrigger value="checklist" className={tabTriggerClass}>
-                      <span className="flex items-center gap-2">
-                        <ListChecks className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
-                        Checklist
-                      </span>
-                    </TabsTrigger>
-                    {podeVerRentabilidade ? (
-                      <TabsTrigger value="rentabilidade" className={tabTriggerClass}>
+                    <TabsList className="h-auto min-w-full justify-start gap-1.5 rounded-2xl border bg-muted/40 p-1 backdrop-blur-sm">
+                      <TabsTrigger value="resumo" className={tabTriggerClass}>
                         <span className="flex items-center gap-2">
-                          <Calculator className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
-                          Rentabilidade
+                          <FileText className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                          Resumo
                         </span>
                       </TabsTrigger>
-                    ) : null}
-                    {podeVerEventosFinanceiros ? (
-                      <TabsTrigger value="fluxo-os" className={tabTriggerClass}>
+                      <TabsTrigger value="itens" className={tabTriggerClass}>
                         <span className="flex items-center gap-2">
-                          <ListTree className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
-                          Eventos Financeiros
+                          <Package className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                          Itens
                         </span>
                       </TabsTrigger>
-                    ) : null}
-                    {podeVerFinanceiro ? (
-                      <TabsTrigger value="financeiro" className={tabTriggerClass}>
+                      <TabsTrigger value="checklist" className={tabTriggerClass}>
                         <span className="flex items-center gap-2">
-                          <CreditCard className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
-                          Pagamentos
+                          <ListChecks className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                          Checklist
                         </span>
                       </TabsTrigger>
-                    ) : null}
-                    <TabsTrigger value="anexos" className={tabTriggerClass}>
-                      <span className="flex items-center gap-2">
-                        <Paperclip className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
-                        Anexos
-                      </span>
-                    </TabsTrigger>
-                    <TabsTrigger value="aprovacao" className={tabTriggerClass}>
-                      <span className="flex items-center gap-2">
-                        <Link2 className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
-                        Aprovação
-                      </span>
-                    </TabsTrigger>
-                  </TabsList>
+                      {podeVerRentabilidade ? (
+                        <TabsTrigger value="rentabilidade" className={tabTriggerClass}>
+                          <span className="flex items-center gap-2">
+                            <Calculator className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                            Rentabilidade
+                          </span>
+                        </TabsTrigger>
+                      ) : null}
+                      {podeVerEventosFinanceiros ? (
+                        <TabsTrigger value="fluxo-os" className={tabTriggerClass}>
+                          <span className="flex items-center gap-2">
+                            <ListTree className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                            Eventos Financeiros
+                          </span>
+                        </TabsTrigger>
+                      ) : null}
+                      {podeVerFinanceiro ? (
+                        <TabsTrigger value="financeiro" className={tabTriggerClass}>
+                          <span className="flex items-center gap-2">
+                            <CreditCard className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                            Pagamentos
+                          </span>
+                        </TabsTrigger>
+                      ) : null}
+                      <TabsTrigger value="anexos" className={tabTriggerClass}>
+                        <span className="flex items-center gap-2">
+                          <Paperclip className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                          Anexos
+                        </span>
+                      </TabsTrigger>
+                      <TabsTrigger value="aprovacao" className={tabTriggerClass}>
+                        <span className="flex items-center gap-2">
+                          <Link2 className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                          Aprovação
+                        </span>
+                      </TabsTrigger>
+                    </TabsList>
                   </div>
                 </div>
 
                 <TabsContent value="resumo" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-4 sm:px-6 sm:py-5">
-              {/* Resumo */}
-              <div>
-                <h3 className="text-sm font-semibold">Identificação e condições</h3>
-                <p className="text-xs text-muted-foreground">Dados principais para consulta rápida da ordem de serviço.</p>
-              </div>
-              <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                <ClienteResumoCard
-                  cliente={data.os.cliente}
-                  variant="default"
-                  onClienteAtualizado={() => void recarregarDetalhes()}
-                />
-
-                <div className="rounded-lg border bg-card p-4">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <Building2 className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium">Setor</span>
-                  </div>
-                  <div className="text-sm">{data.os.setor?.nome ?? "—"}</div>
-                </div>
-
-                <div className="rounded-lg border bg-card p-4">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    {data.os.alvo_tipo === "VEICULO" ? <Car className="h-4 w-4 text-primary" /> : <Wrench className="h-4 w-4 text-primary" />}
-                    <span className="text-sm font-medium">
-                      {data.os.alvo_tipo === "PECA"
-                        ? "Peça"
-                        : data.os.alvo_tipo === "EQUIPAMENTO"
-                          ? "Máquina/Equipamento"
-                          : "Veículo"}
-                    </span>
-                  </div>
-                  {data.os.alvo_tipo === "PECA" ? (
-                    <div className="text-sm space-y-1">
-                      <div>{data.os.peca?.titulo ?? "Peça (detalhes não informados)"}</div>
-                      {data.os.peca?.lacre ? (
-                        <div className="text-xs text-muted-foreground">Lacre: {data.os.peca.lacre}</div>
-                      ) : null}
-                      {data.os.peca?.descricao ? (
-                        <div className="text-xs text-muted-foreground whitespace-pre-wrap">
-                          {data.os.peca.descricao}
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : data.os.alvo_tipo === "EQUIPAMENTO" ? (
-                    <div className="space-y-1 text-sm">
-                      <div className="font-medium">{data.os.equipamento?.nome ?? "Equipamento"}</div>
-                      {data.os.equipamento?.patrimonio ? (
-                        <div className="text-xs text-muted-foreground">Patrimônio: {data.os.equipamento.patrimonio}</div>
-                      ) : null}
-                      {data.os.equipamento?.ano != null ? (
-                        <div className="text-xs text-muted-foreground">Ano: {data.os.equipamento.ano}</div>
-                      ) : null}
-                      {data.os.equipamento?.horimetro != null ? (
-                        <div className="text-xs text-muted-foreground">Horímetro: {data.os.equipamento.horimetro} h</div>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <div className="space-y-1 text-sm">
-                      <div>
-                        {data.os.veiculo
-                          ? `${data.os.veiculo.marca ?? ""} ${data.os.veiculo.modelo ?? ""} • ${data.os.veiculo.placa ?? ""}`.trim()
-                          : "—"}
-                      </div>
-                      {data.os.veiculo?.chassi ? (
-                        <div className="text-xs text-muted-foreground">Chassi: {data.os.veiculo.chassi}</div>
-                      ) : null}
-                    </div>
-                  )}
-                </div>
-
-                <div className="rounded-lg border bg-card p-4">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <CheckSquare className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium">Status de Aprovação</span>
-                  </div>
-                  <div className="text-sm">{data.os.statusaprovacao ?? "—"}</div>
-                </div>
-
-                <div className="rounded-lg border bg-card p-4">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <CreditCard className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium">Forma de pagamento prevista</span>
-                  </div>
-                  {data.os.pagamentos_previstos?.length ? (
-                    <div className="space-y-1 text-sm">
-                      {data.os.pagamentos_previstos.map((pagamento) => (
-                        <div key={pagamento.metodo}>
-                          {formatPaymentMethodLabel(pagamento.metodo)}
-                          {pagamento.parcelas ? ` em ${pagamento.parcelas}x` : ""}
-                          {" — "}
-                          {fmtMoney(pagamento.valor)}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-sm">
-                      {data.os.forma_pagamento
-                        ? formatPaymentMethodLabel(data.os.forma_pagamento)
-                        : "Não informada"}
-                      {data.os.parcelas_pagamento
-                        ? ` em ${data.os.parcelas_pagamento}x`
-                        : ""}
-                    </div>
-                  )}
-                </div>
-
-                <div className="rounded-lg border bg-card p-4">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <CheckSquare className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium">Garantia</span>
-                  </div>
-                  <div className="text-sm whitespace-pre-wrap">
-                    {data.os.garantia || "Não informada"}
-                  </div>
-                </div>
-
-                <div className="rounded-lg border bg-card p-4 md:col-span-2 xl:col-span-3">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <FileText className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium">Descrição para o financeiro</span>
-                  </div>
-                  <div className="text-sm whitespace-pre-wrap">
-                    {data.os.descricao_financeiro || "Não informada"}
-                  </div>
-                </div>
-              </section>
-
-              <div>
-                <h3 className="text-sm font-semibold">Saída</h3>
-                <p className="text-xs text-muted-foreground">Informações da retirada física da ordem de serviço.</p>
-              </div>
-              <section className="rounded-lg border bg-card p-4">
-                {!data.saida ? (
-                  <p className="text-sm font-medium text-amber-600">Saída não registrada</p>
-                ) : (
-                  <div className="grid gap-3 text-sm sm:grid-cols-2">
-                    <p><span className="text-muted-foreground">Data e hora:</span> {fmtDate(data.saida.saida_em)}</p>
-                    <p><span className="text-muted-foreground">Quem retirou:</span> {data.saida.retirado_por || "Não informado"}</p>
-                    <p><span className="text-muted-foreground">Registrado por:</span> {data.saida.usuario?.nome || "Usuário não identificado"}</p>
-                    <p><span className="text-muted-foreground">Documento/observação:</span> {data.saida.documento_observacao || "—"}</p>
-                  </div>
-                )}
-              </section>
-
-              <div>
-                <h3 className="text-sm font-semibold">Informações complementares</h3>
-                <p className="text-xs text-muted-foreground">Descrição, observações e justificativas da OS.</p>
-              </div>
-
-              {/* Descrição / Observações / Motivo */}
-              <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="rounded-lg border bg-card p-4 md:col-span-2">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <FileText className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium">Descrição</span>
-                  </div>
-                  <div className="text-sm whitespace-pre-wrap">{data.os.descricao || "—"}</div>
-                </div>
-
-                {data.os.observacoes ? (
-                  <div className="rounded-lg border bg-card p-4">
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <StickyNote className="h-4 w-4 text-primary" />
-                      <span className="text-sm font-medium">Observações internas</span>
-                    </div>
-                    <div className="text-sm whitespace-pre-wrap">{data.os.observacoes}</div>
-                  </div>
-                ) : null}
-
-                {data.os.observacoes_fiscais ? (
-                  <div className="rounded-lg border bg-card p-4">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <StickyNote className="h-4 w-4 text-primary" />
-                      <span className="text-sm font-medium">Observações fiscais</span>
-                  </div>
-                    <div className="text-sm whitespace-pre-wrap">{data.os.observacoes_fiscais}</div>
-                  </div>
-                ) : null}
-
-                {motivoCancelamento ? (
-                  <div className="rounded-lg border border-red-500/25 bg-card p-4 md:col-span-2">
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <AlertTriangle className="h-4 w-4 text-red-500" />
-                      <span className="text-sm font-medium">Motivo do cancelamento</span>
-                    </div>
-                    <div className="text-sm whitespace-pre-wrap">{motivoCancelamento}</div>
-                  </div>
-                ) : null}
-
-                {motivoSemCobranca ? (
-                  <div className="rounded-lg border border-amber-500/25 bg-card p-4 md:col-span-2">
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <AlertTriangle className="h-4 w-4 text-amber-500" />
-                      <span className="text-sm font-medium">Motivo sem cobrança</span>
-                    </div>
-                    <div className="text-sm whitespace-pre-wrap">{motivoSemCobranca}</div>
-                  </div>
-                ) : null}
-              </section>
-
-              <section className="overflow-hidden rounded-xl border bg-card">
-                <div className="flex items-start gap-3 border-b px-4 py-4 sm:px-5">
-                  <div className="rounded-lg bg-primary/10 p-2 text-primary">
-                    <History className="h-4 w-4" />
-                  </div>
+                  {/* Resumo */}
                   <div>
-                    <h3 className="text-sm font-semibold">Histórico de atividades da OS</h3>
-                    <p className="text-xs text-muted-foreground">
-                      Da criação à finalização, incluindo ações de usuários e respostas do cliente.
-                    </p>
+                    <h3 className="text-sm font-semibold">Identificação e condições</h3>
+                    <p className="text-xs text-muted-foreground">Dados principais para consulta rápida da ordem de serviço.</p>
                   </div>
-                </div>
+                  <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    <ClienteResumoCard
+                      cliente={data.os.cliente}
+                      variant="default"
+                      onClienteAtualizado={() => void recarregarDetalhes()}
+                    />
 
-                {(data.auditoriaResumo ?? []).length ? (
-                  <ol className="px-4 py-2 sm:px-5">
-                    {(data.auditoriaResumo ?? []).map((evento, index, eventos) => (
-                      <li key={evento.id} className="relative flex gap-3 py-3">
-                        {index < eventos.length - 1 ? (
-                          <span className="absolute bottom-0 left-[5px] top-5 w-px bg-border" aria-hidden="true" />
-                        ) : null}
-                        <span
-                          className={`relative z-10 mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ring-4 ${auditDotClass(evento.tipo)}`}
-                          aria-hidden="true"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-col gap-0.5 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-                            <div className="text-sm">
-                              <span className="font-semibold">{evento.usuario.nome}</span>
-                              <span className="text-muted-foreground"> · {evento.titulo}</span>
+                    <div className="rounded-lg border bg-card p-4">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <Building2 className="h-4 w-4 text-primary" />
+                        <span className="text-sm font-medium">Setor</span>
+                      </div>
+                      <div className="text-sm">{data.os.setor?.nome ?? "—"}</div>
+                    </div>
+
+                    <div className="rounded-lg border bg-card p-4">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        {data.os.alvo_tipo === "VEICULO" ? <Car className="h-4 w-4 text-primary" /> : <Wrench className="h-4 w-4 text-primary" />}
+                        <span className="text-sm font-medium">
+                          {data.os.alvo_tipo === "PECA"
+                            ? "Peça"
+                            : data.os.alvo_tipo === "EQUIPAMENTO"
+                              ? "Máquina/Equipamento"
+                              : "Veículo"}
+                        </span>
+                      </div>
+                      {data.os.alvo_tipo === "PECA" ? (
+                        <div className="text-sm space-y-1">
+                          <div>{data.os.peca?.titulo ?? "Peça (detalhes não informados)"}</div>
+                          {data.os.peca?.lacre ? (
+                            <div className="text-xs text-muted-foreground">Lacre: {data.os.peca.lacre}</div>
+                          ) : null}
+                          {data.os.peca?.descricao ? (
+                            <div className="text-xs text-muted-foreground whitespace-pre-wrap">
+                              {data.os.peca.descricao}
                             </div>
-                            <time className="shrink-0 text-xs text-muted-foreground">
-                              {fmtDate(evento.ocorridoEm)}
-                            </time>
-                          </div>
-                          {evento.detalhe ? (
-                            <p className="mt-1 text-xs text-muted-foreground">{evento.detalhe}</p>
                           ) : null}
                         </div>
-                      </li>
-                    ))}
-                  </ol>
-                ) : (
-                  <div className="px-5 py-8 text-center">
-                    <History className="mx-auto h-6 w-6 text-muted-foreground/50" />
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      Ainda não há atividades registradas para esta OS.
-                    </p>
-                  </div>
-                )}
-              </section>
+                      ) : data.os.alvo_tipo === "EQUIPAMENTO" ? (
+                        <div className="space-y-1 text-sm">
+                          <div className="font-medium">{data.os.equipamento?.nome ?? "Equipamento"}</div>
+                          {data.os.equipamento?.patrimonio ? (
+                            <div className="text-xs text-muted-foreground">Patrimônio: {data.os.equipamento.patrimonio}</div>
+                          ) : null}
+                          {data.os.equipamento?.ano != null ? (
+                            <div className="text-xs text-muted-foreground">Ano: {data.os.equipamento.ano}</div>
+                          ) : null}
+                          {data.os.equipamento?.horimetro != null ? (
+                            <div className="text-xs text-muted-foreground">Horímetro: {data.os.equipamento.horimetro} h</div>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <div className="space-y-1 text-sm">
+                          <div>
+                            {data.os.veiculo
+                              ? `${data.os.veiculo.marca ?? ""} ${data.os.veiculo.modelo ?? ""} • ${data.os.veiculo.placa ?? ""}`.trim()
+                              : "—"}
+                          </div>
+                          {data.os.veiculo?.chassi ? (
+                            <div className="text-xs text-muted-foreground">Chassi: {data.os.veiculo.chassi}</div>
+                          ) : null}
+                        </div>
+                      )}
+                    </div>
 
-              {/* Produtos / Serviços / Totais */}
+                    <div className="rounded-lg border bg-card p-4">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <CheckSquare className="h-4 w-4 text-primary" />
+                        <span className="text-sm font-medium">Status de Aprovação</span>
+                      </div>
+                      <div className="text-sm">{data.os.statusaprovacao ?? "—"}</div>
+                    </div>
+
+                    <div className="rounded-lg border bg-card p-4">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <CreditCard className="h-4 w-4 text-primary" />
+                        <span className="text-sm font-medium">Forma de pagamento prevista</span>
+                      </div>
+                      {data.os.pagamentos_previstos?.length ? (
+                        <div className="space-y-1 text-sm">
+                          {data.os.pagamentos_previstos.map((pagamento) => (
+                            <div key={pagamento.metodo}>
+                              {formatPaymentMethodLabel(pagamento.metodo)}
+                              {pagamento.parcelas ? ` em ${pagamento.parcelas}x` : ""}
+                              {" — "}
+                              {fmtMoney(pagamento.valor)}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-sm">
+                          {data.os.forma_pagamento
+                            ? formatPaymentMethodLabel(data.os.forma_pagamento)
+                            : "Não informada"}
+                          {data.os.parcelas_pagamento
+                            ? ` em ${data.os.parcelas_pagamento}x`
+                            : ""}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-lg border bg-card p-4">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <CheckSquare className="h-4 w-4 text-primary" />
+                        <span className="text-sm font-medium">Garantia</span>
+                      </div>
+                      <div className="text-sm whitespace-pre-wrap">
+                        {data.os.garantia || "Não informada"}
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border bg-card p-4 md:col-span-2 xl:col-span-3">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <FileText className="h-4 w-4 text-primary" />
+                        <span className="text-sm font-medium">Descrição para o financeiro</span>
+                      </div>
+                      <div className="text-sm whitespace-pre-wrap">
+                        {data.os.descricao_financeiro || "Não informada"}
+                      </div>
+                    </div>
+                  </section>
+
+                  <div>
+                    <h3 className="text-sm font-semibold">Saída</h3>
+                    <p className="text-xs text-muted-foreground">Informações da retirada física da ordem de serviço.</p>
+                  </div>
+                  <section className="rounded-lg border bg-card p-4">
+                    {!data.saida ? (
+                      <p className="text-sm font-medium text-amber-600">Saída não registrada</p>
+                    ) : (
+                      <div className="grid gap-3 text-sm sm:grid-cols-2">
+                        <p><span className="text-muted-foreground">Data e hora:</span> {fmtDate(data.saida.saida_em)}</p>
+                        <p><span className="text-muted-foreground">Quem retirou:</span> {data.saida.retirado_por || "Não informado"}</p>
+                        <p><span className="text-muted-foreground">Registrado por:</span> {data.saida.usuario?.nome || "Usuário não identificado"}</p>
+                        <p><span className="text-muted-foreground">Documento/observação:</span> {data.saida.documento_observacao || "—"}</p>
+                      </div>
+                    )}
+                  </section>
+
+                  <div>
+                    <h3 className="text-sm font-semibold">Informações complementares</h3>
+                    <p className="text-xs text-muted-foreground">Descrição, observações e justificativas da OS.</p>
+                  </div>
+
+                  {/* Descrição / Observações / Motivo */}
+                  <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div className="rounded-lg border bg-card p-4 md:col-span-2">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <FileText className="h-4 w-4 text-primary" />
+                        <span className="text-sm font-medium">Descrição</span>
+                      </div>
+                      <div className="text-sm whitespace-pre-wrap">{data.os.descricao || "—"}</div>
+                    </div>
+
+                    {data.os.observacoes ? (
+                      <div className="rounded-lg border bg-card p-4">
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <StickyNote className="h-4 w-4 text-primary" />
+                          <span className="text-sm font-medium">Observações internas</span>
+                        </div>
+                        <div className="text-sm whitespace-pre-wrap">{data.os.observacoes}</div>
+                      </div>
+                    ) : null}
+
+                    {data.os.observacoes_fiscais ? (
+                      <div className="rounded-lg border bg-card p-4">
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <StickyNote className="h-4 w-4 text-primary" />
+                          <span className="text-sm font-medium">Observações fiscais</span>
+                        </div>
+                        <div className="text-sm whitespace-pre-wrap">{data.os.observacoes_fiscais}</div>
+                      </div>
+                    ) : null}
+
+                    {motivoCancelamento ? (
+                      <div className="rounded-lg border border-red-500/25 bg-card p-4 md:col-span-2">
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <AlertTriangle className="h-4 w-4 text-red-500" />
+                          <span className="text-sm font-medium">Motivo do cancelamento</span>
+                        </div>
+                        <div className="text-sm whitespace-pre-wrap">{motivoCancelamento}</div>
+                      </div>
+                    ) : null}
+
+                    {motivoSemCobranca ? (
+                      <div className="rounded-lg border border-amber-500/25 bg-card p-4 md:col-span-2">
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <AlertTriangle className="h-4 w-4 text-amber-500" />
+                          <span className="text-sm font-medium">Motivo sem cobrança</span>
+                        </div>
+                        <div className="text-sm whitespace-pre-wrap">{motivoSemCobranca}</div>
+                      </div>
+                    ) : null}
+                  </section>
+
+                  <section className="overflow-hidden rounded-xl border bg-card">
+                    <div className="flex items-start gap-3 border-b px-4 py-4 sm:px-5">
+                      <div className="rounded-lg bg-primary/10 p-2 text-primary">
+                        <History className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-semibold">Histórico de atividades da OS</h3>
+                        <p className="text-xs text-muted-foreground">
+                          Da criação à finalização, incluindo ações de usuários e respostas do cliente.
+                        </p>
+                      </div>
+                    </div>
+
+                    {(data.auditoriaResumo ?? []).length ? (
+                      <ol className="px-4 py-2 sm:px-5">
+                        {(data.auditoriaResumo ?? []).map((evento, index, eventos) => (
+                          <li key={evento.id} className="relative flex gap-3 py-3">
+                            {index < eventos.length - 1 ? (
+                              <span className="absolute bottom-0 left-[5px] top-5 w-px bg-border" aria-hidden="true" />
+                            ) : null}
+                            <span
+                              className={`relative z-10 mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ring-4 ${auditDotClass(evento.tipo)}`}
+                              aria-hidden="true"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-col gap-0.5 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                                <div className="text-sm">
+                                  <span className="font-semibold">{evento.usuario.nome}</span>
+                                  <span className="text-muted-foreground"> · {evento.titulo}</span>
+                                </div>
+                                <time className="shrink-0 text-xs text-muted-foreground">
+                                  {fmtDate(evento.ocorridoEm)}
+                                </time>
+                              </div>
+                              {evento.detalhe ? (
+                                <p className="mt-1 text-xs text-muted-foreground">{evento.detalhe}</p>
+                              ) : null}
+                            </div>
+                          </li>
+                        ))}
+                      </ol>
+                    ) : (
+                      <div className="px-5 py-8 text-center">
+                        <History className="mx-auto h-6 w-6 text-muted-foreground/50" />
+                        <p className="mt-2 text-sm text-muted-foreground">
+                          Ainda não há atividades registradas para esta OS.
+                        </p>
+                      </div>
+                    )}
+                  </section>
+
+                  {/* Produtos / Serviços / Totais */}
                 </TabsContent>
 
                 <TabsContent value="itens" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-4 sm:px-6 sm:py-5">
-              {mostrarAlertaAntesDeIniciar && (
-                <div className="rounded-lg border border-amber-500/40 bg-amber-800 dark:bg-amber-500/10  px-4 py-3 text-xs text-amber-100 flex items-start gap-2">
-                  <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-amber-300" />
-                  <div>
-                    <div className="font-medium text-amber-100">Defina o responsável pelos serviços antes de iniciar a OS.</div>
-                    <div className="text-amber-100/80">
-                      Há serviços sem responsável atribuído. Recomenda-se escolher quem irá executar cada serviço antes de clicar em{" "}
-                      <b>Iniciar</b>.
+                  {mostrarAlertaAntesDeIniciar && (
+                    <div className="rounded-lg border border-amber-500/40 bg-amber-800 dark:bg-amber-500/10  px-4 py-3 text-xs text-amber-100 flex items-start gap-2">
+                      <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-amber-300" />
+                      <div>
+                        <div className="font-medium text-amber-100">Defina o responsável pelos serviços antes de iniciar a OS.</div>
+                        <div className="text-amber-100/80">
+                          Há serviços sem responsável atribuído. Recomenda-se escolher quem irá executar cada serviço antes de clicar em{" "}
+                          <b>Iniciar</b>.
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              )}
-              <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                {/* PRODUTOS */}
-                <div className="rounded-lg border bg-card p-4">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <Package className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium">Produtos</span>
-                    <span className="ml-auto text-xs text-muted-foreground">
-                      Total: <b>{fmtMoney(totalProdutos)}</b>
-                    </span>
-                  </div>
-                  {(data.itensProduto ?? []).length === 0 && (data.itensProdutoAvulso ?? []).length === 0 ? (
-                    <div className="text-sm text-muted-foreground">—</div>
-                  ) : (
-                    <ul className="space-y-2 text-sm">
-                      {data.itensProduto.map((it, idx) => {
-                        const descontoAplicado = calcularDescontoAplicado(
-                          Number(it.quantidade || 0) * Number(it.precounitario || 0),
-                          it.descontoTipo,
-                          it.desconto
-                        );
-
-                        return (
-                          <li key={`${it.ordemservicoid}-${it.produtoid}-${idx}`} className="flex flex-col gap-1 rounded-md border bg-muted/20 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
-                            <div className="min-w-0">
-                              <div className="font-medium truncate">
-                                {it.produto?.titulo || it.produto?.descricao || it.produto?.codigo ||  `Produto #${it.produtoid}`}
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                {it.quantidade} × {fmtMoney(it.precounitario)}
-                              </div>
-                              {descontoAplicado > 0 ? (
-                                <div className="mt-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                                  Desconto: - {fmtMoney(descontoAplicado)}
-                                  {it.descontoTipo === "PORCENTAGEM"
-                                    ? ` (${fmtPercent(it.desconto)}%)`
-                                    : ""}
-                                </div>
-                              ) : null}
-                            </div>
-                            <div className="shrink-0 font-medium sm:text-right">{fmtMoney(it.subtotal)}</div>
-                          </li>
-                        );
-                      })}
-                      {(data.itensProdutoAvulso ?? []).map((it) => (
-                        <li key={`avulso-${it.id}`} className="flex flex-col gap-1 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2 font-medium">
-                              <span className="truncate">{it.titulo}</span>
-                              <Badge variant="outline" className="border-amber-500/50 text-amber-700 dark:text-amber-300">Avulso pendente</Badge>
-                            </div>
-                            <div className="text-xs text-muted-foreground">{it.quantidade} × {fmtMoney(it.precounitario)}</div>
-                          </div>
-                          <div className="shrink-0 font-medium sm:text-right">{fmtMoney(it.subtotal)}</div>
-                        </li>
-                      ))}
-                    </ul>
                   )}
-                </div>
+                  <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    {/* PRODUTOS */}
+                    <div className="rounded-lg border bg-card p-4">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <Package className="h-4 w-4 text-primary" />
+                        <span className="text-sm font-medium">Produtos</span>
+                        <span className="ml-auto text-xs text-muted-foreground">
+                          Total: <b>{fmtMoney(totalProdutos)}</b>
+                        </span>
+                      </div>
+                      {(data.itensProduto ?? []).length === 0 && (data.itensProdutoAvulso ?? []).length === 0 ? (
+                        <div className="text-sm text-muted-foreground">—</div>
+                      ) : (
+                        <ul className="space-y-2 text-sm">
+                          {data.itensProduto.map((it, idx) => {
+                            const descontoAplicado = calcularDescontoAplicado(
+                              Number(it.quantidade || 0) * Number(it.precounitario || 0),
+                              it.descontoTipo,
+                              it.desconto
+                            );
 
-                {/* SERVIÇOS */}
-                <div className="rounded-lg border bg-card p-4">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <Wrench className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium">Serviços</span>
-                    <span className="ml-auto text-xs text-muted-foreground">
-                      Total: <b>{fmtMoney(totalServicos)}</b>
-                    </span>
-                  </div>
-
-                  {(data.itensServico ?? []).length === 0 ? (
-                    <div className="text-sm text-muted-foreground">—</div>
-                  ) : (
-                    <ul className="space-y-2 text-sm">
-                      {data.itensServico.map((it, idx) => {
-                        const rowKey = `${it.ordemservicoid}-${it.servicoid}-${idx}`;
-                        const isSaving = savingResponsavelKey === `${it.ordemservicoid}-${it.servicoid}`;
-                        const selectedIds = getIdsFromItem(it);
-                        const estaSemResponsavel = selectedIds.length === 0;
-                        const descontoAplicado = calcularDescontoAplicado(
-                          Number(it.quantidade || 0) * Number(it.precounitario || 0),
-                          it.descontoTipo,
-                          it.desconto
-                        );
-
-                        return (
-                          <li key={rowKey} className="flex flex-col gap-2 rounded-md border bg-muted/20 px-3 py-2">
-                            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
-                              <div className="min-w-0">
-                                <div className="font-medium truncate">
-                                  {it.servico?.descricao || it.servico?.codigo || `Serviço #${it.servicoid}`}
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                  {it.quantidade} × {fmtMoney(it.precounitario)}
-                                </div>
-                                {descontoAplicado > 0 ? (
-                                  <div className="mt-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                                    Desconto: - {fmtMoney(descontoAplicado)}
-                                    {it.descontoTipo === "PORCENTAGEM"
-                                      ? ` (${fmtPercent(it.desconto)}%)`
-                                      : ""}
+                            return (
+                              <li key={`${it.ordemservicoid}-${it.produtoid}-${idx}`} className="flex flex-col gap-1 rounded-md border bg-muted/20 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+                                <div className="min-w-0">
+                                  <div className="font-medium truncate">
+                                    {it.produto?.titulo || it.produto?.descricao || it.produto?.codigo || `Produto #${it.produtoid}`}
                                   </div>
-                                ) : null}
+                                  <div className="text-xs text-muted-foreground">
+                                    {it.quantidade} × {fmtMoney(it.precounitario)}
+                                  </div>
+                                  {descontoAplicado > 0 ? (
+                                    <div className="mt-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                                      Desconto: - {fmtMoney(descontoAplicado)}
+                                      {it.descontoTipo === "PORCENTAGEM"
+                                        ? ` (${fmtPercent(it.desconto)}%)`
+                                        : ""}
+                                    </div>
+                                  ) : null}
+                                </div>
+                                <div className="shrink-0 font-medium sm:text-right">{fmtMoney(it.subtotal)}</div>
+                              </li>
+                            );
+                          })}
+                          {(data.itensProdutoAvulso ?? []).map((it) => (
+                            <li key={`avulso-${it.id}`} className="flex flex-col gap-1 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 font-medium">
+                                  <span className="truncate">{it.titulo}</span>
+                                  <Badge variant="outline" className="border-amber-500/50 text-amber-700 dark:text-amber-300">Avulso pendente</Badge>
+                                </div>
+                                <div className="text-xs text-muted-foreground">{it.quantidade} × {fmtMoney(it.precounitario)}</div>
                               </div>
                               <div className="shrink-0 font-medium sm:text-right">{fmtMoney(it.subtotal)}</div>
-                            </div>
-
-                            <div className="flex flex-col gap-1 text-xs text-muted-foreground">
-                              <div className="flex items-start gap-2">
-                                <User2 className="h-3.5 w-3.5 mt-0.5" />
-
-                                {podeEditarResponsavel ? (
-                                  <div className="w-full max-w-sm">
-                                    <MultiSelectRealizadores
-                                      disabled={isSaving || loadingResponsaveis}
-                                      responsaveis={responsaveis}
-                                      valueIds={selectedIds}
-                                      onChangeIds={(ids) => salvarRealizadores(it, ids)}
-                                    />
-                                  </div>
-                                ) : (
-                                  <span>
-                                    Responsável: <b>{it.realizador?.nome ?? "—"}</b>
-                                  </span>
-                                )}
-                              </div>
-
-                              {podeEditarResponsavel && estaSemResponsavel && statusUpper === "ORCAMENTO_APROVADO" && (
-                                <span className="text-[11px] text-amber-400 flex items-center gap-1 ml-5">
-                                  <AlertTriangle className="h-3 w-3" />
-                                  Selecione o responsável antes de iniciar a OS.
-                                </span>
-                              )}
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </div>
-
-                <div className="rounded-lg border bg-card p-4 lg:col-span-2">
-                  <div className="mb-3 flex items-center gap-2">
-                    <Calculator className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium">Resumo financeiro</span>
-                  </div>
-                  <div className="space-y-1.5 text-sm">
-                    <div className="flex items-center justify-between gap-4 text-muted-foreground">
-                      <span>Produtos</span>
-                      <span className="tabular-nums">{fmtMoney(totalProdutos)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
-                    <div className="flex items-center justify-between gap-4 text-muted-foreground">
-                      <span>Serviços</span>
-                      <span className="tabular-nums">{fmtMoney(totalServicos)}</span>
-                    </div>
-                    <div className="flex items-center justify-between gap-4 text-muted-foreground">
-                      <span>Subtotal</span>
-                      <span className="tabular-nums">{fmtMoney(subtotalOS)}</span>
-                    </div>
-                    {descontoGeralAplicado > 0 ? (
-                      <div className="flex items-center justify-between gap-4 font-medium text-emerald-600 dark:text-emerald-400">
-                        <span>
-                          Desconto geral
-                          {data.os.desconto_tipo === "PORCENTAGEM"
-                            ? ` (${fmtPercent(data.os.desconto)}%)`
-                            : ""}
+
+                    {/* SERVIÇOS */}
+                    <div className="rounded-lg border bg-card p-4">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <Wrench className="h-4 w-4 text-primary" />
+                        <span className="text-sm font-medium">Serviços</span>
+                        <span className="ml-auto text-xs text-muted-foreground">
+                          Total: <b>{fmtMoney(totalServicos)}</b>
                         </span>
-                        <span className="tabular-nums">- {fmtMoney(descontoGeralAplicado)}</span>
                       </div>
-                    ) : null}
-                    {valorFrete > 0 ? (
-                      <div className="flex items-center justify-between gap-4 font-medium">
-                        <span>Frete</span>
-                        <span className="tabular-nums">+ {fmtMoney(valorFrete)}</span>
-                      </div>
-                    ) : null}
-                    <Separator />
-                    <div className="flex items-center justify-between gap-4 pt-1">
-                      <span className="font-medium">Total geral</span>
-                      <span className="text-lg font-semibold tabular-nums">{fmtMoney(totalGeral)}</span>
+
+                      {(data.itensServico ?? []).length === 0 ? (
+                        <div className="text-sm text-muted-foreground">—</div>
+                      ) : (
+                        <ul className="space-y-2 text-sm">
+                          {data.itensServico.map((it, idx) => {
+                            const rowKey = `${it.ordemservicoid}-${it.servicoid}-${idx}`;
+                            const isSaving = savingResponsavelKey === `${it.ordemservicoid}-${it.servicoid}`;
+                            const selectedIds = getIdsFromItem(it);
+                            const estaSemResponsavel = selectedIds.length === 0;
+                            const descontoAplicado = calcularDescontoAplicado(
+                              Number(it.quantidade || 0) * Number(it.precounitario || 0),
+                              it.descontoTipo,
+                              it.desconto
+                            );
+
+                            return (
+                              <li key={rowKey} className="flex flex-col gap-2 rounded-md border bg-muted/20 px-3 py-2">
+                                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+                                  <div className="min-w-0">
+                                    <div className="font-medium truncate">
+                                      {it.servico?.descricao || it.servico?.codigo || `Serviço #${it.servicoid}`}
+                                    </div>
+                                    <div className="text-xs text-muted-foreground">
+                                      {it.quantidade} × {fmtMoney(it.precounitario)}
+                                    </div>
+                                    {descontoAplicado > 0 ? (
+                                      <div className="mt-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                                        Desconto: - {fmtMoney(descontoAplicado)}
+                                        {it.descontoTipo === "PORCENTAGEM"
+                                          ? ` (${fmtPercent(it.desconto)}%)`
+                                          : ""}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                  <div className="shrink-0 font-medium sm:text-right">{fmtMoney(it.subtotal)}</div>
+                                </div>
+
+                                <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+                                  <div className="flex items-start gap-2">
+                                    <User2 className="h-3.5 w-3.5 mt-0.5" />
+
+                                    {podeEditarResponsavel ? (
+                                      <div className="w-full max-w-sm">
+                                        <MultiSelectRealizadores
+                                          disabled={isSaving || loadingResponsaveis}
+                                          responsaveis={responsaveis}
+                                          valueIds={selectedIds}
+                                          onChangeIds={(ids) => salvarRealizadores(it, ids)}
+                                        />
+                                      </div>
+                                    ) : (
+                                      <span>
+                                        Responsável: <b>{it.realizador?.nome ?? "—"}</b>
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {podeEditarResponsavel && estaSemResponsavel && statusUpper === "ORCAMENTO_APROVADO" && (
+                                    <span className="text-[11px] text-amber-400 flex items-center gap-1 ml-5">
+                                      <AlertTriangle className="h-3 w-3" />
+                                      Selecione o responsável antes de iniciar a OS.
+                                    </span>
+                                  )}
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
                     </div>
-                  </div>
-                </div>
-              </section>
+
+                    <div className="rounded-lg border bg-card p-4 lg:col-span-2">
+                      <div className="mb-3 flex items-center gap-2">
+                        <Calculator className="h-4 w-4 text-primary" />
+                        <span className="text-sm font-medium">Resumo financeiro</span>
+                      </div>
+                      <div className="space-y-1.5 text-sm">
+                        <div className="flex items-center justify-between gap-4 text-muted-foreground">
+                          <span>Produtos</span>
+                          <span className="tabular-nums">{fmtMoney(totalProdutos)}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-4 text-muted-foreground">
+                          <span>Serviços</span>
+                          <span className="tabular-nums">{fmtMoney(totalServicos)}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-4 text-muted-foreground">
+                          <span>Subtotal</span>
+                          <span className="tabular-nums">{fmtMoney(subtotalOS)}</span>
+                        </div>
+                        {descontoGeralAplicado > 0 ? (
+                          <div className="flex items-center justify-between gap-4 font-medium text-emerald-600 dark:text-emerald-400">
+                            <span>
+                              Desconto geral
+                              {data.os.desconto_tipo === "PORCENTAGEM"
+                                ? ` (${fmtPercent(data.os.desconto)}%)`
+                                : ""}
+                            </span>
+                            <span className="tabular-nums">- {fmtMoney(descontoGeralAplicado)}</span>
+                          </div>
+                        ) : null}
+                        {valorFrete > 0 ? (
+                          <div className="flex items-center justify-between gap-4 font-medium">
+                            <span>Frete</span>
+                            <span className="tabular-nums">+ {fmtMoney(valorFrete)}</span>
+                          </div>
+                        ) : null}
+                        <Separator />
+                        <div className="flex items-center justify-between gap-4 pt-1">
+                          <span className="font-medium">Total geral</span>
+                          <span className="text-lg font-semibold tabular-nums">{fmtMoney(totalGeral)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
 
                 </TabsContent>
 
                 {podeVerRentabilidade ? (
-                <TabsContent value="rentabilidade" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-4 sm:px-6 sm:py-5">
-                  {data.rentabilidade ? (
-                    <>
-                      {/* <div className="flex flex-col gap-3 rounded-xl border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <TabsContent value="rentabilidade" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-4 sm:px-6 sm:py-5">
+                    {data.rentabilidade ? (
+                      <>
+                        {/* <div className="flex flex-col gap-3 rounded-xl border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                           <div className="flex items-center gap-2">
                             <Receipt className="h-4 w-4 text-primary" />
@@ -2159,7 +2220,7 @@ export function OSDetalhesDialog({
                           Adicionar evento avulso
                         </Button>
                       </div> */}
-{/* 
+                        {/* 
                       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                         {[
                           ["Valor final da OS", data.rentabilidade.valorFinalOs],
@@ -2179,7 +2240,7 @@ export function OSDetalhesDialog({
                         ))}
                       </div> */}
 
-                      {/* <div className="grid gap-3 md:grid-cols-2">
+                        {/* <div className="grid gap-3 md:grid-cols-2">
                         <div className="rounded-xl border bg-card p-4">
                           <p className="text-xs text-muted-foreground">Lucro previsto</p>
                           <p className="mt-1 text-2xl font-semibold">{fmtMoney(data.rentabilidade.lucroPrevisto)}</p>
@@ -2192,316 +2253,315 @@ export function OSDetalhesDialog({
                         </div>
                       </div> */}
 
-                      {data.rentabilidade.itensCustoEstimado > 0 ? (
-                        <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
-                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-                          <span>
-                            {data.rentabilidade.itensCustoEstimado} produto(s) antigo(s) sem custo registrado na OS; foi usado o último valor de compra atual como estimativa.
-                          </span>
-                        </div>
-                      ) : null}
-
-                      {data.rentabilidade.itensSemCusto > 0 ? (
-                        <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm">
-                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
-                          <span>
-                            {data.rentabilidade.itensSemCusto} produto(s) sem último valor de compra. O custo foi considerado como zero e deve ser cadastrado para corrigir o lucro.
-                          </span>
-                        </div>
-                      ) : null}
-
-                      <div className="rounded-xl border bg-card p-4 sm:p-5">
-                        <div className="flex items-start gap-3">
-                          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                            <Package className="size-4" aria-hidden="true" />
-                          </span>
-                          <div>
-                            <h3 className="font-medium text-pretty">Rentabilidade por produto</h3>
-                            <p className="mt-0.5 text-pretty text-xs text-muted-foreground">
-                              Compare o lucro bruto com o valor vendido e com o custo de compra.
-                            </p>
+                        {data.rentabilidade.itensCustoEstimado > 0 ? (
+                          <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                            <span>
+                              {data.rentabilidade.itensCustoEstimado} produto(s) antigo(s) sem custo registrado na OS; foi usado o último valor de compra atual como estimativa.
+                            </span>
                           </div>
-                        </div>
-                        <div className="mt-3 space-y-2">
-                          {data.rentabilidade.produtos.length ? (
-                            data.rentabilidade.produtos.map((produto) => {
-                              const lucroSobreVenda = produto.receitaLiquida > 0
-                                ? (produto.lucroBruto / produto.receitaLiquida) * 100
-                                : null;
-                              const lucroSobreCompra = produto.custoTotal > 0
-                                ? (produto.lucroBruto / produto.custoTotal) * 100
-                                : null;
-                              const explicacaoLucroSobreVenda = lucroSobreVenda == null
-                                ? "Não é possível calcular porque o valor da venda líquida é zero."
-                                : lucroSobreVenda < 0
-                                  ? `Este cálculo mostra que o produto teve prejuízo de ${fmtPercent(Math.abs(lucroSobreVenda))}% sobre o valor da venda. Dos ${fmtMoney(produto.receitaLiquida)} da venda do produto, o resultado ficou negativo em ${fmtMoney(Math.abs(produto.lucroBruto))}.`
-                                  : `Este cálculo mostra que ${fmtPercent(lucroSobreVenda)}% do valor da venda do produto é lucro bruto. ${fmtMoney(produto.lucroBruto)} dos ${fmtMoney(produto.receitaLiquida)} da venda do produto correspondem ao lucro.`;
-                              const explicacaoLucroSobreCompra = lucroSobreCompra == null
-                                ? "Não é possível calcular porque o custo de compra está zerado ou não foi informado."
-                                : lucroSobreCompra < 0
-                                  ? `Este cálculo mostra que o produto teve prejuízo de ${fmtPercent(Math.abs(lucroSobreCompra))}% sobre o valor da compra. Sobre o custo de ${fmtMoney(produto.custoTotal)}, o resultado ficou negativo em ${fmtMoney(Math.abs(produto.lucroBruto))}.`
-                                  : `Este cálculo mostra que o lucro equivale a ${fmtPercent(lucroSobreCompra)}% do valor da compra do produto. Sobre o custo de ${fmtMoney(produto.custoTotal)}, o lucro bruto foi de ${fmtMoney(produto.lucroBruto)}.`;
+                        ) : null}
 
-                              return (
-                                <div
-                                  key={produto.produtoid}
-                                  className="overflow-hidden rounded-lg border bg-background shadow-sm"
-                                >
-                                  <div className="flex flex-col items-start gap-1 border-b bg-muted/30 px-3 py-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-                                    <div className="min-w-0 w-full">
-                                      <p className="break-words text-sm font-semibold">
-                                        {produto.descricao}
-                                        <span className="ml-2 text-xs font-normal text-muted-foreground">
-                                          {produto.quantidade} un.
-                                        </span>
-                                      </p>
-                                    </div>
-                                    {produto.custoNaoInformado ? (
-                                      <Badge variant="outline" className="shrink-0 border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300">
-                                        Custo ausente
-                                      </Badge>
-                                    ) : produto.custoEstimado ? (
-                                      <Badge variant="outline" className="shrink-0 border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
-                                        Custo estimado
-                                      </Badge>
-                                    ) : null}
-                                  </div>
+                        {data.rentabilidade.itensSemCusto > 0 ? (
+                          <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm">
+                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+                            <span>
+                              {data.rentabilidade.itensSemCusto} produto(s) sem último valor de compra. O custo foi considerado como zero e deve ser cadastrado para corrigir o lucro.
+                            </span>
+                          </div>
+                        ) : null}
 
-                                  <div className="grid items-center gap-1.5 px-3 py-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)]">
-                                    <div className="rounded-md border bg-card px-2.5 py-1.5">
-                                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Custo de compra</p>
-                                      <p className="font-semibold tabular-nums">{fmtMoney(produto.custoTotal)}</p>
+                        <div className="rounded-xl border bg-card p-4 sm:p-5">
+                          <div className="flex items-start gap-3">
+                            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                              <Package className="size-4" aria-hidden="true" />
+                            </span>
+                            <div>
+                              <h3 className="font-medium text-pretty">Rentabilidade por produto</h3>
+                              <p className="mt-0.5 text-pretty text-xs text-muted-foreground">
+                                Compare o lucro bruto com o valor vendido e com o custo de compra.
+                              </p>
+                            </div>
+                          </div>
+                          <div className="mt-3 space-y-2">
+                            {data.rentabilidade.produtos.length ? (
+                              data.rentabilidade.produtos.map((produto) => {
+                                const lucroSobreVenda = produto.receitaLiquida > 0
+                                  ? (produto.lucroBruto / produto.receitaLiquida) * 100
+                                  : null;
+                                const lucroSobreCompra = produto.custoTotal > 0
+                                  ? (produto.lucroBruto / produto.custoTotal) * 100
+                                  : null;
+                                const explicacaoLucroSobreVenda = lucroSobreVenda == null
+                                  ? "Não é possível calcular porque o valor da venda líquida é zero."
+                                  : lucroSobreVenda < 0
+                                    ? `Este cálculo mostra que o produto teve prejuízo de ${fmtPercent(Math.abs(lucroSobreVenda))}% sobre o valor da venda. Dos ${fmtMoney(produto.receitaLiquida)} da venda do produto, o resultado ficou negativo em ${fmtMoney(Math.abs(produto.lucroBruto))}.`
+                                    : `Este cálculo mostra que ${fmtPercent(lucroSobreVenda)}% do valor da venda do produto é lucro bruto. ${fmtMoney(produto.lucroBruto)} dos ${fmtMoney(produto.receitaLiquida)} da venda do produto correspondem ao lucro.`;
+                                const explicacaoLucroSobreCompra = lucroSobreCompra == null
+                                  ? "Não é possível calcular porque o custo de compra está zerado ou não foi informado."
+                                  : lucroSobreCompra < 0
+                                    ? `Este cálculo mostra que o produto teve prejuízo de ${fmtPercent(Math.abs(lucroSobreCompra))}% sobre o valor da compra. Sobre o custo de ${fmtMoney(produto.custoTotal)}, o resultado ficou negativo em ${fmtMoney(Math.abs(produto.lucroBruto))}.`
+                                    : `Este cálculo mostra que o lucro equivale a ${fmtPercent(lucroSobreCompra)}% do valor da compra do produto. Sobre o custo de ${fmtMoney(produto.custoTotal)}, o lucro bruto foi de ${fmtMoney(produto.lucroBruto)}.`;
+
+                                return (
+                                  <div
+                                    key={produto.produtoid}
+                                    className="overflow-hidden rounded-lg border bg-background shadow-sm"
+                                  >
+                                    <div className="flex flex-col items-start gap-1 border-b bg-muted/30 px-3 py-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                                      <div className="min-w-0 w-full">
+                                        <p className="break-words text-sm font-semibold">
+                                          {produto.descricao}
+                                          <span className="ml-2 text-xs font-normal text-muted-foreground">
+                                            {produto.quantidade} un.
+                                          </span>
+                                        </p>
+                                      </div>
+                                      {produto.custoNaoInformado ? (
+                                        <Badge variant="outline" className="shrink-0 border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300">
+                                          Custo ausente
+                                        </Badge>
+                                      ) : produto.custoEstimado ? (
+                                        <Badge variant="outline" className="shrink-0 border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
+                                          Custo estimado
+                                        </Badge>
+                                      ) : null}
                                     </div>
-                                    <ArrowDown className="mx-auto size-3.5 text-muted-foreground/60 sm:-rotate-90" aria-hidden="true" />
-                                    <div className="rounded-md border bg-card px-2.5 py-1.5">
-                                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Venda líquida</p>
-                                      <p className="font-semibold tabular-nums">{fmtMoney(produto.receitaLiquida)}</p>
-                                    </div>
-                                    <ArrowDown className="mx-auto size-3.5 text-muted-foreground/60 sm:-rotate-90" aria-hidden="true" />
-                                    <div className="rounded-md border bg-card px-2.5 py-1.5">
-                                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Lucro bruto</p>
-                                      <p className={`font-semibold tabular-nums ${
-                                        produto.lucroBruto < 0
+
+                                    <div className="grid items-center gap-1.5 px-3 py-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)]">
+                                      <div className="rounded-md border bg-card px-2.5 py-1.5">
+                                        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Custo de compra</p>
+                                        <p className="font-semibold tabular-nums">{fmtMoney(produto.custoTotal)}</p>
+                                      </div>
+                                      <ArrowDown className="mx-auto size-3.5 text-muted-foreground/60 sm:-rotate-90" aria-hidden="true" />
+                                      <div className="rounded-md border bg-card px-2.5 py-1.5">
+                                        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Venda líquida</p>
+                                        <p className="font-semibold tabular-nums">{fmtMoney(produto.receitaLiquida)}</p>
+                                      </div>
+                                      <ArrowDown className="mx-auto size-3.5 text-muted-foreground/60 sm:-rotate-90" aria-hidden="true" />
+                                      <div className="rounded-md border bg-card px-2.5 py-1.5">
+                                        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Lucro bruto</p>
+                                        <p className={`font-semibold tabular-nums ${produto.lucroBruto < 0
                                           ? "text-red-600 dark:text-red-400"
                                           : produto.lucroBruto > 0
                                             ? "text-emerald-600 dark:text-emerald-400"
                                             : "text-muted-foreground"
-                                      }`}>
-                                        {fmtMoney(produto.lucroBruto)}
-                                      </p>
-                                    </div>
-                                  </div>
-
-                                  <div className="flex flex-wrap gap-2 border-t bg-muted/15 px-3 py-1.5">
-                                    <RentabilidadePercentualBadge
-                                      rotulo="Lucro sobre venda"
-                                      percentual={lucroSobreVenda}
-                                      explicacao={explicacaoLucroSobreVenda}
-                                    />
-                                    <RentabilidadePercentualBadge
-                                      rotulo="Lucro sobre compra"
-                                      percentual={lucroSobreCompra}
-                                      explicacao={explicacaoLucroSobreCompra}
-                                    />
-                                  </div>
-                                </div>
-                              );
-                            })
-                          ) : (
-                            <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">Nenhum produto nesta OS.</p>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="rounded-xl border bg-card p-4 sm:p-5">
-                        <div className="flex items-start gap-3">
-                          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                            <Users className="size-4" aria-hidden="true" />
-                          </span>
-                          <div>
-                            <h3 className="font-medium text-pretty">Rentabilidade por serviço</h3>
-                            <p className="mt-0.5 text-pretty text-xs text-muted-foreground">
-                              Receita, comissões e outras despesas vinculadas a cada serviço.
-                            </p>
-                          </div>
-                        </div>
-                        <div className="mt-3 space-y-2">
-                          {data.rentabilidade.comissoesServicos.length > 0 ? (
-                            data.rentabilidade.comissoesServicos
-                              .map((servico) => (
-                                <div key={servico.servicoid} className="overflow-hidden rounded-lg border bg-background shadow-sm">
-                                  <div className="flex items-center gap-2 border-b bg-muted/30 px-3 py-1.5">
-                                    <span className="flex size-7 shrink-0 items-center justify-center rounded-md border bg-card text-muted-foreground">
-                                      <Wrench className="size-3.5" aria-hidden="true" />
-                                    </span>
-                                    <p className="min-w-0 truncate text-sm font-semibold">{servico.descricao}</p>
-                                  </div>
-
-                                  <div className="grid gap-1.5 px-3 py-2 sm:grid-cols-2 lg:grid-cols-4">
-                                    <div className="rounded-md border bg-card px-2.5 py-1.5">
-                                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Valor do serviço</p>
-                                      <p className="font-semibold tabular-nums">{fmtMoney(servico.valorServico)}</p>
-                                    </div>
-                                    <div className="rounded-md border bg-card px-2.5 py-1.5">
-                                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Receita líquida</p>
-                                      <p className="font-semibold tabular-nums">{fmtMoney(servico.receitaLiquida)}</p>
-                                    </div>
-                                    <div className="rounded-md border border-amber-500/20 bg-amber-500/5 px-2.5 py-1.5">
-                                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Comissões</p>
-                                      <p className="font-semibold tabular-nums text-amber-700 dark:text-amber-300">
-                                        {fmtMoney(servico.valorComissao)}
-                                      </p>
-                                    </div>
-                                    <div className="rounded-md border border-red-500/20 bg-red-500/5 px-2.5 py-1.5">
-                                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Outras despesas</p>
-                                      <p className="font-semibold tabular-nums text-red-700 dark:text-red-300">
-                                        {fmtMoney(servico.valorOutrasDespesas)}
-                                      </p>
-                                    </div>
-                                  </div>
-
-                                  <div className="flex flex-col gap-1 border-t bg-muted/15 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-                                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Resultado do serviço</p>
-                                    <div className="flex items-center gap-2">
-                                      <Badge variant="outline">Margem {fmtPercent(servico.margemServico)}%</Badge>
-                                      <p className={`font-semibold tabular-nums ${servico.resultadoServico < 0 ? "text-destructive" : "text-emerald-600 dark:text-emerald-400"}`}>
-                                        {fmtMoney(servico.resultadoServico)}
-                                      </p>
-                                    </div>
-                                  </div>
-
-                                  {servico.realizadores.length > 0 ? (
-                                  <div className="border-t px-3 py-2">
-                                    <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                                      Comissões calculadas
-                                    </p>
-                                    <div className="space-y-1.5">
-                                      {servico.realizadores.map((realizador) => (
-                                        <div
-                                          key={realizador.usuarioid}
-                                          className="flex flex-col gap-1 rounded-md bg-muted/35 px-2.5 py-1.5 sm:flex-row sm:items-center sm:justify-between"
-                                        >
-                                          <div className="min-w-0">
-                                            <p className="truncate text-sm font-medium">{realizador.nome || "Realizador"}</p>
-                                            <p className="text-xs text-muted-foreground">
-                                              Base de cálculo: {fmtMoney(realizador.valorBase)}
-                                            </p>
-                                          </div>
-                                          <div className="flex items-center justify-between gap-3 sm:justify-end">
-                                            <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary">
-                                              {fmtPercent(realizador.percentual)}%
-                                            </Badge>
-                                            <div className="text-right">
-                                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Comissão</p>
-                                              <p className="text-sm font-semibold tabular-nums">{fmtMoney(realizador.valorComissao)}</p>
-                                            </div>
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                  ) : null}
-
-                                  {servico.despesas.length > 0 ? (
-                                    <div className="border-t px-3 py-2">
-                                      <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                                        Outras despesas do serviço
-                                      </p>
-                                      <div className="space-y-1.5">
-                                        {servico.despesas.map((despesa) => (
-                                          <div
-                                            key={despesa.id}
-                                            className="flex flex-col gap-1 rounded-md bg-muted/35 px-2.5 py-1.5 sm:flex-row sm:items-center sm:justify-between"
-                                          >
-                                            <div className="min-w-0">
-                                              <p className="truncate text-sm font-medium">{despesa.descricao}</p>
-                                              {despesa.detalhe ? (
-                                                <p className="truncate text-xs text-muted-foreground">{despesa.detalhe}</p>
-                                              ) : null}
-                                            </div>
-                                            <div className="flex items-center justify-between gap-3 sm:justify-end">
-                                              <Badge variant="outline">
-                                                {despesa.situacao === "PREVISTA"
-                                                  ? "Prevista"
-                                                  : despesa.situacao === "A_PAGAR"
-                                                    ? "A pagar"
-                                                    : despesa.situacao === "PAGA"
-                                                      ? "Paga"
-                                                      : "Lançada"}
-                                              </Badge>
-                                              <p className="font-semibold tabular-nums text-red-700 dark:text-red-300">
-                                                {fmtMoney(despesa.valor)}
-                                              </p>
-                                            </div>
-                                          </div>
-                                        ))}
+                                          }`}>
+                                          {fmtMoney(produto.lucroBruto)}
+                                        </p>
                                       </div>
                                     </div>
-                                  ) : null}
 
-                                  {servico.realizadores.length === 0 && servico.despesas.length === 0 ? (
-                                    <p className="border-t px-3 py-2 text-xs text-muted-foreground">
-                                      Nenhuma comissão ou outra despesa vinculada.
+                                    <div className="flex flex-wrap gap-2 border-t bg-muted/15 px-3 py-1.5">
+                                      <RentabilidadePercentualBadge
+                                        rotulo="Lucro sobre venda"
+                                        percentual={lucroSobreVenda}
+                                        explicacao={explicacaoLucroSobreVenda}
+                                      />
+                                      <RentabilidadePercentualBadge
+                                        rotulo="Lucro sobre compra"
+                                        percentual={lucroSobreCompra}
+                                        explicacao={explicacaoLucroSobreCompra}
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              })
+                            ) : (
+                              <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">Nenhum produto nesta OS.</p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border bg-card p-4 sm:p-5">
+                          <div className="flex items-start gap-3">
+                            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                              <Users className="size-4" aria-hidden="true" />
+                            </span>
+                            <div>
+                              <h3 className="font-medium text-pretty">Rentabilidade por serviço</h3>
+                              <p className="mt-0.5 text-pretty text-xs text-muted-foreground">
+                                Receita, comissões e outras despesas vinculadas a cada serviço.
+                              </p>
+                            </div>
+                          </div>
+                          <div className="mt-3 space-y-2">
+                            {data.rentabilidade.comissoesServicos.length > 0 ? (
+                              data.rentabilidade.comissoesServicos
+                                .map((servico) => (
+                                  <div key={servico.servicoid} className="overflow-hidden rounded-lg border bg-background shadow-sm">
+                                    <div className="flex items-center gap-2 border-b bg-muted/30 px-3 py-1.5">
+                                      <span className="flex size-7 shrink-0 items-center justify-center rounded-md border bg-card text-muted-foreground">
+                                        <Wrench className="size-3.5" aria-hidden="true" />
+                                      </span>
+                                      <p className="min-w-0 truncate text-sm font-semibold">{servico.descricao}</p>
+                                    </div>
+
+                                    <div className="grid gap-1.5 px-3 py-2 sm:grid-cols-2 lg:grid-cols-4">
+                                      <div className="rounded-md border bg-card px-2.5 py-1.5">
+                                        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Valor do serviço</p>
+                                        <p className="font-semibold tabular-nums">{fmtMoney(servico.valorServico)}</p>
+                                      </div>
+                                      <div className="rounded-md border bg-card px-2.5 py-1.5">
+                                        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Receita líquida</p>
+                                        <p className="font-semibold tabular-nums">{fmtMoney(servico.receitaLiquida)}</p>
+                                      </div>
+                                      <div className="rounded-md border border-amber-500/20 bg-amber-500/5 px-2.5 py-1.5">
+                                        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Comissões</p>
+                                        <p className="font-semibold tabular-nums text-amber-700 dark:text-amber-300">
+                                          {fmtMoney(servico.valorComissao)}
+                                        </p>
+                                      </div>
+                                      <div className="rounded-md border border-red-500/20 bg-red-500/5 px-2.5 py-1.5">
+                                        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Outras despesas</p>
+                                        <p className="font-semibold tabular-nums text-red-700 dark:text-red-300">
+                                          {fmtMoney(servico.valorOutrasDespesas)}
+                                        </p>
+                                      </div>
+                                    </div>
+
+                                    <div className="flex flex-col gap-1 border-t bg-muted/15 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Resultado do serviço</p>
+                                      <div className="flex items-center gap-2">
+                                        <Badge variant="outline">Margem {fmtPercent(servico.margemServico)}%</Badge>
+                                        <p className={`font-semibold tabular-nums ${servico.resultadoServico < 0 ? "text-destructive" : "text-emerald-600 dark:text-emerald-400"}`}>
+                                          {fmtMoney(servico.resultadoServico)}
+                                        </p>
+                                      </div>
+                                    </div>
+
+                                    {servico.realizadores.length > 0 ? (
+                                      <div className="border-t px-3 py-2">
+                                        <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                          Comissões calculadas
+                                        </p>
+                                        <div className="space-y-1.5">
+                                          {servico.realizadores.map((realizador) => (
+                                            <div
+                                              key={realizador.usuarioid}
+                                              className="flex flex-col gap-1 rounded-md bg-muted/35 px-2.5 py-1.5 sm:flex-row sm:items-center sm:justify-between"
+                                            >
+                                              <div className="min-w-0">
+                                                <p className="truncate text-sm font-medium">{realizador.nome || "Realizador"}</p>
+                                                <p className="text-xs text-muted-foreground">
+                                                  Base de cálculo: {fmtMoney(realizador.valorBase)}
+                                                </p>
+                                              </div>
+                                              <div className="flex items-center justify-between gap-3 sm:justify-end">
+                                                <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary">
+                                                  {fmtPercent(realizador.percentual)}%
+                                                </Badge>
+                                                <div className="text-right">
+                                                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Comissão</p>
+                                                  <p className="text-sm font-semibold tabular-nums">{fmtMoney(realizador.valorComissao)}</p>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    ) : null}
+
+                                    {servico.despesas.length > 0 ? (
+                                      <div className="border-t px-3 py-2">
+                                        <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                          Outras despesas do serviço
+                                        </p>
+                                        <div className="space-y-1.5">
+                                          {servico.despesas.map((despesa) => (
+                                            <div
+                                              key={despesa.id}
+                                              className="flex flex-col gap-1 rounded-md bg-muted/35 px-2.5 py-1.5 sm:flex-row sm:items-center sm:justify-between"
+                                            >
+                                              <div className="min-w-0">
+                                                <p className="truncate text-sm font-medium">{despesa.descricao}</p>
+                                                {despesa.detalhe ? (
+                                                  <p className="truncate text-xs text-muted-foreground">{despesa.detalhe}</p>
+                                                ) : null}
+                                              </div>
+                                              <div className="flex items-center justify-between gap-3 sm:justify-end">
+                                                <Badge variant="outline">
+                                                  {despesa.situacao === "PREVISTA"
+                                                    ? "Prevista"
+                                                    : despesa.situacao === "A_PAGAR"
+                                                      ? "A pagar"
+                                                      : despesa.situacao === "PAGA"
+                                                        ? "Paga"
+                                                        : "Lançada"}
+                                                </Badge>
+                                                <p className="font-semibold tabular-nums text-red-700 dark:text-red-300">
+                                                  {fmtMoney(despesa.valor)}
+                                                </p>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    ) : null}
+
+                                    {servico.realizadores.length === 0 && servico.despesas.length === 0 ? (
+                                      <p className="border-t px-3 py-2 text-xs text-muted-foreground">
+                                        Nenhuma comissão ou outra despesa vinculada.
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                ))
+                            ) : (
+                              <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">Nenhum serviço nesta OS.</p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border bg-card p-4">
+                          <p className="font-medium">Despesas lançadas no financeiro</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            Contas a pagar e pagamentos vinculados à OS.
+                          </p>
+                          <div className="mt-3 space-y-2">
+                            {(data.transacoes ?? []).filter((t) => t.tipo === "DESPESA").length ? (
+                              (data.transacoes ?? []).filter((t) => t.tipo === "DESPESA").map((t) => (
+                                <div key={t.id} className="flex flex-col gap-2 rounded-lg border px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                                  <div className="min-w-0">
+                                    <p className="truncate text-sm font-medium">{t.descricao}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {fmtDate(t.data)}{t.plano_de_conta ? ` · ${t.plano_de_conta}` : ""}
                                     </p>
-                                  ) : null}
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Badge variant={t.pendente ? "outline" : "default"}>{t.pendente ? "A pagar" : "Pago"}</Badge>
+                                    <span className="font-medium">{fmtMoney(t.valor)}</span>
+                                    {t.pendente ? (
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => {
+                                          setDespesaParaBaixa({ ...t, data: new Date(t.data) } as Transaction);
+                                          setBaixaDialogOpen(true);
+                                        }}
+                                      >
+                                        Dar baixa
+                                      </Button>
+                                    ) : null}
+                                  </div>
                                 </div>
                               ))
-                          ) : (
-                            <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">Nenhum serviço nesta OS.</p>
-                          )}
+                            ) : (
+                              <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">Nenhuma despesa vinculada.</p>
+                            )}
+                          </div>
                         </div>
-                      </div>
-
-                      <div className="rounded-xl border bg-card p-4">
-                        <p className="font-medium">Despesas lançadas no financeiro</p>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                          Contas a pagar e pagamentos vinculados à OS.
-                        </p>
-                        <div className="mt-3 space-y-2">
-                          {(data.transacoes ?? []).filter((t) => t.tipo === "DESPESA").length ? (
-                            (data.transacoes ?? []).filter((t) => t.tipo === "DESPESA").map((t) => (
-                              <div key={t.id} className="flex flex-col gap-2 rounded-lg border px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-                                <div className="min-w-0">
-                                  <p className="truncate text-sm font-medium">{t.descricao}</p>
-                                  <p className="text-xs text-muted-foreground">
-                                    {fmtDate(t.data)}{t.plano_de_conta ? ` · ${t.plano_de_conta}` : ""}
-                                  </p>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <Badge variant={t.pendente ? "outline" : "default"}>{t.pendente ? "A pagar" : "Pago"}</Badge>
-                                  <span className="font-medium">{fmtMoney(t.valor)}</span>
-                                  {t.pendente ? (
-                                    <Button
-                                      type="button"
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={() => {
-                                        setDespesaParaBaixa({ ...t, data: new Date(t.data) } as Transaction);
-                                        setBaixaDialogOpen(true);
-                                      }}
-                                    >
-                                      Dar baixa
-                                    </Button>
-                                  ) : null}
-                                </div>
-                              </div>
-                            ))
-                          ) : (
-                            <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">Nenhuma despesa vinculada.</p>
-                          )}
-                        </div>
-                      </div>
-                      <ConcluidoAlert
-                        isAlertOpen={baixaDialogOpen}
-                        setIsAlertOpen={setBaixaDialogOpen}
-                        transaction={despesaParaBaixa}
-                        onSuccess={() => void recarregarDetalhes()}
-                      />
-                    </>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">Não foi possível calcular a rentabilidade.</p>
-                  )}
-                </TabsContent>
+                        <ConcluidoAlert
+                          isAlertOpen={baixaDialogOpen}
+                          setIsAlertOpen={setBaixaDialogOpen}
+                          transaction={despesaParaBaixa}
+                          onSuccess={() => void recarregarDetalhes()}
+                        />
+                      </>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Não foi possível calcular a rentabilidade.</p>
+                    )}
+                  </TabsContent>
                 ) : null}
 
                 {podeVerFinanceiro ? (
@@ -2518,62 +2578,58 @@ export function OSDetalhesDialog({
                 ) : null}
 
                 {podeVerEventosFinanceiros ? (
-                <TabsContent value="fluxo-os" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-4 sm:px-6 sm:py-5">
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <div className="rounded-xl border bg-card p-4">
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground"><ArrowUp className="size-4 text-emerald-600" /> Receitas</div>
-                      <p className="mt-2 text-xl font-semibold text-emerald-600">{fmtMoney(totaisEventos.receita)}</p>
-                      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                        <span>Produtos: {fmtMoney(totaisEventos.receitaProdutos)}</span>
-                        <span>Serviços: {fmtMoney(totaisEventos.receitaServicos)}</span>
+                  <TabsContent value="fluxo-os" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-4 sm:px-6 sm:py-5">
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-xl border bg-card p-4">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground"><ArrowUp className="size-4 text-emerald-600" /> Receitas</div>
+                        <p className="mt-2 text-xl font-semibold text-emerald-600">{fmtMoney(totaisEventos.receita)}</p>
+                        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                          <span>Produtos: {fmtMoney(totaisEventos.receitaProdutos)}</span>
+                          <span>Serviços: {fmtMoney(totaisEventos.receitaServicos)}</span>
+                        </div>
                       </div>
-                    </div>
-                    <div className="rounded-xl border bg-card p-4">
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground"><ArrowDown className="size-4 text-red-600" /> Despesas</div>
-                      <p className="mt-2 text-xl font-semibold text-red-600">{fmtMoney(totaisEventos.despesa)}</p>
-                      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                        <span>Produtos: {fmtMoney(totaisEventos.despesaProdutos)}</span>
-                        <span>Serviços: {fmtMoney(totaisEventos.despesaServicos)}</span>
+                      <div className="rounded-xl border bg-card p-4">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground"><ArrowDown className="size-4 text-red-600" /> Despesas</div>
+                        <p className="mt-2 text-xl font-semibold text-red-600">{fmtMoney(totaisEventos.despesa)}</p>
+                        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                          <span>Produtos: {fmtMoney(totaisEventos.despesaProdutos)}</span>
+                          <span>Serviços: {fmtMoney(totaisEventos.despesaServicos)}</span>
+                        </div>
                       </div>
-                    </div>
-                    <div className={`relative overflow-hidden rounded-xl border p-4 transition-colors ${
-                      osFinalizada
+                      <div className={`relative overflow-hidden rounded-xl border p-4 transition-colors ${osFinalizada
                         ? lucroRealAcimaDeCinquenta
                           ? "border-emerald-500/30 bg-emerald-500/5"
                           : lucroRealNegativo
                             ? "border-red-500/30 bg-red-500/5"
                             : "border-amber-500/30 bg-amber-500/5"
                         : "bg-card"
-                    }`}>
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <span className={`flex size-8 items-center justify-center rounded-lg ${
-                            osFinalizada
+                        }`}>
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <span className={`flex size-8 items-center justify-center rounded-lg ${osFinalizada
                               ? lucroRealAcimaDeCinquenta
                                 ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
                                 : lucroRealNegativo
                                   ? "bg-red-500/15 text-red-600 dark:text-red-400"
                                   : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
                               : "bg-primary/10 text-primary"
-                          }`}>
-                            <Calculator className="size-4" />
-                          </span>
-                          <span>{osFinalizada ? "Lucro Real" : "Resultado Previsto"}</span>
-                        </div>
-                        {osFinalizada ? (
-                          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums ${
-                            lucroRealAcimaDeCinquenta
+                              }`}>
+                              <Calculator className="size-4" />
+                            </span>
+                            <span>{osFinalizada ? "Lucro Real" : "Resultado Previsto"}</span>
+                          </div>
+                          {osFinalizada ? (
+                            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums ${lucroRealAcimaDeCinquenta
                               ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
                               : lucroRealNegativo
                                 ? "bg-red-500/15 text-red-700 dark:text-red-300"
                                 : "bg-amber-500/15 text-amber-700 dark:text-amber-300"
-                          }`}>
-                            {fmtPercent(percentualLucroReal)}%
-                          </span>
-                        ) : null}
-                      </div>
-                      <p className={`mt-3 text-2xl font-bold tabular-nums ${
-                        osFinalizada
+                              }`}>
+                              {fmtPercent(percentualLucroReal)}%
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className={`mt-3 text-2xl font-bold tabular-nums ${osFinalizada
                           ? lucroRealAcimaDeCinquenta
                             ? "text-emerald-600 dark:text-emerald-400"
                             : lucroRealNegativo
@@ -2582,490 +2638,490 @@ export function OSDetalhesDialog({
                           : totaisEventos.liquido < 0
                             ? "text-red-600"
                             : "text-primary"
-                      }`}>
-                        {fmtMoney(totaisEventos.liquido)}
-                      </p>
-                      {osFinalizada ? (
-                        <p className="mt-1 text-xs text-muted-foreground">Margem sobre as receitas</p>
-                      ) : null}
+                          }`}>
+                          {fmtMoney(totaisEventos.liquido)}
+                        </p>
+                        {osFinalizada ? (
+                          <p className="mt-1 text-xs text-muted-foreground">Margem sobre as receitas</p>
+                        ) : null}
+                      </div>
                     </div>
-                  </div>
 
-                  {!osFinalizada && podeEditarEventosFinanceiros ? <div className="flex justify-end">
-                    <Button type="button" size="sm" onClick={() => setEventoDialogOpen(true)}>
-                      Novo lançamento
-                    </Button>
-                  </div> : null}
+                    {!osFinalizada && podeEditarEventosFinanceiros ? <div className="flex justify-end">
+                      <Button type="button" size="sm" onClick={() => setEventoDialogOpen(true)}>
+                        Novo lançamento
+                      </Button>
+                    </div> : null}
 
-                  <div className="overflow-hidden rounded-xl border bg-card">
-                    <div className="hidden grid-cols-[minmax(0,1fr)_130px_130px] gap-3 border-b bg-muted/50 px-4 py-2 text-xs font-medium text-muted-foreground sm:grid">
-                      <span>Lançamento</span>
-                      <span className="text-right">Valor</span>
-                      <span className="text-right">Ações</span>
-                    </div>
-                    {fluxoOs.length ? (
-                      <div className="divide-y">
-                        {fluxoOs.map((lancamento) => (
-                          <div key={lancamento.id} className="grid gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_130px_130px] sm:items-center">
-                            <div className="flex min-w-0 items-start gap-3">
-                              <span
-                                className={
-                                  lancamento.tipo === "ENTRADA"
-                                    ? "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                                    : "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-red-500/15 text-red-600 dark:text-red-400"
-                                }
-                              >
-                                {lancamento.tipo === "ENTRADA" ? (
-                                  <ArrowUp className="size-3.5" />
-                                ) : (
-                                  <ArrowDown className="size-3.5" />
-                                )}
-                              </span>
-                              <div className="min-w-0">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <p className="truncate text-sm font-medium">{lancamento.descricao}</p>
-                                  <Badge variant="outline">{lancamento.origem}</Badge>
-                                  {lancamento.status === "CONVERTIDO" ? <Badge variant="secondary">Lançado</Badge> : null}
-                                  {lancamento.competenciaFechada ? (
-                                    <Badge
-                                      variant="outline"
-                                      title="A competência deste lançamento é de um mês anterior. O valor está travado para não reescrever a DRE daquele período."
-                                    >
-                                      Mês fechado
-                                    </Badge>
+                    <div className="overflow-hidden rounded-xl border bg-card">
+                      <div className="hidden grid-cols-[minmax(0,1fr)_130px_130px] gap-3 border-b bg-muted/50 px-4 py-2 text-xs font-medium text-muted-foreground sm:grid">
+                        <span>Lançamento</span>
+                        <span className="text-right">Valor</span>
+                        <span className="text-right">Ações</span>
+                      </div>
+                      {fluxoOs.length ? (
+                        <div className="divide-y">
+                          {fluxoOs.map((lancamento) => (
+                            <div key={lancamento.id} className="grid gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_130px_130px] sm:items-center">
+                              <div className="flex min-w-0 items-start gap-3">
+                                <span
+                                  className={
+                                    lancamento.tipo === "ENTRADA"
+                                      ? "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                                      : "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-red-500/15 text-red-600 dark:text-red-400"
+                                  }
+                                >
+                                  {lancamento.tipo === "ENTRADA" ? (
+                                    <ArrowUp className="size-3.5" />
+                                  ) : (
+                                    <ArrowDown className="size-3.5" />
+                                  )}
+                                </span>
+                                <div className="min-w-0">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className="truncate text-sm font-medium">{lancamento.descricao}</p>
+                                    <Badge variant="outline">{lancamento.origem}</Badge>
+                                    {lancamento.status === "CONVERTIDO" ? <Badge variant="secondary">Lançado</Badge> : null}
+                                    {lancamento.competenciaFechada ? (
+                                      <Badge
+                                        variant="outline"
+                                        title="A competência deste lançamento é de um mês anterior. O valor está travado para não reescrever a DRE daquele período."
+                                      >
+                                        Mês fechado
+                                      </Badge>
+                                    ) : null}
+                                  </div>
+                                  <p className="truncate text-xs text-muted-foreground">{lancamento.detalhe}</p>
+                                  {lancamento.isManual && lancamento.criadoPorNome ? (
+                                    <p className="mt-0.5 truncate text-[11px] text-muted-foreground/80">
+                                      Adicionado por {lancamento.criadoPorNome}
+                                    </p>
+                                  ) : lancamento.tipo === "SAIDA" && !lancamento.isManual ? (
+                                    <p className="mt-0.5 truncate text-[11px] text-muted-foreground/80">
+                                      Gerado automaticamente
+                                    </p>
                                   ) : null}
                                 </div>
-                                <p className="truncate text-xs text-muted-foreground">{lancamento.detalhe}</p>
-                                {lancamento.isManual && lancamento.criadoPorNome ? (
-                                  <p className="mt-0.5 truncate text-[11px] text-muted-foreground/80">
-                                    Adicionado por {lancamento.criadoPorNome}
-                                  </p>
-                                ) : lancamento.tipo === "SAIDA" && !lancamento.isManual ? (
-                                  <p className="mt-0.5 truncate text-[11px] text-muted-foreground/80">
-                                    Gerado automaticamente
-                                  </p>
-                                ) : null}
+                              </div>
+                              <div className="flex items-center justify-between sm:block sm:text-right">
+                                <span className="text-xs text-muted-foreground sm:hidden">Valor</span>
+                                <span className={lancamento.tipo === "ENTRADA" ? "text-sm text-emerald-600 dark:text-emerald-400" : "text-sm text-red-600 dark:text-red-400"}>
+                                  {lancamento.tipo === "ENTRADA" ? "+" : "−"} {fmtMoney(lancamento.valor)}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-end gap-1 sm:text-right">
+                                <span className="mr-auto text-xs text-muted-foreground sm:hidden">Ações</span>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button type="button" variant="ghost" size="icon" className="size-8" aria-label="Abrir ações do evento">
+                                      <MoreHorizontal className="size-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end" className="w-60">
+                                    {podeAlterarValor(lancamento)
+                                      && (lancamento.tipo === "ENTRADA" || lancamento.isManual) ? (
+                                      <DropdownMenuItem onSelect={() => abrirEdicaoSnapshot(
+                                        lancamento.id,
+                                        lancamento.descricao,
+                                        lancamento.detalhe,
+                                        lancamento.valor,
+                                        lancamento.tipo === "ENTRADA" ? "RECEITA" : "DESPESA",
+                                        lancamento.status,
+                                        data.eventosFinanceiros?.find((item) => item.id === lancamento.id)?.transacaoid,
+                                      )}>
+                                        <Pencil /> {lancamento.tipo === "SAIDA" ? "Editar despesa" : "Editar valor do lançamento"}
+                                      </DropdownMenuItem>
+                                    ) : null}
+                                    {lancamento.produtoid ? (
+                                      <DropdownMenuItem onSelect={() => visualizarProduto(lancamento.produtoid!)}>
+                                        <Eye /> Visualizar produto
+                                      </DropdownMenuItem>
+                                    ) : null}
+                                    {podeAlterarValor(lancamento)
+                                      && lancamento.origem === "SERVICO"
+                                      && lancamento.tipo === "ENTRADA"
+                                      && lancamento.status === "ATIVO"
+                                      && lancamento.servicoid ? (
+                                      <DropdownMenuItem onSelect={() => abrirDespesaServico({
+                                        id: lancamento.id,
+                                        servicoid: lancamento.servicoid!,
+                                        descricao: lancamento.descricao,
+                                      })}>
+                                        <ArrowDown /> Adicionar despesa ao serviço
+                                      </DropdownMenuItem>
+                                    ) : null}
+                                    {podeSincronizar(lancamento) && lancamento.tipo === "SAIDA" ? (
+                                      <DropdownMenuItem disabled={sincronizandoCustoId === lancamento.id} onSelect={() => void sincronizarUltimoCusto(lancamento.id)}>
+                                        <RefreshCw className={sincronizandoCustoId === lancamento.id ? "animate-spin" : ""} />
+                                        Sincronizar custo do produto
+                                      </DropdownMenuItem>
+                                    ) : null}
+                                    {podeSincronizar(lancamento) && lancamento.tipo === "ENTRADA" ? (
+                                      <DropdownMenuItem disabled={sincronizandoCustoId === lancamento.id} onSelect={() => void sincronizarValorVenda(lancamento.id)}>
+                                        <RefreshCw className={sincronizandoCustoId === lancamento.id ? "animate-spin" : ""} />
+                                        Sincronizar valor de venda
+                                      </DropdownMenuItem>
+                                    ) : null}
+                                    {lancamento.podeGerarTransacao && lancamento.status === "ATIVO" ? (
+                                      <DropdownMenuItem onSelect={() => setEventoParaLancamento({
+                                        id: lancamento.id,
+                                        tipo: lancamento.tipo,
+                                        descricao: lancamento.descricao,
+                                        valor: lancamento.valor,
+                                      })}>
+                                        Lançar no financeiro
+                                      </DropdownMenuItem>
+                                    ) : null}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
                               </div>
                             </div>
-                            <div className="flex items-center justify-between sm:block sm:text-right">
-                              <span className="text-xs text-muted-foreground sm:hidden">Valor</span>
-                              <span className={lancamento.tipo === "ENTRADA" ? "text-sm text-emerald-600 dark:text-emerald-400" : "text-sm text-red-600 dark:text-red-400"}>
-                                {lancamento.tipo === "ENTRADA" ? "+" : "−"} {fmtMoney(lancamento.valor)}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-end gap-1 sm:text-right">
-                              <span className="mr-auto text-xs text-muted-foreground sm:hidden">Ações</span>
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button type="button" variant="ghost" size="icon" className="size-8" aria-label="Abrir ações do evento">
-                                    <MoreHorizontal className="size-4" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-60">
-                                  {podeAlterarValor(lancamento)
-                                    && (lancamento.tipo === "ENTRADA" || lancamento.isManual) ? (
-                                    <DropdownMenuItem onSelect={() => abrirEdicaoSnapshot(
-                                      lancamento.id,
-                                      lancamento.descricao,
-                                      lancamento.detalhe,
-                                      lancamento.valor,
-                                      lancamento.tipo === "ENTRADA" ? "RECEITA" : "DESPESA",
-                                      lancamento.status,
-                                      data.eventosFinanceiros?.find((item) => item.id === lancamento.id)?.transacaoid,
-                                    )}>
-                                      <Pencil /> {lancamento.tipo === "SAIDA" ? "Editar despesa" : "Editar valor do lançamento"}
-                                    </DropdownMenuItem>
-                                  ) : null}
-                                  {lancamento.produtoid ? (
-                                    <DropdownMenuItem onSelect={() => visualizarProduto(lancamento.produtoid!)}>
-                                      <Eye /> Visualizar produto
-                                    </DropdownMenuItem>
-                                  ) : null}
-                                  {podeAlterarValor(lancamento)
-                                    && lancamento.origem === "SERVICO"
-                                    && lancamento.tipo === "ENTRADA"
-                                    && lancamento.status === "ATIVO"
-                                    && lancamento.servicoid ? (
-                                    <DropdownMenuItem onSelect={() => abrirDespesaServico({
-                                      id: lancamento.id,
-                                      servicoid: lancamento.servicoid!,
-                                      descricao: lancamento.descricao,
-                                    })}>
-                                      <ArrowDown /> Adicionar despesa ao serviço
-                                    </DropdownMenuItem>
-                                  ) : null}
-                                  {podeSincronizar(lancamento) && lancamento.tipo === "SAIDA" ? (
-                                    <DropdownMenuItem disabled={sincronizandoCustoId === lancamento.id} onSelect={() => void sincronizarUltimoCusto(lancamento.id)}>
-                                      <RefreshCw className={sincronizandoCustoId === lancamento.id ? "animate-spin" : ""} />
-                                      Sincronizar custo do produto
-                                    </DropdownMenuItem>
-                                  ) : null}
-                                  {podeSincronizar(lancamento) && lancamento.tipo === "ENTRADA" ? (
-                                    <DropdownMenuItem disabled={sincronizandoCustoId === lancamento.id} onSelect={() => void sincronizarValorVenda(lancamento.id)}>
-                                      <RefreshCw className={sincronizandoCustoId === lancamento.id ? "animate-spin" : ""} />
-                                      Sincronizar valor de venda
-                                    </DropdownMenuItem>
-                                  ) : null}
-                                  {lancamento.podeGerarTransacao && lancamento.status === "ATIVO" ? (
-                                    <DropdownMenuItem onSelect={() => setEventoParaLancamento({
-                                      id: lancamento.id,
-                                      tipo: lancamento.tipo,
-                                      descricao: lancamento.descricao,
-                                      valor: lancamento.valor,
-                                    })}>
-                                      Lançar no financeiro
-                                    </DropdownMenuItem>
-                                  ) : null}
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="p-6 text-center text-sm text-muted-foreground">Nenhum lançamento disponível para esta OS.</p>
-                    )}
-                  </div>
-
-                  {eventoParaLancamento ? (
-                    <TransactionDialog
-                      key={eventoParaLancamento.id}
-                      open
-                      setOpen={(nextOpen) => {
-                        if (!nextOpen) setEventoParaLancamento(null);
-                      }}
-                      osId={data.os.id}
-                      handleGetTransactions={() => void recarregarDetalhes()}
-                      internalCompanyExpense={eventoParaLancamento.tipo === "SAIDA"}
-                      lockValue
-                      initialTransaction={{
-                        evento_financeiro_id: eventoParaLancamento.id,
-                        tipo: eventoParaLancamento.tipo === "ENTRADA" ? Tipo_transacao.RECEITA : Tipo_transacao.DESPESA,
-                        descricao: eventoParaLancamento.descricao,
-                        valor: eventoParaLancamento.valor,
-                        valorLiquido: eventoParaLancamento.valor,
-                        pendente: true,
-                        parcelas: 1,
-                        data: new Date(),
-                      }}
-                    />
-                  ) : null}
-
-                  <DialogProduto
-                    productId={produtoDialogId}
-                    isOpen={produtoDialogOpen}
-                    setIsOpen={setProdutoDialogOpen}
-                    setSelectedProductId={setProdutoDialogId}
-                    onAfterSaveProduct={() => void recarregarDetalhes()}
-                  />
-
-                  <Dialog open={eventoDialogOpen} onOpenChange={setEventoDialogOpen}>
-                    <DialogContent className="sm:max-w-md">
-                      <DialogHeader>
-                        <DialogTitle>Novo evento financeiro</DialogTitle>
-                        <DialogDescription>Registre uma receita ou despesa manual e classifique-a como Produto ou Serviço.</DialogDescription>
-                      </DialogHeader>
-                      <div className="space-y-3 p-4 bg-card rounded-2xl">
-                        <label className="block text-sm font-medium">Tipo
-                          <select
-                            className="mt-1 h-10 w-full rounded-md border bg-background px-3"
-                            value={eventoTipo}
-                            onChange={(event) => setEventoTipo(event.target.value as "" | "PRODUTO" | "SERVICO")}
-                          >
-                            <option value="" disabled>Selecione o tipo</option>
-                            <option value="PRODUTO">Produto</option>
-                            <option value="SERVICO">Serviço</option>
-                          </select>
-                        </label>
-                        <label className="block text-sm font-medium">Natureza
-                          <select className="mt-1 h-10 w-full rounded-md border bg-background px-3" value={eventoNatureza} onChange={(e) => setEventoNatureza(e.target.value as "RECEITA" | "DESPESA")}>
-                            <option value="DESPESA">Despesa</option><option value="RECEITA">Receita</option>
-                          </select>
-                        </label>
-                        <label className="block text-sm font-medium">Descrição
-                          <input className="mt-1 h-10 w-full rounded-md border bg-background px-3" value={eventoDescricao} onChange={(e) => setEventoDescricao(e.target.value)} />
-                        </label>
-                        <label className="block text-sm font-medium">Detalhes
-                          <input className="mt-1 h-10 w-full rounded-md border bg-background px-3" value={eventoDetalhe} onChange={(e) => setEventoDetalhe(e.target.value)} />
-                        </label>
-                        <label className="block text-sm font-medium">Valor
-                          <ValueInput price={eventoValor} setPrice={setEventoValor} className="mt-1 h-10 w-full" />
-                        </label>
-                        <Button
-                          className="w-full"
-                          disabled={salvandoEvento || !eventoTipo || !eventoDescricao.trim() || eventoValor <= 0}
-                          onClick={() => void adicionarEventoAvulso()}
-                        >
-                          {salvandoEvento ? "Salvando..." : "Registrar evento"}
-                        </Button>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                  <Dialog
-                    open={Boolean(receitaServicoParaDespesa)}
-                    onOpenChange={(nextOpen) => {
-                      if (!nextOpen && !salvandoDespesaServico) setReceitaServicoParaDespesa(null);
-                    }}
-                  >
-                    <DialogContent className="sm:max-w-md">
-                      <DialogHeader>
-                        <DialogTitle>Adicionar despesa ao serviço</DialogTitle>
-                        <DialogDescription>
-                          Esta despesa ficará vinculada a {receitaServicoParaDespesa?.descricao ?? "este serviço"} e será separada da comissão automática.
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="space-y-3 rounded-2xl bg-card p-4">
-                        <label className="block text-sm font-medium">Título da despesa
-                          <input
-                            className="mt-1 h-10 w-full rounded-md border bg-background px-3"
-                            value={despesaServicoTitulo}
-                            onChange={(event) => setDespesaServicoTitulo(event.target.value)}
-                            placeholder="Ex.: Serviço terceirizado"
-                          />
-                        </label>
-                        <label className="block text-sm font-medium">Detalhes
-                          <input
-                            className="mt-1 h-10 w-full rounded-md border bg-background px-3"
-                            value={despesaServicoDetalhe}
-                            onChange={(event) => setDespesaServicoDetalhe(event.target.value)}
-                            placeholder="Informação complementar (opcional)"
-                          />
-                        </label>
-                        <label className="block text-sm font-medium">Valor
-                          <ValueInput price={despesaServicoValor} setPrice={setDespesaServicoValor} className="mt-1 h-10 w-full" />
-                        </label>
-                        <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                          Tipo: Serviço · Natureza: Despesa · DRE: Custo dos serviços prestados
+                          ))}
                         </div>
-                        <Button
-                          className="w-full"
-                          disabled={salvandoDespesaServico || !despesaServicoTitulo.trim() || despesaServicoValor <= 0}
-                          onClick={() => void adicionarDespesaServico()}
-                        >
-                          {salvandoDespesaServico ? "Salvando..." : "Registrar despesa do serviço"}
-                        </Button>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                  <Dialog open={Boolean(eventoEdicao)} onOpenChange={(nextOpen) => { if (!nextOpen) setEventoEdicao(null); }}>
-                    <DialogContent className="sm:max-w-md">
-                      <DialogHeader>
-                        <DialogTitle>{eventoEdicao?.natureza === "DESPESA" ? "Editar despesa" : "Editar valor do lançamento"}</DialogTitle>
-                        <DialogDescription>
-                          {eventoEdicao?.natureza === "DESPESA"
-                            ? "Altere o título, a descrição e o valor desta despesa."
-                            : eventoEdicao?.descricao}
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="space-y-4">
-                        {eventoEdicao?.natureza === "DESPESA" ? (
-                          <>
-                            <label className="block text-sm font-medium">Título
-                              <input
-                                className="mt-1 h-10 w-full rounded-md border bg-background px-3"
-                                value={tituloEventoEdicao}
-                                onChange={(event) => setTituloEventoEdicao(event.target.value)}
-                              />
-                            </label>
-                            <label className="block text-sm font-medium">Descrição
-                              <input
-                                className="mt-1 h-10 w-full rounded-md border bg-background px-3"
-                                value={detalheEventoEdicao}
-                                onChange={(event) => setDetalheEventoEdicao(event.target.value)}
-                                placeholder="Informação complementar (opcional)"
-                              />
-                            </label>
-                          </>
-                        ) : null}
-                        <label className="block text-sm font-medium">Valor
-                          <div className="mt-1">
-                            <ValueInput price={valorSnapshotEdicao} setPrice={setValorSnapshotEdicao} />
+                      ) : (
+                        <p className="p-6 text-center text-sm text-muted-foreground">Nenhum lançamento disponível para esta OS.</p>
+                      )}
+                    </div>
+
+                    {eventoParaLancamento ? (
+                      <TransactionDialog
+                        key={eventoParaLancamento.id}
+                        open
+                        setOpen={(nextOpen) => {
+                          if (!nextOpen) setEventoParaLancamento(null);
+                        }}
+                        osId={data.os.id}
+                        handleGetTransactions={() => void recarregarDetalhes()}
+                        internalCompanyExpense={eventoParaLancamento.tipo === "SAIDA"}
+                        lockValue
+                        initialTransaction={{
+                          evento_financeiro_id: eventoParaLancamento.id,
+                          tipo: eventoParaLancamento.tipo === "ENTRADA" ? Tipo_transacao.RECEITA : Tipo_transacao.DESPESA,
+                          descricao: eventoParaLancamento.descricao,
+                          valor: eventoParaLancamento.valor,
+                          valorLiquido: eventoParaLancamento.valor,
+                          pendente: true,
+                          parcelas: 1,
+                          data: new Date(),
+                        }}
+                      />
+                    ) : null}
+
+                    <DialogProduto
+                      productId={produtoDialogId}
+                      isOpen={produtoDialogOpen}
+                      setIsOpen={setProdutoDialogOpen}
+                      setSelectedProductId={setProdutoDialogId}
+                      onAfterSaveProduct={() => void recarregarDetalhes()}
+                    />
+
+                    <Dialog open={eventoDialogOpen} onOpenChange={setEventoDialogOpen}>
+                      <DialogContent className="sm:max-w-md">
+                        <DialogHeader>
+                          <DialogTitle>Novo evento financeiro</DialogTitle>
+                          <DialogDescription>Registre uma receita ou despesa manual e classifique-a como Produto ou Serviço.</DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-3 p-4 bg-card rounded-2xl">
+                          <label className="block text-sm font-medium">Tipo
+                            <select
+                              className="mt-1 h-10 w-full rounded-md border bg-background px-3"
+                              value={eventoTipo}
+                              onChange={(event) => setEventoTipo(event.target.value as "" | "PRODUTO" | "SERVICO")}
+                            >
+                              <option value="" disabled>Selecione o tipo</option>
+                              <option value="PRODUTO">Produto</option>
+                              <option value="SERVICO">Serviço</option>
+                            </select>
+                          </label>
+                          <label className="block text-sm font-medium">Natureza
+                            <select className="mt-1 h-10 w-full rounded-md border bg-background px-3" value={eventoNatureza} onChange={(e) => setEventoNatureza(e.target.value as "RECEITA" | "DESPESA")}>
+                              <option value="DESPESA">Despesa</option><option value="RECEITA">Receita</option>
+                            </select>
+                          </label>
+                          <label className="block text-sm font-medium">Descrição
+                            <input className="mt-1 h-10 w-full rounded-md border bg-background px-3" value={eventoDescricao} onChange={(e) => setEventoDescricao(e.target.value)} />
+                          </label>
+                          <label className="block text-sm font-medium">Detalhes
+                            <input className="mt-1 h-10 w-full rounded-md border bg-background px-3" value={eventoDetalhe} onChange={(e) => setEventoDetalhe(e.target.value)} />
+                          </label>
+                          <label className="block text-sm font-medium">Valor
+                            <ValueInput price={eventoValor} setPrice={setEventoValor} className="mt-1 h-10 w-full" />
+                          </label>
+                          <Button
+                            className="w-full"
+                            disabled={salvandoEvento || !eventoTipo || !eventoDescricao.trim() || eventoValor <= 0}
+                            onClick={() => void adicionarEventoAvulso()}
+                          >
+                            {salvandoEvento ? "Salvando..." : "Registrar evento"}
+                          </Button>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                    <Dialog
+                      open={Boolean(receitaServicoParaDespesa)}
+                      onOpenChange={(nextOpen) => {
+                        if (!nextOpen && !salvandoDespesaServico) setReceitaServicoParaDespesa(null);
+                      }}
+                    >
+                      <DialogContent className="sm:max-w-md">
+                        <DialogHeader>
+                          <DialogTitle>Adicionar despesa ao serviço</DialogTitle>
+                          <DialogDescription>
+                            Esta despesa ficará vinculada a {receitaServicoParaDespesa?.descricao ?? "este serviço"} e será separada da comissão automática.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-3 rounded-2xl bg-card p-4">
+                          <label className="block text-sm font-medium">Título da despesa
+                            <input
+                              className="mt-1 h-10 w-full rounded-md border bg-background px-3"
+                              value={despesaServicoTitulo}
+                              onChange={(event) => setDespesaServicoTitulo(event.target.value)}
+                              placeholder="Ex.: Serviço terceirizado"
+                            />
+                          </label>
+                          <label className="block text-sm font-medium">Detalhes
+                            <input
+                              className="mt-1 h-10 w-full rounded-md border bg-background px-3"
+                              value={despesaServicoDetalhe}
+                              onChange={(event) => setDespesaServicoDetalhe(event.target.value)}
+                              placeholder="Informação complementar (opcional)"
+                            />
+                          </label>
+                          <label className="block text-sm font-medium">Valor
+                            <ValueInput price={despesaServicoValor} setPrice={setDespesaServicoValor} className="mt-1 h-10 w-full" />
+                          </label>
+                          <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                            Tipo: Serviço · Natureza: Despesa · DRE: Custo dos serviços prestados
                           </div>
-                        </label>
-                        <Button
-                          className="w-full"
-                          disabled={salvandoSnapshot || (eventoEdicao?.natureza === "DESPESA" && !tituloEventoEdicao.trim())}
-                          onClick={() => void salvarSnapshot()}
-                        >
-                          {salvandoSnapshot
-                            ? "Salvando..."
-                            : eventoEdicao?.natureza === "DESPESA" ? "Salvar alterações" : "Salvar novo valor"}
-                        </Button>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                  <AlertDialog
-                    open={Boolean(eventoConvertidoParaEditar)}
-                    onOpenChange={(open) => { if (!open && !excluindoTransacaoEvento) setEventoConvertidoParaEditar(null); }}
-                  >
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Excluir transação vinculada?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          Este evento já foi lançado no financeiro. Para alterar seus dados, será necessário excluir a transação vinculada. Deseja continuar?
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel disabled={excluindoTransacaoEvento}>Cancelar</AlertDialogCancel>
-                        <AlertDialogAction disabled={excluindoTransacaoEvento} onClick={(event) => { event.preventDefault(); void excluirTransacaoEEditarEvento(); }}>
-                          {excluindoTransacaoEvento ? "Excluindo..." : "Excluir e continuar"}
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </TabsContent>
+                          <Button
+                            className="w-full"
+                            disabled={salvandoDespesaServico || !despesaServicoTitulo.trim() || despesaServicoValor <= 0}
+                            onClick={() => void adicionarDespesaServico()}
+                          >
+                            {salvandoDespesaServico ? "Salvando..." : "Registrar despesa do serviço"}
+                          </Button>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                    <Dialog open={Boolean(eventoEdicao)} onOpenChange={(nextOpen) => { if (!nextOpen) setEventoEdicao(null); }}>
+                      <DialogContent className="sm:max-w-md">
+                        <DialogHeader>
+                          <DialogTitle>{eventoEdicao?.natureza === "DESPESA" ? "Editar despesa" : "Editar valor do lançamento"}</DialogTitle>
+                          <DialogDescription>
+                            {eventoEdicao?.natureza === "DESPESA"
+                              ? "Altere o título, a descrição e o valor desta despesa."
+                              : eventoEdicao?.descricao}
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4">
+                          {eventoEdicao?.natureza === "DESPESA" ? (
+                            <>
+                              <label className="block text-sm font-medium">Título
+                                <input
+                                  className="mt-1 h-10 w-full rounded-md border bg-background px-3"
+                                  value={tituloEventoEdicao}
+                                  onChange={(event) => setTituloEventoEdicao(event.target.value)}
+                                />
+                              </label>
+                              <label className="block text-sm font-medium">Descrição
+                                <input
+                                  className="mt-1 h-10 w-full rounded-md border bg-background px-3"
+                                  value={detalheEventoEdicao}
+                                  onChange={(event) => setDetalheEventoEdicao(event.target.value)}
+                                  placeholder="Informação complementar (opcional)"
+                                />
+                              </label>
+                            </>
+                          ) : null}
+                          <label className="block text-sm font-medium">Valor
+                            <div className="mt-1">
+                              <ValueInput price={valorSnapshotEdicao} setPrice={setValorSnapshotEdicao} />
+                            </div>
+                          </label>
+                          <Button
+                            className="w-full"
+                            disabled={salvandoSnapshot || (eventoEdicao?.natureza === "DESPESA" && !tituloEventoEdicao.trim())}
+                            onClick={() => void salvarSnapshot()}
+                          >
+                            {salvandoSnapshot
+                              ? "Salvando..."
+                              : eventoEdicao?.natureza === "DESPESA" ? "Salvar alterações" : "Salvar novo valor"}
+                          </Button>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                    <AlertDialog
+                      open={Boolean(eventoConvertidoParaEditar)}
+                      onOpenChange={(open) => { if (!open && !excluindoTransacaoEvento) setEventoConvertidoParaEditar(null); }}
+                    >
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Excluir transação vinculada?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Este evento já foi lançado no financeiro. Para alterar seus dados, será necessário excluir a transação vinculada. Deseja continuar?
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel disabled={excluindoTransacaoEvento}>Cancelar</AlertDialogCancel>
+                          <AlertDialogAction disabled={excluindoTransacaoEvento} onClick={(event) => { event.preventDefault(); void excluirTransacaoEEditarEvento(); }}>
+                            {excluindoTransacaoEvento ? "Excluindo..." : "Excluir e continuar"}
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </TabsContent>
                 ) : null}
 
                 <TabsContent value="checklist" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 sm:px-6 sm:py-5">
-              <Accordion type="multiple" defaultValue={["entrada", "saida"]} className="space-y-4">
-              <AccordionItem value="saida" className="rounded-lg border bg-card px-4">
-                <AccordionTrigger className="hover:no-underline">
-                  <span className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center">
-                    <span className="flex items-center gap-2"><ListChecks className="h-4 w-4 text-primary" />Checklist de saída</span>
-                    {data.saida?.usuario?.nome ? <span className="text-xs font-normal text-muted-foreground sm:ml-auto sm:mr-3">Realizado por: <b>{data.saida.usuario.nome}</b></span> : null}
-                  </span>
-                </AccordionTrigger>
-                <AccordionContent>
-                {!data.saida || !(data.saida.itens ?? []).length ? (
-                  <p className="text-sm text-muted-foreground">Checklist de saída não preenchido.</p>
-                ) : (
-                  <ul className="text-sm">
-                    {(data.saida.itens ?? []).map((item, index) => (
-                      <Fragment key={item.id}>
-                        {index > 0 && <Separator className="my-0" />}
-                        <li className="py-4">
-                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                            <div className="min-w-0">
-                              <div className="truncate font-medium">{item.titulo}</div>
-                              <div className="text-xs text-muted-foreground">
-                                {fmtDate(item.created_at ?? data.saida?.saida_em)}
-                                {data.saida?.usuario?.nome ? ` • por ${data.saida.usuario.nome}` : ""}
-                                {item.observacao ? ` • ${item.observacao}` : ""}
-                              </div>
-                            </div>
-                            <Badge variant="outline" className={badgeClassForChecklistStatus(item.status)}>
-                              {item.status}
-                            </Badge>
-                          </div>
-                          {(item.imagens ?? []).length > 0 && (
-                            <div className="mt-3 space-y-1.5">
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <ImageIcon className="h-3.5 w-3.5" />
-                                Imagens anexadas
-                              </div>
-                              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
-                                {(item.imagens ?? []).map((imagem) => {
-                                  const name = imagem.descricao || fileNameFromUrl(imagem.url) || item.titulo;
-                                  return (
-                                    <div key={imagem.id} className="group relative overflow-hidden rounded-md border bg-muted/20 transition-colors hover:bg-muted">
-                                      <div className="aspect-square w-full overflow-hidden bg-muted">
-                                        <ChecklistImagePreview src={imagem.url} alt={name} imageClassName="transition-transform group-hover:scale-[1.02]" />
+                  <Accordion type="multiple" defaultValue={["entrada", "saida"]} className="space-y-4">
+                    <AccordionItem value="saida" className="rounded-lg border bg-card px-4">
+                      <AccordionTrigger className="hover:no-underline">
+                        <span className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center">
+                          <span className="flex items-center gap-2"><ListChecks className="h-4 w-4 text-primary" />Checklist de saída</span>
+                          {data.saida?.usuario?.nome ? <span className="text-xs font-normal text-muted-foreground sm:ml-auto sm:mr-3">Realizado por: <b>{data.saida.usuario.nome}</b></span> : null}
+                        </span>
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        {!data.saida || !(data.saida.itens ?? []).length ? (
+                          <p className="text-sm text-muted-foreground">Checklist de saída não preenchido.</p>
+                        ) : (
+                          <ul className="text-sm">
+                            {(data.saida.itens ?? []).map((item, index) => (
+                              <Fragment key={item.id}>
+                                {index > 0 && <Separator className="my-0" />}
+                                <li className="py-4">
+                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                    <div className="min-w-0">
+                                      <div className="truncate font-medium">{item.titulo}</div>
+                                      <div className="text-xs text-muted-foreground">
+                                        {fmtDate(item.created_at ?? data.saida?.saida_em)}
+                                        {data.saida?.usuario?.nome ? ` • por ${data.saida.usuario.nome}` : ""}
+                                        {item.observacao ? ` • ${item.observacao}` : ""}
                                       </div>
-                                      <a href={imagem.url} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-1 px-2 py-1.5 text-[11px] text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary" title="Abrir imagem original em nova aba">
-                                        <span className="truncate">{name}</span><ExternalLink className="h-3 w-3 shrink-0 opacity-70" />
-                                      </a>
-                                      <button type="button" className="absolute bottom-8 right-2 inline-flex h-8 w-8 items-center justify-center rounded-full border bg-background/90 text-foreground shadow-sm backdrop-blur transition-colors hover:bg-background focus:outline-none focus:ring-2 focus:ring-primary" title="Baixar imagem" aria-label="Baixar imagem" onClick={() => void baixarImagem(imagem.url, name)}><Download className="h-4 w-4" /></button>
                                     </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-                        </li>
-                      </Fragment>
-                    ))}
-                  </ul>
-                )}
-                </AccordionContent>
-              </AccordionItem>
-              {/* Checklist */}
-              <AccordionItem value="entrada" className="rounded-lg border bg-card px-4">
-                <AccordionTrigger className="hover:no-underline">
-                  <span className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center">
-                    <span className="flex items-center gap-2"><ListChecks className="h-4 w-4 text-primary" />Checklist de entrada</span>
-                    {checklistAutores.length ? <span className="text-xs font-normal text-muted-foreground sm:ml-auto sm:mr-3">Realizado por: <b>{checklistAutores.join(", ")}</b></span> : null}
-                  </span>
-                </AccordionTrigger>
-                <AccordionContent>
-
-                {(data.checklist ?? []).length === 0 ? (
-                  <div className="text-sm text-muted-foreground">—</div>
-                ) : (
-                  <ul className="text-sm">
-                    {data.checklist.map((c, idx) => (
-                      <Fragment key={c.id}>
-                        {idx > 0 && <Separator className="my-0" />}
-                        <li className="py-4">
-                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                            <div className="min-w-0">
-                              <div className="font-medium truncate">{c.item}</div>
-                              <div className="text-xs text-muted-foreground">
-                                {fmtDate(c.createdat)}
-                                {c.usuario?.nome ? ` • por ${c.usuario.nome}` : ""}
-                                {c.observacao ? ` • ${c.observacao}` : ""}
-                              </div>
-                            </div>
-                            <Badge variant="outline" className={badgeClassForChecklistStatus(c.status)}>
-                              {c.status}
-                            </Badge>
-                          </div>
-
-                          {Array.isArray(c.imagens) && c.imagens.length > 0 && (
-                            <div className="mt-3 space-y-1.5">
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <ImageIcon className="h-3.5 w-3.5" />
-                                Imagens anexadas
-                              </div>
-                              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
-                                {c.imagens.map((img) => {
-                                  const name = fileNameFromUrl(img.url);
-                                  return (
-                                    <div
-                                      key={img.id}
-                                      className="group relative overflow-hidden rounded-md border bg-muted/20 transition-colors hover:bg-muted"
-                                    >
-                                      <span className="block aspect-square w-full overflow-hidden bg-muted">
-                                        <ChecklistImagePreview
-                                          src={img.url}
-                                          alt={img.descricao || name}
-                                          imageClassName="transition-transform group-hover:scale-[1.02]"
-                                        />
-                                      </span>
-                                      <a
-                                        href={img.url}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="flex min-w-0 items-center gap-1 px-2 py-1.5 text-[11px] text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                                        title="Abrir imagem original em nova aba"
-                                      >
-                                          <span className="truncate">{img.descricao || name}</span>
-                                          <ExternalLink className="h-3 w-3 shrink-0 opacity-70" />
-                                      </a>
-                                      <button
-                                        type="button"
-                                        className="absolute hover:cursor-pointer right-2 bottom-8 inline-flex h-8 w-8 items-center justify-center rounded-full border bg-background/90 text-foreground shadow-sm backdrop-blur transition-colors hover:bg-background focus:outline-none focus:ring-2 focus:ring-primary"
-                                        title="Baixar imagem"
-                                        aria-label="Baixar imagem"
-                                        onClick={() => void baixarImagem(img.url, name)}
-                                      >
-                                        <Download className="h-4 w-4" />
-                                      </button>
+                                    <Badge variant="outline" className={badgeClassForChecklistStatus(item.status)}>
+                                      {item.status}
+                                    </Badge>
+                                  </div>
+                                  {(item.imagens ?? []).length > 0 && (
+                                    <div className="mt-3 space-y-1.5">
+                                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                        <ImageIcon className="h-3.5 w-3.5" />
+                                        Imagens anexadas
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+                                        {(item.imagens ?? []).map((imagem) => {
+                                          const name = imagem.descricao || fileNameFromUrl(imagem.url) || item.titulo;
+                                          return (
+                                            <div key={imagem.id} className="group relative overflow-hidden rounded-md border bg-muted/20 transition-colors hover:bg-muted">
+                                              <div className="aspect-square w-full overflow-hidden bg-muted">
+                                                <ChecklistImagePreview src={imagem.url} alt={name} imageClassName="transition-transform group-hover:scale-[1.02]" />
+                                              </div>
+                                              <a href={imagem.url} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-1 px-2 py-1.5 text-[11px] text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary" title="Abrir imagem original em nova aba">
+                                                <span className="truncate">{name}</span><ExternalLink className="h-3 w-3 shrink-0 opacity-70" />
+                                              </a>
+                                              <button type="button" className="absolute bottom-8 right-2 inline-flex h-8 w-8 items-center justify-center rounded-full border bg-background/90 text-foreground shadow-sm backdrop-blur transition-colors hover:bg-background focus:outline-none focus:ring-2 focus:ring-primary" title="Baixar imagem" aria-label="Baixar imagem" onClick={() => void baixarImagem(imagem.url, name)}><Download className="h-4 w-4" /></button>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
                                     </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-                        </li>
-                      </Fragment>
-                    ))}
-                  </ul>
-                )}
-                </AccordionContent>
-              </AccordionItem>
-              </Accordion>
+                                  )}
+                                </li>
+                              </Fragment>
+                            ))}
+                          </ul>
+                        )}
+                      </AccordionContent>
+                    </AccordionItem>
+                    {/* Checklist */}
+                    <AccordionItem value="entrada" className="rounded-lg border bg-card px-4">
+                      <AccordionTrigger className="hover:no-underline">
+                        <span className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center">
+                          <span className="flex items-center gap-2"><ListChecks className="h-4 w-4 text-primary" />Checklist de entrada</span>
+                          {checklistAutores.length ? <span className="text-xs font-normal text-muted-foreground sm:ml-auto sm:mr-3">Realizado por: <b>{checklistAutores.join(", ")}</b></span> : null}
+                        </span>
+                      </AccordionTrigger>
+                      <AccordionContent>
 
-              {/* Links de aprovação */}
+                        {(data.checklist ?? []).length === 0 ? (
+                          <div className="text-sm text-muted-foreground">—</div>
+                        ) : (
+                          <ul className="text-sm">
+                            {data.checklist.map((c, idx) => (
+                              <Fragment key={c.id}>
+                                {idx > 0 && <Separator className="my-0" />}
+                                <li className="py-4">
+                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                    <div className="min-w-0">
+                                      <div className="font-medium truncate">{c.item}</div>
+                                      <div className="text-xs text-muted-foreground">
+                                        {fmtDate(c.createdat)}
+                                        {c.usuario?.nome ? ` • por ${c.usuario.nome}` : ""}
+                                        {c.observacao ? ` • ${c.observacao}` : ""}
+                                      </div>
+                                    </div>
+                                    <Badge variant="outline" className={badgeClassForChecklistStatus(c.status)}>
+                                      {c.status}
+                                    </Badge>
+                                  </div>
+
+                                  {Array.isArray(c.imagens) && c.imagens.length > 0 && (
+                                    <div className="mt-3 space-y-1.5">
+                                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                        <ImageIcon className="h-3.5 w-3.5" />
+                                        Imagens anexadas
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+                                        {c.imagens.map((img) => {
+                                          const name = fileNameFromUrl(img.url);
+                                          return (
+                                            <div
+                                              key={img.id}
+                                              className="group relative overflow-hidden rounded-md border bg-muted/20 transition-colors hover:bg-muted"
+                                            >
+                                              <span className="block aspect-square w-full overflow-hidden bg-muted">
+                                                <ChecklistImagePreview
+                                                  src={img.url}
+                                                  alt={img.descricao || name}
+                                                  imageClassName="transition-transform group-hover:scale-[1.02]"
+                                                />
+                                              </span>
+                                              <a
+                                                href={img.url}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="flex min-w-0 items-center gap-1 px-2 py-1.5 text-[11px] text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                                                title="Abrir imagem original em nova aba"
+                                              >
+                                                <span className="truncate">{img.descricao || name}</span>
+                                                <ExternalLink className="h-3 w-3 shrink-0 opacity-70" />
+                                              </a>
+                                              <button
+                                                type="button"
+                                                className="absolute hover:cursor-pointer right-2 bottom-8 inline-flex h-8 w-8 items-center justify-center rounded-full border bg-background/90 text-foreground shadow-sm backdrop-blur transition-colors hover:bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+                                                title="Baixar imagem"
+                                                aria-label="Baixar imagem"
+                                                onClick={() => void baixarImagem(img.url, name)}
+                                              >
+                                                <Download className="h-4 w-4" />
+                                              </button>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  )}
+                                </li>
+                              </Fragment>
+                            ))}
+                          </ul>
+                        )}
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
+
+                  {/* Links de aprovação */}
                 </TabsContent>
 
                 <TabsContent value="anexos" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-4 sm:px-6 sm:py-5">
@@ -3211,65 +3267,65 @@ export function OSDetalhesDialog({
                 </TabsContent>
 
                 <TabsContent value="aprovacao" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 sm:px-6 sm:py-5">
-              {Array.isArray(data.aprovacoes) && (
-                <section className="rounded-lg border bg-card p-4">
-                  <div className="text-sm font-medium mb-1.5">Links de aprovação</div>
-                  {data.aprovacoes.length === 0 ? (
-                    <div className="text-sm text-muted-foreground">—</div>
-                  ) : (
-                    <ul className="space-y-2 text-sm">
-                      {data.aprovacoes.map((a) => {
-                        const url = approvalUrlFromToken(a.token);
-                        return (
-                          <li key={a.id} className="flex flex-col gap-3 rounded-md border bg-muted/20 px-3 py-2 sm:flex-row sm:items-start sm:justify-between">
-                            <div className="min-w-0">
-                              <div className="truncate">
-                                <a
-                                  href={url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="underline break-all"
-                                  title={url}
-                                >
-                                  {url}
-                                </a>
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                criado: {fmtDate(a.created_at)} • expira: {fmtDate(a.expira_em)} • usado: {fmtDate(a.usado_em)}
-                              </div>
-                            </div>
-                            <div className="flex shrink-0 gap-2">
-                              <Button
-                                variant="outline"
-                                size="icon"
-                                title="Copiar link"
-                                onClick={async () => {
-                                  try {
-                                    await navigator.clipboard.writeText(url);
-                                    toast.success("Link copiado");
-                                  } catch {
-                                    toast.error("Não foi possível copiar");
-                                  }
-                                }}
-                              >
-                                <Copy className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="icon"
-                                title="Abrir link"
-                                onClick={() => window.open(url, "_blank", "noopener,noreferrer")}
-                              >
-                                <ExternalLink className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
+                  {Array.isArray(data.aprovacoes) && (
+                    <section className="rounded-lg border bg-card p-4">
+                      <div className="text-sm font-medium mb-1.5">Links de aprovação</div>
+                      {data.aprovacoes.length === 0 ? (
+                        <div className="text-sm text-muted-foreground">—</div>
+                      ) : (
+                        <ul className="space-y-2 text-sm">
+                          {data.aprovacoes.map((a) => {
+                            const url = approvalUrlFromToken(a.token);
+                            return (
+                              <li key={a.id} className="flex flex-col gap-3 rounded-md border bg-muted/20 px-3 py-2 sm:flex-row sm:items-start sm:justify-between">
+                                <div className="min-w-0">
+                                  <div className="truncate">
+                                    <a
+                                      href={url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="underline break-all"
+                                      title={url}
+                                    >
+                                      {url}
+                                    </a>
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">
+                                    criado: {fmtDate(a.created_at)} • expira: {fmtDate(a.expira_em)} • usado: {fmtDate(a.usado_em)}
+                                  </div>
+                                </div>
+                                <div className="flex shrink-0 gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    title="Copiar link"
+                                    onClick={async () => {
+                                      try {
+                                        await navigator.clipboard.writeText(url);
+                                        toast.success("Link copiado");
+                                      } catch {
+                                        toast.error("Não foi possível copiar");
+                                      }
+                                    }}
+                                  >
+                                    <Copy className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    title="Abrir link"
+                                    onClick={() => window.open(url, "_blank", "noopener,noreferrer")}
+                                  >
+                                    <ExternalLink className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </section>
                   )}
-                </section>
-              )}
                 </TabsContent>
               </Tabs>
             </div>

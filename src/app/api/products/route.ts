@@ -20,6 +20,8 @@ type ProductQueryFilters = {
   fabricante: string;
   local: string;
   exibirPdv: boolean | null;
+  /** true: só com etiqueta. false: só sem etiqueta. null: não filtra. */
+  temEtiqueta: boolean | null;
   estoqueMin: number | null;
   estoqueMax: number | null;
   precoMin: number | null;
@@ -39,6 +41,10 @@ function applyProductFilters(query: any, filters: ProductQueryFilters) {
   if (filters.fabricante) query = query.ilike('fabricante', `%${filters.fabricante}%`);
   if (filters.local) query = query.ilike('local', `%${filters.local}%`);
   if (filters.exibirPdv != null) query = query.eq('exibirPdv', filters.exibirPdv);
+  // Cadastro antigo pode ter etiqueta como string vazia em vez de null, entao
+  // "sem etiqueta" cobre os dois casos — e "com etiqueta" exclui os dois.
+  if (filters.temEtiqueta === true) query = query.not('etiqueta', 'is', null).neq('etiqueta', '');
+  if (filters.temEtiqueta === false) query = query.or('etiqueta.is.null,etiqueta.eq.""');
   if (filters.estoqueMin != null) query = query.gte('estoque', filters.estoqueMin);
   if (filters.estoqueMax != null) query = query.lte('estoque', filters.estoqueMax);
   if (filters.precoMin != null) query = query.gte('precovenda', filters.precoMin);
@@ -246,6 +252,7 @@ export async function GET(req: Request) {
     const grupoId = toPositiveInt(searchParams.get('grupoId'));
     const conservacaoParam = (searchParams.get('conservacao') ?? '').toUpperCase();
     const exibirPdvParam = searchParams.get('exibirPdv');
+    const temEtiquetaParam = searchParams.get('temEtiqueta');
     const productFilters: ProductQueryFilters = {
       grupoId,
       conservacao: CONSERVACAO_SET.has(conservacaoParam) ? conservacaoParam : '',
@@ -253,6 +260,7 @@ export async function GET(req: Request) {
       fabricante: (searchParams.get('fabricante') ?? '').trim(),
       local: (searchParams.get('local') ?? '').trim(),
       exibirPdv: exibirPdvParam === 'true' ? true : exibirPdvParam === 'false' ? false : null,
+      temEtiqueta: temEtiquetaParam === 'true' ? true : temEtiquetaParam === 'false' ? false : null,
       estoqueMin: finiteNumber(searchParams.get('estoqueMin')),
       estoqueMax: finiteNumber(searchParams.get('estoqueMax')),
       precoMin: finiteNumber(searchParams.get('precoMin')),

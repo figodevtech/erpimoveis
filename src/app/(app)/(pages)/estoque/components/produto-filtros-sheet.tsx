@@ -19,6 +19,7 @@ export const EMPTY_PRODUCT_FILTERS: ProductListFilters = {
   fabricante: "",
   local: "",
   exibirPdv: "",
+  temEtiqueta: "",
   estoqueMin: "",
   estoqueMax: "",
   precoMin: "",
@@ -148,6 +149,18 @@ export function ProdutoFiltrosSheet({ filters, onApply }: ProdutoFiltrosSheetPro
                     <SelectItem value="TODOS">Todos</SelectItem>
                     <SelectItem value="true">Exibidos no PDV</SelectItem>
                     <SelectItem value="false">Não exibidos no PDV</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Etiqueta</Label>
+                <Select value={draft.temEtiqueta || "TODOS"} onValueChange={(v) => update("temEtiqueta", v === "TODOS" ? "" : v)}>
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="TODOS">Todos</SelectItem>
+                    <SelectItem value="true">Com etiqueta</SelectItem>
+                    <SelectItem value="false">Sem etiqueta</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

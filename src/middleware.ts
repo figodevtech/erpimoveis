@@ -94,6 +94,7 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
   { prefix: "/ordens", perm: PERMS.ORDENS },
   { prefix: "/orcamentos", perm: PERMS.ORCAMENTOS },
   { prefix: "/print/orcamento", perm: PERMS.ORCAMENTOS },
+  { prefix: "/print/produto", perm: PERMS.ESTOQUE },
   { prefix: "/agendamentos", perm: PERMS.AGENDAMENTOS },
   { prefix: "/estoque/uso-consumo", perm: PERMS.USOCONSUMO },
   { prefix: "/estoque/movimentacao", perm: PERMS.USOCONSUMO },

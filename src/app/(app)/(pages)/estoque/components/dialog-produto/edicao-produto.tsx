@@ -1,7 +1,8 @@
 "use client";
 
 import { TabsTrigger } from "@/components/ui/tabs";
-import { Upload, Package, Store, Image as ImageIcon, FileText, Boxes, ShoppingCart, ClipboardList, ArrowRightLeft, Tag } from "lucide-react";
+import { Upload, Package, Store, Image as ImageIcon, FileText, Boxes, ShoppingCart, ClipboardList, ArrowRightLeft, Tag, Printer } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import axios, { isAxiosError } from "axios";
 import { toast } from "@/lib/toast";
 import { Produto } from "../../types";
@@ -230,6 +231,38 @@ export default function EdicaoProduto({
     if (productId) handleGetProduct(productId);
   }, [productId]);
 
+  // A rota de impressão lê a etiqueta salva no banco; imprimir com o campo
+  // sujo geraria um QR com o código antigo parecendo o novo.
+  const etiquetaSalva = String(originalProductRef.current?.etiqueta ?? "").trim();
+  const etiquetaEditada = String(selectedProduct?.etiqueta ?? "").trim() !== etiquetaSalva;
+  const podeImprimirEtiqueta = Boolean(etiquetaSalva) && !etiquetaEditada;
+  const motivoEtiqueta = etiquetaEditada
+    ? "Salve a etiqueta antes de imprimir"
+    : etiquetaSalva
+      ? "Imprimir etiqueta"
+      : "Defina uma etiqueta do produto antes de imprimir";
+
+  const headerActions = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        {/* O span mantém o hover quando o botão está desabilitado — é
+            justamente aí que o tooltip precisa explicar o motivo. */}
+        <span className="inline-flex">
+          <button
+            type="button"
+            aria-label={motivoEtiqueta}
+            disabled={!podeImprimirEtiqueta}
+            onClick={() => window.open(`/print/produto/${productId}/etiqueta`, "_blank")}
+            className="flex size-6 items-center justify-center rounded transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-50 enabled:hover:cursor-pointer"
+          >
+            <Printer className="h-4 w-4 text-muted-foreground" />
+          </button>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{motivoEtiqueta}</TooltipContent>
+    </Tooltip>
+  );
+
   const tabTheme =
     " group !flex-none shrink-0 whitespace-nowrap h-11 rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-[background-color,color,box-shadow,transform] hover:text-foreground data-[state=active]:bg-primary dark:data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm sm:h-8";
 
@@ -312,6 +345,7 @@ export default function EdicaoProduto({
       submitting={isSubmitting}
       onSubmit={handleUpdateProduct}
       tabs={tabs}
+      headerActions={selectedProduct && !loadError ? headerActions : undefined}
       submitDisabled={isLoading || !!loadError || !selectedProduct}
     >
       <div className="relative flex-1 min-h-0 overflow-hidden">

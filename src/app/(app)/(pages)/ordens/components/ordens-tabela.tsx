@@ -173,7 +173,13 @@ export function OrdensTabela({
 
   const [localSearch, setLocalSearch] = useState("");
 
-  const [sortKey, setSortKey] = useState<SortKey>("prioridade");
+  const isFinalizadas = useMemo(
+    () => statuses.includes("CONCLUIDO") || statuses.includes("SEM_COBRANCA") || statuses.includes("CANCELADO"),
+    [statuses]
+  );
+  const defaultSortKey: SortKey = isFinalizadas ? "concluido" : "prioridade";
+
+  const [sortKey, setSortKey] = useState<SortKey>(defaultSortKey);
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const [filtroAberto, setFiltroAberto] = useState(false);
@@ -228,7 +234,7 @@ export function OrdensTabela({
     alvoFiltro: "TODOS",
     dataInicio: undefined,
     dataFim: undefined,
-    sortKey: "prioridade",
+    sortKey: defaultSortKey,
     sortDir: "desc",
   });
   useEffect(() => {
@@ -376,6 +382,12 @@ export function OrdensTabela({
 
   useEffect(() => {
     setPage(1);
+    const initialSort: SortKey =
+      statuses.includes("CONCLUIDO") || statuses.includes("SEM_COBRANCA") || statuses.includes("CANCELADO")
+        ? "concluido"
+        : "prioridade";
+    setSortKey(initialSort);
+    setSortDir("desc");
   }, [statusesKey]);
 
   useEffect(() => {
@@ -1122,18 +1134,20 @@ export function OrdensTabela({
                   const dataEntradaFmt = fmtDate((r as any).dataEntrada ?? (r as any).dataentrada);
                   const dataSaidaRaw = (r as any).dataSaida ?? (r as any).datasaida;
                   const isSaidaConcluida = ["PAGAMENTO", "CONCLUIDO", "SEM_COBRANCA"].includes(String(r.status ?? "").toUpperCase());
+                  const isDestaqueAmarelo = r.destaque_cor === "amarelo";
 
                   return (
-                    <motion.div
+                    <div
                       key={r.id}
-                      layout
-                      initial={{ opacity: 0, scale: 0.97 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.95 }}
-                      transition={{ duration: 0.2 }}
-                      className={`group relative flex h-full flex-col justify-between rounded-sm border p-4 sm:p-5 transition-all shadow-sm hover:shadow-md ${
+                      onDoubleClick={() => {
+                        setDetailsId(r.id);
+                        setDetailsOpen(true);
+                      }}
+                      className={`group relative flex h-full flex-col justify-between rounded-sm border p-4 sm:p-5 transition-colors shadow-sm hover:shadow-md cursor-pointer select-none ${
                         r.destacada
-                          ? "border-l-4 border-l-red-500 border-red-500/50 bg-red-500/10 hover:bg-red-500/15 dark:bg-red-950/30"
+                          ? isDestaqueAmarelo
+                            ? "border-l-4 border-l-amber-500 border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/15 dark:bg-amber-950/30"
+                            : "border-l-4 border-l-red-500 border-red-500/50 bg-red-500/10 hover:bg-red-500/15 dark:bg-red-950/30"
                           : "bg-card border-slate-300 dark:border-slate-700/80 hover:border-primary/60 dark:hover:border-primary/50"
                       }`}
                     >
@@ -1168,10 +1182,14 @@ export function OrdensTabela({
                                   <PopoverTrigger asChild>
                                     <button
                                       type="button"
-                                      className="inline-flex size-7 touch-manipulation items-center justify-center rounded-sm text-red-600 outline-none hover:bg-red-500/10 focus-visible:ring-2 focus-visible:ring-red-500 dark:text-red-400"
+                                      className={`inline-flex size-7 touch-manipulation items-center justify-center rounded-sm outline-none ${
+                                        isDestaqueAmarelo
+                                          ? "text-amber-600 hover:bg-amber-500/10 focus-visible:ring-2 focus-visible:ring-amber-500 dark:text-amber-400"
+                                          : "text-red-600 hover:bg-red-500/10 focus-visible:ring-2 focus-visible:ring-red-500 dark:text-red-400"
+                                      }`}
                                       aria-label={`OS destacada: ${r.destaque_motivo || "motivo não informado"}`}
                                     >
-                                      <AlertTriangle className="h-4 w-4 fill-red-500/15" />
+                                      <AlertTriangle className={`h-4 w-4 ${isDestaqueAmarelo ? "fill-amber-500/15" : "fill-red-500/15"}`} />
                                     </button>
                                   </PopoverTrigger>
                                   <PopoverContent align="end" side="bottom" className="w-64">
@@ -1186,10 +1204,14 @@ export function OrdensTabela({
                                   <TooltipTrigger asChild>
                                     <button
                                       type="button"
-                                      className="inline-flex size-7 items-center justify-center rounded-md text-red-600 outline-none hover:bg-red-500/10 focus-visible:ring-2 focus-visible:ring-red-500 dark:text-red-400"
+                                      className={`inline-flex size-7 items-center justify-center rounded-md outline-none ${
+                                        isDestaqueAmarelo
+                                          ? "text-amber-600 hover:bg-amber-500/10 focus-visible:ring-2 focus-visible:ring-amber-500 dark:text-amber-400"
+                                          : "text-red-600 hover:bg-red-500/10 focus-visible:ring-2 focus-visible:ring-red-500 dark:text-red-400"
+                                      }`}
                                       aria-label={`OS destacada: ${r.destaque_motivo || "motivo não informado"}`}
                                     >
-                                      <AlertTriangle className="h-4 w-4 fill-red-500/15" />
+                                      <AlertTriangle className={`h-4 w-4 ${isDestaqueAmarelo ? "fill-amber-500/15" : "fill-red-500/15"}`} />
                                     </button>
                                   </TooltipTrigger>
                                   <TooltipContent className="max-w-xs">
@@ -1274,6 +1296,12 @@ export function OrdensTabela({
                             <span>Entrada: <strong className="font-medium text-foreground">{dataEntradaFmt}</strong></span>
                           </span>
 
+                          {isFinalizadas && ((r as any).pagamentoConcluidoEm ?? (r as any).pagamento_concluido_em) ? (
+                            <span>
+                              Concluído: <strong className="font-medium text-foreground">{fmtDate((r as any).pagamentoConcluidoEm ?? (r as any).pagamento_concluido_em)}</strong>
+                            </span>
+                          ) : null}
+
                           <span>
                             Saída: {dataSaidaRaw ? (
                               <strong className="font-medium text-foreground">{fmtDate(dataSaidaRaw)}</strong>
@@ -1317,7 +1345,7 @@ export function OrdensTabela({
                           />
                         </div>
                       </div>
-                    </motion.div>
+                    </div>
                   );
                 })}
 
@@ -1346,6 +1374,12 @@ export function OrdensTabela({
                   <TableHead className="min-w-[100px]">
                     <SortableHeader label="Entrada" columnKey="entrada" sortKey={sortKey} sortDir={sortDir} onChange={handleSortChange} />
                   </TableHead>
+
+                  {isFinalizadas ? (
+                    <TableHead className="min-w-[110px]">
+                      <SortableHeader label="Concluído em" columnKey="concluido" sortKey={sortKey} sortDir={sortDir} onChange={handleSortChange} />
+                    </TableHead>
+                  ) : null}
 
                   <TableHead className="min-w-[100px]">
                     <SortableHeader label="Saída" columnKey="saida" sortKey={sortKey} sortDir={sortDir} onChange={handleSortChange} />
@@ -1408,13 +1442,22 @@ export function OrdensTabela({
 
                     const descFull = r.descricao || "-";
                     const policy = buildPolicy(st);
+                    const isDestaqueAmarelo = r.destaque_cor === "amarelo";
 
                     return (
                       <TableRow
                         key={r.id}
-                        className={r.destacada
-                          ? "border-l-4 border-l-red-500 bg-red-500/10 hover:bg-red-500/15 dark:bg-red-950/25 dark:hover:bg-red-950/35"
-                          : undefined}
+                        onDoubleClick={() => {
+                          setDetailsId(r.id);
+                          setDetailsOpen(true);
+                        }}
+                        className={`cursor-pointer select-none ${
+                          r.destacada
+                            ? isDestaqueAmarelo
+                              ? "border-l-4 border-l-amber-500 bg-amber-500/10 hover:bg-amber-500/15 dark:bg-amber-950/25 dark:hover:bg-amber-950/35"
+                              : "border-l-4 border-l-red-500 bg-red-500/10 hover:bg-red-500/15 dark:bg-red-950/25 dark:hover:bg-red-950/35"
+                            : ""
+                        }`}
                       >
                         <TableCell className="font-mono">
                           <div className="flex items-center gap-1.5">
@@ -1432,16 +1475,20 @@ export function OrdensTabela({
                                   <PopoverTrigger asChild>
                                     <button
                                       type="button"
-                                      className="inline-flex size-7 touch-manipulation items-center justify-center rounded-md text-red-600 outline-none hover:bg-red-500/10 focus-visible:ring-2 focus-visible:ring-red-500 dark:text-red-400"
-                                      aria-label={`OS destacada: ${r.destaque_motivo || "motivo n\u00e3o informado"}`}
+                                      className={`inline-flex size-7 touch-manipulation items-center justify-center rounded-md outline-none ${
+                                        isDestaqueAmarelo
+                                          ? "text-amber-600 hover:bg-amber-500/10 focus-visible:ring-2 focus-visible:ring-amber-500 dark:text-amber-400"
+                                          : "text-red-600 hover:bg-red-500/10 focus-visible:ring-2 focus-visible:ring-red-500 dark:text-red-400"
+                                      }`}
+                                      aria-label={`OS destacada: ${r.destaque_motivo || "motivo não informado"}`}
                                     >
-                                      <AlertTriangle className="h-4 w-4 fill-red-500/15" />
+                                      <AlertTriangle className={`h-4 w-4 ${isDestaqueAmarelo ? "fill-amber-500/15" : "fill-red-500/15"}`} />
                                     </button>
                                   </PopoverTrigger>
                                   <PopoverContent align="start" side="bottom" className="w-64">
                                     <p className="font-semibold">OS destacada</p>
                                     <p className="mt-1 whitespace-pre-wrap break-words text-sm">
-                                      {r.destaque_motivo || "Motivo n\u00e3o informado."}
+                                      {r.destaque_motivo || "Motivo não informado."}
                                     </p>
                                   </PopoverContent>
                                 </Popover>
@@ -1450,16 +1497,20 @@ export function OrdensTabela({
                                   <TooltipTrigger asChild>
                                     <button
                                       type="button"
-                                      className="inline-flex size-7 items-center justify-center rounded-md text-red-600 outline-none hover:bg-red-500/10 focus-visible:ring-2 focus-visible:ring-red-500 dark:text-red-400"
-                                      aria-label={`OS destacada: ${r.destaque_motivo || "motivo n\u00e3o informado"}`}
+                                      className={`inline-flex size-7 items-center justify-center rounded-md outline-none ${
+                                        isDestaqueAmarelo
+                                          ? "text-amber-600 hover:bg-amber-500/10 focus-visible:ring-2 focus-visible:ring-amber-500 dark:text-amber-400"
+                                          : "text-red-600 hover:bg-red-500/10 focus-visible:ring-2 focus-visible:ring-red-500 dark:text-red-400"
+                                      }`}
+                                      aria-label={`OS destacada: ${r.destaque_motivo || "motivo não informado"}`}
                                     >
-                                      <AlertTriangle className="h-4 w-4 fill-red-500/15" />
+                                      <AlertTriangle className={`h-4 w-4 ${isDestaqueAmarelo ? "fill-amber-500/15" : "fill-red-500/15"}`} />
                                     </button>
                                   </TooltipTrigger>
                                   <TooltipContent className="max-w-xs">
                                     <p className="font-semibold">OS destacada</p>
                                     <p className="mt-1 whitespace-pre-wrap break-words">
-                                      {r.destaque_motivo || "Motivo n\u00e3o informado."}
+                                      {r.destaque_motivo || "Motivo não informado."}
                                     </p>
                                   </TooltipContent>
                                 </Tooltip>
@@ -1535,6 +1586,15 @@ export function OrdensTabela({
                         </TableCell>
 
                         <TableCell>{fmtDate((r as any).dataEntrada ?? (r as any).dataentrada)}</TableCell>
+                        {isFinalizadas ? (
+                          <TableCell>
+                            {((r as any).pagamentoConcluidoEm ?? (r as any).pagamento_concluido_em)
+                              ? fmtDate((r as any).pagamentoConcluidoEm ?? (r as any).pagamento_concluido_em)
+                              : ((r as any).dataSaida ?? (r as any).datasaida)
+                                ? fmtDate((r as any).dataSaida ?? (r as any).datasaida)
+                                : "—"}
+                          </TableCell>
+                        ) : null}
                         <TableCell>
                           {((r as any).dataSaida ?? (r as any).datasaida)
                             ? fmtDate((r as any).dataSaida ?? (r as any).datasaida)

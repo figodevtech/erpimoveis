@@ -183,6 +183,7 @@ export interface ProductListFilters {
   fabricante: string;
   local: string;
   exibirPdv: string;
+  temEtiqueta: string;
   estoqueMin: string;
   estoqueMax: string;
   precoMin: string;

@@ -10,6 +10,7 @@ import Link from "next/link";
 import { ObservacoesToggle } from "../../../components/ObservacoesToggle";
 import { PrintFilterToggles } from "../../../components/PrintFilterToggles";
 import { PrintShareMenu } from "../../../components/PrintShareMenu";
+import { PrintA4Paginator } from "../../../components/PrintA4Paginator";
 import {
   PRINT_DOCUMENT_HEADER_CSS,
   PrintDocumentHeader,
@@ -179,6 +180,32 @@ export async function generateMetadata({
   return { title: `Ordem de Serviço #${id}` };
 }
 
+/**
+ * Status anteriores à execução. Até aqui a OS ainda não deu baixa no estoque,
+ * então o saldo impresso é o que existe de fato para separar as peças. De
+ * EM_ANDAMENTO em diante a baixa já ocorreu e marcar "sem estoque" enganaria
+ * quem lê a folha.
+ */
+const OS_STATUS_PRE_EXECUCAO = new Set([
+  "AGUARDANDO_CHECKLIST",
+  "ORCAMENTO",
+  "APROVACAO_ORCAMENTO",
+  "ORCAMENTO_APROVADO",
+  "ORCAMENTO_RECUSADO",
+]);
+
+function classeBadgePeca(
+  item: { avulso?: boolean; estoque?: number | null },
+  preExecucao: boolean,
+) {
+  if (!preExecucao) return "tipo-peca";
+  if (item.avulso) return "tipo-peca-avulso";
+  // Só o zero confirmado vira alerta: saldo desconhecido (produto excluído do
+  // cadastro) não vira vermelho para o alerta não perder o sentido.
+  if (typeof item.estoque === "number" && item.estoque <= 0) return "tipo-peca-zerado";
+  return "tipo-peca";
+}
+
 export default async function OSFullPage({ params }: PageProps) {
   const { id: idStr } = await params;
   const osId = Number(idStr);
@@ -287,6 +314,7 @@ export default async function OSFullPage({ params }: PageProps) {
 
   const criador = Array.isArray(os.criador) ? os.criador[0] : os.criador;
   const criadorNome = criador?.nome ?? null;
+  const preExecucao = OS_STATUS_PRE_EXECUCAO.has(String(os.status ?? "").toUpperCase());
 
   const itens: Array<{
     tipo: "SERVIÇO" | "PEÇA";
@@ -294,6 +322,10 @@ export default async function OSFullPage({ params }: PageProps) {
     produtoId?: number | string | null;
     etiqueta?: string | null;
     subdescricao?: string | null;
+    /** Peça sem cadastro no estoque: não há saldo para conferir. */
+    avulso?: boolean;
+    /** Saldo do produto no momento da impressão. Null quando não se aplica. */
+    estoque?: number | null;
     qtd: number;
     unitario: number | string | null | undefined;
     descontoTipo: TipoDesconto;
@@ -332,6 +364,8 @@ export default async function OSFullPage({ params }: PageProps) {
         descricao: p.produto?.titulo || p.produto?.descricao || "Peça",
         produtoId: p.produto?.id ?? null,
         etiqueta: p.produto?.etiqueta ?? null,
+        avulso: false,
+        estoque: p.produto ? toNumber(p.produto.estoque) : null,
         qtd,
         unitario: p.precounitario,
         descontoTipo,
@@ -351,6 +385,8 @@ export default async function OSFullPage({ params }: PageProps) {
         produtoId: null,
         etiqueta: null,
         subdescricao: null,
+        avulso: true,
+        estoque: null,
         qtd,
         unitario: p.precounitario,
         descontoTipo,
@@ -772,9 +808,25 @@ export default async function OSFullPage({ params }: PageProps) {
     border-radius: 6px;
     display: inline-block;
   }
-  .tipo-peca{ 
+  .tipo-peca{
     color: white;
     background: var(--brand-accent);
+    padding: 3px 8px;
+    border-radius: 6px;
+    display: inline-block;
+  }
+  /* Alertas de separação, só antes da execução: vermelho = sem saldo,
+     amarelo = peça avulsa, que não existe no estoque para ser conferida. */
+  .tipo-peca-zerado{
+    color: white;
+    background: #dc2626;
+    padding: 3px 8px;
+    border-radius: 6px;
+    display: inline-block;
+  }
+  .tipo-peca-avulso{
+    color: #1f2937;
+    background: #facc15;
     padding: 3px 8px;
     border-radius: 6px;
     display: inline-block;
@@ -986,8 +1038,10 @@ export default async function OSFullPage({ params }: PageProps) {
         </div>
       </div>
 
-      <div className="folha-scaler">
-        <div className="folha" data-print-export-target>
+      <div data-print-pagination-root data-print-export-target>
+        <PrintA4Paginator />
+        <div className="folha-scaler" data-print-pagination-source-holder>
+          <div className="folha" data-print-pagination-source>
           <PrintDocumentHeader
             logoUrl={finalLogo}
             logoFallback="OS"
@@ -1167,7 +1221,7 @@ export default async function OSFullPage({ params }: PageProps) {
             </div>
 
             {itens.length > 0 && (
-              <div className="tabela-container">
+              <div className="tabela-container" data-print-items-table>
                 <table>
                   <thead>
                     <tr>
@@ -1189,7 +1243,7 @@ export default async function OSFullPage({ params }: PageProps) {
                             className={
                               item.tipo === "SERVIÇO"
                                 ? "tipo-servico"
-                                : "tipo-peca"
+                                : classeBadgePeca(item, preExecucao)
                             }
                           >
                             {item.tipo}
@@ -1233,7 +1287,8 @@ export default async function OSFullPage({ params }: PageProps) {
               </div>
             )}
 
-            <div className="rodape">
+            <div data-print-final-block>
+              <div className="rodape">
               <div>
                 {(os.observacoes || os.defeitorelatado) && (
                   <div className="observacoes-box os-observacoes">
@@ -1302,21 +1357,23 @@ export default async function OSFullPage({ params }: PageProps) {
                   <span className="total-valor">{fmtMoney(totalGeral)}</span>
                 </div>
               </div>
-            </div>
-
-            {termoAceite && (
-              <div className="aceite-box">
-                <div className="aceite-titulo">{termoAceite.titulo}</div>
-                <div className="aceite-intro">{termoAceite.intro}</div>
-                {termoAceite.itens.map((item, idx) => (
-                  <div key={idx} className="aceite-item">
-                    {item}
-                  </div>
-                ))}
               </div>
-            )}
+
+              {termoAceite && (
+                <div className="aceite-box">
+                  <div className="aceite-titulo">{termoAceite.titulo}</div>
+                  <div className="aceite-intro">{termoAceite.intro}</div>
+                  {termoAceite.itens.map((item, idx) => (
+                    <div key={idx} className="aceite-item">
+                      {item}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );

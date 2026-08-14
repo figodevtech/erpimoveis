@@ -56,6 +56,7 @@ export default function EstoquePage() {
           fabricante: filters?.fabricante || undefined,
           local: filters?.local || undefined,
           exibirPdv: filters?.exibirPdv || undefined,
+          temEtiqueta: filters?.temEtiqueta || undefined,
           estoqueMin: filters?.estoqueMin || undefined,
           estoqueMax: filters?.estoqueMax || undefined,
           precoMin: filters?.precoMin || undefined,
