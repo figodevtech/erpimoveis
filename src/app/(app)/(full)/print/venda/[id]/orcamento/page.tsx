@@ -16,6 +16,7 @@ import { formatCep } from "@/app/(app)/(pages)/clientes/components/customerDialo
 import { fetchLogoEmpresaDataUrl } from "@/lib/empresa-logo";
 import { fetchPrintColors } from "@/lib/print-config";
 import { getTermoAceiteVenda } from "@/lib/print-aceite";
+import { loadPrintPaymentSummary } from "@/lib/print-payment-display-server";
 
 export const runtime = "nodejs";
 
@@ -155,6 +156,9 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
       valor_frete,
       sub_total,
       observacoes,
+      forma_pagamento,
+      parcelas_pagamento,
+      pagamentos_previstos,
       valortotal,
       criador:created_by (
         id,
@@ -203,6 +207,16 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
   const empresa = await fetchEmpresa();
   const finalLogo = await fetchLogoEmpresaDataUrl();
   const printColors = await fetchPrintColors();
+  const paymentSummary = await loadPrintPaymentSummary({
+    type: "VENDA",
+    documentId: vendaId,
+    status: venda.status,
+    pagamentosPrevistos: Array.isArray(venda.pagamentos_previstos)
+      ? venda.pagamentos_previstos
+      : null,
+    formaPagamento: venda.forma_pagamento ?? null,
+    parcelasPagamento: venda.parcelas_pagamento ?? null,
+  });
   const cliente = Array.isArray(venda.cliente)
     ? venda.cliente[0]
     : venda.cliente;
@@ -418,12 +432,19 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
         .col-unit, .col-sub{ width:110px; text-align:right; font-weight:700; font-variant-numeric:tabular-nums; }
         .rodape{ margin-top:auto; display:grid; grid-template-columns:1fr 320px; gap:10px; padding-top:8px; }
         .observacoes-box{ border:1px solid var(--border); background:var(--soft-bg); border-radius:var(--radius); padding:10px; }
+        .pagamentos-resumo{ margin-top:8px; padding-top:8px; border-top:1px solid var(--brand-primary); }
+        .pagamentos-titulo{ font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; color:var(--brand-primary); margin-bottom:5px; }
+        .pagamentos-lista{ display:grid; gap:4px; }
+        .pagamento-linha{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; font-size:10px; line-height:1.35; }
+        .pagamento-metodo{ font-weight:700; }
+        .pagamento-valor{ color:var(--brand-primary); font-weight:800; font-variant-numeric:tabular-nums; white-space:nowrap; }
         .venda-observacoes{ display:none; }
         html[data-os-observacoes="1"] .venda-observacoes{ display:block; }
         html[data-print-ocultar-valores] .col-unit,
         html[data-print-ocultar-valores] .col-sub,
         html[data-print-ocultar-valores] .bloco-resumo,
         html[data-print-ocultar-valores] .totais-box{ display:none !important; }
+        html[data-print-ocultar-valores] .pagamento-valor{ display:none !important; }
         html[data-print-ocultar-valores] .rodape{ grid-template-columns:1fr !important; }
         html[data-print-ocultar-valores] .grid-info{ grid-template-columns:1fr !important; }
         html[data-print-ocultar-cliente] .bloco-cliente{ display:none !important; }
@@ -687,6 +708,32 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
                   {fmtMoney(venda.valortotal)}
                 </span>
               </div>
+
+              {paymentSummary ? (
+                <div className="pagamentos-resumo">
+                  <div className="pagamentos-titulo">
+                    {paymentSummary.title}
+                  </div>
+                  <div className="pagamentos-lista">
+                    {paymentSummary.entries.map((payment, index) => (
+                      <div
+                        className="pagamento-linha"
+                        key={`${payment.metodo}-${index}`}
+                      >
+                        <span className="pagamento-metodo">
+                          {payment.label}
+                          {payment.parcelas ? ` em ${payment.parcelas}x` : ""}
+                        </span>
+                        {payment.valor != null ? (
+                          <span className="pagamento-valor">
+                            {fmtMoney(payment.valor)}
+                          </span>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
             </div>
 

@@ -4,6 +4,8 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 
 import { auth } from "@/lib/auth";
+import { downloadNfsePdf } from "@/lib/nfse-pdf-download";
+import { syncNfseWithFocus } from "@/lib/services/fiscais/nfse-sync";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { nfseEntregaPdf, nfseMotivoSemPdf } from "@/lib/nfse-modelos";
 
@@ -11,8 +13,6 @@ type Params = { id: string };
 
 const BUCKET = "os_anexos";
 const MAX_ANEXOS_POR_OS = 10;
-const MAX_TAMANHO = 10 * 1024 * 1024;
-const TIMEOUT_MS = 20_000;
 
 const STATUS_AUTORIZADOS = new Set(["AUTORIZADA", "AUTORIZADO", "EMITIDA"]);
 
@@ -23,48 +23,6 @@ async function ensureBucket() {
   const criado = await supabaseAdmin.storage.createBucket(BUCKET, { public: true });
   if (criado.error && !criado.error.message.toLowerCase().includes("already exists")) {
     throw criado.error;
-  }
-}
-
-/**
- * Baixa a URL da nota e so aceita se for mesmo um PDF.
- *
- * A checagem por bytes e necessaria porque os portais respondem HTML (pagina de
- * consulta ou de erro) com status 200 — sem isso, salvariamos uma pagina web com
- * extensao .pdf dentro da OS.
- */
-async function baixarPdf(url: string) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-  try {
-    const resposta = await fetch(url, { signal: controller.signal, redirect: "follow" });
-    if (!resposta.ok) {
-      return { ok: false as const, message: `O portal respondeu ${resposta.status} ao baixar a NFS-e.` };
-    }
-
-    const buffer = Buffer.from(await resposta.arrayBuffer());
-    if (buffer.length > MAX_TAMANHO) {
-      return { ok: false as const, message: "O arquivo da NFS-e passa de 10MB." };
-    }
-
-    const assinatura = buffer.subarray(0, 5).toString("latin1");
-    if (assinatura !== "%PDF-") {
-      const contentType = resposta.headers.get("content-type") ?? "desconhecido";
-      return {
-        ok: false as const,
-        message: `O endereço da NFS-e não retornou um PDF (${contentType}). Provavelmente é uma página de consulta.`,
-      };
-    }
-
-    return { ok: true as const, buffer };
-  } catch (error: any) {
-    if (error?.name === "AbortError") {
-      return { ok: false as const, message: "O portal da prefeitura demorou demais para responder." };
-    }
-    return { ok: false as const, message: error?.message ?? "Falha ao baixar o PDF da NFS-e." };
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -83,7 +41,7 @@ export async function POST(_req: Request, context: { params: Promise<Params> }) 
 
     const { data: nfse, error } = await supabaseAdmin
       .from("nfse")
-      .select("id, ordemservicoid, numero, referencia, status, url_pdf, modelo_emissao")
+      .select("id, ordemservicoid, numero, referencia, status, url_consulta, url_pdf, modelo_emissao, empresaid, protocolo")
       .eq("id", nfseId)
       .maybeSingle();
 
@@ -113,10 +71,23 @@ export async function POST(_req: Request, context: { params: Promise<Params> }) 
       );
     }
 
-    const url = String(nfse.url_pdf ?? "").trim();
+    const sync = await syncNfseWithFocus(nfse);
+    if (sync.ok && !STATUS_AUTORIZADOS.has(String(sync.status ?? "").toUpperCase())) {
+      return NextResponse.json(
+        { ok: false, message: "A NFS-e ainda não está autorizada na Focus." },
+        { status: 409 },
+      );
+    }
+
+    const url = String((sync.ok ? sync.pdfUrl : nfse.url_pdf) ?? "").trim();
     if (!url) {
       return NextResponse.json(
-        { ok: false, message: "A NFS-e ainda não tem o link do documento. Use \"Consultar NFS-e\" e tente de novo." },
+        {
+          ok: false,
+          message: sync.ok
+            ? "A Focus autorizou a NFS-e, mas o PDF ainda está sendo preparado. Tente novamente em alguns instantes."
+            : sync.message,
+        },
         { status: 409 },
       );
     }
@@ -152,8 +123,12 @@ export async function POST(_req: Request, context: { params: Promise<Params> }) 
       );
     }
 
-    const download = await baixarPdf(url);
+    const download = await downloadNfsePdf(url);
     if (!download.ok) {
+      console.warn("[NFS-e anexo] PDF indisponível", {
+        nfseId: nfse.id,
+        diagnostics: download.diagnostics,
+      });
       return NextResponse.json({ ok: false, message: download.message }, { status: 502 });
     }
 

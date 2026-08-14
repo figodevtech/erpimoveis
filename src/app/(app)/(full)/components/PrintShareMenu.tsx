@@ -31,10 +31,27 @@ function detectMobile() {
 }
 
 /**
+ * O WebKit rasteriza o SVG do html-to-image antes de decodificar as imagens
+ * aninhadas nele — inclusive data URLs, que nem rede precisam. Na primeira
+ * exportação a logo fica de fora; da segunda em diante ela já está decodificada
+ * e aparece. Como o SVG gerado é idêntico entre as chamadas, uma renderização
+ * descartável antes da real serve só para aquecer esse cache.
+ */
+function precisaAquecerRender() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  const iOS = /iPhone|iPad|iPod/i.test(ua);
+  const safari = /Safari/i.test(ua) && !/Chrome|Chromium|Android|Edg/i.test(ua);
+  return iOS || safari;
+}
+
+/**
  * Resolução alvo. O documento é vetorial até o `drawImage`, então o ratio é o
  * único fator de nitidez do PNG: 3 rasteriza a folha A4 em ~2382x3369.
  */
 const TARGET_PIXEL_RATIO = 3;
+/** Ratio do aquecimento: só precisa passar pelo decode, não gerar imagem boa. */
+const WARMUP_PIXEL_RATIO = 0.5;
 
 /**
  * Tetos de canvas por plataforma. No iOS o Safari corta em 16.7M px de área e
@@ -224,8 +241,8 @@ export function PrintShareMenu({
       // valores pelo pixelRatio de novo, então mandá-los já multiplicados
       // elevava o canvas ao quadrado do ratio (794x1123 @2 virava 3176x4492).
       // No desktop passava; no iOS estourava o teto e devolvia canvas em branco.
-      const render = async (pixelRatio: number) => {
-        const canvas = await toCanvas(target, {
+      const renderCanvas = async (pixelRatio: number) =>
+        toCanvas(target, {
           backgroundColor: "#ffffff",
           cacheBust: true,
           pixelRatio,
@@ -248,8 +265,14 @@ export function PrintShareMenu({
           },
         });
 
-        return canvasToPngBlob(canvas);
-      };
+      const render = async (pixelRatio: number) =>
+        canvasToPngBlob(await renderCanvas(pixelRatio));
+
+      // Aquecimento: o resultado é jogado fora, só serve para o WebKit
+      // decodificar as imagens embutidas antes da renderização que vale.
+      if (precisaAquecerRender()) {
+        await renderCanvas(WARMUP_PIXEL_RATIO);
+      }
 
       const ratioInicial = safePixelRatio(width, height, mobile);
       let blob = await render(ratioInicial);

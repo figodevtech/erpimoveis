@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { NFSeService, normalizarStatusNFSe } from "@/lib/services/fiscais/nfse-service";
+import { syncNfseWithFocus } from "@/lib/services/fiscais/nfse-sync";
 
 export const runtime = "nodejs";
 
@@ -8,7 +8,7 @@ type RouteParams = {
   params: Promise<{ id: string }>;
 };
 
-export async function POST(req: NextRequest, { params }: RouteParams) {
+export async function POST(_req: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
     const dbId = Number(id);
@@ -41,52 +41,18 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
            );
     }
 
-    // 2. Call Focus NFe API
-    const { data: empresa } = await supabaseAdmin.from("empresa").select("id, ambiente").limit(1).single();
-    const { data: nfseConfig } = empresa
-      ? await supabaseAdmin.from("nfse_config").select("token").eq("empresa_id", empresa.id).maybeSingle()
-      : { data: null };
-    const nfseService = new NFSeService();
-    if (empresa) nfseService.configurarAmbiente(empresa.ambiente, nfseConfig?.token);
-
-    const modelo = nfsDb.modelo_emissao === "NACIONAL" ? "NACIONAL" : "MUNICIPAL";
-    const resultado = await nfseService.consultar(nfsDb.referencia, modelo);
-
-    // 3. Update DB state
-    if (resultado.ok) {
-        // Focus NFe returns status like "autorizado", "cancelado", "erro_autorizacao", "processando_autorizacao"
-        const finalStatus = normalizarStatusNFSe(resultado.status);
-        
-        await supabaseAdmin
-            .from("nfse")
-            .update({
-                status: finalStatus,
-                url_pdf: resultado.url || nfsDb.url_pdf || null,
-                erros: resultado.erros && resultado.erros.length > 0 ? resultado.erros : null,
-                protocolo: resultado.codigo_verificacao || nfsDb.protocolo || null,
-                numero: resultado.numero || nfsDb.numero || null
-            })
-            .eq("id", dbId);
-            
-        return NextResponse.json(
-            { ok: true, status: finalStatus, message: "Consulta realizada com sucesso." },
-            { status: 200 }
-        );
-    } else {
-        // Log query error but don't strictly fail the DB record unless its an auth error, we just update error log
-        const newErros = resultado.erros && resultado.erros.length > 0 ? resultado.erros : null;
-        if (newErros) {
-            await supabaseAdmin
-                .from("nfse")
-                .update({ erros: newErros })
-                .eq("id", dbId);
-        }
-
-        return NextResponse.json(
-            { ok: false, message: resultado.message || "Falha na comunicação com a API Focus NFS-e.", erros: newErros },
-            { status: 400 }
-        );
+    const result = await syncNfseWithFocus(nfsDb);
+    if (!result.ok) {
+      return NextResponse.json(
+        { ok: false, message: result.message, erros: result.errors ?? null },
+        { status: 400 },
+      );
     }
+
+    return NextResponse.json(
+      { ok: true, status: result.status, message: "Consulta realizada com sucesso." },
+      { status: 200 },
+    );
 
   } catch (e: any) {
     console.error("[POST /api/nfse/consultar] exception", e);

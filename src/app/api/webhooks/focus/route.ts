@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { extractNfseUrls } from "@/lib/nfse-urls";
 import { normalizarStatusNFSe } from "@/lib/services/fiscais/nfse-service";
 
 export const runtime = "nodejs";
@@ -31,12 +32,14 @@ export async function POST(req: NextRequest) {
 
     if (nfse) {
       console.log(`[Webhook Focus NFe] Atualizando NFS-e ID: ${nfse.id} para status: ${finalStatus}`);
+      const urls = extractNfseUrls(body);
       
       const updatePayload: any = {
         status: finalStatus,
         numero: body.numero || undefined,
         protocolo: body.codigo_verificacao || body.protocolo || undefined,
-        url_pdf: body.url || body.caminho_danfe || undefined,
+        url_consulta: urls.consultationUrl || undefined,
+        url_pdf: urls.pdfUrl || undefined,
         url_xml: body.caminho_xml_nota_fiscal || undefined,
         erros: body.erros || (body.mensagem_sefaz ? [{ mensagem: body.mensagem_sefaz, codigo: body.status_sefaz }] : null),
         updatedat: new Date().toISOString(),

@@ -1,3 +1,5 @@
+import { extractNfseUrls } from "@/lib/nfse-urls";
+
 export type NFSeEmitirParams = {
   referencia: string;
   natureza_operacao: 1 | 2 | 3 | 4 | 5 | 6;
@@ -540,12 +542,15 @@ export class NFSeService {
       };
     }
 
+    const urls = extractNfseUrls(json, this.apiUrl);
+
     return {
       ok: true,
       status: json?.status,
       numero: json?.numero,
       codigo_verificacao: json?.codigo_verificacao,
-      url: json?.url || json?.url_pdf || json?.url_danfse || json?.caminho_danfse,
+      url_consulta: urls.consultationUrl,
+      url_pdf: urls.pdfUrl,
       caminho_xml_nota_fiscal: json?.caminho_xml_nota_fiscal,
       erros: json?.erros,
     };
