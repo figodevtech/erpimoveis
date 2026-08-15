@@ -21,7 +21,6 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-
 import {
   CABECALHO_FIXO,
   COLUNA_CHEIA,
@@ -38,6 +37,7 @@ import { PagamentoMultiploTab } from "./tabs/pagamento-multiplo-tab";
 import { ParcelasTab } from "./tabs/parcelas-tab";
 import { VinculoTab } from "./tabs/vinculo-tab";
 import { tabsListClass, tabTriggerClass } from "./tabs/shared";
+import { TransactionBadge } from "./transaction-dialog-ui";
 import { useTransacaoEdicao } from "./use-transacao-edicao";
 
 interface EditContentProps {
@@ -59,7 +59,7 @@ function MioloCentralizado({ children }: { children: React.ReactNode }) {
 
 function AbaCarregando() {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed bg-muted/20 py-16">
+    <div className="flex flex-col items-center justify-center gap-2 border border-dashed bg-muted/20 py-16">
       <Loader2 className="h-6 w-6 animate-spin text-primary" aria-hidden />
       <span className="text-xs text-muted-foreground">Carregando</span>
     </div>
@@ -159,32 +159,48 @@ export default function EditContent({
     <Content className={classesDoConteudo(isDesktop)}>
       <div className={COLUNA_CHEIA}>
         <Header className={CABECALHO_FIXO}>
-          <Title>
-            {selectedTransactionId ? `Transação #${selectedTransactionId}` : "Transação"}
-          </Title>
-          <Description>{descricao}</Description>
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">
+            Central financeira · {editable ? "Edição" : "Consulta"}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Title className="text-base font-bold uppercase tracking-[0.06em] text-foreground sm:text-lg">
+              Transação {selectedTransactionId ? <span className="text-primary">#{selectedTransactionId}</span> : null}
+            </Title>
+            {form ? (
+              <TransactionBadge tone={form.pendente ? "warning" : "positive"}>
+                {form.pendente ? "Em aberto" : "Liquidada"}
+              </TransactionBadge>
+            ) : null}
+            {!editable && form ? <TransactionBadge>Somente leitura</TransactionBadge> : null}
+          </div>
+          <Description className="max-w-3xl text-xs leading-relaxed sm:text-sm">
+            {descricao}
+          </Description>
         </Header>
 
-        <div className={`${MIOLO_ROLAVEL} bg-muted-foreground/5 px-4 py-6`}>
-          {carregando ? (
+        {carregando ? (
+          <div className={`${MIOLO_ROLAVEL} bg-muted/25 px-4 py-6`}>
             <MioloCentralizado>
               <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden />
               <span className="text-sm text-primary">Carregando</span>
             </MioloCentralizado>
-          ) : !form ? (
+          </div>
+        ) : !form ? (
+          <div className={`${MIOLO_ROLAVEL} bg-muted/25 px-4 py-6`}>
             <MioloCentralizado>
               <p className="max-w-sm text-sm text-muted-foreground">
                 {erro ?? "Selecione uma transação para ver os detalhes."}
               </p>
               {erro ? (
-                <Button variant="outline" onClick={recarregar}>
+                <Button className="h-11 rounded-none sm:h-10" variant="outline" onClick={recarregar}>
                   Tentar novamente
                 </Button>
               ) : null}
             </MioloCentralizado>
-          ) : (
-            <Tabs defaultValue="detalhes" className="space-y-3">
-              <div className="overflow-x-auto pb-1">
+          </div>
+        ) : (
+            <Tabs defaultValue="detalhes" className="flex min-h-0 flex-1 flex-col">
+              <div className="shrink-0 overflow-x-auto border-b border-border bg-background">
                 <TabsList className={tabsListClass}>
                   <TabsTrigger value="detalhes" className={tabTriggerClass}>
                     <span className="flex items-center gap-2">
@@ -243,6 +259,7 @@ export default function EditContent({
                 </TabsList>
               </div>
 
+              <div className={`${MIOLO_ROLAVEL} bg-muted/25 px-4 py-4 sm:px-6 sm:py-5`}>
               <TabsContent value="detalhes" className="mt-0">
                 <DetalhesTab
                   form={form}
@@ -347,20 +364,20 @@ export default function EditContent({
                   />
                 )}
               </TabsContent>
+              </div>
             </Tabs>
-          )}
-        </div>
+        )}
 
         <Footer className={RODAPE_FIXO}>
           <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row sm:gap-3">
             <Close asChild>
-              <Button variant="outline" className="w-full sm:w-auto" onClick={fechar}>
-                {form ? "Cancelar" : "Fechar"}
+              <Button variant="outline" className="h-11 w-full rounded-none sm:h-10 sm:w-auto" onClick={fechar}>
+                {editable && form ? "Cancelar" : "Fechar"}
               </Button>
             </Close>
             {editable && form ? (
               <Button
-                className="w-full sm:w-auto"
+                className="h-11 w-full rounded-none sm:h-10 sm:w-auto"
                 onClick={() => void salvarEFechar()}
                 disabled={salvando}
               >

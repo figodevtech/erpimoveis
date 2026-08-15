@@ -1,6 +1,6 @@
 "use client";
 
-import { Info, Lock } from "lucide-react";
+import { CalendarClock, CircleDollarSign, Info, Lock, Tags, UserRound } from "lucide-react";
 
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import ValueInput from "@/components/ui/value-input";
 import { toast } from "@/lib/toast";
@@ -35,6 +34,7 @@ import { formatCpfCnpj } from "../../../utils";
 import { PlanoContaCombobox } from "../../plano-conta-combobox";
 import { SearchCombobox } from "../../search-combobox";
 import { paraValorDeInputDate, parseLocalDateTime } from "../datas";
+import { TransactionSection } from "../transaction-dialog-ui";
 import type { FormularioTransacao } from "../use-transacao-edicao";
 
 interface DetalhesTabProps {
@@ -170,7 +170,7 @@ function BlocoDeValores({
 
       <div className="space-y-2">
         <Label>Descontos</Label>
-        <div className="flex h-9 items-center rounded-md border bg-muted/30 px-3 text-sm font-medium tabular-nums">
+        <div className="flex h-10 items-center border bg-muted/30 px-3 text-sm font-medium tabular-nums">
           {taxa > 0 ? (
             <span className="text-destructive">- {formatarEmReal(taxa)}</span>
           ) : (
@@ -279,8 +279,14 @@ export function DetalhesTab({
   };
 
   return (
-    <div className="flex flex-col gap-4 rounded-lg border bg-card p-4">
-      <div className="grid gap-4 sm:grid-cols-3">
+    <div className="flex flex-col gap-4">
+      <TransactionSection
+        eyebrow="Movimentação"
+        title="Operação e valores"
+        description="Natureza do lançamento, situação financeira e composição do valor."
+        icon={CircleDollarSign}
+      >
+      <div className="grid gap-x-4 gap-y-5 sm:grid-cols-3">
         <div className="w-full space-y-2">
           <Label htmlFor="tipo" className="flex items-center gap-1.5">
             Tipo <span className="text-red-500">*</span>
@@ -373,7 +379,16 @@ export function DetalhesTab({
           permiteEditarValor={permiteEditarValor}
           descontos={descontos}
         />
+      </div>
+      </TransactionSection>
 
+      <TransactionSection
+        eyebrow="Organização financeira"
+        title="Classificação contábil"
+        description="Conta de destino, categoria, plano de conta e centro de custo."
+        icon={Tags}
+      >
+      <div className="grid gap-x-4 gap-y-5 sm:grid-cols-2 lg:grid-cols-4">
         <div className="w-full space-y-2">
           <Label htmlFor="banco" className="flex items-center gap-1.5">
             Banco
@@ -495,15 +510,24 @@ export function DetalhesTab({
             }))}
           />
         </div>
+      </div>
+      </TransactionSection>
 
-        <div className="w-full space-y-2 sm:col-span-3">
+      <TransactionSection
+        eyebrow="Agenda e identificação"
+        title="Datas e descrições"
+        description="Vencimento ou pagamento, competência gerencial e textos de identificação."
+        icon={CalendarClock}
+      >
+      <div className="grid gap-x-4 gap-y-5 sm:grid-cols-2">
+        <div className="w-full space-y-2">
           <Label htmlFor="data">
             {form.pendente ? "Data de vencimento" : "Data do pagamento"}
           </Label>
           <DatePicker
             disabled={!editavel}
             value={paraValorDeInputDate(form.data)}
-            className="w-full sm:max-w-xs"
+            className="h-10 w-full rounded-none shadow-none sm:max-w-xs"
             // Sem piso: um título a vencer pode estar vencido, e a data dele
             // precisa continuar editável. O teto para transação já realizada
             // fica: dinheiro que entrou não entra amanhã.
@@ -512,7 +536,7 @@ export function DetalhesTab({
           />
         </div>
 
-        <div className="w-full space-y-2 sm:col-span-3">
+        <div className="w-full space-y-2">
           <Label htmlFor="competencia" className="flex items-center gap-1.5">
             Competência
             {competenciaEditavel ? null : (
@@ -524,7 +548,7 @@ export function DetalhesTab({
             value={paraValorDeInputDate(
               form.competencia_em ? new Date(form.competencia_em) : undefined,
             )}
-            className="w-full sm:max-w-xs"
+            className="h-10 w-full rounded-none shadow-none sm:max-w-xs"
             onChange={alterarCompetencia}
           />
           <p className="text-xs text-muted-foreground">
@@ -536,7 +560,7 @@ export function DetalhesTab({
           </p>
         </div>
 
-        <div className="w-full space-y-2 sm:col-span-3">
+        <div className="w-full space-y-2 sm:col-span-2">
           <Label htmlFor="descricao">
             Descrição <span className="text-red-500">*</span>
           </Label>
@@ -549,7 +573,7 @@ export function DetalhesTab({
           />
         </div>
 
-        <div className="w-full space-y-2 sm:col-span-3">
+        <div className="w-full space-y-2 sm:col-span-2">
           <Label htmlFor="descricao-pagamento">Descrição do pagamento</Label>
           <Input
             id="descricao-pagamento"
@@ -560,14 +584,16 @@ export function DetalhesTab({
           />
         </div>
       </div>
+      </TransactionSection>
 
-      <div>
-        <span className="text-xs text-muted-foreground">Dados do pagador/recebedor</span>
-        <Separator className="mt-1" />
-      </div>
-
-      {form.fornecedor ? (
-        <div className="rounded-lg border bg-muted/30 px-3 py-2">
+      <TransactionSection
+        eyebrow="Contraparte"
+        title="Pagador ou recebedor"
+        description="Identificação de quem realizou ou recebeu o pagamento."
+        icon={UserRound}
+      >
+        {form.fornecedor ? (
+        <div className="mb-4 border border-border bg-muted/30 px-3 py-2">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             Fornecedor vinculado
           </p>
@@ -577,7 +603,7 @@ export function DetalhesTab({
               `Fornecedor #${form.fornecedor.id}`}
           </p>
         </div>
-      ) : null}
+        ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="w-full space-y-2">
@@ -606,6 +632,7 @@ export function DetalhesTab({
           </p>
         </div>
       </div>
+      </TransactionSection>
     </div>
   );
 }
