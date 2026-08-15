@@ -35,10 +35,14 @@ export interface VendaProdutoItem {
   valor_total: number;
   tipo_desconto: string | null;
   valor_desconto: number;
+  valor_frete: number;
 }
 
 export enum vendaStatus {
   ORCAMENTO = "ORCAMENTO",
+  APROVACAO_ORCAMENTO = "APROVACAO_ORCAMENTO",
+  ORCAMENTO_APROVADO = "ORCAMENTO_APROVADO",
+  ORCAMENTO_RECUSADO = "ORCAMENTO_RECUSADO",
   ABERTA = "ABERTA",
   PAGAMENTO = "PAGAMENTO",
   PENDENTE = "PENDENTE",
@@ -61,6 +65,7 @@ export interface VendaComItens {
   valortotal: number;
   cliente: Customer
   status: vendaStatus;
+  statusaprovacao?: "PENDENTE" | "APROVADA" | "REPROVADA" | null;
   categoriavendaid?: number | null;
   categoria_venda?: {
     id: number;
@@ -107,6 +112,7 @@ export interface VendaComItens {
   garantia?: string | null;
   parcelas_pagamento?: number | null;
   sub_total: number;
+  descricao?: string | null;
   observacoes?: string | null;
   observacoes_fiscais?: string | null;
   itens: VendaProdutoItem[];

@@ -49,6 +49,7 @@ type VendaProdutoDbRow = {
   sub_total: number | string;
   valor_total: number | string;
   valor_desconto: number | string | null;
+  valor_frete: number | string | null;
   produto: ProdutoDb | ProdutoDb[] | null;
 };
 
@@ -167,6 +168,7 @@ export async function GET(
           sub_total,
           valor_total,
           valor_desconto,
+          valor_frete,
           produto:produto (
             id,
             titulo,
@@ -216,11 +218,13 @@ export async function GET(
       const bruto = toNumber(row.sub_total);
       return bruto > 0 ? bruto : toNumber(row.valor_total);
     });
+    const fretePorItem = rows.map((row) => Math.max(0, toNumber(row.valor_frete)));
     const liquidoPorItem = rows.map((row, index) =>
-      Math.min(toNumber(row.valor_total), brutoPorItem[index]),
+      Math.min(Math.max(0, toNumber(row.valor_total) - fretePorItem[index]), brutoPorItem[index]),
     );
     const totalLiquidoItens = liquidoPorItem.reduce((soma, valor) => soma + valor, 0);
-    const frete = Math.max(0, toNumber(venda.valor_frete));
+    const frete = Math.max(0, toNumber(venda.valor_frete))
+      + fretePorItem.reduce((soma, valor) => soma + valor, 0);
     // Só deduz o desconto geral com o total comercial fechado: sem a guarda,
     // uma venda com `valortotal` ainda zerado viraria 100% de desconto.
     const totalComercial = toNumber(venda.valortotal);

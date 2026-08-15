@@ -13,6 +13,7 @@ const PUBLIC_PATHS = [
   "/login",
   "/recuperar-senha",
   "/os",
+  "/venda",
   // NextAuth
   "/api/auth",
 ];
@@ -24,6 +25,7 @@ const PUBLIC_API_PREFIXES = [
   // ex: "/api/public",
 
   "/api/ordens/aprovacao",
+  "/api/venda/aprovacao",
   "/api/site/agendamentos",
   "/api/webhooks/focus",
   // Chamadas servidor-servidor. Cada rota aplica sua propria validacao.

@@ -50,7 +50,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
   Dialog,
@@ -71,13 +70,13 @@ import { useConfig } from "@/app/(app)/(pages)/config-context";
 import { formatCurrencyBRL } from "@/app/(app)/(pages)/dashboard/components/dashboard-ordemservico/lib/format";
 import { CustomerBlockedAlert } from "@/components/cliente/customer-blocked-alert";
 import {
-  DadosParaFinanceiroFields,
   dadosParaFinanceiroVazios,
   montarFormaPagamento,
   montarPagamentosPrevistos,
   validarDadosParaFinanceiro,
   type DadosParaFinanceiro,
 } from "@/components/financeiro/dados-para-financeiro";
+import { VendaConfirmacaoFields } from "@/components/vendas/venda-confirmacao-fields";
 
 interface CartItem {
   id: number;
@@ -125,6 +124,12 @@ export function POSSystem() {
   // a OS recolhe ao ser enviada ao financeiro.
   const [dadosFinanceiro, setDadosFinanceiro] = useState<DadosParaFinanceiro>(
     dadosParaFinanceiroVazios,
+  );
+  const [descricao, setDescricao] = useState("");
+  const [observacoesInternas, setObservacoesInternas] = useState("");
+  const [observacoesFiscais, setObservacoesFiscais] = useState("");
+  const [acaoConfirmacao, setAcaoConfirmacao] = useState<"ORCAMENTO" | "PAGAMENTO">(
+    "PAGAMENTO",
   );
   const [selectedProductInfo, setSelectedProductInfo] = useState<Produto>();
   const [isAlertOpen, setIsAlertOpen] = useState(false);
@@ -323,74 +328,26 @@ export function POSSystem() {
     );
   }, [soleSelectedPaymentMethod, total]);
 
-  const handleSaveBudget = async () => {
+  const abrirConfirmacao = (acao: "ORCAMENTO" | "PAGAMENTO") => {
     if (cart.length === 0) {
       toast.error("Carrinho vazio.", {
-        description: "Adicione produtos antes de salvar o orçamento.",
+        description: "Adicione produtos antes de continuar.",
       });
       return;
     }
 
     if (!selectedCustomer) {
-      toast.error("Erro ao salvar orçamento.", {
+      toast.error("Cliente obrigatório.", {
         description: "É necessário selecionar um cliente para continuar.",
       });
       return;
     }
 
-    toast(
-      <div className="flex flex-row flex-nowrap gap-2">
-        <Loader2 className="animate-spin w-4 h-4" />
-        <span>Salvando orçamento...</span>
-      </div>,
-    );
-
-    const payload = {
-      clienteId: selectedCustomer.id,
-      status: "ORCAMENTO",
-      descontoTipo: discountType,
-      descontoValor: discountAmount > 0 ? discountAmount : null,
-      categoriaVendaId: selectedSaleCategoryId,
-      subTotal: subtotal,
-      valorFrete: freightAmount,
-      valorTotal: total,
-      formaPagamento: null,
-      dataVenda: null,
-      itens: cart.map((item) => ({
-        produtoId: item.id,
-        quantidade: item.quantity,
-        precoUnitario: item.precovenda,
-        subTotal: item.precovenda * item.quantity,
-        valorTotal: item.precovenda * item.quantity,
-        valorDesconto: 0,
-        tipoDesconto: null,
-      })),
-    };
-
-    try {
-      const { data } = await axios.post("/api/venda", payload);
-
-      toast.success(`Orçamento #${data?.id ?? ""} salvo com sucesso.`);
-      setCart([]);
-      setDiscount(0);
-      setDiscountType(null);
-      setHasFreight(false);
-      setFreight(0);
-      setSelectedSaleCategoryId(null);
-      setDadosFinanceiro(dadosParaFinanceiroVazios());
-      setSelectedCustomer(undefined);
-    } catch (error) {
-      if (axios.isAxiosError(error)) {
-        toast.error("Erro ao salvar orçamento.", {
-          description: error.response?.data?.error || error.message,
-        });
-      } else {
-        toast.error("Erro interno ao salvar orçamento.");
-      }
-    }
+    setAcaoConfirmacao(acao);
+    setIsAlertOpen(true);
   };
 
-  const createVenda = async (): Promise<boolean> => {
+  const createVenda = async (status: "ORCAMENTO" | "PAGAMENTO"): Promise<boolean> => {
     try {
       if (cart.length === 0) {
         return false;
@@ -413,15 +370,13 @@ export function POSSystem() {
       toast(
         <div className="flex flex-row flex-nowrap gap-2">
           <Loader2 className="animate-spin w-4 h-4" />{" "}
-          <span>Cadastrando Venda...</span>
+          <span>{status === "ORCAMENTO" ? "Salvando orçamento..." : "Cadastrando venda..."}</span>
         </div>,
       );
 
-      // TODO: substituir pelos valores reais
-
       const payload = {
       clienteId: selectedCustomer?.id,
-      status: "PAGAMENTO", // enum_status_venda
+      status,
       descontoTipo: discountType,
       descontoValor: discountAmount > 0 ? discountAmount : null,
       categoriaVendaId: selectedSaleCategoryId,
@@ -435,6 +390,9 @@ export function POSSystem() {
       pagamentosPrevistos: montarPagamentosPrevistos(dadosFinanceiro),
       descricaoFinanceiro: dadosFinanceiro.descricaoFinanceiro.trim() || null,
       garantia: dadosFinanceiro.garantia.trim() || null,
+      descricao: descricao.trim() || null,
+      observacoes: observacoesInternas.trim() || null,
+      observacoesFiscais: observacoesFiscais.trim() || null,
       dataVenda: null,
       itens: cart.map((item) => ({
         produtoId: item.id,
@@ -447,9 +405,12 @@ export function POSSystem() {
       })),
     };
 
-    // chamada com axios
-    await axios.post("/api/venda", payload);
-      toast.success("Venda cadastrada com sucesso.");
+      const response = await axios.post("/api/venda", payload);
+      toast.success(
+        status === "ORCAMENTO"
+          ? `Orçamento #${response.data?.id ?? ""} salvo com sucesso.`
+          : "Venda cadastrada com sucesso.",
+      );
 
       setCart([]);
       setDiscount(0);
@@ -458,15 +419,18 @@ export function POSSystem() {
       setFreight(0);
       setSelectedSaleCategoryId(null);
       setDadosFinanceiro(dadosParaFinanceiroVazios());
+      setDescricao("");
+      setObservacoesInternas("");
+      setObservacoesFiscais("");
       setSelectedCustomer(undefined);
       return true;
     } catch (error: any) {
       if (axios.isAxiosError(error)) {
-        toast.error("Erro código: " + error.status, {
+        toast.error(status === "ORCAMENTO" ? "Erro ao salvar orçamento." : "Erro ao criar venda.", {
           description: error.response?.data.error,
         });
       } else {
-        toast.error("Erro interno ao criar venda");
+        toast.error(status === "ORCAMENTO" ? "Erro interno ao salvar orçamento." : "Erro interno ao criar venda.");
       }
       return false;
     } finally {
@@ -1156,32 +1120,43 @@ export function POSSystem() {
                         type="button"
                         variant="secondary"
                         className="w-full hover:cursor-pointer"
-                        onClick={handleSaveBudget}
+                        onClick={() => abrirConfirmacao("ORCAMENTO")}
                       >
                         <ReceiptText className="h-4 w-4" />
                         Salvar como orçamento
+                      </Button>
+                      <Button
+                        type="button"
+                        className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold hover:cursor-pointer"
+                        onClick={() => abrirConfirmacao("PAGAMENTO")}
+                      >
+                        Finalizar Venda
                       </Button>
                       <AlertDialog
                         open={isAlertOpen}
                         onOpenChange={setIsAlertOpen}
                       >
-                        <AlertDialogTrigger asChild>
-                          <Button className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold hover:cursor-pointer">
-                            Finalizar Venda
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
+                        <AlertDialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
 
                         <AlertDialogHeader>
-                          <AlertDialogTitle>Tem certeza?</AlertDialogTitle>
+                          <AlertDialogTitle>
+                            {acaoConfirmacao === "ORCAMENTO" ? "Salvar como orçamento" : "Finalizar venda"}
+                          </AlertDialogTitle>
                           <AlertDialogDescription>
-                            Ao selecionar esta opção, o pagamento da venda ficará em aberto
+                            Confira as informações da venda e os dados que serão encaminhados ao financeiro.
                           </AlertDialogDescription>
                         </AlertDialogHeader>
-                        <div className="space-y-2 p-4 bg-card rounded-2xl">
-                          <DadosParaFinanceiroFields
-                            value={dadosFinanceiro}
-                            onChange={setDadosFinanceiro}
+                        <div className="p-4 bg-card rounded-2xl">
+                          <VendaConfirmacaoFields
+                            idPrefix="pdv-venda"
+                            descricao={descricao}
+                            onDescricaoChange={setDescricao}
+                            observacoesInternas={observacoesInternas}
+                            onObservacoesInternasChange={setObservacoesInternas}
+                            observacoesFiscais={observacoesFiscais}
+                            onObservacoesFiscaisChange={setObservacoesFiscais}
+                            dadosFinanceiro={dadosFinanceiro}
+                            onDadosFinanceiroChange={setDadosFinanceiro}
                             totalCents={moneyToCents(total)}
                           />
                         </div>
@@ -1192,7 +1167,7 @@ export function POSSystem() {
                             disabled={creatingVenda}
                             onClick={async (event) => {
                               event.preventDefault();
-                              const success = await createVenda();
+                              const success = await createVenda(acaoConfirmacao);
                               if (success) setIsAlertOpen(false);
                             }}
                           >

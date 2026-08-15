@@ -53,7 +53,11 @@ export async function GET(request: Request) {
       .select("id,status,valortotal,sub_total,datavenda,createdat,comissao_venda_percent_aplicada,cliente:clienteid(nomerazaosocial)")
       .gte("datavenda", `${inicio}T00:00:00-03:00`)
       .lte("datavenda", `${fim}T23:59:59-03:00`)
-      .not("status", "in", "(CANCELADA,CANCELADO,ORCAMENTO)")
+      .not(
+        "status",
+        "in",
+        "(CANCELADA,CANCELADO,ORCAMENTO,APROVACAO_ORCAMENTO,ORCAMENTO_APROVADO,ORCAMENTO_RECUSADO)",
+      )
       .limit(2000);
     const vendasResult = await vendasQuery;
     if (vendasResult.error) throw vendasResult.error;

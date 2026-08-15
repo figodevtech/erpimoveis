@@ -21,6 +21,10 @@ import {
   Trash2,
   Plus,
   Minus,
+  Phone,
+  Mail,
+  MapPin,
+  type LucideIcon,
 } from "lucide-react"
 import { toast } from "@/lib/toast"
 import type { VendaCanal, VendaStatusEntrega, vendaStatus } from "../types"
@@ -60,6 +64,8 @@ import type { Produto as EstoqueProduto } from "@/app/(app)/(pages)/estoque/type
 import { formatPaymentMethodLabel, type PaymentMethodOption } from "@/lib/payment-methods"
 import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options"
 import { calculateFinancialSurcharge, calculateFinancialTotal } from "@/lib/financial-surcharge"
+import { formatCpfCnpj } from "@/lib/nfe/recipientNormalization"
+import formatarTelefone from "@/utils/formatarTelefone"
 import {
   VENDA_ANEXO_CATEGORIAS,
   getVendaAnexoCategoriaLabel,
@@ -107,12 +113,61 @@ interface VendaProduto {
   valor_total: number
   valor_desconto: number
   tipo_desconto: string | null
+  valor_frete: number
   quantidade: number
 }
 
 interface Cliente {
   id: number
   nomerazaosocial: string
+  tipopessoa?: "FISICA" | "JURIDICA" | string | null
+  cpfcnpj?: string | null
+  email?: string | null
+  telefone?: string | null
+  endereco?: string | null
+  endereconumero?: string | null
+  enderecocomplemento?: string | null
+  bairro?: string | null
+  cidade?: string | null
+  estado?: string | null
+  cep?: string | null
+  status?: string | null
+  rank?: string | null
+}
+
+function formatarDocumentoCliente(value?: string | null) {
+  const original = String(value ?? "").trim()
+  if (!original) return null
+  const digitos = original.replace(/\D/g, "")
+  return digitos.length === 11 || digitos.length === 14 ? formatCpfCnpj(digitos) : original
+}
+
+function formatarTelefoneCliente(value?: string | null) {
+  const original = String(value ?? "").trim()
+  if (!original) return null
+  const formatado = formatarTelefone(original)
+  return formatado && formatado !== "Número inválido" ? formatado : original
+}
+
+function DadoClienteCompacto({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: LucideIcon
+  label: string
+  value?: string | null
+}) {
+  const exibido = String(value ?? "").trim() || "Não informado"
+  return (
+    <div className="flex min-w-0 items-center gap-1.5" title={`${label}: ${exibido}`}>
+      <Icon className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+      <span className="truncate text-[11px] font-medium text-foreground/85">{exibido}</span>
+    </div>
+  )
 }
 
 type CategoriaVenda = {
@@ -141,6 +196,7 @@ interface Venda {
   clienteid: number
   cliente: Cliente
   status: vendaStatus
+  statusaprovacao?: "PENDENTE" | "APROVADA" | "REPROVADA" | null
   categoriavendaid?: number | null
   categoria_venda?: CategoriaVenda | null
   canal: VendaCanal
@@ -185,6 +241,7 @@ interface Venda {
   descricao_financeiro?: string | null
   garantia?: string | null
   sub_total: number
+  descricao?: string | null
   observacoes?: string | null
   observacoes_fiscais?: string | null
   itens: VendaProduto[]
@@ -199,6 +256,9 @@ interface VendaDetailsDialogProps {
 
 const statusColors: Record<vendaStatus, string> = {
   ORCAMENTO: "bg-violet-500/10 text-violet-700 dark:text-violet-400 border-violet-500/20",
+  APROVACAO_ORCAMENTO: "bg-sky-500/10 text-sky-700 dark:text-sky-400 border-sky-500/20",
+  ORCAMENTO_APROVADO: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20",
+  ORCAMENTO_RECUSADO: "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20",
   ABERTA: "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20",
   PAGAMENTO: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20",
   PENDENTE: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20",
@@ -210,7 +270,10 @@ const statusColors: Record<vendaStatus, string> = {
 }
 
 const statusLabels: Record<vendaStatus, string> = {
-  ORCAMENTO: "Orcamento",
+  ORCAMENTO: "Orçamento",
+  APROVACAO_ORCAMENTO: "Aprovação orçamento",
+  ORCAMENTO_APROVADO: "Orçamento aprovado",
+  ORCAMENTO_RECUSADO: "Orçamento recusado",
   ABERTA: "Aberta",
   PAGAMENTO: "Pagamento",
   PENDENTE: "Pendente",
@@ -248,12 +311,13 @@ function itemDiscountApplied(item: VendaProduto) {
 
 function recalculateItem(
   item: VendaProduto,
-  changes: { quantidade?: number; precoUnitario?: number; desconto?: number; descontoTipo?: string | null },
+  changes: { quantidade?: number; precoUnitario?: number; desconto?: number; descontoTipo?: string | null; frete?: number },
 ) {
   const quantidade = Math.max(1, Math.trunc(changes.quantidade ?? item.quantidade ?? 1))
   const precoUnitario = Math.max(0, changes.precoUnitario ?? itemUnitPrice(item))
   const tipoDesconto = changes.descontoTipo === undefined ? item.tipo_desconto : changes.descontoTipo
   const desconto = Math.max(0, changes.desconto ?? item.valor_desconto ?? 0)
+  const frete = Math.max(0, changes.frete ?? item.valor_frete ?? 0)
   const subTotal = roundMoney(precoUnitario * quantidade)
   const descontoAplicado = tipoDesconto === "PORCENTAGEM"
     ? roundMoney(subTotal * (Math.min(desconto, 100) / 100))
@@ -267,7 +331,8 @@ function recalculateItem(
     sub_total: subTotal,
     valor_desconto: tipoDesconto ? desconto : 0,
     tipo_desconto: tipoDesconto,
-    valor_total: roundMoney(subTotal - descontoAplicado),
+    valor_frete: roundMoney(frete),
+    valor_total: roundMoney(subTotal - descontoAplicado + frete),
   }
 }
 
@@ -406,6 +471,9 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
   const itemsDiscount = roundMoney(
     venda?.itens.reduce((sum, item) => sum + itemDiscountApplied(item), 0) ?? 0,
   )
+  const itemsFreight = roundMoney(
+    venda?.itens.reduce((sum, item) => sum + Math.max(0, Number(item.valor_frete ?? 0)), 0) ?? 0,
+  )
   const generalDiscountBase = Math.max(0, roundMoney(itemsSubTotal - itemsDiscount))
   const generalDiscount = venda?.desconto_tipo === "PORCENTAGEM"
     ? roundMoney(generalDiscountBase * (Math.min(Math.max(Number(venda.desconto_valor ?? 0), 0), 100) / 100))
@@ -413,7 +481,7 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
       ? Math.min(generalDiscountBase, Math.max(0, Number(venda.desconto_valor ?? 0)))
       : 0
   const commercialTotal = roundMoney(
-    generalDiscountBase - generalDiscount + Math.max(0, Number(venda?.valor_frete ?? 0)),
+    generalDiscountBase + itemsFreight - generalDiscount + Math.max(0, Number(venda?.valor_frete ?? 0)),
   )
   const financialSurcharge = calculateFinancialSurcharge(
     commercialTotal,
@@ -574,6 +642,7 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
         },
         body: JSON.stringify({
           clienteId: venda.clienteid,
+          descricao: venda.descricao,
           observacoes: venda.observacoes,
           observacoesFiscais: venda.observacoes_fiscais,
           vendedor: venda.vendedor,
@@ -601,6 +670,7 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                   precoUnitario: itemUnitPrice(item),
                   valorDesconto: item.tipo_desconto ? Math.max(0, Number(item.valor_desconto ?? 0)) : 0,
                   tipoDesconto: item.tipo_desconto,
+                  valorFrete: Math.max(0, Number(item.valor_frete ?? 0)),
                   subTotal: item.sub_total,
                   valorTotal: item.valor_total,
                 })),
@@ -631,7 +701,7 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
 
   const updateSaleItem = (
     itemId: number,
-    changes: { quantidade?: number; precoUnitario?: number; desconto?: number; descontoTipo?: string | null },
+    changes: { quantidade?: number; precoUnitario?: number; desconto?: number; descontoTipo?: string | null; frete?: number },
   ) => {
     setItemsDirty(true)
     setVenda((prev) => prev
@@ -675,6 +745,7 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
         valor_total: roundMoney(productPrice),
         valor_desconto: 0,
         tipo_desconto: null,
+        valor_frete: 0,
         quantidade: 1,
       }
       return { ...prev, itens: [...prev.itens, item] }
@@ -695,6 +766,19 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
             cliente: {
               id: customer.id,
               nomerazaosocial: customer.nomerazaosocial,
+              tipopessoa: customer.tipopessoa,
+              cpfcnpj: customer.cpfcnpj,
+              email: customer.email,
+              telefone: customer.telefone,
+              endereco: customer.endereco,
+              endereconumero: customer.endereconumero,
+              enderecocomplemento: customer.enderecocomplemento,
+              bairro: customer.bairro,
+              cidade: customer.cidade,
+              estado: customer.estado,
+              cep: customer.cep,
+              status: customer.status,
+              rank: customer.rank,
             },
           }
         : prev,
@@ -884,16 +968,23 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                     <div className="flex-1 overflow-y-auto px-6 py-4">
                       <TabsContent value="Geral" className="m-0 space-y-6">
                         <div className="grid gap-4 md:grid-cols-2">
-                          <div className="flex items-start gap-3 rounded-lg border bg-card p-4">
+                          <div className="flex items-start gap-2.5 rounded-lg border bg-card p-3">
                             <div className="rounded-full bg-primary/10 p-2">
                               <User className="h-4 w-4 text-primary" />
                             </div>
-                            <div className="flex-1 space-y-1">
+                            <div className="min-w-0 flex-1">
                               <div className="flex items-start justify-between gap-3">
-                                <div className="space-y-1">
+                                <div className="min-w-0 space-y-0.5">
                                   <p className="text-xs font-medium text-muted-foreground">Cliente</p>
-                                  <p className="text-sm font-semibold leading-tight">{venda.cliente.nomerazaosocial}</p>
-                                  <p className="text-xs text-muted-foreground">ID: {venda.cliente.id}</p>
+                                  <p className="truncate text-sm font-semibold leading-tight" title={venda.cliente.nomerazaosocial}>
+                                    {venda.cliente.nomerazaosocial}
+                                  </p>
+                                  <p className="text-[10px] text-muted-foreground">
+                                    #{venda.cliente.id}
+                                    {venda.cliente.tipopessoa
+                                      ? ` · ${venda.cliente.tipopessoa === "JURIDICA" ? "Pessoa jurídica" : "Pessoa física"}`
+                                      : ""}
+                                  </p>
                                 </div>
                                 <CustomerSelect
                                   open={openCustomerSelect}
@@ -904,13 +995,32 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                                     type="button"
                                     variant="outline"
                                     size="sm"
-                                    className="gap-2"
+                                    className="h-8 shrink-0 gap-1.5 px-2.5 text-xs"
                                     disabled={isSubmitting || loading}
+                                    title="Alterar cliente da venda"
                                   >
-                                    <Search className="h-4 w-4" />
-                                    Alterar cliente
+                                    <Search className="h-3.5 w-3.5" />
+                                    Alterar
                                   </Button>
                                 </CustomerSelect>
+                              </div>
+                              <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t pt-2">
+                                <DadoClienteCompacto
+                                  icon={FileText}
+                                  label={venda.cliente.tipopessoa === "JURIDICA" ? "CNPJ" : "CPF"}
+                                  value={formatarDocumentoCliente(venda.cliente.cpfcnpj)}
+                                />
+                                <DadoClienteCompacto
+                                  icon={Phone}
+                                  label="Fone"
+                                  value={formatarTelefoneCliente(venda.cliente.telefone)}
+                                />
+                                <DadoClienteCompacto icon={Mail} label="E-mail" value={venda.cliente.email} />
+                                <DadoClienteCompacto
+                                  icon={MapPin}
+                                  label="Cidade"
+                                  value={[venda.cliente.cidade, venda.cliente.estado].filter(Boolean).join("/")}
+                                />
                               </div>
                             </div>
                           </div>
@@ -948,6 +1058,11 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                               <Badge variant="outline" className={statusColors[venda.status] + " mt-2"}>
                                 {statusLabels[venda.status]}
                               </Badge>
+                              {venda.statusaprovacao ? (
+                                <Badge variant="outline" className="ml-2 mt-2">
+                                  Aprovação: {venda.statusaprovacao === "REPROVADA" ? "RECUSADA" : venda.statusaprovacao}
+                                </Badge>
+                              ) : null}
                             </div>
                             <div className="rounded-lg border bg-background/80 p-3">
                               <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -1044,6 +1159,22 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                               </div>
                             )}
                           </div>
+                        </div>
+
+                        <div className="space-y-4 rounded-lg border bg-card p-4">
+                          <div className="flex items-center gap-2">
+                            <FileText className="h-4 w-4 text-muted-foreground" />
+                            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                              Descrição
+                            </h3>
+                          </div>
+                          <Textarea
+                            id="descricao"
+                            placeholder="Descrição comercial exibida ao cliente..."
+                            className="min-h-[100px] resize-none"
+                            value={venda.descricao || ""}
+                            onChange={(e) => handleChange("descricao", e.target.value)}
+                          />
                         </div>
 
                         <div className="space-y-4 rounded-lg border bg-card p-4">
@@ -1242,8 +1373,9 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                         <div className="space-y-3 rounded-lg border bg-card p-4">
                           <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Produtos</span><span>{formatCurrency(itemsSubTotal)}</span></div>
                           <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Descontos dos itens</span><span>-{formatCurrency(itemsDiscount)}</span></div>
+                          <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Fretes dos itens</span><span>+{formatCurrency(itemsFreight)}</span></div>
                           <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Desconto geral</span><span>-{formatCurrency(generalDiscount)}</span></div>
-                          <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Frete</span><span>+{formatCurrency(venda.valor_frete)}</span></div>
+                          <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Frete geral</span><span>+{formatCurrency(venda.valor_frete)}</span></div>
                           <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Acréscimo financeiro</span><span>+{formatCurrency(financialSurcharge)}</span></div>
                           <Separator className="my-2" />
                           <div className="flex items-center justify-between"><span className="text-base font-semibold">Total financeiro</span><span className="text-xl font-bold text-primary">{formatCurrency(financialTotal)}</span></div>
@@ -1289,7 +1421,7 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                               </div>
 
                               {!itemEditingLocked ? (
-                                <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                                <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
                                   <div className="space-y-1">
                                     <p className="text-xs text-muted-foreground">Quantidade</p>
                                     <div className="flex items-center gap-1">
@@ -1342,11 +1474,20 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                                       />
                                     )}
                                   </div>
+                                  <div className="space-y-1">
+                                    <p className="text-xs text-muted-foreground">Frete do produto</p>
+                                    <ValueInput
+                                      value={item.valor_frete}
+                                      onValueChange={(value) => updateSaleItem(item.id, { frete: value })}
+                                    />
+                                  </div>
                                 </div>
                               ) : null}
 
-                              <div className="mt-3 flex justify-end gap-4 border-t pt-3 text-sm">
+                              <div className="mt-3 flex flex-wrap justify-end gap-4 border-t pt-3 text-sm">
                                 <span className="text-muted-foreground">Subtotal: {formatCurrency(item.sub_total)}</span>
+                                {itemDiscountApplied(item) > 0 ? <span className="text-emerald-700">Desconto: -{formatCurrency(itemDiscountApplied(item))}</span> : null}
+                                {item.valor_frete > 0 ? <span className="text-muted-foreground">Frete: +{formatCurrency(item.valor_frete)}</span> : null}
                                 <span className="font-semibold">Total: {formatCurrency(item.valor_total)}</span>
                               </div>
                             </div>

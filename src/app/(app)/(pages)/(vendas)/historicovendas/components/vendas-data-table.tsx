@@ -23,6 +23,7 @@ import {
   Search,
   Ban,
   Undo2,
+  Send,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -59,12 +60,22 @@ import formatarEmReal from "@/utils/formatarEmReal";
 import DeleteAlert from "./deleteAlert";
 import { EmissaoNotaDialog } from "../../../ordens/components/dialogs/emissao-nota-dialog/emissao-nota-dialog";
 import { VendaDetailsDialog } from "./venda-detail-dialog";
+import { VendaLinkAprovacaoDialog } from "./venda-link-aprovacao-dialog";
 import { PedidoOnlineDialog } from "./pedido-online-dialog";
 import axios, { isAxiosError } from "axios";
 import { toast } from "@/lib/toast";
 import { useConfig } from "../../../config-context";
 import { PaymentListFilters, PaymentsFilterSheet } from "../../../(financeiro)/components/payments-filter-sheet";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
+import {
+  dadosParaFinanceiroDaVenda,
+  dadosParaFinanceiroVazios,
+  montarFormaPagamento,
+  montarPagamentosPrevistos,
+  validarDadosParaFinanceiro,
+  type DadosParaFinanceiro,
+} from "@/components/financeiro/dados-para-financeiro";
+import { VendaConfirmacaoFields } from "@/components/vendas/venda-confirmacao-fields";
 
 interface VendasDataTableProps {
   vendas: VendaComItens[];
@@ -91,12 +102,14 @@ interface VendasDataTableProps {
   setIsOpen: (value: boolean) => void;
 }
 
-type ApprovalPaymentMethod = "CREDITO" | "DEBITO" | "DINHEIRO" | "PIX" | "NAO_INFORMAR";
 type CancelamentoResumo = {
   produtos: { itens: number; quantidade: number };
   transacoes: { pendentes: number; concluidas: number; valorConcluido: number };
   bloqueio: string | null;
 };
+
+const moneyToCents = (value: number) =>
+  Math.round((Number.isFinite(value) ? value : 0) * 100);
 
 const getStatusBadge = (status: vendaStatus) => {
   if (status === "ORCAMENTO") {
@@ -104,6 +117,33 @@ const getStatusBadge = (status: vendaStatus) => {
       <Badge variant="secondary" className="text-xs bg-violet-600 not-dark:text-white">
         <FileText className="h-3 w-3 mr-1" />
         ORÇAMENTO
+      </Badge>
+    );
+  }
+
+  if (status === "APROVACAO_ORCAMENTO") {
+    return (
+      <Badge variant="secondary" className="bg-sky-600 text-xs not-dark:text-white">
+        <Send className="mr-1 h-3 w-3" />
+        APROVAÇÃO ORÇAMENTO
+      </Badge>
+    );
+  }
+
+  if (status === "ORCAMENTO_APROVADO") {
+    return (
+      <Badge variant="secondary" className="bg-emerald-600 text-xs not-dark:text-white">
+        <Check className="mr-1 h-3 w-3" />
+        ORÇAMENTO APROVADO
+      </Badge>
+    );
+  }
+
+  if (status === "ORCAMENTO_RECUSADO") {
+    return (
+      <Badge variant="secondary" className="bg-red-600 text-xs not-dark:text-white">
+        <AlertCircle className="mr-1 h-3 w-3" />
+        ORÇAMENTO RECUSADO
       </Badge>
     );
   }
@@ -257,7 +297,18 @@ export default function VendasDataTable({
   const [onlineVendaId, setOnlineVendaId] = useState<number | null>(null);
   const [approveDialogOpen, setApproveDialogOpen] = useState(false);
   const [approveVendaId, setApproveVendaId] = useState<number | null>(null);
-  const [approvalPaymentMethod, setApprovalPaymentMethod] = useState<ApprovalPaymentMethod>("NAO_INFORMAR");
+  const [loadingApprovalData, setLoadingApprovalData] = useState(false);
+  const [approvingBudget, setApprovingBudget] = useState(false);
+  const [advancingVendaId, setAdvancingVendaId] = useState<number | null>(null);
+  const [approvalTotal, setApprovalTotal] = useState(0);
+  const [approvalDescription, setApprovalDescription] = useState("");
+  const [approvalInternalNotes, setApprovalInternalNotes] = useState("");
+  const [approvalFiscalNotes, setApprovalFiscalNotes] = useState("");
+  const [approvalFinancial, setApprovalFinancial] = useState<DadosParaFinanceiro>(
+    dadosParaFinanceiroVazios,
+  );
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [linkVenda, setLinkVenda] = useState<VendaComItens | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [cancelVendaId, setCancelVendaId] = useState<number | null>(null);
@@ -313,9 +364,44 @@ export default function VendasDataTable({
     }
   };
 
+  const abrirAprovacaoManual = async (vendaId: number) => {
+    setApproveVendaId(vendaId);
+    setApproveDialogOpen(true);
+    setLoadingApprovalData(true);
+    setApprovalFinancial(dadosParaFinanceiroVazios());
+    setApprovalDescription("");
+    setApprovalInternalNotes("");
+    setApprovalFiscalNotes("");
+    try {
+      const response = await axios.get(`/api/venda/${vendaId}`);
+      const venda = response.data?.data ?? {};
+      setApprovalTotal(Number(venda.valortotal ?? 0));
+      setApprovalDescription(String(venda.descricao ?? ""));
+      setApprovalInternalNotes(String(venda.observacoes ?? ""));
+      setApprovalFiscalNotes(String(venda.observacoes_fiscais ?? ""));
+      setApprovalFinancial(dadosParaFinanceiroDaVenda(venda));
+    } catch (error) {
+      toast.error("Erro ao carregar o orçamento", {
+        description: isAxiosError(error) ? error.response?.data?.error || "Tente novamente." : "Tente novamente.",
+      });
+      setApproveDialogOpen(false);
+      setApproveVendaId(null);
+    } finally {
+      setLoadingApprovalData(false);
+    }
+  };
+
   const handleApproveBudget = async () => {
     if (!canEdit) return;
     if (!approveVendaId) return;
+
+    const recusa = validarDadosParaFinanceiro(approvalFinancial, moneyToCents(approvalTotal));
+    if (recusa) {
+      toast.error(recusa);
+      return;
+    }
+
+    setApprovingBudget(true);
 
     toast(
       <div className="flex flex-row items-center flex-nowrap gap-1">
@@ -326,15 +412,21 @@ export default function VendasDataTable({
 
     try {
       const response = await axios.patch(`/api/venda/${approveVendaId}`, {
-        status: "PAGAMENTO",
-        formaPagamento: approvalPaymentMethod === "NAO_INFORMAR" ? null : approvalPaymentMethod,
+        status: "ORCAMENTO_APROVADO",
+        formaPagamento: montarFormaPagamento(approvalFinancial),
+        pagamentosPrevistos: montarPagamentosPrevistos(approvalFinancial),
+        descricaoFinanceiro: approvalFinancial.descricaoFinanceiro.trim() || null,
+        garantia: approvalFinancial.garantia.trim() || null,
+        descricao: approvalDescription.trim() || null,
+        observacoes: approvalInternalNotes.trim() || null,
+        observacoesFiscais: approvalFiscalNotes.trim() || null,
       });
 
       if (response.status === 200) {
         toast.success("Orçamento aprovado com sucesso.");
         setApproveDialogOpen(false);
         setApproveVendaId(null);
-        setApprovalPaymentMethod("NAO_INFORMAR");
+        setApprovalFinancial(dadosParaFinanceiroVazios());
         handleGetVendas(pagination.page, pagination.limit, search, status, filters);
         fetchStatusCounts();
       }
@@ -346,6 +438,27 @@ export default function VendasDataTable({
       } else {
         toast.error("Erro ao aprovar orçamento");
       }
+    } finally {
+      setApprovingBudget(false);
+    }
+  };
+
+  const handleAvancarParaPagamento = async (vendaId: number) => {
+    if (!canEdit || advancingVendaId) return;
+    setAdvancingVendaId(vendaId);
+    try {
+      await axios.patch(`/api/venda/${vendaId}`, { status: "PAGAMENTO" });
+      toast.success("Venda encaminhada para pagamento.");
+      await Promise.all([
+        handleGetVendas(pagination.page, pagination.limit, search, status, filters),
+        fetchStatusCounts(),
+      ]);
+    } catch (error) {
+      toast.error("Erro ao encaminhar para pagamento", {
+        description: isAxiosError(error) ? error.response?.data?.error || "Tente novamente." : "Tente novamente.",
+      });
+    } finally {
+      setAdvancingVendaId(null);
     }
   };
 
@@ -582,7 +695,9 @@ export default function VendasDataTable({
                   <TableCell className="font-mono text-xs">{formatDate(p.datavenda)}</TableCell>
                   <TableCell className="text-center">{getCanalBadge((p as any).canal)}</TableCell>
                   <TableCell>{formatarEmReal(p.valortotal)}</TableCell>
-                  <TableCell className="text-center">{getStatusBadge(p.status)}</TableCell>
+                  <TableCell className="text-center">
+                    {getStatusBadge(p.status)}
+                  </TableCell>
                   <TableCell className="text-center">
                     {getEntregaBadge((p as any).canal, (p as any).status_entrega)}
                   </TableCell>
@@ -622,16 +737,42 @@ export default function VendasDataTable({
                           </DropdownMenuItem>
                         ) : null}
 
-                        {canEdit && p.status === "ORCAMENTO" && (
+                        {canEdit && ["ORCAMENTO", "APROVACAO_ORCAMENTO"].includes(String(p.status)) && (
+                          <>
+                            <DropdownMenuItem onClick={() => void abrirAprovacaoManual(p.id)}>
+                              <Check className="h-4 w-4" />
+                              Aprovar orçamento
+                            </DropdownMenuItem>
+                          </>
+                        )}
+
+                        {canEdit && ["ORCAMENTO", "APROVACAO_ORCAMENTO", "ORCAMENTO_RECUSADO"].includes(String(p.status)) && (
+                          <>
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setLinkVenda(p);
+                                setLinkDialogOpen(true);
+                              }}
+                            >
+                              <Send className="h-4 w-4" />
+                              {p.status === "ORCAMENTO_RECUSADO"
+                                ? "Reenviar para aprovação"
+                                : p.status === "APROVACAO_ORCAMENTO"
+                                  ? "Abrir link de aprovação"
+                                  : "Enviar para aprovação"}
+                            </DropdownMenuItem>
+                          </>
+                        )}
+
+                        {canEdit && p.status === "ORCAMENTO_APROVADO" && (
                           <DropdownMenuItem
-                            onClick={() => {
-                              setApproveVendaId(p.id);
-                              setApprovalPaymentMethod("NAO_INFORMAR");
-                              setApproveDialogOpen(true);
-                            }}
+                            disabled={advancingVendaId === p.id}
+                            onClick={() => void handleAvancarParaPagamento(p.id)}
                           >
-                            <Check className="h-4 w-4" />
-                            Aprovar orçamento
+                            {advancingVendaId === p.id
+                              ? <Loader2 className="h-4 w-4 animate-spin" />
+                              : <ChevronsRight className="h-4 w-4" />}
+                            Continuar para pagamento
                           </DropdownMenuItem>
                         )}
 
@@ -779,42 +920,75 @@ export default function VendasDataTable({
           fetchStatusCounts();
         }}
       />
-      <AlertDialog open={approveDialogOpen} onOpenChange={setApproveDialogOpen}>
-        <AlertDialogContent>
+      <VendaLinkAprovacaoDialog
+        open={linkDialogOpen}
+        onOpenChange={(open) => {
+          setLinkDialogOpen(open);
+          if (!open) setLinkVenda(null);
+        }}
+        vendaId={linkVenda?.id ?? null}
+        clienteNome={linkVenda?.cliente?.nomerazaosocial}
+        clienteTelefone={linkVenda?.cliente?.telefone}
+        onGenerated={() => {
+          void handleGetVendas(pagination.page, pagination.limit, search, status, filters);
+        }}
+      />
+      <AlertDialog
+        open={approveDialogOpen}
+        onOpenChange={(open) => {
+          if (approvingBudget) return;
+          setApproveDialogOpen(open);
+          if (!open) setApproveVendaId(null);
+        }}
+      >
+        <AlertDialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
           <AlertDialogHeader>
-            <AlertDialogTitle>Aprovar orçamento</AlertDialogTitle>
+            <AlertDialogTitle>Aprovar orçamento #{approveVendaId}</AlertDialogTitle>
             <AlertDialogDescription>Ao aprovar, a venda passará para o status de pagamento.</AlertDialogDescription>
           </AlertDialogHeader>
 
-          <div className="space-y-2">
-            <span className="text-sm font-medium text-foreground">Método de pagamento</span>
-            <Select
-              value={approvalPaymentMethod}
-              onValueChange={(value) => setApprovalPaymentMethod(value as ApprovalPaymentMethod)}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Selecione o método de pagamento" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="NAO_INFORMAR">Não informar</SelectItem>
-                <SelectItem value="CREDITO">Crédito</SelectItem>
-                <SelectItem value="DEBITO">Débito</SelectItem>
-                <SelectItem value="DINHEIRO">Dinheiro</SelectItem>
-                <SelectItem value="PIX">Pix</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          {loadingApprovalData ? (
+            <div className="flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Carregando informações...
+            </div>
+          ) : (
+            <div className="rounded-xl border bg-card p-4">
+              <VendaConfirmacaoFields
+                idPrefix="aprovacao-venda"
+                descricao={approvalDescription}
+                onDescricaoChange={setApprovalDescription}
+                observacoesInternas={approvalInternalNotes}
+                onObservacoesInternasChange={setApprovalInternalNotes}
+                observacoesFiscais={approvalFiscalNotes}
+                onObservacoesFiscaisChange={setApprovalFiscalNotes}
+                dadosFinanceiro={approvalFinancial}
+                onDadosFinanceiroChange={setApprovalFinancial}
+                totalCents={moneyToCents(approvalTotal)}
+                disabled={approvingBudget}
+              />
+            </div>
+          )}
 
           <AlertDialogFooter>
             <AlertDialogCancel
+              disabled={approvingBudget}
               onClick={() => {
                 setApproveVendaId(null);
-                setApprovalPaymentMethod("NAO_INFORMAR");
+                setApprovalFinancial(dadosParaFinanceiroVazios());
               }}
             >
               Cancelar
             </AlertDialogCancel>
-            <AlertDialogAction onClick={() => handleApproveBudget()}>Confirmar</AlertDialogAction>
+            <AlertDialogAction
+              disabled={loadingApprovalData || approvingBudget}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleApproveBudget();
+              }}
+            >
+              {approvingBudget ? "Aprovando..." : "Confirmar"}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

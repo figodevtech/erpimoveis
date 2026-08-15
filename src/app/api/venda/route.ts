@@ -14,6 +14,9 @@ import type { PlannedPayment } from "@/lib/payment-methods";
 
 type Status =
   | "ORCAMENTO"
+  | "APROVACAO_ORCAMENTO"
+  | "ORCAMENTO_APROVADO"
+  | "ORCAMENTO_RECUSADO"
   | "ABERTA"
   | "PAGAMENTO"
   | "PENDENTE"
@@ -24,6 +27,9 @@ type Status =
   | "CANCELADO";
 const STATUS_SET = new Set<Status>([
   "ORCAMENTO",
+  "APROVACAO_ORCAMENTO",
+  "ORCAMENTO_APROVADO",
+  "ORCAMENTO_RECUSADO",
   "ABERTA",
   "PAGAMENTO",
   "PENDENTE",
@@ -42,6 +48,7 @@ type VendaItemInput = {
   valorTotal?: number;
   valorDesconto?: number | null;
   tipoDesconto?: string | null;
+  valorFrete?: number | null;
 };
 
 type VendaPostBody = {
@@ -54,6 +61,11 @@ type VendaPostBody = {
   pagamentosPrevistos?: PlannedPayment[] | null;
   descricaoFinanceiro?: string | null;
   garantia?: string | null;
+  descricao?: string | null;
+  observacoes?: string | null;
+  observacoesFiscais?: string | null;
+  /** Preenchido no servidor a partir de pagamentosPrevistos. */
+  parcelasPagamento?: number | null;
   descontoTipo?: string | null; // enum_tipo_desconto_venda
   descontoValor?: number | null;
   categoriaVendaId?: number | null;
@@ -69,8 +81,9 @@ const VENDA_SELECT = `
   id,
   clienteid,
   cliente:cliente (
-  id, nomerazaosocial ),
+  id, nomerazaosocial, telefone ),
   status,
+  statusaprovacao,
   categoriavendaid,
   categoria_venda:categoriavendaid (
     id,
@@ -108,9 +121,14 @@ const VENDA_SELECT = `
   valor_frete,
   acrescimo_financeiro_tipo,
   acrescimo_financeiro_valor,
+  descricao,
   observacoes,
   observacoes_fiscais,
   forma_pagamento,
+  pagamentos_previstos,
+  parcelas_pagamento,
+  descricao_financeiro,
+  garantia,
   sub_total,
   transacoes:transacao!transacao_vendaid_fkey (
     id,
@@ -131,6 +149,7 @@ const VENDA_SELECT = `
     valor_total,
     valor_desconto,
     tipo_desconto,
+    valor_frete,
     produto:produtoid (
       id,
       titulo,
@@ -595,6 +614,14 @@ export async function POST(req: Request) {
       );
     }
 
+    body.status = String(body.status).toUpperCase();
+    if (!(["ORCAMENTO", "PAGAMENTO"] as string[]).includes(body.status)) {
+      return NextResponse.json(
+        { error: "Uma nova venda deve ser criada como orçamento ou em pagamento." },
+        { status: 400 },
+      );
+    }
+
     // Cada item precisa ter produtoId e quantidade > 0
     for (const item of body.itens) {
       if (
@@ -688,6 +715,7 @@ export async function POST(req: Request) {
         valorTotal: itemTotal,
         valorDesconto: 0,
         tipoDesconto: null,
+        valorFrete: 0,
       };
     });
     const serverSubTotal = roundMoney(
@@ -717,6 +745,38 @@ export async function POST(req: Request) {
     const modoBaixa = await buscarModoBaixaEstoqueOS();
     body.baixarEstoque = body.status !== "ORCAMENTO" || modoBaixa === "ORCAMENTO";
 
+    const categoriaVendaId =
+      body.categoriaVendaId === null || body.categoriaVendaId === undefined
+        ? null
+        : Number(body.categoriaVendaId);
+    if (categoriaVendaId !== null && (!Number.isFinite(categoriaVendaId) || categoriaVendaId <= 0)) {
+      return NextResponse.json({ error: "categoriaVendaId inválido." }, { status: 400 });
+    }
+    body.categoriaVendaId = categoriaVendaId;
+
+    const dadosFinanceiro = await normalizarDadosParaFinanceiro(
+      body,
+      Math.round(Number(body.valorTotal) * 100),
+    );
+    if ("erro" in dadosFinanceiro) {
+      return NextResponse.json({ error: dadosFinanceiro.erro }, { status: 400 });
+    }
+    if ("pagamentos_previstos" in dadosFinanceiro.colunas) {
+      body.pagamentosPrevistos = dadosFinanceiro.colunas.pagamentos_previstos ?? null;
+    }
+    if ("descricao_financeiro" in dadosFinanceiro.colunas) {
+      body.descricaoFinanceiro = dadosFinanceiro.colunas.descricao_financeiro ?? null;
+    }
+    if ("garantia" in dadosFinanceiro.colunas) {
+      body.garantia = dadosFinanceiro.colunas.garantia ?? null;
+    }
+    if ("parcelas_pagamento" in dadosFinanceiro.colunas) {
+      body.parcelasPagamento = dadosFinanceiro.colunas.parcelas_pagamento ?? null;
+    }
+    body.descricao = String(body.descricao ?? "").trim() || null;
+    body.observacoes = String(body.observacoes ?? "").trim() || null;
+    body.observacoesFiscais = String(body.observacoesFiscais ?? "").trim() || null;
+
     // Chama função RPC no Postgres (tudo transacional lá)
     const { data: vendaId, error: rpcError } = await supabaseAdmin.rpc(
       "fn_criar_venda_com_itens",
@@ -743,77 +803,6 @@ export async function POST(req: Request) {
         { error: "Função fn_criar_venda_com_itens não retornou id da venda." },
         { status: 500 }
       );
-    }
-
-    const categoriaVendaId =
-      body.categoriaVendaId === null || body.categoriaVendaId === undefined
-        ? null
-        : Number(body.categoriaVendaId);
-
-    if (categoriaVendaId !== null && (!Number.isFinite(categoriaVendaId) || categoriaVendaId <= 0)) {
-      return NextResponse.json(
-        { error: "categoriaVendaId inválido.", vendaId },
-        { status: 400 }
-      );
-    }
-
-    /*
-     * O que a venda manda ao financeiro, do mesmo jeito que a OS manda: formas
-     * previstas com valor e parcelas, orientação da negociação e garantia.
-     *
-     * A soma não é conferida contra o total aqui: o total já foi gravado pela
-     * `fn_criar_venda_com_itens`, e recusar a venda agora deixaria os itens
-     * criados sem os dados do financeiro. Quem fecha a conta é o diálogo, antes
-     * de enviar.
-     */
-    const dadosFinanceiro = await normalizarDadosParaFinanceiro(body, null);
-    if ("erro" in dadosFinanceiro) {
-      return NextResponse.json({ error: dadosFinanceiro.erro, vendaId }, { status: 400 });
-    }
-
-    if (body.formaPagamento !== undefined) {
-      const { error: formaPagamentoError } = await supabaseAdmin
-        .from("venda")
-        .update({
-          forma_pagamento: body.formaPagamento || null,
-          ...dadosFinanceiro.colunas,
-          vendedor: session.user.id,
-          categoriavendaid: categoriaVendaId,
-          updatedat: new Date().toISOString(),
-        })
-        .eq("id", vendaId);
-
-      if (formaPagamentoError) {
-        console.error("Venda criada, mas erro ao salvar forma_pagamento:", formaPagamentoError);
-        return NextResponse.json(
-          {
-            error: "Venda criada, mas ocorreu um erro ao salvar os dados do vendedor/forma de pagamento.",
-            vendaId,
-          },
-          { status: 500 }
-        );
-      }
-    } else {
-      const { error: vendedorError } = await supabaseAdmin
-        .from("venda")
-        .update({
-          ...dadosFinanceiro.colunas,
-          vendedor: session.user.id,
-          categoriavendaid: categoriaVendaId,
-          updatedat: new Date().toISOString(),
-        })
-        .eq("id", vendaId);
-
-      if (vendedorError) {
-        console.error("Venda criada, mas erro ao salvar vendedor:", vendedorError);
-        return NextResponse.json(
-          {
-            error: "Venda criada, mas ocorreu um erro ao salvar o vendedor.",
-            vendaId,
-          },
-          { status: 500 }
-        );
-      }
     }
 
     const { data: vendaCanalRow, error: vendaCanalError } = await supabaseAdmin
