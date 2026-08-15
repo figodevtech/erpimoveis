@@ -61,6 +61,45 @@ interface OsTableProps {
   search: string;
 }
 
+function alvoDoReparo(ordem: Ordem) {
+  if (ordem.alvo_tipo === "PECA") {
+    return {
+      tipo: "Peça",
+      titulo: ordem.peca?.titulo || "Peça não informada",
+      detalhe: ordem.peca?.descricao || ordem.peca?.lacre || null,
+    };
+  }
+
+  if (ordem.alvo_tipo === "EQUIPAMENTO") {
+    const detalhes = [
+      ordem.equipamento?.patrimonio
+        ? `Patrimônio ${ordem.equipamento.patrimonio}`
+        : null,
+      ordem.equipamento?.ano ? `Ano ${ordem.equipamento.ano}` : null,
+      ordem.equipamento?.horimetro != null
+        ? `${ordem.equipamento.horimetro}h`
+        : null,
+    ].filter(Boolean);
+
+    return {
+      tipo: "Equipamento",
+      titulo: ordem.equipamento?.nome || "Equipamento não informado",
+      detalhe: detalhes.join(" · ") || null,
+    };
+  }
+
+  const veiculo = ordem.veiculo;
+  const tituloVeiculo = [veiculo?.marca, veiculo?.modelo]
+    .filter(Boolean)
+    .join(" ");
+
+  return {
+    tipo: "Veículo",
+    titulo: tituloVeiculo || "Veículo não informado",
+    detalhe: veiculo?.placa || null,
+  };
+}
+
 export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading, search }: OsTableProps) {
   // ID estável para o Select de "itens por página"
   const [selectedStatus, setSelectedStatus] = useState<StatusOS>("PAGAMENTO");
@@ -287,7 +326,7 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
               )}
               <TableHead className="whitespace-nowrap">ID</TableHead>
               <TableHead className="whitespace-nowrap">Nota</TableHead>
-              <TableHead>Descrição</TableHead>
+              <TableHead>Alvo do reparo</TableHead>
               <TableHead>Cliente</TableHead>
               <TableHead>Setor</TableHead>
               <TableHead className="whitespace-nowrap">Pago</TableHead>
@@ -314,6 +353,7 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
                 // recebimento e custo nosso, nao saldo devedor do cliente.
                 const totalPago = pagamentos.bruto;
                 const baixa = resumirBaixas(o.transacoes);
+                const alvo = alvoDoReparo(o);
 
                 return (
                   <TableRow key={o.id} className="hover:cursor-pointer">
@@ -335,7 +375,17 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
                     {/* ... suas outras células (descrição, data etc.) aqui, se/quando tiver ... */}
                     <TableCell>{o.id}</TableCell>
                     <TableCell>{o.notaNumero ?? "-"}</TableCell>
-                    <TableCell className="max-w-[320px] truncate">{o.descricao}</TableCell>
+                    <TableCell className="max-w-[320px]">
+                      <div className="min-w-0" title={[alvo.titulo, alvo.detalhe].filter(Boolean).join(" · ")}>
+                        <p className="truncate font-medium text-foreground">
+                          {alvo.titulo}
+                        </p>
+                        <p className="mt-0.5 truncate text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+                          {alvo.tipo}
+                          {alvo.detalhe ? ` · ${alvo.detalhe}` : ""}
+                        </p>
+                      </div>
+                    </TableCell>
                     <TableCell>{o.cliente?.nome}</TableCell>
                     <TableCell>{o.setor?.nome}</TableCell>
                     <TableCell className=" text-blue-300 not-dark:text-blue-700 font-bold">

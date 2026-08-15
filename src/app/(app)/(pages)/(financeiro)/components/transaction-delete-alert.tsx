@@ -139,7 +139,7 @@ export function TransactionDeleteAlert({
   const reabrePara = adiantamento?.sentido === "PAGAR" ? "a pagar" : "a receber";
 
   const titulo = podeEstornar
-    ? "Esta transação está liquidada"
+    ? "Estornar pagamento liquidado"
     : travado
     ? "Esta transação não pode ser excluída"
     : falhou
@@ -171,8 +171,7 @@ export function TransactionDeleteAlert({
                     <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
                     <span className="min-w-0">
                       Este título está liquidado e o pagamento aparece no fluxo de caixa.
-                      Excluí-lo apagaria a dívida junto com o pagamento — primeiro ele sai
-                      do fluxo e volta a{" "}
+                      O estorno retira a baixa do fluxo e devolve o título para{" "}
                       <strong>{liquidado.sentido === "PAGAR" ? "a pagar" : "a receber"}</strong>.
                     </span>
                   </span>
@@ -183,7 +182,7 @@ export function TransactionDeleteAlert({
                       {moeda(liquidado.acrescimos)} de acréscimo.
                     </span>
                   ) : null}
-                  <span>Depois disso ele pode ser excluído, se for o caso.</span>
+                  <span>O lançamento continuará registrado como título em aberto.</span>
                 </>
               ) : travado ? (
                 <span className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-destructive">
@@ -264,7 +263,7 @@ export function TransactionDeleteAlert({
           */}
           {podeEstornar ? (
             <AlertDialogAction onClick={() => onEstornar?.(transactionId)}>
-              Excluir do fluxo de caixa
+              Estornar pagamento
             </AlertDialogAction>
           ) : travado ? null : (
             <AlertDialogAction

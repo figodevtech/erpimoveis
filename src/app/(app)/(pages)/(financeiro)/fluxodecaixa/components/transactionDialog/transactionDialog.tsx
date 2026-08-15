@@ -36,6 +36,8 @@ interface TransactionDialogProps {
   internalCompanyExpense?: boolean;
   lockValue?: boolean;
   editable?: boolean;
+  /** Saldo máximo que ainda pode ser lançado no documento vinculado. */
+  maximumAmount?: number;
   /**
    * Quando presente, o diálogo deixa de criar uma transação avulsa e passa a
    * registrar um pagamento rateado entre os documentos selecionados. É o mesmo
@@ -128,6 +130,7 @@ export default function TransactionDialog({
   lockValue = false,
   editable = false,
   pagamentoMultiplo,
+  maximumAmount,
 }: TransactionDialogProps) {
   const semente: SementeProps = {
     osId,
@@ -204,6 +207,7 @@ export default function TransactionDialog({
       internalCompanyExpense={internalCompanyExpense}
       lockValue={lockValue}
       pagamentoMultiplo={pagamentoMultiplo}
+      maximumAmount={maximumAmount}
     />
   );
 

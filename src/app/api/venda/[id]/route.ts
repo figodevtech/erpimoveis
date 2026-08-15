@@ -118,6 +118,16 @@ const VENDA_SELECT = `
   garantia,
   parcelas_pagamento,
   sub_total,
+  transacoes:transacao!transacao_vendaid_fkey (
+    id,
+    valor,
+    valorLiquido,
+    valor_acrescimos,
+    tipo,
+    pendente,
+    is_deleted,
+    evento_financeiro_id
+  ),
   itens:vendaproduto (
     id,
     venda_id,

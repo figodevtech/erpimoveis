@@ -165,6 +165,7 @@ interface RegisterContentProps {
   isDesktop?: boolean;
   internalCompanyExpense?: boolean;
   lockValue?: boolean;
+  maximumAmount?: number;
 }
 
 export default function RegisterContent({
@@ -182,6 +183,7 @@ export default function RegisterContent({
   isDesktop,
   internalCompanyExpense = false,
   lockValue = false,
+  maximumAmount,
 }: RegisterContentProps) {
   const [isCustomerSelectOpen, setIsCustomerSelectOpen] = useState(false);
   const [isFornecedorSelectOpen, setIsFornecedorSelectOpen] = useState(false);
@@ -258,6 +260,10 @@ export default function RegisterContent({
     : null;
   const canUseMesmoCliente =
     (Boolean(osId || vendaId) || clienteUnicoMultiplo != null) && !internalCompanyExpense;
+  const excedeSaldoDisponivel =
+    maximumAmount != null &&
+    maximumAmount >= 0 &&
+    paraCentavos(newTransaction.valor ?? 0) > paraCentavos(maximumAmount);
 
   const handleChange = (
     field: keyof NewTransaction,
@@ -574,6 +580,13 @@ export default function RegisterContent({
   const handleCreateTransaction = async () => {
     setIsSubmitting(true);
     try {
+      if (excedeSaldoDisponivel) {
+        toast.error("O valor informado ultrapassa o saldo disponível.", {
+          description: `O maior pagamento permitido agora é ${formatarEmReal(maximumAmount ?? 0)}.`,
+        });
+        return;
+      }
+
       // O tipo é o único campo exigido do documento: os demais dependem do papel
       // que se tem em mãos. É a mesma regra do CHECK no banco, dita antes para o
       // usuário ver uma frase em vez de um erro de constraint.
@@ -694,10 +707,16 @@ export default function RegisterContent({
           duration: 2000,
         });
 
-        // se existir, seta o id (fluxo fora de OS)
-        setSelectedTransactionId?.(
-          Array.isArray(created) ? created[0]?.id : created?.id,
-        );
+        // Pagamentos vinculados sempre voltam ao modo de cadastro. Manter o ID
+        // recém-criado faria o próximo clique em "Novo pagamento" abrir a edição
+        // do lançamento anterior.
+        if (osId || vendaId) {
+          setSelectedTransactionId?.(undefined);
+        } else {
+          setSelectedTransactionId?.(
+            Array.isArray(created) ? created[0]?.id : created?.id,
+          );
+        }
 
         // recarrega a lista da OS (quando veio por OS)
         handleGetTransactions?.();
@@ -1002,6 +1021,23 @@ export default function RegisterContent({
                     setPrice={(v) => handleChange("valor", v)}
                     disabled={lockValue}
                   ></ValueInput>
+                  {maximumAmount != null ? (
+                    <div
+                      className={cn(
+                        "flex items-start gap-1.5 text-[11px]",
+                        excedeSaldoDisponivel
+                          ? "font-medium text-destructive"
+                          : "text-muted-foreground",
+                      )}
+                    >
+                      <Info className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
+                      <span>
+                        {excedeSaldoDisponivel
+                          ? `Valor acima do saldo de ${formatarEmReal(maximumAmount)}. Ajuste para continuar.`
+                          : `Saldo disponível para este lançamento: ${formatarEmReal(maximumAmount)}.`}
+                      </span>
+                    </div>
+                  ) : null}
                   {isChecked && (
                     <>
                       <div className="flex flex-row items-center justify-between">
@@ -1772,7 +1808,7 @@ export default function RegisterContent({
             <Button
               type="submit"
               form="register-form"
-              disabled={isSubmitting}
+              disabled={isSubmitting || excedeSaldoDisponivel}
               className="w-full hover:cursor-pointer sm:w-auto"
               onClick={handleCreateTransaction}
             >
