@@ -1,6 +1,14 @@
 "use client";
 
-import { CalendarClock, CircleDollarSign, Info, Lock, Tags, UserRound } from "lucide-react";
+import {
+  CalendarClock,
+  CircleDollarSign,
+  FileCheck2,
+  Info,
+  Lock,
+  Tags,
+  UserRound,
+} from "lucide-react";
 
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
@@ -22,6 +30,7 @@ import { useBancos } from "../../../hooks/use-bancos";
 import { useCategoriasTransacao } from "../../../hooks/use-categoria-transacao";
 import { useCentrosCusto } from "../../../hooks/use-centros-custo";
 import { usePlanosDeConta } from "../../../hooks/use-planos-de-conta";
+import { useTiposDocumento } from "../../../hooks/use-tipos-documento";
 import { Metodo_pagamento, Tipo_transacao } from "../../../types";
 import {
   origemDaTransacao,
@@ -33,7 +42,7 @@ import {
 import { formatCpfCnpj } from "../../../utils";
 import { PlanoContaCombobox } from "../../plano-conta-combobox";
 import { SearchCombobox } from "../../search-combobox";
-import { paraValorDeInputDate, parseLocalDateTime } from "../datas";
+import { paraDataDaApi, paraValorDeInputDate, parseLocalDateTime } from "../datas";
 import { TransactionSection } from "../transaction-dialog-ui";
 import type { FormularioTransacao } from "../use-transacao-edicao";
 
@@ -203,6 +212,8 @@ export function DetalhesTab({
   const { categorias, loadingCategorias, errorCategorias } = useCategoriasTransacao();
   const { gruposPlanosDeConta, loadingPlanos } = usePlanosDeConta();
   const { centrosCusto, loadingCentrosCusto, errorCentrosCusto } = useCentrosCusto();
+  const { tiposDocumento, loadingTiposDocumento, errorTiposDocumento } =
+    useTiposDocumento();
 
   /**
    * A antecipação que liquidou este título, quando há uma.
@@ -276,6 +287,25 @@ export function DetalhesTab({
      * tem hora, ela recusava até o dia de hoje depois do primeiro minuto.
      */
     setCampo("data", selecionada);
+  };
+
+  const alternarDocumento = (relacionar: boolean) => {
+    setForm((atual) => {
+      if (!atual) return atual;
+      if (relacionar) return { ...atual, relacionarDocumento: true };
+
+      return {
+        ...atual,
+        relacionarDocumento: false,
+        documento_tipo_id: null,
+        documento_numero: null,
+        documento_serie: null,
+        documento_chave: null,
+        documento_emitido_em: null,
+        documento_valor: null,
+        documento_observacao: null,
+      };
+    });
   };
 
   return (
@@ -545,17 +575,17 @@ export function DetalhesTab({
           </Label>
           <DatePicker
             disabled={!competenciaEditavel}
-            value={paraValorDeInputDate(
-              form.competencia_em ? new Date(form.competencia_em) : undefined,
-            )}
+            value={paraValorDeInputDate(paraDataDaApi(form.competencia_em))}
             className="h-10 w-full rounded-none shadow-none sm:max-w-xs"
             onChange={alterarCompetencia}
           />
           <p className="text-xs text-muted-foreground">
             {competenciaEditavel
-              ? "A que mês o fato pertence na DRE. Conta de julho paga em agosto pertence a julho."
+              ? "A que mês o fato pertence na DRE. Conta de julho sendo paga em agosto pertence a julho."
+              : documentoDaCompetencia && !form.competencia_em
+                ? `A ${documentoDaCompetencia} ainda não possui data de competência definida.`
               : documentoDaCompetencia
-                ? `Definida pela ${documentoDaCompetencia} e acompanha ela. Para mudar o mês na DRE, altere no próprio documento.`
+                ? `Definida pela ${documentoDaCompetencia} e acompanha ela.`
                 : "Vem do documento de origem e acompanha ele."}
           </p>
         </div>
@@ -632,6 +662,145 @@ export function DetalhesTab({
           </p>
         </div>
       </div>
+      </TransactionSection>
+
+      <TransactionSection
+        eyebrow="Comprovação"
+        title="Documento relacionado"
+        description="Nota, recibo ou comprovante que justifica este lançamento."
+        icon={FileCheck2}
+        action={
+          <div className="flex items-center gap-2">
+            <Label htmlFor="editar-relacionar-documento" className="cursor-pointer text-xs">
+              Relacionar documento
+            </Label>
+            <Switch
+              id="editar-relacionar-documento"
+              disabled={!editavel}
+              checked={form.relacionarDocumento}
+              onCheckedChange={alternarDocumento}
+            />
+          </div>
+        }
+      >
+        {form.relacionarDocumento ? (
+          <div className="grid gap-4 border border-border bg-muted/10 p-4 sm:grid-cols-3">
+            <div className="w-full space-y-2">
+              <Label htmlFor="editar-documento-tipo">
+                Tipo de documento <span className="text-red-500">*</span>
+              </Label>
+              <SearchCombobox
+                disabled={!editavel || loadingTiposDocumento || !!errorTiposDocumento}
+                loading={loadingTiposDocumento}
+                value={form.documento_tipo_id?.toString() || ""}
+                onValueChange={(valor) =>
+                  setCampo("documento_tipo_id", valor ? Number(valor) : null)
+                }
+                placeholder={
+                  form.documento_tipo_id
+                    ? `Tipo #${form.documento_tipo_id}`
+                    : errorTiposDocumento
+                      ? "Erro ao carregar"
+                      : "Selecione"
+                }
+                searchPlaceholder="Pesquisar documento..."
+                emptyMessage="Nenhum tipo de documento encontrado."
+                options={tiposDocumento.map((tipo) => ({
+                  value: String(tipo.id),
+                  label: tipo.nome,
+                  description: tipo.descricao ?? undefined,
+                }))}
+              />
+            </div>
+
+            <div className="w-full space-y-2">
+              <Label htmlFor="editar-documento-numero">Número</Label>
+              <Input
+                id="editar-documento-numero"
+                disabled={!editavel}
+                maxLength={60}
+                value={form.documento_numero || ""}
+                onChange={(evento) =>
+                  setCampo("documento_numero", evento.target.value)
+                }
+                placeholder="Ex.: 1234"
+              />
+            </div>
+
+            <div className="w-full space-y-2">
+              <Label htmlFor="editar-documento-serie">Série</Label>
+              <Input
+                id="editar-documento-serie"
+                disabled={!editavel}
+                maxLength={20}
+                value={form.documento_serie || ""}
+                onChange={(evento) =>
+                  setCampo("documento_serie", evento.target.value)
+                }
+                placeholder="Ex.: 1"
+              />
+            </div>
+
+            <div className="w-full space-y-2">
+              <Label htmlFor="editar-documento-emissao">Data de emissão</Label>
+              <DatePicker
+                disabled={!editavel}
+                value={form.documento_emitido_em || ""}
+                onChange={(valor) => setCampo("documento_emitido_em", valor || null)}
+                className="h-10 w-full rounded-none shadow-none"
+              />
+            </div>
+
+            <div className="w-full space-y-2">
+              <Label htmlFor="editar-documento-valor">Valor do documento</Label>
+              <ValueInput
+                id="editar-documento-valor"
+                disabled={!editavel}
+                value={Number(form.documento_valor ?? 0)}
+                onValueChange={(valor) => setCampo("documento_valor", valor)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Só referência. Não altera o valor da transação.
+              </p>
+            </div>
+
+            <div className="w-full space-y-2 sm:col-span-3">
+              <Label htmlFor="editar-documento-chave">
+                Chave de acesso ou código de verificação
+              </Label>
+              <Input
+                id="editar-documento-chave"
+                disabled={!editavel}
+                maxLength={120}
+                value={form.documento_chave || ""}
+                onChange={(evento) =>
+                  setCampo("documento_chave", evento.target.value)
+                }
+                placeholder="Chave da NF-e/NFS-e, ou o código do comprovante"
+              />
+            </div>
+
+            <div className="w-full space-y-2 sm:col-span-3">
+              <Label htmlFor="editar-documento-observacao">Observação</Label>
+              <Input
+                id="editar-documento-observacao"
+                disabled={!editavel}
+                maxLength={500}
+                value={form.documento_observacao || ""}
+                onChange={(evento) =>
+                  setCampo("documento_observacao", evento.target.value)
+                }
+                placeholder="Ex.: nota do fornecedor referente à peça trocada"
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="border border-dashed border-border bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground">
+            {editavel
+              ? "Ative a opção acima para relacionar um documento."
+              : "Nenhum documento relacionado a esta transação."}
+          </div>
+        )}
       </TransactionSection>
     </div>
   );

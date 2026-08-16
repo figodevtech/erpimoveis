@@ -65,47 +65,6 @@ export function TransactionSection({
 
 type SummaryTone = "default" | "primary" | "positive" | "warning" | "danger";
 
-export interface TransactionSummaryItem {
-  label: string;
-  value: ReactNode;
-  tone?: SummaryTone;
-}
-
-export function TransactionSummaryStrip({
-  items,
-  ariaLabel = "Resumo da transação",
-}: {
-  items: TransactionSummaryItem[];
-  ariaLabel?: string;
-}) {
-  return (
-    <dl
-      aria-label={ariaLabel}
-      className="grid shrink-0 grid-cols-2 divide-x divide-y divide-border border-b border-border bg-background sm:grid-cols-4 sm:divide-y-0"
-    >
-      {items.map((item) => (
-        <div key={item.label} className="min-w-0 px-4 py-2.5 sm:px-5">
-          <dt className="truncate text-[9px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
-            {item.label}
-          </dt>
-          <dd
-            className={cn(
-              "mt-1 truncate text-xs font-semibold tabular-nums text-foreground sm:text-sm",
-              item.tone === "primary" && "text-primary",
-              item.tone === "positive" && "text-emerald-700 dark:text-emerald-300",
-              item.tone === "warning" && "text-amber-700 dark:text-amber-300",
-              item.tone === "danger" && "text-destructive",
-            )}
-            title={typeof item.value === "string" ? item.value : undefined}
-          >
-            {item.value}
-          </dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
-
 export function TransactionBadge({
   children,
   tone = "default",

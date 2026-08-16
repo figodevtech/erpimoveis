@@ -114,6 +114,7 @@ export function TelegramRecipientsCard({ integrationEnabled }: { integrationEnab
           horarioResumoFinanceiro: data.financialSummaryTime,
           financeiroIncluirAtrasadas: data.financialIncludeOverdue,
           financeiroEnviarSemContas: data.financialSendWhenEmpty,
+          estoqueEventosSelecionados: data.selectedStockEvents,
         }),
       });
       toast.success("Configuração de avisos salva.");
@@ -196,18 +197,19 @@ export function TelegramRecipientsCard({ integrationEnabled }: { integrationEnab
             <div className={`${loading ? "animate-slideIn" : ""} absolute left-0 h-full w-1/2 -translate-x-full rounded-lg bg-primary`} />
           </div>
           <Table className="mt-6">
-            <TableHeader><TableRow><TableHead>Usuário</TableHead><TableHead>Telegram</TableHead><TableHead>Notificações</TableHead><TableHead>Escopo</TableHead><TableHead>Status</TableHead><TableHead className="w-12 text-right">Ações</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>Usuário</TableHead><TableHead>Telegram</TableHead><TableHead>Notificações</TableHead><TableHead>Escopo de OS</TableHead><TableHead>Status</TableHead><TableHead className="w-12 text-right">Ações</TableHead></TableRow></TableHeader>
             <TableBody>
               {loading ? Array.from({ length: 3 }).map((_, index) => <TableRow key={index} className="animate-pulse"><TableCell><div className="h-4 w-36 rounded bg-muted" /></TableCell><TableCell><div className="h-4 w-28 rounded bg-muted" /></TableCell><TableCell><div className="h-4 w-20 rounded bg-muted" /></TableCell><TableCell><div className="h-4 w-24 rounded bg-muted" /></TableCell><TableCell><div className="h-5 w-20 rounded bg-muted" /></TableCell><TableCell /></TableRow>)
               : filteredRecipients.length === 0 ? <TableRow><TableCell colSpan={6} className="h-28 text-center text-muted-foreground">{recipients.length ? "Nenhum destinatário corresponde à busca." : "Nenhum destinatário cadastrado."}</TableCell></TableRow>
               : pageRecipients.map((recipient) => {
-                const eventCount = recipientEvents(recipient).length;
-                const busy = action?.endsWith(recipient.usuarioId);
+                 const eventCount = recipientEvents(recipient).length;
+                 const stockEventCount = recipient.selectedStockEvents.length;
+                 const busy = action?.endsWith(recipient.usuarioId);
                 return <TableRow key={recipient.usuarioId}>
                   <TableCell><div className="font-medium">{recipientName(recipient)}</div><div className="text-xs text-muted-foreground">{recipient.user?.email || "—"}</div></TableCell>
                   <TableCell><div>@{recipient.telegramUsername}</div><div className="text-xs text-muted-foreground">{recipient.connected ? "Conta vinculada" : "Aguardando vínculo"}</div></TableCell>
-                  <TableCell><div className="flex flex-wrap gap-1"><Badge variant="secondary">{eventCount} {eventCount === 1 ? "evento de OS" : "eventos de OS"}</Badge>{recipient.notifyFinancialDaily ? <Badge variant="outline">Financeiro às {recipient.financialSummaryTime}</Badge> : null}</div></TableCell>
-                  <TableCell>{SCOPE_LABELS[recipient.scope]}</TableCell>
+                  <TableCell><div className="flex flex-wrap gap-1">{eventCount > 0 ? <Badge variant="secondary">OS: {eventCount}</Badge> : null}{recipient.notifyFinancialDaily ? <Badge variant="outline">Financeiro às {recipient.financialSummaryTime}</Badge> : null}{stockEventCount > 0 ? <Badge variant="outline">Estoque: {stockEventCount}</Badge> : null}</div></TableCell>
+                  <TableCell>{eventCount > 0 ? SCOPE_LABELS[recipient.scope] : "—"}</TableCell>
                   <TableCell><div className="flex flex-wrap gap-1"><Badge variant={recipient.active ? "outline" : "secondary"}>{recipient.active ? "Ativo" : "Pausado"}</Badge><Badge variant={recipient.connected ? "outline" : "secondary"}>{recipient.connected ? "Vinculado" : "Pendente"}</Badge></div></TableCell>
                   <TableCell className="text-right"><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" disabled={busy} aria-label={`Ações de ${recipientName(recipient)}`}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}</Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={() => openEdit(recipient)}><Edit3 className="mr-2 h-4 w-4" />Editar</DropdownMenuItem>{!recipient.connected ? <DropdownMenuItem onClick={() => generateLink(recipient)}><Link2 className="mr-2 h-4 w-4" />Gerar link</DropdownMenuItem> : <><DropdownMenuItem onClick={() => testRecipient(recipient)} disabled={!integrationEnabled}><Send className="mr-2 h-4 w-4" />Testar mensagem</DropdownMenuItem>{recipient.notifyFinancialDaily ? <DropdownMenuItem onClick={() => testFinancialSummary(recipient)} disabled={!integrationEnabled}><Send className="mr-2 h-4 w-4" />Testar resumo financeiro</DropdownMenuItem> : null}</>}<DropdownMenuSeparator /><DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => removeRecipient(recipient)}><Trash2 className="mr-2 h-4 w-4" />Remover</DropdownMenuItem></DropdownMenuContent></DropdownMenu></TableCell>
                 </TableRow>;

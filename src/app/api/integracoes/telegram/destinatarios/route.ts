@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireConfigAccess, requireConfigEdit } from "@/app/api/_authz/perms";
+import { isStockNotificationEvent, STOCK_NOTIFICATION_EVENT_VALUES } from "@/lib/estoque/telegram-stock-events";
 import { normalizeTelegramUsername } from "@/lib/integrations/telegram";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -24,6 +25,10 @@ const recipientSchema = z.object({
   horarioResumoFinanceiro: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   financeiroIncluirAtrasadas: z.boolean(),
   financeiroEnviarSemContas: z.boolean(),
+  estoqueEventosSelecionados: z
+    .array(z.string())
+    .max(STOCK_NOTIFICATION_EVENT_VALUES.length)
+    .refine((events) => events.every(isStockNotificationEvent)),
 });
 
 function errorResponse(error: unknown, fallback: string) {
@@ -31,28 +36,67 @@ function errorResponse(error: unknown, fallback: string) {
   return NextResponse.json({ error: status === 500 ? fallback : "Sem permissão." }, { status });
 }
 
+async function userHasPermission(usuarioId: string, permissionName: string) {
+  const [{ data: target, error: targetError }, { data: permission, error: permissionError }] = await Promise.all([
+    supabaseAdmin.from("usuario").select("perfilid").eq("id", usuarioId).single(),
+    supabaseAdmin.from("permissao").select("id").ilike("nome", permissionName).maybeSingle(),
+  ]);
+  if (targetError || permissionError) throw targetError ?? permissionError;
+  if (!permission?.id) return false;
+  const { data: link, error: linkError } = await supabaseAdmin
+    .from("perfilpermissao")
+    .select("perfilid")
+    .eq("perfilid", target.perfilid)
+    .eq("permissaoid", permission.id)
+    .maybeSingle();
+  if (linkError) throw linkError;
+  return Boolean(link);
+}
+
 export async function GET() {
   try {
     await requireConfigAccess();
-    const [usersResult, preferencesResult, financePermissionResult] = await Promise.all([
+    const [usersResult, preferencesResult, permissionsResult] = await Promise.all([
       supabaseAdmin.from("usuario").select("id, nome, email, ativo, perfilid").order("nome", { ascending: true }),
       supabaseAdmin
         .from("telegram_usuario_preferencia")
-        .select("usuario_id, chat_id, telegram_username, telegram_nome, vinculado_em, ativo, modo, escopo, notificar_criacao, status_selecionados, notificar_financeiro_diario, horario_resumo_financeiro, financeiro_incluir_atrasadas, financeiro_enviar_sem_contas, ultimo_erro")
+        .select("usuario_id, chat_id, telegram_username, telegram_nome, vinculado_em, ativo, modo, escopo, notificar_criacao, status_selecionados, notificar_financeiro_diario, horario_resumo_financeiro, financeiro_incluir_atrasadas, financeiro_enviar_sem_contas, estoque_eventos_selecionados, ultimo_erro")
         .order("updated_at", { ascending: false }),
-      supabaseAdmin.from("permissao").select("id").ilike("nome", "financeiro:visualizar").maybeSingle(),
+      supabaseAdmin
+        .from("permissao")
+        .select("id, nome"),
     ]);
-    if (usersResult.error || preferencesResult.error || financePermissionResult.error) {
-      throw usersResult.error ?? preferencesResult.error ?? financePermissionResult.error;
+    if (usersResult.error || preferencesResult.error || permissionsResult.error) {
+      throw usersResult.error ?? preferencesResult.error ?? permissionsResult.error;
     }
-    const financeProfiles = new Set<number>();
-    if (financePermissionResult.data?.id) {
-      const { data: links, error: linksError } = await supabaseAdmin
+
+    const relevantPermissionNames = new Set(["financeiro:visualizar", "estoque:visualizar"]);
+    const permissionIdByName = new Map(
+      (permissionsResult.data ?? [])
+        .map((permission) => [String(permission.nome).toLowerCase(), Number(permission.id)] as const)
+        .filter(([name]) => relevantPermissionNames.has(name)),
+    );
+    const permissionIds = [...permissionIdByName.values()];
+    let permissionLinks: Array<{ perfilid: number; permissaoid: number }> = [];
+    if (permissionIds.length > 0) {
+      const { data, error } = await supabaseAdmin
         .from("perfilpermissao")
-        .select("perfilid")
-        .eq("permissaoid", financePermissionResult.data.id);
-      if (linksError) throw linksError;
-      for (const link of links ?? []) financeProfiles.add(Number(link.perfilid));
+        .select("perfilid, permissaoid")
+        .in("permissaoid", permissionIds);
+      if (error) throw error;
+      permissionLinks = (data ?? []).map((link) => ({
+        perfilid: Number(link.perfilid),
+        permissaoid: Number(link.permissaoid),
+      }));
+    }
+
+    const financeProfiles = new Set<number>();
+    const stockProfiles = new Set<number>();
+    const financePermissionId = permissionIdByName.get("financeiro:visualizar");
+    const stockPermissionId = permissionIdByName.get("estoque:visualizar");
+    for (const link of permissionLinks) {
+      if (link.permissaoid === financePermissionId) financeProfiles.add(link.perfilid);
+      if (link.permissaoid === stockPermissionId) stockProfiles.add(link.perfilid);
     }
 
     const users = (usersResult.data ?? []).map((user) => ({
@@ -61,6 +105,7 @@ export async function GET() {
       email: String(user.email ?? ""),
       active: user.ativo !== false,
       financialAccess: financeProfiles.has(Number(user.perfilid)),
+      stockAccess: stockProfiles.has(Number(user.perfilid)),
     }));
     const userById = new Map(users.map((user) => [user.id, user]));
     const recipients = (preferencesResult.data ?? []).map((row) => ({
@@ -79,6 +124,7 @@ export async function GET() {
       financialSummaryTime: String(row.horario_resumo_financeiro ?? "08:00").slice(0, 5),
       financialIncludeOverdue: row.financeiro_incluir_atrasadas !== false,
       financialSendWhenEmpty: row.financeiro_enviar_sem_contas === true,
+      selectedStockEvents: Array.isArray(row.estoque_eventos_selecionados) ? row.estoque_eventos_selecionados : [],
       lastError: row.ultimo_erro ? String(row.ultimo_erro) : null,
     }));
     return NextResponse.json({ users, recipients });
@@ -117,22 +163,11 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: "Remova o vínculo atual antes de alterar o usuário do Telegram." }, { status: 409 });
     }
 
-    if (parsed.data.notificarFinanceiroDiario) {
-      const { data: target, error: targetError } = await supabaseAdmin
-        .from("usuario")
-        .select("perfilid")
-        .eq("id", parsed.data.usuarioId)
-        .single();
-      if (targetError) throw targetError;
-      const { data: permission } = await supabaseAdmin.from("permissao").select("id").ilike("nome", "financeiro:visualizar").maybeSingle();
-      const { data: link, error: linkError } = await supabaseAdmin
-        .from("perfilpermissao")
-        .select("perfilid")
-        .eq("perfilid", target.perfilid)
-        .eq("permissaoid", permission?.id ?? -1)
-        .maybeSingle();
-      if (linkError) throw linkError;
-      if (!link) return NextResponse.json({ error: "O usuário precisa ter acesso ao Financeiro para receber esse resumo." }, { status: 400 });
+    if (parsed.data.notificarFinanceiroDiario && !(await userHasPermission(parsed.data.usuarioId, "financeiro:visualizar"))) {
+      return NextResponse.json({ error: "O usuário precisa ter acesso ao Financeiro para receber esse resumo." }, { status: 400 });
+    }
+    if (parsed.data.estoqueEventosSelecionados.length > 0 && !(await userHasPermission(parsed.data.usuarioId, "estoque:visualizar"))) {
+      return NextResponse.json({ error: "O usuário precisa ter acesso ao Estoque para receber essas movimentações." }, { status: 400 });
     }
 
     const { error } = await supabaseAdmin.from("telegram_usuario_preferencia").upsert({
@@ -147,6 +182,7 @@ export async function PUT(request: Request) {
       horario_resumo_financeiro: parsed.data.horarioResumoFinanceiro,
       financeiro_incluir_atrasadas: parsed.data.financeiroIncluirAtrasadas,
       financeiro_enviar_sem_contas: parsed.data.financeiroEnviarSemContas,
+      estoque_eventos_selecionados: Array.from(new Set(parsed.data.estoqueEventosSelecionados)),
       ultimo_erro: null,
       updated_at: new Date().toISOString(),
     }, { onConflict: "usuario_id" });
@@ -168,6 +204,7 @@ export async function DELETE(request: Request) {
     const results = await Promise.all([
       supabaseAdmin.from("telegram_vinculo_token").update({ used_at: now }).eq("usuario_id", usuarioId).is("used_at", null),
       supabaseAdmin.from("os_notificacao_entrega").update({ status: "DESCARTADO", updated_at: now }).eq("usuario_id", usuarioId).in("status", ["PENDENTE", "ENVIANDO", "ERRO"]),
+      supabaseAdmin.from("telegram_estoque_entrega").update({ status: "DESCARTADO", updated_at: now }).eq("usuario_id", usuarioId).in("status", ["PENDENTE", "ENVIANDO", "ERRO"]),
     ]);
     const preparationError = results.find((result) => result.error)?.error;
     if (preparationError) throw preparationError;

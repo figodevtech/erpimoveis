@@ -83,7 +83,6 @@ import {
 import {
   TransactionBadge,
   TransactionSection,
-  TransactionSummaryStrip,
 } from "./transaction-dialog-ui";
 
 interface ParcelaFormulario {
@@ -870,40 +869,6 @@ export default function RegisterContent({
               : "Defina a movimentação, classifique o lançamento e identifique a contraparte."}
           </Description>
         </Header>
-        <TransactionSummaryStrip
-          ariaLabel="Resumo do novo lançamento"
-          items={[
-            {
-              label: "Natureza",
-              value: newTransaction.tipo || "Não definida",
-              tone:
-                newTransaction.tipo === Tipo_transacao.DESPESA ||
-                newTransaction.tipo === Tipo_transacao.SAQUE
-                  ? "danger"
-                  : "primary",
-            },
-            {
-              label: "Situação",
-              value: newTransaction.pendente ? "Em aberto" : "Movimentação realizada",
-              tone: newTransaction.pendente ? "warning" : "positive",
-            },
-            {
-              label: "Valor",
-              value: formatarEmReal(Number(newTransaction.valor ?? 0)),
-              tone: "primary",
-            },
-            {
-              label: "Origem",
-              value: osId
-                ? `OS #${osId}`
-                : vendaId
-                  ? `Venda #${vendaId}`
-                  : pagamentoMultiplo
-                    ? "Pagamento múltiplo"
-                    : "Lançamento avulso",
-            },
-          ]}
-        />
         <div className={`${MIOLO_ROLAVEL} space-y-4 bg-muted/25 px-4 py-4 sm:px-6 sm:py-5`}>
           {pagamentoMultiplo && (
             <PreviaDoRateio

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { processTelegramNotifications } from "@/lib/ordens/telegram-notifications";
+import { processTelegramNotificationQueues } from "@/lib/integrations/telegram-notification-processor";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -22,7 +22,7 @@ async function processRequest(request: NextRequest) {
     .select("id")
     .maybeSingle();
   try {
-    const result = await processTelegramNotifications();
+    const result = await processTelegramNotificationQueues();
     if (run?.id) {
       await supabaseAdmin.from("telegram_processamento_execucao").update({
         status: result.failed > 0 ? "PARCIAL" : "CONCLUIDO",

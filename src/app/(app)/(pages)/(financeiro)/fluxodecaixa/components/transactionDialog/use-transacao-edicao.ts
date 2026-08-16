@@ -15,7 +15,23 @@ import type { Transaction } from "../../types";
 import { paraDataDaApi } from "./datas";
 import type { TransacaoContexto } from "./tabs/types";
 
-export type FormularioTransacao = Omit<Transaction, "data"> & { data?: Date };
+export type FormularioTransacao = Omit<Transaction, "data"> & {
+  data?: Date;
+  /** Estado visual da seção; não é coluna e nunca é enviado à API. */
+  relacionarDocumento: boolean;
+};
+
+function temDocumentoRelacionado(transacao: Transaction) {
+  return Boolean(
+    transacao.documento_tipo_id != null ||
+      transacao.documento_numero ||
+      transacao.documento_serie ||
+      transacao.documento_chave ||
+      transacao.documento_emitido_em ||
+      transacao.documento_valor != null ||
+      transacao.documento_observacao,
+  );
+}
 
 /**
  * O que a rota de ajustes devolve depois de recalcular. Numeric do Postgres
@@ -73,7 +89,11 @@ export function useTransacaoEdicao(transacaoId: number | undefined) {
       const resposta = await axios.get(`/api/transaction/${id}`);
       const transacao: Transaction = resposta.data.data;
       original.current = transacao;
-      setForm({ ...transacao, data: paraDataDaApi(transacao.data) });
+      setForm({
+        ...transacao,
+        data: paraDataDaApi(transacao.data),
+        relacionarDocumento: temDocumentoRelacionado(transacao),
+      });
 
       // Consulta separada e tolerante a falha: saber a quantidade de descontos
       // é conforto de tela, não pode impedir a edição de abrir.
@@ -213,6 +233,11 @@ export function useTransacaoEdicao(transacaoId: number | undefined) {
       return false;
     }
 
+    if (form.relacionarDocumento && !form.documento_tipo_id) {
+      toast.error("Selecione o tipo do documento relacionado.");
+      return false;
+    }
+
     const bruto = Number(form.valor ?? 0);
     // Para despesa/depósito isto devolve o próprio bruto: não existe taxa de
     // maquineta ali, e o líquido só precisa acompanhar para o fluxo de caixa
@@ -300,6 +325,27 @@ export function useTransacaoEdicao(transacaoId: number | undefined) {
           banco_id: form.adiantamento_id != null ? null : (form.banco_id ?? null),
           nomepagador: form.nomepagador || null,
           cpfcnpjpagador: form.cpfcnpjpagador || null,
+          documento_tipo_id: form.relacionarDocumento
+            ? (form.documento_tipo_id ?? null)
+            : null,
+          documento_numero: form.relacionarDocumento
+            ? (form.documento_numero ?? null)
+            : null,
+          documento_serie: form.relacionarDocumento
+            ? (form.documento_serie ?? null)
+            : null,
+          documento_chave: form.relacionarDocumento
+            ? (form.documento_chave ?? null)
+            : null,
+          documento_emitido_em: form.relacionarDocumento
+            ? (form.documento_emitido_em ?? null)
+            : null,
+          documento_valor: form.relacionarDocumento
+            ? (form.documento_valor ?? null)
+            : null,
+          documento_observacao: form.relacionarDocumento
+            ? (form.documento_observacao ?? null)
+            : null,
           // `pendente` fica de fora: a rota recusa alterá-lo, e mandar o valor
           // atual só criaria risco de recusa falsa se o form dessincronizasse.
         },

@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     if (!data?.chat_id) return NextResponse.json({ error: "Este destinatário ainda não iniciou o bot." }, { status: 409 });
     await sendTelegramMessage({
       chatId: Number(data.chat_id),
-      text: "✅ <b>Teste concluído</b>\n\nEste contato receberá os avisos de ordens de serviço configurados no ERP.",
+      text: "✅ <b>Teste concluído</b>\n\nEste contato receberá os avisos de OS, financeiro e estoque configurados no ERP.",
     });
     await supabaseAdmin
       .from("telegram_usuario_preferencia")

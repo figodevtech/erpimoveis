@@ -9,6 +9,11 @@ import { respostaSeEdicaoBloqueada } from "@/app/api/transaction/_lib/edicao";
 import { calculateFinancialTotal } from "@/lib/financial-surcharge";
 import { paraCentavos } from "@/lib/financeiro/rateio";
 import { origemDaTransacao, rotuloDaOrigem, valorDeFace } from "@/lib/financeiro/transacao";
+import {
+  aplicarCamposDocumento,
+  CAMPOS_DOCUMENTO,
+  erroDeDocumento,
+} from "@/app/api/transaction/_lib/documento";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -66,6 +71,8 @@ const TRANSACAO_FIELDS = `
   banco_id, nomepagador, cpfcnpjpagador, pendente, ordemservicoid, valorLiquido, vendaid,
   valor_base, valor_acrescimos, valor_descontos, adiantamento_id, eh_adiantamento,
   entrada_id, usoconsumo_entrada_id,
+  documento_tipo_id, documento_numero, documento_serie, documento_chave,
+  documento_emitido_em, documento_valor, documento_observacao,
   created_at, updated_at
 `;
 
@@ -241,6 +248,10 @@ function sanitizePayload(body: any, { strict }: { strict: boolean }) {
     }
   }
 
+  // Documento usa coerções próprias: data sem fuso, textos com teto e valor
+  // monetário não negativo. Chaves ausentes continuam ausentes no PATCH.
+  aplicarCamposDocumento(body, out);
+
   if (strict) {
     const required = [
       "descricao",
@@ -270,6 +281,40 @@ function sanitizePayload(body: any, { strict }: { strict: boolean }) {
 }
 
 /**
+ * Valida o estado final do documento, não apenas os campos que vieram no PATCH.
+ * Assim é possível corrigir somente o número de uma nota já vinculada, mas não
+ * apagar o tipo deixando os demais dados órfãos.
+ */
+async function respostaSeDocumentoInvalido(
+  id: string,
+  body: Record<string, unknown>,
+  payload: Record<string, unknown>,
+) {
+  const informouDocumento = CAMPOS_DOCUMENTO.some((campo) => campo in body);
+  if (!informouDocumento) return null;
+
+  const { data: atual, error } = await supabaseAdmin
+    .from("transacao")
+    .select(CAMPOS_DOCUMENTO.join(", "))
+    .eq("id", id)
+    .eq("is_deleted", false)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!atual) {
+    return NextResponse.json({ error: "Transação não encontrada." }, { status: 404 });
+  }
+
+  const mensagem = erroDeDocumento({
+    ...(atual as unknown as Record<string, unknown>),
+    ...payload,
+  });
+  return mensagem
+    ? NextResponse.json({ error: mensagem }, { status: 400 })
+    : null;
+}
+
+/**
  * id da transacao é bigint: mantemos como string numérica para evitar overflow.
  */
 async function parseId(ctx: Params) {
@@ -280,6 +325,72 @@ async function parseId(ctx: Params) {
     throw new Error("ID inválido.");
   }
   return raw;
+}
+
+type TransacaoComOrigem = {
+  competencia_em?: string | null;
+  ordemservicoid?: number | string | null;
+  vendaid?: number | string | null;
+  entrada_id?: number | string | null;
+  usoconsumo_entrada_id?: number | string | null;
+};
+
+/**
+ * Competência efetiva de uma transação vinculada.
+ *
+ * O vínculo torna o campo não editável, portanto a tela precisa mostrar a data
+ * do documento que realmente manda na competência — não uma cópia antiga (ou
+ * nula) em `transacao`. Em OS sem execução finalizada, nulo é intencional: o
+ * fato econômico ainda não foi reconhecido.
+ */
+async function competenciaEfetivaDaOrigem(transacao: TransacaoComOrigem) {
+  if (transacao.ordemservicoid != null) {
+    const { data, error } = await supabaseAdmin
+      .from("ordemservico")
+      .select("execucao_fim_em")
+      .eq("id", transacao.ordemservicoid)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? data.execucao_fim_em ?? null : transacao.competencia_em ?? null;
+  }
+
+  if (transacao.vendaid != null) {
+    const { data, error } = await supabaseAdmin
+      .from("venda")
+      .select("datavenda, createdat")
+      .eq("id", transacao.vendaid)
+      .maybeSingle();
+    if (error) throw error;
+    return data
+      ? data.datavenda ?? data.createdat ?? null
+      : transacao.competencia_em ?? null;
+  }
+
+  if (transacao.entrada_id != null) {
+    const { data, error } = await supabaseAdmin
+      .from("entrada")
+      .select("data_emissao, created_at")
+      .eq("id", transacao.entrada_id)
+      .maybeSingle();
+    if (error) throw error;
+    return data
+      ? data.data_emissao ?? data.created_at ?? null
+      : transacao.competencia_em ?? null;
+  }
+
+  if (transacao.usoconsumo_entrada_id != null) {
+    const { data, error } = await supabaseAdmin
+      .from("usoconsumo_entrada")
+      .select("data_emissao, created_at")
+      .eq("id", transacao.usoconsumo_entrada_id)
+      .maybeSingle();
+    if (error) throw error;
+    return data
+      ? data.data_emissao ?? data.created_at ?? null
+      : transacao.competencia_em ?? null;
+  }
+
+  return transacao.competencia_em ?? null;
 }
 
 /* ========================= GET ========================= */
@@ -315,7 +426,11 @@ export async function GET(_: Request, ctx: Params) {
       throw error;
     }
 
-    return NextResponse.json({ data });
+    const competenciaEfetiva = await competenciaEfetivaDaOrigem(data);
+
+    return NextResponse.json({
+      data: { ...data, competencia_em: competenciaEfetiva },
+    });
   } catch (e: any) {
     const msg = e?.message ?? "Erro ao buscar transação.";
     const authStatus = Number(e?.statusCode);
@@ -516,6 +631,8 @@ export async function PATCH(req: NextRequest, ctx: Params) {
     const edicaoBloqueada = await validarEdicaoDeTransacao(id, body);
     if (edicaoBloqueada) return edicaoBloqueada;
     const payload = sanitizePayload(body, { strict: false });
+    const documentoInvalido = await respostaSeDocumentoInvalido(id, body, payload);
+    if (documentoInvalido) return documentoInvalido;
 
     if (Object.keys(payload).length === 1 && "updated_at" in payload) {
       return NextResponse.json(
@@ -590,6 +707,8 @@ export async function PUT(req: NextRequest, ctx: Params) {
     const edicaoBloqueada = await validarEdicaoDeTransacao(id, body);
     if (edicaoBloqueada) return edicaoBloqueada;
     const payload = sanitizePayload(body, { strict: true });
+    const documentoInvalido = await respostaSeDocumentoInvalido(id, body, payload);
+    if (documentoInvalido) return documentoInvalido;
 
     const { data, error } = await supabaseAdmin
       .from("transacao")

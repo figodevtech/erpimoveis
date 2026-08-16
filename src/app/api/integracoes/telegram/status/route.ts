@@ -15,11 +15,22 @@ export async function GET() {
   try {
     await requireConfigAccess();
     const environment = getTelegramEnvironment();
-    const [{ count: connected }, pendingEvents, pendingDeliveries, failedDeliveries, latestRun, latestWebhookUpdate] = await Promise.all([
+    const [
+      { count: connected },
+      osPendingEvents,
+      osPendingDeliveries,
+      osFailedDeliveries,
+      stockPendingDeliveries,
+      stockFailedDeliveries,
+      latestRun,
+      latestWebhookUpdate,
+    ] = await Promise.all([
       supabaseAdmin.from("telegram_usuario_preferencia").select("usuario_id", { head: true, count: "exact" }).not("chat_id", "is", null),
       countRows("os_notificacao_evento", "status_processamento", ["PENDENTE", "PROCESSANDO", "ERRO"]),
       countRows("os_notificacao_entrega", "status", ["PENDENTE", "ENVIANDO"]),
       countRows("os_notificacao_entrega", "status", ["ERRO", "DESCARTADO"]),
+      countRows("telegram_estoque_entrega", "status", ["PENDENTE", "ENVIANDO"]),
+      countRows("telegram_estoque_entrega", "status", ["ERRO", "DESCARTADO"]),
       supabaseAdmin.from("telegram_processamento_execucao").select("status, resumo, erro, started_at, completed_at").order("id", { ascending: false }).limit(1).maybeSingle(),
       supabaseAdmin.from("telegram_webhook_update").select("created_at").eq("resultado", "PROCESSADO").order("created_at", { ascending: false }).limit(1).maybeSingle(),
     ]);
@@ -53,7 +64,23 @@ export async function GET() {
       bot,
       webhook,
       connectionError,
-      metrics: { connected: connected ?? 0, pendingEvents, pendingDeliveries, failedDeliveries },
+      metrics: {
+        connected: connected ?? 0,
+        pendingEvents: osPendingEvents,
+        pendingDeliveries: osPendingDeliveries + stockPendingDeliveries,
+        failedDeliveries: osFailedDeliveries + stockFailedDeliveries,
+        modules: {
+          os: {
+            pendingEvents: osPendingEvents,
+            pendingDeliveries: osPendingDeliveries,
+            failedDeliveries: osFailedDeliveries,
+          },
+          estoque: {
+            pendingDeliveries: stockPendingDeliveries,
+            failedDeliveries: stockFailedDeliveries,
+          },
+        },
+      },
       latestRun: latestRun.data ?? null,
     });
   } catch (error) {
