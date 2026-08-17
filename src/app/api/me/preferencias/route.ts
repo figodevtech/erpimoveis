@@ -59,8 +59,9 @@ export async function GET() {
 
     if (error) throw error;
 
-    // Sem linha gravada, preservamos o comportamento anterior do sistema.
-    const enabled = data?.radio_habilitado ?? true;
+    // Sem linha gravada, o player fica desligado: quem quiser ouvir liga em
+    // Preferencias.
+    const enabled = data?.radio_habilitado ?? false;
     return NextResponse.json(preferenceResponse(permitted, enabled), {
       headers: { "Cache-Control": "no-store" },
     });
