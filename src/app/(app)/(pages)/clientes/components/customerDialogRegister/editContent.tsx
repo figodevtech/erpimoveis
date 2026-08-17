@@ -121,8 +121,13 @@ const getStatusBadge = (status?: string | null) => {
     case "EM_ANDAMENTO":
       return <Badge variant="outline" className="border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-400">Aberta</Badge>;
     case "PENDENTE":
-    case "APROVACAO_ORCAMENTO":
       return <Badge variant="outline" className="border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400">Pendente</Badge>;
+    case "APROVACAO_ORCAMENTO":
+      return <Badge variant="outline" className="border-sky-500/20 bg-sky-500/10 text-sky-700 dark:text-sky-400">Aprovação orçamento</Badge>;
+    case "ORCAMENTO_APROVADO":
+      return <Badge variant="outline" className="border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">Orçamento aprovado</Badge>;
+    case "ORCAMENTO_RECUSADO":
+      return <Badge variant="outline" className="border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-400">Orçamento recusado</Badge>;
     case "CONCLUIDO":
     case "FINALIZADA":
       return <Badge variant="outline" className="border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">Finalizada</Badge>;

@@ -1,18 +1,17 @@
 "use client";
 
 import {
-  Barcode,
   Boxes,
+  CircleDollarSign,
   Hash,
   MapPin,
-  PackageCheck,
   PackageMinus,
   PackageSearch,
-  Pencil,
   Tag,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type {
   InventoryLabelItem,
   InventoryLabelKind,
@@ -26,6 +25,7 @@ type InventoryItemFoundCardProps = {
   subtitle?: string;
   onEdit?: () => void;
   onBaixa?: () => void;
+  showPurchaseValues?: boolean;
 };
 
 function stockStatusMeta(status: string | null | undefined) {
@@ -71,26 +71,25 @@ function formatQuantity(value: number | null | undefined) {
   return Number.isFinite(quantity) ? quantity.toLocaleString("pt-BR") : "0";
 }
 
-function matchByLabel(matchBy: InventoryLabelMatchBy) {
-  if (matchBy === "CODIGOBARRAS") return "Código de barras";
-  if (matchBy === "AMBOS") return "Etiqueta e código de barras";
-  return "Etiqueta";
+function formatCurrency(value: number | null | undefined) {
+  if (value === null || value === undefined) return "—";
+  const amount = Number(value);
+  return Number.isFinite(amount)
+    ? amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+    : "—";
 }
 
 export function InventoryItemFoundCard({
   kind,
   item,
-  matchBy,
-  subtitle = "Dados do estoque identificados",
-  onEdit,
   onBaixa,
+  showPurchaseValues = false,
 }: InventoryItemFoundCardProps) {
   const moduleName = kind === "PRODUTO" ? "Produto" : "Uso/consumo";
   const imageUrl = item.imgUrl || item.img_url;
   const status = stockStatusMeta(item.status_estoque);
   const itemName = item.titulo || `${moduleName} sem nome`;
   const unit = item.unidade ? ` ${item.unidade}` : "";
-  const editLabel = kind === "PRODUTO" ? "Editar" : "Editar";
   const semEstoque = Number(item.estoque ?? 0) <= 0;
 
   return (
@@ -153,27 +152,82 @@ export function InventoryItemFoundCard({
               </p>
             ) : null} */}
 
-            <div className="mt-4 flex flex-wrap gap-x-8 gap-y-3 border-l-2 border-foreground/15 pl-3">
-              <div>
-                <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <dl
+              className={cn(
+                "mt-4 border-l-2 border-foreground/15 pl-3",
+                showPurchaseValues
+                  ? cn(
+                      "grid grid-cols-2 gap-x-3 gap-y-3",
+                      kind === "PRODUTO" ? "sm:grid-cols-5" : "sm:grid-cols-4",
+                    )
+                  : "flex flex-wrap gap-x-8 gap-y-3",
+              )}
+            >
+              <div className="min-w-0">
+                <dt className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   <Boxes className="size-3" aria-hidden="true" /> Estoque atual
-                </p>
-                <p className="mt-0.5 text-2xl font-bold tabular-nums">
+                </dt>
+                <dd className="mt-0.5 text-2xl font-bold tabular-nums">
                   {formatQuantity(item.estoque)}
                   <span className="ml-1 text-xs font-medium text-muted-foreground">
                     {unit}
                   </span>
-                </p>
+                </dd>
               </div>
-              <div className="min-w-32">
-                <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <div className={showPurchaseValues ? "min-w-0" : "min-w-32"}>
+                <dt className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   <MapPin className="size-3" aria-hidden="true" /> Local atual
-                </p>
-                <p className="mt-1 break-words text-base font-semibold">
+                </dt>
+                <dd
+                  className={cn(
+                    "mt-1 font-semibold",
+                    showPurchaseValues ? "truncate text-sm" : "break-words text-base",
+                  )}
+                  title={item.local || "Não informado"}
+                >
                   {item.local || "Não informado"}
-                </p>
+                </dd>
               </div>
-            </div>
+              {showPurchaseValues ? (
+                <>
+                  <div className="min-w-0">
+                    <dt
+                      className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+                      title="Valor médio de compra"
+                    >
+                      <CircleDollarSign className="size-3" aria-hidden="true" /> Valor médio
+                    </dt>
+                    <dd className="mt-1 whitespace-nowrap text-sm font-semibold tabular-nums">
+                      {formatCurrency(item.precocompra)}
+                    </dd>
+                  </div>
+                  <div className="min-w-0">
+                    <dt
+                      className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+                      title="Último valor de compra"
+                    >
+                      <CircleDollarSign className="size-3" aria-hidden="true" /> Última compra
+                    </dt>
+                    <dd className="mt-1 whitespace-nowrap text-sm font-semibold tabular-nums">
+                      {formatCurrency(item.ultimovalordecompra)}
+                    </dd>
+                  </div>
+                  {kind === "PRODUTO" ? (
+                    <div className="min-w-0">
+                      <dt
+                        className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+                        title="Último valor unitário efetivo em venda finalizada ou OS concluída"
+                      >
+                        <CircleDollarSign className="size-3" aria-hidden="true" /> Última venda
+                      </dt>
+                      <dd className="mt-1 whitespace-nowrap text-sm font-semibold tabular-nums">
+                        {formatCurrency(item.ultimovalordevenda)}
+                      </dd>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+            </dl>
           </div>
         </div>
 

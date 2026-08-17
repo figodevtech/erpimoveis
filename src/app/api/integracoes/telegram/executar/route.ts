@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireConfigEdit } from "@/app/api/_authz/perms";
-import { processTelegramNotifications } from "@/lib/ordens/telegram-notifications";
+import { processTelegramNotificationQueues } from "@/lib/integrations/telegram-notification-processor";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -8,7 +8,7 @@ export const maxDuration = 60;
 export async function POST() {
   try {
     await requireConfigEdit();
-    const result = await processTelegramNotifications();
+    const result = await processTelegramNotificationQueues();
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     const statusCode = (error as { statusCode?: number })?.statusCode ?? 500;

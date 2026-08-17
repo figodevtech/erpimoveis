@@ -26,14 +26,22 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
-import { Separator } from "@/components/ui/separator";
 import { Dispatch, SetStateAction, useEffect, useState } from "react";
 import CustomerSelect from "@/app/(app)/components/customerSelect";
 import FornecedorSelect from "@/app/(app)/components/fornecedorSelect";
 import { formatCpfCnpj } from "../../utils";
 import axios, { isAxiosError } from "axios";
 import { toast } from "@/lib/toast";
-import { CalendarIcon, Info, Minus, Plus, Save } from "lucide-react";
+import {
+  CalendarIcon,
+  CircleDollarSign,
+  FileCheck2,
+  Info,
+  Minus,
+  Plus,
+  Save,
+  UserRound,
+} from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { useCategoriasTransacao } from "../../hooks/use-categoria-transacao";
@@ -72,6 +80,10 @@ import {
   RODAPE_FIXO,
   classesDoConteudo,
 } from "./shell";
+import {
+  TransactionBadge,
+  TransactionSection,
+} from "./transaction-dialog-ui";
 
 interface ParcelaFormulario {
   id: number;
@@ -130,7 +142,7 @@ function DatePickerField({
           variant="outline"
           disabled={disabled}
           className={cn(
-            "w-full justify-start text-left font-normal",
+            "h-10 w-full justify-start rounded-none text-left font-normal shadow-none",
             !value && "text-muted-foreground",
           )}
         >
@@ -165,6 +177,7 @@ interface RegisterContentProps {
   isDesktop?: boolean;
   internalCompanyExpense?: boolean;
   lockValue?: boolean;
+  maximumAmount?: number;
 }
 
 export default function RegisterContent({
@@ -182,6 +195,7 @@ export default function RegisterContent({
   isDesktop,
   internalCompanyExpense = false,
   lockValue = false,
+  maximumAmount,
 }: RegisterContentProps) {
   const [isCustomerSelectOpen, setIsCustomerSelectOpen] = useState(false);
   const [isFornecedorSelectOpen, setIsFornecedorSelectOpen] = useState(false);
@@ -258,6 +272,10 @@ export default function RegisterContent({
     : null;
   const canUseMesmoCliente =
     (Boolean(osId || vendaId) || clienteUnicoMultiplo != null) && !internalCompanyExpense;
+  const excedeSaldoDisponivel =
+    maximumAmount != null &&
+    maximumAmount >= 0 &&
+    paraCentavos(newTransaction.valor ?? 0) > paraCentavos(maximumAmount);
 
   const handleChange = (
     field: keyof NewTransaction,
@@ -574,6 +592,13 @@ export default function RegisterContent({
   const handleCreateTransaction = async () => {
     setIsSubmitting(true);
     try {
+      if (excedeSaldoDisponivel) {
+        toast.error("O valor informado ultrapassa o saldo disponível.", {
+          description: `O maior pagamento permitido agora é ${formatarEmReal(maximumAmount ?? 0)}.`,
+        });
+        return;
+      }
+
       // O tipo é o único campo exigido do documento: os demais dependem do papel
       // que se tem em mãos. É a mesma regra do CHECK no banco, dita antes para o
       // usuário ver uma frase em vez de um erro de constraint.
@@ -694,10 +719,16 @@ export default function RegisterContent({
           duration: 2000,
         });
 
-        // se existir, seta o id (fluxo fora de OS)
-        setSelectedTransactionId?.(
-          Array.isArray(created) ? created[0]?.id : created?.id,
-        );
+        // Pagamentos vinculados sempre voltam ao modo de cadastro. Manter o ID
+        // recém-criado faria o próximo clique em "Novo pagamento" abrir a edição
+        // do lançamento anterior.
+        if (osId || vendaId) {
+          setSelectedTransactionId?.(undefined);
+        } else {
+          setSelectedTransactionId?.(
+            Array.isArray(created) ? created[0]?.id : created?.id,
+          );
+        }
 
         // recarrega a lista da OS (quando veio por OS)
         handleGetTransactions?.();
@@ -810,39 +841,35 @@ export default function RegisterContent({
     <Content className={classesDoConteudo(Boolean(isDesktop))}>
       <div className={COLUNA_CHEIA}>
         <Header className={CABECALHO_FIXO}>
-          {osId && (
-            <Title>
-              OS #{osId}{" "}
-              <span className="text-muted-foreground text-sm font-light">
-                | TRANSAÇÃO
-              </span>
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">
+            Central financeira · Novo lançamento
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Title className="text-base font-bold uppercase tracking-[0.06em] text-foreground sm:text-lg">
+              {osId ? (
+                <>OS <span className="text-primary">#{osId}</span> · Transação</>
+              ) : vendaId ? (
+                <>Venda <span className="text-primary">#{vendaId}</span> · Transação</>
+              ) : pagamentoMultiplo ? (
+                <>Pagamento múltiplo</>
+              ) : (
+                "Nova transação"
+              )}
             </Title>
-          )}
-          {vendaId && (
-            <Title>
-              Venda #{vendaId}{" "}
-              <span className="text-muted-foreground text-sm font-light">
-                | TRANSAÇÃO
-              </span>
-            </Title>
-          )}
-          {pagamentoMultiplo && (
-            <Title>
-              Pagamento múltiplo{" "}
-              <span className="text-muted-foreground text-sm font-light">
-                | {pagamentoMultiplo.documentos.length}{" "}
-                {pagamentoMultiplo.tipoDocumento === "OS" ? "ORDENS" : "VENDAS"}
-              </span>
-            </Title>
-          )}
-          {!osId && !vendaId && !pagamentoMultiplo && <Title>Nova Transação</Title>}
-          <Description>
+            {pagamentoMultiplo ? (
+              <TransactionBadge tone="primary">
+                {pagamentoMultiplo.documentos.length}{" "}
+                {pagamentoMultiplo.tipoDocumento === "OS" ? "ordens" : "vendas"}
+              </TransactionBadge>
+            ) : null}
+          </div>
+          <Description className="max-w-3xl text-xs leading-relaxed sm:text-sm">
             {pagamentoMultiplo
               ? "Um lançamento só, rateado entre os documentos selecionados"
-              : "Preencha dados para registrar uma transação"}
+              : "Defina a movimentação, classifique o lançamento e identifique a contraparte."}
           </Description>
         </Header>
-        <div className={`${MIOLO_ROLAVEL} space-y-4 bg-background px-6 py-4`}>
+        <div className={`${MIOLO_ROLAVEL} space-y-4 bg-muted/25 px-4 py-4 sm:px-6 sm:py-5`}>
           {pagamentoMultiplo && (
             <PreviaDoRateio
               documentos={pagamentoMultiplo.documentos}
@@ -850,9 +877,14 @@ export default function RegisterContent({
               parcelas={parcelasDetalhadas.length || 1}
             />
           )}
-          <div className="rounded-lg border bg-card p-4 gap-3 flex flex-col">
+          <TransactionSection
+            eyebrow="Etapa principal"
+            title="Movimentação e classificação"
+            description="Informe natureza, valor, vencimento e organização contábil do lançamento."
+            icon={CircleDollarSign}
+          >
               {/* dados da transação */}
-              <div className="space-y-4 grid sm:grid-cols-3 gap-4">
+              <div className="grid gap-x-4 gap-y-5 sm:grid-cols-3">
                 <div className="space-y-2 w-full">
                   <Label htmlFor="tipo">
                     Tipo <span className="text-red-500">*</span>
@@ -906,11 +938,11 @@ export default function RegisterContent({
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-4 w-full">
+                <div className="space-y-2 w-full">
                   <Label>Lançamento futuro</Label>
-                  <div className="flex felx-row items-center gap-2">
+                  <div className="flex min-h-10 flex-row items-center gap-2 border border-border bg-muted/20 px-3">
                     <Switch
-                      className="hover:cursor-pointer"
+                      className="rounded-none hover:cursor-pointer"
                       disabled={
                         newTransaction.tipo === Tipo_transacao.SAQUE ||
                         newTransaction.tipo === Tipo_transacao.DEPOSITO
@@ -967,7 +999,7 @@ export default function RegisterContent({
                   />
                 </div>
                 <div className="space-y-2 w-full">
-                  <div className="p-0 m-0 mb-1 flex flex-row justify-between items-center">
+                  <div className="mb-1 flex items-center justify-between gap-2 p-0">
                     <Label htmlFor="valor">
                       Valor <span className="text-red-500">*</span>
                     </Label>
@@ -1002,6 +1034,23 @@ export default function RegisterContent({
                     setPrice={(v) => handleChange("valor", v)}
                     disabled={lockValue}
                   ></ValueInput>
+                  {maximumAmount != null ? (
+                    <div
+                      className={cn(
+                        "flex items-start gap-1.5 text-[11px]",
+                        excedeSaldoDisponivel
+                          ? "font-medium text-destructive"
+                          : "text-muted-foreground",
+                      )}
+                    >
+                      <Info className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
+                      <span>
+                        {excedeSaldoDisponivel
+                          ? `Valor acima do saldo de ${formatarEmReal(maximumAmount)}. Ajuste para continuar.`
+                          : `Saldo disponível para este lançamento: ${formatarEmReal(maximumAmount)}.`}
+                      </span>
+                    </div>
+                  ) : null}
                   {isChecked && (
                     <>
                       <div className="flex flex-row items-center justify-between">
@@ -1232,13 +1281,13 @@ export default function RegisterContent({
                   />
                 </div>
                 {metodoPermiteParcelas && !newTransaction.pendente && (
-                    <div className="w-full sm:col-span-3 rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">
+                    <div className="w-full border border-dashed border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground sm:col-span-3">
                       Ative `Lançamento futuro` para habilitar o parcelamento do
                       {" "}{nomeMetodoParcelado}.
                     </div>
                   )}
                 {canManageParcelas && (
-                  <div className="space-y-3 w-full sm:col-span-3 rounded-xl border bg-background/70 p-4">
+                  <div className="w-full space-y-3 border border-border bg-background p-4 sm:col-span-3">
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <p className="text-sm font-medium">
@@ -1264,14 +1313,16 @@ export default function RegisterContent({
                       {parcelasDetalhadas.map((parcela, index) => (
                         <div
                           key={parcela.id ?? index}
-                          className="relative flex flex-row items-center justify-between gap-4 rounded-xl bg-muted-foreground/5 px-3 py-6"
+                          className="relative flex flex-col gap-4 border border-border bg-muted/20 px-3 py-6 sm:flex-row sm:items-center sm:justify-between"
                         >
                           <span className="absolute left-3 top-1 text-xs text-muted-foreground">
                             {index + 1}º parcela
                           </span>
                           <button
                             type="button"
-                            className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 hover:cursor-pointer"
+                            className="flex size-11 shrink-0 items-center justify-center border border-destructive bg-destructive text-destructive-foreground hover:cursor-pointer sm:size-8"
+                            aria-label={`Remover ${index + 1}ª parcela`}
+                            title={`Remover ${index + 1}ª parcela`}
                             onClick={() => {
                               if (parcelasDetalhadas.length === 1) {
                                 toast.error(
@@ -1363,8 +1414,9 @@ export default function RegisterContent({
                       </span>
                     </div>
 
-                    <div
-                      className="group mt-3 flex w-max flex-row items-center gap-2 hover:cursor-pointer"
+                    <button
+                      type="button"
+                      className="group mt-3 flex h-11 w-max flex-row items-center gap-2 border border-border bg-background px-3 text-xs font-semibold hover:cursor-pointer hover:bg-muted/50 sm:h-9"
                       onClick={() =>
                         setParcelas((prev) => {
                           const next = [
@@ -1397,11 +1449,9 @@ export default function RegisterContent({
                         })
                       }
                     >
-                      <Plus className="h-4 w-4 text-green-300 group-hover:text-green-600" />
-                      <span className="text-xs text-card-foreground">
-                        Adicionar Parcela
-                      </span>
-                    </div>
+                      <Plus className="h-4 w-4 text-primary" />
+                      <span className="text-card-foreground">Adicionar parcela</span>
+                    </button>
                   </div>
                 )}
                 <div className="hidden space-y-2 w-full">
@@ -1455,16 +1505,17 @@ export default function RegisterContent({
                 </div>
               </div>
 
-              {/* dados do cliente */}
-              <div>
-                <span className=" text-xs text-muted-foreground">
-                  Dados do pagador/recebedor
-                </span>
-                <Separator />
-              </div>
+          </TransactionSection>
 
-              <div className="flex justify-end">
-                <div className="flex w-full items-center justify-end gap-4">
+          <TransactionSection
+            eyebrow="Contraparte"
+            title="Pagador ou recebedor"
+            description="Use um cadastro existente ou informe manualmente quem participa da movimentação."
+            icon={UserRound}
+          >
+
+              <div className="mb-4 border-b border-border pb-4">
+                <div className="flex w-full flex-wrap items-center justify-start gap-2 sm:justify-end">
                   {canUseMesmoCliente && (
                     <div className="flex items-center gap-2">
                       <Checkbox
@@ -1536,7 +1587,7 @@ export default function RegisterContent({
                         });
                         setSelectedCustomer(undefined);
                       }}
-                      className="hover:cursor-pointer"
+                      className="h-11 rounded-none hover:cursor-pointer sm:h-9"
                       variant={"ghost"}
                       size={"sm"}
                     >
@@ -1546,7 +1597,7 @@ export default function RegisterContent({
                     <Button
                       disabled={pagoPeloMesmo || internalCompanyExpense}
                       onClick={limparFornecedor}
-                      className="hover:cursor-pointer"
+                      className="h-11 rounded-none hover:cursor-pointer sm:h-9"
                       variant={"ghost"}
                       size={"sm"}
                     >
@@ -1557,7 +1608,7 @@ export default function RegisterContent({
                       <Button
                         disabled={pagoPeloMesmo || internalCompanyExpense}
                         onClick={() => setIsCustomerSelectOpen(true)}
-                        className="hover:cursor-pointer"
+                        className="h-11 rounded-none hover:cursor-pointer sm:h-9"
                         variant={"outline"}
                         size={"sm"}
                       >
@@ -1566,7 +1617,7 @@ export default function RegisterContent({
                       <Button
                         disabled={pagoPeloMesmo || internalCompanyExpense}
                         onClick={() => setIsFornecedorSelectOpen(true)}
-                        className="hover:cursor-pointer"
+                        className="h-11 rounded-none hover:cursor-pointer sm:h-9"
                         variant={"outline"}
                         size={"sm"}
                       >
@@ -1576,7 +1627,7 @@ export default function RegisterContent({
                   )}
                 </div>
               </div>
-              <div className="space-y-4 grid sm:grid-cols-2 gap-4">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2 w-full">
                   <Label htmlFor="nomepagador">
                     Nome do pagador/recebedor <span className="text-red-500">*</span>
@@ -1622,27 +1673,18 @@ export default function RegisterContent({
                 </div>
               </div>
 
-              {/* documento relacionado */}
-              <div>
-                <span className="text-xs text-muted-foreground">
-                  Documento relacionado
-                </span>
-                <Separator />
-              </div>
+          </TransactionSection>
 
-              <div className="flex flex-row items-center justify-between gap-4">
-                <div className="space-y-0.5">
-                  <Label
-                    htmlFor="relacionar-documento"
-                    className="cursor-pointer"
-                  >
-                    Relacionar com documento
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    Nota, recibo, comprovante — o papel que justifica o
-                    lançamento.
-                  </p>
-                </div>
+          <TransactionSection
+            eyebrow="Comprovação"
+            title="Documento relacionado"
+            description="Nota, recibo ou comprovante que justifica este lançamento."
+            icon={FileCheck2}
+            action={
+              <div className="flex items-center gap-2">
+                <Label htmlFor="relacionar-documento" className="cursor-pointer text-xs">
+                  Relacionar documento
+                </Label>
                 <Switch
                   id="relacionar-documento"
                   className="hover:cursor-pointer"
@@ -1650,9 +1692,11 @@ export default function RegisterContent({
                   onCheckedChange={alternarDocumento}
                 />
               </div>
+            }
+          >
 
               {relacionarDocumento && (
-                <div className="grid gap-4 sm:grid-cols-3 rounded-xl border bg-background/70 p-4">
+                <div className="grid gap-4 border border-border bg-muted/10 p-4 sm:grid-cols-3">
                   <div className="space-y-2 w-full">
                     <Label htmlFor="documento-tipo">
                       Tipo de documento <span className="text-red-500">*</span>
@@ -1760,20 +1804,25 @@ export default function RegisterContent({
                   </div>
                 </div>
               )}
-            </div>
-          </div>
+              {!relacionarDocumento ? (
+                <div className="border border-dashed border-border bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground">
+                  Ative a opção acima para informar os dados do documento.
+                </div>
+              ) : null}
+          </TransactionSection>
+        </div>
         <Footer className={RODAPE_FIXO}>
           <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row sm:gap-3">
             <Close asChild>
-              <Button className="w-full hover:cursor-pointer sm:w-auto" variant={"outline"}>
+              <Button className="h-11 w-full rounded-none hover:cursor-pointer sm:h-10 sm:w-auto" variant={"outline"}>
                 Cancelar
               </Button>
             </Close>
             <Button
               type="submit"
               form="register-form"
-              disabled={isSubmitting}
-              className="w-full hover:cursor-pointer sm:w-auto"
+              disabled={isSubmitting || excedeSaldoDisponivel}
+              className="h-11 w-full rounded-none hover:cursor-pointer sm:h-10 sm:w-auto"
               onClick={handleCreateTransaction}
             >
               {isSubmitting ? (

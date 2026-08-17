@@ -15,9 +15,10 @@ import {
   PRINT_DOCUMENT_HEADER_CSS,
   PrintDocumentHeader,
 } from "../../../components/PrintDocumentHeader";
-import { fetchPrimeiroLogoEmpresa } from "@/lib/empresa-logo";
+import { fetchLogoEmpresaDataUrl } from "@/lib/empresa-logo";
 import { fetchPrintColors } from "@/lib/print-config";
 import { getTermoAceiteOS, type AceiteAlvo } from "@/lib/print-aceite";
+import { loadPrintPaymentSummary } from "@/lib/print-payment-display-server";
 
 export const runtime = "nodejs";
 
@@ -235,8 +236,18 @@ export default async function OSFullPage({ params }: PageProps) {
   }
 
   const empresa = await fetchEmpresa();
-  const finalLogo = await fetchPrimeiroLogoEmpresa();
+  const finalLogo = await fetchLogoEmpresaDataUrl();
   const printColors = await fetchPrintColors();
+  const paymentSummary = await loadPrintPaymentSummary({
+    type: "OS",
+    documentId: osId,
+    status: os.status,
+    pagamentosPrevistos: Array.isArray(os.pagamentos_previstos)
+      ? os.pagamentos_previstos
+      : null,
+    formaPagamento: os.forma_pagamento ?? null,
+    parcelasPagamento: os.parcelas_pagamento ?? null,
+  });
 
   const totalProdutos =
     (os.produtos?.reduce((acc: number, p: any) => acc + toNumber(p.subtotal), 0) || 0) +
@@ -874,6 +885,13 @@ export default async function OSFullPage({ params }: PageProps) {
 
   .observacoes-box{ border: 1px solid var(--border); background: var(--soft-bg); border-radius: var(--radius); padding: 10px; }
 
+  .pagamentos-resumo{ margin-top:8px; padding-top:8px; border-top:1px solid var(--brand-primary); }
+  .pagamentos-titulo{ font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; color:var(--brand-primary); margin-bottom:5px; }
+  .pagamentos-lista{ display:grid; gap:4px; }
+  .pagamento-linha{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; font-size:10px; line-height:1.35; }
+  .pagamento-metodo{ font-weight:700; }
+  .pagamento-valor{ color:var(--brand-primary); font-weight:800; font-variant-numeric:tabular-nums; white-space:nowrap; }
+
   .os-observacoes { display: none; }
   html[data-os-observacoes="1"] .os-observacoes { display: block; }
 
@@ -882,6 +900,7 @@ export default async function OSFullPage({ params }: PageProps) {
   html[data-print-ocultar-valores] .col-desconto,
   html[data-print-ocultar-valores] .col-sub,
   html[data-print-ocultar-valores] .totais-box{ display:none !important; }
+  html[data-print-ocultar-valores] .pagamento-valor{ display:none !important; }
   html[data-print-ocultar-valores] .rodape{ grid-template-columns: 1fr !important; }
 
   /* ✅ Ocultar dados do cliente: some o cartão inteiro e as demais colunas ocupam a linha */
@@ -1356,6 +1375,32 @@ export default async function OSFullPage({ params }: PageProps) {
                   <span className="total-label">Total</span>
                   <span className="total-valor">{fmtMoney(totalGeral)}</span>
                 </div>
+
+                {paymentSummary ? (
+                  <div className="pagamentos-resumo">
+                    <div className="pagamentos-titulo">
+                      {paymentSummary.title}
+                    </div>
+                    <div className="pagamentos-lista">
+                      {paymentSummary.entries.map((payment, index) => (
+                        <div
+                          className="pagamento-linha"
+                          key={`${payment.metodo}-${index}`}
+                        >
+                          <span className="pagamento-metodo">
+                            {payment.label}
+                            {payment.parcelas ? ` em ${payment.parcelas}x` : ""}
+                          </span>
+                          {payment.valor != null ? (
+                            <span className="pagamento-valor">
+                              {fmtMoney(payment.valor)}
+                            </span>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </div>
               </div>
 

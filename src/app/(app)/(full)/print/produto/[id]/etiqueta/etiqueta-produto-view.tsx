@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import QRCode from "qrcode";
-import { Power } from "lucide-react";
+import { Power, Tag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -57,6 +57,7 @@ export function EtiquetaProdutoView({ produtoId, titulo, etiqueta, referencias }
   // depende de medida real de texto, que so o navegador tem. O molde abaixo e
   // renderizado fora da tela no tamanho verdadeiro e serve de regua.
   const moldeTextoRef = useRef<HTMLDivElement>(null);
+  const moldeCodigoRef = useRef<HTMLDivElement>(null);
   const moldeTituloRef = useRef<HTMLDivElement>(null);
   const moldeRefsRef = useRef<HTMLDivElement>(null);
   const [ajuste, setAjuste] = useState({
@@ -67,6 +68,7 @@ export function EtiquetaProdutoView({ produtoId, titulo, etiqueta, referencias }
 
   useLayoutEffect(() => {
     const caixa = moldeTextoRef.current;
+    const codigoEl = moldeCodigoRef.current;
     const tituloEl = moldeTituloRef.current;
     const refsEl = moldeRefsRef.current;
     if (!caixa || !tituloEl) return;
@@ -75,10 +77,14 @@ export function EtiquetaProdutoView({ produtoId, titulo, etiqueta, referencias }
     if (alturaCaixa <= 0) return;
 
     const alturaLinhaRef = refsEl ? parseFloat(getComputedStyle(refsEl).lineHeight) || 0 : 0;
+    const gap = parseFloat(getComputedStyle(caixa).rowGap) || 0;
+    // O codigo da etiqueta nunca encolhe nem e cortado: e a identidade da peca
+    // e o que o conferente le. Sai do espaco antes de o titulo disputar o resto.
+    const alturaCodigo = codigoEl ? codigoEl.getBoundingClientRect().height + gap : 0;
     // Uma linha de referencia fica reservada de saida: etiqueta com titulo
     // gigante e nenhuma referencia visivel nao ajuda quem procura a peca.
-    const reserva = referencias.length ? alturaLinhaRef : 0;
-    const espacoTitulo = Math.max(0, alturaCaixa - reserva);
+    const reserva = referencias.length ? alturaLinhaRef + gap : 0;
+    const espacoTitulo = Math.max(0, alturaCaixa - alturaCodigo - reserva);
 
     tituloEl.style.webkitLineClamp = "unset";
     let pt = preset.fonts.titulo;
@@ -95,12 +101,11 @@ export function EtiquetaProdutoView({ produtoId, titulo, etiqueta, referencias }
     // fecha com reticencias em vez de cortar a frase no meio de uma linha.
     const tituloLinhas = Math.max(1, Math.floor(Math.max(espacoTitulo, alturaLinhaTitulo) / alturaLinhaTitulo));
     const alturaTitulo = Math.min(tituloEl.scrollHeight, tituloLinhas * alturaLinhaTitulo);
-    const gap = parseFloat(getComputedStyle(caixa).rowGap) || 0;
-    const sobra = alturaCaixa - alturaTitulo - (referencias.length ? gap : 0);
+    const sobra = alturaCaixa - alturaCodigo - alturaTitulo - (referencias.length ? gap : 0);
     const refsLinhas = alturaLinhaRef > 0 ? Math.max(0, Math.floor(sobra / alturaLinhaRef)) : 0;
 
     setAjuste({ tituloPt: pt, tituloLinhas, refsLinhas });
-  }, [preset, titulo, textoReferencias, referencias.length]);
+  }, [preset, etiqueta, titulo, textoReferencias, referencias.length]);
 
   const total = useMemo(() => {
     const bruto = Number(copias);
@@ -183,6 +188,22 @@ export function EtiquetaProdutoView({ produtoId, titulo, etiqueta, referencias }
           justify-content:center;
           gap:0.6mm;
           overflow:hidden;
+        }
+        .label .codigo{
+          font-size:${preset.fonts.codigo}pt;
+          line-height:1.15;
+          font-weight:800;
+          letter-spacing:0.02em;
+          display:flex;
+          align-items:center;
+          justify-content:${preset.layout === "stack" ? "center" : "flex-start"};
+          gap:0.35em;
+          overflow-wrap:anywhere;
+        }
+        .label .codigo svg{
+          width:1em;
+          height:1em;
+          flex:0 0 auto;
         }
         .label .titulo{
           line-height:1.15;
@@ -289,6 +310,10 @@ export function EtiquetaProdutoView({ produtoId, titulo, etiqueta, referencias }
       <div className="label molde no-print" aria-hidden>
         <div className="qr" />
         <div className="texto" ref={moldeTextoRef}>
+          <div className="codigo" ref={moldeCodigoRef}>
+            <Tag />
+            {etiqueta}
+          </div>
           <div className="titulo" ref={moldeTituloRef} style={{ fontSize: `${preset.fonts.titulo}pt` }}>
             {titulo || `Produto #${produtoId}`}
           </div>
@@ -308,6 +333,10 @@ export function EtiquetaProdutoView({ produtoId, titulo, etiqueta, referencias }
               {qrDataUrl ? <img src={qrDataUrl} alt={`QR ${etiqueta}`} /> : null}
             </div>
             <div className="texto">
+              <div className="codigo">
+                <Tag />
+                {etiqueta}
+              </div>
               <div
                 className="titulo"
                 style={{ fontSize: `${ajuste.tituloPt}pt`, WebkitLineClamp: ajuste.tituloLinhas }}

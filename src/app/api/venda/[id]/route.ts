@@ -14,6 +14,9 @@ import type { PlannedPayment } from "@/lib/payment-methods";
 
 type Status =
   | "ORCAMENTO"
+  | "APROVACAO_ORCAMENTO"
+  | "ORCAMENTO_APROVADO"
+  | "ORCAMENTO_RECUSADO"
   | "ABERTA"
   | "PAGAMENTO"
   | "PENDENTE"
@@ -24,6 +27,9 @@ type Status =
   | "CANCELADO";
 const STATUS_SET = new Set<Status>([
   "ORCAMENTO",
+  "APROVACAO_ORCAMENTO",
+  "ORCAMENTO_APROVADO",
+  "ORCAMENTO_RECUSADO",
   "ABERTA",
   "PAGAMENTO",
   "PENDENTE",
@@ -64,6 +70,7 @@ const VENDA_SELECT = `
     rank
   ),
   status,
+  statusaprovacao,
   categoriavendaid,
   categoria_venda:categoriavendaid (
     id,
@@ -102,6 +109,7 @@ const VENDA_SELECT = `
   valor_frete,
   acrescimo_financeiro_tipo,
   acrescimo_financeiro_valor,
+  descricao,
   observacoes,
   observacoes_fiscais,
   forma_pagamento,
@@ -110,6 +118,16 @@ const VENDA_SELECT = `
   garantia,
   parcelas_pagamento,
   sub_total,
+  transacoes:transacao!transacao_vendaid_fkey (
+    id,
+    valor,
+    valorLiquido,
+    valor_acrescimos,
+    tipo,
+    pendente,
+    is_deleted,
+    evento_financeiro_id
+  ),
   itens:vendaproduto (
     id,
     venda_id,
@@ -119,6 +137,7 @@ const VENDA_SELECT = `
     valor_total,
     valor_desconto,
     tipo_desconto,
+    valor_frete,
     created_at,
     updated_at,
     produto:produtoid (
@@ -164,6 +183,7 @@ type VendaPatchBody = {
   subTotal?: number;
   valorTotal?: number;
   dataVenda?: string | null; // ISO string
+  descricao?: string | null;
   observacoes?: string | null;
   observacoesFiscais?: string | null;
   vendedor?: string | null;
@@ -174,6 +194,7 @@ type VendaPatchBody = {
     precoUnitario?: number;
     valorDesconto?: number | null;
     tipoDesconto?: string | null;
+    valorFrete?: number | null;
     subTotal?: number;
     valorTotal?: number;
   }>;
@@ -303,7 +324,76 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       );
     }
 
-    if (String(body.status ?? "").toUpperCase() === "PAGAMENTO") {
+    const statusSolicitado = String(body.status ?? "").toUpperCase();
+
+    if (statusSolicitado === "ORCAMENTO_APROVADO") {
+      const atual = await supabaseAdmin
+        .from("venda")
+        .select("status, valortotal")
+        .eq("id", vendaId)
+        .maybeSingle();
+      if (atual.error) throw atual.error;
+      if (!atual.data) return NextResponse.json({ error: "Venda não encontrada." }, { status: 404 });
+
+      const statusAtual = String(atual.data.status).toUpperCase();
+      if (["ORCAMENTO", "APROVACAO_ORCAMENTO", "ORCAMENTO_APROVADO"].includes(statusAtual)) {
+        const dadosFinanceiro = await normalizarDadosParaFinanceiro(
+          body,
+          Math.round(Number(atual.data.valortotal ?? 0) * 100),
+        );
+        if ("erro" in dadosFinanceiro) {
+          return NextResponse.json({ error: dadosFinanceiro.erro }, { status: 400 });
+        }
+
+        const dadosAprovacao = {
+          formaPagamento: body.formaPagamento ?? null,
+          pagamentosPrevistos:
+            dadosFinanceiro.colunas.pagamentos_previstos === undefined
+              ? undefined
+              : dadosFinanceiro.colunas.pagamentos_previstos,
+          parcelasPagamento:
+            dadosFinanceiro.colunas.parcelas_pagamento === undefined
+              ? undefined
+              : dadosFinanceiro.colunas.parcelas_pagamento,
+          descricaoFinanceiro:
+            dadosFinanceiro.colunas.descricao_financeiro === undefined
+              ? undefined
+              : dadosFinanceiro.colunas.descricao_financeiro,
+          garantia:
+            dadosFinanceiro.colunas.garantia === undefined
+              ? undefined
+              : dadosFinanceiro.colunas.garantia,
+          descricao: body.descricao === undefined ? undefined : String(body.descricao ?? "").trim() || null,
+          observacoes:
+            body.observacoes === undefined ? undefined : String(body.observacoes ?? "").trim() || null,
+          observacoesFiscais:
+            body.observacoesFiscais === undefined
+              ? undefined
+              : String(body.observacoesFiscais ?? "").trim() || null,
+        };
+
+        const aprovacao = await supabaseAdmin.rpc("aprovar_orcamento_venda", {
+          p_venda_id: vendaId,
+          p_dados: dadosAprovacao,
+          p_usuario_id: usuarioInternoId,
+        });
+        if (aprovacao.error) {
+          const message = aprovacao.error.message || "Não foi possível aprovar o orçamento.";
+          const statusCode = /estoque|orçamento|orcamento/i.test(message) ? 409 : 500;
+          return NextResponse.json({ error: message }, { status: statusCode });
+        }
+        const refreshed = await supabaseAdmin.from("venda").select(VENDA_SELECT).eq("id", vendaId).single();
+        if (refreshed.error) throw refreshed.error;
+        return NextResponse.json({ message: "Orçamento aprovado com sucesso.", data: refreshed.data });
+      }
+
+      return NextResponse.json(
+        { error: "Esta venda não pode ser aprovada no status atual." },
+        { status: 409 },
+      );
+    }
+
+    if (statusSolicitado === "PAGAMENTO") {
       const atual = await supabaseAdmin
         .from("venda")
         .select("status")
@@ -312,22 +402,28 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       if (atual.error) throw atual.error;
       if (!atual.data) return NextResponse.json({ error: "Venda não encontrada." }, { status: 404 });
 
-      if (String(atual.data.status).toUpperCase() === "ORCAMENTO") {
-        const aprovacao = await supabaseAdmin.rpc("fn_aprovar_orcamento_venda", {
+      const statusAtual = String(atual.data.status).toUpperCase();
+      if (statusAtual === "ORCAMENTO_APROVADO") {
+        const avancar = await supabaseAdmin.rpc("avancar_venda_aprovada_pagamento", {
           p_venda_id: vendaId,
-          p_forma_pagamento: body.formaPagamento ?? null,
+          p_usuario_id: usuarioInternoId,
         });
-        if (aprovacao.error) {
-          const message = aprovacao.error.message || "Não foi possível aprovar o orçamento.";
-          const statusCode = /estoque|orçamento|orcamento/i.test(message) ? 409 : 500;
+        if (avancar.error) {
+          const message = avancar.error.message || "Não foi possível avançar a venda para pagamento.";
+          const statusCode = /estoque|saldo|aprovado/i.test(message) ? 409 : 500;
           return NextResponse.json({ error: message }, { status: statusCode });
         }
-        if (usuarioInternoId) {
-          await supabaseAdmin.from("venda").update({ updated_by: usuarioInternoId }).eq("id", vendaId);
-        }
+
         const refreshed = await supabaseAdmin.from("venda").select(VENDA_SELECT).eq("id", vendaId).single();
         if (refreshed.error) throw refreshed.error;
-        return NextResponse.json({ message: "Orçamento aprovado com sucesso.", data: refreshed.data });
+        return NextResponse.json({ message: "Venda encaminhada para pagamento.", data: refreshed.data });
+      }
+
+      if (["ORCAMENTO", "APROVACAO_ORCAMENTO", "ORCAMENTO_RECUSADO"].includes(statusAtual)) {
+        return NextResponse.json(
+          { error: "Aprove o orçamento antes de encaminhá-lo para pagamento." },
+          { status: 409 },
+        );
       }
     }
 
@@ -351,6 +447,7 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       subTotal,
       valorTotal,
       dataVenda,
+      descricao,
       observacoes,
       observacoesFiscais,
       vendedor,
@@ -378,6 +475,7 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       subTotal === undefined &&
       valorTotal === undefined &&
       dataVenda === undefined &&
+      descricao === undefined &&
       observacoes === undefined &&
       observacoesFiscais === undefined &&
       vendedor === undefined &&
@@ -403,6 +501,7 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       valorTotal: number;
       valorDesconto: number;
       tipoDesconto: "FIXO" | "PORCENTAGEM" | null;
+      valorFrete: number;
     }> | null = null;
     let resolvedSubTotal = subTotal;
     let resolvedValorTotal = valorTotal;
@@ -454,6 +553,7 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
 
       normalizedItems = [];
       let itemDiscountTotal = 0;
+      let itemFreightTotal = 0;
 
       for (const item of itens) {
         const produtoId = Number(item.produtoId);
@@ -464,6 +564,7 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
             ? item.tipoDesconto
             : null;
         const valorDescontoItem = tipoDescontoItem ? Number(item.valorDesconto ?? 0) : 0;
+        const valorFreteItem = Number(item.valorFrete ?? 0);
 
         if (!Number.isInteger(quantidade) || quantidade <= 0) {
           return NextResponse.json(
@@ -483,6 +584,12 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
             { status: 400 },
           );
         }
+        if (!Number.isFinite(valorFreteItem) || valorFreteItem < 0) {
+          return NextResponse.json(
+            { error: `O frete do produto ${produtoId} é inválido.` },
+            { status: 400 },
+          );
+        }
 
         const itemSubTotal = roundSaleMoney(precoUnitario * quantidade);
         const itemDiscountApplied = tipoDescontoItem === "PORCENTAGEM"
@@ -496,14 +603,16 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
         }
 
         itemDiscountTotal += itemDiscountApplied;
+        itemFreightTotal += roundSaleMoney(valorFreteItem);
         normalizedItems.push({
           produtoId,
           quantidade,
           precoUnitario: roundSaleMoney(precoUnitario),
           subTotal: itemSubTotal,
-          valorTotal: roundSaleMoney(itemSubTotal - itemDiscountApplied),
+          valorTotal: roundSaleMoney(itemSubTotal - itemDiscountApplied + valorFreteItem),
           valorDesconto: roundSaleMoney(valorDescontoItem),
           tipoDesconto: tipoDescontoItem,
+          valorFrete: roundSaleMoney(valorFreteItem),
         });
       }
 
@@ -527,7 +636,7 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
           ? Math.min(baseGeneralDiscount, roundSaleMoney(Number(resolvedDescontoValor ?? 0)))
           : 0;
       resolvedValorTotal = roundSaleMoney(
-        baseGeneralDiscount - generalDiscount + Number(resolvedValorFrete ?? 0),
+        baseGeneralDiscount + itemFreightTotal - generalDiscount + Number(resolvedValorFrete ?? 0),
       );
     }
 
@@ -732,8 +841,11 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       updatePayload.valortotal = resolvedValorTotal;
     }
     if (dataVenda !== undefined) updatePayload.datavenda = dataVenda;
-    if (observacoes !== undefined) updatePayload.observacoes = observacoes;
-    if (observacoesFiscais !== undefined) updatePayload.observacoes_fiscais = observacoesFiscais;
+    if (descricao !== undefined) updatePayload.descricao = String(descricao ?? "").trim() || null;
+    if (observacoes !== undefined) updatePayload.observacoes = String(observacoes ?? "").trim() || null;
+    if (observacoesFiscais !== undefined) {
+      updatePayload.observacoes_fiscais = String(observacoesFiscais ?? "").trim() || null;
+    }
     if (vendedor !== undefined) updatePayload.vendedor = vendedor;
     if (categoriaVendaId !== undefined) {
       if (categoriaVendaId === null) {

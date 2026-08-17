@@ -1,6 +1,14 @@
 "use client";
 
-import { Info, Lock } from "lucide-react";
+import {
+  CalendarClock,
+  CircleDollarSign,
+  FileCheck2,
+  Info,
+  Lock,
+  Tags,
+  UserRound,
+} from "lucide-react";
 
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
@@ -12,7 +20,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import ValueInput from "@/components/ui/value-input";
 import { toast } from "@/lib/toast";
@@ -23,6 +30,7 @@ import { useBancos } from "../../../hooks/use-bancos";
 import { useCategoriasTransacao } from "../../../hooks/use-categoria-transacao";
 import { useCentrosCusto } from "../../../hooks/use-centros-custo";
 import { usePlanosDeConta } from "../../../hooks/use-planos-de-conta";
+import { useTiposDocumento } from "../../../hooks/use-tipos-documento";
 import { Metodo_pagamento, Tipo_transacao } from "../../../types";
 import {
   origemDaTransacao,
@@ -34,7 +42,8 @@ import {
 import { formatCpfCnpj } from "../../../utils";
 import { PlanoContaCombobox } from "../../plano-conta-combobox";
 import { SearchCombobox } from "../../search-combobox";
-import { paraValorDeInputDate, parseLocalDateTime } from "../datas";
+import { paraDataDaApi, paraValorDeInputDate, parseLocalDateTime } from "../datas";
+import { TransactionSection } from "../transaction-dialog-ui";
 import type { FormularioTransacao } from "../use-transacao-edicao";
 
 interface DetalhesTabProps {
@@ -170,7 +179,7 @@ function BlocoDeValores({
 
       <div className="space-y-2">
         <Label>Descontos</Label>
-        <div className="flex h-9 items-center rounded-md border bg-muted/30 px-3 text-sm font-medium tabular-nums">
+        <div className="flex h-10 items-center border bg-muted/30 px-3 text-sm font-medium tabular-nums">
           {taxa > 0 ? (
             <span className="text-destructive">- {formatarEmReal(taxa)}</span>
           ) : (
@@ -203,6 +212,8 @@ export function DetalhesTab({
   const { categorias, loadingCategorias, errorCategorias } = useCategoriasTransacao();
   const { gruposPlanosDeConta, loadingPlanos } = usePlanosDeConta();
   const { centrosCusto, loadingCentrosCusto, errorCentrosCusto } = useCentrosCusto();
+  const { tiposDocumento, loadingTiposDocumento, errorTiposDocumento } =
+    useTiposDocumento();
 
   /**
    * A antecipação que liquidou este título, quando há uma.
@@ -278,9 +289,34 @@ export function DetalhesTab({
     setCampo("data", selecionada);
   };
 
+  const alternarDocumento = (relacionar: boolean) => {
+    setForm((atual) => {
+      if (!atual) return atual;
+      if (relacionar) return { ...atual, relacionarDocumento: true };
+
+      return {
+        ...atual,
+        relacionarDocumento: false,
+        documento_tipo_id: null,
+        documento_numero: null,
+        documento_serie: null,
+        documento_chave: null,
+        documento_emitido_em: null,
+        documento_valor: null,
+        documento_observacao: null,
+      };
+    });
+  };
+
   return (
-    <div className="flex flex-col gap-4 rounded-lg border bg-card p-4">
-      <div className="grid gap-4 sm:grid-cols-3">
+    <div className="flex flex-col gap-4">
+      <TransactionSection
+        eyebrow="Movimentação"
+        title="Operação e valores"
+        description="Natureza do lançamento, situação financeira e composição do valor."
+        icon={CircleDollarSign}
+      >
+      <div className="grid gap-x-4 gap-y-5 sm:grid-cols-3">
         <div className="w-full space-y-2">
           <Label htmlFor="tipo" className="flex items-center gap-1.5">
             Tipo <span className="text-red-500">*</span>
@@ -373,7 +409,16 @@ export function DetalhesTab({
           permiteEditarValor={permiteEditarValor}
           descontos={descontos}
         />
+      </div>
+      </TransactionSection>
 
+      <TransactionSection
+        eyebrow="Organização financeira"
+        title="Classificação contábil"
+        description="Conta de destino, categoria, plano de conta e centro de custo."
+        icon={Tags}
+      >
+      <div className="grid gap-x-4 gap-y-5 sm:grid-cols-2 lg:grid-cols-4">
         <div className="w-full space-y-2">
           <Label htmlFor="banco" className="flex items-center gap-1.5">
             Banco
@@ -495,15 +540,24 @@ export function DetalhesTab({
             }))}
           />
         </div>
+      </div>
+      </TransactionSection>
 
-        <div className="w-full space-y-2 sm:col-span-3">
+      <TransactionSection
+        eyebrow="Agenda e identificação"
+        title="Datas e descrições"
+        description="Vencimento ou pagamento, competência gerencial e textos de identificação."
+        icon={CalendarClock}
+      >
+      <div className="grid gap-x-4 gap-y-5 sm:grid-cols-2">
+        <div className="w-full space-y-2">
           <Label htmlFor="data">
             {form.pendente ? "Data de vencimento" : "Data do pagamento"}
           </Label>
           <DatePicker
             disabled={!editavel}
             value={paraValorDeInputDate(form.data)}
-            className="w-full sm:max-w-xs"
+            className="h-10 w-full rounded-none shadow-none sm:max-w-xs"
             // Sem piso: um título a vencer pode estar vencido, e a data dele
             // precisa continuar editável. O teto para transação já realizada
             // fica: dinheiro que entrou não entra amanhã.
@@ -512,7 +566,7 @@ export function DetalhesTab({
           />
         </div>
 
-        <div className="w-full space-y-2 sm:col-span-3">
+        <div className="w-full space-y-2">
           <Label htmlFor="competencia" className="flex items-center gap-1.5">
             Competência
             {competenciaEditavel ? null : (
@@ -521,22 +575,22 @@ export function DetalhesTab({
           </Label>
           <DatePicker
             disabled={!competenciaEditavel}
-            value={paraValorDeInputDate(
-              form.competencia_em ? new Date(form.competencia_em) : undefined,
-            )}
-            className="w-full sm:max-w-xs"
+            value={paraValorDeInputDate(paraDataDaApi(form.competencia_em))}
+            className="h-10 w-full rounded-none shadow-none sm:max-w-xs"
             onChange={alterarCompetencia}
           />
           <p className="text-xs text-muted-foreground">
             {competenciaEditavel
-              ? "A que mês o fato pertence na DRE. Conta de julho paga em agosto pertence a julho."
+              ? "A que mês o fato pertence na DRE. Conta de julho sendo paga em agosto pertence a julho."
+              : documentoDaCompetencia && !form.competencia_em
+                ? `A ${documentoDaCompetencia} ainda não possui data de competência definida.`
               : documentoDaCompetencia
-                ? `Definida pela ${documentoDaCompetencia} e acompanha ela. Para mudar o mês na DRE, altere no próprio documento.`
+                ? `Definida pela ${documentoDaCompetencia} e acompanha ela.`
                 : "Vem do documento de origem e acompanha ele."}
           </p>
         </div>
 
-        <div className="w-full space-y-2 sm:col-span-3">
+        <div className="w-full space-y-2 sm:col-span-2">
           <Label htmlFor="descricao">
             Descrição <span className="text-red-500">*</span>
           </Label>
@@ -549,7 +603,7 @@ export function DetalhesTab({
           />
         </div>
 
-        <div className="w-full space-y-2 sm:col-span-3">
+        <div className="w-full space-y-2 sm:col-span-2">
           <Label htmlFor="descricao-pagamento">Descrição do pagamento</Label>
           <Input
             id="descricao-pagamento"
@@ -560,14 +614,16 @@ export function DetalhesTab({
           />
         </div>
       </div>
+      </TransactionSection>
 
-      <div>
-        <span className="text-xs text-muted-foreground">Dados do pagador/recebedor</span>
-        <Separator className="mt-1" />
-      </div>
-
-      {form.fornecedor ? (
-        <div className="rounded-lg border bg-muted/30 px-3 py-2">
+      <TransactionSection
+        eyebrow="Contraparte"
+        title="Pagador ou recebedor"
+        description="Identificação de quem realizou ou recebeu o pagamento."
+        icon={UserRound}
+      >
+        {form.fornecedor ? (
+        <div className="mb-4 border border-border bg-muted/30 px-3 py-2">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             Fornecedor vinculado
           </p>
@@ -577,7 +633,7 @@ export function DetalhesTab({
               `Fornecedor #${form.fornecedor.id}`}
           </p>
         </div>
-      ) : null}
+        ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="w-full space-y-2">
@@ -606,6 +662,146 @@ export function DetalhesTab({
           </p>
         </div>
       </div>
+      </TransactionSection>
+
+      <TransactionSection
+        eyebrow="Comprovação"
+        title="Documento relacionado"
+        description="Nota, recibo ou comprovante que justifica este lançamento."
+        icon={FileCheck2}
+        action={
+          <div className="flex items-center gap-2">
+            <Label htmlFor="editar-relacionar-documento" className="cursor-pointer text-xs">
+              Relacionar documento
+            </Label>
+            <Switch
+              id="editar-relacionar-documento"
+              disabled={!editavel}
+              checked={form.relacionarDocumento}
+              onCheckedChange={alternarDocumento}
+            />
+          </div>
+        }
+      >
+        {form.relacionarDocumento ? (
+          <div className="grid gap-4 border border-border bg-muted/10 p-4 sm:grid-cols-3">
+            <div className="w-full space-y-2">
+              <Label htmlFor="editar-documento-tipo">
+                Tipo de documento <span className="text-red-500">*</span>
+              </Label>
+              <SearchCombobox
+                disabled={!editavel || loadingTiposDocumento || !!errorTiposDocumento}
+                loading={loadingTiposDocumento}
+                value={form.documento_tipo_id?.toString() || ""}
+                onValueChange={(valor) =>
+                  setCampo("documento_tipo_id", valor ? Number(valor) : null)
+                }
+                placeholder={
+                  form.documento_tipo_id
+                    ? `Tipo #${form.documento_tipo_id}`
+                    : errorTiposDocumento
+                      ? "Erro ao carregar"
+                      : "Selecione"
+                }
+                searchPlaceholder="Pesquisar documento..."
+                emptyMessage="Nenhum tipo de documento encontrado."
+                options={tiposDocumento.map((tipo) => ({
+                  value: String(tipo.id),
+                  label: tipo.nome,
+                  description: tipo.descricao ?? undefined,
+                }))}
+              />
+            </div>
+
+            <div className="w-full space-y-2">
+              <Label htmlFor="editar-documento-numero">Número</Label>
+              <Input
+                id="editar-documento-numero"
+                disabled={!editavel}
+                maxLength={60}
+                value={form.documento_numero || ""}
+                onChange={(evento) =>
+                  setCampo("documento_numero", evento.target.value)
+                }
+                placeholder="Ex.: 1234"
+              />
+            </div>
+
+            <div className="w-full space-y-2">
+              <Label htmlFor="editar-documento-serie">Série</Label>
+              <Input
+                id="editar-documento-serie"
+                disabled={!editavel}
+                maxLength={20}
+                value={form.documento_serie || ""}
+                onChange={(evento) =>
+                  setCampo("documento_serie", evento.target.value)
+                }
+                placeholder="Ex.: 1"
+              />
+            </div>
+
+            <div className="w-full space-y-2">
+              <Label htmlFor="editar-documento-emissao">Data de emissão</Label>
+              <DatePicker
+                disabled={!editavel}
+                value={form.documento_emitido_em || ""}
+                onChange={(valor) => setCampo("documento_emitido_em", valor || null)}
+                className="h-10 w-full rounded-none shadow-none"
+              />
+            </div>
+
+            <div className="w-full space-y-2">
+              <Label htmlFor="editar-documento-valor">Valor do documento</Label>
+              <ValueInput
+                id="editar-documento-valor"
+                disabled={!editavel}
+                value={Number(form.documento_valor ?? 0)}
+                onValueChange={(valor) => setCampo("documento_valor", valor)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Só referência. Não altera o valor da transação.
+              </p>
+            </div>
+
+            <div className="w-full space-y-2 sm:col-span-3">
+              <Label htmlFor="editar-documento-chave">
+                Chave de acesso ou código de verificação
+              </Label>
+              <Input
+                id="editar-documento-chave"
+                disabled={!editavel}
+                maxLength={120}
+                value={form.documento_chave || ""}
+                onChange={(evento) =>
+                  setCampo("documento_chave", evento.target.value)
+                }
+                placeholder="Chave da NF-e/NFS-e, ou o código do comprovante"
+              />
+            </div>
+
+            <div className="w-full space-y-2 sm:col-span-3">
+              <Label htmlFor="editar-documento-observacao">Observação</Label>
+              <Input
+                id="editar-documento-observacao"
+                disabled={!editavel}
+                maxLength={500}
+                value={form.documento_observacao || ""}
+                onChange={(evento) =>
+                  setCampo("documento_observacao", evento.target.value)
+                }
+                placeholder="Ex.: nota do fornecedor referente à peça trocada"
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="border border-dashed border-border bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground">
+            {editavel
+              ? "Ative a opção acima para relacionar um documento."
+              : "Nenhum documento relacionado a esta transação."}
+          </div>
+        )}
+      </TransactionSection>
     </div>
   );
 }

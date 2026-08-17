@@ -10,12 +10,13 @@ import {
   PRINT_DOCUMENT_HEADER_CSS,
   PrintDocumentHeader,
 } from "../../../../components/PrintDocumentHeader";
-import { FileText, Power, ShoppingCart, Tag, User } from "lucide-react";
+import { FileText, Power, Tag, User } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { formatCep } from "@/app/(app)/(pages)/clientes/components/customerDialogRegister/utils";
-import { fetchPrimeiroLogoEmpresa } from "@/lib/empresa-logo";
+import { fetchLogoEmpresaDataUrl } from "@/lib/empresa-logo";
 import { fetchPrintColors } from "@/lib/print-config";
 import { getTermoAceiteVenda } from "@/lib/print-aceite";
+import { loadPrintPaymentSummary } from "@/lib/print-payment-display-server";
 
 export const runtime = "nodejs";
 
@@ -154,7 +155,11 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
       desconto_valor,
       valor_frete,
       sub_total,
+      descricao,
       observacoes,
+      forma_pagamento,
+      parcelas_pagamento,
+      pagamentos_previstos,
       valortotal,
       criador:created_by (
         id,
@@ -201,8 +206,18 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
   }
 
   const empresa = await fetchEmpresa();
-  const finalLogo = await fetchPrimeiroLogoEmpresa();
+  const finalLogo = await fetchLogoEmpresaDataUrl();
   const printColors = await fetchPrintColors();
+  const paymentSummary = await loadPrintPaymentSummary({
+    type: "VENDA",
+    documentId: vendaId,
+    status: venda.status,
+    pagamentosPrevistos: Array.isArray(venda.pagamentos_previstos)
+      ? venda.pagamentos_previstos
+      : null,
+    formaPagamento: venda.forma_pagamento ?? null,
+    parcelasPagamento: venda.parcelas_pagamento ?? null,
+  });
   const cliente = Array.isArray(venda.cliente)
     ? venda.cliente[0]
     : venda.cliente;
@@ -327,7 +342,6 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
           min-height:0;
         }
         @media print{
-          .venda-observacoes{ display:block !important; }
           html, body{
             margin:0 !important;
             padding:0 !important;
@@ -398,7 +412,8 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
         .meta-badge{ background:var(--soft-bg); border:1px solid var(--border); border-radius:8px; padding:8px; text-align:center; }
         .meta-badge .label{ font-size:8px; text-transform:uppercase; letter-spacing:.14em; color:var(--muted); font-weight:700; margin-bottom:4px; }
         .meta-badge .valor{ font-size:10px; font-weight:700; font-variant-numeric:tabular-nums; }
-        .grid-info{ display:grid; grid-template-columns:1.4fr 1fr; gap:10px; }
+        .grid-info{ display:grid; grid-template-columns:1fr; gap:10px; }
+        .grid-info-com-detalhes{ grid-template-columns:1.4fr 1fr; }
         .cartao{ border:1px solid var(--border); border-radius:var(--radius); background:#fff; padding:10px; }
         .cartao-destaque{ background:linear-gradient(135deg, var(--primary-soft), var(--secondary-soft)); }
         .titulo-secao{ display:flex; align-items:center; gap:8px; padding-bottom:6px; margin-bottom:8px; border-bottom:2px solid var(--border); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--brand-primary); }
@@ -418,17 +433,22 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
         .col-unit, .col-sub{ width:110px; text-align:right; font-weight:700; font-variant-numeric:tabular-nums; }
         .rodape{ margin-top:auto; display:grid; grid-template-columns:1fr 320px; gap:10px; padding-top:8px; }
         .observacoes-box{ border:1px solid var(--border); background:var(--soft-bg); border-radius:var(--radius); padding:10px; }
+        .pagamentos-resumo{ margin-top:8px; padding-top:8px; border-top:1px solid var(--brand-primary); }
+        .pagamentos-titulo{ font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; color:var(--brand-primary); margin-bottom:5px; }
+        .pagamentos-lista{ display:grid; gap:4px; }
+        .pagamento-linha{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; font-size:10px; line-height:1.35; }
+        .pagamento-metodo{ font-weight:700; }
+        .pagamento-valor{ color:var(--brand-primary); font-weight:800; font-variant-numeric:tabular-nums; white-space:nowrap; }
         .venda-observacoes{ display:none; }
         html[data-os-observacoes="1"] .venda-observacoes{ display:block; }
         html[data-print-ocultar-valores] .col-unit,
         html[data-print-ocultar-valores] .col-sub,
-        html[data-print-ocultar-valores] .bloco-resumo,
         html[data-print-ocultar-valores] .totais-box{ display:none !important; }
+        html[data-print-ocultar-valores] .pagamento-valor{ display:none !important; }
         html[data-print-ocultar-valores] .rodape{ grid-template-columns:1fr !important; }
-        html[data-print-ocultar-valores] .grid-info{ grid-template-columns:1fr !important; }
         html[data-print-ocultar-cliente] .bloco-cliente{ display:none !important; }
         html[data-print-ocultar-cliente] .grid-info{ grid-template-columns:1fr !important; }
-        html[data-print-ocultar-cliente][data-print-ocultar-valores] .grid-info{ display:none !important; }
+        html[data-print-ocultar-cliente][data-print-ocultar-valores] .grid-info{ display:grid !important; }
         .obs-titulo{ font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; color:var(--brand-primary); margin-bottom:6px; }
         .obs-texto{ font-size:10px; line-height:1.45; color:var(--muted); }
         .totais-box{ border:1px solid var(--brand-primary); background:linear-gradient(135deg, var(--primary-soft), #fff); border-radius:var(--radius); padding:12px; }
@@ -474,7 +494,7 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
 
       <div className="toolbar no-print">
         <div className="flex flex-row flex-wrap items-center gap-1">
-          {Boolean(venda.observacoes) && <ObservacoesToggle />}
+          {Boolean(venda.observacoes) && <ObservacoesToggle label="Incluir observações internas" />}
           <PrintFilterToggles />
         </div>
       </div>
@@ -540,7 +560,7 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
             </div>
           </div>
 
-          <div className="grid-info">
+          <div className={`grid-info${venda.descricao ? " grid-info-com-detalhes" : ""}`}>
             <div className="cartao cartao-destaque bloco-cliente">
               <div className="titulo-secao">
                 <User className="w-4 h-4" aria-hidden="true" />
@@ -571,32 +591,21 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
               )}
             </div>
 
-            <div className="cartao cartao-destaque bloco-resumo">
-              <div className="titulo-secao">
-                <ShoppingCart className="w-4 h-4" aria-hidden="true" />
-                Resumo
+            {venda.descricao ? (
+              <div className="cartao cartao-destaque bloco-detalhes">
+                <div className="titulo-secao">
+                  <FileText className="w-4 h-4" aria-hidden="true" />
+                  Detalhes
+                </div>
+                <div style={{ marginTop: 8 }}>
+                  <div className="flex flex-col gap-2 text-[9px]">
+                    <span className="whitespace-pre-wrap text-slate-500">
+                      {String(venda.descricao).toUpperCase()}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div className="kv">
-                <span className="k">Subtotal</span>
-                <span className="v">{fmtMoney(venda.sub_total)}</span>
-              </div>
-              <div className="kv">
-                <span className="k">Desc. itens</span>
-                <span className="v">{fmtMoney(itemDiscountTotal)}</span>
-              </div>
-              <div className="kv">
-                <span className="k">Desc. geral</span>
-                <span className="v">{fmtMoney(generalDiscountApplied)}</span>
-              </div>
-              <div className="kv">
-                <span className="k">Frete</span>
-                <span className="v">{fmtMoney(venda.valor_frete)}</span>
-              </div>
-              <div className="kv">
-                <span className="k">Total final</span>
-                <span className="v">{fmtMoney(venda.valortotal)}</span>
-              </div>
-            </div>
+            ) : null}
           </div>
 
           <div className="tabela-container" data-print-items-table>
@@ -687,6 +696,32 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
                   {fmtMoney(venda.valortotal)}
                 </span>
               </div>
+
+              {paymentSummary ? (
+                <div className="pagamentos-resumo">
+                  <div className="pagamentos-titulo">
+                    {paymentSummary.title}
+                  </div>
+                  <div className="pagamentos-lista">
+                    {paymentSummary.entries.map((payment, index) => (
+                      <div
+                        className="pagamento-linha"
+                        key={`${payment.metodo}-${index}`}
+                      >
+                        <span className="pagamento-metodo">
+                          {payment.label}
+                          {payment.parcelas ? ` em ${payment.parcelas}x` : ""}
+                        </span>
+                        {payment.valor != null ? (
+                          <span className="pagamento-valor">
+                            {fmtMoney(payment.valor)}
+                          </span>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
             </div>
 

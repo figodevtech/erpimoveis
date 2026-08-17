@@ -162,7 +162,7 @@ export function RateioEditor({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-2 rounded-lg border border-dashed bg-muted/20 px-3 py-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-2 border border-dashed bg-muted/20 px-3 py-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
         <span className="flex items-start gap-2">
           <Scale className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
@@ -190,7 +190,7 @@ export function RateioEditor({
           return (
             <li
               key={linha.id}
-              className={`rounded-lg border p-3 ${
+              className={`border p-3 ${
                 linha.id === transacaoAtualId ? "border-primary/50 bg-primary/5" : "bg-card"
               }`}
             >
@@ -257,7 +257,7 @@ export function RateioEditor({
       <div
         role="status"
         aria-live="polite"
-        className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm ${
+        className={`flex flex-wrap items-center justify-between gap-2 border px-3 py-2 text-sm ${
           fecha
             ? "border-emerald-600/40 bg-emerald-600/5 text-emerald-700 dark:text-emerald-400"
             : "border-destructive/40 bg-destructive/5 text-destructive"

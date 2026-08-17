@@ -107,8 +107,8 @@ function iniciais(nome?: string | null) {
 /** Classe do selo de status, compartilhada por OS, venda e título. */
 function classeStatus(status?: string | null) {
   const upper = String(status ?? "").toUpperCase();
-  if (["FINALIZADA", "CONCLUIDO", "CONCLUIDA", "PAGO", "PAGO_EM_DIA", "PAGO_A_VISTA"].includes(upper)) return "selo selo-ok";
-  if (["CANCELADA", "CANCELADO", "VENCIDO", "PAGO_EM_ATRASO"].includes(upper)) return "selo selo-ruim";
+  if (["FINALIZADA", "CONCLUIDO", "CONCLUIDA", "PAGO", "PAGO_EM_DIA", "PAGO_A_VISTA", "ORCAMENTO_APROVADO"].includes(upper)) return "selo selo-ok";
+  if (["CANCELADA", "CANCELADO", "VENCIDO", "PAGO_EM_ATRASO", "ORCAMENTO_RECUSADO"].includes(upper)) return "selo selo-ruim";
   if (["PENDENTE", "PAGAMENTO", "APROVACAO_ORCAMENTO", "ORCAMENTO", "VENCE_HOJE"].includes(upper)) return "selo selo-atencao";
   return "selo";
 }

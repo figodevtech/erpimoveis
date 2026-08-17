@@ -1,11 +1,13 @@
 import { ReactNode } from "react";
+import { cn } from "@/lib/utils";
+import { transactionFormSurfaceClass } from "../transaction-dialog-ui";
 
 /** Mesma classe de gatilho usada nos demais dialogs com abas do sistema. */
 export const tabTriggerClass =
-  "group h-8 rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary dark:data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm";
+  "group relative h-11 min-w-fit flex-1 shrink-0 rounded-none border-r border-border px-4 text-xs font-bold uppercase tracking-[0.06em] text-muted-foreground shadow-none transition-colors last:border-r-0 hover:cursor-pointer hover:bg-muted/50 hover:text-foreground data-[state=active]:border-b-2 data-[state=active]:border-b-primary data-[state=active]:bg-primary/10 data-[state=active]:text-primary";
 
 export const tabsListClass =
-  "h-auto w-full justify-start gap-1.5 rounded-2xl border bg-muted/40 p-1 backdrop-blur-sm";
+  "flex h-auto w-full justify-start overflow-x-auto rounded-none border-0 bg-background p-0";
 
 const EMPTY = "—";
 
@@ -51,11 +53,11 @@ export function joinParts(parts: Array<string | null | undefined>, separator = "
 /** Par rotulo/valor no mesmo formato usado nos cartoes dos outros dialogs. */
 export function Campo({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="space-y-1">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+    <div className="min-w-0 space-y-1">
+      <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-muted-foreground sm:text-[10px]">
         {label}
       </p>
-      <div className="text-sm font-medium break-words">{children}</div>
+      <div className="break-words text-sm font-semibold text-foreground">{children}</div>
     </div>
   );
 }
@@ -72,22 +74,27 @@ export function Cartao({
   acao?: ReactNode;
 }) {
   return (
-    <div className="rounded-lg border bg-card p-4">
-      <div className="mb-3 flex items-center justify-between gap-2 border-b pb-2">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+    <section
+      className={cn(
+        "overflow-hidden border border-border bg-card shadow-sm",
+        transactionFormSurfaceClass,
+      )}
+    >
+      <header className="flex items-center justify-between gap-2 border-b border-border bg-muted/25 px-4 py-3">
+        <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.1em] text-foreground">
           {icone}
           {titulo}
         </div>
         {acao}
-      </div>
-      {children}
-    </div>
+      </header>
+      <div className="p-4">{children}</div>
+    </section>
   );
 }
 
 export function EstadoVazio({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-lg border border-dashed bg-muted/20 px-4 py-10 text-center text-sm text-muted-foreground">
+    <div className="border border-dashed border-border bg-muted/20 px-4 py-10 text-center text-sm text-muted-foreground">
       {children}
     </div>
   );

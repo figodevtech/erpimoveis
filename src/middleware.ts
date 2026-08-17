@@ -13,6 +13,7 @@ const PUBLIC_PATHS = [
   "/login",
   "/recuperar-senha",
   "/os",
+  "/venda",
   // NextAuth
   "/api/auth",
 ];
@@ -24,6 +25,7 @@ const PUBLIC_API_PREFIXES = [
   // ex: "/api/public",
 
   "/api/ordens/aprovacao",
+  "/api/venda/aprovacao",
   "/api/site/agendamentos",
   "/api/webhooks/focus",
   // Chamadas servidor-servidor. Cada rota aplica sua propria validacao.
@@ -356,6 +358,8 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
       // justamente quem mais tem servicos realizados para consultar.
       pathname === "/meu-perfil" ||
       pathname.startsWith("/meu-perfil/") ||
+      pathname === "/preferencias" ||
+      pathname.startsWith("/preferencias/") ||
       pathname === "/api/me" ||
       pathname.startsWith("/api/me/") ||
       pathname === "/nao-autorizado";

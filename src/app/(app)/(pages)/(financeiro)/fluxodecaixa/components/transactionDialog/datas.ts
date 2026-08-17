@@ -35,6 +35,13 @@ export function paraDataDaApi(valor: unknown): Date | undefined {
   const temFuso = valor.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(valor);
   if (temFuso) return new Date(valor);
 
+  // Datas de emissão chegam como `AAAA-MM-DD`. `new Date()` trataria esse
+  // formato como UTC e, em Fortaleza, exibiria o dia anterior.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(valor)) {
+    const [ano, mes, dia] = valor.split("-").map(Number);
+    return new Date(ano, mes - 1, dia);
+  }
+
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(valor)) {
     return parseLocalDateTime(valor.slice(0, 16));
   }

@@ -13,6 +13,8 @@ import { Separator } from "@/components/ui/separator";
 import { AppSidebar } from "../components/sidebar/sidebar";
 import { ModeToggle } from "../components/mode-toggle";
 import DateTimeBadge from "../components/date-time-badge";
+import { HeaderRadioPlayer } from "../components/header-radio-player";
+import { useUserPreferences } from "../components/user-preferences-provider";
 import { useConfig } from "./config-context";
 
 const routeTitles: Record<string, string> = {
@@ -47,6 +49,7 @@ const routeTitles: Record<string, string> = {
   "/configuracoes/perfis": "Perfis de Permissões",
   "/plano": "Seu Plano",
   "/meu-perfil": "Meu Perfil",
+  "/preferencias": "Preferências",
 };
 
 function humanize(path: string) {
@@ -84,6 +87,7 @@ export default function ClientAppShell({
   const title = routeTitles[pathname] ?? humanize(pathname);
   const router = useRouter();
   const config = useConfig();
+  const { radio } = useUserPreferences();
 
   const [sideBarOpen, setSidebarOpen] = React.useState(true);
   const [hoverHabilitado, setHoverHabilitado] = React.useState(true);
@@ -227,9 +231,10 @@ export default function ClientAppShell({
             <SidebarTrigger className="-ml-1" />
             <Separator orientation="vertical" className="mr-2 dark:bg-white/20 data-[orientation=vertical]:h-4" />
 
-            <h2 className="text-base md:text-lg font-medium text-foreground/80 dark:text-white/85">{title}</h2>
+            <h2 className="min-w-0 truncate text-base font-medium text-foreground/80 md:text-lg dark:text-white/85">{title}</h2>
             <div className="flex-1" />
 
+            {radio.effective ? <HeaderRadioPlayer /> : null}
             <DateTimeBadge />
             <ModeToggle />
           </header>

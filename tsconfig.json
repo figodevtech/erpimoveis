@@ -31,10 +31,11 @@
   "include": [
     "**/*.ts",
     "**/*.tsx",
+    ".next-verify-nfe/types/**/*.ts",
     ".next/types/**/*.ts",
     "next-env.d.ts",
     "src/app/(app)/(pages)/dashboard/components/dashboard-clientes",
-    ".next-verify-nfe/types/**/*.ts"
+    ".next-codex-pdv/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import ValueInput from "@/components/ui/value-input";
 import {
@@ -42,17 +41,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -71,13 +59,14 @@ import { useConfig } from "@/app/(app)/(pages)/config-context";
 import { formatCurrencyBRL } from "@/app/(app)/(pages)/dashboard/components/dashboard-ordemservico/lib/format";
 import { CustomerBlockedAlert } from "@/components/cliente/customer-blocked-alert";
 import {
-  DadosParaFinanceiroFields,
   dadosParaFinanceiroVazios,
   montarFormaPagamento,
   montarPagamentosPrevistos,
   validarDadosParaFinanceiro,
   type DadosParaFinanceiro,
 } from "@/components/financeiro/dados-para-financeiro";
+import { VendaConfirmacaoFields } from "@/components/vendas/venda-confirmacao-fields";
+import { DialogShell } from "@/app/(app)/(pages)/ordens/components/dialogs/dialog-shell";
 
 interface CartItem {
   id: number;
@@ -125,6 +114,12 @@ export function POSSystem() {
   // a OS recolhe ao ser enviada ao financeiro.
   const [dadosFinanceiro, setDadosFinanceiro] = useState<DadosParaFinanceiro>(
     dadosParaFinanceiroVazios,
+  );
+  const [descricao, setDescricao] = useState("");
+  const [observacoesInternas, setObservacoesInternas] = useState("");
+  const [observacoesFiscais, setObservacoesFiscais] = useState("");
+  const [acaoConfirmacao, setAcaoConfirmacao] = useState<"ORCAMENTO" | "PAGAMENTO">(
+    "PAGAMENTO",
   );
   const [selectedProductInfo, setSelectedProductInfo] = useState<Produto>();
   const [isAlertOpen, setIsAlertOpen] = useState(false);
@@ -323,74 +318,26 @@ export function POSSystem() {
     );
   }, [soleSelectedPaymentMethod, total]);
 
-  const handleSaveBudget = async () => {
+  const abrirConfirmacao = (acao: "ORCAMENTO" | "PAGAMENTO") => {
     if (cart.length === 0) {
       toast.error("Carrinho vazio.", {
-        description: "Adicione produtos antes de salvar o orçamento.",
+        description: "Adicione produtos antes de continuar.",
       });
       return;
     }
 
     if (!selectedCustomer) {
-      toast.error("Erro ao salvar orçamento.", {
+      toast.error("Cliente obrigatório.", {
         description: "É necessário selecionar um cliente para continuar.",
       });
       return;
     }
 
-    toast(
-      <div className="flex flex-row flex-nowrap gap-2">
-        <Loader2 className="animate-spin w-4 h-4" />
-        <span>Salvando orçamento...</span>
-      </div>,
-    );
-
-    const payload = {
-      clienteId: selectedCustomer.id,
-      status: "ORCAMENTO",
-      descontoTipo: discountType,
-      descontoValor: discountAmount > 0 ? discountAmount : null,
-      categoriaVendaId: selectedSaleCategoryId,
-      subTotal: subtotal,
-      valorFrete: freightAmount,
-      valorTotal: total,
-      formaPagamento: null,
-      dataVenda: null,
-      itens: cart.map((item) => ({
-        produtoId: item.id,
-        quantidade: item.quantity,
-        precoUnitario: item.precovenda,
-        subTotal: item.precovenda * item.quantity,
-        valorTotal: item.precovenda * item.quantity,
-        valorDesconto: 0,
-        tipoDesconto: null,
-      })),
-    };
-
-    try {
-      const { data } = await axios.post("/api/venda", payload);
-
-      toast.success(`Orçamento #${data?.id ?? ""} salvo com sucesso.`);
-      setCart([]);
-      setDiscount(0);
-      setDiscountType(null);
-      setHasFreight(false);
-      setFreight(0);
-      setSelectedSaleCategoryId(null);
-      setDadosFinanceiro(dadosParaFinanceiroVazios());
-      setSelectedCustomer(undefined);
-    } catch (error) {
-      if (axios.isAxiosError(error)) {
-        toast.error("Erro ao salvar orçamento.", {
-          description: error.response?.data?.error || error.message,
-        });
-      } else {
-        toast.error("Erro interno ao salvar orçamento.");
-      }
-    }
+    setAcaoConfirmacao(acao);
+    setIsAlertOpen(true);
   };
 
-  const createVenda = async (): Promise<boolean> => {
+  const createVenda = async (status: "ORCAMENTO" | "PAGAMENTO"): Promise<boolean> => {
     try {
       if (cart.length === 0) {
         return false;
@@ -413,15 +360,13 @@ export function POSSystem() {
       toast(
         <div className="flex flex-row flex-nowrap gap-2">
           <Loader2 className="animate-spin w-4 h-4" />{" "}
-          <span>Cadastrando Venda...</span>
+          <span>{status === "ORCAMENTO" ? "Salvando orçamento..." : "Cadastrando venda..."}</span>
         </div>,
       );
 
-      // TODO: substituir pelos valores reais
-
       const payload = {
       clienteId: selectedCustomer?.id,
-      status: "PAGAMENTO", // enum_status_venda
+      status,
       descontoTipo: discountType,
       descontoValor: discountAmount > 0 ? discountAmount : null,
       categoriaVendaId: selectedSaleCategoryId,
@@ -435,6 +380,9 @@ export function POSSystem() {
       pagamentosPrevistos: montarPagamentosPrevistos(dadosFinanceiro),
       descricaoFinanceiro: dadosFinanceiro.descricaoFinanceiro.trim() || null,
       garantia: dadosFinanceiro.garantia.trim() || null,
+      descricao: descricao.trim() || null,
+      observacoes: observacoesInternas.trim() || null,
+      observacoesFiscais: observacoesFiscais.trim() || null,
       dataVenda: null,
       itens: cart.map((item) => ({
         produtoId: item.id,
@@ -447,9 +395,12 @@ export function POSSystem() {
       })),
     };
 
-    // chamada com axios
-    await axios.post("/api/venda", payload);
-      toast.success("Venda cadastrada com sucesso.");
+      const response = await axios.post("/api/venda", payload);
+      toast.success(
+        status === "ORCAMENTO"
+          ? `Orçamento #${response.data?.id ?? ""} salvo com sucesso.`
+          : "Venda cadastrada com sucesso.",
+      );
 
       setCart([]);
       setDiscount(0);
@@ -458,15 +409,18 @@ export function POSSystem() {
       setFreight(0);
       setSelectedSaleCategoryId(null);
       setDadosFinanceiro(dadosParaFinanceiroVazios());
+      setDescricao("");
+      setObservacoesInternas("");
+      setObservacoesFiscais("");
       setSelectedCustomer(undefined);
       return true;
     } catch (error: any) {
       if (axios.isAxiosError(error)) {
-        toast.error("Erro código: " + error.status, {
+        toast.error(status === "ORCAMENTO" ? "Erro ao salvar orçamento." : "Erro ao criar venda.", {
           description: error.response?.data.error,
         });
       } else {
-        toast.error("Erro interno ao criar venda");
+        toast.error(status === "ORCAMENTO" ? "Erro interno ao salvar orçamento." : "Erro interno ao criar venda.");
       }
       return false;
     } finally {
@@ -497,43 +451,74 @@ export function POSSystem() {
   }
 
   return (
-    <div className="min-h-screen bg-background p-4">
-      <div className="mx-auto ">
-        {/* Header */}
-        <div className="mb-6 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary">
-              <Store className="h-6 w-6 text-primary-foreground" />
-            </div>
-            <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-4">
-              <h1 className="text-2xl font-bold text-foreground sm:text-3xl">
-                Ponto de Venda
-              </h1>
-              <div
-                onClick={() => router.push("/historicovendas")}
-                className=" hover:cursor-pointer flex felx-row gap-1 items-center text-red-800 hover:text-red-500 bg-muted/20 hover:bg-muted/50 py-2 px-3 rounded-2xl"
-              >
-                <ArrowLeftToLine className="w-5 h-5" />
-                <span>SAIR</span>
+    <div className="min-h-screen bg-muted/20 p-3 pb-28 sm:p-4 sm:pb-28 lg:h-[100dvh] lg:overflow-hidden lg:p-6">
+      <div className="mx-auto max-w-[1800px] lg:h-full">
+        <div className="grid items-start gap-4 lg:h-full lg:grid-cols-[minmax(0,2fr)_minmax(22rem,0.9fr)] lg:items-stretch">
+          <main className="min-w-0 space-y-4 lg:h-full lg:overflow-y-auto lg:overscroll-contain lg:pr-2">
+            <header className="relative overflow-hidden border border-border bg-card shadow-sm before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-primary">
+          <div className="grid min-w-0 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-stretch">
+            <div className="flex min-w-0 items-center gap-3 px-4 py-4 sm:px-6">
+              <div className="flex size-11 shrink-0 items-center justify-center border border-border bg-background text-primary">
+                <Store className="size-5" aria-hidden="true" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">
+                  Bancada comercial
+                </p>
+                <h1 className="truncate text-lg font-bold uppercase tracking-[0.06em] text-foreground sm:text-xl">
+                  Ponto de Venda
+                </h1>
+                <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">
+                  Localize produtos, monte o carrinho e conclua a venda.
+                </p>
               </div>
             </div>
-          </div>
-          <div className="text-left sm:text-right">
-            <div className="text-sm text-muted-foreground">
-              Total em Carrinho
-            </div>
-            <div className="text-2xl font-bold text-primary sm:text-3xl">
-              {formatCurrencyBRL(total)}
-            </div>
-          </div>
-        </div>
 
-        <div className="grid gap-6 lg:grid-cols-3">
-          {/* Products Section */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Search and Filter */}
-            <Card className="bg-card border-border">
-              <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 border-t border-border sm:grid-cols-[auto_auto_auto] lg:border-l lg:border-t-0">
+              <div className="flex min-w-28 flex-col justify-center border-r border-border px-4 py-3">
+                <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                  Itens
+                </span>
+                <span className="text-lg font-bold tabular-nums text-foreground">
+                  {cart.reduce((sum, item) => sum + item.quantity, 0)}
+                </span>
+              </div>
+              <div className="flex min-w-40 flex-col justify-center px-4 py-3 sm:border-r sm:border-border">
+                <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                  Total no carrinho
+                </span>
+                <span className="text-lg font-bold tabular-nums text-primary sm:text-xl">
+                  {formatCurrencyBRL(total)}
+                </span>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => router.push("/historicovendas")}
+                className="col-span-2 min-h-12 rounded-none border-t border-border px-5 text-destructive hover:bg-destructive/10 hover:text-destructive sm:col-span-1 sm:border-t-0"
+              >
+                <ArrowLeftToLine className="size-4" aria-hidden="true" />
+                Sair do PDV
+              </Button>
+            </div>
+          </div>
+            </header>
+
+            <section className="overflow-hidden border border-border bg-card shadow-sm">
+              <header className="flex items-start gap-3 border-b border-border bg-muted/25 px-3 py-3 sm:px-4">
+                <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center border border-border bg-background text-primary">
+                  <Search className="size-4" aria-hidden="true" />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-sm font-bold uppercase tracking-[0.08em] text-foreground">
+                    Catálogo de produtos
+                  </h2>
+                  <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                    {productsTotal} produtos encontrados · página {productsPage} de {productsTotalPages}
+                  </p>
+                </div>
+              </header>
+              <div className="grid gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,16rem)] sm:p-4">
                 <form
                   className="relative"
                   role="search"
@@ -544,99 +529,102 @@ export function POSSystem() {
                 >
                   <button
                     type="submit"
-                    className="absolute left-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                    className="absolute inset-y-0 left-0 flex w-10 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                     aria-label="Buscar produtos"
                   >
-                    <Search className="h-4 w-4" />
+                    <Search className="size-4" aria-hidden="true" />
                   </button>
                   <Input
-                    placeholder="Buscar produtos..."
+                    placeholder="Buscar por nome, referência ou código..."
                     value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="border-border bg-card pl-10 pr-10 text-foreground placeholder:text-muted-foreground"
+                    onChange={(event) => setSearchTerm(event.target.value)}
+                    className="h-10 rounded-none border-border bg-background pl-11 pr-10 text-foreground placeholder:text-muted-foreground"
                   />
-                  {searchTerm && (
+                  {searchTerm ? (
                     <button
                       type="button"
-                      className="absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                      className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                       aria-label="Limpar busca"
                       onClick={() => {
                         setSearchTerm("");
                         setSubmittedSearch("");
                       }}
                     >
-                      <X className="h-4 w-4" />
+                      <X className="size-4" aria-hidden="true" />
                     </button>
-                  )}
+                  ) : null}
                 </form>
 
-                {/* Categories */}
-                <div className="flex gap-2 flex-wrap">
-                  <Select
-                    value={selectedCategory}
-                    onValueChange={(v) => setSelectedCategory(v)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="TODOS" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="TODOS">TODOS</SelectItem>
-                      {grupos.map((group) => (
-                        <SelectItem key={group.id} value={group.id.toString()}>
-                          {group.nome}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Products Grid */}
-            <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-              {filteredProducts.map((product) => (
-                <Card
-                  key={product.id}
-                  className={`group bg-card border-border hover:border-primary/50 transition-all ${
-                    (product.estoque ?? 0) <= 0
-                      ? "opacity-60"
-                      : "cursor-default"
-                  }`}
+                <Select
+                  value={selectedCategory}
+                  onValueChange={setSelectedCategory}
                 >
-                  <CardContent className=" space-y-3">
-                    <div className="aspect-[1/1] bg-white rounded-lg flex items-center justify-center group-hover:bg-white duration-75 transition-all relative">
+                  <SelectTrigger
+                    className="h-10 w-full rounded-none bg-background"
+                    aria-label="Filtrar por grupo de produtos"
+                  >
+                    <SelectValue placeholder="Todos os grupos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="TODOS">Todos os grupos</SelectItem>
+                    {grupos.map((group) => (
+                      <SelectItem key={group.id} value={group.id.toString()}>
+                        {group.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </section>
+
+            {filteredProducts.length === 0 ? (
+              <section className="flex min-h-64 flex-col items-center justify-center border border-dashed border-border bg-card px-6 py-12 text-center">
+                <Wrench className="mb-3 size-8 text-muted-foreground" aria-hidden="true" />
+                <h2 className="text-sm font-bold uppercase tracking-[0.08em] text-foreground">
+                  Nenhum produto encontrado
+                </h2>
+                <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+                  Ajuste a busca ou selecione outro grupo de produtos.
+                </p>
+              </section>
+            ) : (
+              <section
+                className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
+                aria-label="Lista de produtos"
+              >
+                {filteredProducts.map((product) => (
+                  <article
+                    key={product.id}
+                    className={`group flex min-w-0 flex-col overflow-hidden border border-border bg-card shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-md ${
+                      (product.estoque ?? 0) <= 0 ? "opacity-60" : ""
+                    }`}
+                  >
+                    <div className="relative aspect-[4/3] overflow-hidden border-b border-border bg-white">
                       {product.imgUrl ? (
-                        <div className="w-full h-full relative">
-                          <div className="w-full h-full overflow-hidden flex items-center justify-center absolute">
-                            {/* <img
-                              alt={product.titulo || "imagem do produto"}
-                              className="w-full blur-xs opacity-50"
-                              src={product.imgUrl}
-                            /> */}
-                          </div>
-                          <div className="w-full h-full overflow-hidden flex items-center justify-center absolute z-10">
-                            <Image
-                              alt={product.titulo || "imagem do produto"}
-                              className="h-full group-hover:scale-105 transition-all duration-500"
-                              src={product.imgUrl}
-                              width={500}
-                              height={500}
-                            />
-                          </div>
-                        </div>
+                        <Image
+                          alt={product.titulo || "Imagem do produto"}
+                          className="h-full w-full object-contain p-3 transition-transform duration-300 group-hover:scale-[1.03]"
+                          src={product.imgUrl}
+                          width={500}
+                          height={375}
+                        />
                       ) : (
-                        <Wrench className="h-8 w-8 text-muted-foreground group-hover:text-primary transition-colors" />
+                        <div className="flex h-full items-center justify-center bg-muted/15">
+                          <Wrench className="size-9 text-muted-foreground transition-colors group-hover:text-primary" aria-hidden="true" />
+                        </div>
                       )}
+
                       <Dialog>
                         <DialogTrigger asChild>
                           <Button
                             type="button"
                             size="icon"
                             variant="secondary"
-                            className="absolute left-2 top-2 z-20 h-8 w-8 rounded-full bg-background/90 opacity-100 transition-opacity hover:bg-background md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"
+                            className="absolute left-2 top-2 z-20 size-9 rounded-none border border-border bg-background/95 shadow-sm"
+                            aria-label={`Ver detalhes de ${product.titulo}`}
                             onClick={() => setSelectedProductInfo(product)}
                           >
-                            <Info className="h-4 w-4" />
+                            <Info className="size-4" aria-hidden="true" />
                           </Button>
                         </DialogTrigger>
                         <DialogContent className="sm:max-w-xl">
@@ -649,384 +637,272 @@ export function POSSystem() {
                             </DialogDescription>
                           </DialogHeader>
                           <div className="grid gap-4 sm:grid-cols-[160px_1fr]">
-                            <div className="h-40 overflow-hidden rounded-lg border border-border bg-muted flex items-center justify-center">
+                            <div className="flex h-40 items-center justify-center overflow-hidden border border-border bg-muted">
                               {selectedProductInfo?.imgUrl ? (
                                 <Image
-                                  alt={
-                                    selectedProductInfo?.titulo ||
-                                    "imagem do produto"
-                                  }
+                                  alt={selectedProductInfo?.titulo || "Imagem do produto"}
                                   className="h-full w-full object-contain"
                                   src={selectedProductInfo.imgUrl}
                                   width={320}
                                   height={320}
                                 />
                               ) : (
-                                <Wrench className="h-10 w-10 text-muted-foreground" />
+                                <Wrench className="size-10 text-muted-foreground" aria-hidden="true" />
                               )}
                             </div>
                             <div className="grid gap-3 text-sm">
                               <div className="grid grid-cols-2 gap-3">
-                                <div className="rounded-lg border border-border bg-card p-3">
-                                  <p className="text-xs text-muted-foreground">
-                                    Preço
-                                  </p>
+                                <div className="border border-border bg-card p-3">
+                                  <p className="text-xs text-muted-foreground">Preço</p>
                                   <p className="font-semibold text-foreground">
-                                    {formatCurrencyBRL(
-                                      selectedProductInfo?.precovenda || 0
-                                    )}
+                                    {formatCurrencyBRL(selectedProductInfo?.precovenda || 0)}
                                   </p>
                                 </div>
-                                <div className="rounded-lg border border-border bg-card p-3">
-                                  <p className="text-xs text-muted-foreground">
-                                    Estoque
-                                  </p>
-                                  <p className="font-semibold text-foreground ">
+                                <div className="border border-border bg-card p-3">
+                                  <p className="text-xs text-muted-foreground">Estoque</p>
+                                  <p className="font-semibold text-foreground">
                                     {selectedProductInfo?.estoque ?? 0}
                                   </p>
                                 </div>
                               </div>
-                              <div className="grid gap-2 rounded-lg border border-border bg-card p-3">
-                                <p>
-                                  <span className="text-muted-foreground">
-                                    Grupo:
-                                  </span>{" "}
-                                  {selectedProductInfo?.grupo?.nome || "-"}
-                                </p>
-                                <p>
-                                  <span className="text-muted-foreground">
-                                    Referência:
-                                  </span>{" "}
-                                  {selectedProductInfo?.referencia || "-"}
-                                </p>
-                                <p>
-                                  <span className="text-muted-foreground">
-                                    Fabricante:
-                                  </span>{" "}
-                                  {selectedProductInfo?.fabricante || "-"}
-                                </p>
-                                <p>
-                                  <span className="text-muted-foreground">
-                                    Unidade:
-                                  </span>{" "}
-                                  {selectedProductInfo?.unidade || "-"}
-                                </p>
-                                <p>
-                                  <span className="text-muted-foreground">
-                                    Código de barras:
-                                  </span>{" "}
-                                  {selectedProductInfo?.codigobarras || "-"}
-                                </p>
-                                <p>
-                                  <span className="text-muted-foreground">
-                                    Descrição:
-                                  </span>{" "}
-                                  {selectedProductInfo?.descricao || "-"}
-                                </p>
+                              <div className="grid gap-2 border border-border bg-card p-3">
+                                <p><span className="text-muted-foreground">Grupo:</span>{" "}{selectedProductInfo?.grupo?.nome || "-"}</p>
+                                <p><span className="text-muted-foreground">Referência:</span>{" "}{selectedProductInfo?.referencia || "-"}</p>
+                                <p><span className="text-muted-foreground">Fabricante:</span>{" "}{selectedProductInfo?.fabricante || "-"}</p>
+                                <p><span className="text-muted-foreground">Unidade:</span>{" "}{selectedProductInfo?.unidade || "-"}</p>
+                                <p><span className="text-muted-foreground">Código de barras:</span>{" "}{selectedProductInfo?.codigobarras || "-"}</p>
+                                <p><span className="text-muted-foreground">Descrição:</span>{" "}{selectedProductInfo?.descricao || "-"}</p>
                               </div>
                             </div>
                           </div>
                         </DialogContent>
                       </Dialog>
 
-                      {config?.alerta_estoque_pdv &&
-                        product.status_estoque === Estoque_status.CRITICO && (
-                          <div className="absolute right-1 top-1 z-20 flex items-center justify-center rounded-full bg-red-800 p-1 opacity-100 transition-opacity not-dark:bg-red-300 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
-                            <Tooltip>
-                              <TooltipTrigger>
-                                <AlertCircle className="h-4 w-4" />
-                              </TooltipTrigger>
-                              <TooltipContent>Estoque Crítico</TooltipContent>
-                            </Tooltip>
-                          </div>
-                        )}
-                      {config?.alerta_estoque_pdv &&
-                        product.status_estoque === Estoque_status.BAIXO && (
-                          <div className="absolute right-1 top-1 z-20 flex items-center justify-center rounded-full bg-yellow-800 p-1 opacity-100 transition-opacity not-dark:bg-yellow-300 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
-                            <Tooltip>
-                              <TooltipTrigger>
-                                <AlertTriangle className="h-4 w-4" />
-                              </TooltipTrigger>
-                              <TooltipContent>Estoque Baixo</TooltipContent>
-                            </Tooltip>
-                          </div>
-                        )}
-                      {config?.alerta_estoque_pdv &&
-                        product.status_estoque ===
-                          Estoque_status.SEM_ESTOQUE && (
-                          <div className="absolute right-1 top-1 z-20 flex items-center justify-center rounded-full bg-purple-800 p-1 opacity-100 transition-opacity not-dark:bg-purple-300 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
-                            <Tooltip>
-                              <TooltipTrigger>
-                                <CircleOff className="h-4 w-4" />
-                              </TooltipTrigger>
-                              <TooltipContent>Sem estoque</TooltipContent>
-                            </Tooltip>
-                          </div>
-                        )}
+                      {config?.alerta_estoque_pdv && product.status_estoque === Estoque_status.CRITICO ? (
+                        <div className="absolute right-2 top-2 z-20 flex size-8 items-center justify-center border border-red-500/30 bg-red-800 text-white not-dark:bg-red-300 not-dark:text-red-950">
+                          <Tooltip>
+                            <TooltipTrigger aria-label="Estoque crítico">
+                              <AlertCircle className="size-4" aria-hidden="true" />
+                            </TooltipTrigger>
+                            <TooltipContent>Estoque crítico</TooltipContent>
+                          </Tooltip>
+                        </div>
+                      ) : null}
+                      {config?.alerta_estoque_pdv && product.status_estoque === Estoque_status.BAIXO ? (
+                        <div className="absolute right-2 top-2 z-20 flex size-8 items-center justify-center border border-yellow-500/30 bg-yellow-800 text-white not-dark:bg-yellow-300 not-dark:text-yellow-950">
+                          <Tooltip>
+                            <TooltipTrigger aria-label="Estoque baixo">
+                              <AlertTriangle className="size-4" aria-hidden="true" />
+                            </TooltipTrigger>
+                            <TooltipContent>Estoque baixo</TooltipContent>
+                          </Tooltip>
+                        </div>
+                      ) : null}
+                      {config?.alerta_estoque_pdv && product.status_estoque === Estoque_status.SEM_ESTOQUE ? (
+                        <div className="absolute right-2 top-2 z-20 flex size-8 items-center justify-center border border-purple-500/30 bg-purple-800 text-white not-dark:bg-purple-300 not-dark:text-purple-950">
+                          <Tooltip>
+                            <TooltipTrigger aria-label="Sem estoque">
+                              <CircleOff className="size-4" aria-hidden="true" />
+                            </TooltipTrigger>
+                            <TooltipContent>Sem estoque</TooltipContent>
+                          </Tooltip>
+                        </div>
+                      ) : null}
                     </div>
-                    <div className="space-y-1">
-                      <h3 className="font-semibold text-foreground text-sm line-clamp-2">
+
+                    <div className="flex min-h-28 flex-1 flex-col p-3">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                        {product.grupo?.nome || "Sem grupo"}
+                      </p>
+                      <h3 className="mt-1 line-clamp-2 text-sm font-bold leading-snug text-foreground">
                         {product.titulo}
                       </h3>
-                      <p className="text-xs text-muted-foreground">
-                        {product.grupo?.nome}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Estoque: {product.estoque}
+                      <p className="mt-auto pt-3 text-xs text-muted-foreground">
+                        Estoque disponível: <span className="font-semibold tabular-nums text-foreground">{product.estoque ?? 0}</span>
                       </p>
                     </div>
-                    <div className="flex items-center justify-between pt-2 border-t border-border">
-                      <span className="font-bold text-primary">
+
+                    <div className="flex items-center justify-between gap-2 border-t border-border bg-muted/15 p-3">
+                      <span className="font-bold tabular-nums text-primary">
                         {formatCurrencyBRL(product.precovenda || 0)}
                       </span>
                       <Button
+                        type="button"
                         onClick={() => addToCart(product)}
-                        disabled={
-                          (product.estoque ?? 0) <= 0
-                        }
+                        disabled={(product.estoque ?? 0) <= 0}
                         size="sm"
-                        className="h-8 bg-primary px-2 text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="h-9 rounded-none px-3 font-semibold disabled:cursor-not-allowed"
+                        aria-label={`Adicionar ${product.titulo} ao carrinho`}
                       >
-                        <Plus className="h-4 w-4" />
+                        <Plus className="size-4" aria-hidden="true" />
+                        Adicionar
                       </Button>
                     </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                  </article>
+                ))}
+              </section>
+            )}
+
             <nav
-              className="flex flex-col items-center justify-between gap-3 rounded-lg border bg-card p-3 sm:flex-row"
+              className="flex flex-col items-center justify-between gap-3 border border-border bg-card p-3 sm:flex-row"
               aria-label="Paginação dos produtos"
             >
               <p className="text-sm text-muted-foreground">
                 Página {productsPage} de {productsTotalPages} · {productsTotal} produtos
               </p>
               <div className="flex flex-wrap items-center justify-center gap-1">
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="outline"
-                  aria-label="Primeira página"
-                  disabled={productsPage <= 1 || loadingProductsPage}
-                  onClick={() => void fetchProdutos(1)}
-                >
-                  <ChevronsLeft className="h-4 w-4" />
+                <Button type="button" size="icon" variant="outline" className="rounded-none" aria-label="Primeira página" disabled={productsPage <= 1 || loadingProductsPage} onClick={() => void fetchProdutos(1)}>
+                  <ChevronsLeft className="size-4" aria-hidden="true" />
                 </Button>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="outline"
-                  aria-label="Página anterior"
-                  disabled={productsPage <= 1 || loadingProductsPage}
-                  onClick={() => void fetchProdutos(productsPage - 1)}
-                >
-                  <ChevronLeft className="h-4 w-4" />
+                <Button type="button" size="icon" variant="outline" className="rounded-none" aria-label="Página anterior" disabled={productsPage <= 1 || loadingProductsPage} onClick={() => void fetchProdutos(productsPage - 1)}>
+                  <ChevronLeft className="size-4" aria-hidden="true" />
                 </Button>
-
                 {visibleProductPages.map((page) => (
-                  <Button
-                    key={page}
-                    type="button"
-                    size="icon"
-                    variant={page === productsPage ? "default" : "outline"}
-                    aria-label={`Ir para a página ${page}`}
-                    aria-current={page === productsPage ? "page" : undefined}
-                    disabled={loadingProductsPage}
-                    onClick={() => void fetchProdutos(page)}
-                  >
+                  <Button key={page} type="button" size="icon" variant={page === productsPage ? "default" : "outline"} className="rounded-none" aria-label={`Ir para a página ${page}`} aria-current={page === productsPage ? "page" : undefined} disabled={loadingProductsPage} onClick={() => void fetchProdutos(page)}>
                     {page}
                   </Button>
                 ))}
-
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="outline"
-                  aria-label="Próxima página"
-                  disabled={productsPage >= productsTotalPages || loadingProductsPage}
-                  onClick={() => void fetchProdutos(productsPage + 1)}
-                >
-                  <ChevronRight className="h-4 w-4" />
+                <Button type="button" size="icon" variant="outline" className="rounded-none" aria-label="Próxima página" disabled={productsPage >= productsTotalPages || loadingProductsPage} onClick={() => void fetchProdutos(productsPage + 1)}>
+                  <ChevronRight className="size-4" aria-hidden="true" />
                 </Button>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="outline"
-                  aria-label="Última página"
-                  disabled={productsPage >= productsTotalPages || loadingProductsPage}
-                  onClick={() => void fetchProdutos(productsTotalPages)}
-                >
-                  <ChevronsRight className="h-4 w-4" />
+                <Button type="button" size="icon" variant="outline" className="rounded-none" aria-label="Última página" disabled={productsPage >= productsTotalPages || loadingProductsPage} onClick={() => void fetchProdutos(productsTotalPages)}>
+                  <ChevronsRight className="size-4" aria-hidden="true" />
                 </Button>
-                {loadingProductsPage && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
+                {loadingProductsPage ? <Loader2 className="ml-2 size-4 animate-spin" aria-label="Carregando página" /> : null}
               </div>
             </nav>
-          </div>
+          </main>
 
-          {/* Cart Section */}
-          <div className="lg:col-span-1">
-            <Card className="h-fit border-border bg-card lg:sticky lg:top-4">
-              <CardHeader className="border-b border-border">
-                <CardTitle className="flex flex-col items-center gap-2 text-foreground">
-                  <div className="flex flex-row justify-between w-full items-center gap-2">
-                    <ShoppingCart className="h-5 w-5 text-primary" />
-                    Carrinho
-                    <span className="ml-auto text-sm font-normal text-muted-foreground">
-                      ({cart.length})
-                    </span>
-                  </div>
+          <aside className="min-w-0 lg:h-full lg:min-h-0">
+            <section className="flex flex-col overflow-hidden border border-border bg-card shadow-sm lg:h-full lg:min-h-0">
+              <header className="flex shrink-0 items-center gap-3 border-b border-background/10 bg-foreground px-3 py-3 text-background dark:bg-primary/20 dark:text-foreground sm:px-4">
+                <div className="flex size-9 shrink-0 items-center justify-center border border-background/20 bg-background/10 dark:border-border dark:bg-background">
+                  <ShoppingCart className="size-4 text-primary" aria-hidden="true" />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-sm font-bold uppercase tracking-[0.08em]">
+                    Carrinho de produtos
+                  </h2>
+                  <p className="mt-0.5 text-xs text-background/60 dark:text-muted-foreground">
+                    Venda em montagem
+                  </p>
+                </div>
+                <span className="ml-auto shrink-0 border border-background/20 px-2 py-1 text-xs font-bold tabular-nums dark:border-border">
+                  {cart.length} {cart.length === 1 ? "produto" : "produtos"}
+                </span>
+              </header>
 
-                  <div className="flex w-full justify-start">
-                    {selectedCustomer ? (
-                      <div className="flex flex-row items-center gap-2 text-sm font-light">
-                        <span>Cliente:</span>
-                        <span className="">
-                          {selectedCustomer.nomerazaosocial}
-                        </span>
-                        <UserRoundX
-                          onClick={() => setSelectedCustomer(undefined)}
-                          className="h-4 w-4 hover:cursor-pointer hover:text-red-500 "
-                        />
-                      </div>
-                    ) : (
-                      <CustomerSelect
-                        open={isCustomerSelectOpen}
-                        setOpen={setIsCustomerSelectOpen}
-                        OnSelect={(c) => setSelectedCustomer(c)}
-                      >
-                        <Button
-                          size={"sm"}
-                          variant={"outline"}
-                          className="text-xs hover:cursor-pointer"
-                        >
-                          <Search className="size-4" />
-                          Selecionar Cliente
-                        </Button>
-                      </CustomerSelect>
-                    )}
+              <div className="shrink-0 border-b border-border bg-muted/15 p-3 sm:p-4">
+                {selectedCustomer ? (
+                  <div className="flex min-w-0 items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                        Cliente selecionado
+                      </p>
+                      <p className="truncate text-sm font-semibold text-foreground" title={selectedCustomer.nomerazaosocial}>
+                        {selectedCustomer.nomerazaosocial}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-9 shrink-0 rounded-none text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      aria-label="Remover cliente selecionado"
+                      onClick={() => setSelectedCustomer(undefined)}
+                    >
+                      <UserRoundX className="size-4" aria-hidden="true" />
+                    </Button>
                   </div>
-                  <CustomerBlockedAlert
-                    status={selectedCustomer?.status}
-                    className="px-0 pt-1 text-left"
-                  />
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
+                ) : (
+                  <CustomerSelect
+                    open={isCustomerSelectOpen}
+                    setOpen={setIsCustomerSelectOpen}
+                    OnSelect={setSelectedCustomer}
+                  >
+                    <Button type="button" variant="outline" className="h-10 w-full justify-start rounded-none text-xs">
+                      <Search className="size-4" aria-hidden="true" />
+                      Selecionar cliente
+                    </Button>
+                  </CustomerSelect>
+                )}
+                <CustomerBlockedAlert status={selectedCustomer?.status} className="px-0 pt-2 text-left" />
+              </div>
+
+              <div className="min-h-0 flex-1 space-y-4 p-3 sm:p-4 lg:overflow-y-auto lg:overscroll-contain">
                 {cart.length === 0 ? (
-                  <div className="py-8 text-center">
-                    <ShoppingCart className="h-8 w-8 text-muted mx-auto mb-2 opacity-50" />
-                    <p className="text-sm text-muted-foreground">
-                      Carrinho vazio
-                    </p>
+                  <div className="flex min-h-44 flex-col items-center justify-center border border-dashed border-border bg-muted/10 px-4 py-8 text-center">
+                    <ShoppingCart className="mb-3 size-8 text-muted-foreground/50" aria-hidden="true" />
+                    <p className="text-sm font-semibold text-foreground">Carrinho vazio</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Adicione um produto do catálogo para começar.</p>
                   </div>
                 ) : (
                   <>
-                    <div className="flex w-full items-center justify-between pb-1">
-                      <span className="text-xs font-medium text-muted-foreground">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
                         Itens adicionados
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => setCart([])}
-                        className="text-xs text-red-500 not-dark:text-red-500 hover:cursor-pointer hover:underline"
-                      >
+                      <button type="button" onClick={() => setCart([])} className="text-xs font-medium text-destructive hover:underline">
                         Esvaziar carrinho
                       </button>
                     </div>
-                    <div className="space-y-2 max-h-64 overflow-y-auto">
+
+                    <div className="space-y-2 pr-1">
                       {cart.map((item) => (
-                        <div
-                          key={item.id}
-                          className="bg-muted/50 p-3 rounded-lg space-y-2"
-                        >
-                          <div className="flex justify-between items-start">
-                            <div className="flex-1">
-                              <p className="text-sm font-medium text-foreground">
-                                {item.titulo}
+                        <article key={item.id} className="overflow-hidden border border-border bg-background">
+                          <header className="flex items-start justify-between gap-2 border-b border-border bg-muted/20 px-3 py-2.5">
+                            <div className="min-w-0">
+                              <p className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">{item.titulo}</p>
+                              <p className="mt-0.5 truncate text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">
+                                {item.grupo || "Sem grupo"} · estoque {item.estoque}
                               </p>
                             </div>
-                            <Button
-                              onClick={() => removeFromCart(item.id)}
-                              size="sm"
-                              variant="ghost"
-                              className="h-6 w-6 p-0 text-destructive hover:text-destructive hover:bg-destructive/20 hover:cursor-pointer"
-                            >
-                              <Trash2 className="h-4 w-4" />
+                            <Button type="button" onClick={() => removeFromCart(item.id)} size="icon" variant="ghost" className="size-8 shrink-0 rounded-none text-destructive hover:bg-destructive/10 hover:text-destructive" aria-label={`Remover ${item.titulo} do carrinho`}>
+                              <Trash2 className="size-4" aria-hidden="true" />
                             </Button>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-end gap-3">
-                              <div className="space-y-1 max-w-32">
-                                <span className="text-[10px] text-muted-foreground">
-                                  Preço unitário
-                                </span>
-                                <ValueInput
-                                  value={item.precovenda}
-                                  onValueChange={(value) => updatePrice(item.id, value)}
-                                  className="h-7 text-right text-xs"
-                                />
-                              </div>
+                          </header>
+                          <div className="grid grid-cols-[minmax(7rem,1fr)_auto] items-end gap-3 p-3">
+                            <div className="min-w-0 space-y-1">
+                              <span className="text-[10px] font-medium text-muted-foreground">Preço unitário</span>
+                              <ValueInput value={item.precovenda} onValueChange={(value) => updatePrice(item.id, value)} className="h-9 rounded-none text-right text-xs" />
                             </div>
-                            <div className="flex items-center gap-3">
-                              <div className="flex items-center gap-1">
-                                <Button
-                                  onClick={() =>
-                                    updateQuantity(item.id, item.quantity - 1)
-                                  }
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-6 w-6 p-0"
-                                >
-                                  <Minus className="h-3 w-3" />
+                            <div className="space-y-1 text-right">
+                              <span className="text-[10px] font-medium text-muted-foreground">Quantidade</span>
+                              <div className="flex items-center justify-end">
+                                <Button type="button" onClick={() => updateQuantity(item.id, item.quantity - 1)} size="icon" variant="outline" className="size-9 rounded-none" aria-label={`Diminuir quantidade de ${item.titulo}`}>
+                                  <Minus className="size-3" aria-hidden="true" />
                                 </Button>
-                                <span className="text-sm font-semibold text-foreground w-8 text-center">
-                                  {item.quantity}
-                                </span>
-                                <Button
-                                  onClick={() =>
-                                    updateQuantity(item.id, item.quantity + 1)
-                                  }
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-6 w-6 p-0"
-                                  disabled={item.quantity >= item.estoque}
-                                >
-                                  <Plus className="h-3 w-3" />
+                                <span className="flex h-9 min-w-9 items-center justify-center border-y border-border px-2 text-sm font-bold tabular-nums text-foreground">{item.quantity}</span>
+                                <Button type="button" onClick={() => updateQuantity(item.id, item.quantity + 1)} size="icon" variant="outline" className="size-9 rounded-none" disabled={item.quantity >= item.estoque} aria-label={`Aumentar quantidade de ${item.titulo}`}>
+                                  <Plus className="size-3" aria-hidden="true" />
                                 </Button>
                               </div>
-                              <span className="text-sm font-semibold text-primary min-w-20 text-right">
-                               {formatCurrencyBRL(item.precovenda * item.quantity)}
-                              </span>
+                            </div>
+                            <div className="col-span-2 flex items-center justify-between border-t border-border pt-2 text-xs">
+                              <span className="text-muted-foreground">Total do item</span>
+                              <span className="font-bold tabular-nums text-primary">{formatCurrencyBRL(item.precovenda * item.quantity)}</span>
                             </div>
                           </div>
-                        </div>
+                        </article>
                       ))}
                     </div>
 
-                    {/* Totals */}
-                    <div className="border-t border-border pt-4 space-y-2">
+                    <section className="space-y-3 border-t border-border pt-4" aria-labelledby="condicoes-venda-title">
+                      <div>
+                        <h3 id="condicoes-venda-title" className="text-xs font-bold uppercase tracking-[0.08em] text-foreground">Condições da venda</h3>
+                        <p className="mt-0.5 text-xs text-muted-foreground">Categoria, descontos e frete.</p>
+                      </div>
+
                       <div className="space-y-1">
-                        <span className="text-xs text-muted-foreground">
-                          Categoria de venda
-                        </span>
-                        <Select
-                          value={selectedSaleCategoryId ? String(selectedSaleCategoryId) : "uncategorized"}
-                          onValueChange={(value) =>
-                            setSelectedSaleCategoryId(value === "uncategorized" ? null : Number(value))
-                          }
-                          disabled={loadingCategoriasVenda}
-                        >
-                          <SelectTrigger className="w-full">
-                            <SelectValue
-                              placeholder={loadingCategoriasVenda ? "Carregando..." : "Selecione uma categoria"}
-                            />
+                        <span className="text-xs text-muted-foreground">Categoria de venda</span>
+                        <Select value={selectedSaleCategoryId ? String(selectedSaleCategoryId) : "uncategorized"} onValueChange={(value) => setSelectedSaleCategoryId(value === "uncategorized" ? null : Number(value))} disabled={loadingCategoriasVenda}>
+                          <SelectTrigger className="h-10 w-full rounded-none">
+                            <SelectValue placeholder={loadingCategoriasVenda ? "Carregando..." : "Selecione uma categoria"} />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="uncategorized">Sem categoria</SelectItem>
                             {categoriasVenda.map((categoria) => (
-                              <SelectItem key={categoria.id} value={String(categoria.id)}>
-                                {categoria.nome}
-                              </SelectItem>
+                              <SelectItem key={categoria.id} value={String(categoria.id)}>{categoria.nome}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
@@ -1034,181 +910,142 @@ export function POSSystem() {
 
                       <div className="grid grid-cols-2 gap-2">
                         <div className="space-y-1">
-                          <span className="text-xs text-muted-foreground">
-                            Tipo de desconto
-                          </span>
-                          <Select
-                            value={discountType ?? "NONE"}
-                            onValueChange={(value) =>
-                              setDiscountType(
-                                value === "NONE"
-                                  ? null
-                                  : (value as DiscountType),
-                              )
-                            }
-                          >
-                            <SelectTrigger className="w-full">
-                              <SelectValue placeholder="Sem desconto" />
-                            </SelectTrigger>
+                          <span className="text-xs text-muted-foreground">Tipo de desconto</span>
+                          <Select value={discountType ?? "NONE"} onValueChange={(value) => setDiscountType(value === "NONE" ? null : (value as DiscountType))}>
+                            <SelectTrigger className="h-10 w-full rounded-none"><SelectValue placeholder="Sem desconto" /></SelectTrigger>
                             <SelectContent>
                               <SelectItem value="NONE">Sem desconto</SelectItem>
                               <SelectItem value="FIXO">Fixo</SelectItem>
-                              <SelectItem value="PORCENTAGEM">
-                                Porcentagem
-                              </SelectItem>
+                              <SelectItem value="PORCENTAGEM">Porcentagem</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
                         <div className="space-y-1">
-                          <span className="text-xs text-muted-foreground">
-                            {discountType === "PORCENTAGEM"
-                              ? "Percentual (%)"
-                              : "Valor do desconto"}
-                          </span>
+                          <span className="text-xs text-muted-foreground">{discountType === "PORCENTAGEM" ? "Percentual (%)" : "Valor do desconto"}</span>
                           {discountType === "PORCENTAGEM" ? (
-                            <Input
-                              type="number"
-                              min={0}
-                              max={100}
-                              step="0.01"
-                              value={discount}
-                              onChange={(e) => setDiscount(Number(e.target.value || 0))}
-                              disabled={!discountType}
-                              placeholder="0,00%"
-                            />
+                            <Input type="number" min={0} max={100} step="0.01" value={discount} onChange={(event) => setDiscount(Number(event.target.value || 0))} disabled={!discountType} placeholder="0,00%" className="h-10 rounded-none" />
                           ) : (
-                            <ValueInput
-                              value={discount}
-                              onValueChange={setDiscount}
-                              disabled={!discountType}
-                            />
+                            <ValueInput value={discount} onValueChange={setDiscount} disabled={!discountType} className="h-10 rounded-none" />
                           )}
                         </div>
                       </div>
-                      <div className="rounded-md border border-border p-3">
+
+                      <div className="border border-border bg-muted/10 p-3">
                         <div className="flex items-center gap-2">
-                          <Checkbox
-                            id="incluir-frete-venda"
-                            checked={hasFreight}
-                            onCheckedChange={(checked) => {
-                              const enabled = checked === true;
-                              setHasFreight(enabled);
-                              if (!enabled) setFreight(0);
-                            }}
-                          />
-                          <label htmlFor="incluir-frete-venda" className="text-sm font-medium leading-none">
-                            Incluir frete na venda
-                          </label>
+                          <Checkbox id="incluir-frete-venda" checked={hasFreight} onCheckedChange={(checked) => { const enabled = checked === true; setHasFreight(enabled); if (!enabled) setFreight(0); }} />
+                          <label htmlFor="incluir-frete-venda" className="text-sm font-medium leading-none">Incluir frete na venda</label>
                         </div>
                         {hasFreight ? (
                           <div className="mt-3 space-y-1">
                             <span className="text-xs text-muted-foreground">Valor do frete</span>
-                            <ValueInput
-                              value={freight}
-                              onValueChange={setFreight}
-                              aria-label="Valor do frete"
-                            />
+                            <ValueInput value={freight} onValueChange={setFreight} aria-label="Valor do frete" className="h-10 rounded-none" />
                           </div>
                         ) : null}
                       </div>
-                      <div className="flex justify-between text-sm text-muted-foreground">
-                        <span>Subtotal:</span>
-                        <span>{formatCurrencyBRL(subtotal)}</span>
-                      </div>
-                      <div className="flex justify-between text-sm text-muted-foreground">
-                        <span>Desconto:</span>
-                        <span>
-                          - {formatCurrencyBRL(discountAmount)}
-                          {discountType === "PORCENTAGEM" &&
-                          normalizedDiscountInput > 0
-                            ? ` (${Math.min(normalizedDiscountInput, 100).toFixed(2)}%)`
-                            : ""}
-                        </span>
-                      </div>
-                      {discountType && discountAmount > 0 && (
-                        <div className="flex justify-between text-xs text-muted-foreground">
-                          <span>Desconto informado:</span>
-                          <span>
-                            {discountType === "PORCENTAGEM"
-                              ? `${Math.min(normalizedDiscountInput, 100).toFixed(2)}%`
-                              : formatCurrencyBRL(normalizedDiscountInput)}
-                          </span>
-                        </div>
-                      )}
+                    </section>
 
-                      {hasFreight ? (
-                        <div className="flex justify-between text-sm text-muted-foreground">
-                          <span>Frete:</span>
-                          <span>+ {formatCurrencyBRL(freightAmount)}</span>
-                        </div>
+                    <section className="space-y-2 border-t border-border pt-4" aria-label="Resumo financeiro da venda">
+                      <div className="flex justify-between text-sm text-muted-foreground"><span>Subtotal</span><span className="tabular-nums">{formatCurrencyBRL(subtotal)}</span></div>
+                      <div className="flex justify-between text-sm text-muted-foreground">
+                        <span>Desconto</span>
+                        <span className="tabular-nums">- {formatCurrencyBRL(discountAmount)}{discountType === "PORCENTAGEM" && normalizedDiscountInput > 0 ? ` (${Math.min(normalizedDiscountInput, 100).toFixed(2)}%)` : ""}</span>
+                      </div>
+                      {discountType && discountAmount > 0 ? (
+                        <div className="flex justify-between text-xs text-muted-foreground"><span>Desconto informado</span><span>{discountType === "PORCENTAGEM" ? `${Math.min(normalizedDiscountInput, 100).toFixed(2)}%` : formatCurrencyBRL(normalizedDiscountInput)}</span></div>
                       ) : null}
-
-                      <div className="flex justify-between text-sm text-muted-foreground"></div>
-                      <div className="flex justify-between text-lg font-bold text-primary-foreground bg-primary p-2 rounded">
-                        <span>Total:</span>
-                        <span>{formatCurrencyBRL(total)}</span>
+                      {hasFreight ? <div className="flex justify-between text-sm text-muted-foreground"><span>Frete</span><span className="tabular-nums">+ {formatCurrencyBRL(freightAmount)}</span></div> : null}
+                      <div className="flex items-center justify-between border border-primary/30 bg-primary/10 px-3 py-3 text-lg font-bold text-foreground">
+                        <span>Total</span><span className="tabular-nums text-primary">{formatCurrencyBRL(total)}</span>
                       </div>
-                    </div>
+                    </section>
 
-                    {/* Action Buttons */}
-                    <div className="space-y-2 pt-2">
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        className="w-full hover:cursor-pointer"
-                        onClick={handleSaveBudget}
-                      >
-                        <ReceiptText className="h-4 w-4" />
-                        Salvar como orçamento
-                      </Button>
-                      <AlertDialog
-                        open={isAlertOpen}
-                        onOpenChange={setIsAlertOpen}
-                      >
-                        <AlertDialogTrigger asChild>
-                          <Button className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold hover:cursor-pointer">
-                            Finalizar Venda
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Tem certeza?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Ao selecionar esta opção, o pagamento da venda ficará em aberto
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <div className="space-y-2 p-4 bg-card rounded-2xl">
-                          <DadosParaFinanceiroFields
-                            value={dadosFinanceiro}
-                            onChange={setDadosFinanceiro}
-                            totalCents={moneyToCents(total)}
-                          />
-                        </div>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel className="hover:cursor-pointer">Cancelar</AlertDialogCancel>
-                          <AlertDialogAction
-                            className="hover:cursor-pointer"
-                            disabled={creatingVenda}
-                            onClick={async (event) => {
-                              event.preventDefault();
-                              const success = await createVenda();
-                              if (success) setIsAlertOpen(false);
-                            }}
-                          >
-                            {creatingVenda ? "Confirmando..." : "Confirmar"}
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
                   </>
                 )}
-              </CardContent>
-            </Card>
-          </div>
+              </div>
+              {cart.length > 0 ? (
+                <div className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-2 gap-2 border-t border-border bg-background/95 px-3 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] shadow-[0_-8px_24px_rgba(0,0,0,0.12)] backdrop-blur-sm lg:static lg:shrink-0 lg:grid-cols-1 lg:bg-background lg:p-3 lg:shadow-[0_-8px_20px_rgba(0,0,0,0.08)] lg:backdrop-blur-none xl:grid-cols-2">
+                  <Button type="button" variant="outline" className="min-h-11 rounded-none font-semibold" onClick={() => abrirConfirmacao("ORCAMENTO")}>
+                    <ReceiptText className="size-4" aria-hidden="true" />
+                    Salvar orçamento
+                  </Button>
+                  <Button type="button" className="min-h-11 rounded-none font-semibold" onClick={() => abrirConfirmacao("PAGAMENTO")}>
+                    Finalizar venda
+                  </Button>
+                </div>
+              ) : null}
+            </section>
+          </aside>
         </div>
       </div>
+
+      <DialogShell
+        open={isAlertOpen}
+        onOpenChange={(open) => {
+          if (!creatingVenda) setIsAlertOpen(open);
+        }}
+        title={acaoConfirmacao === "ORCAMENTO" ? "Salvar como orçamento" : "Finalizar venda"}
+        titleSuffix={acaoConfirmacao === "ORCAMENTO" ? "Orçamento" : "Pagamento"}
+        description="Revise as informações da venda e defina os dados que serão encaminhados ao financeiro."
+        eyebrow="Conferência da venda"
+        variant="workbench"
+        maxW="md:max-w-[980px]"
+        mobileFull
+        fixedHeight
+        footer={
+          <>
+            <Button type="button" variant="outline" className="rounded-none" disabled={creatingVenda} onClick={() => setIsAlertOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              className="min-w-36 rounded-none"
+              disabled={creatingVenda}
+              onClick={async () => {
+                const success = await createVenda(acaoConfirmacao);
+                if (success) setIsAlertOpen(false);
+              }}
+            >
+              {creatingVenda ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
+              {creatingVenda ? "Confirmando..." : acaoConfirmacao === "ORCAMENTO" ? "Salvar orçamento" : "Finalizar venda"}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <section className="grid overflow-hidden border border-border bg-background shadow-sm sm:grid-cols-2 lg:grid-cols-4" aria-label="Resumo da venda">
+            <div className="min-w-0 border-b border-border p-3 sm:border-r lg:border-b-0">
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Cliente</p>
+              <p className="mt-1 truncate text-sm font-semibold text-foreground" title={selectedCustomer?.nomerazaosocial}>{selectedCustomer?.nomerazaosocial || "Não informado"}</p>
+            </div>
+            <div className="border-b border-border p-3 lg:border-b-0 lg:border-r">
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Produtos</p>
+              <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">{cart.reduce((sum, item) => sum + item.quantity, 0)} itens</p>
+            </div>
+            <div className="border-b border-border p-3 sm:border-b-0 sm:border-r">
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Ajustes</p>
+              <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">- {formatCurrencyBRL(discountAmount)} · + {formatCurrencyBRL(freightAmount)}</p>
+            </div>
+            <div className="p-3">
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Total</p>
+              <p className="mt-1 text-sm font-bold tabular-nums text-primary">{formatCurrencyBRL(total)}</p>
+            </div>
+          </section>
+
+          <VendaConfirmacaoFields
+            idPrefix="pdv-venda"
+            descricao={descricao}
+            onDescricaoChange={setDescricao}
+            observacoesInternas={observacoesInternas}
+            onObservacoesInternasChange={setObservacoesInternas}
+            observacoesFiscais={observacoesFiscais}
+            onObservacoesFiscaisChange={setObservacoesFiscais}
+            dadosFinanceiro={dadosFinanceiro}
+            onDadosFinanceiroChange={setDadosFinanceiro}
+            totalCents={moneyToCents(total)}
+            disabled={creatingVenda}
+          />
+        </div>
+      </DialogShell>
     </div>
   );
 }

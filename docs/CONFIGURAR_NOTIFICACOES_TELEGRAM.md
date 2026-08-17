@@ -1,4 +1,4 @@
-# Configuração das notificações de OS pelo Telegram
+# Configuração das notificações do ERP pelo Telegram
 
 ## 1. Criar o bot
 
@@ -55,6 +55,7 @@ supabase/migrations/20260810190000_notificacoes_os_telegram.sql
 supabase/migrations/20260810210000_notificacoes_os_telegram_tempo_real.sql
 supabase/migrations/20260811200000_notificacoes_os_telegram_dispatch_pg_net.sql
 supabase/migrations/20260812200000_telegram_resumo_diario_contas_pagar.sql
+supabase/migrations/20260815130000_telegram_notificacoes_estoque.sql
 ```
 
 Siga o fluxo seguro já adotado pelo projeto:
@@ -133,7 +134,7 @@ Eventos podem ser registrados enquanto a integração está desativada. Antes de
 2. Abra `Configurações > Telegram`.
 3. Em **Destinatários dos avisos**, selecione o usuário do ERP.
 4. Informe o `@usuário` utilizado por essa pessoa no Telegram.
-5. Escolha quando e quais OS ela deve acompanhar.
+5. Nas abas **OS**, **Financeiro** e **Estoque**, escolha os módulos e eventos que ela deve acompanhar.
 6. Clique em **Adicionar destinatário**.
 7. Na lista, clique em **Gerar link** e envie o link copiado ao destinatário.
 8. O destinatário abre o link e toca em **Iniciar**. O bot confere se o username da conversa corresponde ao cadastro feito pelo administrador.
@@ -179,7 +180,38 @@ Por segurança, a opção só pode ser ativada para usuários cujo perfil possua
 `Financeiro: visualizar`. Se essa permissão ou o acesso do destinatário for removido, os
 novos resumos deixam de ser enviados.
 
-## 12. Operação e solução de problemas
+## 12. Notificações de movimentação de estoque
+
+A aba **Estoque** permite selecionar separadamente registros e estornos de:
+
+- entradas de produtos;
+- saídas avulsas;
+- baixas vinculadas a vendas;
+- baixas vinculadas a ordens de serviço.
+
+Cada linha criada no razão de estoque corresponde a um produto movimentado e gera,
+quando selecionada, uma mensagem própria com quantidade, saldo anterior, saldo
+resultante, documento e responsável. Assim, uma venda ou OS com mais de um produto
+pode gerar mais de uma mensagem.
+
+Os avisos são capturados a partir de `estoque_movimento`, depois que a alteração do
+saldo foi efetivada. Movimentos sem origem identificada e itens do módulo de uso e
+consumo não participam dessa fila.
+
+Para ativar:
+
+1. aplique a migration `20260815130000_telegram_notificacoes_estoque.sql`;
+2. confirme que o usuário possui a permissão `Estoque: visualizar`;
+3. edite o destinatário em `Configurações > Telegram`;
+4. abra a aba **Estoque** e selecione as movimentações desejadas;
+5. salve e registre uma movimentação de homologação;
+6. confira a mensagem e a fila no diagnóstico da integração.
+
+O mesmo endpoint usado para processar eventos de OS também processa a fila de
+estoque. Não é necessário registrar outro webhook nem criar novas variáveis de
+ambiente.
+
+## 13. Operação e solução de problemas
 
 - **Webhook sem URL:** publique a aplicação e clique em Configurar webhook novamente.
 - **Unauthorized no webhook:** `TELEGRAM_WEBHOOK_SECRET` do servidor não corresponde ao registrado; registre novamente.
@@ -188,6 +220,7 @@ novos resumos deixam de ser enviados.
 - **Eventos ficam pendentes:** confira o agendador e `CRON_SECRET`, ou use Processar agora.
 - **Só envia ao clicar em Processar:** aplique a migration de tempo real, publique a aplicação e clique novamente em **Configurar webhook** para registrar o disparo daquele cliente.
 - **Resumo financeiro não chega:** confirme `CRON_SECRET`, refaça **Configurar webhook**, verifique a permissão `Financeiro: visualizar` e aguarde a janela de até cinco minutos após o horário escolhido.
+- **Movimentação de estoque não chega:** confirme que o evento está selecionado na aba **Estoque**, que o destinatário possui `Estoque: visualizar` e que a migration da fila foi aplicada.
 - **Erro 403 do Telegram:** normalmente o usuário bloqueou o bot; desconecte e faça um novo vínculo.
 - **Mensagens duplicadas:** consulte as entregas no banco; a restrição única por evento/usuário deve impedir duplicidade.
 - **Alteração de token:** atualize `TELEGRAM_BOT_TOKEN`, publique novamente e registre o webhook outra vez.

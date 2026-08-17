@@ -22,7 +22,7 @@ export type LabelPreset = LabelSize & {
    * inteiro, com `tituloMin` de piso — abaixo disso a etiqueta fica ilegivel e
    * e melhor cortar com reticencias do que imprimir o que ninguem le.
    */
-  fonts: { titulo: number; tituloMin: number; referencia: number };
+  fonts: { codigo: number; titulo: number; tituloMin: number; referencia: number };
 };
 
 export const LABEL_PRESETS: Record<LabelSizeKey, LabelPreset> = {
@@ -32,7 +32,7 @@ export const LABEL_PRESETS: Record<LabelSizeKey, LabelPreset> = {
     heightMm: 30,
     layout: "stack",
     qrMm: 14,
-    fonts: { titulo: 6.5, tituloMin: 4, referencia: 5 },
+    fonts: { codigo: 6, titulo: 6.5, tituloMin: 4, referencia: 5 },
   },
   "60x30": {
     label: "60 x 30 mm",
@@ -40,7 +40,7 @@ export const LABEL_PRESETS: Record<LabelSizeKey, LabelPreset> = {
     heightMm: 30,
     layout: "side",
     qrMm: 16,
-    fonts: { titulo: 7, tituloMin: 4.5, referencia: 5.5 },
+    fonts: { codigo: 6.5, titulo: 7, tituloMin: 4.5, referencia: 5.5 },
   },
   "60x40": {
     label: "60 x 40 mm",
@@ -48,7 +48,7 @@ export const LABEL_PRESETS: Record<LabelSizeKey, LabelPreset> = {
     heightMm: 40,
     layout: "side",
     qrMm: 18,
-    fonts: { titulo: 8, tituloMin: 4.5, referencia: 6 },
+    fonts: { codigo: 7, titulo: 8, tituloMin: 4.5, referencia: 6 },
   },
   "80x40": {
     label: "80 x 40 mm",
@@ -56,7 +56,7 @@ export const LABEL_PRESETS: Record<LabelSizeKey, LabelPreset> = {
     heightMm: 40,
     layout: "side",
     qrMm: 20,
-    fonts: { titulo: 9.5, tituloMin: 5, referencia: 7 },
+    fonts: { codigo: 8.5, titulo: 9.5, tituloMin: 5, referencia: 7 },
   },
   "100x50": {
     label: "100 x 50 mm",
@@ -64,7 +64,7 @@ export const LABEL_PRESETS: Record<LabelSizeKey, LabelPreset> = {
     heightMm: 50,
     layout: "side",
     qrMm: 26,
-    fonts: { titulo: 12, tituloMin: 6, referencia: 8.5 },
+    fonts: { codigo: 10.5, titulo: 12, tituloMin: 6, referencia: 8.5 },
   },
 };
 

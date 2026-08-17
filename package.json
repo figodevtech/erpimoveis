@@ -10,7 +10,7 @@
     "lint:unused": "eslint . --config eslint-unused.config.mjs --no-error-on-unmatched-pattern",
     "test:nfe": "tsx --test src/lib/nfe/*.test.ts src/lib/nfe/nfce/*.test.ts",
     "test:financeiro": "tsx --test src/lib/financeiro/*.test.ts src/app/api/transaction/_lib/*.test.ts",
-    "test:telegram": "tsx --test src/lib/ordens/telegram-notifications.test.ts src/lib/financeiro/telegram-daily-summary.test.ts",
+    "test:telegram": "tsx --test src/lib/ordens/telegram-notifications.test.ts src/lib/financeiro/telegram-daily-summary.test.ts src/lib/estoque/telegram-stock-notifications.test.ts",
     "localidades:gerar": "node scripts/localidades/gerar-municipios.mjs",
     "db:status": "tsx scripts/db/status.ts",
     "db:test:sql": "tsx scripts/db/test-sql.ts",
@@ -24,7 +24,11 @@
     "db:restaurar:transacao": "tsx scripts/db/restaurar-transacao-excluida-demir.ts",
     "capture:all": "node scripts/captures/run-captures.mjs",
     "capture:ui": "playwright test --ui --project=desktop",
-    "capture:seed:demo": "tsx scripts/captures/seed-demo.ts"
+    "capture:seed:demo": "tsx scripts/captures/seed-demo.ts",
+    "radios:importar:joao-pessoa": "tsx scripts/radios/import-joao-pessoa.ts",
+    "radios:importar:tematicos": "tsx scripts/radios/import-thematic-channels.ts",
+    "radios:sincronizar:todos-bancos": "tsx scripts/radios/sync-catalog-all-databases.ts",
+    "test:radios": "tsx --test src/lib/radio/*.test.ts"
   },
   "overrides": {
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
@@ -67,6 +71,7 @@
     "date-fns": "^4.1.0",
     "fast-xml-parser": "^5.3.2",
     "heic-to": "^1.5.2",
+    "hls.js": "^1.7.0",
     "html-to-image": "^1.11.13",
     "jsqr": "^1.4.0",
     "lucide-react": "^0.542.0",

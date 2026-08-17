@@ -50,3 +50,9 @@ next-env.d.ts
 
 #certificado
 /certs
+
+# Arquivos gerados pelo next-pwa
+/public/sw.js
+/public/workbox-*.js
+/public/worker-*.js
+/public/fallback-*.js

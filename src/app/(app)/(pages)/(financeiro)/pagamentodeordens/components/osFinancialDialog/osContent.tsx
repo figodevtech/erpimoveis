@@ -1,10 +1,9 @@
 import { Ordem } from "@/app/(app)/(pages)/ordens/types";
-import { DialogContent, DialogDescription, DialogTitle, DialogHeader, DialogFooter } from "@/components/ui/dialog";
-import { Separator } from "@/components/ui/separator";
+import { DialogContent } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHeader, TableRow, TableHead } from "@/components/ui/table";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { Transaction } from "../../../fluxodecaixa/types";
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type ChangeEvent } from "react";
 import axios, { isAxiosError } from "axios";
 import TransactionDialog from "../../../fluxodecaixa/components/transactionDialog/transactionDialog";
 import { Button } from "@/components/ui/button";
@@ -12,8 +11,8 @@ import { Input } from "@/components/ui/input";
 import ValueInput from "@/components/ui/value-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ChevronDown, Eye, ExternalLink, FileText, Loader, Loader2, Package, Paperclip, Pencil, Percent, ReceiptText, Trash2Icon, Upload } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { ChevronDown, Eye, ExternalLink, FileText, Loader, Loader2, Package, Paperclip, Pencil, Percent, Printer, ReceiptText, RotateCcw, Share2, Trash2Icon, Upload } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { useConfig } from "@/app/(app)/(pages)/config-context";
@@ -35,8 +34,23 @@ import {
 } from "@/components/ui/alert-dialog";
 import { formatPaymentMethodLabel } from "@/lib/payment-methods";
 import { valorDeFace } from "@/lib/financeiro/transacao";
-import type { ResumoFinanceiroOs } from "@/lib/ordens/financeiro";
+import { podeRegistrarPagamentoOs, type ResumoFinanceiroOs } from "@/lib/ordens/financeiro";
 import { ClienteResumoCard } from "@/components/cliente/cliente-resumo-card";
+import {
+  FinancialDialogHeader,
+  FinancialDialogLoadingState,
+  FinancialSummaryFooter,
+  FinancialStatusBadge,
+  FinancialTransactionFiltersBar,
+  FinancialTransactionPagination,
+  FinancialTransactionsPanel,
+  EMPTY_FINANCIAL_TRANSACTION_FILTERS,
+  type FinancialTransactionFilters,
+  financialDialogContentClass,
+  financialTabListClass,
+  financialTabTriggerClass,
+} from "../../../components/financial-details-dialog-ui";
+import { printTransactionReceipt, shareTransactionReceipt } from "../../../components/financial-transaction-receipt";
 
 interface OsContentProps {
   osId: number;
@@ -160,9 +174,6 @@ const limitarDesconto = (
   return 0;
 };
 
-const tabTriggerClass =
-  "group h-8 rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary dark:data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm";
-
 export default function OsContent({ osId, IsOpen }: OsContentProps) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -174,6 +185,10 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
     limit: 20,
     totalPages: 0,
   });
+  const [transactionFilters, setTransactionFilters] =
+    useState<FinancialTransactionFilters>({
+      ...EMPTY_FINANCIAL_TRANSACTION_FILTERS,
+    });
   const [ordem, setOrdem] = useState<Ordem | undefined>(undefined);
   const [resumoFinanceiro, setResumoFinanceiro] = useState<ResumoFinanceiroOs | null>(null);
   const [itensProduto, setItensProduto] = useState<OsProdutoItem[]>([]);
@@ -221,6 +236,13 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
   const acrescimoAplicado = calculateFinancialSurcharge(totalComercial, acrescimoTipo, acrescimo);
   const totalFinanceiro = calculateFinancialTotal(totalComercial, acrescimoTipo, acrescimo);
   const saldoDevedor = Math.max(0, totalFinanceiro - totalPago);
+  const saldoDisponivel =
+    resumoFinanceiro?.saldoDisponivelParaLancamento ?? saldoDevedor;
+  const bloqueioNovoPagamento = !podeRegistrarPagamentoOs(ordem?.status)
+    ? `A OS está ${ordem?.status?.toLowerCase()}: não é possível registrar pagamentos.`
+    : saldoDisponivel <= 0
+      ? "A OS já está quitada ou coberta por títulos pendentes."
+      : null;
   const alvoLabel =
     ordem?.alvo_tipo === "PECA"
       ? "Peça"
@@ -278,11 +300,16 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
     }
   };
 
-  const handleGetTransactions = async (pageNumber?: number, ordemIdArg?: number) => {
+  const handleGetTransactions = async (
+    pageNumber?: number,
+    ordemIdArg?: number,
+    filtersArg?: FinancialTransactionFilters,
+  ) => {
     const targetId = ordemIdArg ?? ordem?.id;
     if (!targetId) return;
     setIsLoading(true);
     try {
+      const filters = filtersArg ?? transactionFilters;
       const response = await axios.get("/api/transaction", {
         params: {
           page: pageNumber || 1,
@@ -290,10 +317,27 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
           ordemservicoid: targetId,
           tipo: "RECEITA",
           excluirEventosFinanceiros: true,
+          search: filters.search.trim() || undefined,
+          metodo: filters.method || undefined,
+          dateFrom: filters.dateFrom || undefined,
+          dateTo: filters.dateTo || undefined,
         },
       });
       if (response.status === 200) {
         const { data } = response;
+        const requestedPage = pageNumber || 1;
+        if (
+          data.data.length === 0 &&
+          data.pagination.total > 0 &&
+          requestedPage > data.pagination.totalPages
+        ) {
+          await handleGetTransactions(
+            data.pagination.totalPages,
+            targetId,
+            filters,
+          );
+          return;
+        }
         setTransactions(data.data);
         setPagination(data.pagination);
         const detalhes = await axios.get(`/api/ordens/${targetId}`);
@@ -414,6 +458,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
       setAcrescimo(0);
       setResumoFinanceiro(null);
       setHasLoadedOnce(false);
+      setTransactionFilters({ ...EMPTY_FINANCIAL_TRANSACTION_FILTERS });
     }
   }, [IsOpen]);
 
@@ -575,41 +620,36 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
   // ====== RENDER
   if (isLoadingOs) {
     return (
-      <DialogContent className="h-dvh w-[100svw] max-w-[100svw] overflow-hidden rounded-none p-0 sm:h-[calc(100dvh-2rem)] sm:max-h-none sm:w-[95vw] sm:max-w-[1100px] sm:rounded-2xl">
-        <DialogHeader className="hidden">
-          <DialogTitle></DialogTitle>
-        </DialogHeader>
-        <div className="flex h-full min-h-0 flex-col justify-center items-center">
-          <div className="size-8 border-t-2 border-primary rounded-t-full animate-spin"></div>
-          <span className="text-primary">Carregando</span>
-        </div>
+      <DialogContent className={financialDialogContentClass}>
+        <FinancialDialogLoadingState label="Dados financeiros da ordem de serviço" />
       </DialogContent>
     );
   }
 
   if (!ordem && !hasLoadedOnce) {
     return (
-      <DialogContent className="h-dvh w-[100svw] max-w-[100svw] overflow-hidden rounded-none p-0 sm:h-[calc(100dvh-2rem)] sm:max-h-none sm:w-[95vw] sm:max-w-[1100px] sm:rounded-2xl">
-        <DialogHeader className="hidden">
-          <DialogTitle></DialogTitle>
-        </DialogHeader>
-        <div className="flex h-full min-h-0 flex-col justify-center items-center">
-          <div className="size-8 border-t-2 border-primary rounded-t-full animate-spin"></div>
-          <span className="text-primary">Carregando</span>
-        </div>
+      <DialogContent className={financialDialogContentClass}>
+        <FinancialDialogLoadingState label="Dados financeiros da ordem de serviço" />
       </DialogContent>
     );
   }
 
   if (!ordem) {
     return (
-      <DialogContent className="h-dvh w-[100svw] max-w-[100svw] overflow-hidden rounded-none p-0 sm:h-[calc(100dvh-2rem)] sm:max-h-none sm:w-[95vw] sm:max-w-[1100px] sm:rounded-2xl">
-        <div className="flex h-full min-h-0 flex-col justify-center items-center">
-          <div className="max-w-sm space-y-3 text-center">
-            <p className="text-sm font-medium">Não foi possível carregar a OS.</p>
-            <Button variant="outline" onClick={() => osId && handleGetOrdem(osId)}>
-              Tentar novamente
-            </Button>
+      <DialogContent className={financialDialogContentClass}>
+        <div className="flex h-full min-h-0 flex-col">
+          <FinancialDialogHeader
+            entity="Ordem de serviço"
+            entityId={osId}
+            description="Não foi possível carregar as informações financeiras."
+          />
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center bg-muted/25 p-6">
+            <div className="max-w-sm space-y-3 border border-border bg-background p-6 text-center shadow-sm">
+              <p className="text-sm font-semibold">Não foi possível carregar a OS.</p>
+              <Button className="rounded-none" variant="outline" onClick={() => osId && handleGetOrdem(osId)}>
+                Tentar novamente
+              </Button>
+            </div>
           </div>
         </div>
       </DialogContent>
@@ -617,14 +657,13 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
   }
 
   return (
-    <DialogContent className="h-dvh w-[100svw] max-w-[100svw] overflow-hidden rounded-none p-0 sm:h-[calc(100dvh-2rem)] sm:max-h-none sm:w-[95vw] sm:max-w-[1100px] sm:rounded-2xl">
+    <DialogContent className={financialDialogContentClass}>
       <div className="flex h-full min-h-0 min-w-0 flex-col">
-        <DialogHeader className="shrink-0 px-6 py-4 border-b">
-          <DialogTitle>
-            OS #{ordem.id} <span className="text-muted-foreground text-sm font-light"> | PAGAMENTOS </span>
-          </DialogTitle>
-          <DialogDescription>Pagamentos da OS</DialogDescription>
-        </DialogHeader>
+        <FinancialDialogHeader
+          entity="Ordem de serviço"
+          entityId={ordem.id}
+          description="Consulte a composição da OS, ajuste valores e acompanhe os pagamentos registrados."
+        />
 
         {/* Barra de progresso fina no topo */}
         <div
@@ -639,35 +678,34 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
           />
         </div>
 
-        <div className="min-h-0 min-w-0 flex-1 space-y-2 overflow-y-auto overflow-x-hidden px-6 py-4 dark:bg-muted-foreground/5">
-          <Tabs defaultValue="detalhes" className="space-y-3">
-            <div className="pb-1">
-              <TabsList className="grid h-auto w-full grid-cols-5 gap-1.5 rounded-2xl border bg-muted/40 p-1 backdrop-blur-sm">
-                <TabsTrigger value="detalhes" className={tabTriggerClass}>
+        <Tabs defaultValue="detalhes" className="min-h-0 min-w-0 flex-1 gap-0 overflow-hidden">
+            <div className="shrink-0 border-b border-border bg-background">
+              <TabsList className={financialTabListClass}>
+                <TabsTrigger value="detalhes" className={financialTabTriggerClass}>
                   <span className="flex items-center gap-2">
                     <FileText className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
                     Detalhes
                   </span>
                 </TabsTrigger>
-                <TabsTrigger value="itens" className={tabTriggerClass}>
+                <TabsTrigger value="itens" className={financialTabTriggerClass}>
                   <span className="flex items-center gap-2">
                     <Package className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
                     Itens
                   </span>
                 </TabsTrigger>
-                <TabsTrigger value="descontos" className={tabTriggerClass}>
+                <TabsTrigger value="descontos" className={financialTabTriggerClass}>
                   <span className="flex items-center gap-2">
                     <Percent className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
                     Descontos e Acréscimos
                   </span>
                 </TabsTrigger>
-                <TabsTrigger value="anexos" className={tabTriggerClass}>
+                <TabsTrigger value="anexos" className={financialTabTriggerClass}>
                   <span className="flex items-center gap-2">
                     <Paperclip className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
                     Anexos
                   </span>
                 </TabsTrigger>
-                <TabsTrigger value="transacoes" className={tabTriggerClass}>
+                <TabsTrigger value="transacoes" className={financialTabTriggerClass}>
                   <span className="flex items-center gap-2">
                     <ReceiptText className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
                     Transações
@@ -676,6 +714,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
               </TabsList>
             </div>
 
+            <div className="min-h-0 min-w-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden bg-muted/25 px-3 py-3 sm:px-5 sm:py-4">
             <TabsContent value="detalhes" className="mt-0 space-y-3">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-12">
                 <ClienteResumoCard
@@ -683,33 +722,37 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                   className="xl:col-span-4"
                   onClienteAtualizado={() => handleGetOrdem(ordem.id, { silent: true })}
                 />
-                <div className="rounded-lg border bg-card p-4 xl:col-span-4">
+                <div className="border border-border bg-card p-4 shadow-sm xl:col-span-4">
                   <span className="text-[11px] uppercase tracking-wide text-muted-foreground">OS</span>
                   <p className="mt-1 text-sm font-medium">{ordem.status || "-"}</p>
                   <p className="text-xs text-muted-foreground">{ordem.setor?.nome || "Sem setor"}</p>
                 </div>
-                <div className="rounded-lg border bg-card p-4 xl:col-span-4">
+                <div className="border border-border bg-card p-4 shadow-sm xl:col-span-4">
                   <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Criador da OS</span>
                   <p className="mt-1 text-sm font-medium">{ordem.criador?.nome || ordem.usuariocriadorid || "-"}</p>
                   <p className="text-xs text-muted-foreground">Usuário responsável pela abertura</p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                <div className="rounded-lg border bg-card p-4">
-                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Alvo</span>
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                <div className="border border-border bg-card p-4 shadow-sm">
+                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Alvo do reparo</span>
                   <p className="mt-1 text-sm font-medium">{alvoLabel}</p>
                   <p className="text-xs text-muted-foreground line-clamp-2">{alvoDescricao}</p>
                 </div>
-
-                <div className="rounded-lg border bg-card p-4">
+                <div className="border border-border bg-card p-4 shadow-sm">
                   <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Cobrança</span>
-                  <p className="mt-1 text-sm font-medium">{formatarEmReal(totalFinanceiro)}</p>
-                  <p className="text-xs text-muted-foreground">Aberto: {formatarEmReal(saldoDevedor)}</p>
+                  <p className="mt-1 text-sm font-semibold text-primary">{formatarEmReal(totalFinanceiro)}</p>
+                  <p className="text-xs text-muted-foreground">Em aberto: {formatarEmReal(saldoDevedor)}</p>
+                </div>
+                <div className="border border-border bg-card p-4 shadow-sm">
+                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Anexos</span>
+                  <p className="mt-1 text-sm font-medium">{anexos.length} arquivo(s)</p>
+                  <p className="text-xs text-muted-foreground">Vinculados à ordem de serviço</p>
                 </div>
               </div>
               <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-                <div className="rounded-lg border bg-card p-4">
+                <div className="border border-border bg-card p-4 shadow-sm">
                   <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
                     Pagamento previsto
                   </span>
@@ -733,7 +776,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                     </p>
                   )}
                 </div>
-                <div className="rounded-lg border bg-card p-4">
+                <div className="border border-border bg-card p-4 shadow-sm">
                   <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
                     Descrição para o financeiro
                   </span>
@@ -741,7 +784,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                     {ordem.descricao_financeiro || "Não informada"}
                   </p>
                 </div>
-                <div className="rounded-lg border bg-card p-4">
+                <div className="border border-border bg-card p-4 shadow-sm">
                   <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
                     Garantia
                   </span>
@@ -750,26 +793,20 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                   </p>
                 </div>
               </div>
-          {ordem.descricao || ordem.observacoes || ordem.observacoes_fiscais ? (
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-              <div className="rounded-lg border bg-card p-4">
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+              <div className="border border-border bg-card p-4 shadow-sm">
                 <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Descrição</span>
-                <p className="mt-1 text-sm whitespace-pre-wrap">{ordem.descricao || "-"}</p>
+                <p className="mt-1 text-sm whitespace-pre-wrap">{ordem.descricao || "Nenhuma descrição informada."}</p>
               </div>
-              <div className="rounded-lg border bg-card p-4">
-                <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Observações</span>
-                <p className="mt-1 text-sm whitespace-pre-wrap">{ordem.observacoes || "-"}</p>
+              <div className="border border-border bg-card p-4 shadow-sm">
+                <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Observações internas</span>
+                <p className="mt-1 text-sm whitespace-pre-wrap">{ordem.observacoes || "Nenhuma observação interna informada."}</p>
               </div>
-              <div className="rounded-lg border bg-card p-4">
+              <div className="border border-border bg-card p-4 shadow-sm">
                 <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Observações fiscais</span>
-                <p className="mt-1 text-sm whitespace-pre-wrap">{ordem.observacoes_fiscais || "-"}</p>
+                <p className="mt-1 text-sm whitespace-pre-wrap">{ordem.observacoes_fiscais || "Nenhuma observação fiscal informada."}</p>
               </div>
             </div>
-          ) : (
-            <div className="rounded-lg border border-dashed bg-background px-4 py-8 text-center text-sm text-muted-foreground">
-              Nenhuma observação informada.
-            </div>
-          )}
             </TabsContent>
 
             <TabsContent value="descontos" className="mt-0 space-y-3">
@@ -1126,207 +1163,223 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
               </div>
             </TabsContent>
 
-            <TabsContent value="transacoes" className="mt-0 space-y-3">
-          <div className="flex flex-row items-start justify-between gap-3">
-            <div className="min-w-0 space-y-1">
-              <h1 className="m-0 text-base font-semibold">Transações: {transactions.length}</h1>
-
-              <button
-                type="button"
-                className="flex w-fit flex-row items-center gap-1 text-xs text-muted-foreground transition-colors hover:cursor-pointer hover:text-foreground"
-                onClick={() => handleGetTransactions()}
-              >
-                <span>Recarregar</span>
-                <Loader2 className={`h-3 w-3 ${isLoading ? "animate-spin" : ""}`} />
-              </button>
-            </div>
-            <TransactionDialog
-              handleGetTransactions={handleGetTransactions}
-              osId={ordem.id}
-              open={open}
-              setOpen={setOpen}
-              selectedTransactionId={selectedTransactionId}
-              setSelectedTransactionId={setSelectedTransactionId}
-              editable={podeEditarTransacao}
-            >
-              <Button disabled={ordem.status === "CONCLUIDO"} className="hover:cursor-pointer">
-                Novo pagamento
-              </Button>
-            </TransactionDialog>
-          </div>
-
-          <Separator />
-
-          {/* WRAPPER para rolagem horizontal no mobile */}
-          <div className="w-full min-w-0 overflow-x-auto">
-            <Table className="w-full table-fixed text-xs">
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[60px]">ID</TableHead>
-                  <TableHead className="w-[220px]">DESCRIÇÃO</TableHead>
-                  <TableHead className="w-[120px]">DATA</TableHead>
-                  <TableHead className="w-[220px]">BANCO/MÉTODO</TableHead>
-                  <TableHead className="w-[120px]">VALOR</TableHead>
-                  <TableHead className="w-[60px]"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {transactions.length > 0 ? (
-                  transactions.map((t) => (
-                    <TableRow key={t.id} className="hover:cursor-pointer">
-                      <TableCell className="whitespace-nowrap">{t.id}</TableCell>
-                      <TableCell className="truncate max-w-[140px] sm:max-w-[220px]" title={t.descricao || "-"}>
-                        {t.descricao}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap">{formatDate(t.data)}</TableCell>
-                      <TableCell
-                        className="truncate max-w-[160px] sm:max-w-[220px]"
-                        title={`${t.banco?.titulo ?? "-"} - ${t.metodopagamento ?? "-"}`}
+            <TabsContent value="transacoes" className="mt-0">
+              <FinancialTransactionsPanel
+                count={pagination.total}
+                loading={isLoading}
+                onReload={() => handleGetTransactions()}
+                status={<FinancialStatusBadge paid={totalPago} debt={saldoDevedor} />}
+                action={
+                  <div className="max-w-80 text-right">
+                    <TransactionDialog
+                      handleGetTransactions={handleGetTransactions}
+                      osId={ordem.id}
+                      initialTransaction={{
+                        valor: saldoDisponivel,
+                        valorLiquido: saldoDisponivel,
+                      }}
+                      maximumAmount={saldoDisponivel}
+                      open={open}
+                      setOpen={setOpen}
+                      selectedTransactionId={selectedTransactionId}
+                      setSelectedTransactionId={setSelectedTransactionId}
+                      editable={podeEditarTransacao}
+                    >
+                      <Button
+                        disabled={Boolean(bloqueioNovoPagamento)}
+                        className="h-9 w-full rounded-none sm:w-auto"
+                        title={bloqueioNovoPagamento ?? "Registrar novo pagamento"}
                       >
-                        {t.banco?.titulo} - {t.metodopagamento}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap">
-                        <div className="flex flex-col gap-1">
-                          <span>{formatarEmReal(t.valor)}</span>
-                          <span className="text-xs text-muted-foreground">
-                            Líquido: {formatarEmReal(t.valorLiquido)}
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" className="h-8 w-8 p-0 cursor-pointer" aria-label="Ações">
-                              <ChevronDown className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent className="space-y-1 w-40" align="end">
-                            <DropdownMenuItem
-                              onClick={() => {
-                                setSelectedTransactionId(t.id);
-                                setOpen(true);
-                              }}
-                            >
-                              {podeEditarTransacao ? (
-                                <>
-                                  <Pencil className="mr-2 h-4 w-4" />
-                                  Editar
-                                </>
-                              ) : (
-                                <>
-                                  <Eye className="mr-2 h-4 w-4" />
-                                  Visualizar
-                                </>
-                              )}
-                            </DropdownMenuItem>
-                            <TransactionDeleteAlert
-                              transactionId={t.id}
-                              onDelete={handleDeleteTransaction}
-                              onDeleteGrupo={handleDeleteGrupo}
-                              onEstornar={handleEstornarBaixa}
-                            >
-                              <Button
-                                variant="default"
-                                className="size-full flex justify-start gap-5 px-0 rounded-sm py-2 hover:cursor-pointer bg-red-500/20 hover:bg-red-500 group hover:text-white transition-all"
-                              >
-                                <Trash2Icon className="-ml-1 -mr-1 h-4 w-4" />
-                                <span>Excluir</span>
-                              </Button>
-                            </TransactionDeleteAlert>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
+                        <ReceiptText className="size-4" aria-hidden="true" />
+                        Novo pagamento
+                      </Button>
+                    </TransactionDialog>
+                    {bloqueioNovoPagamento ? (
+                      <p className="mt-1 text-[10px] leading-tight text-destructive">
+                        {bloqueioNovoPagamento}
+                      </p>
+                    ) : null}
+                  </div>
+                }
+                toolbar={
+                  <FinancialTransactionFiltersBar
+                    value={transactionFilters}
+                    onChange={setTransactionFilters}
+                    onApply={() => handleGetTransactions(1)}
+                    onClear={() => {
+                      const cleared = { ...EMPTY_FINANCIAL_TRANSACTION_FILTERS };
+                      setTransactionFilters(cleared);
+                      handleGetTransactions(1, undefined, cleared);
+                    }}
+                    loading={isLoading}
+                  />
+                }
+                footer={
+                  <FinancialTransactionPagination
+                    page={pagination.page}
+                    totalPages={pagination.totalPages}
+                    total={pagination.total}
+                    pageCount={transactions.length}
+                    limit={pagination.limit}
+                    loading={isLoading}
+                    onPageChange={(page) => handleGetTransactions(page)}
+                  />
+                }
+              >
+                <Table className="min-w-[860px] table-fixed text-xs">
+                  <TableHeader className="bg-muted/40">
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead className="w-[80px] px-3 text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">Registro</TableHead>
+                      <TableHead className="w-[270px] px-3 text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">Descrição</TableHead>
+                      <TableHead className="w-[120px] px-3 text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">Data</TableHead>
+                      <TableHead className="w-[220px] px-3 text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">Banco e método</TableHead>
+                      <TableHead className="w-[140px] px-3 text-right text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">Valores</TableHead>
+                      <TableHead className="w-[60px] px-3"><span className="sr-only">Ações</span></TableHead>
                     </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell className="col-span-full">Sem Transações</TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-            </TabsContent>
-          </Tabs>
-        </div>
+                  </TableHeader>
+                  <TableBody>
+                    {transactions.length > 0 ? (
+                      transactions.map((t, index) => {
+                        const group = t.pagamento_multiplo;
+                        const previousGroupId = transactions[index - 1]?.pagamento_multiplo?.id;
+                        const startsGroup = group && group.id !== previousGroupId;
+                        const receiptContext = {
+                          transaction: t,
+                          documentType: "Ordem de serviço" as const,
+                          documentId: ordem.id,
+                          customerName: ordem.cliente?.nome,
+                        };
 
-        <DialogFooter className="shrink-0 border-t bg-background">
-          <div className="flex w-full flex-col justify-start gap-1 text-xs bg-card p-4">
-            <span className="text-sm font-medium">Resumo:</span>
-            <Separator />
-            <div className="grid w-full grid-cols-[max-content_minmax(24px,1fr)_max-content] items-center gap-2">
-              <span className="text-nowrap">Subtotal:</span>
-              <div className="h-full w-full border-b border-dashed"></div>
-              <h1 className="text-left tabular-nums">
-                <span className="inline-grid grid-cols-[0.75rem_auto]">
-                  <span></span>
-                  <span>{formatarEmReal(subtotalBrutoOrdem)}</span>
-                </span>
-              </h1>
+                        return (
+                          <Fragment key={t.id}>
+                            {startsGroup ? (
+                              <TableRow className="border-y border-sky-500/25 bg-sky-500/[0.07] hover:bg-sky-500/[0.07]">
+                                <TableCell colSpan={6} className="px-3 py-2">
+                                  <div className="flex items-center justify-between gap-3 text-[10px] font-bold uppercase tracking-[0.08em] text-sky-700 dark:text-sky-300">
+                                    <span>Pagamento múltiplo #{group.id}</span>
+                                    <span className="tabular-nums">
+                                      {formatarEmReal(Number(group.valor_total ?? 0))}
+                                      {group.modo === "PARCELADO" ? " · parcelado" : " · à vista"}
+                                    </span>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ) : null}
+                            <TableRow className="group hover:bg-primary/[0.04]">
+                              <TableCell className="px-3">
+                                <span className="inline-flex border border-border bg-muted/30 px-2 py-1 font-bold tabular-nums text-foreground">#{t.id}</span>
+                              </TableCell>
+                              <TableCell className="whitespace-normal px-3">
+                                <p className="line-clamp-2 font-medium text-foreground" title={t.descricao || "Sem descrição"}>
+                                  {t.descricao || "Sem descrição"}
+                                </p>
+                              </TableCell>
+                              <TableCell className="px-3 tabular-nums text-muted-foreground">{formatDate(t.data)}</TableCell>
+                              <TableCell className="whitespace-normal px-3" title={`${t.banco?.titulo ?? "-"} - ${t.metodopagamento ?? "-"}`}>
+                                <p className="truncate font-medium text-foreground">{t.banco?.titulo || "Banco não informado"}</p>
+                                <p className="mt-0.5 truncate text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground">{t.metodopagamento || "Método não informado"}</p>
+                              </TableCell>
+                              <TableCell className="px-3 text-right">
+                                <p className="font-bold tabular-nums text-foreground">{formatarEmReal(t.valor)}</p>
+                                <p className="mt-0.5 text-[10px] tabular-nums text-muted-foreground">Líquido {formatarEmReal(t.valorLiquido)}</p>
+                              </TableCell>
+                              <TableCell className="px-3 text-right">
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button variant="outline" size="icon" className="size-8 rounded-none" aria-label={`Ações da transação #${t.id}`}>
+                                      <ChevronDown className="size-4" aria-hidden="true" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent className="w-52" align="end">
+                                    <DropdownMenuItem
+                                      onClick={() => {
+                                        try {
+                                          printTransactionReceipt(receiptContext);
+                                        } catch (error) {
+                                          toast.error(error instanceof Error ? error.message : "Não foi possível imprimir o recibo.");
+                                        }
+                                      }}
+                                    >
+                                      <Printer className="mr-2 size-4" />
+                                      Imprimir recibo
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      onClick={async () => {
+                                        try {
+                                          const result = await shareTransactionReceipt(receiptContext);
+                                          if (result === "copied") toast.success("Recibo copiado para compartilhar.");
+                                        } catch (error) {
+                                          if ((error as Error)?.name !== "AbortError") {
+                                            toast.error(error instanceof Error ? error.message : "Não foi possível compartilhar o recibo.");
+                                          }
+                                        }
+                                      }}
+                                    >
+                                      <Share2 className="mr-2 size-4" />
+                                      Compartilhar recibo
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem onClick={() => { setSelectedTransactionId(t.id); setOpen(true); }}>
+                                      {podeEditarTransacao ? <Pencil className="mr-2 size-4" /> : <Eye className="mr-2 size-4" />}
+                                      {podeEditarTransacao ? "Editar lançamento" : "Visualizar lançamento"}
+                                    </DropdownMenuItem>
+                                    <TransactionDeleteAlert transactionId={t.id} onDelete={handleDeleteTransaction} onDeleteGrupo={handleDeleteGrupo} onEstornar={handleEstornarBaixa}>
+                                      <Button variant="ghost" className="h-9 w-full justify-start rounded-none px-2 text-destructive hover:bg-destructive/10 hover:text-destructive">
+                                        {t.pagamento_multiplo || t.pendente === false ? (
+                                          <RotateCcw className="mr-2 size-4" />
+                                        ) : (
+                                          <Trash2Icon className="mr-2 size-4" />
+                                        )}
+                                        {t.pagamento_multiplo
+                                          ? "Desfazer pagamento múltiplo"
+                                          : t.pendente === false
+                                            ? "Estornar pagamento"
+                                            : "Excluir lançamento"}
+                                      </Button>
+                                    </TransactionDeleteAlert>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </TableCell>
+                            </TableRow>
+                          </Fragment>
+                        );
+                      })
+                    ) : (
+                      <TableRow className="hover:bg-transparent">
+                        <TableCell colSpan={6} className="h-44 text-center">
+                          <div className="flex flex-col items-center justify-center text-muted-foreground">
+                            <ReceiptText className="mb-2 size-7 opacity-50" aria-hidden="true" />
+                            <p className="text-sm font-semibold text-foreground">
+                              {transactionFilters.search || transactionFilters.method || transactionFilters.dateFrom || transactionFilters.dateTo
+                                ? "Nenhuma transação encontrada"
+                                : "Nenhuma transação registrada"}
+                            </p>
+                            <p className="mt-1 text-xs">
+                              {transactionFilters.search || transactionFilters.method || transactionFilters.dateFrom || transactionFilters.dateTo
+                                ? "Revise os filtros aplicados para ampliar a busca."
+                                : "Use “Novo pagamento” para registrar o primeiro recebimento."}
+                            </p>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </FinancialTransactionsPanel>
+            </TabsContent>
             </div>
-            <div className="grid w-full grid-cols-[max-content_minmax(24px,1fr)_max-content] items-center gap-2">
-              <span className="text-nowrap">Desconto:</span>
-              <div className="h-full w-full border-b border-dashed"></div>
-              <h1 className="text-left tabular-nums">
-                <span className="inline-grid grid-cols-[0.75rem_auto]">
-                  <span>-</span>
-                  <span>{formatarEmReal(descontoTotalAplicado)}</span>
-                </span>
-              </h1>
-            </div>
-            <div className="grid w-full grid-cols-[max-content_minmax(24px,1fr)_max-content] items-center gap-2">
-              <span className="text-nowrap">Frete:</span>
-              <div className="h-full w-full border-b border-dashed"></div>
-              <h1 className="text-left tabular-nums">
-                <span className="inline-grid grid-cols-[0.75rem_auto]">
-                  <span>+</span>
-                  <span>{formatarEmReal(valorFrete)}</span>
-                </span>
-              </h1>
-            </div>
-            <div className="grid w-full grid-cols-[max-content_minmax(24px,1fr)_max-content] items-center gap-2">
-              <span className="text-nowrap">Acréscimo financeiro:</span>
-              <div className="h-full w-full border-b border-dashed"></div>
-              <h1 className="text-left tabular-nums">
-                <span className="inline-grid grid-cols-[0.75rem_auto]">
-                  <span>+</span>
-                  <span>{formatarEmReal(acrescimoAplicado)}</span>
-                </span>
-              </h1>
-            </div>
-            <div className="grid w-full grid-cols-[max-content_minmax(24px,1fr)_max-content] items-center gap-2">
-              <span className="text-nowrap">Total a Pagar:</span>
-              <div className="h-full w-full border-b border-dashed"></div>
-              <h1 className="text-left tabular-nums">
-                <span className="inline-grid grid-cols-[0.75rem_auto]">
-                  <span></span>
-                  <span className="font-bold text-primary">{formatarEmReal(totalFinanceiro)}</span>
-                </span>
-              </h1>
-            </div>
-            <div className="grid w-full grid-cols-[max-content_minmax(24px,1fr)_max-content] items-center gap-2">
-              <span className="text-nowrap">Total coberto:</span>
-              <div className="h-full w-full border-b border-dashed"></div>
-              <h1 className="text-left font-bold tabular-nums text-blue-500">
-                <span className="inline-grid grid-cols-[0.75rem_auto]">
-                  <span></span>
-                  <span>{formatarEmReal(totalPago)}</span>
-                </span>
-              </h1>
-            </div>
-            <div className="grid w-full grid-cols-[max-content_minmax(24px,1fr)_max-content] items-center gap-2">
-              <span className="text-nowrap">Saldo Devedor:</span>
-              <div className="h-full w-full border-b border-dashed"></div>
-              <h1 className="text-left font-bold tabular-nums text-red-400">
-                <span className="inline-grid grid-cols-[0.75rem_auto]">
-                  <span></span>
-                  <span>{formatarEmReal(saldoDevedor)}</span>
-                </span>
-              </h1>
-            </div>
-            <div className="w-full flex flex-col space-y-1"></div>
-          </div>
-        </DialogFooter>
+          </Tabs>
+
+        <FinancialSummaryFooter
+          subtotal={subtotalBrutoOrdem}
+          discount={descontoTotalAplicado}
+          freight={valorFrete}
+          surcharge={acrescimoAplicado}
+          total={totalFinanceiro}
+          paid={totalPago}
+          debt={saldoDevedor}
+          paidLabel="Total coberto"
+        />
       </div>
 
       <AlertDialog

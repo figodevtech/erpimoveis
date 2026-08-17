@@ -92,7 +92,7 @@ async function handleStart(update: TelegramUpdate, token: string) {
     );
     return;
   }
-  await reply(message.chat.id, "✅ <b>Telegram conectado</b>\n\nSeus avisos de ordens de serviço seguirão as preferências definidas no ERP.");
+  await reply(message.chat.id, "✅ <b>Telegram conectado</b>\n\nSeus avisos de OS, financeiro e estoque seguirão as preferências definidas no ERP.");
 }
 
 async function handleCommand(update: TelegramUpdate) {

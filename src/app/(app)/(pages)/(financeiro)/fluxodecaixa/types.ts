@@ -210,6 +210,14 @@ export interface Transaction {
   /** Usuario que registrou/baixou o pagamento. */
   baixado_por?: string | null
   baixadoPor?: { id: string; nome: string | null } | null
+  /** Documento relacionado ao lançamento — nota, recibo ou comprovante. */
+  documento_tipo_id?: number | null
+  documento_numero?: string | null
+  documento_serie?: string | null
+  documento_chave?: string | null
+  documento_emitido_em?: string | null
+  documento_valor?: number | null
+  documento_observacao?: string | null
 }
 
 export interface NewTransaction {

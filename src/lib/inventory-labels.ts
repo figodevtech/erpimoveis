@@ -14,6 +14,9 @@ export type InventoryLabelItem = {
   estoque?: number | null;
   estoqueminimo?: number | null;
   status_estoque?: string | null;
+  precocompra?: number | null;
+  ultimovalordecompra?: number | null;
+  ultimovalordevenda?: number | null;
   imgUrl?: string | null;
   img_url?: string | null;
   updatedat?: string | null;

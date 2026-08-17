@@ -209,6 +209,23 @@ export async function requireRelatoriosAccess() {
   return requirePerm(PERMS.RELATORIOS);
 }
 
+// Radios
+export async function hasRadiosAccess() {
+  return hasPerm(PERMS.RADIOS);
+}
+export async function requireRadiosAccess() {
+  return requirePerm(PERMS.RADIOS);
+}
+export async function requireRadiosCreate() {
+  return requirePerm(PERMS.RADIOS_CRIAR);
+}
+export async function requireRadiosEdit() {
+  return requirePerm(PERMS.RADIOS_EDITAR);
+}
+export async function requireRadiosDelete() {
+  return requirePerm(PERMS.RADIOS_EXCLUIR);
+}
+
 export async function hasAgendamentosAccess() {
   return hasPerm(PERMS.AGENDAMENTOS);
 }

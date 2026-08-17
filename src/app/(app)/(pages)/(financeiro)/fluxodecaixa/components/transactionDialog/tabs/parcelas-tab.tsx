@@ -32,7 +32,7 @@ function Indicador({
 }) {
   return (
     <div
-      className={`rounded-lg border p-3 ${destaque ? "border-primary bg-primary/5" : "bg-card"}`}
+      className={`border p-3 ${destaque ? "border-primary bg-primary/5" : "bg-card"}`}
     >
       <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
@@ -220,7 +220,7 @@ export function ParcelasTab({
       </div>
 
       {agrupamentoIncerto && (
-        <div className="flex items-start gap-2 rounded-lg border border-dashed bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+        <div className="flex items-start gap-2 border border-dashed bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
             Este parcelamento é anterior ao registro de grupos, então as parcelas
@@ -268,7 +268,7 @@ export function ParcelasTab({
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-lg border">
+      <div className="overflow-hidden border">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-muted/50">

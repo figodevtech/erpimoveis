@@ -19,7 +19,7 @@ import {
   PRINT_DOCUMENT_HEADER_CSS,
   PrintDocumentHeader,
 } from "../../../components/PrintDocumentHeader";
-import { fetchPrimeiroLogoEmpresa } from "@/lib/empresa-logo";
+import { fetchLogoEmpresaDataUrl } from "@/lib/empresa-logo";
 import { fetchPrintColors } from "@/lib/print-config";
 
 export const runtime = "nodejs";
@@ -142,7 +142,7 @@ export default async function OrcamentoPrintPage({ params }: PageProps) {
   }
 
   const empresa = await fetchEmpresa();
-  const logo = await fetchPrimeiroLogoEmpresa();
+  const logo = await fetchLogoEmpresaDataUrl();
   const printColors = await fetchPrintColors();
 
   // Uma linha por item, produtos antes de serviços — a mesma ordem da tela.

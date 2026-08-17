@@ -58,6 +58,7 @@ type NfeResumo = {
   updatedat: string | null;
   empresaid: number | null;
   url_pdf?: string;
+  url_consulta?: string;
   codigo_verificacao?: string;
   /** Só em NFS-e: define se a prefeitura entrega o PDF ou apenas link de consulta. */
   modelo_emissao?: string | null;
@@ -511,6 +512,7 @@ export function EmissaoNotaDialog({
           createdat: n.createdat,
           empresaid: n.empresaid,
           url_pdf: n.url_pdf,
+          url_consulta: n.url_consulta,
           modelo_emissao: n.modelo_emissao ?? null,
         }));
         fetchedNfes = [...fetchedNfes, ...mappedNfses].sort(
@@ -912,11 +914,11 @@ export function EmissaoNotaDialog({
                                       variant="outline"
                                       size="sm"
                                       className="text-xs hover:cursor-pointer"
-                                      disabled={anexandoDanfeId === nfe.id || !nfe.url_pdf}
+                                      disabled={anexandoDanfeId === nfe.id}
                                       title={
                                         nfe.url_pdf
                                           ? undefined
-                                          : "Consulte a NFS-e para obter o link do documento."
+                                          : "O sistema consultará a Focus e tentará obter o PDF antes de anexar."
                                       }
                                       onClick={() => void anexarNfse(nfe)}
                                     >

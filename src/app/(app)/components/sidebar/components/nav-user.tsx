@@ -7,6 +7,7 @@ import {
   LogOut,
   KeyRound,
   Loader2,
+  SlidersHorizontal,
   UserRound,
 } from "lucide-react";
 
@@ -169,10 +170,16 @@ export function NavUser({
                 {/* Central Pessoal — indisponível enquanto o acesso está
                     restrito ao módulo de plano por bloqueio de cobrança. */}
                 {!billingBlocked && (
-                  <DropdownMenuItem onSelect={() => router.push("/meu-perfil")}>
-                    <UserRound />
-                    Meu perfil
-                  </DropdownMenuItem>
+                  <>
+                    <DropdownMenuItem onSelect={() => router.push("/meu-perfil")}>
+                      <UserRound />
+                      Meu perfil
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => router.push("/preferencias")}>
+                      <SlidersHorizontal />
+                      Preferências
+                    </DropdownMenuItem>
+                  </>
                 )}
 
                 {/* Alterar senha */}

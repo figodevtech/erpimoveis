@@ -43,6 +43,11 @@ export const PERMS = {
 
   RELATORIOS: "relatorios:visualizar",
 
+  RADIOS: "radios:visualizar",
+  RADIOS_CRIAR: "radios:criar",
+  RADIOS_EDITAR: "radios:editar",
+  RADIOS_EXCLUIR: "radios:excluir",
+
   AGENDAMENTOS: "agendamentos:visualizar",
   AGENDAMENTOS_CRIAR: "agendamentos:criar",
   AGENDAMENTOS_EDITAR: "agendamentos:editar",

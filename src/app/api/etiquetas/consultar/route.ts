@@ -3,8 +3,8 @@ import { hasPerm, PERMS, requireAny } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { InventoryLabelItem, InventoryLabelKind, InventoryLabelMatch } from "@/lib/inventory-labels";
 
-const PRODUCT_FIELDS = "id,titulo,descricao,referencia,fabricante,codigobarras,etiqueta,local,unidade,estoque,estoqueminimo,status_estoque,imgUrl,updatedat";
-const USE_FIELDS = "id,titulo,descricao,referencia,fabricante,codigobarras,etiqueta,local,unidade,estoque,estoqueminimo,status_estoque,img_url,updated_at";
+const PRODUCT_FIELDS = "id,titulo,descricao,referencia,fabricante,codigobarras,etiqueta,local,unidade,estoque,estoqueminimo,status_estoque,precocompra,ultimovalordecompra,imgUrl,updatedat";
+const USE_FIELDS = "id,titulo,descricao,referencia,fabricante,codigobarras,etiqueta,local,unidade,estoque,estoqueminimo,status_estoque,precocompra,ultimovalordecompra,img_url,updated_at";
 
 function normalize(value: unknown) {
   return String(value ?? "").trim().toLocaleUpperCase("pt-BR");
@@ -33,6 +33,22 @@ function mergeMatches(kind: InventoryLabelKind, rows: InventoryLabelItem[], code
       item: canSee ? item : null,
     };
   });
+}
+
+async function withLastSaleValue(item: InventoryLabelItem): Promise<InventoryLabelItem> {
+  const { data, error } = await supabaseAdmin.rpc("buscar_ultimo_valor_venda_produto", {
+    p_produto_id: item.id,
+  });
+  if (error) throw error;
+
+  const result = Array.isArray(data) ? data[0] : data;
+  const value = result?.valor_unitario;
+  const parsed = value === null || value === undefined ? null : Number(value);
+
+  return {
+    ...item,
+    ultimovalordevenda: parsed !== null && Number.isFinite(parsed) ? parsed : null,
+  };
 }
 
 export async function GET(req: NextRequest) {
@@ -67,12 +83,15 @@ export async function GET(req: NextRequest) {
       (productLabels.data ?? []) as InventoryLabelItem[],
       (productBarcodes.data ?? []) as InventoryLabelItem[],
     );
+    const productsWithLastSale = canSeeProducts
+      ? await Promise.all(products.map(withLastSaleValue))
+      : products;
     const useItems = uniqueRows(
       (useLabels.data ?? []) as InventoryLabelItem[],
       (useBarcodes.data ?? []) as InventoryLabelItem[],
     );
     const matches = [
-      ...mergeMatches("PRODUTO", products, code, canSeeProducts),
+      ...mergeMatches("PRODUTO", productsWithLastSale, code, canSeeProducts),
       ...mergeMatches("USOCONSUMO", useItems, code, canSeeUse),
     ];
     const status = matches.length > 1 ? "CONFLICT" : matches.length === 1 ? "FOUND" : "AVAILABLE";
