@@ -464,6 +464,92 @@ BEGIN
     RAISE NOTICE '  classificacao no financeiro, nao o mapeamento da DRE.';
   END IF;
 
+  /* ================================ 7. cobertura do plano de contas */
+
+  -- Cada empresa tem seu proprio plano de contas, e o mapeamento inicial e
+  -- semeado por palavra-chave no nome do grupo. O que nao casa fica sem
+  -- destino, e lancamento em grupo sem destino gera evento SEM LINHA: nao entra
+  -- em total nenhum, nao aparece na tela e nao levanta erro. Some.
+  --
+  -- E o que mais importa quando entra cliente novo: um grupo chamado "Marketing
+  -- e vendas" em vez de "Despesas comerciais" simplesmente nao casa, e o jeito
+  -- de descobrir sem este bloco e alguem estranhar o lucro alto demais.
+
+  RAISE NOTICE '';
+  RAISE NOTICE '=== 7. COBERTURA DO PLANO DE CONTAS';
+
+  SELECT count(*) INTO v_n FROM public.planosdecontagrupos;
+  SELECT count(*) INTO v_linhas
+    FROM public.planosdecontagrupos g
+    JOIN public.dre_mapeamento mp
+      ON mp.origem_tipo = 'PLANO_GRUPO' AND mp.origem_id = g.id
+     AND mp.ativo AND mp.template_id = v_template;
+  RAISE NOTICE '  grupos: % | com destino: % | sem destino: %',
+    v_n, v_linhas, v_n - v_linhas;
+
+  FOR r IN
+    SELECT g.nome,
+           (SELECT count(*) FROM public.planosdeconta pc WHERE pc.grupo_id = g.id) contas,
+           (SELECT count(*) FROM public.transacao t
+              JOIN public.planosdeconta pc ON pc.id = t.plano_de_conta_id
+             WHERE pc.grupo_id = g.id AND coalesce(t.is_deleted, false) = false) tx
+      FROM public.planosdecontagrupos g
+     WHERE NOT EXISTS (SELECT 1 FROM public.dre_mapeamento mp
+                        WHERE mp.origem_tipo = 'PLANO_GRUPO' AND mp.origem_id = g.id
+                          AND mp.ativo AND mp.template_id = v_template)
+     ORDER BY 3 DESC, 1
+  LOOP
+    RAISE NOTICE '  >>> "%" (% contas) sem destino — % transacao(oes) %',
+      r.nome, r.contas, r.tx,
+      CASE WHEN r.tx = 0 THEN '(latente)' ELSE '<<< PERDENDO DINHEIRO' END;
+    v_falhas := v_falhas + 1;
+  END LOOP;
+
+  -- O sintoma final: o lancamento existe, tem competencia e nao entra em linha.
+  SELECT count(*), coalesce(sum(e.valor), 0) INTO v_n, v_total
+    FROM public.eventos_financeiros e
+   WHERE e.source_type = 'TRANSACAO'
+     AND e.status IN ('ATIVO', 'CONVERTIDO')
+     AND e.competencia_em IS NOT NULL
+     AND e.dre_linha_id IS NULL;
+
+  IF v_n = 0 THEN
+    RAISE NOTICE '  nenhum lancamento fora de linha. OK';
+  ELSE
+    v_falhas := v_falhas + 1;
+    RAISE NOTICE '  >>> % lancamento(s) FORA DA DRE, R$ %:',
+      v_n, to_char(v_total, 'FM999G999G990D00');
+    FOR r IN
+      SELECT e.id, e.valor, e.competencia_em::date AS comp,
+             left(coalesce(e.descricao, ''), 44) AS descricao
+        FROM public.eventos_financeiros e
+       WHERE e.source_type = 'TRANSACAO'
+         AND e.status IN ('ATIVO', 'CONVERTIDO')
+         AND e.competencia_em IS NOT NULL
+         AND e.dre_linha_id IS NULL
+       ORDER BY e.valor DESC
+       LIMIT 20
+    LOOP
+      RAISE NOTICE '        #% R$ % % | %',
+        rpad(r.id::text, 6), lpad(to_char(r.valor, 'FM999G999G990D00'), 12),
+        r.comp, r.descricao;
+    END LOOP;
+    RAISE NOTICE '        (falta escolher a conta do plano nessas transacoes)';
+  END IF;
+
+  -- Mapeamento que o banco aceita e o codigo nunca le. As funcoes so consultam
+  -- PLANO_GRUPO e EVENTO_ORIGEM; uma linha PLANO_CONTA fica inerte, e quem a
+  -- cadastrou acredita ter classificado — inclusive um `exclui_do_resultado`.
+  SELECT count(*) INTO v_n
+    FROM public.dre_mapeamento
+   WHERE ativo AND origem_tipo IN ('PLANO_CONTA', 'CATEGORIA_TRANSACAO');
+
+  IF v_n > 0 THEN
+    v_falhas := v_falhas + 1;
+    RAISE NOTICE '  >>> % mapeamento(s) inerte(s) (PLANO_CONTA/CATEGORIA_TRANSACAO):', v_n;
+    RAISE NOTICE '      o banco aceita, o codigo nao le — a classificacao nao vale.';
+  END IF;
+
   /* =============================================================== fim */
 
   RAISE NOTICE '';
