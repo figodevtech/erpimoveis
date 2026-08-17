@@ -27,6 +27,7 @@ import formatarEmReal from "@/utils/formatarEmReal";
 import { cn } from "@/lib/utils";
 import { Metodo_pagamento } from "../fluxodecaixa/types";
 import { formatPaymentMethodLabel } from "@/lib/payment-methods";
+import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
 
 export const financialDialogContentClass =
   "h-dvh w-[100svw] max-w-[100svw] gap-0 overflow-hidden rounded-none border-foreground/20 p-0 shadow-2xl sm:h-[calc(100dvh-2rem)] sm:max-h-none sm:w-[95vw] sm:max-w-[1100px] sm:rounded-lg";
@@ -296,6 +297,8 @@ export function FinancialTransactionFiltersBar({
   onClear: () => void;
   loading: boolean;
 }) {
+  const { options: metodosPagamento } = usePaymentMethodOptions();
+
   const hasFilters = Boolean(
     value.search.trim() || value.method || value.dateFrom || value.dateTo,
   );
@@ -330,9 +333,9 @@ export function FinancialTransactionFiltersBar({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="ALL">Todos os métodos</SelectItem>
-          {Object.values(Metodo_pagamento).map((method) => (
-            <SelectItem key={method} value={method}>
-              {formatPaymentMethodLabel(method)}
+          {metodosPagamento.map((method) => (
+            <SelectItem key={method.value} value={method.value}>
+              {method.label}
             </SelectItem>
           ))}
         </SelectContent>

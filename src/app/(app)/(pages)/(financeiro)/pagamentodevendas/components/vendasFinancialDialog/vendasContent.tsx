@@ -86,6 +86,7 @@ import {
   shareTransactionReceipt,
 } from "../../../components/financial-transaction-receipt";
 import { calcularResumoFinanceiroOs } from "@/lib/ordens/financeiro";
+import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
 
 interface VendasContentProps {
   vendaId: number;
@@ -156,6 +157,7 @@ const limitarDesconto = (base: number, tipo: TipoDesconto, valor: number) => {
 
 export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const { options: metodosPagamento } = usePaymentMethodOptions();
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingOs, setIsLoadingOs] = useState(false);
   const [pagination, setPagination] = useState({
@@ -243,9 +245,16 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
     : saldoDisponivel <= 0
       ? "A venda já está quitada ou coberta por títulos pendentes."
       : null;
+  /*
+   * Pre-preenche o metodo com o da venda, se ele for um metodo conhecido.
+   *
+   * A conferencia usa a lista do banco, nao o enum do codigo: com a lista
+   * parcial, uma venda paga em DEBITO AUTOMATICO caia no `undefined` e o campo
+   * abria vazio, obrigando a escolher de novo o que a venda ja dizia.
+   */
   const initialMetodoPagamento = (() => {
     const value = String(venda?.forma_pagamento ?? "").toUpperCase();
-    return Object.values(Metodo_pagamento).includes(value as Metodo_pagamento)
+    return metodosPagamento.some((metodo) => metodo.value === value)
       ? (value as Metodo_pagamento)
       : undefined;
   })();

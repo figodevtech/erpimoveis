@@ -17,6 +17,19 @@ const WRITABLE_FIELDS = new Set([
   "valor",
   "valorLiquido",
   "data",
+  /*
+   * Competência do lançamento avulso, informada já no cadastro.
+   *
+   * Ela é o que decide o mês da DRE — `data` é vencimento/caixa. Até aqui o
+   * campo só existia na edição, então uma conta de luz de julho lançada em
+   * agosto nascia com competência de agosto e alguém precisava voltar depois
+   * para corrigir. No Demir isso já tinha acontecido 610 vezes.
+   *
+   * Vale só para lançamento avulso. Quando a transação nasce de uma OS, de uma
+   * venda ou da baixa de um evento, a competência é do documento — a regra é a
+   * mesma que a edição aplica, e a checagem está logo abaixo, no POST.
+   */
+  "competencia_em",
   "metodopagamento",
   "categoria",
   "categoria_id",
@@ -162,7 +175,8 @@ function sanitizeTransacaoPayload(body: any, { strict }: { strict: boolean }) {
         output[key] = parsed == null ? null : Math.trunc(parsed);
         break;
       }
-      case "data": {
+      case "data":
+      case "competencia_em": {
         output[key] = toDateISOStringOrNull(body[key]);
         break;
       }
@@ -358,6 +372,30 @@ export async function POST(req: Request) {
     const problemaNoDocumento = erroDeDocumento(payload);
     if (problemaNoDocumento) {
       return NextResponse.json({ error: problemaNoDocumento }, { status: 400 });
+    }
+
+    /*
+     * Competência de lançamento gerado por documento pertence ao documento.
+     *
+     * Uma receita de OS compete ao mês em que a ordem foi entregue, e a baixa de
+     * um evento compete ao mês do evento; aceitar um mês digitado aqui faria a
+     * DRE divergir do que o próprio documento diz sobre si. É a mesma regra que
+     * `validarEdicaoDeTransacao` aplica na edição — repetida no cadastro porque
+     * são caminhos independentes.
+     */
+    if (
+      payload.competencia_em != null &&
+      (payload.ordemservicoid != null ||
+        payload.vendaid != null ||
+        payload.evento_financeiro_id != null)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Esta transação é gerada por um documento; a competência acompanha o documento e não pode ser informada aqui.",
+        },
+        { status: 400 },
+      );
     }
 
     if (payload.vendaid != null) {

@@ -219,14 +219,9 @@ export default function RegisterContent({
   const { centrosCusto, loadingCentrosCusto, errorCentrosCusto } = useCentrosCusto();
   const { tiposDocumento, loadingTiposDocumento, errorTiposDocumento } =
     useTiposDocumento();
-  const { options: paymentMethodOptions } = usePaymentMethodOptions();
-  const metodosPagamento =
-    paymentMethodOptions.length > 0
-      ? paymentMethodOptions
-      : Object.values(Metodo_pagamento).map((value) => ({
-          value,
-          label: value,
-        }));
+  // O hook ja garante lista nao vazia: ele mesmo cai na lista padrao enquanto a
+  // do banco nao chega ou se ela falhar.
+  const { options: metodosPagamento } = usePaymentMethodOptions();
   // Pagamento múltiplo é sempre entrada de dinheiro de OS ou venda: tipo,
   // categoria e descrição saem dos documentos marcados e o formulário só os
   // exibe. A despesa interna continua sendo o único caso de DESPESA travada.
@@ -1116,6 +1111,34 @@ export default function RegisterContent({
                         });
                       }}
                     />
+                  </div>
+                )}
+                {/*
+                  Fica fora do `!canManageParcelas` de propósito: um gasto
+                  parcelado tem várias datas de vencimento e uma competência só —
+                  a conta é de um mês, mesmo paga em três. O valor informado aqui
+                  vale para todas as parcelas.
+
+                  Não aparece em pagamento de OS ou de venda: ali a competência é
+                  do documento, e o servidor recusa recebê-la.
+                */}
+                {!osId && !vendaId && (
+                  <div className="space-y-2 w-full">
+                    <Label htmlFor="competencia_em">Competência</Label>
+                    <DatePickerField
+                      value={newTransaction.competencia_em ?? undefined}
+                      onChange={(selecionada) => {
+                        setNewTransaction({
+                          ...newTransaction,
+                          competencia_em: selecionada ?? null,
+                        });
+                      }}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      A que mês o fato pertence na DRE. Conta de julho paga em
+                      agosto pertence a julho. Em branco, usa a data do
+                      lançamento.
+                    </p>
                   </div>
                 )}
                 <div className="space-y-2 w-full">

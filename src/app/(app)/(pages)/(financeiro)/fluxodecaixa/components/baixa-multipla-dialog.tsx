@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+
+import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
 import axios, { isAxiosError } from "axios";
 import { CheckCircle2, Loader2, TriangleAlert } from "lucide-react";
 
@@ -55,6 +57,7 @@ export function BaixaMultiplaDialog({
   onConcluido: (idsBaixados: number[]) => void;
 }) {
   const [bancos, setBancos] = useState<Banco[]>([]);
+  const { options: metodosPagamento } = usePaymentMethodOptions();
   const [carregandoBancos, setCarregandoBancos] = useState(false);
   const [bancoId, setBancoId] = useState("");
   const [metodo, setMetodo] = useState<Metodo_pagamento | "">("");
@@ -237,9 +240,9 @@ export function BaixaMultiplaDialog({
                 <SelectValue placeholder="Selecione o método" />
               </SelectTrigger>
               <SelectContent>
-                {Object.values(Metodo_pagamento).map((item) => (
-                  <SelectItem key={item} value={item}>
-                    {item}
+                {metodosPagamento.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>
+                    {item.label}
                   </SelectItem>
                 ))}
               </SelectContent>

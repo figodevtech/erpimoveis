@@ -31,6 +31,7 @@ import { useCentrosCusto } from "../../../(financeiro)/fluxodecaixa/hooks/use-ce
 import { PlanoContaCombobox } from "../../../(financeiro)/fluxodecaixa/components/plano-conta-combobox";
 import { SearchCombobox } from "../../../(financeiro)/fluxodecaixa/components/search-combobox";
 import { useTiposEntrada } from "../../hooks/use-tipos-entrada";
+import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
 
 type Parcela = { id: number; dataVencimento?: string; valor: number };
 
@@ -66,6 +67,7 @@ export default function DialogEntrada({
   onSuccess,
 }: DialogEntradaProps) {
   const [newQtd, setNewQtd] = useState(0);
+  const { options: metodosPagamento } = usePaymentMethodOptions();
   const [value, setValue] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [openFornecedor, setOpenFornecedor] = useState(false);
@@ -523,7 +525,7 @@ export default function DialogEntrada({
           ) : (
             <div className="grid min-w-0 gap-2 sm:grid-cols-2">
               <div className="min-w-0 space-y-1"><Label>Banco</Label><Select value={selectedBankId} onValueChange={setSelectedBankId}><SelectTrigger><SelectValue placeholder={loadingBanks ? "Carregando..." : "Selecione"} /></SelectTrigger><SelectContent>{banks.map((bank) => <SelectItem key={bank.id} value={String(bank.id)}>{bank.titulo}</SelectItem>)}</SelectContent></Select></div>
-              <div className="min-w-0 space-y-1"><Label>Método</Label><Select value={selectedMetodo} onValueChange={(method) => setSelectedMetodo(method as Metodo_pagamento)}><SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger><SelectContent>{Object.values(Metodo_pagamento).map((method) => <SelectItem key={method} value={method}>{method}</SelectItem>)}</SelectContent></Select></div>
+              <div className="min-w-0 space-y-1"><Label>Método</Label><Select value={selectedMetodo} onValueChange={(method) => setSelectedMetodo(method as Metodo_pagamento)}><SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger><SelectContent>{metodosPagamento.map((method) => <SelectItem key={method.value} value={method.value}>{method.label}</SelectItem>)}</SelectContent></Select></div>
             </div>
           )}
 

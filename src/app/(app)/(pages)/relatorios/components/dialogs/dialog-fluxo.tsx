@@ -28,6 +28,7 @@ import { useCategoriasTransacao } from "../../../(financeiro)/fluxodecaixa/hooks
 import { useCentrosCusto } from "../../../(financeiro)/fluxodecaixa/hooks/use-centros-custo";
 import { usePlanosDeConta } from "../../../(financeiro)/fluxodecaixa/hooks/use-planos-de-conta";
 import { Metodo_pagamento, Tipo_transacao, type Banco } from "../../../(financeiro)/fluxodecaixa/types";
+import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
 
 type Situacao = "TODAS" | "REALIZADAS" | "PENDENTES";
 type Vinculo = "TODOS" | "OS" | "VENDA" | "EVENTO" | "AVULSO";
@@ -36,6 +37,7 @@ const initialRelations = { categoriaId: "", bancoId: "", planoContaId: "", centr
 
 export default function DialogFluxo() {
   const [open, setOpen] = useState(false);
+  const { options: metodosPagamento } = usePaymentMethodOptions();
   const [customerOpen, setCustomerOpen] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -183,7 +185,7 @@ export default function DialogFluxo() {
               <div><h3 className="text-sm font-semibold">Classificação financeira</h3><p className="text-xs text-muted-foreground">Natureza, categoria, plano de conta, centro de custo e conta bancária.</p></div>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 <Field label="Tipo"><Select value={tipo || "TODOS"} onValueChange={(value) => setTipo(value === "TODOS" ? "" : value as Tipo_transacao)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="TODOS">Todos</SelectItem>{Object.values(Tipo_transacao).map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select></Field>
-                <Field label="Método de pagamento"><Select value={metodo || "TODOS"} onValueChange={(value) => setMetodo(value === "TODOS" ? "" : value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="TODOS">Todos</SelectItem>{Object.values(Metodo_pagamento).map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select></Field>
+                <Field label="Método de pagamento"><Select value={metodo || "TODOS"} onValueChange={(value) => setMetodo(value === "TODOS" ? "" : value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="TODOS">Todos</SelectItem>{metodosPagamento.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select></Field>
                 <Field label="Categoria"><SearchCombobox value={relations.categoriaId} onValueChange={(categoriaId) => setRelations((current) => ({ ...current, categoriaId }))} loading={loadingCategorias} disabled={!!errorCategorias} placeholder={errorCategorias ?? "Todas as categorias"} clearable clearLabel="Todas as categorias" options={categorias.map((item) => ({ value: String(item.id), label: item.nome, description: item.descricao ?? undefined }))} /></Field>
                 <Field label="Plano de conta"><PlanoContaCombobox value={relations.planoContaId} groups={gruposPlanosDeConta} loading={loadingPlanos} disabled={!!errorPlanos} placeholder={errorPlanos ?? "Todos os planos"} clearable clearLabel="Todos os planos" onClear={() => setRelations((current) => ({ ...current, planoContaId: "" }))} onValueChange={(planoContaId) => setRelations((current) => ({ ...current, planoContaId }))} /></Field>
                 <Field label="Centro de custo"><SearchCombobox value={relations.centroCustoId} onValueChange={(centroCustoId) => setRelations((current) => ({ ...current, centroCustoId }))} loading={loadingCentrosCusto} disabled={!!errorCentrosCusto} placeholder={errorCentrosCusto ?? "Todos os centros"} clearable clearLabel="Todos os centros" options={centrosCusto.map((item) => ({ value: String(item.id), label: item.nome, description: item.descricao ?? undefined }))} /></Field>

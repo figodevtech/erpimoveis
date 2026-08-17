@@ -46,8 +46,30 @@ export type TotaisDaTransacao = {
   valor_descontos?: number | string | null;
 };
 
+/**
+ * Teto para as chamadas do salvamento.
+ *
+ * O axios não tem timeout por padrão: uma requisição que não volta deixa o botão
+ * em "Salvando..." para sempre. E ela pode não voltar — o ajuste de valores trava
+ * as linhas da transação, e quem espera por uma linha travada ficava parado até
+ * o `statement_timeout` do banco, que é de dois minutos.
+ *
+ * O banco agora desiste em 5s (`lock_timeout` na própria função). Este teto é a
+ * rede embaixo disso: cobre o que o banco não alcança — rede caída, servidor
+ * reiniciando — e transforma "girando para sempre" em uma mensagem.
+ */
+const TIMEOUT_SALVAMENTO = 20_000;
+
 function mensagemDoErro(erro: unknown, alternativa: string) {
-  if (isAxiosError(erro)) return erro.response?.data?.error ?? erro.message ?? alternativa;
+  if (isAxiosError(erro)) {
+    // Sem resposta e com código de timeout: a requisição nem chegou a ser
+    // respondida, então `response.data.error` não existe e a mensagem crua do
+    // axios ("timeout of 20000ms exceeded") não diz nada a quem está usando.
+    if (erro.code === "ECONNABORTED" || erro.code === "ETIMEDOUT") {
+      return "O servidor demorou demais para responder. Confira se a alteração foi salva antes de tentar de novo.";
+    }
+    return erro.response?.data?.error ?? erro.message ?? alternativa;
+  }
   if (erro instanceof Error) return erro.message;
   return alternativa;
 }
@@ -276,23 +298,29 @@ export function useTransacaoEdicao(transacaoId: number | undefined) {
         Math.round(liquido * 100) !== Math.round(valorLiquidoEfetivo(anterior) * 100);
 
       if (liquidoMudou && descontos <= 1 && tipoTemValorLiquido(form.tipo)) {
-        await axios.put(`/api/transaction/${form.id}/ajustes`, {
-          liquidoDesejado: liquido,
-        });
+        await axios.put(
+          `/api/transaction/${form.id}/ajustes`,
+          { liquidoDesejado: liquido },
+          { timeout: TIMEOUT_SALVAMENTO },
+        );
       }
 
       if (brutoMudou && origemDaTransacao(anterior) == null) {
-        await axios.post(`/api/transaction/${form.id}/ajustar-valores`, {
-          itens: [
-            {
-              id: form.id,
-              valor: bruto,
-              valorLiquido: liquido,
-              valorAnterior: Number(anterior.valor ?? 0),
-              valorLiquidoAnterior: valorLiquidoEfetivo(anterior),
-            },
-          ],
-        });
+        await axios.post(
+          `/api/transaction/${form.id}/ajustar-valores`,
+          {
+            itens: [
+              {
+                id: form.id,
+                valor: bruto,
+                valorLiquido: liquido,
+                valorAnterior: Number(anterior.valor ?? 0),
+                valorLiquidoAnterior: valorLiquidoEfetivo(anterior),
+              },
+            ],
+          },
+          { timeout: TIMEOUT_SALVAMENTO },
+        );
       }
 
       await axios.patch(
@@ -349,6 +377,7 @@ export function useTransacaoEdicao(transacaoId: number | undefined) {
           // `pendente` fica de fora: a rota recusa alterá-lo, e mandar o valor
           // atual só criaria risco de recusa falsa se o form dessincronizasse.
         },
+        { timeout: TIMEOUT_SALVAMENTO },
       );
 
       toast.success("Transação atualizada.");

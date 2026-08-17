@@ -15,6 +15,19 @@ export interface Categoria_transacao {
 }
 
 
+/**
+ * Lista PARCIAL. Não use para montar seletor.
+ *
+ * A lista de verdade é o enum `metodo_pagamento` do banco, que varia por empresa
+ * e cresce sem passar por aqui — o Demir já usa DEBITO AUTOMATICO, CHEQUE e
+ * CREDITO EM CONTA, nenhum deles abaixo. Enquanto as telas montavam o seletor a
+ * partir deste enum, quem tinha um desses métodos abria a edição e via o campo
+ * em branco, sem conseguir escolher o próprio método de volta.
+ *
+ * Para escolher uma forma de pagamento: `usePaymentMethodOptions()`.
+ * Este enum serve só para comparar com um método específico (BOLETO, CREDITO)
+ * em regras de parcelamento e taxa.
+ */
 export enum Metodo_pagamento {
   PIX = "PIX",
   CREDITO = "CREDITO",
@@ -227,6 +240,14 @@ export interface NewTransaction {
   valor?: number | 0;
   valorLiquido?: number | 0;
   data?: Date;
+  /**
+   * A que mês o fato pertence na DRE, ao contrário de `data`, que é de caixa.
+   *
+   * Só existe em lançamento avulso: quando a transação nasce de uma OS, de uma
+   * venda ou da baixa de um evento, a competência é do documento e o servidor
+   * recusa recebê-la aqui.
+   */
+  competencia_em?: Date | null;
   metodopagamento?: Metodo_pagamento;
   categoria?: string;
   categoria_id?: number | null;

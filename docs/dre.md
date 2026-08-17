@@ -795,6 +795,48 @@ isso.
 
 ---
 
+### 6.2 Correcao do sinal no fechamento dos grupos (17/08)
+
+Achado ao escrever o documento de leitura ([dre-como-funciona.md](dre-como-funciona.md)),
+que obrigou a percorrer linha a linha o que cada uma soma.
+
+`montarArvore` fechava os grupos com `filhos.reduce((acc, f) => acc + f.valor, 0)`.
+O `sinal` de cada linha era lido para dentro do objeto e **nunca usado**.
+
+Isso acerta enquanto todos os filhos de um grupo tem o mesmo sinal — o caso de
+1, 2, 4, 6 e 13. **RESULTADO FINANCEIRO e o unico grupo que mistura**: 10.1
+Receitas financeiras soma, 10.2 Despesas financeiras subtrai. A despesa entrava
+somando, e como a linha 12 e `9 + 10 + 11`, o erro atravessava ate o resultado
+liquido:
+
+```
+10.1  Receitas financeiras     R$      0,12
+10.2  Despesas financeiras     R$  2.223,68
+
+10    RESULTADO FINANCEIRO     R$ +2.223,80   <- era
+                               R$ -2.223,56   <- correto
+
+14    RESULTADO LIQUIDO        R$ 205.157,18  <- era
+                               R$ 200.709,82  <- correto
+```
+
+R$ 4.447,36 de lucro a mais no Demir — o dobro das despesas financeiras.
+
+A correcao nao e aplicar o sinal do filho cegamente: as formulas ja assumem que
+os grupos de deducao, custo e despesa carregam **magnitude positiva**
+(`RECEITA LIQUIDA = 1 - 2`). Aplicar o sinal direto inverteria esses. A regra
+que vale para os dois casos esta em `agregarFilhos`: soma os filhos com o sinal
+de cada um e, se o proprio grupo tem `sinal = -1` (ou seja, a formula o
+subtrai), devolve a magnitude positiva. Devolve numero identico ao anterior para
+os cinco grupos uniformes e corrige o unico misto.
+
+A logica pura saiu de `_calculo.ts` para `_arvore.ts`, sem dependencia de banco,
+para poder ser testada — `_calculo.ts` importava `supabaseAdmin` no topo e
+qualquer teste tentava conectar. Seis casos em `_arvore.test.ts`, incluindo o de
+regressao das deducoes, rodando com `npm run test:dre`.
+
+---
+
 ## 8. A DRE do Demir hoje
 
 Todo o histórico, medido em 17/08/2026 já com a `20260817110000` aplicada. O
@@ -887,7 +929,9 @@ npm run db:test:sql -- supabase/tests/checar_receitas_dre.sql <demo|demir|alpha|
 
 ```
 src/app/api/dre/route.ts                          árvore da DRE
-src/app/api/dre/_calculo.ts                       hierarquia, fórmulas, variações
+src/app/api/dre/_calculo.ts                       busca no banco e monta a resposta
+src/app/api/dre/_arvore.ts                        agregação, fórmulas, variações (puro)
+src/app/api/dre/_arvore.test.ts                   npm run test:dre
 src/app/api/dre/drilldown/route.ts                lançamentos de uma linha
 src/app/(app)/(pages)/(financeiro)/dre/page.tsx   rota /dre
 src/app/(app)/(pages)/(financeiro)/dre/dre-client.tsx  tela e diálogo

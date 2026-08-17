@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 
 import { A4PdfActions } from "@/app/(app)/(full)/components/A4PdfActions";
-import { Metodo_pagamento } from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/types";
+import { formatPaymentMethodLabel } from "@/lib/payment-methods";
+import { getPaymentMethodValues } from "@/lib/payment-methods-server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -99,8 +100,17 @@ export default async function MetodosMovimentacaoPrintPage({ searchParams }: Pag
     return atual;
   };
 
-  // Todos os métodos do sistema entram na lista, mesmo sem movimento no período.
-  Object.values(Metodo_pagamento).forEach((metodo) => movimentoDe(metodo));
+  /*
+   * Todos os métodos do sistema entram na lista, mesmo sem movimento no período.
+   *
+   * A lista vem do banco, não de um enum no código: cada empresa tem os seus, e
+   * o do TypeScript é uma cópia parcial que já ficou três métodos atrás do Demir
+   * (DEBITO AUTOMATICO, CHEQUE, CREDITO EM CONTA). Com a cópia, esses três só
+   * apareciam pela cláusula de dado legado, no fim da tabela e apenas quando
+   * tinham movimento — nunca como linha própria zerada, como os demais.
+   */
+  const metodosDoSistema = await getPaymentMethodValues();
+  metodosDoSistema.forEach((metodo) => movimentoDe(metodo));
 
   rows.forEach((row) => {
     const metodo = String(row.metodopagamento ?? "").trim();
@@ -113,15 +123,20 @@ export default async function MetodosMovimentacaoPrintPage({ searchParams }: Pag
 
   const semMetodo = movimentos.get(SEM_METODO);
   const linhas = [
-    ...Object.values(Metodo_pagamento).map((metodo) => ({
-      key: metodo as string,
-      titulo: metodo as string,
+    ...metodosDoSistema.map((metodo) => ({
+      key: metodo,
+      titulo: formatPaymentMethodLabel(metodo),
       ...movimentoDe(metodo),
     })),
-    // Métodos gravados fora do enum (dado legado) não podem sumir da soma.
+    // Método que saiu da lista do sistema mas ainda tem lançamento gravado não
+    // pode sumir da soma.
     ...Array.from(movimentos.entries())
-      .filter(([key]) => key !== SEM_METODO && !Object.values(Metodo_pagamento).includes(key as Metodo_pagamento))
-      .map(([key, movimento]) => ({ key, titulo: key, ...movimento })),
+      .filter(([key]) => key !== SEM_METODO && !metodosDoSistema.includes(key))
+      .map(([key, movimento]) => ({
+        key,
+        titulo: formatPaymentMethodLabel(key),
+        ...movimento,
+      })),
     ...(semMetodo && semMetodo.lancamentos > 0
       ? [{ key: SEM_METODO, titulo: "Não informado", ...semMetodo }]
       : []),

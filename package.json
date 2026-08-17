@@ -20,6 +20,7 @@
     "migracao:demir:financeiro": "tsx scripts/migracao/demir-financeiro.ts",
     "migracao:garage:contas-pagar": "tsx scripts/migracao/garagepremium-contas-pagar.ts",
     "test:fiscal": "tsx --test src/services/fiscal/*.test.ts",
+    "test:dre": "tsx --test src/app/api/dre/*.test.ts",
     "db:remover-fantasma": "tsx scripts/db/remover-versao-fantasma.ts",
     "db:restaurar:transacao": "tsx scripts/db/restaurar-transacao-excluida-demir.ts",
     "capture:all": "node scripts/captures/run-captures.mjs",

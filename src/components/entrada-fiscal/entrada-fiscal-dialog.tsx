@@ -72,6 +72,7 @@ import { PlanoContaCombobox } from "@/app/(app)/(pages)/(financeiro)/fluxodecaix
 import { SearchCombobox } from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/components/search-combobox";
 import type { Banco } from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/types";
 import type { UsoConsumoGrupo, UsoConsumoItem } from "@/types/usoconsumo";
+import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
 
 import {
   DESTINO_LABEL,
@@ -136,6 +137,7 @@ export function EntradaFiscalDialog({
   onSaved,
 }: Props) {
   const [parsed, setParsed] = useState<NotaFiscalParseada | null>(null);
+  const { options: metodosPagamento } = usePaymentMethodOptions();
   const [file, setFile] = useState<File>();
   const [submitting, setSubmitting] = useState(false);
   const [carregandoNota, setCarregandoNota] = useState(false);
@@ -1838,13 +1840,14 @@ export function EntradaFiscalDialog({
                                 <SelectValue placeholder="Não informado" />
                               </SelectTrigger>
                               <SelectContent>
-                                {Object.values(Metodo_pagamento).map(
-                                  (valor) => (
-                                    <SelectItem key={valor} value={valor}>
-                                      {valor}
-                                    </SelectItem>
-                                  ),
-                                )}
+                                {metodosPagamento.map((metodo) => (
+                                  <SelectItem
+                                    key={metodo.value}
+                                    value={metodo.value}
+                                  >
+                                    {metodo.label}
+                                  </SelectItem>
+                                ))}
                               </SelectContent>
                             </Select>
                           </div>

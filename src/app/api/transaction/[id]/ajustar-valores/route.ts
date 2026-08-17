@@ -117,6 +117,26 @@ export async function POST(req: NextRequest, ctx: Params) {
       if (error.code === "40001" || error.code === "55000") {
         return NextResponse.json({ error: error.message }, { status: 409 });
       }
+      /*
+       * 55P03 é o `lock_timeout` da RPC: outra sessão está com a linha travada.
+       * 40P01 é deadlock — a ordenação do `FOR UPDATE` tornou isso improvável
+       * entre duas chamadas desta função, mas outra rota pode segurar a linha.
+       *
+       * Os dois são "tente de novo", não erro do que foi digitado, e por isso
+       * saem como 409 e não como 500. Antes caíam no `throw` e viravam 500 com
+       * a mensagem crua do Postgres.
+       */
+      if (error.code === "55P03" || error.code === "40P01") {
+        return NextResponse.json(
+          {
+            error:
+              error.code === "55P03"
+                ? error.message
+                : "Duas edições ao mesmo tempo se cruzaram. Tente salvar de novo.",
+          },
+          { status: 409 },
+        );
+      }
       throw error;
     }
 

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+
+import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
 import axios, { isAxiosError } from "axios";
 import { Banknote, Loader2, X } from "lucide-react";
 
@@ -61,6 +63,7 @@ export function AdiantamentoDialog({
   onConcluido: () => void;
 }) {
   const [bancos, setBancos] = useState<Banco[]>([]);
+  const { options: metodosPagamento } = usePaymentMethodOptions();
   const [carregandoBancos, setCarregandoBancos] = useState(false);
   const [bancoId, setBancoId] = useState("");
   const [metodo, setMetodo] = useState<Metodo_pagamento | "">("");
@@ -289,9 +292,9 @@ export function AdiantamentoDialog({
                 <SelectValue placeholder="Selecione o método" />
               </SelectTrigger>
               <SelectContent>
-                {Object.values(Metodo_pagamento).map((item) => (
-                  <SelectItem key={item} value={item}>
-                    {item}
+                {metodosPagamento.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>
+                    {item.label}
                   </SelectItem>
                 ))}
               </SelectContent>

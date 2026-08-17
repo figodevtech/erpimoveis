@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+
+import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
 import axios, { isAxiosError } from "axios";
 import { CheckCircle2, Loader2 } from "lucide-react";
 
@@ -48,6 +50,7 @@ export default function ConcluidoAlert({
   onSuccess,
 }: ConcluidoAlertProps) {
   const [banks, setBanks] = useState<Banco[]>([]);
+  const { options: metodosPagamento } = usePaymentMethodOptions();
   const [isLoadingBanks, setIsLoadingBanks] = useState(false);
   const [bankLoadError, setBankLoadError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -307,9 +310,9 @@ export default function ConcluidoAlert({
                 <SelectValue placeholder="Selecione o método" />
               </SelectTrigger>
               <SelectContent>
-                {Object.values(Metodo_pagamento).map((metodo) => (
-                  <SelectItem key={metodo} value={metodo}>
-                    {metodo}
+                {metodosPagamento.map((metodo) => (
+                  <SelectItem key={metodo.value} value={metodo.value}>
+                    {metodo.label}
                   </SelectItem>
                 ))}
               </SelectContent>

@@ -25,6 +25,7 @@ import ValueInput from "@/components/ui/value-input";
 import { toast } from "@/lib/toast";
 import { paraCentavos } from "@/lib/financeiro/rateio";
 import formatarEmReal from "@/utils/formatarEmReal";
+import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
 
 import { useBancos } from "../../../hooks/use-bancos";
 import { useCategoriasTransacao } from "../../../hooks/use-categoria-transacao";
@@ -125,29 +126,50 @@ function BlocoDeValores({
   const excedeBruto = paraCentavos(liquido) > paraCentavos(bruto);
   const liquidoTravado = descontos > 1;
 
+  /*
+   * Com acréscimo lançado, "valor bruto" fica ambíguo — e a ambiguidade estraga
+   * o lançamento em silêncio.
+   *
+   * O campo mostra o total já com os juros dentro (face + acréscimos). Quem
+   * digita aqui costuma ter em mente a face, o valor de antes dos juros; e o
+   * sistema, ao receber um `valor` menor, entende "o total é este" e reparte
+   * para trás, redefinindo a face sem avisar. Na transação 366 do Demir, juros
+   * de R$ 55,53 sobre R$ 666,67 viravam face de R$ 611,14.
+   *
+   * Como não há como adivinhar qual dos dois números a pessoa quis dizer, o
+   * campo sai de cena e o ajuste passa a ser feito onde ele é explícito — a
+   * mesma decisão já tomada para o líquido quando há mais de um desconto.
+   */
+  const acrescimosLancados = Number(form.valor_acrescimos ?? 0);
+  const brutoTravadoPorAcrescimo =
+    Number.isFinite(acrescimosLancados) && acrescimosLancados > 0;
+  const brutoEditavel = permiteEditarValor && !brutoTravadoPorAcrescimo;
+
   return (
     <div className="grid gap-3 sm:col-span-3 sm:grid-cols-3">
       <div className="space-y-2">
         <Label htmlFor="valor-bruto" className="flex items-center gap-1.5">
           Valor bruto
-          {permiteEditarValor ? null : (
+          {brutoEditavel ? null : (
             <Lock className="h-3 w-3 text-muted-foreground" aria-hidden />
           )}
         </Label>
         <ValueInput
           id="valor-bruto"
-          disabled={!permiteEditarValor}
+          disabled={!brutoEditavel}
           value={bruto}
           onValueChange={
-            permiteEditarValor ? (valor) => setCampo("valor", valor) : undefined
+            brutoEditavel ? (valor) => setCampo("valor", valor) : undefined
           }
         />
         <p className="text-xs text-muted-foreground">
-          {permiteRateio
-            ? "É o que o cliente pagou. Para redividir entre as parcelas, use a aba Parcelas."
-            : permiteEditarValor
-              ? "É o que o cliente pagou. Em parcelamento avulso, cada parcela é editada por conta própria."
-              : "É o que o cliente pagou."}
+          {brutoTravadoPorAcrescimo
+            ? `Inclui ${formatarEmReal(acrescimosLancados)} de acréscimo. Para mudar o valor, ajuste a linha na aba Acréscimos e descontos.`
+            : permiteRateio
+              ? "É o que o cliente pagou. Para redividir entre as parcelas, use a aba Parcelas."
+              : permiteEditarValor
+                ? "É o que o cliente pagou. Em parcelamento avulso, cada parcela é editada por conta própria."
+                : "É o que o cliente pagou."}
         </p>
       </div>
 
@@ -214,6 +236,7 @@ export function DetalhesTab({
   const { centrosCusto, loadingCentrosCusto, errorCentrosCusto } = useCentrosCusto();
   const { tiposDocumento, loadingTiposDocumento, errorTiposDocumento } =
     useTiposDocumento();
+  const { options: metodosPagamento } = usePaymentMethodOptions();
 
   /**
    * A antecipação que liquidou este título, quando há uma.
@@ -361,9 +384,9 @@ export function DetalhesTab({
               <SelectValue placeholder="Selecione" />
             </SelectTrigger>
             <SelectContent>
-              {Object.values(Metodo_pagamento).map((item) => (
-                <SelectItem key={item} value={item}>
-                  {item}
+              {metodosPagamento.map((item) => (
+                <SelectItem key={item.value} value={item.value}>
+                  {item.label}
                 </SelectItem>
               ))}
             </SelectContent>

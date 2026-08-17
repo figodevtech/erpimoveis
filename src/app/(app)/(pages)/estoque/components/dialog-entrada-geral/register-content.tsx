@@ -35,6 +35,7 @@ import { useCentrosCusto } from "../../../(financeiro)/fluxodecaixa/hooks/use-ce
 import { PlanoContaCombobox } from "../../../(financeiro)/fluxodecaixa/components/plano-conta-combobox";
 import { SearchCombobox } from "../../../(financeiro)/fluxodecaixa/components/search-combobox";
 import { useTiposEntrada } from "../../hooks/use-tipos-entrada";
+import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
 // ======== NOVO MODELO DO ITEM (alinhado com entradaitens) ========
 type EntradaItemForm = {
   produto_id: number;
@@ -222,6 +223,7 @@ export default function RegisterContent({
   onOpenChange,
 }: RegisterContentProps) {
   const [tipo, setTipo] = useState<string>("COMPRA_FORNECEDOR");
+  const { options: metodosPagamento } = usePaymentMethodOptions();
   const [itens, setItens] = useState<EntradaItemForm[]>([]);
   const { tipos, loadingTipos } = useTiposEntrada(open !== false);
   // Se o tipo selecionado nao estiver na lista ativa (desativado no cadastro),
@@ -970,7 +972,7 @@ export default function RegisterContent({
                       <Select value={selectedMetodo} onValueChange={(value) => setSelectedMetodo(value as Metodo_pagamento)}>
                         <SelectTrigger><SelectValue placeholder="Selecione o método" /></SelectTrigger>
                         <SelectContent>
-                          {Object.values(Metodo_pagamento).map((method) => <SelectItem key={method} value={method}>{method}</SelectItem>)}
+                          {metodosPagamento.map((method) => <SelectItem key={method.value} value={method.value}>{method.label}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </div>
