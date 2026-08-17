@@ -294,15 +294,20 @@ export function HeaderRadioPlayer() {
         audio.canPlayType("application/vnd.apple.mpegurl") ||
           audio.canPlayType("application/x-mpegURL"),
       );
+      // O hls.js vem antes do suporte nativo: ele busca os segmentos por conta
+      // propria e recupera erro de midia, enquanto a pilha nativa depende de
+      // Range por segmento. O nativo fica como saida para quem nao tem MSE,
+      // caso do Safari no iPhone.
+      const useHlsJs = nextStation.streamType === "HLS" && Hls.isSupported();
 
-      if (nextStation.streamType === "HLS" && !nativeHlsSupport) {
-        if (!Hls.isSupported()) {
-          wantsToPlayRef.current = false;
-          setPlaybackState("error");
-          setPlayerError("Este navegador não oferece suporte à reprodução HLS.");
-          return;
-        }
+      if (nextStation.streamType === "HLS" && !useHlsJs && !nativeHlsSupport) {
+        wantsToPlayRef.current = false;
+        setPlaybackState("error");
+        setPlayerError("Este navegador não oferece suporte à reprodução HLS.");
+        return;
+      }
 
+      if (useHlsJs) {
         const hls = new Hls({
           enableWorker: true,
           lowLatencyMode: false,
