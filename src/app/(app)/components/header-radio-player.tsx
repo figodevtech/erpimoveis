@@ -687,6 +687,10 @@ export function HeaderRadioPlayer() {
         }}
         onError={() => {
           if (!wantsToPlayRef.current) return;
+          // Em HLS o hls.js e a fonte da verdade: ele recupera erros de midia
+          // antes de desistir e avisa pelo proprio handler de erro. Reportar
+          // falha aqui interromperia uma recuperacao que iria dar certo.
+          if (hlsRef.current) return;
           wantsToPlayRef.current = false;
           setPlaybackState("error");
           setPlayerError("Não foi possível carregar o áudio desta emissora.");

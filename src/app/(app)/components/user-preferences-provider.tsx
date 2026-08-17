@@ -27,7 +27,7 @@ type UserPreferencesContextValue = {
 
 const DEFAULT_RADIO: RadioPreference = {
   permitted: false,
-  enabled: true,
+  enabled: false,
   effective: false,
 };
 
@@ -38,7 +38,7 @@ const UserPreferencesContext = React.createContext<UserPreferencesContextValue>(
   setRadioEnabled: async () => undefined,
 });
 
-function fallbackRadio(permitted: boolean, enabled = true): RadioPreference {
+function fallbackRadio(permitted: boolean, enabled = false): RadioPreference {
   return { permitted, enabled, effective: permitted && enabled };
 }
 
@@ -76,8 +76,8 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
       } catch (error) {
         if (controller.signal.aborted) return;
         console.error("[preferencias] falha ao carregar", error);
-        // Em uma implantação gradual, a indisponibilidade da nova tabela não
-        // remove um recurso que já funcionava para o usuário.
+        // Sem resposta da API, mantemos o padrão desligado em vez de exibir um
+        // player que o usuário talvez não tenha ligado.
         setRadio(fallbackRadio(sessionPermitted));
       } finally {
         if (!controller.signal.aborted) setLoading(false);
