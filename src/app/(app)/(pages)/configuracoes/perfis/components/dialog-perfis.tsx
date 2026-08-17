@@ -43,8 +43,13 @@ const ACTION_LABELS: Record<string, string> = {
   finalizar_sem_cobranca: "Finalizar sem cobrança",
 };
 
+const MODULE_LABELS: Record<string, string> = {
+  radios: "Rádio",
+};
+
 function formatModulo(nome: string) {
   const [modulo] = nome.split(":");
+  if (MODULE_LABELS[modulo]) return MODULE_LABELS[modulo];
   return modulo
     .replace(/_/g, " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());

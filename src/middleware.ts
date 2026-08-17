@@ -358,6 +358,8 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
       // justamente quem mais tem servicos realizados para consultar.
       pathname === "/meu-perfil" ||
       pathname.startsWith("/meu-perfil/") ||
+      pathname === "/preferencias" ||
+      pathname.startsWith("/preferencias/") ||
       pathname === "/api/me" ||
       pathname.startsWith("/api/me/") ||
       pathname === "/nao-autorizado";

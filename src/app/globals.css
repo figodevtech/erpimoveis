@@ -182,3 +182,99 @@
 .no-scroll-anchor {
   overflow-anchor: none;
 }
+
+@keyframes radio-equalizer-pulse {
+  0%,
+  100% {
+    transform: scaleY(0.22);
+  }
+
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@layer utilities {
+  .radio-equalizer-bar {
+    transform: scaleY(0.22);
+    transform-origin: center;
+    transition: transform 180ms ease-out;
+  }
+
+  .radio-equalizer[data-playing="true"] .radio-equalizer-bar {
+    animation: radio-equalizer-pulse 680ms ease-in-out infinite;
+    will-change: transform;
+  }
+
+  .radio-equalizer[data-playing="true"] .radio-equalizer-bar:nth-child(2) {
+    animation-delay: -240ms;
+    animation-duration: 820ms;
+  }
+
+  .radio-equalizer[data-playing="true"] .radio-equalizer-bar:nth-child(3) {
+    animation-delay: -460ms;
+    animation-duration: 560ms;
+  }
+
+  .radio-equalizer[data-playing="true"] .radio-equalizer-bar:nth-child(4) {
+    animation-delay: -120ms;
+    animation-duration: 760ms;
+  }
+
+  .radio-equalizer[data-playing="true"] .radio-equalizer-bar:nth-child(5) {
+    animation-delay: -360ms;
+    animation-duration: 620ms;
+  }
+
+  .radio-volume-slider {
+    height: 20px;
+    appearance: none;
+    border-radius: 999px;
+    background: linear-gradient(
+      to right,
+      var(--primary) 0,
+      var(--primary) var(--radio-volume),
+      var(--border) var(--radio-volume),
+      var(--border) 100%
+    ) center / 100% 3px no-repeat;
+  }
+
+  .radio-volume-slider::-webkit-slider-runnable-track {
+    height: 3px;
+    border: 0;
+    background: transparent;
+  }
+
+  .radio-volume-slider::-webkit-slider-thumb {
+    width: 11px;
+    height: 11px;
+    appearance: none;
+    border: 2px solid var(--card);
+    border-radius: 999px;
+    background: var(--primary);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 35%, transparent);
+    margin-top: -4px;
+  }
+
+  .radio-volume-slider::-moz-range-thumb {
+    width: 8px;
+    height: 8px;
+    border: 2px solid var(--card);
+    border-radius: 999px;
+    background: var(--primary);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 35%, transparent);
+  }
+
+  .radio-volume-slider::-moz-range-track {
+    height: 3px;
+    border: 0;
+    background: transparent;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .radio-equalizer[data-playing="true"] .radio-equalizer-bar {
+      animation: none;
+      transform: scaleY(0.58);
+    }
+  }
+}

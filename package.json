@@ -24,7 +24,10 @@
     "db:restaurar:transacao": "tsx scripts/db/restaurar-transacao-excluida-demir.ts",
     "capture:all": "node scripts/captures/run-captures.mjs",
     "capture:ui": "playwright test --ui --project=desktop",
-    "capture:seed:demo": "tsx scripts/captures/seed-demo.ts"
+    "capture:seed:demo": "tsx scripts/captures/seed-demo.ts",
+    "radios:importar:joao-pessoa": "tsx scripts/radios/import-joao-pessoa.ts",
+    "radios:importar:tematicos": "tsx scripts/radios/import-thematic-channels.ts",
+    "test:radios": "tsx --test src/lib/radio/*.test.ts"
   },
   "overrides": {
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
@@ -67,6 +70,7 @@
     "date-fns": "^4.1.0",
     "fast-xml-parser": "^5.3.2",
     "heic-to": "^1.5.2",
+    "hls.js": "^1.7.0",
     "html-to-image": "^1.11.13",
     "jsqr": "^1.4.0",
     "lucide-react": "^0.542.0",

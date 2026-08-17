@@ -8,6 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { Settings } from "@/components/animate-ui/icons/settings";
 import { Config } from "./type";
 import { ConfigProvider } from "./config-context";
+import { UserPreferencesProvider } from "../components/user-preferences-provider";
 
 const CONFIG_CACHE_KEY = "erpoficina:config-cache";
 
@@ -148,7 +149,9 @@ export default function ShellLayout({ children }: { children: ReactNode }) {
 
   return (
     <ConfigProvider config={config ?? DEFAULT_CONFIG}>
-      <ClientAppShell>{children}</ClientAppShell>
+      <UserPreferencesProvider>
+        <ClientAppShell>{children}</ClientAppShell>
+      </UserPreferencesProvider>
     </ConfigProvider>
   );
 }
