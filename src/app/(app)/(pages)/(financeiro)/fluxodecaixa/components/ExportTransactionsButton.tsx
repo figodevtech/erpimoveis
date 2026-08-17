@@ -27,6 +27,7 @@ type CustomerProps = BaseProps & {
 type TransactionProps = BaseProps & {
   kind: "transactions";
   tipo?: string | null;
+  tipos?: string | null;
   categoria?: string | null;
   categoriaId?: number | null;
   ordemservicoid?: string | number | null;
@@ -83,6 +84,7 @@ export function ExportExcelButton({
         endpoint = "/api/transaction/export";
         const {
           tipo,
+          tipos,
           categoria,
           categoriaId,
           ordemservicoid,
@@ -102,7 +104,8 @@ export function ExportExcelButton({
           dateTo,
         } = rest as TransactionProps;
 
-        if (tipo) qp.set("tipo", tipo);
+        if (tipos) qp.set("tipos", tipos);
+        else if (tipo) qp.set("tipo", tipo);
         if (categoria) qp.set("categoria", categoria);
         if (categoriaId != null) qp.set("categoriaId", String(categoriaId));
         if (ordemservicoid != null) qp.set("ordemservicoid", String(ordemservicoid));

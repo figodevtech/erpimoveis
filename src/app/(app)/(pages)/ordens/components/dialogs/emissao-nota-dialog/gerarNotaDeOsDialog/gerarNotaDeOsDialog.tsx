@@ -11,6 +11,7 @@ import {
   Package,
   PackageSearch,
   Pencil,
+  Plus,
   Receipt,
 } from "lucide-react";
 
@@ -52,6 +53,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
 import ValueInput from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/components/transactionDialog/valueInput";
 import { normalizeCfopForOperation } from "@/lib/nfe/cfopOperation";
+import {
+  blocosDeObservacao,
+  concatenarBloco,
+  type AlvoFiscal,
+} from "@/lib/fiscal/blocosDeObservacao";
 import {
   NFE_FREIGHT_OPTIONS,
   NFE_PAYMENT_OPTIONS,
@@ -151,6 +157,9 @@ const emptySaidaOrigem: SaidaOrigemDraft = {
   itens: [],
 };
 
+/** Limite do infCpl que o servidor também aplica ao montar o rascunho. */
+const LIMITE_OBSERVACOES = 500;
+
 type SourceResponse = {
   ok: boolean;
   message?: string;
@@ -164,6 +173,19 @@ type SourceResponse = {
   configuracao_fiscal?: Partial<AssistedFiscalConfig>;
   /** Parcela do desconto geral da origem que cabe aos produtos desta nota. */
   desconto_geral?: number | null;
+  /** Alvo do reparo da OS. Ausente nas origens que não têm alvo (venda, saída). */
+  alvo?: AlvoFiscal | null;
+  /**
+   * Decomposição do desconto da origem, para a tela explicar por que o campo
+   * mostra menos que o desconto da OS. Numa venda `servicos` vem zerado.
+   */
+  desconto_origem?: {
+    total: number;
+    produtos: number;
+    servicos: number;
+    baseProdutos: number;
+    baseServicos: number;
+  } | null;
   itens: SourceProduct[];
 };
 
@@ -667,6 +689,34 @@ export function GerarNotaDeOsDialog({
     (total, item) => total + Math.max(0, item.valorDesconto),
     0,
   );
+  // Numa OS com serviços o campo mostra menos que o desconto da ordem, porque a
+  // mão de obra leva a sua parte na NFS-e. Sem os números do rateio à vista, a
+  // diferença parece erro de cálculo.
+  const descontoOrigem = source?.desconto_origem ?? null;
+  const descontoForaDaNota = Math.max(0, Number(descontoOrigem?.servicos ?? 0));
+  // O vDesc somado também diverge do campo quando itens ficam fora da nota (o
+  // rateio não é refeito ao desmarcar) ou quando alguém edita o desconto de um
+  // item na tributação.
+  const descontoDivergeDoRateio = Math.abs(descontoTotalDaNota - descontoGeral) >= 0.01;
+
+  // Botões do texto livre. O cliente sai do mesmo `source` que alimenta o
+  // destinatário da nota, então o texto casa com quem está sendo emitido — e
+  // acompanha a edição feita pelo dialog do cliente.
+  const blocosDoTextoLivre = useMemo(
+    () => blocosDeObservacao(source?.alvo, source?.cliente),
+    [source?.alvo, source?.cliente],
+  );
+
+  function adicionarBlocoNasObservacoes(bloco: string) {
+    const { texto, truncado } = concatenarBloco(observations, bloco, LIMITE_OBSERVACOES);
+    setObservations(texto);
+    if (truncado) {
+      toast.warning(`O texto foi cortado no limite de ${LIMITE_OBSERVACOES} caracteres do campo.`);
+    }
+  }
+  const motivoDaDivergencia = selectedIds.length < items.length
+    ? "itens fora da nota não levam a parte deles"
+    : "algum item teve o desconto ajustado à mão na tributação";
 
   function aplicarDescontoGeral(valor: number) {
     const limite = Number(selectedBruto.toFixed(2));
@@ -1638,11 +1688,33 @@ export function GerarNotaDeOsDialog({
                           proporcionalmente ao valor de cada um, com a sobra de centavos no último item.
                           Alterar aqui refaz o rateio sobre os itens selecionados; depois disso cada item
                           ainda pode ser ajustado à mão na tributação.
-                          {origin === "OS"
-                            ? " Numa OS com serviços, a parte da mão de obra fica de fora — ela sai na NFS-e."
-                            : ""}
                         </p>
                       </div>
+
+                      {/* Só aparece quando o desconto da origem foi partido entre
+                          produtos e serviços: é a conta que explica o valor do campo. */}
+                      {descontoOrigem && descontoForaDaNota > 0 ? (
+                        <div className="min-w-0 space-y-1.5 rounded-md border border-dashed p-2.5">
+                          <p className="text-[11px] leading-relaxed text-muted-foreground">
+                            A {origin === "VENDA" ? "venda" : "OS"} deu{" "}
+                            <b className="text-foreground">{fmtMoney(descontoOrigem.total)}</b> de desconto
+                            sobre {fmtMoney(descontoOrigem.baseProdutos + descontoOrigem.baseServicos)} em
+                            produtos e serviços. O desconto é rateado proporcionalmente, e esta NF-e leva
+                            só a parte dos produtos:
+                          </p>
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+                            <span>
+                              Produtos ({fmtMoney(descontoOrigem.baseProdutos)}):{" "}
+                              <b className="text-foreground">- {fmtMoney(descontoOrigem.produtos)}</b> nesta
+                              NF-e
+                            </span>
+                            <span>
+                              Serviços ({fmtMoney(descontoOrigem.baseServicos)}):{" "}
+                              <b className="text-foreground">- {fmtMoney(descontoForaDaNota)}</b> na NFS-e
+                            </span>
+                          </div>
+                        </div>
+                      ) : null}
                       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                         <span>Produtos: <b>{fmtMoney(selectedBruto)}</b></span>
                         <span>Desconto (vDesc): <b>- {fmtMoney(descontoTotalDaNota)}</b></span>
@@ -1651,6 +1723,13 @@ export function GerarNotaDeOsDialog({
                         ) : null}
                         <span>Total da NF-e: <b>{fmtMoney(selectedTotal)}</b></span>
                       </div>
+                      {descontoDivergeDoRateio ? (
+                        <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                          O vDesc somado ({fmtMoney(descontoTotalDaNota)}) não bate com o desconto geral
+                          acima ({fmtMoney(descontoGeral)}): {motivoDaDivergencia}. Vale a nota o vDesc dos
+                          itens.
+                        </p>
+                      ) : null}
                     </div>
 
                     <div className="space-y-2 grid lg:grid-cols-2 gap-2">
@@ -1745,12 +1824,40 @@ export function GerarNotaDeOsDialog({
                     />
                   </div>
                   {includeObservations ? (
-                    <Textarea
-                      value={observations}
-                      maxLength={500}
-                      className="min-h-20 resize-none"
-                      onChange={(event) => setObservations(event.target.value.slice(0, 500))}
-                    />
+                    <>
+                      {blocosDoTextoLivre.length > 0 ? (
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          {blocosDoTextoLivre.map((bloco) => (
+                            <Button
+                              key={bloco.rotulo}
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 rounded-sm text-xs"
+                              onClick={() => adicionarBlocoNasObservacoes(bloco.texto)}
+                            >
+                              <Plus aria-hidden="true" className="mr-1 size-3.5" />
+                              {bloco.rotulo}
+                            </Button>
+                          ))}
+                          <span className="text-[11px] text-muted-foreground">
+                            Acrescenta ao texto atual — apague o que não quiser levar.
+                          </span>
+                        </div>
+                      ) : null}
+                      <Textarea
+                        id="nfe-origin-observations-text"
+                        value={observations}
+                        maxLength={LIMITE_OBSERVACOES}
+                        className="min-h-20 resize-none"
+                        onChange={(event) =>
+                          setObservations(event.target.value.slice(0, LIMITE_OBSERVACOES))
+                        }
+                      />
+                      <p className="text-right text-xs tabular-nums text-muted-foreground">
+                        {observations.length}/{LIMITE_OBSERVACOES}
+                      </p>
+                    </>
                   ) : null}
                 </section>
 

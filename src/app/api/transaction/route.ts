@@ -34,6 +34,22 @@ const WRITABLE_FIELDS = new Set([
   "evento_financeiro_id",
 ]);
 
+/**
+ * Tipos aceitos no filtro `tipos` (lista separada por vírgula).
+ *
+ * Allowlist porque o valor vai para um `in(...)`: o que não for tipo conhecido
+ * é descartado em silêncio, e uma lista que sobrou vazia não filtra nada — o
+ * contrário faria a tela vir vazia sem explicar por quê.
+ */
+const TIPOS_TRANSACAO = new Set(["RECEITA", "DESPESA", "DEPOSITO", "SAQUE"]);
+
+function TIPOS_VALIDOS(bruto: string | null): string[] {
+  return String(bruto ?? "")
+    .split(",")
+    .map((item) => item.trim().toUpperCase())
+    .filter((item) => TIPOS_TRANSACAO.has(item));
+}
+
 /** Colunas aceitas em `ordenarPor`. Ver `CampoOrdenacao` no fluxo de caixa. */
 const ORDENAVEIS = new Set([
   "descricao",
@@ -193,6 +209,17 @@ export async function GET(req: Request) {
     const search = (searchParams.get("search") ?? searchParams.get("q") ?? "").trim().slice(0, 200);
 
     const tipo = (searchParams.get("tipo") ?? "").trim();
+    /*
+     * `tipos` (lista) existe porque "a receber" e "a pagar" não são um tipo só.
+     *
+     * Entrada de dinheiro é RECEITA *ou* DEPOSITO; saída é DESPESA *ou* SAQUE —
+     * é assim que os KPIs desta mesma tela já somam. Enquanto as abas filtravam
+     * por um tipo só, um DEPOSITO ou SAQUE ainda pendente não cabia em aba
+     * nenhuma: Fluxo e Liquidadas exigem `pendente = false`, e as outras duas
+     * forçavam RECEITA ou DESPESA. A transação existia e não tinha como ser
+     * aberta, editada ou excluída pela tela.
+     */
+    const tipos = TIPOS_VALIDOS(searchParams.get("tipos"));
     const categoria = (searchParams.get("categoria") ?? "").trim();
     const categoriaId = toNumberOrNull(searchParams.get("categoriaId"));
     const ordemservicoid = searchParams.get("ordemservicoid");
@@ -254,7 +281,10 @@ export async function GET(req: Request) {
     if (ordemservicoid) query = query.eq("ordemservicoid", ordemservicoid);
     if (excluirEventosFinanceiros === true) query = query.is("evento_financeiro_id", null);
     if (vendaid) query = query.eq("vendaid", vendaid);
-    if (tipo) query = query.eq("tipo", tipo);
+    // `tipos` tem precedência: quem manda a lista está na aba que agrupa dois
+    // tipos, e o dropdown de tipo único fica desabilitado nessas abas.
+    if (tipos.length > 0) query = query.in("tipo", tipos);
+    else if (tipo) query = query.eq("tipo", tipo);
     if (categoria) query = query.eq("categoria", categoria);
     if (categoriaId != null) query = query.eq("categoria_id", categoriaId);
     if (metodo) query = query.eq("metodopagamento", metodo);
@@ -289,6 +319,7 @@ export async function GET(req: Request) {
       filters: {
         search,
         tipo: tipo || null,
+        tipos: tipos.length > 0 ? tipos : null,
         categoria: categoria || null,
         categoriaId: categoriaId ?? null,
         metodopagamento: metodo || null,

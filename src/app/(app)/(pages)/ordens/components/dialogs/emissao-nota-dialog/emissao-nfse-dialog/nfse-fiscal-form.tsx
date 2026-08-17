@@ -5,6 +5,7 @@ import {
   FileCheck2,
   Info,
   Loader2,
+  Plus,
   RefreshCw,
   Send,
   ShieldAlert,
@@ -17,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import type { BlocoDeObservacao } from "@/lib/fiscal/blocosDeObservacao";
 import type {
   CodigosFiscaisForm,
   ModeloEmissao,
@@ -48,6 +50,9 @@ export function NfseFiscalForm({
   codigos,
   validationError,
   loading,
+  herdouObservacoesDaOs,
+  blocosDoTextoLivre = [],
+  onAdicionarBloco,
   onChange,
   onValueChange,
   onBack,
@@ -60,6 +65,11 @@ export function NfseFiscalForm({
   codigos: CodigosFiscaisForm;
   validationError?: string | null;
   loading: boolean;
+  /** Texto livre veio das observações fiscais da OS, e não foi digitado aqui. */
+  herdouObservacoesDaOs?: boolean;
+  /** Blocos que os botões acrescentam ao texto livre. */
+  blocosDoTextoLivre?: BlocoDeObservacao[];
+  onAdicionarBloco?: (texto: string) => void;
   onChange: (campo: keyof CodigosFiscaisForm, valor: string) => void;
   onValueChange: (servicoId: number, valor: string) => void;
   onBack: () => void;
@@ -403,6 +413,33 @@ export function NfseFiscalForm({
           <fieldset className="space-y-3 border bg-card p-4 sm:p-5">
             <legend className="px-2 text-sm font-bold">Informações complementares</legend>
             <Label htmlFor="nfse-informacoes-complementares">Texto livre da nota</Label>
+            {herdouObservacoesDaOs ? (
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Herdado das observações fiscais da OS — a mesma que vai na NF-e de produto.
+                Editar aqui não altera a OS, e apagar o campo emite a nota sem texto livre.
+              </p>
+            ) : null}
+            {blocosDoTextoLivre.length > 0 && onAdicionarBloco ? (
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                {blocosDoTextoLivre.map((bloco) => (
+                  <Button
+                    key={bloco.rotulo}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 rounded-sm text-xs"
+                    disabled={loading}
+                    onClick={() => onAdicionarBloco(bloco.texto)}
+                  >
+                    <Plus aria-hidden="true" className="mr-1 size-3.5" />
+                    {bloco.rotulo}
+                  </Button>
+                ))}
+                <span className="text-[11px] text-muted-foreground">
+                  Acrescenta ao texto atual — apague o que não quiser levar.
+                </span>
+              </div>
+            ) : null}
             <Textarea
               id="nfse-informacoes-complementares"
               value={codigos.informacoesComplementares}

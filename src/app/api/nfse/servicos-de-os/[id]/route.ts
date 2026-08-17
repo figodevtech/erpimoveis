@@ -6,6 +6,7 @@ import {
   type NFSeModeloEmissao,
 } from "@/lib/services/fiscais/nfse-service";
 import type { CodigosFiscaisForm } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/emissao-nfse-dialog/types";
+import { CAMPOS_ALVO_OS, carregarAlvoDaOs } from "@/services/fiscal/alvoDaOs";
 
 export const runtime = "nodejs";
 
@@ -30,6 +31,8 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       .from("ordemservico")
       .select(`
         id,
+        observacoes_fiscais,
+        ${CAMPOS_ALVO_OS},
         cliente (*),
         osservico (
           *,
@@ -113,6 +116,11 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       modeloEmissao,
       codigoMunicipio,
       padraoFiscal,
+      // Mesma observação que a NF-e de produto já leva no infCpl: quem escreveu
+      // na OS não precisa redigitar aqui. A tela pré-preenche e deixa editar.
+      observacoesFiscais: os.observacoes_fiscais ?? null,
+      // Alvo do reparo, para o botão que injeta os dados dele no texto livre.
+      alvo: await carregarAlvoDaOs(os),
       cliente: clienteOS
         ? {
             id: Number(clienteOS.id),

@@ -1,6 +1,7 @@
 import { isCfopCompatibleWithOperation } from "@/lib/nfe/cfopOperation";
 import { descontoPorItem, distribuirDinheiro } from "@/lib/nfe/descontoOrigem";
 import { normalizarIndIEDest } from "@/lib/nfe/indIEDest";
+import { resolverObservacoesFiscais } from "@/lib/nfe/observacoesFiscais";
 import { normalizeFiscalRecipient } from "@/lib/nfe/recipientNormalization";
 import {
   mapSalesChannelToPresence,
@@ -740,8 +741,10 @@ export async function salvarNFeDeOrigem(
       // NFC-e é sempre para consumidor final, por definição do modelo.
       consumidorFinal: isNfce ? true : consumidorFinal,
       indicadorPresenca,
-      observacoesFiscais:
-        input.observacoesFiscais?.trim().slice(0, 500) || source.observacoesFiscais || null,
+      observacoesFiscais: resolverObservacoesFiscais(
+        input.observacoesFiscais,
+        source.observacoesFiscais,
+      ),
     },
     pagamento: {
       meio: pagamentos[0]?.meio ?? "90",

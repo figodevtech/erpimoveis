@@ -4,6 +4,7 @@ import {
   sugerirCfopDevolucaoDeCompra,
 } from "@/lib/nfe/cfopDevolucao";
 import { MODELO_NFE } from "@/lib/nfe/modeloDocumento";
+import { resolverObservacoesFiscais } from "@/lib/nfe/observacoesFiscais";
 import {
   ORIGEM_NFE_ENTRADA,
   resolverPadraoFiscalItem,
@@ -786,8 +787,10 @@ export async function salvarNFeDaSaida(saidaId: number, input: NFeSaidaDraftInpu
       finalidade: contexto.finalidade,
       consumidorFinal: false,
       indicadorPresenca: "0",
-      observacoesFiscais:
-        cleanText(input.observacoesFiscais) || cleanText(contexto.observacoes_fiscais) || null,
+      observacoesFiscais: resolverObservacoesFiscais(
+        input.observacoesFiscais,
+        contexto.observacoes_fiscais,
+      ),
     },
     pagamento: { meio: "90", tipoIntegracao: "2" },
     pagamentos: [{ meio: "90", valor: 0, tipoIntegracao: "2" }],

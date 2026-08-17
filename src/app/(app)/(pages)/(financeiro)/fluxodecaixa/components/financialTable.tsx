@@ -214,6 +214,8 @@ interface FinancialTableProps {
   search: string;
   dateSearch: string;
   tipo: Tipo_transacao | "";
+  /** Lista separada por vírgula quando a aba agrupa dois tipos. */
+  tiposParam: string;
   rawTipo: Tipo_transacao | "";
   pendenteFilter?: boolean | "";
   viewMode?: FluxoViewMode;
@@ -238,6 +240,7 @@ export default function FinancialTable({
   search,
   dateSearch,
   tipo,
+  tiposParam,
   rawTipo,
   pendenteFilter = "",
   viewMode = "FLUXO",
@@ -514,6 +517,7 @@ export default function FinancialTable({
                     <ExportTransactionsButton
                       search={search}
                       tipo={tipo}
+                      tipos={tiposParam}
                       dateFrom={dateFrom}
                       dateTo={dateTo}
                       categoriaId={relationFilters.categoriaId ? Number(relationFilters.categoriaId) : null}

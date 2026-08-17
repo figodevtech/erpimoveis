@@ -1,3 +1,5 @@
+import type { AlvoFiscal } from "@/lib/fiscal/blocosDeObservacao";
+
 export type ModeloEmissao = "NACIONAL" | "MUNICIPAL_CABEDELO" | "MUNICIPAL_JOAO_PESSOA";
 
 export type CodigosFiscaisForm = {
@@ -73,7 +75,14 @@ export type ServicosOSResponse = {
   modeloEmissao?: ModeloEmissao | null;
   padraoFiscal?: Partial<CodigosFiscaisForm> | null;
   cliente?: ClienteResumo | null;
+  /** Observações fiscais da OS, herdadas pelas informações complementares. */
+  observacoesFiscais?: string | null;
+  /** Alvo do reparo, para o botão que injeta os dados dele no texto livre. */
+  alvo?: AlvoFiscal | null;
 };
+
+/** Limite das informações complementares nos três modelos de NFS-e. */
+export const LIMITE_INFORMACOES_COMPLEMENTARES = 2000;
 
 export type ValoresServicosForm = Record<number, string>;
 

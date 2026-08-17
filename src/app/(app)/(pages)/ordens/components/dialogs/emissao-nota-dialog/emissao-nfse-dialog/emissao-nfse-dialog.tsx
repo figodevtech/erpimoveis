@@ -31,7 +31,13 @@ import { NfseClienteCard } from "./nfse-cliente-card";
 import { NfseFiscalForm } from "./nfse-fiscal-form";
 import { NfseServiceCard } from "./nfse-service-card";
 import {
+  blocosDeObservacao,
+  concatenarBloco,
+  type AlvoFiscal,
+} from "@/lib/fiscal/blocosDeObservacao";
+import {
   EMPTY_CODIGOS,
+  LIMITE_INFORMACOES_COMPLEMENTARES,
   type ClienteResumo,
   type CodigosFiscaisForm,
   type ModeloEmissao,
@@ -183,6 +189,8 @@ export function EmissaoNfseDialog({ open, onOpenChange, osId, onAfterGenerate }:
   const [servicos, setServicos] = useState<ServicoOS[]>([]);
   const [modeloEmissao, setModeloEmissao] = useState<ModeloEmissao | null>(null);
   const [padraoFiscal, setPadraoFiscal] = useState<Partial<CodigosFiscaisForm> | null>(null);
+  const [observacoesFiscaisOs, setObservacoesFiscaisOs] = useState("");
+  const [alvo, setAlvo] = useState<AlvoFiscal | null>(null);
   const [cliente, setCliente] = useState<ClienteResumo | null>(null);
   const [editandoCliente, setEditandoCliente] = useState(false);
   const [selecionados, setSelecionados] = useState<number[]>([]);
@@ -211,6 +219,10 @@ export function EmissaoNfseDialog({ open, onOpenChange, osId, onAfterGenerate }:
       setServicos(nextServices);
       setModeloEmissao(payload.modeloEmissao ?? null);
       setPadraoFiscal(payload.padraoFiscal ?? null);
+      setObservacoesFiscaisOs(
+        (payload.observacoesFiscais ?? "").trim().slice(0, LIMITE_INFORMACOES_COMPLEMENTARES),
+      );
+      setAlvo(payload.alvo ?? null);
       setCliente(payload.cliente ?? null);
       setSelecionados((current) => current.filter((id) => nextServices.some((item) => item.servicoid === id)));
     } catch {
@@ -228,6 +240,8 @@ export function EmissaoNfseDialog({ open, onOpenChange, osId, onAfterGenerate }:
     setServicos([]);
     setModeloEmissao(null);
     setPadraoFiscal(null);
+    setObservacoesFiscaisOs("");
+    setAlvo(null);
     setCliente(null);
     setEditandoCliente(false);
     setSelecionados([]);
@@ -276,6 +290,10 @@ export function EmissaoNfseDialog({ open, onOpenChange, osId, onAfterGenerate }:
       itemListaServico: valorComum(servicosSelecionados.map((item) => item.servico?.itemlistaservico)) || padraoFiscal?.itemListaServico || "",
       codigoCnae: valorComum(servicosSelecionados.map((item) => item.servico?.cnae)) || padraoFiscal?.codigoCnae || "",
       aliquotaIss: valorComum(servicosSelecionados.map((item) => item.servico?.aliquotaiss)) || padraoFiscal?.aliquotaIss || "",
+      // Herda a observação fiscal da OS, a mesma que a NF-e de produto leva no
+      // infCpl. Continua editável na revisão, e apagar o campo é o jeito de não
+      // levar nada — aqui não há fallback no servidor.
+      informacoesComplementares: observacoesFiscaisOs || padraoFiscal?.informacoesComplementares || "",
     });
     setValidationError(null);
     setRevisando(true);
@@ -296,6 +314,28 @@ export function EmissaoNfseDialog({ open, onOpenChange, osId, onAfterGenerate }:
   const atualizarCodigo = (campo: keyof CodigosFiscaisForm, valor: string) => {
     setValidationError(null);
     setCodigosFiscais((current) => ({ ...current, [campo]: valor }));
+  };
+
+  // Botões do texto livre: mesmos blocos que a NF-e de produto oferece, para os
+  // dois documentos da mesma OS saírem com a descrição no mesmo formato.
+  const blocosDoTextoLivre = useMemo(
+    () => blocosDeObservacao(alvo, cliente),
+    [alvo, cliente],
+  );
+
+  const adicionarBloco = (bloco: string) => {
+    setValidationError(null);
+    const { texto, truncado } = concatenarBloco(
+      codigosFiscais.informacoesComplementares,
+      bloco,
+      LIMITE_INFORMACOES_COMPLEMENTARES,
+    );
+    setCodigosFiscais((current) => ({ ...current, informacoesComplementares: texto }));
+    if (truncado) {
+      toast.warning(
+        `O texto foi cortado no limite de ${LIMITE_INFORMACOES_COMPLEMENTARES} caracteres do campo.`,
+      );
+    }
   };
 
   const atualizarValor = (servicoId: number, valor: string) => {
@@ -417,6 +457,12 @@ export function EmissaoNfseDialog({ open, onOpenChange, osId, onAfterGenerate }:
                   codigos={codigosFiscais}
                   validationError={validationError}
                   loading={loading}
+                  herdouObservacoesDaOs={
+                    Boolean(observacoesFiscaisOs)
+                    && codigosFiscais.informacoesComplementares === observacoesFiscaisOs
+                  }
+                  blocosDoTextoLivre={blocosDoTextoLivre}
+                  onAdicionarBloco={adicionarBloco}
                   onChange={atualizarCodigo}
                   onValueChange={atualizarValor}
                   onBack={() => { setRevisando(false); setValidationError(null); }}

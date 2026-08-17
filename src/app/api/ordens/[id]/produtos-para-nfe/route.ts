@@ -9,6 +9,7 @@ import { valorDeFace } from "@/lib/financeiro/transacao";
 import { exigirModelo, MODELO_NFE } from "@/lib/nfe/modeloDocumento";
 import { resolverPadraoFiscalItem } from "@/lib/nfe/padraoFiscalItem";
 import { buscarContextoPadraoFiscal } from "@/services/fiscal/nfeConfigService";
+import { CAMPOS_ALVO_OS, carregarAlvoDaOs } from "@/services/fiscal/alvoDaOs";
 
 export const runtime = "nodejs";
 
@@ -167,7 +168,9 @@ export async function GET(req: Request) {
     // 1) Garantir que a OS existe
     const { data: os, error: osError } = await supabaseAdmin
       .from("ordemservico")
-      .select("id, clienteid, observacoes_fiscais, subtotal, orcamentototal, valor_frete, forma_pagamento, pagamentos_previstos")
+      .select(
+        `id, clienteid, observacoes_fiscais, subtotal, orcamentototal, valor_frete, forma_pagamento, pagamentos_previstos, ${CAMPOS_ALVO_OS}`,
+      )
       .eq("id", idOs)
       .maybeSingle();
 
@@ -289,6 +292,12 @@ export async function GET(req: Request) {
       liquidoPorItem,
       pesosDosServicos,
     );
+    // Bases do rateio, para a tela conseguir explicar de onde saiu a proporção —
+    // sem elas o desconto da nota parece menor que o da OS sem motivo aparente.
+    const somar = (valores: number[]) =>
+      Number(valores.reduce((soma, valor) => soma + valor, 0).toFixed(2));
+    const baseProdutos = somar(liquidoPorItem);
+    const baseServicos = somar(pesosDosServicos);
 
     const resposta: ProdutoParaNfeDTO[] = rows.map((i, index) => {
       const p = normalizarProduto(i.produto);
@@ -386,7 +395,19 @@ export async function GET(req: Request) {
         pagamentos: Array.from(pagamentosAgrupados, ([meio, valor]) => ({ meio, valor })),
       },
       observacoes_fiscais: os.observacoes_fiscais ?? null,
+      // Alvo do reparo, para a tela oferecer o botão que injeta os dados dele no
+      // texto livre da nota.
+      alvo: await carregarAlvoDaOs(os),
       desconto_geral: descontoGeralDaNota,
+      desconto_origem: {
+        total: descontoGeral,
+        produtos: descontoGeralDaNota,
+        // A sobra do rateio, e não uma segunda conta: garante que produtos +
+        // serviços fechem exatamente o desconto da OS, sem centavo perdido.
+        servicos: Number((descontoGeral - descontoGeralDaNota).toFixed(2)),
+        baseProdutos,
+        baseServicos,
+      },
       cliente: cliente
         ? {
             ...cliente,

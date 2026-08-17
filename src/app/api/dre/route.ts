@@ -52,12 +52,17 @@ export async function GET(req: Request) {
      * correto e ainda assim produzir um resultado enganoso: sem despesa lancada
      * o lucro aparece inflado, e sem custo de produto a margem vai a 100%. E
      * mais honesto avisar do que exibir o numero limpo.
+     *
+     * O filtro de status acompanha o de `dre_somar_por_linha`, que desde a
+     * 20260811210000 soma ATIVO e CONVERTIDO. Enquanto ficou so em ATIVO, a
+     * tarja "periodo sem despesa operacional" podia aparecer com a despesa ja
+     * contada no total — o alerta contradizia o numero ao lado dele.
      */
     const [pendencias, semCusto, semDespesa] = await Promise.all([
       supabaseAdmin
         .from("eventos_financeiros")
         .select("id", { count: "exact", head: true })
-        .eq("status", "ATIVO")
+        .in("status", ["ATIVO", "CONVERTIDO"])
         .eq("source_type", "TRANSACAO")
         .is("dre_linha_id", null)
         .gte("competencia_em", `${de}T00:00:00.000Z`)
@@ -65,7 +70,7 @@ export async function GET(req: Request) {
       supabaseAdmin
         .from("eventos_financeiros")
         .select("id", { count: "exact", head: true })
-        .eq("status", "ATIVO")
+        .in("status", ["ATIVO", "CONVERTIDO"])
         .eq("natureza_dre", "CUSTO")
         .contains("dados_snapshot", { custo_nao_informado: true })
         .gte("competencia_em", `${de}T00:00:00.000Z`)
@@ -73,7 +78,7 @@ export async function GET(req: Request) {
       supabaseAdmin
         .from("eventos_financeiros")
         .select("id", { count: "exact", head: true })
-        .eq("status", "ATIVO")
+        .in("status", ["ATIVO", "CONVERTIDO"])
         .eq("natureza_dre", "DESPESA")
         .gte("competencia_em", `${de}T00:00:00.000Z`)
         .lte("competencia_em", `${ate}T23:59:59.999Z`),

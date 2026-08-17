@@ -86,12 +86,31 @@ export default function FinanceiroPage() {
   /** Só o Fluxo exige conta: é o que separa extrato de título liquidado. */
   const effectiveComBanco = viewMode === "FLUXO" ? true : undefined;
 
-  const effectiveTipo =
+  /*
+   * "A receber" e "a pagar" agrupam dois tipos, não um.
+   *
+   * Entrada de dinheiro é RECEITA ou DEPOSITO; saída é DESPESA ou SAQUE — o
+   * mesmo par que `KpisFluxo` já soma. Enquanto estas abas filtravam por um
+   * tipo só, um DEPOSITO ou SAQUE ainda pendente não aparecia em aba nenhuma:
+   * Fluxo e Liquidadas pedem `pendente = false`, e aqui o tipo não batia. A
+   * transação ficava no banco sem nenhum caminho na tela até ela — nem para
+   * abrir, nem para editar, nem para excluir.
+   */
+  const effectiveTipos: Tipo_transacao[] =
     viewMode === "A_RECEBER"
-      ? Tipo_transacao.RECEITA
+      ? [Tipo_transacao.RECEITA, Tipo_transacao.DEPOSITO]
       : viewMode === "A_PAGAR"
-      ? Tipo_transacao.DESPESA
-      : tipo;
+      ? [Tipo_transacao.DESPESA, Tipo_transacao.SAQUE]
+      : tipo
+      ? [tipo]
+      : [];
+
+  // Um valor só quando existe um só: é o que a exportação e o rótulo esperam.
+  const effectiveTipo = effectiveTipos.length === 1 ? effectiveTipos[0] : "";
+
+  // String, não array: o array é recriado a cada render e derrubaria o memo da
+  // busca (mesmo motivo pelo qual `ordenacao` entra por campo, lá embaixo).
+  const tiposParam = effectiveTipos.join(",");
 
   // Sempre definido: toda aba tem uma resposta para "já andou ou não".
   const effectivePendente =
@@ -118,7 +137,7 @@ export default function FinanceiroPage() {
           page: pageNumber || 1,
           limit: limit || pagination.limit,
           search: search || undefined,
-          tipo: effectiveTipo,
+          tipos: tiposParam || undefined,
           pendente: effectivePendente,
           comBanco: effectiveComBanco,
           dateFrom,
@@ -153,7 +172,7 @@ export default function FinanceiroPage() {
     dateTo,
     effectiveComBanco,
     effectivePendente,
-    effectiveTipo,
+    tiposParam,
     ordenacao.campo,
     ordenacao.direcao,
     pagination.limit,
@@ -258,6 +277,7 @@ export default function FinanceiroPage() {
         isLoading={isLoading}
         search={search}
         tipo={effectiveTipo}
+        tiposParam={tiposParam}
         pendenteFilter={effectivePendente}
         viewMode={viewMode}
         rawTipo={tipo}

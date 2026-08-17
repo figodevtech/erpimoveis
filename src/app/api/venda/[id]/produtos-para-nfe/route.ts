@@ -235,6 +235,7 @@ export async function GET(
       brutoPorItem.map((bruto, index) => ({ bruto, liquido: liquidoPorItem[index] })),
       descontoGeral,
     );
+    const descontoDosProdutos = parcelaDoDescontoNaNota(descontoGeral, liquidoPorItem);
 
     const resposta: ProdutoParaNfeDTO[] = rows.map((row, index) => {
       const p = normalizarProduto(row.produto);
@@ -304,7 +305,16 @@ export async function GET(
       },
       observacoes_fiscais: venda.observacoes_fiscais ?? null,
       // A venda não tem serviços, então todo o desconto geral cabe aos produtos.
-      desconto_geral: parcelaDoDescontoNaNota(descontoGeral, liquidoPorItem),
+      desconto_geral: descontoDosProdutos,
+      // Mesmo formato da OS para a tela não precisar de dois caminhos. Sem
+      // serviços não há rateio a explicar, e `servicos: 0` cala o aviso.
+      desconto_origem: {
+        total: descontoDosProdutos,
+        produtos: descontoDosProdutos,
+        servicos: 0,
+        baseProdutos: Number(totalLiquidoItens.toFixed(2)),
+        baseServicos: 0,
+      },
       cliente: cliente
         ? {
             ...cliente,

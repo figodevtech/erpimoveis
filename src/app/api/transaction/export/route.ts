@@ -74,6 +74,13 @@ export async function GET(req: Request) {
     const q = normalizeQ(searchParams.get("search") ?? searchParams.get("q") ?? "");
 
     const tipo = (searchParams.get("tipo") ?? "").trim();
+    // Lista, para as abas que agrupam dois tipos (a receber = RECEITA+DEPOSITO,
+    // a pagar = DESPESA+SAQUE). Sem ela a exportacao dessas abas sairia sem
+    // filtro de tipo nenhum, trazendo mais linhas do que a tela mostra.
+    const tipos = String(searchParams.get("tipos") ?? "")
+      .split(",")
+      .map((item) => item.trim().toUpperCase())
+      .filter((item) => ["RECEITA", "DESPESA", "DEPOSITO", "SAQUE"].includes(item));
     const categoria = (searchParams.get("categoria") ?? "").trim();
     const categoriaId = toIntFilter(searchParams.get("categoriaId"));
 
@@ -181,7 +188,8 @@ export async function GET(req: Request) {
       if (buscaEm) query = query.or(buscaEm);
       if (ordemservicoid != null) query = query.eq("ordemservicoid", ordemservicoid);
       if (vendaid != null) query = query.eq("vendaid", vendaid);
-      if (tipo) query = query.eq("tipo", tipo);
+      if (tipos.length > 0) query = query.in("tipo", tipos);
+      else if (tipo) query = query.eq("tipo", tipo);
       if (categoria) query = query.eq("categoria", categoria);
       if (categoriaId != null) query = query.eq("categoria_id", categoriaId);
       if (metodo) query = query.eq("metodopagamento", metodo);
