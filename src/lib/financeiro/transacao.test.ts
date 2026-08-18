@@ -5,8 +5,10 @@ import {
   origemDaTransacao,
   tipoEhEditavel,
   tipoTemValorLiquido,
+  taxaEhOUnicoDesconto,
   valorDeFace,
   valorLiquidoEfetivo,
+  valorLiquidoEmEdicao,
 } from "./transacao";
 
 test("identifica a origem de cada vínculo", () => {
@@ -127,4 +129,64 @@ test("face em texto e lixo não vira NaN", () => {
 
 test("face não sofre com ponto flutuante", () => {
   assert.equal(valorDeFace({ valor: 1030.1, valor_acrescimos: 30.1 }), 1000);
+});
+
+const TAXA = { tipo: { codigo_sistema: "TAXA_RECEBIMENTO" } };
+const COMERCIAL = { tipo: { codigo_sistema: null } };
+
+test("sem desconto, o líquido continua sendo campo", () => {
+  assert.equal(taxaEhOUnicoDesconto([]), true);
+  assert.equal(taxaEhOUnicoDesconto(null), true);
+  assert.equal(
+    taxaEhOUnicoDesconto([{ natureza: "ACRESCIMO", ...COMERCIAL }]),
+    true,
+  );
+});
+
+test("só a taxa sozinha deixa o líquido editável", () => {
+  assert.equal(taxaEhOUnicoDesconto([{ natureza: "DESCONTO", ...TAXA }]), true);
+  assert.equal(
+    taxaEhOUnicoDesconto([{ natureza: "ACRESCIMO", ...COMERCIAL }, { natureza: "DESCONTO", ...TAXA }]),
+    true,
+  );
+});
+
+test("um desconto que não é a taxa já trava o líquido", () => {
+  // O caso que a tela deixava passar: com uma linha só ela achava que o campo
+  // valia, e o servidor recusava. Um desconto comercial não é taxa de maquineta.
+  assert.equal(taxaEhOUnicoDesconto([{ natureza: "DESCONTO", ...COMERCIAL }]), false);
+  assert.equal(
+    taxaEhOUnicoDesconto([{ natureza: "DESCONTO", ...TAXA }, { natureza: "DESCONTO", ...COMERCIAL }]),
+    false,
+  );
+});
+
+test("líquido travado é sempre o bruto menos os descontos", () => {
+  // O bruto subiu na tela e ainda não foi salvo: o líquido guardado é o do bruto
+  // anterior, e é justamente ele que não pode ser usado.
+  assert.equal(
+    valorLiquidoEmEdicao(
+      { valor: 200, valorLiquido: 90, valor_descontos: 10, tipo: "RECEITA" },
+      true,
+    ),
+    190,
+  );
+  assert.equal(
+    valorLiquidoEmEdicao({ valor: 100, valor_descontos: 100, tipo: "RECEITA" }, true),
+    0,
+  );
+});
+
+test("líquido destravado mantém a regra de sempre", () => {
+  const transacao = { valor: 100, valorLiquido: 90, valor_descontos: 10, tipo: "RECEITA" };
+  assert.equal(valorLiquidoEmEdicao(transacao, false), valorLiquidoEfetivo(transacao));
+  assert.equal(valorLiquidoEmEdicao(transacao, false), 90);
+});
+
+test("líquido em edição não sofre com ponto flutuante nem com lixo", () => {
+  assert.equal(
+    valorLiquidoEmEdicao({ valor: "1030.10", valor_descontos: "30.10" }, true),
+    1000,
+  );
+  assert.equal(valorLiquidoEmEdicao({ valor: "abc", valor_descontos: "x" }, true), 0);
 });

@@ -409,6 +409,58 @@ function criarReferencia(osId: number, itens: NFSeItemEmissao[]) {
   return `OS_${osId}_SRVS_${ids}_${Date.now()}`;
 }
 
+// Um retorno da Focus cabe folgado nisto. O corte existe para o caso de a
+// prefeitura devolver um XML inteiro ou uma página de erro do gateway.
+const LIMITE_RETORNO_BRUTO = 20_000;
+
+export type NFSeRetornoBruto = {
+  requisicao: { metodo: string; url: string };
+  http_status: number;
+  recebido_em: string;
+  corpo: unknown;
+};
+
+/**
+ * Lê o corpo da resposta da Focus uma única vez e devolve as duas leituras: o
+ * JSON que a lógica usa e o registro bruto que vai para o banco.
+ *
+ * O `.json().catch(() => null)` que existia aqui apagava tudo que não fosse
+ * JSON válido — corpo vazio, HTML de gateway — e reduzia o resto à mensagem já
+ * tratada. Quando a prefeitura devolve um erro opaco (o L999 de João Pessoa é o
+ * caso conhecido), essa perda é justamente o que falta para o suporte.
+ *
+ * Não há segredo no que fica gravado: o token vai no cabeçalho Authorization,
+ * nunca no corpo nem na URL.
+ */
+async function lerRespostaFocus(
+  res: Response,
+  requisicao: { metodo: string; url: string },
+): Promise<{ json: any; retornoBruto: NFSeRetornoBruto }> {
+  const texto = await res.text().catch(() => "");
+
+  let json: any = null;
+  try {
+    json = texto ? JSON.parse(texto) : null;
+  } catch {
+    json = null;
+  }
+
+  const serializado = json === null ? texto : JSON.stringify(json);
+  const corpo = serializado.length > LIMITE_RETORNO_BRUTO
+    ? `${serializado.slice(0, LIMITE_RETORNO_BRUTO)}…[truncado]`
+    : json ?? texto;
+
+  return {
+    json,
+    retornoBruto: {
+      requisicao,
+      http_status: res.status,
+      recebido_em: new Date().toISOString(),
+      corpo,
+    },
+  };
+}
+
 export class NFSeService {
   private apiUrl: string;
   private token: string;
@@ -476,12 +528,12 @@ export class NFSeService {
       body: JSON.stringify(payload),
     });
 
-    const json = await res.json().catch(() => null);
+    const { json, retornoBruto } = await lerRespostaFocus(res, { metodo: "POST", url });
 
     if (!res.ok) {
       let msg = json?.mensagem || json?.codigo || `Erro ${res.status} ao emitir NFS-e`;
       const errosArr = json?.erros || (json ? [json] : []);
-      
+
       if (errosArr.length > 0) {
         const errorDetails = errosArr.map((e: any) => e.mensagem || e.codigo || JSON.stringify(e)).join(" | ");
         msg = errorDetails.includes(msg) ? errorDetails : `${msg}: ${errorDetails}`;
@@ -492,6 +544,7 @@ export class NFSeService {
         message: msg,
         erros: errosArr,
         payload,
+        retornoBruto,
       };
     }
 
@@ -500,6 +553,7 @@ export class NFSeService {
       status: json?.status || "processando_autorizacao",
       referencia: json?.ref,
       payload,
+      retornoBruto,
     };
   }
 
@@ -507,17 +561,18 @@ export class NFSeService {
     this.assertToken();
     const { referencia, ...dados } = params;
     const payload = { data_emissao: `${formatDateTimeForFocus(new Date())}-03:00`, ...dados };
-    const res = await fetch(`${this.apiUrl}/v2/nfsen?ref=${encodeURIComponent(referencia)}`, {
+    const url = `${this.apiUrl}/v2/nfsen?ref=${encodeURIComponent(referencia)}`;
+    const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: this.getAuthHeader() },
       body: JSON.stringify(payload),
     });
-    const json = await res.json().catch(() => null);
+    const { json, retornoBruto } = await lerRespostaFocus(res, { metodo: "POST", url });
     if (!res.ok) {
       const erros = json?.erros || (json ? [json] : []);
-      return { ok: false, message: json?.mensagem || json?.codigo || `Erro ${res.status} ao emitir NFS-e Nacional`, erros, payload };
+      return { ok: false, message: json?.mensagem || json?.codigo || `Erro ${res.status} ao emitir NFS-e Nacional`, erros, payload, retornoBruto };
     }
-    return { ok: true, status: json?.status || "processando_autorizacao", referencia: json?.ref || referencia, payload };
+    return { ok: true, status: json?.status || "processando_autorizacao", referencia: json?.ref || referencia, payload, retornoBruto };
   }
 
   async consultar(referencia: string, modelo: "MUNICIPAL" | "NACIONAL" = "MUNICIPAL") {
@@ -532,13 +587,14 @@ export class NFSeService {
       },
     });
 
-    const json = await res.json().catch(() => null);
+    const { json, retornoBruto } = await lerRespostaFocus(res, { metodo: "GET", url });
 
     if (!res.ok) {
       return {
         ok: false,
         message: json?.mensagem || "Erro ao consultar NFS-e",
         erros: json?.erros || [json],
+        retornoBruto,
       };
     }
 
@@ -546,6 +602,7 @@ export class NFSeService {
 
     return {
       ok: true,
+      retornoBruto,
       status: json?.status,
       numero: json?.numero,
       codigo_verificacao: json?.codigo_verificacao,
@@ -578,19 +635,21 @@ export class NFSeService {
 
     const res = await fetch(url, options);
 
-    const json = await res.json().catch(() => null);
+    const { json, retornoBruto } = await lerRespostaFocus(res, { metodo: "DELETE", url });
 
     if (!res.ok) {
       return {
         ok: false,
         message: json?.mensagem || "Erro ao cancelar NFS-e",
         erros: json?.erros || [json],
+        retornoBruto,
       };
     }
 
     return {
       ok: true,
       status: json?.status,
+      retornoBruto,
     };
   }
 

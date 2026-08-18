@@ -686,7 +686,13 @@ export default function FinancialTable({
               return (
                 <TableRow
                   key={t.id}
-                  onDoubleClick={() => setSelectedTransactionId(t.id)}
+                  // Abrir não depende só da troca de id: reabrir a mesma linha
+                  // que acabou de ser fechada não muda estado nenhum, e o efeito
+                  // que reage ao id não dispararia.
+                  onDoubleClick={() => {
+                    setSelectedTransactionId(t.id);
+                    setIsOpen(true);
+                  }}
                   className="hover:cursor-pointer"
                 >
                   <TableCell className="flex w-[380px] max-w-[380px] flex-row items-center gap-2">

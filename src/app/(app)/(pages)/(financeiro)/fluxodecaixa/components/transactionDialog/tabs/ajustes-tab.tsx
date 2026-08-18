@@ -15,6 +15,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import ValueInput from "@/components/ui/value-input";
+import { taxaEhOUnicoDesconto, valorLiquidoEmEdicao } from "@/lib/financeiro/transacao";
 import formatarEmReal from "@/utils/formatarEmReal";
 
 import { Cartao, EstadoVazio, fmtDateTime } from "./shared";
@@ -26,8 +28,10 @@ import { Cartao, EstadoVazio, fmtDateTime } from "./shared";
  *
  *   base  ->  + acrescimos  ->  bruto  ->  - descontos  ->  liquido
  *
- * Nenhuma conta e refeita aqui: os totais vem da propria transacao, recalculada
- * pelo gatilho a cada linha inserida ou removida. A tela so exibe.
+ * Os numeros vem da propria transacao, recalculada pelo gatilho a cada linha
+ * inserida ou removida. O cartao de composicao so os reencadeia — face e
+ * desconto saem do bruto e do liquido, pela mesma conta do gatilho, para que
+ * valor digitado e ainda nao salvo na aba Detalhes apareca aqui inteiro.
  *
  * A taxa de recebimento e um desconto como os outros — deixou de ser a diferenca
  * implicita entre bruto e liquido e passou a ter linha propria, com nome.
@@ -58,6 +62,8 @@ type Totais = {
   valor_descontos?: number | string | null;
   valor?: number | string | null;
   valorLiquido?: number | string | null;
+  /** Entra em `valorLiquidoEfetivo`: despesa e depósito valem o próprio bruto. */
+  tipo?: string | null;
 };
 
 const num = (valor: unknown) => {
@@ -125,6 +131,8 @@ export function AjustesTab({
   totais,
   pendente,
   editavel,
+  valoresPendentes = false,
+  sincronizarValores,
   onAlterado,
 }: {
   transacaoId: number;
@@ -132,8 +140,22 @@ export function AjustesTab({
   /** Acrescimo mexe no bruto, e bruto de transacao baixada e imutavel. */
   pendente: boolean;
   editavel: boolean;
+  /** Bruto ou liquido digitados na aba Detalhes e ainda nao salvos. */
+  valoresPendentes?: boolean;
+  /**
+   * Poe esses valores no banco antes de a linha nova entrar.
+   *
+   * Lancar ou remover uma linha grava na hora, e o servidor devolve a transacao
+   * recalculada a partir do BANCO — que nao conhece o que ainda esta so na tela.
+   * Sem esta passagem, o liquido digitado era sobrescrito nessa volta e a taxa
+   * que a pessoa tinha acabado de pedir sumia sem aviso.
+   *
+   * Devolve false quando a gravacao falhou: ai a linha nao chega a ser lancada,
+   * porque ela seria calculada sobre um valor que nao e o da tela.
+   */
+  sincronizarValores?: () => Promise<boolean>;
   /** Recebe a transação já recalculada, para o dialog atualizar sem refetch. */
-  onAlterado?: (transacao?: Totais, quantidadeDeDescontos?: number) => void;
+  onAlterado?: (transacao?: Totais, travouOLiquido?: boolean) => void;
 }) {
   const [tipos, setTipos] = useState<TipoAjuste[]>(catalogoDeTipos ?? []);
   const [linhas, setLinhas] = useState<LinhaAjuste[]>(
@@ -184,8 +206,13 @@ export function AjustesTab({
     }
   };
 
-  const quantosDescontos = (atuais: LinhaAjuste[] | null) =>
-    atuais ? atuais.filter((linha) => linha.natureza === "DESCONTO").length : undefined;
+  /*
+   * Lançar um desconto comercial tira o líquido das mãos da aba Detalhes, e
+   * removê-lo devolve. Quem decide é a mesma regra do servidor, não a contagem:
+   * um desconto que não seja a taxa de recebimento já trava.
+   */
+  const travouOLiquido = (atuais: LinhaAjuste[] | null) =>
+    atuais ? !taxaEhOUnicoDesconto(atuais) : undefined;
 
   useEffect(() => {
     if (!transacaoId) return;
@@ -198,11 +225,26 @@ export function AjustesTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transacaoId]);
 
-  const base = num(totais.valor_base ?? totais.valor);
-  const acrescimos = num(totais.valor_acrescimos);
-  const descontos = num(totais.valor_descontos);
+  /*
+   * A composicao e derivada do bruto e do liquido, nao lida coluna a coluna.
+   *
+   * `totais` e o formulario da aba Detalhes, onde bruto e liquido podem ter sido
+   * digitados e ainda nao salvos. `valor_base` e `valor_descontos` so mudam no
+   * banco, entao le-los direto mostrava "Valor de face" e "Descontos" antigos ao
+   * lado de um "Valor cobrado" ja novo — o cartao se contradizia.
+   *
+   * Derivar reproduz exatamente o que o gatilho grava
+   * (`tg_transacao_valor_coerente`): face = bruto - acrescimos, e o desconto e a
+   * diferenca ate o liquido. Sem edicao pendente da nos mesmos numeros das
+   * colunas; com edicao pendente, mostra o resultado dela.
+   */
+  const arredondar = (numero: number) => Math.round(numero * 100) / 100;
+
   const bruto = num(totais.valor);
-  const liquido = num(totais.valorLiquido) || bruto;
+  const acrescimos = num(totais.valor_acrescimos);
+  const base = arredondar(bruto - acrescimos);
+  const liquido = valorLiquidoEmEdicao(totais, !taxaEhOUnicoDesconto(linhas));
+  const descontos = Math.max(0, arredondar(bruto - liquido));
 
   const tipoEscolhido = useMemo(
     () => tipos.find((t) => String(t.id) === tipoId) ?? null,
@@ -228,6 +270,10 @@ export function AjustesTab({
 
     setSalvando(true);
     try {
+      // O valor digitado na aba Detalhes entra no banco primeiro: a linha nova é
+      // calculada sobre o bruto de agora, não sobre o que sobrou de antes.
+      if (sincronizarValores && !(await sincronizarValores())) return;
+
       const resposta = await axios.post(`/api/transaction/${transacaoId}/ajustes`, {
         tipoId: tipoEscolhido.id,
         modo,
@@ -236,9 +282,9 @@ export function AjustesTab({
       setValor("");
       const atuais = await carregarLinhas(false);
       // A resposta ja traz a transacao recalculada: o dialog costura os totais
-      // em memoria em vez de recarregar a tela. A contagem vai junto porque e
-      // ela que decide se o campo de liquido da aba Detalhes continua editavel.
-      onAlterado?.(resposta.data?.data?.transacao, quantosDescontos(atuais));
+      // em memoria em vez de recarregar a tela. O estado do liquido vai junto
+      // porque e ele que decide se o campo da aba Detalhes continua editavel.
+      onAlterado?.(resposta.data?.data?.transacao, travouOLiquido(atuais));
       toast.success("Ajuste lançado.");
     } catch (error) {
       const mensagem =
@@ -254,11 +300,13 @@ export function AjustesTab({
   const remover = async (ajusteId: number) => {
     setSalvando(true);
     try {
+      if (sincronizarValores && !(await sincronizarValores())) return;
+
       const resposta = await axios.delete(
         `/api/transaction/${transacaoId}/ajustes?ajusteId=${ajusteId}`,
       );
       const atuais = await carregarLinhas(false);
-      onAlterado?.(resposta.data?.data?.transacao, quantosDescontos(atuais));
+      onAlterado?.(resposta.data?.data?.transacao, travouOLiquido(atuais));
       toast.success("Ajuste removido.");
     } catch (error) {
       const mensagem =
@@ -357,6 +405,13 @@ export function AjustesTab({
 
       {editavel ? (
         <Cartao titulo="Lançar ajuste">
+          {valoresPendentes ? (
+            <p className="mb-3 border border-dashed border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+              Há valor digitado na aba Detalhes que ainda não foi salvo. Ele é
+              gravado antes desta linha, para o ajuste novo incidir sobre o valor
+              de agora.
+            </p>
+          ) : null}
           {!pendente ? (
             <p className="mb-3 text-xs text-muted-foreground">
               Esta transação já foi baixada. Só é possível lançar desconto, porque
@@ -401,16 +456,34 @@ export function AjustesTab({
               <Label className="text-xs">
                 {modo === "PORCENTAGEM" ? "Percentual" : "Valor"}
               </Label>
-              <Input
-                inputMode="decimal"
-                value={valor}
-                onChange={(evento) => setValor(evento.target.value)}
-                placeholder={modo === "PORCENTAGEM" ? "10" : "30,00"}
-                className="w-full sm:w-28"
-              />
+              {/*
+                Em reais o campo é dinheiro e usa a máscara de sempre; em
+                percentual, não — "R$ 10,00" para dizer 10% seria mentira na
+                tela. O estado continua um só, em texto, porque é ele que a
+                rota recebe e é o mesmo número nos dois modos.
+              */}
+              {modo === "PORCENTAGEM" ? (
+                <Input
+                  inputMode="decimal"
+                  value={valor}
+                  onChange={(evento) => setValor(evento.target.value)}
+                  placeholder="10"
+                  className="w-full sm:w-28"
+                />
+              ) : (
+                <ValueInput
+                  value={Number(String(valor).replace(",", ".")) || 0}
+                  onValueChange={(novo) => setValor(String(novo))}
+                  className="w-full sm:w-36"
+                />
+              )}
             </div>
 
-            <Button onClick={adicionar} disabled={salvando} className="sm:w-auto">
+            <Button
+              onClick={adicionar}
+              disabled={salvando}
+              className="sm:w-auto"
+            >
               {salvando ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : "Lançar"}
             </Button>
           </div>

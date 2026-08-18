@@ -1,4 +1,5 @@
 import { NFSeService, normalizarStatusNFSe } from "@/lib/services/fiscais/nfse-service";
+import { atualizarRegistroNFSe } from "@/lib/services/fiscais/nfse-registro";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type NfseSyncRecord = {
@@ -54,8 +55,12 @@ export async function syncNfseWithFocus(nfse: NfseSyncRecord) {
   if (!result.ok) {
     const errors = result.erros && result.erros.length > 0 ? result.erros : null;
     if (errors) {
-      const update = await supabaseAdmin.from("nfse").update({ erros: errors }).eq("id", nfse.id);
-      if (update.error) throw update.error;
+      const updateError = await atualizarRegistroNFSe(
+        nfse.id,
+        { erros: errors },
+        { retorno_bruto: result.retornoBruto },
+      );
+      if (updateError) throw updateError;
     }
     return {
       ok: false as const,
@@ -73,19 +78,20 @@ export async function syncNfseWithFocus(nfse: NfseSyncRecord) {
   );
   const pdfUrl = result.url_pdf || (oldPdfWasConsultation ? null : nfse.url_pdf) || null;
   const errors = result.erros && result.erros.length > 0 ? result.erros : null;
-  const update = await supabaseAdmin
-    .from("nfse")
-    .update({
+  const updateError = await atualizarRegistroNFSe(
+    nfse.id,
+    {
       status: finalStatus,
       url_consulta: consultationUrl,
       url_pdf: pdfUrl,
       erros: errors,
       protocolo: result.codigo_verificacao || nfse.protocolo || null,
       numero: result.numero || nfse.numero || null,
-    })
-    .eq("id", nfse.id);
+    },
+    { retorno_bruto: result.retornoBruto },
+  );
 
-  if (update.error) throw update.error;
+  if (updateError) throw updateError;
 
   return {
     ok: true as const,

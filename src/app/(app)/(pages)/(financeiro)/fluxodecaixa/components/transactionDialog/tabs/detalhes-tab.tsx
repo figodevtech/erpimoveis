@@ -37,7 +37,7 @@ import {
   origemDaTransacao,
   rotuloDaOrigem,
   tipoTemValorLiquido,
-  valorLiquidoEfetivo,
+  valorLiquidoEmEdicao,
 } from "@/lib/financeiro/transacao";
 
 import { formatCpfCnpj } from "../../../utils";
@@ -63,10 +63,11 @@ interface DetalhesTabProps {
    */
   permiteEditarValor: boolean;
   /**
-   * Quantos descontos a transação tem. Com um só (a taxa), o campo de líquido
-   * manda nele; com mais de um, a edição sai daqui para a aba de ajustes.
+   * O líquido deixou de ser campo: há desconto lançado que não é a taxa de
+   * recebimento, e o gatilho o deriva das linhas. A edição sai daqui para a aba
+   * de ajustes — é a mesma regra que o servidor aplica ao salvar.
    */
-  descontos: number;
+  liquidoTravado: boolean;
 }
 
 /**
@@ -87,7 +88,7 @@ function BlocoDeValores({
   editavel,
   permiteRateio,
   permiteEditarValor,
-  descontos,
+  liquidoTravado,
 }: Pick<
   DetalhesTabProps,
   | "form"
@@ -95,7 +96,7 @@ function BlocoDeValores({
   | "editavel"
   | "permiteRateio"
   | "permiteEditarValor"
-  | "descontos"
+  | "liquidoTravado"
 >) {
   const bruto = Number(form.valor ?? 0);
   const temLiquido = tipoTemValorLiquido(form.tipo);
@@ -117,14 +118,16 @@ function BlocoDeValores({
     );
   }
 
-  const liquido = valorLiquidoEfetivo(form);
+  // Com o líquido travado o número vem dos descontos, não do que está guardado:
+  // digitar um bruto novo muda o líquido junto, e o guardado ainda é o do bruto
+  // anterior. É o mesmo número que o gatilho vai gravar.
+  const liquido = valorLiquidoEmEdicao(form, liquidoTravado);
   // Havendo linha lançada, o número vem dela — é exato e diz o que era. A
   // subtração continua valendo para o que foi criado antes de existirem linhas.
   const descontosLancados = Number(form.valor_descontos ?? 0);
   const temDescontoLancado = Number.isFinite(descontosLancados) && descontosLancados > 0;
   const taxa = temDescontoLancado ? descontosLancados : Math.max(0, bruto - liquido);
   const excedeBruto = paraCentavos(liquido) > paraCentavos(bruto);
-  const liquidoTravado = descontos > 1;
 
   /*
    * Com acréscimo lançado, "valor bruto" fica ambíguo — e a ambiguidade estraga
@@ -194,7 +197,7 @@ function BlocoDeValores({
           {excedeBruto
             ? "Não pode ser maior que o bruto."
             : liquidoTravado
-              ? "Há mais de um desconto. Edite pela aba Acréscimos e descontos."
+              ? "Definido pelos descontos lançados. Edite pela aba Acréscimos e descontos."
               : "O que sobrou depois da taxa de recebimento."}
         </p>
       </div>
@@ -225,7 +228,7 @@ export function DetalhesTab({
   editavel,
   permiteRateio,
   permiteEditarValor,
-  descontos,
+  liquidoTravado,
 }: DetalhesTabProps) {
   // Vem das colunas de vínculo da própria transação, não do contexto: o
   // contexto é uma consulta separada e pode ainda estar carregando.
@@ -430,7 +433,7 @@ export function DetalhesTab({
           editavel={editavel}
           permiteRateio={permiteRateio}
           permiteEditarValor={permiteEditarValor}
-          descontos={descontos}
+          liquidoTravado={liquidoTravado}
         />
       </div>
       </TransactionSection>

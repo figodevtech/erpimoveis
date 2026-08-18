@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { NFSeService, normalizarStatusNFSe } from "@/lib/services/fiscais/nfse-service";
+import { atualizarRegistroNFSe } from "@/lib/services/fiscais/nfse-registro";
 
 export const runtime = "nodejs";
 
@@ -72,13 +73,16 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         );
     } else {
         const newErros = resultado.erros && resultado.erros.length > 0 ? resultado.erros : null;
-        
-        // Log errors on db if interesting
+
+        // Log errors on db if interesting. O retorno bruto so entra aqui: no
+        // cancelamento que da certo ele apagaria o retorno da emissao, que e o
+        // que interessa guardar.
         if (newErros) {
-             await supabaseAdmin
-                .from("nfse")
-                .update({ erros: newErros })
-                .eq("id", dbId);
+             await atualizarRegistroNFSe(
+                dbId,
+                { erros: newErros },
+                { retorno_bruto: resultado.retornoBruto },
+             );
         }
 
         return NextResponse.json(

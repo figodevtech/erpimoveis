@@ -93,7 +93,9 @@ export default function EditContent({
     erro,
     salvar,
     recarregar,
-    descontos,
+    liquidoTravado,
+    valoresPendentes,
+    sincronizarValores,
     aplicarTotais,
     recarregarContextoSilencioso,
   } = useTransacaoEdicao(selectedTransactionId);
@@ -136,6 +138,10 @@ export default function EditContent({
   const salvarEFechar = async () => {
     const deuCerto = await salvar();
     if (!deuCerto) return;
+    // Mesmo encerramento do botão Cancelar: a lista já vai ser refeita aqui, e o
+    // cache de ajustes não pode sobreviver ao fechamento.
+    listaDesatualizada.current = false;
+    esquecerAjustesEmCache(form?.id);
     handleGetTransactions?.();
     setOpen?.(false);
   };
@@ -273,7 +279,7 @@ export default function EditContent({
                   editavel={editable}
                   permiteRateio={permiteRateio}
                   permiteEditarValor={permiteEditarValor}
-                  descontos={descontos}
+                  liquidoTravado={liquidoTravado}
                 />
               </TabsContent>
 
@@ -313,11 +319,13 @@ export default function EditContent({
                   totais={form}
                   pendente={Boolean(form.pendente)}
                   editavel={editable}
-                  onAlterado={(transacao, quantidadeDeDescontos) => {
+                  valoresPendentes={valoresPendentes}
+                  sincronizarValores={sincronizarValores}
+                  onAlterado={(transacao, travouOLiquido) => {
                     // Costura os totais no formulário em vez de recarregar: o
                     // usuário continua na aba, e o que ele digitou nos outros
                     // campos e ainda não salvou não se perde.
-                    aplicarTotais(transacao, quantidadeDeDescontos);
+                    aplicarTotais(transacao, travouOLiquido);
                     // A aba Parcelas mostra bruto e líquido de cada irmã, e isso
                     // vem do contexto, não do formulário. Sem esta releitura ela
                     // seguiria com o valor velho — que foi o que apareceu na #87.

@@ -183,13 +183,32 @@ export default function TransactionDialog({
     ],
   );
 
+  /**
+   * Fechar a edição por dentro — salvar, ou excluir a transação aberta — não
+   * passa pelo `onOpenChange` do Radix: quem chama é o nosso código. Sem limpar
+   * o id aqui, ele continuava apontando para a transação recém-salva, e um
+   * segundo duplo clique na mesma linha não mudava estado nenhum: o efeito que
+   * reabre o diálogo depende dessa troca, e nada acontecia.
+   */
+  const fecharEdicao = useCallback(
+    (aberto: boolean) => {
+      if (aberto) {
+        setOpen?.(true);
+        return;
+      }
+      setOpen?.(false);
+      setSelectedTransactionId?.(undefined);
+    },
+    [setOpen, setSelectedTransactionId],
+  );
+
   const conteudo = selectedTransactionId ? (
     <EditContent
       selectedTransactionId={selectedTransactionId}
       isDesktop={usarDialog}
       editable={editable}
       handleGetTransactions={handleGetTransactions}
-      setOpen={setOpen}
+      setOpen={fecharEdicao}
     />
   ) : (
     <RegisterContent

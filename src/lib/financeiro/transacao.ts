@@ -128,3 +128,65 @@ export function valorLiquidoEfetivo(transacao: {
 
   return liquidoValido ? liquido : brutoSeguro;
 }
+
+/**
+ * A taxa de recebimento é o único desconto lançado?
+ *
+ * É a pergunta que decide se "Líquido recebido" ainda é um campo. Sendo a taxa
+ * sozinha — ou não havendo desconto nenhum —, o número que a pessoa digita vira
+ * a taxa, e o servidor sabe traduzir isso em criar, atualizar ou remover a
+ * linha. Havendo qualquer outro desconto, não dá para saber qual delas ela quis
+ * mexer, e escolher uma transformaria desconto comercial em taxa de maquineta.
+ *
+ * `sincronizarTaxaRecebimento` aplica exatamente esta regra no servidor. A tela
+ * precisa da mesma para não oferecer uma edição que só voltaria como erro.
+ */
+export function taxaEhOUnicoDesconto(
+  linhas: Array<{
+    natureza?: string | null;
+    tipo?: { codigo_sistema?: string | null } | null;
+  }> | null | undefined,
+): boolean {
+  const descontos = (linhas ?? []).filter(
+    (linha) => String(linha.natureza ?? "").toUpperCase() === "DESCONTO",
+  );
+
+  if (descontos.length === 0) return true;
+  if (descontos.length > 1) return false;
+  return descontos[0]?.tipo?.codigo_sistema === "TAXA_RECEBIMENTO";
+}
+
+/**
+ * Líquido de uma transação que está aberta para edição.
+ *
+ * `travado` é o contrário de `taxaEhOUnicoDesconto`: há desconto lançado que a
+ * tela não controla, e o líquido deixou de ser entrada para virar resultado.
+ * Nesse caso ele é sempre `valor - descontos` — que é como
+ * `tg_transacao_valor_coerente` o reescreve a cada gravação.
+ *
+ * A diferença para `valorLiquidoEfetivo` só aparece com o bruto digitado e ainda
+ * não salvo: lá o líquido guardado tem preferência, e ele ainda é o do bruto
+ * anterior. Mostrar esse número velho seria feio; mandá-lo ao servidor pedia uma
+ * taxa que não existe, e o salvamento voltava como "o líquido não pôde ser
+ * ajustado" depois de os brutos já terem sido gravados.
+ */
+export function valorLiquidoEmEdicao(
+  transacao: {
+    valor?: number | string | null;
+    valorLiquido?: number | string | null;
+    valor_descontos?: number | string | null;
+    tipo?: string | null;
+  },
+  travado: boolean,
+): number {
+  if (!travado) return valorLiquidoEfetivo(transacao);
+
+  const bruto = Number(transacao.valor ?? 0);
+  const brutoSeguro = Number.isFinite(bruto) ? bruto : 0;
+
+  const descontos = Number(transacao.valor_descontos ?? 0);
+  const descontosSeguros =
+    Number.isFinite(descontos) && descontos > 0 ? descontos : 0;
+
+  return Math.round((brutoSeguro - descontosSeguros) * 100) / 100;
+}

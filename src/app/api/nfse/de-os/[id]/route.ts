@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { atualizarRegistroNFSe } from "@/lib/services/fiscais/nfse-registro";
 import {
   NFSeService,
   NFSeValidationError,
@@ -33,35 +34,12 @@ type ItemServicoBanco = {
 
 const STATUS_ATIVOS = ["PROCESSANDO", "AUTORIZADA", "DENEGADA"];
 
-/**
- * Grava o retorno da Focus no registro reservado, levando junto o JSON que foi
- * enviado. O payload e carona: se a coluna ainda nao existir (codigo em produção
- * antes da migration rodar nos quatro bancos), regrava so o retorno em vez de
- * deixar a emissao morrer por causa do log.
- */
-async function atualizarRegistroNFSe(
-  registroId: number,
-  retorno: Record<string, unknown>,
-  payloadEnviado: unknown,
-) {
-  if (payloadEnviado) {
-    const { error } = await supabaseAdmin
-      .from("nfse")
-      .update({ ...retorno, payload_enviado: payloadEnviado })
-      .eq("id", registroId);
-    if (!error) return null;
-    console.warn("[POST /api/nfse/de-os] Payload não gravado, seguindo sem ele", error);
-  }
-
-  const { error } = await supabaseAdmin.from("nfse").update(retorno).eq("id", registroId);
-  return error;
-}
-
 export async function POST(req: NextRequest, { params }: RouteParams) {
   let registroId: number | null = null;
-  // Guardado fora do try para que o catch tambem consiga registrar o que foi
+  // Guardados fora do try para que o catch tambem consiga registrar o que foi
   // montado, inclusive quando a propria chamada a Focus estoura.
   let payloadEnviado: unknown = null;
+  let retornoBruto: unknown = null;
 
   try {
     const { id } = await params;
@@ -245,6 +223,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     // O payload que a Focus recebeu de fato: o mapeador nao conhece o
     // data_emissao, que e calculado na hora do envio.
     payloadEnviado = resultado.payload ?? payloadEnviado;
+    // Guardado tambem quando autoriza: foi comparar uma autorizada com uma
+    // rejeitada que isolou a variavel na investigacao da OS 195.
+    retornoBruto = resultado.retornoBruto ?? retornoBruto;
 
     const statusFinal = resultado.ok
       ? normalizarStatusNFSe(resultado.status)
@@ -256,7 +237,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         status: statusFinal,
         erros: resultado.ok ? null : resultado.erros,
       },
-      payloadEnviado,
+      { payload_enviado: payloadEnviado, retorno_bruto: retornoBruto },
     );
 
     if (updateError) {
@@ -296,7 +277,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       await atualizarRegistroNFSe(
         registroId,
         { status: "REJEITADA", erros: [{ mensagem: message }] },
-        payloadEnviado,
+        { payload_enviado: payloadEnviado, retorno_bruto: retornoBruto },
       );
     }
 

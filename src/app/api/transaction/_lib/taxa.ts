@@ -11,9 +11,10 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
  * Esta funcao e o unico caminho para mexer no liquido: ela ajusta a linha de
  * TAXA_RECEBIMENTO, e o gatilho deriva o liquido a partir dela.
  *
- * So atua quando a taxa e o unico desconto. Havendo outros, nao da para saber
- * qual o usuario quis mexer, e escolher um transformaria desconto comercial em
- * taxa de maquineta.
+ * So MUDA o liquido quando a taxa e o unico desconto. Havendo outros, nao da
+ * para saber qual o usuario quis mexer, e escolher um transformaria desconto
+ * comercial em taxa de maquineta — entao recusa. Pedir o liquido que a
+ * transacao ja tem, porem, nao e mudanca nenhuma: sai como sucesso.
  */
 export type ResultadoDaTaxa =
   | { ok: true }
@@ -26,7 +27,7 @@ export async function sincronizarTaxaRecebimento(
 ): Promise<ResultadoDaTaxa> {
   const { data: transacao, error: transacaoError } = await supabaseAdmin
     .from("transacao")
-    .select("id, valor")
+    .select('id, valor, "valorLiquido", valor_descontos')
     .eq("id", transacaoId)
     .eq("is_deleted", false)
     .maybeSingle();
@@ -34,6 +35,35 @@ export async function sincronizarTaxaRecebimento(
   if (transacaoError) throw transacaoError;
   if (!transacao) {
     return { ok: false, erro: "Transação não encontrada.", status: 404 };
+  }
+
+  const bruto = Number(transacao.valor ?? 0);
+
+  /*
+   * Pedir o líquido que já está lá não é pedir nada.
+   *
+   * `/ajustar-valores` chama esta função para TODA linha que ajustou, mesmo as
+   * que só tiveram o bruto mexido — e no rateio, mesmo as que não foram tocadas.
+   * Havendo desconto lançado, o gatilho já deixou o líquido em `valor -
+   * descontos`, que é exatamente o número que a tela mandou de volta. Sem esta
+   * saída, essas linhas caíam na recusa logo abaixo e o usuário via "os valores
+   * brutos foram salvos, mas o líquido não pôde ser ajustado" ao fim de um
+   * salvamento que tinha dado certo por inteiro.
+   *
+   * Recusar continua valendo para quem quer MUDAR o líquido de uma transação com
+   * desconto que não é a taxa. Aí há de fato uma escolha impossível de adivinhar.
+   */
+  const descontosAtuais = Number(transacao.valor_descontos ?? 0);
+  const liquidoGravado = Number(transacao.valorLiquido ?? 0);
+  const liquidoAtual =
+    descontosAtuais > 0
+      ? Math.round((bruto - descontosAtuais) * 100) / 100
+      : liquidoGravado > 0
+        ? liquidoGravado
+        : bruto;
+
+  if (Math.round(liquidoAtual * 100) === Math.round(liquidoDesejado * 100)) {
+    return { ok: true };
   }
 
   const { data: descontos, error: descontosError } = await supabaseAdmin
@@ -60,7 +90,6 @@ export async function sincronizarTaxaRecebimento(
     };
   }
 
-  const bruto = Number(transacao.valor ?? 0);
   const taxa = Math.round((bruto - liquidoDesejado) * 100) / 100;
 
   if (taxa < 0) {

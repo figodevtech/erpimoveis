@@ -19,9 +19,14 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       );
     }
 
+    // Colunas nomeadas de proposito: payload_enviado e retorno_bruto existem
+    // para diagnostico no banco e nao tem uso nesta tela, entao nao viajam ate
+    // o navegador a cada abertura do dialogo.
     const { data: nfses, error } = await supabaseAdmin
       .from("nfse")
-      .select("*")
+      .select(
+        "id, ordemservicoid, clienteid, empresaid, numero, referencia, status, protocolo, valor_total, erros, dataemissao, createdat, updatedat, url_pdf, url_consulta, modelo_emissao",
+      )
       .eq("ordemservicoid", osId)
       .order("createdat", { ascending: false });
 
