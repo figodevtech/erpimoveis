@@ -41,7 +41,7 @@ type TipoAjuste = {
   codigo_sistema: string | null;
 };
 
-type LinhaAjuste = {
+export type LinhaAjuste = {
   id: number;
   natureza: "ACRESCIMO" | "DESCONTO";
   modo: "FIXO" | "PORCENTAGEM";
@@ -99,6 +99,27 @@ function LinhaTotal({
   );
 }
 
+/*
+ * O que sobrevive à troca de aba.
+ *
+ * O Radix desmonta o conteúdo da aba inativa, então toda volta para cá remontava
+ * o componente, zerava o estado e refazia as duas consultas — com spinner. Para
+ * quem lança três descontos seguidos, a aba piscava a cada ida e volta.
+ *
+ * O catálogo de tipos é global e não muda enquanto a página está aberta: uma
+ * busca por sessão basta. As linhas são por transação, então ficam num mapa
+ * pela chave do id — voltar para a aba mostra o que já estava lá e revalida por
+ * baixo, sem spinner.
+ */
+let catalogoDeTipos: TipoAjuste[] | null = null;
+const linhasPorTransacao = new Map<number, LinhaAjuste[]>();
+
+/** Chamada ao fechar o dialog: o cache não deve atravessar transações. */
+export function esquecerAjustesEmCache(transacaoId?: number) {
+  if (transacaoId == null) linhasPorTransacao.clear();
+  else linhasPorTransacao.delete(transacaoId);
+}
+
 export function AjustesTab({
   transacaoId,
   totais,
@@ -114,9 +135,14 @@ export function AjustesTab({
   /** Recebe a transação já recalculada, para o dialog atualizar sem refetch. */
   onAlterado?: (transacao?: Totais, quantidadeDeDescontos?: number) => void;
 }) {
-  const [tipos, setTipos] = useState<TipoAjuste[]>([]);
-  const [linhas, setLinhas] = useState<LinhaAjuste[]>([]);
-  const [carregando, setCarregando] = useState(true);
+  const [tipos, setTipos] = useState<TipoAjuste[]>(catalogoDeTipos ?? []);
+  const [linhas, setLinhas] = useState<LinhaAjuste[]>(
+    () => linhasPorTransacao.get(transacaoId) ?? [],
+  );
+  // Só mostra spinner quando não há nada em cache para mostrar no lugar.
+  const [carregando, setCarregando] = useState(
+    () => !linhasPorTransacao.has(transacaoId),
+  );
   const [salvando, setSalvando] = useState(false);
 
   const [tipoId, setTipoId] = useState<string>("");
@@ -134,16 +160,21 @@ export function AjustesTab({
       const requisicoes: Promise<unknown>[] = [
         axios.get(`/api/transaction/${transacaoId}/ajustes`),
       ];
-      // O catalogo nao muda enquanto o dialog esta aberto: busca uma vez so.
-      if (mostrarSpinner) requisicoes.push(axios.get("/api/tipos/ajustes-transacao"));
+      // Catálogo global: uma busca por sessão, guardada fora do componente.
+      if (!catalogoDeTipos) requisicoes.push(axios.get("/api/tipos/ajustes-transacao"));
 
       const [linhasRes, tiposRes] = (await Promise.all(requisicoes)) as Array<{
         data?: { data?: unknown };
       }>;
 
       const atuais = (linhasRes?.data?.data as LinhaAjuste[]) ?? [];
+      linhasPorTransacao.set(transacaoId, atuais);
       setLinhas(atuais);
-      if (tiposRes) setTipos((tiposRes.data?.data as TipoAjuste[]) ?? []);
+
+      if (tiposRes) {
+        catalogoDeTipos = (tiposRes.data?.data as TipoAjuste[]) ?? [];
+        setTipos(catalogoDeTipos);
+      }
       return atuais;
     } catch {
       toast.error("Não foi possível carregar os ajustes.");
@@ -156,10 +187,14 @@ export function AjustesTab({
   const quantosDescontos = (atuais: LinhaAjuste[] | null) =>
     atuais ? atuais.filter((linha) => linha.natureza === "DESCONTO").length : undefined;
 
-  const carregar = () => carregarLinhas(true);
-
   useEffect(() => {
-    if (transacaoId) void carregar();
+    if (!transacaoId) return;
+    /*
+     * Com algo em cache, revalida por baixo: a aba abre já preenchida e o
+     * spinner só aparece na primeira vez de cada transação. É o que tira o
+     * piscar de quem vai e volta entre Detalhes e Ajustes.
+     */
+    void carregarLinhas(!linhasPorTransacao.has(transacaoId));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transacaoId]);
 

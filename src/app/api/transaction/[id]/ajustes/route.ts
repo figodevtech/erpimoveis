@@ -26,10 +26,20 @@ type Params = { params: Promise<{ id: string }> };
 
 const emCentavos = (valor: number) => Math.round(valor * 100);
 
+/*
+ * O que a tela precisa para redesenhar a composição do valor sem recarregar.
+ *
+ * `valorLiquido` faltava aqui, e era o campo que a aba mais mostra — "Entra na
+ * conta". Sem ele na resposta, `aplicarTotais` caía no valor anterior e o número
+ * ficava congelado: lançar ou remover um acréscimo mexia no bruto, na face e nos
+ * totais de ajuste, e só o líquido não acompanhava.
+ */
 async function carregarTransacao(id: string) {
   const { data, error } = await supabaseAdmin
     .from("transacao")
-    .select("id, valor, valor_base, valor_acrescimos, valor_descontos, pendente")
+    .select(
+      'id, valor, "valorLiquido", valor_base, valor_acrescimos, valor_descontos, pendente',
+    )
     .eq("id", id)
     .eq("is_deleted", false)
     .maybeSingle();

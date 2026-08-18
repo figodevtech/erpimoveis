@@ -11,13 +11,24 @@
  * cartao e pior do que filtro nenhum.
  */
 
-/** Colunas de texto varridas pelo termo, na ordem em que o usuario pensaria. */
+/**
+ * Colunas de texto varridas pelo termo, na ordem em que o usuario pensaria.
+ *
+ * Categoria, plano de conta e centro de custo entram porque sao exatamente o que
+ * a tabela mostra na linha: quem le "Combustivel" na tela procura por
+ * "combustivel", e ate aqui nao achava nada. As tres estao gravadas como texto
+ * na propria transacao (alem do id), entao a busca nao custa junção nenhuma.
+ */
 const CAMPOS_TEXTO = [
   "descricao",
   "descricao_pagamento",
   "nomepagador",
   "cpfcnpjpagador",
+  "categoria",
+  "plano_de_conta",
+  "centro_custo",
   "documento_numero",
+  "documento_serie",
   "documento_chave",
   "documento_observacao",
 ] as const;
@@ -42,6 +53,20 @@ function paraPadrao(termo: string) {
 export function filtroDeBusca(termo: string): string | null {
   const limpo = termo.trim();
   if (!limpo) return null;
+
+  /*
+   * `#123` procura o lancamento 123 e mais nada.
+   *
+   * Numero solto continua varrendo os textos junto — "87" pode ser o numero de
+   * uma nota —, e por isso nunca da para pedir *so* o lancamento 87: a lista
+   * volta cheia de coincidencia. O `#` e a forma de dizer "e o id", e e como o
+   * proprio sistema escreve o numero na tela, em "#87".
+   *
+   * `#` sozinho, ou seguido de qualquer coisa que nao seja numero, cai no
+   * caminho normal: melhor buscar pelo texto do que devolver lista vazia.
+   */
+  const porId = /^#\s*(\d{1,15})$/.exec(limpo);
+  if (porId) return `id.eq.${porId[1]}`;
 
   const padrao = paraPadrao(limpo);
   const condicoes = CAMPOS_TEXTO.map((campo) => `${campo}.ilike.${padrao}`);

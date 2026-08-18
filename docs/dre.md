@@ -146,6 +146,7 @@ estornos). O mapeamento é por banco — cada empresa tem seu plano de contas.
 | 3b Drill-down | lançamentos que compõem cada linha | ✅ concluído |
 | — | correções vindas do financeiro e da OS (seção 6.1) | 05–13/08 |
 | — | conferência da receita (seção 7) | ✅ 6 defeitos corrigidos |
+| — | conferência do custo e da despesa (seção 8) | ✅ feita |
 | 4 Integridade | pendências, conciliação, fechamento de período | pendente |
 | 5 Saída | exportação PDF/XLSX/CSV | pendente |
 
@@ -719,34 +720,54 @@ de quem digitou, não do código. O bloco 6 do script existe para que apareçam.
 A Fase 4 deveria transformá-lo em alerta na tela: hoje não há nenhum, e é o tipo
 de erro que o relatório nunca revela sozinho.
 
-### Defeito 1b — DEPOSITO contava como despesa
+### Defeito 1b — saque e depósito não pertencem à DRE
 
-Achado ao rastrear um lançamento que o bloco 6 acusou no Demir. A natureza do
-evento saía de
+Este defeito eu diagnostiquei errado da primeira vez, e a correção errada foi
+aplicada antes de o engano aparecer. Fica registrado inteiro porque o raciocínio
+que me levou ao erro é fácil de repetir.
+
+**O sintoma.** A natureza do evento saía de
 
 ```sql
 case when upper(tipo) = 'RECEITA' then 'RECEITA' else 'DESPESA' end
 ```
 
-— ou seja, **todo DEPOSITO virava despesa**. Passou despercebido porque todos os
-DEPOSITO e SAQUE do Demir caem em "Movimentações não operacionais", grupo
-excluído do resultado, e nunca chegavam a gerar evento. A primeira exceção foi um
-rendimento de aplicação lançado como DEPOSITO na conta "Rendimentos financeiros":
-entrou como **despesa dentro da linha 10.1 Receitas financeiras**.
+— e um rendimento de aplicação lançado como `DEPOSITO`, na conta "Rendimentos
+financeiros", entrava como **despesa dentro da linha 10.1 Receitas financeiras**.
 
-**Corrigido.** `DEPOSITO` conta como entrada e `SAQUE` como saída, que é o que
-eles são. Um detalhe do caminho: `natureza` faz parte da chave do `on conflict`,
-e `idx_eventos_financeiros_transacao` é único em `transacaoid` — uma transação,
-no máximo um evento. Mudar a natureza fazia o upsert não reconhecer a linha
-existente e tentar inserir uma segunda, batendo naquele índice. A função passou a
-realinhar a natureza da linha existente antes do upsert.
+**O que eu concluí, e por que estava errado.** Concluí que a regra estava errada
+porque "depósito é dinheiro entrando e saque é dinheiro saindo", e fiz `DEPOSITO`
+contar como entrada de resultado. O raciocínio descreve o **caixa**, não o
+resultado — e a DRE é por competência. Depósito e saque são movimentação de
+tesouraria: dinheiro mudando de lugar entre o caixa e a conta. A empresa não fica
+mais rica por depositar nem mais pobre por sacar. **Nenhum dos dois deveria
+chegar ao livro, em natureza nenhuma.**
 
-**Cuidado ao ler o bloco 6 daqui para frente.** Essa correção também **apagou um
-alarme acidental**: o lançamento que o bloco acusava era a duplicata de um
-rendimento (duas transações do mesmo R$ 0,03, digitadas com 4 minutos de
-diferença). Enquanto uma delas era DEPOSITO, a divergência de natureza a
-denunciava. Agora as duas são receita legítima. Duplicata de lançamento é um
-problema à parte, que nenhum bloco deste script pega — ver seção 11.
+**Corrigido de verdade pela `20260817140000`.** `SAQUE` e `DEPOSITO` entram na
+lista de exclusão da `sincronizar_eventos_financeiros_transacao`, ao lado da
+liquidação de OS, da compra que vira estoque e da antecipação. A regra do tipo
+não depende da conta do plano: um saque numa conta de despesa continua sendo
+saque. Quando um gasto de verdade for lançado como saque, o conserto é trocar o
+tipo do lançamento, não fazer a DRE adivinhar.
+
+Com isso a derivação da natureza volta à forma original — e agora ela é
+**completa**, porque só `RECEITA` e `DESPESA` chegam até lá, em vez de um "todo o
+resto" que engolia saque e depósito.
+
+**Por que passou despercebido tanto tempo.** Todo `SAQUE`/`DEPOSITO` dos quatro
+bancos cai em "Movimentações não operacionais", grupo já excluído do resultado
+pelo plano de contas. A regra do grupo escondia a falta da regra do tipo, e só
+apareceu quando um depósito foi classificado numa conta de resultado.
+
+**O que a correção certa resolveu**, que a errada não resolvia — ver seção 8:
+o par frete pago / frete reembolsado do Demir, que inflava a linha 6.6 em
+R$ 146,98 sobre um gasto líquido de zero.
+
+**Um detalhe do caminho que continua valendo:** `natureza` faz parte da chave do
+`on conflict`, e `idx_eventos_financeiros_transacao` é único em `transacaoid` —
+uma transação, no máximo um evento. Mudar a natureza fazia o upsert não
+reconhecer a linha existente e tentar inserir uma segunda, batendo naquele
+índice. A função realinha a natureza da linha existente antes do upsert.
 
 ### Defeito 1c — excluir a transação não tirava o lançamento da DRE
 
@@ -837,7 +858,149 @@ regressao das deducoes, rodando com `npm run test:dre`.
 
 ---
 
-## 8. A DRE do Demir hoje
+## 8. Conferência do custo e da despesa
+
+Feita em 17/08/2026, nos quatro bancos, depois da conferência da receita. O
+script é [`supabase/tests/checar_custos_dre.sql`](../supabase/tests/checar_custos_dre.sql),
+somente leitura:
+
+```
+npm run db:test:sql -- supabase/tests/checar_custos_dre.sql demir
+```
+
+Ao contrário da receita, **nenhum defeito de código apareceu aqui**. O que saiu
+são buracos de cobertura e problemas de cadastro — e um deles é grande.
+
+### O que a baixa manual de estoque é — e por que não entra
+
+Eu abri esta conferência achando ter encontrado um buraco: ~R$ 18 mil de
+mercadoria saindo do estoque no Demir por baixa manual, sem nada chegar ao
+resultado. **Não é buraco, é o desenho.**
+
+A baixa manual serve para registrar que um produto saiu **sem ser por venda nem
+por OS**. É controle de estoque, não fato de resultado: não gera receita nem
+despesa. O raciocínio que me enganou foi "se saiu do estoque, virou custo" — que
+vale para a saída por venda e por OS, onde existe um documento para pendurar o
+lançamento, e não vale aqui.
+
+O `valor_custo_aplicado` que cada item da saída guarda também não é lançamento.
+A RPC o preenche assim:
+
+```sql
+v_custo := greatest(coalesce(v_produto.ultimovalordecompra, v_produto.precocompra, 0), 0);
+```
+
+É um retrato do custo do produto naquele instante, usado na tela de detalhe da
+saída (que soma o total) e como preço de partida caso alguém emita NF-e a partir
+dela. Os 27 de 49 itens do Demir com valor zero são produtos cujo
+`ultimovalordecompra` e `precocompra` estavam vazios — o mesmo buraco de cadastro
+da seção seguinte, não um problema de saída.
+
+O script **não confere baixa manual**, e o cabeçalho dele diz o porquê, para
+ninguém refazer o mesmo caminho.
+
+### Produto sem custo cadastrado — medido e resolvido por estimativa
+
+A conferência mediu por banco:
+
+| Banco | Eventos de custo com valor zero |
+|---|---|
+| AlphaGarage | **51 de 78** |
+| Demir | 44 de 200 |
+| Demonstração | 16 de 40 |
+| Garage Premium | **0 de 89** |
+
+O Garage Premium zerado é a prova de que não é defeito do sistema — é disciplina
+de cadastro. Onde o custo é preenchido, a DRE acerta.
+
+**No Demir isso foi resolvido por estimativa em 17/08/2026.** Decisão do dono da
+operação: custo = **40% do preço de venda** para todo item que estava com custo
+zero. Aplicado por
+[`scripts/db/preencher-custo-estimado-demir.ts`](../scripts/db/preencher-custo-estimado-demir.ts)
+(`npm run db:custo:estimado`), gravando em `custo_unitario_aplicado` na origem —
+no evento seria desfeito na próxima reconciliação.
+
+```
+40 itens de venda + 15 itens de OS
+custos do grupo 4:  R$ 190.382,45  ->  R$ 280.244,09
+o lucro cai R$ 89.861,64
+eventos de custo com valor zero: 44 de 200  ->  0 de 190
+```
+
+**O que isso custa em confiabilidade.** Esse custo não veio de nota nem de
+entrada de estoque: é percentual arbitrado sobre o preço de venda. A linha 4.1
+deixou de ser conferível contra documento para esses 55 itens, e **não há campo
+no banco que separe custo real de custo estimado** — a única marca é este
+registro e a saída do script.
+
+A alternativa era pior: sem custo nenhum, esses itens entravam com margem de
+100%, o que distorce mais do que uma estimativa razoável.
+
+Vale só para o Demir. Os outros bancos seguem com o custo como está — o
+AlphaGarage, com 51 de 78 itens zerados, é o próximo candidato natural, mas é
+decisão de quem opera.
+
+### Saída sem custo e custo sem saída
+
+Duas pontas soltas, pequenas em dinheiro e úteis como sinal:
+
+- **Saída de documento sem custo no livro**: Demir 3, Demonstração 3,
+  AlphaGarage 7, Garage 0.
+- **Custo na DRE sem saída de estoque**: Demir 2 (um deles R$ 2.500 na venda
+  #67), Demonstração 1 (R$ 0).
+
+O custo de OS ainda em execução aparece nessa segunda conta e **não é defeito**:
+o evento existe para alimentar a rentabilidade da OS, fica sem competência e não
+entra em período nenhum — a mercadoria realmente ainda não saiu. Por isso o
+bloco 3 só considera evento com competência.
+
+### Reembolso lançado na conta da despesa — resolvido pela regra do tipo
+
+O caso mais instrutivo, achado no Demir:
+
+```
+#1291  SAQUE     R$ 73,49   "ENVIO P/ ANNA KAROLINE..."       o frete pago
+#1555  DEPOSITO  R$ 73,49   "REEMBOLSO DE FRETE, ENVIO..."    o cliente devolveu
+```
+
+As duas na conta "Correios, entregas e transportes", que mapeia para 6.6. Como
+`dre_somar_por_linha` soma `valor` sem olhar a natureza, a linha mostrava
+**R$ 146,98 de despesa** onde o gasto líquido foi **zero**: o pagamento somava e
+o reembolso somava junto, em vez de se anularem.
+
+Eu tinha registrado isto como decisão contábil em aberto — se a soma deveria
+respeitar a natureza do lançamento. **Não era.** As duas transações são `SAQUE` e
+`DEPOSITO`, movimentação de tesouraria, e nenhuma das duas pertence à DRE. Com a
+regra do tipo da `20260817140000` as duas saem do resultado e a linha 6.6 volta
+para o valor correto — R$ 9.961,01 para R$ 9.814,03, exatamente os R$ 146,98.
+
+Foram os dois **únicos** eventos de saque/depósito no livro em toda a frota: todo
+o resto já caía em "Movimentações não operacionais".
+
+A pergunta de fundo — o que fazer com um reembolso de despesa lançado como
+`RECEITA` numa conta de despesa — continua válida e ainda não apareceu em dado
+real. Se aparecer, o bloco 7 deste script a mostra.
+
+### Lançamento repetido
+
+Quinze grupos no Demir com mesmo valor, mesma data e mesma conta — nenhum nos
+outros três bancos. Os maiores:
+
+```
+R$ 2.126,78  11/08  Simples Nacional          3 vezes   #1179 #1180 #1216
+R$   629,31  11/08  Simples Nacional          4 vezes   #1181 #1182 #1183 #1215
+R$ 1.000,00  30/08  Serviços terceirizados    2 vezes   #1158 #1235
+R$   225,00  10/08  Sistemas e softwares      2 vezes   #662  #800
+```
+
+Repetir não prova duplicata: parcela de mesmo valor e duas notas no mesmo dia
+acontecem. Mas quatro lançamentos idênticos de Simples Nacional no mesmo dia
+merecem conferência — e despesa duplicada reduz o lucro de mentira, do mesmo
+jeito que a antecipação inflava a receita.
+
+---
+
+## 9. A DRE do Demir hoje
 
 Todo o histórico, medido em 17/08/2026 já com a `20260817110000` aplicada. O
 banco está em uso diário, então os números se movem — o que importa aqui são as
@@ -884,7 +1047,7 @@ alimentados por dado real, e com a receita conferida documento a documento.
 
 ---
 
-## 9. Migrations de consistência que antecederam a DRE
+## 10. Migrations de consistência que antecederam a DRE
 
 Correções de consistência dos lançamentos de OS que antecederam a DRE:
 
@@ -900,7 +1063,7 @@ comissão, nenhuma OS bloqueada, nenhum evento `CONVERTIDO` afetado.
 
 ---
 
-## 10. Onde está cada coisa
+## 11. Onde está cada coisa
 
 **Banco** — a construção está em `supabase/migrations/2026080212…` a `…230000`,
 na ordem da seção 6; as correções posteriores estão listadas na 6.1.
@@ -943,7 +1106,7 @@ Permissão: `PERMS.FINANCEIRO`, registrada em `src/middleware.ts` para `/dre` e
 
 ---
 
-## 11. Como continuar
+## 12. Como continuar
 
 **A receita está fechada.** Os quatro defeitos da seção 7 foram corrigidos pela
 `20260817110000` e o script de conferência passa nos quatro bancos. O que
@@ -970,14 +1133,10 @@ digitar de novo, não limpar a primeira) produz exatamente isso, e despesa
 duplicada reduz o lucro de mentira do mesmo jeito que a antecipação inflava a
 receita. Vale um `checar_duplicatas_transacao.sql` antes de qualquer fechamento.
 
-**Depois disso, conferir custo e despesa no mesmo molde.** Este ciclo só cobriu a
-receita e achou seis coisas — e o defeito 1 apareceu justamente inflando a linha
-10.2, que é despesa. As perguntas equivalentes:
-
-- todo evento de custo tem contrapartida numa saída de estoque?
-- CMV do período bate com o custo das saídas?
-- despesa lançada duas vezes (transação + evento manual)?
-- despesa em linha de natureza contrária (o bloco 6, do outro lado)?
+**Custo e despesa já foram conferidos** — seção 8. Não saiu defeito de código.
+O que sobrou para uma pessoa: conferir os lançamentos repetidos do Demir
+(Simples Nacional aparece quatro vezes no mesmo dia) e cadastrar o custo dos
+produtos, que é o que mais distorce a margem.
 
 **Fase 4 — integridade.** Status de período (`ABERTO`, `EM_REVISAO`, `FECHADO`)
 com usuário, data e versão do template no fechamento; tela de pendências
@@ -999,15 +1158,15 @@ valores precisam sair como número, não texto.
 
 1. Rodar `supabase/tests/checar_receitas_dre.sql` nos quatro bancos — é mais
    rápido que ler este documento e diz o estado real.
-2. Se o mapeamento das contas foi revisado pelo contador (seção 12).
-3. Se `osservico`/`osproduto` ainda têm PK composta (seção 13); se tiverem sido
+2. Se o mapeamento das contas foi revisado pelo contador (seção 13).
+3. Se `osservico`/`osproduto` ainda têm PK composta (seção 14); se tiverem sido
    corrigidas, `source_item_id` precisa ser repontado para o novo id da linha.
 4. Se os alertas de [route.ts](../src/app/api/dre/route.ts) já filtram
    `CONVERTIDO` junto de `ATIVO` (ver fim da seção 6.1).
 
 ---
 
-## 12. Pendências que exigem validação contábil
+## 13. Pendências que exigem validação contábil
 
 - **Classificação das contas do plano nas linhas da DRE.** Decisão contábil, não
   técnica. A tela de mapeamento entrega uma sugestão automática a partir dos
@@ -1021,18 +1180,22 @@ valores precisam sair como número, não texto.
   fora do sistema, a despesa aparecerá na DRE por competência sem contrapartida
   no caixa.
 - **Produto vendido sem custo.** Era o problema mais grave da versão original
-  deste documento — CMV zero e margem de 100%. A `20260811210000` deu à função
-  de custo um fallback (custo na OS → último valor de compra → preço médio) e o
-  quadro melhorou muito: o CMV do Demir saiu de R$ 0,00 para R$ 111.369,15. Ainda
-  assim, **47 dos 246 eventos de custo** carregam `custo_nao_informado`, então a
-  linha 4.1 continua contendo itens a custo zero. O fallback só vale para evento
-  gerado ou reconciliado depois de 11/08 — produto que nunca teve custo
-  cadastrado segue sem custo. Decisão deliberada mantida: não estimar custo
-  automaticamente, para não fabricar margem.
+  deste documento — CMV zero e margem de 100%. A `20260811210000` deu à função de
+  custo um fallback (custo na OS → último valor de compra → preço médio), e em
+  17/08/2026 o restante do Demir foi preenchido por **estimativa de 40% do preço
+  de venda** (seção 8). Resultado: nenhum evento de custo entra mais zerado no
+  Demir.
+
+  **A ressalva mudou de lugar, não desapareceu.** Antes a linha 4.1 era baixa
+  demais; agora ela contém 55 itens cujo custo é arbitrado, não documentado.
+  Enquanto o custo real não for cadastrado, a margem desses itens é uma
+  suposição — razoável, mas suposição. Os outros bancos seguem com o custo como
+  está: o AlphaGarage tem 51 de 78 eventos zerados e é o próximo candidato, mas
+  é decisão de quem opera.
 
 ---
 
-## 13. Limitações conhecidas do modelo
+## 14. Limitações conhecidas do modelo
 
 **PK composta em `osservico` e `osproduto`.** Uma OS não pode ter duas linhas do
 mesmo serviço ou produto com preços diferentes. O catálogo de serviços do Demir

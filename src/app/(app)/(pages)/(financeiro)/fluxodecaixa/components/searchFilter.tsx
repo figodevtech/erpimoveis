@@ -226,12 +226,28 @@ export default function SearchFilter({
             </Button>
           </SheetTrigger>
 
-          <SheetContent className="w-full overflow-hidden sm:max-w-md">
-            <SheetHeader>
+          {/*
+            Três faixas: cabeçalho, miolo que rola e rodapé fixo.
+
+            Os botões viviam no fim do conteúdo, então com todos os filtros
+            abertos era preciso rolar até o fim para aplicar — e em tela baixa
+            eles simplesmente não apareciam. Agora só o miolo rola; Aplicar e
+            Limpar ficam sempre à vista.
+
+            `min-h-0` no miolo é o que faz o `overflow-y-auto` valer: sem ele, um
+            filho de flex adota a altura do conteúdo e empurra o rodapé para fora
+            da tela em vez de rolar.
+
+            O `gap-4` que o SheetContent traz sai daqui: a separação entre as
+            faixas passa a ser a borda de cada uma, e o espaço extra só somaria
+            altura ao que já está apertado.
+          */}
+          <SheetContent className="w-full gap-0 overflow-hidden sm:max-w-md">
+            <SheetHeader className="shrink-0 border-b">
               <SheetTitle>Filtros do fluxo de caixa</SheetTitle>
             </SheetHeader>
 
-            <div className="grid flex-1 auto-rows-min gap-5 overflow-y-auto p-4">
+            <div className="grid min-h-0 flex-1 auto-rows-min gap-5 overflow-y-auto p-4">
               <div className="space-y-2">
                 <Label>Visualização</Label>
                 <Tabs value={draftViewMode} onValueChange={(value) => setDraftViewMode(value as FluxoViewMode)}>
@@ -257,8 +273,15 @@ export default function SearchFilter({
                     id="fluxo-search"
                     value={draftSearch}
                     onChange={(e) => setDraftSearch(e.target.value)}
-                    placeholder="Descrição, pagador, CPF/CNPJ, nota ou nº"
+                    placeholder="Descrição, pagador, categoria, plano, nota..."
+                    aria-describedby="fluxo-search-ajuda"
                   />
+                  <p id="fluxo-search-ajuda" className="text-xs text-muted-foreground">
+                    Procura em descrição, pagador, CPF/CNPJ, categoria, plano de
+                    conta, centro de custo e dados do documento. Use{" "}
+                    <span className="font-medium text-foreground">#87</span> para
+                    abrir direto o lançamento 87.
+                  </p>
                 </div>
 
                 <div className="space-y-2">
@@ -476,15 +499,17 @@ export default function SearchFilter({
                     </PopoverContent>
                   </Popover>
                 </div>
+              </div>
+            </div>
 
-                <div className="flex justify-end gap-2 border-t pt-4">
-                  <Button type="button" variant="outline" onClick={clearFilters}>
-                    Limpar
-                  </Button>
-                  <Button type="button" onClick={applyFilters}>
-                    Aplicar filtros
-                  </Button>
-                </div>
+            <div className="shrink-0 border-t bg-background p-4">
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={clearFilters}>
+                  Limpar
+                </Button>
+                <Button type="button" onClick={applyFilters}>
+                  Aplicar filtros
+                </Button>
               </div>
             </div>
           </SheetContent>

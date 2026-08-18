@@ -29,7 +29,7 @@ import {
   classesDoConteudo,
 } from "./shell";
 import { AdiantamentoTab } from "./tabs/adiantamento-tab";
-import { AjustesTab } from "./tabs/ajustes-tab";
+import { AjustesTab, esquecerAjustesEmCache } from "./tabs/ajustes-tab";
 import { ClienteTab } from "./tabs/cliente-tab";
 import { DetalhesTab } from "./tabs/detalhes-tab";
 import { HistoricoTab } from "./tabs/historico-tab";
@@ -110,6 +110,9 @@ export default function EditContent({
       listaDesatualizada.current = false;
       handleGetTransactions?.();
     }
+    // O cache da aba de ajustes serve para a troca de aba, não para a próxima
+    // abertura: reabrir precisa ler o estado atual do banco.
+    esquecerAjustesEmCache(form?.id);
   };
 
   const Content = isDesktop ? DialogContent : DrawerContent;

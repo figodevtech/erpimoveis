@@ -1120,12 +1120,31 @@ export async function DELETE(_req: NextRequest, ctx: ParamsCtx) {
       .eq("venda_id", vendaId);
     if (baixasError) throw baixasError;
 
-    // A baixa registrada é a fonte oficial. Para vendas legadas sem rastreamento,
-    // os itens só são usados como fallback quando não se trata de um orçamento.
+    /*
+     * A baixa registrada é a fonte oficial do que precisa voltar ao estoque.
+     *
+     * Sem baixa registrada há dois casos bem diferentes, e confundi-los devolvia
+     * mercadoria duas vezes:
+     *
+     *   venda legada  — anterior ao rastreamento. O estoque está baixado e não
+     *                   há registro; os itens servem de fallback.
+     *   já estornada  — orçamento nunca baixou, e venda cancelada já teve o
+     *                   estoque devolvido pelo cancelamento, que consome e apaga
+     *                   as linhas de baixa. Não há nada a devolver.
+     *
+     * Só o orçamento era tratado. Cancelar e depois apagar caía no fallback de
+     * venda legada, semeava a baixa de novo e estornava uma segunda vez —
+     * aconteceu com a venda #83 do Demir, que ficou com uma unidade a mais do
+     * MODULO CAT 377-4710 em estoque.
+     */
+    const statusParaEstorno = String(vendaBaseEstorno.status).toUpperCase();
+    const estoqueJaDevolvido =
+      statusParaEstorno === "ORCAMENTO" || STATUS_CANCELADOS.has(statusParaEstorno);
+
     const qtyPorProduto = new Map<number, number>();
     const origemEstorno = (baixasRegistradas?.length ?? 0) > 0
       ? baixasRegistradas
-      : String(vendaBaseEstorno.status).toUpperCase() === "ORCAMENTO"
+      : estoqueJaDevolvido
         ? []
         : itensVenda;
 
