@@ -27,6 +27,7 @@
     "db:custo:estimado": "tsx scripts/db/preencher-custo-estimado-demir.ts",
     "db:reconstruir:baixa51": "tsx scripts/db/reconstruir-baixa-venda51-demir.ts",
     "db:semear:plano-garage": "tsx scripts/db/semear-plano-contas-garage.ts",
+    "db:classificar:garage": "tsx scripts/db/classificar-pendentes-garage.ts",
     "capture:all": "node scripts/captures/run-captures.mjs",
     "capture:ui": "playwright test --ui --project=desktop",
     "capture:seed:demo": "tsx scripts/captures/seed-demo.ts",

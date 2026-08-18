@@ -1,7 +1,18 @@
 "use client";
 
 import { useRef } from "react";
-import { Banknote, FileText, History, Layers, Link2, Loader2, Percent, Split, User } from "lucide-react";
+import {
+  Banknote,
+  FileText,
+  History,
+  Layers,
+  Link2,
+  Loader2,
+  Percent,
+  PieChart,
+  Split,
+  User,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -21,6 +32,7 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   CABECALHO_FIXO,
   COLUNA_CHEIA,
@@ -175,6 +187,34 @@ export default function EditContent({
               </TransactionBadge>
             ) : null}
             {!editable && form ? <TransactionBadge>Somente leitura</TransactionBadge> : null}
+            {form && (contexto?.dre.length ?? 0) > 0 ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <TransactionBadge tone="warning">
+                    <PieChart className="mr-1 size-3" aria-hidden />
+                    DRE
+                  </TransactionBadge>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" align="start" className="max-w-[280px]">
+                  {contexto!.dre.length === 1 ? (
+                    <p>
+                      Linha {contexto!.dre[0].codigo} · {contexto!.dre[0].nome}
+                    </p>
+                  ) : (
+                    <div className="space-y-1">
+                      <p className="font-medium">
+                        Este lançamento toca {contexto!.dre.length} linhas da DRE:
+                      </p>
+                      {contexto!.dre.map((linha) => (
+                        <p key={linha.codigo}>
+                          {linha.codigo} · {linha.nome}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
           </div>
           <Description className="max-w-3xl text-xs leading-relaxed sm:text-sm">
             {descricao}

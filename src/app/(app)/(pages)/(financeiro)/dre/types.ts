@@ -29,6 +29,7 @@ export type RespostaDre = {
     lancamentosSemClassificacao: number;
     itensSemCusto: number;
     semDespesaOperacional: boolean;
+    gruposSemDestino: number;
   };
   atualizadoEm: string;
 };

@@ -118,6 +118,8 @@ export interface TransacaoContexto {
   cliente: ClienteContexto | null;
   fornecedor: FornecedorContexto | null;
   vinculo: VinculoContexto | null;
+  /** Linha(s) da DRE que este lançamento toca. Vazio quando fica fora do resultado. */
+  dre: Array<{ codigo: string; nome: string; valor: number }>;
   /**
    * O grupo do parcelamento avulso. `null` quando a transação é à vista, quando
    * as parcelas pertencem a um documento, ou quando o grupo é antigo demais para

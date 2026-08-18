@@ -336,6 +336,17 @@ export async function GET(_: Request, { params }: Params) {
         : Promise.resolve({ data: null }),
     ]);
 
+    /* ---------- Linha da DRE ---------- */
+
+    // Mesma resolucao que o relatorio usa (dre_linha_da_transacao replica o
+    // coalesce de dre_somar_por_linha): direto quando a transacao e o proprio
+    // fato avulso, via EVENTO_ORIGEM quando ela e a baixa de algo reconhecido
+    // em OS/venda. Informativo — se a funcao falhar (ex. banco sem a migration
+    // ainda), o badge so nao aparece.
+    const { data: linhasDre } = await supabaseAdmin
+      .rpc("dre_linha_da_transacao", { p_transacaoid: id })
+      .then((resposta) => (resposta.error ? { data: null } : resposta));
+
     /* ---------- Historico de baixa e auditoria ---------- */
 
     const [{ data: baixa }, { data: ajustes }] = await Promise.all([
@@ -378,6 +389,11 @@ export async function GET(_: Request, { params }: Params) {
       cliente: cliente ?? null,
       fornecedor: fornecedor ?? null,
       vinculo,
+      dre: (linhasDre ?? []).map((linha: any) => ({
+        codigo: String(linha.codigo),
+        nome: String(linha.nome),
+        valor: Number(linha.valor ?? 0),
+      })),
       // Presente só no parcelamento avulso com grupo formal — é o que a aba
       // Parcelas exige para oferecer o reparcelamento.
       parcelamento:

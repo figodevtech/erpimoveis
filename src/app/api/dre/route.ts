@@ -58,7 +58,7 @@ export async function GET(req: Request) {
      * tarja "periodo sem despesa operacional" podia aparecer com a despesa ja
      * contada no total — o alerta contradizia o numero ao lado dele.
      */
-    const [pendencias, semCusto, semDespesa] = await Promise.all([
+    const [pendencias, semCusto, semDespesa, gruposAtivos, gruposMapeados] = await Promise.all([
       supabaseAdmin
         .from("eventos_financeiros")
         .select("id", { count: "exact", head: true })
@@ -82,7 +82,20 @@ export async function GET(req: Request) {
         .eq("natureza_dre", "DESPESA")
         .gte("competencia_em", `${de}T00:00:00.000Z`)
         .lte("competencia_em", `${ate}T23:59:59.999Z`),
+      // Grupo sem mapeamento nao e um problema do periodo: e do cadastro. Um
+      // grupo criado sem linha correspondente fica invisivel na tela — os
+      // lancamentos dele so aparecem como "sem classificacao" depois que
+      // alguem ja lancou algo nele. Este alerta cobre o intervalo antes disso.
+      supabaseAdmin.from("planosdecontagrupos").select("id").eq("ativo", true),
+      supabaseAdmin
+        .from("dre_mapeamento")
+        .select("origem_id")
+        .eq("origem_tipo", "PLANO_GRUPO")
+        .eq("ativo", true),
     ]);
+
+    const idsMapeados = new Set((gruposMapeados.data ?? []).map((linha) => linha.origem_id));
+    const gruposSemDestino = (gruposAtivos.data ?? []).filter((grupo) => !idsMapeados.has(grupo.id)).length;
 
     return NextResponse.json(
       {
@@ -94,6 +107,7 @@ export async function GET(req: Request) {
           lancamentosSemClassificacao: pendencias.count ?? 0,
           itensSemCusto: semCusto.count ?? 0,
           semDespesaOperacional: (semDespesa.count ?? 0) === 0,
+          gruposSemDestino,
         },
         atualizadoEm: new Date().toISOString(),
       },

@@ -204,7 +204,11 @@ export function DreClient() {
 
   const alertas = dados?.alertas;
   const temAlerta =
-    !!alertas && (alertas.semDespesaOperacional || alertas.itensSemCusto > 0 || alertas.lancamentosSemClassificacao > 0);
+    !!alertas &&
+    (alertas.semDespesaOperacional ||
+      alertas.itensSemCusto > 0 ||
+      alertas.lancamentosSemClassificacao > 0 ||
+      alertas.gruposSemDestino > 0);
 
   return (
     <MotionConfig reducedMotion="user">
@@ -263,6 +267,12 @@ export function DreClient() {
               )}
               {(alertas?.lancamentosSemClassificacao ?? 0) > 0 && (
                 <li>{alertas?.lancamentosSemClassificacao} lançamento(s) sem classificação ficaram fora do relatório.</li>
+              )}
+              {(alertas?.gruposSemDestino ?? 0) > 0 && (
+                <li>
+                  {alertas?.gruposSemDestino} grupo(s) do plano de contas sem linha da DRE — o que for lançado neles
+                  não aparece em nenhuma linha do relatório.
+                </li>
               )}
             </ul>
           </motion.div>

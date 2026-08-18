@@ -1169,9 +1169,17 @@ valores precisam sair como número, não texto.
 ## 13. Pendências que exigem validação contábil
 
 - **Classificação das contas do plano nas linhas da DRE.** Decisão contábil, não
-  técnica. A tela de mapeamento entrega uma sugestão automática a partir dos
-  grupos; um contador precisa revisar antes de o relatório ser tratado como
-  oficial.
+  técnica. **Não existe tela de mapeamento** — nenhuma rota em `src/app/api/dre/`
+  nem componente em `src/` lê ou escreve `dre_mapeamento`; a semeadura inicial
+  roda uma única vez por script (`db:semear:plano-*`), casando por palavra-chave
+  no nome do grupo, e liga só o que casar. Um grupo cujo nome não casa nasce sem
+  linha, silenciosamente — foi o que aconteceu no Garage Premium com "Despesas
+  comerciais" (seção 15). Hoje corrigir isso é SQL direto (`INSERT` em
+  `dre_mapeamento`); o alerta `gruposSemDestino` em
+  [route.ts](../src/app/api/dre/route.ts) ao menos avisa que existe grupo sem
+  destino, mas não corrige. Um contador precisa revisar o mapeamento existente
+  antes de o relatório ser tratado como oficial, e a tela de mapeamento em si
+  ainda está para ser construída (ver seção 15).
 - **Regime tributário.** O Demir está como Regime Normal (`regimetributario = 3`)
   — IRPJ e CSLL são linhas reais. Em empresa do Simples, esses tributos estariam
   dentro do DAS e pertenceriam às deduções, não à linha de tributos sobre lucro.
@@ -1202,3 +1210,94 @@ mesmo serviço ou produto com preços diferentes. O catálogo de serviços do De
 tem sete cadastros de "mão de obra" justamente como contorno disso. Corrigir
 exige trocar a PK e ajustar `osservico_realizador`, `chave_origem` e as funções
 de evento. Não bloqueia a DRE (ver 3.4), mas degrada o drill-down.
+
+---
+
+## 15. Tela de mapeamento (planejada)
+
+### O episódio que expôs o problema
+
+O Garage Premium tinha 15 grupos no plano de contas e zero contas cadastradas
+— nenhuma das 122 transações tinha o que escolher. `db:semear:plano-garage`
+copiou as contas do Demir (só leitura lá; escrita só no Garage). Sobrou um
+grupo, "Despesas comerciais", sem linha da DRE: a semeadura do mapeamento casa
+por palavra-chave no nome do grupo, e esse nome não casou com nada. Enquanto o
+grupo estava vazio isso era inofensivo; com contas dentro, qualquer lançamento
+ali sumiria da DRE sem erro e sem aviso. `db:classificar:garage` ligou o grupo
+à linha 6.1 manualmente, por SQL — não existe outro jeito hoje.
+
+### Por que falta uma tela
+
+`grep -rln "dre_mapeamento" src/` não retorna nada: nenhuma rota ou componente
+lê ou escreve essa tabela. A única escrita acontece nas migrations de
+semeadura, uma vez, no banco todo. Criar um grupo novo — ou um grupo cujo nome
+não bate com a palavra-chave — o deixa sem destino, e a única forma de notar
+era rodar `checar_receitas_dre.sql` manualmente. Isso mudou: a rota
+[`/api/dre`](../src/app/api/dre/route.ts) agora conta grupos ativos sem
+mapeamento e a tela exibe um alerta (`alertas.gruposSemDestino`), do mesmo
+jeito que já avisa sobre lançamento sem classificação e item sem custo. É um
+aviso, não uma correção — falta a tela.
+
+### O que a tabela já suporta (e o que não suporta)
+
+`dre_mapeamento.origem_tipo` aceita quatro valores, mas só dois são lidos por
+alguma função:
+
+| `origem_tipo` | Quem lê | Situação |
+|---|---|---|
+| `PLANO_GRUPO` | `sincronizar_eventos_financeiros_transacao` | em uso — é o único caminho de transação avulsa |
+| `EVENTO_ORIGEM` | `dre_somar_por_linha` / `dre_lancamentos_por_linha` | em uso — frete, comissão, desconto, serviço; nasce em migration, ligado a código |
+| `PLANO_CONTA` | ninguém | permitido pelo CHECK, nunca lido — mapear conta por conta hoje não tem efeito |
+| `CATEGORIA_TRANSACAO` | ninguém | idem |
+
+Ou seja: a granularidade real de hoje é **grupo**, não conta. Uma tela que
+deixasse mapear conta por conta prometeria algo que o resolvedor não cumpre —
+teria que alterar `sincronizar_eventos_financeiros_transacao` para checar
+`PLANO_CONTA` antes de cair em `PLANO_GRUPO`, o que é decisão de escopo, não
+só de tela.
+
+`EVENTO_ORIGEM` não deveria ficar editável por essa tela: cada linha ali
+existe porque um trecho de código específico (frete de venda, comissão, OS)
+grava aquele par `origem:natureza`. Mudar o destino sem mudar o código
+desalinha os dois. Cabe mostrar essas linhas, não editá-las.
+
+### A armadilha do tempo
+
+`sincronizar_eventos_financeiros_transacao` resolve a linha **uma vez**, no
+momento em que a transação é criada ou editada, e grava o resultado em
+`eventos_financeiros.dre_linha_id`. As colunas `vigencia_inicio`/`vigencia_fim`
+existem na tabela e são respeitadas por `dre_somar_por_linha` — mas só no
+caminho `EVENTO_ORIGEM`, que resolve a linha em tempo de consulta. Remapear um
+grupo não move nenhum lançamento já gravado; só transações novas, ou
+reprocessadas, seguem o mapeamento novo.
+
+E o `ON CONFLICT ... DO UPDATE` daquela função tem
+`WHERE eventos_financeiros.status <> 'CONVERTIDO'` — evento já convertido em
+transação de baixa não é tocado por reprocessamento algum. É o comportamento
+certo (não desfaz o que já fechou), mas a tela precisa deixar isso explícito,
+ou vai parecer bug quando alguém remapear um grupo antigo e nada mudar no
+histórico já baixado.
+
+### Desenho proposto
+
+- **Listagem**: grupos ativos do plano de contas, com a linha DRE atual (ou
+  "sem destino" em destaque) e a contagem de transações no grupo com
+  `dre_linha_id` nulo — mesma consulta do alerta.
+- **Editar um grupo**: escolher entre as linhas `DETALHE` do template ativo,
+  ou marcar "fora do resultado" (`exclui_do_resultado`) — mutuamente
+  exclusivo, já garantido pelo `CHECK` da tabela. Grava um novo
+  `dre_mapeamento` e desativa o anterior; não apaga, preserva histórico.
+- **Reprocessar** (ação separada, não automática): roda
+  `sincronizar_eventos_financeiros_transacao` nas transações `ATIVO` daquele
+  grupo, mostra o efeito na DRE antes de confirmar — mesmo padrão de preview
+  usado em `preencher-custo-estimado-demir.ts`. Sem isso, mudar o mapeamento
+  de um grupo com histórico não muda o relatório de períodos passados, e
+  ninguém entenderia por quê.
+- **Permissão**: hoje o CRUD de grupos do plano
+  (`/api/tipos/grupos-planos-de-conta`) só exige login (`ensureAuth`), mais
+  fraco que `requireFinanceirosAccess` da DRE. Classificar conta em linha da
+  DRE é decisão contábil (seção 13) — vale usar a permissão mais forte, ou uma
+  dedicada, não a mais fraca das duas.
+
+Não construída ainda. Fica registrada aqui para quando a Fase 4 (Integridade)
+for retomada.
