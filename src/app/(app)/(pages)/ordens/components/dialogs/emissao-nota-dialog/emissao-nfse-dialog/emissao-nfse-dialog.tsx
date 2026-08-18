@@ -25,7 +25,6 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { supabase } from "@/lib/supabase";
 import { toast } from "@/lib/toast";
 import { NfseClienteCard } from "./nfse-cliente-card";
 import { NfseFiscalForm } from "./nfse-fiscal-form";
@@ -249,16 +248,6 @@ export function EmissaoNfseDialog({ open, onOpenChange, osId, onAfterGenerate }:
     setRevisando(false);
     setCodigosFiscais(EMPTY_CODIGOS);
     setValidationError(null);
-  }, [open, osId, carregarServicos]);
-
-  useEffect(() => {
-    if (!open || !osId) return;
-    const channel = supabase.channel(`nfse-servicos-os-${osId}`).on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "nfse", filter: `ordemservicoid=eq.${osId}` },
-      () => void carregarServicos(),
-    ).subscribe();
-    return () => { void supabase.removeChannel(channel); };
   }, [open, osId, carregarServicos]);
 
   const alternarServico = (servico: ServicoOS, selected: boolean) => {

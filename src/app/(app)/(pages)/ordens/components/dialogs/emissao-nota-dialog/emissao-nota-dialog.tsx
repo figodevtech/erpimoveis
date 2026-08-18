@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Dialog,
@@ -14,7 +14,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/lib/toast";
-import { supabase } from "@/lib/supabase";
 import { Loader2, Receipt, AlertCircle, CheckCircle2, XCircle, Info, X, Plus, RotateCw, Ellipsis, Download, Package, Paperclip, Wrench } from "lucide-react";
 import { AutorizarNfeButton } from "./autorizarNfe-button";
 import { GerarNotaDeOsDialog } from "./gerarNotaDeOsDialog/gerarNotaDeOsDialog";
@@ -116,6 +115,12 @@ const nfeStatusClasses: Record<string, string> = {
   CONTINGENCIA: "bg-amber-500/20 text-amber-400",
   RESULTADO_INCERTO: "bg-amber-500/20 text-amber-400",
 };
+
+/** Estados em que a Focus ainda deve uma resposta sobre a NFS-e. */
+const STATUS_EM_PROCESSAMENTO = new Set(["PROCESSANDO", "PROCESSANDO_AUTORIZACAO"]);
+const INTERVALO_CONSULTA_MS = 6000;
+/** 6s × 50 ≈ 5 minutos. Passou disso, só o botão manual. */
+const MAX_CONSULTAS_AUTOMATICAS = 50;
 
 function fmtDate(s?: string | null) {
   if (!s) return "—";
@@ -261,6 +266,8 @@ export function EmissaoNotaDialog({
   const [downloadingXmlId, setDownloadingXmlId] = useState<number | null>(null);
   const [anexandoDanfeId, setAnexandoDanfeId] = useState<number | null>(null);
   const [clienteEmRevisao, setClienteEmRevisao] = useState<number | null>(null);
+  /** Status da volta anterior, para avisar só quem mudou de estado. */
+  const statusAnteriorRef = useRef<Map<number, string>>(new Map());
 
   const origem = osId
     ? "OS"
@@ -595,35 +602,93 @@ export function EmissaoNotaDialog({
   }, [canFetch, endpointListar]);
 
   /**
-   * Assina atualizações em tempo real para as notas desta OS
+   * A Focus autoriza a NFS-e de forma assíncrona: a emissão devolve
+   * PROCESSANDO e o desfecho chega depois. Sem alguém perguntando, o selo fica
+   * pulsando para sempre — era o que acontecia enquanto isto dependia do
+   * Realtime, que nunca entregou evento nenhum porque a tabela `nfse` tem RLS
+   * ligado e nenhuma policy para `anon`.
+   *
+   * Aqui a consulta é a mesma que o botão "Consultar NFS-e" faz, só que
+   * sozinha, enquanto houver nota em processamento e o diálogo estiver aberto.
    */
+  const idsEmProcessamento = useMemo(
+    () => (nfes ?? [])
+      .filter((nfe) => nfe.modelo === "NFSE" && STATUS_EM_PROCESSAMENTO.has((nfe.status || "").toUpperCase()))
+      .map((nfe) => nfe.id),
+    [nfes],
+  );
+  /** Chave estável: sem ela, cada refresh recriaria o intervalo e zeraria a contagem. */
+  const chaveEmProcessamento = idsEmProcessamento.join(",");
+
   useEffect(() => {
-    if (!open || !osId) return;
+    if (!open || !chaveEmProcessamento) return;
 
-    console.log(`[EmissaoNotaDialog] Subscribing to NFSe for OS #${osId}`);
+    const ids = chaveEmProcessamento.split(",").map(Number);
+    let tentativas = 0;
+    let ativo = true;
+    let emVoo = false;
 
-    const channel = supabase
-      .channel(`nfse-os-${osId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "nfse",
-          filter: `ordemservicoid=eq.${osId}`,
-        },
-        () => {
-          console.log(`[EmissaoNotaDialog] Update detected on NFSe for OS #${osId}. Refreshing...`);
-          fetchNfes();
-        },
-      )
-      .subscribe();
+    const consultar = async () => {
+      // Teto de tentativas: se a prefeitura ficar devendo resposta, o diálogo
+      // para de perguntar em vez de consultar a Focus indefinidamente.
+      if (!ativo || tentativas >= MAX_CONSULTAS_AUTOMATICAS) {
+        window.clearInterval(id);
+        return;
+      }
+      // A Focus às vezes demora mais que o intervalo; sem isto as consultas se
+      // empilhariam umas sobre as outras.
+      if (emVoo) return;
+
+      emVoo = true;
+      tentativas += 1;
+      try {
+        await Promise.all(ids.map((nfseId) => (
+          fetch(`/api/nfse/consultar/${nfseId}`, { method: "POST" }).catch(() => null)
+        )));
+      } finally {
+        emVoo = false;
+      }
+
+      // Uma falha de rede na consulta não é motivo de alarme: a próxima volta
+      // tenta de novo, e o botão manual continua ali.
+      if (ativo) fetchNfes();
+    };
+
+    const id = window.setInterval(consultar, INTERVALO_CONSULTA_MS);
+    void consultar();
 
     return () => {
-      supabase.removeChannel(channel);
+      ativo = false;
+      window.clearInterval(id);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, osId]);
+  }, [open, chaveEmProcessamento]);
+
+  /** Avisa o desfecho da nota que estava em processamento. */
+  useEffect(() => {
+    const anterior = statusAnteriorRef.current;
+    const atual = new Map<number, string>();
+
+    for (const nfe of nfes ?? []) {
+      if (nfe.modelo !== "NFSE") continue;
+      const status = (nfe.status || "").toUpperCase();
+      atual.set(nfe.id, status);
+
+      if (!anterior.has(nfe.id) || !STATUS_EM_PROCESSAMENTO.has(anterior.get(nfe.id)!)) continue;
+      if (STATUS_EM_PROCESSAMENTO.has(status)) continue;
+
+      if (status === "AUTORIZADA" || status === "AUTORIZADO" || status === "EMITIDA") {
+        toast.success("NFS-e autorizada!", {
+          description: nfe.numero ? `Nota nº ${nfe.numero}` : undefined,
+          duration: 10000,
+        });
+      } else if (status === "REJEITADA") {
+        toast.error("NFS-e rejeitada", { description: buildObservacao(nfe) || undefined, duration: 10000 });
+      }
+    }
+
+    statusAnteriorRef.current = atual;
+  }, [nfes]);
 
   const titulo = useMemo(() => {
     if (!origem || !origemId) return "Emissão de Nota Fiscal";

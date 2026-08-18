@@ -118,8 +118,30 @@ export interface TransacaoContexto {
   cliente: ClienteContexto | null;
   fornecedor: FornecedorContexto | null;
   vinculo: VinculoContexto | null;
-  /** Linha(s) da DRE que este lançamento toca. Vazio quando fica fora do resultado. */
-  dre: Array<{ codigo: string; nome: string; valor: number }>;
+  /**
+   * Como esta transação aparece na DRE.
+   *
+   * `DIRETO`: ela é o próprio fato econômico (lançamento avulso classificado, ou
+   * despesa de OS/venda que virou transação). O valor dela é o valor na linha.
+   *
+   * `DOCUMENTO`: ela só liquida OS/venda. O valor dela **não** aparece na DRE —
+   * aparecem os lançamentos de cada documento, com o valor deles e na
+   * competência deles. É o caso de um recebimento que baixa várias OS de uma vez.
+   *
+   * `papel` nulo com `linhas` vazio: a transação não toca a DRE (transferência,
+   * saque, compra que vira estoque, ou lançamento sem classificação).
+   */
+  dre: {
+    papel: "DIRETO" | "DOCUMENTO" | null;
+    linhas: Array<{
+      documentoTipo: "OS" | "VENDA" | null;
+      documentoId: number | null;
+      codigo: string;
+      nome: string;
+      naturezaDre: string | null;
+      valor: number;
+    }>;
+  };
   /**
    * O grupo do parcelamento avulso. `null` quando a transação é à vista, quando
    * as parcelas pertencem a um documento, ou quando o grupo é antigo demais para

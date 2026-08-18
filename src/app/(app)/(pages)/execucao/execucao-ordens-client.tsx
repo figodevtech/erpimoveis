@@ -15,7 +15,10 @@ import {
   LayoutGrid,
   SlidersHorizontal,
 } from "lucide-react";
-import { createClient } from "@supabase/supabase-js";
+import { useRealtimeTabelas } from "@/hooks/use-realtime-tabelas";
+
+/** Módulo, não literal: um array novo a cada render reiniciaria a inscrição. */
+const TABELAS_REALTIME = ["ordemservico", "osservico", "osservico_realizador"];
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -315,49 +318,29 @@ export default function ExecucaoOrdensClient() {
     void loadOrdens();
   }, [loadOrdens]);
 
-  // Realtime Supabase
-  React.useEffect(() => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!url || !anon) return;
+  // Realtime Supabase: OS principal (status), realizadores (quem iniciou ou
+  // finalizou) e serviços da OS (adição/remoção).
+  //
+  // Isto dependia de `loadOrdens`, que muda de identidade junto com o campo de
+  // busca — cada tecla digitada aqui derrubava e recriava três inscrições.
+  useRealtimeTabelas(TABELAS_REALTIME, () => {
+    setRealtimeNotice("Alteracao detectada. Sincronizando...");
 
-    const supabase = createClient(url, anon);
-    const scheduleSilentSync = () => {
-      setRealtimeNotice("Alteracao detectada. Sincronizando...");
+    if (realtimeTimerRef.current) {
+      window.clearTimeout(realtimeTimerRef.current);
+    }
 
-      if (realtimeTimerRef.current) {
-        window.clearTimeout(realtimeTimerRef.current);
-      }
+    realtimeTimerRef.current = window.setTimeout(() => {
+      void loadOrdens({ silent: true, realtime: true });
+    }, 450);
+  });
 
-      realtimeTimerRef.current = window.setTimeout(() => {
-        void loadOrdens({ silent: true, realtime: true });
-      }, 450);
-    };
-
-    const channel = supabase
-      .channel("execucao-changes")
-      // OS principal — mudança de status
-      .on("postgres_changes", { event: "*", schema: "public", table: "ordemservico" }, () => {
-        scheduleSilentSync();
-      })
-      // Realizadores — quem iniciou/finalizou
-      .on("postgres_changes", { event: "*", schema: "public", table: "osservico_realizador" }, () => {
-        scheduleSilentSync();
-      })
-      // Serviços da OS — adição/remoção
-      .on("postgres_changes", { event: "*", schema: "public", table: "osservico" }, () => {
-        scheduleSilentSync();
-      })
-      .subscribe();
-
-    return () => {
-      if (realtimeTimerRef.current) {
-        window.clearTimeout(realtimeTimerRef.current);
-        realtimeTimerRef.current = null;
-      }
-      void supabase.removeChannel(channel);
-    };
-  }, [loadOrdens]);
+  React.useEffect(() => () => {
+    if (realtimeTimerRef.current) {
+      window.clearTimeout(realtimeTimerRef.current);
+      realtimeTimerRef.current = null;
+    }
+  }, []);
 
   const servicosAssumiveis = React.useMemo(() => {
     const ordem = assumirTarget?.ordem;

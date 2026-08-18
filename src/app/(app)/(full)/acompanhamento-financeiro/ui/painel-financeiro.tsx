@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { useRealtimeTabelas } from "@/hooks/use-realtime-tabelas";
+
+/** Módulo, não literal: um array novo a cada render reiniciaria a inscrição. */
+const TABELAS_REALTIME = ["ordemservico", "transacao", "venda"];
 import { AlertCircle, Building2, Clock3, Eye, EyeOff, Layers3, Loader2, RefreshCcw, WalletCards } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -204,23 +207,10 @@ export default function PainelFinanceiro() {
     void carregar();
   }, [carregar]);
 
-  useEffect(() => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!url || !key) return;
-    const client = createClient(url, key, { realtime: { params: { eventsPerSecond: 5 } } });
-    const handleRealtimeChange = () => {
-      void doorbell();
-      void carregar();
-    };
-    const channel = client
-      .channel("acompanhamento-financeiro")
-      .on("postgres_changes", { event: "*", schema: "public", table: "transacao" }, handleRealtimeChange)
-      .on("postgres_changes", { event: "*", schema: "public", table: "ordemservico" }, handleRealtimeChange)
-      .on("postgres_changes", { event: "*", schema: "public", table: "venda" }, handleRealtimeChange)
-      .subscribe();
-    return () => { void client.removeChannel(channel); };
-  }, [carregar, doorbell]);
+  useRealtimeTabelas(TABELAS_REALTIME, () => {
+    void doorbell();
+    void carregar();
+  });
 
   const nomeSetor = useMemo(
     () => setor === "all" ? "Todos os setores" : setores.find((item) => String(item.id) === setor)?.nome || "Setor",

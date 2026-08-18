@@ -2,7 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
-import { createClient } from "@supabase/supabase-js";
+import { useRealtimeTabelas } from "@/hooks/use-realtime-tabelas";
+
+/** Módulo, não literal: um array novo a cada render reiniciaria a inscrição. */
+const TABELAS_REALTIME = ["ordemservico"];
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -400,36 +403,20 @@ export function OrdensTabela({
     setPage(1);
   }, [apenasMinhas, prioFiltro, setorFiltro, alvoFiltro, dataInicio, dataFim]);
 
+  // Antes isto criava um client Supabase próprio e trocava de canal a cada aba
+  // de status. Agora divide a inscrição com os contadores das abas.
+  useRealtimeTabelas(TABELAS_REALTIME, () => {
+    const nowTs = Date.now();
+    if (nowTs - lastRealtimeRef.current < 700) return;
+    lastRealtimeRef.current = nowTs;
+    fetchNow(currentParamsRef.current, { silent: true });
+  });
+
   useEffect(() => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-    if (!url || !anon) return;
-
-    const supabase = createClient(url, anon, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-
-    const suffix = statusesKey ? statusesKey.replace(/\|/g, "+") : "all";
-    const channelName = `os-realtime-list-${suffix}`;
-
-    const ch = supabase
-      .channel(channelName)
-      .on("postgres_changes", { event: "*", schema: "public", table: "ordemservico" }, () => {
-        const nowTs = Date.now();
-        if (nowTs - lastRealtimeRef.current < 700) return;
-        lastRealtimeRef.current = nowTs;
-        fetchNow(currentParamsRef.current, { silent: true });
-      })
-      .subscribe();
-
     const onLocalRefresh = () => fetchNow(currentParamsRef.current, { silent: true });
     window.addEventListener("os:refresh", onLocalRefresh);
-
-    return () => {
-      window.removeEventListener("os:refresh", onLocalRefresh);
-      supabase.removeChannel(ch);
-    };
-  }, [statusesKey]);
+    return () => window.removeEventListener("os:refresh", onLocalRefresh);
+  }, []);
 
   const pageCount = rows.length;
   const start = limit * (page - 1) + (pageCount ? 1 : 0);

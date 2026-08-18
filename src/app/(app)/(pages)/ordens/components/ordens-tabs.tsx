@@ -15,7 +15,10 @@ import {
 } from "lucide-react";
 import { OrdensTabela } from "./ordens-tabela";
 import { Button } from "@/components/ui/button";
-import { createClient } from "@supabase/supabase-js";
+import { useRealtimeTabelas } from "@/hooks/use-realtime-tabelas";
+
+/** Módulo, não literal: um array novo a cada render reiniciaria a inscrição. */
+const TABELAS_REALTIME = ["ordemservico"];
 
 /** Status que existem no banco */
 export type StatusOS =
@@ -171,25 +174,8 @@ export function OrdensTabs({
     void Promise.resolve().then(loadStats);
   }, []);
 
-  // Realtime contadores
-  useEffect(() => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-    if (!url || !anon) return;
-
-    const supabase = createClient(url, anon, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-
-    const channel = supabase
-      .channel("os-realtime-stats")
-      .on("postgres_changes", { event: "*", schema: "public", table: "ordemservico" }, () => loadStats())
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
+  // Realtime contadores — mesmo canal que a tabela de ordens usa.
+  useRealtimeTabelas(TABELAS_REALTIME, loadStats);
 
   return (
     <div className="space-y-4">

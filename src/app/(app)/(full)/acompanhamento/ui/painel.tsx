@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { useRealtimeTabelas } from "@/hooks/use-realtime-tabelas";
+
+/** Módulo, não literal: um array novo a cada render reiniciaria a inscrição. */
+const TABELAS_REALTIME = ["ordemservico"];
 
 import { listarQuadro, listarSetoresAtivos, QuadItem, SetorItem } from "../lib/api";
 
@@ -305,27 +308,7 @@ export default function PainelAcompanhamento({
   }, [setorSelecionado, load]);
 
   // realtime
-  useEffect(() => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-    if (!url || !anon) return;
-
-    const sb = createClient(url, anon, { realtime: { params: { eventsPerSecond: 5 } } });
-
-    const ch = sb
-  .channel("acompanhamento-public")
-  .on("postgres_changes", { event: "*", schema: "public", table: "ordemservico" }, (payload) => {
-    console.log("REALTIME:", payload.eventType, payload)
-    void load()
-  })
-  .subscribe((status) => console.log("STATUS:", status))
-
-    return () => {
-      try {
-        void sb.removeChannel(ch);
-      } catch {}
-    };
-  }, [setorSelecionado, load]);
+  useRealtimeTabelas(TABELAS_REALTIME, () => void load());
 
   const textoSetor = useMemo(() => {
     if (!setorSelecionado) return "Selecione um setor";
