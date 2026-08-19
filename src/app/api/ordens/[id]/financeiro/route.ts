@@ -56,7 +56,7 @@ export async function GET(_: Request, { params }: Params) {
         .from("transacao")
         .select(`
           id, descricao, descricao_pagamento, valor, valorLiquido, valor_base,
-          valor_acrescimos, valor_descontos, data, vencimento_em, pago_em,
+          valor_acrescimos, valor_descontos, valor_baixado, data, vencimento_em, pago_em,
           metodopagamento, categoria, categoria_id, plano_de_conta,
           plano_de_conta_id, centro_custo, centro_custo_id, tipo, pendente,
           cliente_id, banco_id, ordemservicoid, evento_financeiro_id,

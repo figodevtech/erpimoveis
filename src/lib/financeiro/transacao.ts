@@ -232,3 +232,47 @@ export function antecipadoComLancamento(
   if (transacao?.pendente === true) return false;
   return transacao?.banco_id != null;
 }
+
+/** As colunas que dizem quanto de um título já foi pago. */
+export interface TituloComSaldo {
+  valor?: number | string | null;
+  valorLiquido?: number | string | null;
+  valor_descontos?: number | string | null;
+  valor_baixado?: number | string | null;
+  tipo?: string | null;
+  pendente?: boolean | null;
+}
+
+/**
+ * Quanto ainda falta receber ou pagar num título.
+ *
+ * É contra o líquido, não contra o bruto: desconto concedido abate o que a
+ * pessoa deve, e cobrar o cheio depois de um abatimento seria cobrar o que já
+ * foi perdoado.
+ *
+ * Título sem baixa parcial devolve o líquido inteiro, que é o comportamento de
+ * sempre — `valor_baixado` nasce em zero e só sai disso pelo gatilho
+ * `transacao_baixa_parcial_trg`.
+ */
+export function saldoEmAberto(transacao: TituloComSaldo | null | undefined): number {
+  if (!transacao) return 0;
+
+  const liquido = valorLiquidoEfetivo(transacao);
+  const baixado = Number(transacao.valor_baixado ?? 0);
+  const baixadoSeguro = Number.isFinite(baixado) && baixado > 0 ? baixado : 0;
+
+  const saldo = Math.round((liquido - baixadoSeguro) * 100) / 100;
+  return saldo > 0 ? saldo : 0;
+}
+
+/**
+ * O título foi pago em partes e ainda tem saldo?
+ *
+ * Serve para a lista mostrar o restante em vez do valor cheio, e para os
+ * agregados de "a receber"/"a pagar" não somarem dinheiro que já entrou.
+ */
+export function ehBaixaParcial(transacao: TituloComSaldo | null | undefined): boolean {
+  if (!transacao) return false;
+  const baixado = Number(transacao.valor_baixado ?? 0);
+  return Number.isFinite(baixado) && baixado > 0 && transacao.pendente === true;
+}

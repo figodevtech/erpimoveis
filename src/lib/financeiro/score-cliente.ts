@@ -16,6 +16,8 @@ export type TituloClienteInput = {
   id: number;
   valor: number;
   valorAcrescimos?: number | null;
+  /** Quanto de baixa parcial já cobriu o título. Zero, ou ausente, é o normal. */
+  valorBaixado?: number | null;
   pendente: boolean;
   data: string;
   vencimentoEm?: string | null;
@@ -146,14 +148,26 @@ export function calcularScoreCliente(
         : null;
 
     if (titulo.pendente) {
-      totalEmAberto += valor;
+      /*
+       * O que o cliente ainda deve, não o que o título valia.
+       *
+       * Um título de R$ 1.000 com R$ 400 já pagos pesa R$ 600 na conta dele —
+       * inclusive quando está vencido. Cobrar o cheio puniria por uma dívida que
+       * ele já reduziu, e é justamente o pagamento parcial que mostra que ele
+       * está tentando pagar.
+       */
+      const emAberto = arredondarDinheiro(
+        Math.max(valor - Math.max(Number(titulo.valorBaixado ?? 0) || 0, 0), 0),
+      );
+
+      totalEmAberto += emAberto;
       quantidadeEmAberto += 1;
 
       if (vencimento && vencimento < hoje) {
-        totalVencido += valor;
+        totalVencido += emAberto;
         quantidadeVencida += 1;
       } else {
-        totalAVencer += valor;
+        totalAVencer += emAberto;
       }
     } else {
       totalRecebido += valor;

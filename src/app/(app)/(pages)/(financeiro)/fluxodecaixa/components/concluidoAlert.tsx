@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import ValueInput from "@/components/ui/value-input";
 import {
   Select,
   SelectContent,
@@ -25,7 +26,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ehTituloAntecipado, valorLiquidoEfetivo } from "@/lib/financeiro/transacao";
+import {
+  ehTituloAntecipado,
+  saldoEmAberto,
+  valorLiquidoEfetivo,
+} from "@/lib/financeiro/transacao";
 import { toast } from "@/lib/toast";
 import { formatDate } from "@/utils/formatDate";
 import formatarEmReal from "@/utils/formatarEmReal";
@@ -61,6 +66,7 @@ export default function ConcluidoAlert({
   const [selectedCentroCustoId, setSelectedCentroCustoId] = useState("");
   const [dataPagamento, setDataPagamento] = useState("");
   const [lancarNoCaixa, setLancarNoCaixa] = useState(false);
+  const [valorBaixa, setValorBaixa] = useState(0);
 
   const { gruposPlanosDeConta, loadingPlanos } = usePlanosDeConta();
   const { centrosCusto, loadingCentrosCusto, errorCentrosCusto } = useCentrosCusto();
@@ -76,6 +82,9 @@ export default function ConcluidoAlert({
     // vezes, e deixá-la marcada de uma baixa anterior lançaria dinheiro que não
     // entrou na próxima.
     setLancarNoCaixa(false);
+    // Nasce no saldo: baixar tudo é o que se faz quase sempre, e quem vai receber
+    // menos edita o número.
+    setValorBaixa(saldoEmAberto(transaction));
     setDataPagamento(
       new Intl.DateTimeFormat("en-CA", {
         timeZone: "America/Sao_Paulo",
@@ -123,6 +132,15 @@ export default function ConcluidoAlert({
    */
   const antecipado = ehTituloAntecipado(transaction);
 
+  /*
+   * O saldo é o teto da baixa e o valor que o campo nasce mostrando. Num título
+   * que ainda não recebeu pagamento nenhum ele é o líquido inteiro, que era o
+   * único número que existia aqui antes.
+   */
+  const saldo = saldoEmAberto(transaction);
+  const parcial = Math.round(valorBaixa * 100) < Math.round(saldo * 100);
+  const restante = Math.round((saldo - valorBaixa) * 100) / 100;
+
   async function handleConfirmarPagamento() {
     if (!transaction || isSubmitting) return;
 
@@ -141,6 +159,16 @@ export default function ConcluidoAlert({
       return;
     }
 
+    if (valorBaixa <= 0) {
+      toast.error("Informe quanto está sendo pago.");
+      return;
+    }
+
+    if (Math.round(valorBaixa * 100) > Math.round(saldo * 100)) {
+      toast.error("O valor da baixa passa do saldo em aberto do título.");
+      return;
+    }
+
     try {
       setIsSubmitting(true);
 
@@ -151,6 +179,10 @@ export default function ConcluidoAlert({
         planoContaId: selectedPlanoId ? Number(selectedPlanoId) : null,
         centroCustoId: selectedCentroCustoId ? Number(selectedCentroCustoId) : null,
         lancarNoCaixa: antecipado && lancarNoCaixa,
+        // Só vai quando é menos que o saldo. Mandar o cheio empurraria o título
+        // para o caminho da baixa parcial sem necessidade, criando uma transação
+        // filha onde o título dá conta sozinho.
+        valor: parcial ? valorBaixa : null,
       });
 
       toast.success("Transação concluída com sucesso!");
@@ -226,10 +258,14 @@ export default function ConcluidoAlert({
             */}
             <div className="shrink-0 text-right">
               <p className="text-lg font-semibold text-primary">
-                {formatarEmReal(liquido)}
+                {formatarEmReal(saldo < liquido ? saldo : liquido)}
               </p>
               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                {antecipado && !lancarNoCaixa ? "Valor do título" : "Entra na conta"}
+                {antecipado && !lancarNoCaixa
+                  ? "Valor do título"
+                  : saldo < liquido
+                    ? "Saldo em aberto"
+                    : "Entra na conta"}
               </p>
             </div>
           </div>
@@ -277,6 +313,36 @@ export default function ConcluidoAlert({
         </section>
 
         <div className="grid min-w-0 gap-4 sm:grid-cols-2 p-4 rounded-xl bg-card border">
+          {/*
+            Quanto está sendo pago agora.
+
+            Vem preenchido com o saldo porque baixar tudo é o caso de quase
+            sempre; trocar por menos registra um pagamento parcial, e o título
+            continua em aberto pelo que falta.
+          */}
+          <div className="min-w-0 space-y-2 sm:col-span-2">
+            <Label htmlFor="baixa-valor">
+              Valor pago <span className="text-destructive">*</span>
+            </Label>
+            <ValueInput
+              id="baixa-valor"
+              value={valorBaixa}
+              onValueChange={setValorBaixa}
+              disabled={isSubmitting}
+            />
+            {parcial ? (
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                Baixa parcial: restam {formatarEmReal(restante)} em aberto neste
+                título depois desta.
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Baixa o saldo inteiro e encerra o título. Informe menos para
+                registrar um pagamento parcial.
+              </p>
+            )}
+          </div>
+
           <div className="min-w-0 space-y-2 sm:col-span-2">
             <Label>
               Data do pagamento <span className="text-destructive">*</span>

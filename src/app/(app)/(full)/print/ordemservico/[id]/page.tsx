@@ -468,6 +468,7 @@ export default async function OSFullPage({ params }: PageProps) {
   :root{
     --brand-primary:${printColors.primary};
     --brand-secondary:${printColors.secondary};
+    --brand-header-text:${printColors.text};
     --brand-accent:#0f766e;
     
     --ink:#0f172a;
@@ -495,8 +496,6 @@ export default async function OSFullPage({ params }: PageProps) {
   ${PRINT_DOCUMENT_HEADER_CSS}
 
   @media print {
-    .os-observacoes { display: block !important; }
-
     :root{
       --a4w: 210mm;
       --a4h: 297mm;

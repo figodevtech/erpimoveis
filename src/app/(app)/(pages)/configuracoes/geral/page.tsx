@@ -208,6 +208,7 @@ export default function ConfigGeralPage() {
       agendamento_dias_trabalho: [1, 2, 3, 4, 5],
       impressao_cor_primaria: "#2563eb",
       impressao_cor_secundaria: "#0891b2",
+      impressao_cor_texto: "#ffffff",
       modo_baixa_estoque_os: "ORCAMENTO",
       produto_preco_medio_compra_obrigatorio: false,
       produto_ncm_obrigatorio: false,
@@ -347,6 +348,7 @@ export default function ConfigGeralPage() {
   const diasTrabalho = watch("agendamento_dias_trabalho") ?? [1, 2, 3, 4, 5];
   const impressaoCorPrimaria = watch("impressao_cor_primaria") ?? "#2563eb";
   const impressaoCorSecundaria = watch("impressao_cor_secundaria") ?? "#0891b2";
+  const impressaoCorTexto = watch("impressao_cor_texto") ?? "#ffffff";
   const percentualPlacas =
     limitePlacas > 0 ? Math.min(100, Math.round((usadasPlacas / limitePlacas) * 100)) : 100;
 
@@ -575,7 +577,7 @@ export default function ConfigGeralPage() {
             </div>
             <CardDescription>Cores usadas nos modelos de OS e orcamento de venda.</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-4 py-6 md:grid-cols-2">
+          <CardContent className="grid gap-4 py-6 md:grid-cols-3">
             <div className="space-y-2">
               <Label>Cor primaria</Label>
               <div className="flex gap-3">
@@ -609,6 +611,58 @@ export default function ConfigGeralPage() {
                   placeholder="#0891b2"
                   className="font-mono"
                 />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Cor do texto</Label>
+              <div className="flex gap-3">
+                <Input
+                  type="color"
+                  className="h-10 w-14 shrink-0 p-1"
+                  value={colorPickerValue(impressaoCorTexto, "#ffffff")}
+                  onChange={(event) => setValue("impressao_cor_texto", event.target.value, { shouldDirty: true })}
+                />
+                <Input
+                  value={impressaoCorTexto}
+                  onChange={(event) => setValue("impressao_cor_texto", event.target.value, { shouldDirty: true })}
+                  placeholder="#ffffff"
+                  className="font-mono"
+                />
+              </div>
+            </div>
+
+            {/* A cor do texto so faz sentido vista sobre a barra: sem a previa,
+                so da para descobrir que ficou ilegivel imprimindo. */}
+            <div className="md:col-span-3 space-y-2">
+              <Label>Previa do cabecalho</Label>
+              <div
+                className="flex items-center justify-between gap-4 rounded-lg px-4 py-3"
+                style={{
+                  background: `linear-gradient(135deg, ${colorPickerValue(impressaoCorPrimaria, "#2563eb")}, ${colorPickerValue(impressaoCorSecundaria, "#0891b2")})`,
+                  color: colorPickerValue(impressaoCorTexto, "#ffffff"),
+                }}
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-base font-bold">
+                    {empresaResumo?.nome || "Sua empresa"}
+                  </div>
+                  <div className="truncate text-[10px] opacity-95">
+                    CNPJ {empresaResumo?.cnpj || "00.000.000/0001-00"}
+                  </div>
+                </div>
+                <div
+                  className="shrink-0 rounded-lg px-3 py-2 text-right"
+                  style={{
+                    background: `color-mix(in srgb, ${colorPickerValue(impressaoCorTexto, "#ffffff")} 15%, transparent)`,
+                    border: `1px solid color-mix(in srgb, ${colorPickerValue(impressaoCorTexto, "#ffffff")} 30%, transparent)`,
+                  }}
+                >
+                  <div className="text-[8px] font-extrabold uppercase tracking-[.2em] opacity-90">
+                    Ordem de Servico
+                  </div>
+                  <div className="text-2xl font-black leading-none">#123</div>
+                </div>
               </div>
             </div>
           </CardContent>

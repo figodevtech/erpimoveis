@@ -325,6 +325,7 @@ export default async function ClientePrintPage({ params }: PageProps) {
   :root{
     --brand-primary:${printColors.primary};
     --brand-secondary:${printColors.secondary};
+    --brand-header-text:${printColors.text};
 
     --ink:#0f172a;
     --muted:#64748b;
@@ -406,7 +407,7 @@ export default async function ClientePrintPage({ params }: PageProps) {
   .header{
     background: linear-gradient(135deg, var(--brand-primary), var(--brand-secondary));
     padding: 14px 16px;
-    color:#fff;
+    color:var(--brand-header-text, #ffffff);
     display:grid;
     grid-template-columns: auto 1fr auto;
     gap: 16px;
@@ -439,8 +440,8 @@ export default async function ClientePrintPage({ params }: PageProps) {
   .titular-details{ font-size:9px; opacity:.95; line-height:1.4; overflow-wrap:anywhere; }
 
   .doc-box{
-    background: rgba(255,255,255,.15);
-    border: 1px solid rgba(255,255,255,.3);
+    background: color-mix(in srgb, var(--brand-header-text, #ffffff) 15%, transparent);
+    border: 1px solid color-mix(in srgb, var(--brand-header-text, #ffffff) 30%, transparent);
     border-radius:10px;
     padding: 10px 14px;
     text-align:right;

@@ -5,6 +5,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
+import { saldoEmAberto } from "@/lib/financeiro/transacao";
+
 import { filtroDeBusca } from "../_lib/busca";
 
 /**
@@ -30,6 +32,21 @@ const soma = (linhas: Array<{ valor?: unknown; valorLiquido?: unknown }> | null)
     const efetivo = Number.isFinite(liquido) && liquido > 0 ? liquido : bruto;
     return total + Math.round((Number.isFinite(efetivo) ? efetivo : 0) * 100);
   }, 0) / 100;
+
+/*
+ * Em aberto é o que FALTA, não o valor de face.
+ *
+ * Um título de R$ 1.000 com R$ 400 já pagos deve R$ 600, e é esse o número que
+ * responde "quanto ainda tenho a receber". Somar o cheio contaria de novo o
+ * dinheiro que já está na conta — ele entrou pela transação da baixa parcial.
+ */
+const somaSaldo = (
+  linhas: Array<Parameters<typeof saldoEmAberto>[0]> | null,
+) =>
+  (linhas ?? []).reduce(
+    (total, linha) => total + Math.round(saldoEmAberto(linha) * 100),
+    0,
+  ) / 100;
 
 export async function GET(req: NextRequest) {
   try {
@@ -70,7 +87,7 @@ export async function GET(req: NextRequest) {
     const base = () => {
       let q = supabaseAdmin
         .from("transacao")
-        .select('valor, "valorLiquido"')
+        .select('valor, "valorLiquido", valor_descontos, valor_baixado, tipo, pendente')
         .eq("is_deleted", false);
 
       if (dateFrom) q = q.gte("data", new Date(`${dateFrom}T00:00:00${FORTALEZA}`).toISOString());
@@ -110,12 +127,27 @@ export async function GET(req: NextRequest) {
       ];
     } else if (viewMode === "A_PAGAR" || viewMode === "A_RECEBER") {
       const tipo = viewMode === "A_PAGAR" ? "DESPESA" : "RECEITA";
+      /*
+       * O título antecipado e ainda em aberto fica de fora da conta.
+       *
+       * Ele aparece na lista de propósito — a cobrança precisa acompanhar o
+       * vencimento e ver se o pagador vai honrar o boleto. Mas o dinheiro dele já
+       * entrou, pela antecipação, e somá-lo aqui responderia "tenho isto a
+       * receber" sobre um valor que já está na conta.
+       *
+       * Vale nos três cartões, e não só no total: "A vencer" é calculado como
+       * total menos vencido, então tirar de um lado só faria a subtração
+       * desandar.
+       */
+      const emAberto = () =>
+        base().eq("pendente", true).eq("tipo", tipo).is("adiantamento_id", null);
+
       const [tudo, vencido] = await Promise.all([
-        base().eq("pendente", true).eq("tipo", tipo),
-        base().eq("pendente", true).eq("tipo", tipo).lt("data", hoje),
+        emAberto(),
+        emAberto().lt("data", hoje),
       ]);
-      const total = soma(tudo.data);
-      const atrasado = soma(vencido.data);
+      const total = somaSaldo(tudo.data);
+      const atrasado = somaSaldo(vencido.data);
       kpis = [
         {
           rotulo: viewMode === "A_PAGAR" ? "Total a pagar" : "Total a receber",
@@ -133,8 +165,8 @@ export async function GET(req: NextRequest) {
       // Liquidadas: tudo que foi baixado, com conta ou sem — inclui os títulos
       // quitados por antecipação, que não aparecem no Fluxo.
       const [recebido, pago] = await Promise.all([
-        base().eq("pendente", false).in("tipo", ["RECEITA", "DEPOSITO"]),
-        base().eq("pendente", false).in("tipo", ["DESPESA", "SAQUE"]),
+        base().eq("pendente", false).is("baixa_de_transacao_id", null).in("tipo", ["RECEITA", "DEPOSITO"]),
+        base().eq("pendente", false).is("baixa_de_transacao_id", null).in("tipo", ["DESPESA", "SAQUE"]),
       ]);
       const entrou = soma(recebido.data);
       const saiu = soma(pago.data);

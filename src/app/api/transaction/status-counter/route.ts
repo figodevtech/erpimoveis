@@ -81,7 +81,13 @@ export async function GET(req: Request) {
       .eq("tipo", TIPO_RECEITA).eq("pendente", false).eq("is_deleted", false)
       .gte("data", startISO)
       .lt("data", nextStartISO);
+    /*
+     * Sem o recorte do extrato, a baixa parcial sairia somada duas vezes: uma no
+     * título que ela fechou e outra nela mesma. Fica o título, que é a obrigação
+     * quitada; as baixas contam no Fluxo, onde o filtro de banco já as separa.
+     */
     if (comBanco) receitasQuery = receitasQuery.not("banco_id", "is", null);
+    else receitasQuery = receitasQuery.is("baixa_de_transacao_id", null);
 
     const { data: receitas, error: recErr } = await receitasQuery;
     if (recErr) throw recErr;
@@ -94,6 +100,7 @@ export async function GET(req: Request) {
       .gte("data", startISO)
       .lt("data", nextStartISO);
     if (comBanco) despesasQuery = despesasQuery.not("banco_id", "is", null);
+    else despesasQuery = despesasQuery.is("baixa_de_transacao_id", null);
 
     const { data: despesas, error: despErr } = await despesasQuery;
     if (despErr) throw despErr;

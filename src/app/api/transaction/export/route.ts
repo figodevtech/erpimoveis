@@ -18,7 +18,7 @@ const FORTALEZA_OFFSET = "-03:00";
  *           cliente_id, banco_id, created_at, updated_at
  */
 const TRANSACAO_FIELDS =
-  'id, descricao, descricao_pagamento, valor, "valorLiquido", nomepagador, cpfcnpjpagador, pendente, data, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, banco_id, created_at, updated_at';
+  'id, descricao, descricao_pagamento, valor, "valorLiquido", valor_descontos, valor_baixado, baixa_de_transacao_id, nomepagador, cpfcnpjpagador, pendente, data, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, banco_id, created_at, updated_at';
 
 /** bancoconta: id, titulo, ... , created_at, updated_at */
 const BANCO_FIELDS = "id, titulo, created_at, updated_at";

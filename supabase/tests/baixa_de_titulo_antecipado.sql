@@ -68,12 +68,13 @@ DECLARE
 BEGIN
   /* ---------------- pré-requisitos ---------------- */
 
-  IF to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid,boolean)') IS NULL THEN
-    RAISE EXCEPTION 'baixar_transacao_pendente ainda nao aceita p_lancar_no_caixa. Rode as migrations.';
+  IF to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid,boolean,numeric)') IS NULL THEN
+    RAISE EXCEPTION 'baixar_transacao_pendente ainda nao aceita p_lancar_no_caixa/p_valor. Rode as migrations.';
   END IF;
 
-  IF to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid)') IS NOT NULL THEN
-    RAISE EXCEPTION 'A assinatura antiga de 7 argumentos ficou para tras: a chamada por nome fica ambigua.';
+  IF to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid)') IS NOT NULL
+     OR to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid,boolean)') IS NOT NULL THEN
+    RAISE EXCEPTION 'Sobrou uma assinatura antiga de baixar_transacao_pendente: a chamada por nome fica ambigua.';
   END IF;
 
   IF NOT EXISTS (

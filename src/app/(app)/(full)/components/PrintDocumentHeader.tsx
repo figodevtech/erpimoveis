@@ -51,10 +51,7 @@ export function PrintDocumentHeader({
       <div className="os-header-box">
         <div className="os-label">{documentLabel}</div>
         <h1 className="os-numero">#{documentNumber}</h1>
-        <Badge
-          className="border-white/50 bg-white/10 text-[10px] font-bold text-white"
-          variant="outline"
-        >
+        <Badge className="os-status-badge text-[10px] font-bold" variant="outline">
           {status}
         </Badge>
       </div>
@@ -67,7 +64,7 @@ export const PRINT_DOCUMENT_HEADER_CSS = `
   .header-os{
     background:linear-gradient(135deg, var(--brand-primary), var(--brand-secondary));
     padding:14px 16px;
-    color:#fff;
+    color:var(--brand-header-text, #ffffff);
     display:grid;
     grid-template-columns:auto minmax(0, 1fr) auto;
     gap:16px;
@@ -124,14 +121,22 @@ export const PRINT_DOCUMENT_HEADER_CSS = `
     overflow-wrap:anywhere;
   }
 
+  /* Borda e fundo saem da propria cor do texto: a caixa continua legivel tanto
+     com texto claro sobre barra escura quanto com texto escuro sobre barra clara. */
   .os-header-box{
     min-width:140px;
     padding:10px 14px;
-    border:1px solid rgba(255,255,255,.3);
+    border:1px solid color-mix(in srgb, var(--brand-header-text, #ffffff) 30%, transparent);
     border-radius:10px;
-    background:rgba(255,255,255,.15);
+    background:color-mix(in srgb, var(--brand-header-text, #ffffff) 15%, transparent);
     backdrop-filter:blur(10px);
     text-align:right;
+  }
+
+  .os-status-badge{
+    border-color:color-mix(in srgb, var(--brand-header-text, #ffffff) 50%, transparent) !important;
+    background:color-mix(in srgb, var(--brand-header-text, #ffffff) 10%, transparent) !important;
+    color:var(--brand-header-text, #ffffff) !important;
   }
 
   .os-label{

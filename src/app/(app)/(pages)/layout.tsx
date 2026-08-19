@@ -29,6 +29,7 @@ const DEFAULT_CONFIG: Config = {
   agendamento_dias_trabalho: [1, 2, 3, 4, 5],
   impressao_cor_primaria: "#2563eb",
   impressao_cor_secundaria: "#0891b2",
+  impressao_cor_texto: "#ffffff",
   modo_baixa_estoque_os: "ORCAMENTO",
   produto_preco_medio_compra_obrigatorio: false,
   produto_ncm_obrigatorio: false,

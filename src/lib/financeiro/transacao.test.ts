@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   antecipadoComLancamento,
+  ehBaixaParcial,
+  saldoEmAberto,
   ehTituloAntecipado,
   origemDaTransacao,
   tipoEhEditavel,
@@ -233,4 +235,55 @@ test("título comum nunca é antecipado com lançamento, mesmo com banco", () =>
     antecipadoComLancamento({ adiantamento_id: null, pendente: false, banco_id: 3 }),
     false,
   );
+});
+
+test("título sem baixa parcial tem o líquido inteiro em aberto", () => {
+  assert.equal(saldoEmAberto({ valor: 1000, valorLiquido: 1000, pendente: true }), 1000);
+  assert.equal(saldoEmAberto({ valor: 1000, valorLiquido: 1000, valor_baixado: 0 }), 1000);
+  assert.equal(saldoEmAberto(null), 0);
+});
+
+test("a baixa parcial abate o saldo", () => {
+  assert.equal(
+    saldoEmAberto({ valor: 1000, valorLiquido: 1000, valor_baixado: 400, pendente: true }),
+    600,
+  );
+  // Coberto por completo não deixa resto, nem negativo.
+  assert.equal(
+    saldoEmAberto({ valor: 1000, valorLiquido: 1000, valor_baixado: 1000 }),
+    0,
+  );
+  assert.equal(
+    saldoEmAberto({ valor: 1000, valorLiquido: 1000, valor_baixado: 1200 }),
+    0,
+  );
+});
+
+test("o saldo é contra o líquido, não contra o bruto", () => {
+  // Desconto abate o que a pessoa deve; cobrar o cheio seria cobrar o perdoado.
+  assert.equal(
+    saldoEmAberto({
+      valor: 1000,
+      valorLiquido: 900,
+      valor_descontos: 100,
+      valor_baixado: 400,
+      tipo: "RECEITA",
+    }),
+    500,
+  );
+});
+
+test("saldo em centavos não sofre com ponto flutuante", () => {
+  assert.equal(
+    saldoEmAberto({ valor: "1030.10", valorLiquido: "1030.10", valor_baixado: "30.10" }),
+    1000,
+  );
+});
+
+test("só é baixa parcial o título que ainda tem saldo", () => {
+  assert.equal(ehBaixaParcial({ valor_baixado: 400, pendente: true }), true);
+  // Coberto e fechado deixa de ser parcial: virou um título pago.
+  assert.equal(ehBaixaParcial({ valor_baixado: 1000, pendente: false }), false);
+  assert.equal(ehBaixaParcial({ valor_baixado: 0, pendente: true }), false);
+  assert.equal(ehBaixaParcial(null), false);
 });

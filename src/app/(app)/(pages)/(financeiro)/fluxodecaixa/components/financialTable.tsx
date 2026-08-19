@@ -76,7 +76,12 @@ import {
   Transaction,
   type TransactionRelationFilters,
 } from "../types";
-import { antecipadoComLancamento, valorLiquidoEfetivo } from "@/lib/financeiro/transacao";
+import {
+  antecipadoComLancamento,
+  ehBaixaParcial,
+  saldoEmAberto,
+  valorLiquidoEfetivo,
+} from "@/lib/financeiro/transacao";
 import { getCategoryIcon, getTypeColor } from "../utils";
 import { ExportTransactionsButton } from "./ExportTransactionsButton";
 import ConcluidoAlert from "./concluidoAlert";
@@ -803,6 +808,28 @@ export default function FinancialTable({
                             ) : null}
                           </>
                         ) : null}
+
+                        {/*
+                          O título pago em partes fica lado a lado com os que não
+                          receberam nada, em "a receber"/"a pagar". Sem este aviso
+                          não há como distinguir um do outro na varredura — e a
+                          diferença muda a conversa da cobrança, porque parte da
+                          dívida já foi honrada.
+                        */}
+                        {ehBaixaParcial(t) ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="inline-flex cursor-default items-center rounded-sm border border-amber-600/40 bg-amber-600/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                                Parcial
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" align="start">
+                              Já foram pagos {formatarEmReal(Number(t.valor_baixado ?? 0))} de{" "}
+                              {formatarEmReal(valorLiquidoEfetivo(t))}. Os pagamentos
+                              aparecem no Fluxo, um a um.
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : null}
                       </span>
                       <span className="w-full truncate text-xs text-muted-foreground md:hidden">
                         {t.banco?.titulo ?? "Sem banco"} - {t.metodopagamento ?? "Método não definido"}
@@ -887,12 +914,23 @@ export default function FinancialTable({
                       {(t.tipo === "DESPESA" || t.tipo === "SAQUE") && "- "}
                       {/* Linha sem líquido (despesa, ou registro antigo) vale o
                           bruto — antes exibia R$ 0,00 com o bruto embaixo. */}
-                      {formatarEmReal(valorLiquidoEfetivo(t))}
-                      {Math.round(valorLiquidoEfetivo(t) * 100) !==
-                        Math.round(Number(t.valor ?? 0) * 100) && (
+                      {/* Em título parcial o número grande é o que falta: é o
+                          que se cobra hoje. O cheio fica embaixo, como o bruto. */}
+                      {formatarEmReal(
+                        ehBaixaParcial(t) ? saldoEmAberto(t) : valorLiquidoEfetivo(t),
+                      )}
+                      {ehBaixaParcial(t) ? (
                         <span className="text-xs text-muted-foreground">
-                          Bruto: {formatarEmReal(t.valor)}
+                          de {formatarEmReal(valorLiquidoEfetivo(t))} · pago{" "}
+                          {formatarEmReal(Number(t.valor_baixado ?? 0))}
                         </span>
+                      ) : (
+                        Math.round(valorLiquidoEfetivo(t) * 100) !==
+                          Math.round(Number(t.valor ?? 0) * 100) && (
+                          <span className="text-xs text-muted-foreground">
+                            Bruto: {formatarEmReal(t.valor)}
+                          </span>
+                        )
                       )}
                     </div>
                   </TableCell>

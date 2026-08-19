@@ -35,6 +35,22 @@ export async function POST(req: NextRequest, ctx: Params) {
      * campo recebe o comportamento de sempre.
      */
     const lancarNoCaixa = body?.lancarNoCaixa === true;
+    /*
+     * Baixa parcial: quanto deste título está sendo pago agora.
+     *
+     * Ausente é o comportamento de sempre — baixa o saldo inteiro. Menor que o
+     * saldo cria uma transação com o dinheiro, ligada ao título, que segue aberto
+     * pelo que falta. Quem valida o teto é a RPC, que é onde o saldo está.
+     */
+    const valorBruto = body?.valor;
+    const valor =
+      valorBruto == null || valorBruto === "" ? null : Number(valorBruto);
+    if (valor != null && (!Number.isFinite(valor) || valor <= 0)) {
+      return NextResponse.json(
+        { error: "O valor da baixa deve ser um número maior que zero." },
+        { status: 400 },
+      );
+    }
 
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dataPagamento)) {
       return NextResponse.json({ error: "Informe uma data de pagamento válida." }, { status: 400 });
@@ -56,6 +72,7 @@ export async function POST(req: NextRequest, ctx: Params) {
       p_centro_custo_id: Number.isSafeInteger(centroCustoId) ? centroCustoId : null,
       p_baixado_por: (session?.user as any)?.id ?? null,
       p_lancar_no_caixa: lancarNoCaixa,
+      p_valor: valor,
     });
 
     if (error) {

@@ -76,3 +76,55 @@ test("fim da execução depende da quitação", () => {
   assert.equal(statusAposEncerrarExecucao(false), "PAGAMENTO");
   assert.equal(statusAposEncerrarExecucao(true), "CONCLUIDO");
 });
+
+test("título pago pela metade conta nos dois lados do resumo", () => {
+  // Um título de R$ 1.000 com R$ 400 já pagos é recebimento e pendência ao mesmo
+  // tempo. Tratá-lo como uma coisa só falsearia os dois lados.
+  const resumo = calcularResumoFinanceiroOs({
+    totalComercial: 1_000,
+    transacoes: [
+      { tipo: "RECEITA", valor: 1_000, pendente: true, valor_baixado: 400 },
+    ],
+  });
+
+  assert.equal(resumo.valorRecebido, 400);
+  assert.equal(resumo.valorPendente, 600);
+  // O compromisso não mudou por causa da forma de pagar.
+  assert.equal(resumo.valorComprometido, 1_000);
+  assert.equal(resumo.saldoAReceber, 600);
+  assert.equal(resumo.quitada, true);
+});
+
+test("baixa parcial não altera o resumo de quem não tem nenhuma", () => {
+  const semParcial = calcularResumoFinanceiroOs({
+    totalComercial: 1_000,
+    transacoes: [{ tipo: "RECEITA", valor: 1_000, pendente: true }],
+  });
+  const comZero = calcularResumoFinanceiroOs({
+    totalComercial: 1_000,
+    transacoes: [{ tipo: "RECEITA", valor: 1_000, pendente: true, valor_baixado: 0 }],
+  });
+
+  assert.deepEqual(comZero, semParcial);
+  assert.equal(semParcial.valorRecebido, 0);
+  assert.equal(semParcial.valorPendente, 1_000);
+});
+
+test("o acréscimo fica fora da parte paga, como no valor de face", () => {
+  const resumo = calcularResumoFinanceiroOs({
+    totalComercial: 1_000,
+    transacoes: [
+      {
+        tipo: "RECEITA",
+        valor: 1_050,
+        valor_acrescimos: 50,
+        pendente: true,
+        valor_baixado: 400,
+      },
+    ],
+  });
+
+  // Face é 1.000; pagos 400; falta 600. O juros não infla o que a OS deve.
+  assert.equal(resumo.valorRecebido, 400);
+  assert.equal(resumo.valorPendente, 600);
+});

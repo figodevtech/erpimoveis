@@ -292,6 +292,7 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
         :root{
           --brand-primary:${printColors.primary};
           --brand-secondary:${printColors.secondary};
+          --brand-header-text:${printColors.text};
           --ink:#0f172a;
           --muted:#64748b;
           --border:#cbd5e1;

@@ -197,3 +197,38 @@ test("desconsidera acrescimos financeiros no valor de face", () => {
   assert.equal(resumo.totalEmAberto, 100);
   assert.equal(resumo.totalVencido, 100);
 });
+
+test("baixa parcial reduz o que o cliente ainda deve", () => {
+  // Cobrar o valor cheio puniria por uma dívida que ele já reduziu — e é o
+  // pagamento parcial que mostra que ele está tentando pagar.
+  const resumo = calcularScoreCliente(
+    [
+      titulo({
+        valor: 1_000,
+        valorBaixado: 400,
+        pendente: true,
+        vencimentoEm: "2026-09-10T12:00:00-03:00",
+      }),
+    ],
+    hoje,
+  );
+
+  assert.equal(resumo.totalEmAberto, 600);
+});
+
+test("título vencido pesa pelo saldo, não pelo valor de face", () => {
+  const resumo = calcularScoreCliente(
+    [
+      titulo({
+        valor: 1_000,
+        valorBaixado: 400,
+        pendente: true,
+        vencimentoEm: "2026-08-01T12:00:00-03:00",
+      }),
+    ],
+    hoje,
+  );
+
+  assert.equal(resumo.totalVencido, 600);
+  assert.equal(resumo.totalEmAberto, 600);
+});

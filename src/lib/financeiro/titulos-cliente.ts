@@ -26,7 +26,7 @@ async function carregarTransacoesPorOrigem(
     const { data, error } = await supabaseAdmin
       .from("transacao")
       .select(
-        `id, valor, valor_acrescimos, pendente, data, vencimento_em, pago_em, ordemservicoid, vendaid, metodopagamento, ${relacao}`,
+        `id, valor, valor_acrescimos, valor_baixado, pendente, data, vencimento_em, pago_em, ordemservicoid, vendaid, metodopagamento, ${relacao}`,
       )
       .eq(`${origem}.clienteid`, clienteId)
       .eq("tipo", "RECEITA")
@@ -70,6 +70,7 @@ export async function carregarTitulosDoCliente(
     id: Number(transacao.id),
     valor: numero(transacao.valor),
     valorAcrescimos: numero(transacao.valor_acrescimos),
+    valorBaixado: numero(transacao.valor_baixado),
     pendente: Boolean(transacao.pendente),
     data: String(transacao.data),
     vencimentoEm: transacao.vencimento_em ?? null,

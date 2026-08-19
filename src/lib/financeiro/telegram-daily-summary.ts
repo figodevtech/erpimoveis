@@ -34,7 +34,7 @@ async function loadTransactions(referenceDate: string, includeOverdue: boolean) 
   for (let from = 0; ; from += 1000) {
     let query = supabaseAdmin
       .from("transacao")
-      .select('id, descricao, valor, "valorLiquido", valor_descontos, tipo, data, categoria, ordemservicoid, vendaid, fornecedor:fornecedor_id(nomerazaosocial, nomefantasia)')
+      .select('id, descricao, valor, "valorLiquido", valor_descontos, valor_baixado, pendente, tipo, data, categoria, ordemservicoid, vendaid, fornecedor:fornecedor_id(nomerazaosocial, nomefantasia)')
       .eq("is_deleted", false)
       .eq("pendente", true)
       .eq("tipo", "DESPESA")

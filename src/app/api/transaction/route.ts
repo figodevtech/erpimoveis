@@ -78,7 +78,7 @@ const ORDENAVEIS = new Set([
 const FORTALEZA_OFFSET = "-03:00";
 
 const TRANSACAO_FIELDS =
-  "id, descricao, descricao_pagamento, valor, valorLiquido, valor_base, valor_acrescimos, valor_descontos, adiantamento_id, eh_adiantamento, pagamento_multiplo_id, nomepagador, cpfcnpjpagador, pendente, data, competencia_em, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, fornecedor_id, banco_id, documento_tipo_id, documento_numero, documento_serie, documento_chave, documento_emitido_em, documento_valor, documento_observacao, bandeira_id, bandeira_parcelas, bandeira_taxa_percentual, bandeira_taxa_ajustada, created_at, updated_at";
+  "id, descricao, descricao_pagamento, valor, valorLiquido, valor_base, valor_acrescimos, valor_descontos, valor_baixado, baixa_de_transacao_id, adiantamento_id, eh_adiantamento, pagamento_multiplo_id, nomepagador, cpfcnpjpagador, pendente, data, competencia_em, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, fornecedor_id, banco_id, documento_tipo_id, documento_numero, documento_serie, documento_chave, documento_emitido_em, documento_valor, documento_observacao, bandeira_id, bandeira_parcelas, bandeira_taxa_percentual, bandeira_taxa_ajustada, created_at, updated_at";
 
 const BANCO_FIELDS =
   "id, titulo, tipo, agencia, contanumero, proprietario, valorinicial, empresa_id, created_at, updated_at";
@@ -311,6 +311,16 @@ export async function GET(req: Request) {
     if (bancoId != null) query = query.eq("banco_id", bancoId);
     if (comBanco === true) query = query.not("banco_id", "is", null);
     if (comBanco === false) query = query.is("banco_id", null);
+    /*
+     * As baixas parciais são movimento, não título.
+     *
+     * Elas pertencem ao extrato — e lá o filtro de banco já as inclui, deixando
+     * de fora o título que elas pagaram. Nas demais visões o que interessa é a
+     * obrigação: mostrar as duas coisas lado a lado repetiria o mesmo dinheiro
+     * na tela e no total. Quem quiser ver os pagamentos de um título abre o
+     * título.
+     */
+    if (comBanco !== true) query = query.is("baixa_de_transacao_id", null);
     if (planoContaId != null) query = query.eq("plano_de_conta_id", planoContaId);
     if (centroCustoId != null) query = query.eq("centro_custo_id", centroCustoId);
     if (clienteId != null) query = query.eq("cliente_id", clienteId);

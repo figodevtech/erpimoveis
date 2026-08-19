@@ -1,4 +1,4 @@
-import { valorLiquidoEfetivo } from "@/lib/financeiro/transacao";
+import { saldoEmAberto } from "@/lib/financeiro/transacao";
 import { escapeTelegramHtml } from "@/lib/integrations/telegram";
 
 const TIME_ZONE = "America/Fortaleza";
@@ -10,6 +10,9 @@ export type FinancialTransaction = {
   valor: number | string | null;
   valorLiquido: number | string | null;
   valor_descontos: number | string | null;
+  /** Baixas parciais já cobertas. Zero, ou ausente, no título comum. */
+  valor_baixado?: number | string | null;
+  pendente?: boolean | null;
   tipo: string;
   data: string;
   categoria: string | null;
@@ -57,8 +60,18 @@ function formatMoney(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 }
 
+/**
+ * Quanto esta conta ainda custa.
+ *
+ * O resumo lista contas a pagar em aberto, e o que importa ali é o que falta
+ * desembolsar. Uma conta de R$ 1.000 já paga pela metade cobra R$ 500 hoje —
+ * anunciar R$ 1.000 mandaria separar dinheiro que não vai sair.
+ *
+ * `saldoEmAberto` devolve o líquido inteiro quando não houve baixa parcial, que
+ * é o caso de quase tudo e o comportamento de sempre.
+ */
 export function financialTransactionValue(transaction: FinancialTransaction) {
-  return valorLiquidoEfetivo(transaction);
+  return saldoEmAberto(transaction);
 }
 
 function transactionBlock(transaction: FinancialTransaction) {

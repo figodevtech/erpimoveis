@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { requireDashboardAccess } from "@/app/api/_authz/perms";
+import { saldoEmAberto } from "@/lib/financeiro/transacao";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 const FORTALEZA_OFFSET = "-03:00";
@@ -110,10 +111,16 @@ export async function GET(req: Request) {
         .limit(80),
       supabaseAdmin
         .from("transacao")
-        .select("id, descricao, valor, valorLiquido, data, metodopagamento, categoria, tipo, pendente, created_at")
+        .select("id, descricao, valor, valorLiquido, valor_descontos, valor_baixado, data, metodopagamento, categoria, tipo, pendente, created_at")
         .gte("data", startIso)
         .lt("data", endIso)
         .eq("is_deleted", false)
+        /*
+         * A baixa parcial é o dinheiro de um título que também está aqui. Contar
+         * as duas linhas somaria o mesmo recebimento duas vezes no resumo do dia.
+         * Fica o título, que é o que a pessoa reconhece na lista.
+         */
+        .is("baixa_de_transacao_id", null)
         .order("data", { ascending: false })
         .limit(120),
       supabaseAdmin
@@ -203,7 +210,9 @@ export async function GET(req: Request) {
       const categoria = String(transacao.categoria ?? "Não informado");
 
       if (pendente) {
-        if (tipo === "RECEITA") receitaPendente += valor;
+        // Em aberto é o que falta: um título já pago pela metade não tem o valor
+        // cheio a receber.
+        if (tipo === "RECEITA") receitaPendente += saldoEmAberto(transacao);
         continue;
       }
 

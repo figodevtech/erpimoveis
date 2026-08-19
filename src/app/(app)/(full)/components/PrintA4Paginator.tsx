@@ -313,11 +313,6 @@ const PRINT_A4_PAGINATION_CSS = `
     page-break-inside:avoid;
   }
 
-  html[data-print-paginating-for-print] .os-observacoes,
-  html[data-print-paginating-for-print] .venda-observacoes{
-    display:block !important;
-  }
-
   @media print{
     [data-print-pagination-root]{
       width:210mm !important;

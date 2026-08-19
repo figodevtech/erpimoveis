@@ -54,8 +54,8 @@ DECLARE
   v_ok int := 0;
   v_falhou int := 0;
 BEGIN
-  IF to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid,boolean)') IS NULL THEN
-    RAISE EXCEPTION 'baixar_transacao_pendente ainda nao aceita p_lancar_no_caixa. Rode as migrations.';
+  IF to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid,boolean,numeric)') IS NULL THEN
+    RAISE EXCEPTION 'baixar_transacao_pendente ainda nao aceita p_lancar_no_caixa/p_valor. Rode as migrations.';
   END IF;
 
   SELECT id INTO v_banco FROM public.bancoconta ORDER BY id LIMIT 1;

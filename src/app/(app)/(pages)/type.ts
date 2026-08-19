@@ -15,6 +15,7 @@ export interface Config {
     agendamento_dias_trabalho: number[];
     impressao_cor_primaria: string;
     impressao_cor_secundaria: string;
+    impressao_cor_texto: string;
     modo_baixa_estoque_os: "ORCAMENTO" | "EXECUCAO";
     produto_preco_medio_compra_obrigatorio: boolean;
     produto_ncm_obrigatorio: boolean;

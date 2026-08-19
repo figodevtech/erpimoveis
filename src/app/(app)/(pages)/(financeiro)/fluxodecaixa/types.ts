@@ -194,6 +194,10 @@ export interface Transaction {
   valor_acrescimos?: number | null;
   /** Soma dos descontos lançados, incluindo a taxa de recebimento. */
   valor_descontos?: number | null;
+  /** Quanto das baixas parciais já cobriu este título. Saldo = valorLiquido - isto. */
+  valor_baixado?: number | null;
+  /** Nesta linha o dinheiro de uma baixa parcial daquele título. */
+  baixa_de_transacao_id?: number | null;
   /** Nas parcelas de uma antecipação, aponta para o adiantamento. */
   adiantamento_id?: number | null;
   /** `true` no lançamento que representa o movimento único da antecipação. */
