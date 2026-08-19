@@ -3,6 +3,7 @@
 import {
   CalendarClock,
   CircleDollarSign,
+  CreditCard,
   FileCheck2,
   Info,
   Lock,
@@ -641,6 +642,57 @@ export function DetalhesTab({
         </div>
       </div>
       </TransactionSection>
+
+      {/*
+        Só aparece quando o lançamento passou por maquineta.
+        
+        Somente leitura de propósito: mudar a bandeira aqui teria de refazer o
+        líquido, e na edição o líquido não é campo — ele é resultado das linhas
+        de acréscimo e desconto (ver `sincronizarTaxaRecebimento`). Escrever nos
+        dois lugares seria uma segunda verdade sobre o mesmo número. Para
+        corrigir a taxa de um lançamento já feito, o caminho é a aba Acréscimos e
+        descontos, que é onde ela vive depois de gravada.
+      */}
+      {form.bandeira_id != null && (
+        <TransactionSection
+          eyebrow="Recebimento em cartão"
+          title="Bandeira"
+          description="Taxa da maquineta aplicada neste lançamento."
+          icon={CreditCard}
+        >
+          <div className="grid gap-x-4 gap-y-5 sm:grid-cols-3">
+            <div className="w-full space-y-2">
+              <Label className="flex items-center gap-1.5">
+                Bandeira
+                <Lock className="h-3 w-3 text-muted-foreground" aria-hidden />
+              </Label>
+              <div className="flex h-10 items-center border border-border bg-muted/20 px-3 text-xs">
+                {form.bandeira_dados?.nome ?? `Bandeira #${form.bandeira_id}`}
+              </div>
+            </div>
+            <div className="w-full space-y-2">
+              <Label>Parcelamento no cartão</Label>
+              <div className="flex h-10 items-center border border-border bg-muted/20 px-3 text-xs">
+                {form.bandeira_parcelas ? `${form.bandeira_parcelas}x` : "—"}
+              </div>
+            </div>
+            <div className="w-full space-y-2">
+              <Label>Taxa aplicada</Label>
+              <div className="flex h-10 items-center border border-border bg-muted/20 px-3 text-xs">
+                {form.bandeira_taxa_percentual != null
+                  ? `${Number(form.bandeira_taxa_percentual).toFixed(2).replace(".", ",")}%`
+                  : "—"}
+              </div>
+            </div>
+          </div>
+          {form.bandeira_taxa_ajustada ? (
+            <p className="mt-3 text-[11px] text-amber-700 dark:text-amber-300">
+              A taxa deste lançamento foi corrigida à mão e não segue a tabela da
+              bandeira.
+            </p>
+          ) : null}
+        </TransactionSection>
+      )}
 
       <TransactionSection
         eyebrow="Contraparte"

@@ -98,6 +98,24 @@ export interface Centro_custo {
   ativo: boolean;
 }
 
+/**
+ * Bandeira de cartão: a taxa da maquineta por faixa de parcelamento.
+ *
+ * Pertence a um par (conta bancária, forma de pagamento) — a Visa crédito da
+ * Sicredi e a Visa crédito da Stone são duas bandeiras, porque as taxas são
+ * outras. `parcelas` é ao mesmo tempo a tabela de preços e a lista de
+ * parcelamentos que a bandeira aceita: não há faixa implícita.
+ */
+export interface Bandeira {
+  id: number;
+  nome: string;
+  descricao?: string | null;
+  bancoId: number | null;
+  metodoPagamento: string;
+  ativo: boolean;
+  parcelas: { parcelas: number; taxaPercentual: number }[];
+}
+
 export type TransactionRelationFilters = {
   categoriaId: string;
   bancoId: string;
@@ -238,6 +256,22 @@ export interface Transaction {
   documento_emitido_em?: string | null
   documento_valor?: number | null
   documento_observacao?: string | null
+  /**
+   * Bandeira de cartão usada no recebimento e a taxa que ela cobrou.
+   *
+   * `bandeira_parcelas` é em quantas vezes o cliente passou na maquineta, que
+   * nem sempre é o número de parcelas da transação: no recebimento à vista o
+   * dinheiro entra de uma vez e este campo guarda só o parcelamento do cliente.
+   *
+   * `bandeira_taxa_percentual` é congelado no lançamento — renegociar a taxa da
+   * bandeira não pode reescrever o que já foi registrado. `bandeira_taxa_ajustada`
+   * marca a linha em que alguém destravou o líquido e digitou outro valor.
+   */
+  bandeira_id?: number | null
+  bandeira_parcelas?: number | null
+  bandeira_taxa_percentual?: number | null
+  bandeira_taxa_ajustada?: boolean | null
+  bandeira_dados?: { id: number; nome: string; metodopagamento: string } | null
 }
 
 export interface NewTransaction {
@@ -289,6 +323,11 @@ export interface NewTransaction {
   documento_emitido_em?: string | null
   documento_valor?: number | null
   documento_observacao?: string | null
+  /** Ver os campos homônimos em `Transaction`. */
+  bandeira_id?: number | null
+  bandeira_parcelas?: number | null
+  bandeira_taxa_percentual?: number | null
+  bandeira_taxa_ajustada?: boolean | null
 }
 
 export interface Pagination {

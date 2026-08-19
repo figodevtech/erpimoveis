@@ -17,6 +17,7 @@ import {
   Box,
   PackageMinus,
   PackagePlus,
+  CreditCard,
 } from "lucide-react";
 import GruposProdutoSection from "./grupos-produto-section";
 import UnidadesMedidaSection from "./unidades-medida-section";
@@ -32,6 +33,7 @@ import CentrosCustoSection from "./centros-custo-section";
 import GruposUsoConsumoSection from "./grupos-usoconsumo-section";
 import MotivosSaidaSection from "./motivos-saida-section";
 import TiposEntradaSection from "./tipos-entrada-section";
+import BandeirasSection from "./bandeiras-section";
 
 type TabId =
   | "grupos"
@@ -42,6 +44,7 @@ type TabId =
   | "setores"
   | "bancos"
   | "categorias"
+  | "bandeiras"
   | "planos_conta"
   | "centros_custo"
   | "categorias_venda"
@@ -106,6 +109,12 @@ export default function TiposConfigPage() {
       icon: Tags,
       title: "Categorias de transação",
       subtitle: "Organize o financeiro",
+    },
+    {
+      id: "bandeiras",
+      icon: CreditCard,
+      title: "Bandeiras de cartão",
+      subtitle: "Taxa da maquineta por parcela",
     },
     {
       id: "planos_conta",
@@ -222,6 +231,7 @@ export default function TiposConfigPage() {
           {activeTab === "setores" && <SetoresSection />}
           {activeTab === "bancos" && <BancosSection />}
           {activeTab === "categorias" && <CategoriasTransacaoSection />}
+          {activeTab === "bandeiras" && <BandeirasSection />}
           {activeTab === "planos_conta" && <PlanosDeContaSection />}
           {activeTab === "centros_custo" && <CentrosCustoSection />}
           {activeTab === "categorias_venda" && <CategoriasVendaSection />}

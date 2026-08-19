@@ -35,9 +35,11 @@ import { toast } from "@/lib/toast";
 import {
   CalendarIcon,
   CircleDollarSign,
+  CreditCard,
   FileCheck2,
   Info,
   Minus,
+  Pencil,
   Plus,
   Save,
   UserRound,
@@ -48,6 +50,13 @@ import { useCategoriasTransacao } from "../../hooks/use-categoria-transacao";
 import { usePlanosDeConta } from "../../hooks/use-planos-de-conta";
 import { useCentrosCusto } from "../../hooks/use-centros-custo";
 import { useTiposDocumento } from "../../hooks/use-tipos-documento";
+import { useBandeiras } from "../../hooks/use-bandeiras";
+import {
+  calcularPelaFaixa,
+  faixasOrdenadas,
+  maximoDeParcelas,
+  rotuloDaFaixa,
+} from "@/lib/financeiro/bandeira";
 import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
 import { PlanoContaCombobox } from "../plano-conta-combobox";
 import { SearchCombobox } from "../search-combobox";
@@ -219,6 +228,20 @@ export default function RegisterContent({
   const { centrosCusto, loadingCentrosCusto, errorCentrosCusto } = useCentrosCusto();
   const { tiposDocumento, loadingTiposDocumento, errorTiposDocumento } =
     useTiposDocumento();
+  /**
+   * O escape do líquido travado.
+   *
+   * Com bandeira escolhida o líquido é calculado e o campo fica somente leitura:
+   * é o que faz o relatório por bandeira valer alguma coisa. Mas a adquirente às
+   * vezes cobra diferente do combinado — antecipação, campanha, ajuste
+   * retroativo —, e sem saída o operador ficaria obrigado a registrar um número
+   * que ele sabe estar errado. Ligar isto destrava o campo e marca a linha.
+   */
+  const [taxaAjustada, setTaxaAjustada] = useState(false);
+  const { bandeiras, loadingBandeiras, errorBandeiras } = useBandeiras(
+    newTransaction.banco_id,
+    newTransaction.metodopagamento,
+  );
   // O hook ja garante lista nao vazia: ele mesmo cai na lista padrao enquanto a
   // do banco nao chega ou se ela falhar.
   const { options: metodosPagamento } = usePaymentMethodOptions();
@@ -237,6 +260,39 @@ export default function RegisterContent({
     newTransaction.metodopagamento === Metodo_pagamento.BOLETO ||
     newTransaction.metodopagamento === Metodo_pagamento.CREDITO;
   const canManageParcelas = metodoPermiteParcelas && !!newTransaction.pendente;
+
+  const bandeiraSelecionada =
+    bandeiras.find((bandeira) => bandeira.id === newTransaction.bandeira_id) ?? null;
+  const faixasDaBandeira = bandeiraSelecionada
+    ? faixasOrdenadas(bandeiraSelecionada.parcelas)
+    : [];
+  const maximoDaBandeira = maximoDeParcelas(faixasDaBandeira);
+  /**
+   * Em quantas vezes o cliente passou no cartão.
+   *
+   * São duas perguntas diferentes que dão na mesma taxa. No parcelado futuro,
+   * cada parcela é um título a receber e a contagem é o número de parcelas que o
+   * operador montou. No recebimento à vista o dinheiro entra de uma vez só, mas
+   * o cliente ainda pode ter parcelado na maquineta — e aí não há parcela
+   * nenhuma no sistema de onde tirar o número, por isso o seletor à parte.
+   */
+  const parcelasDaMaquineta = canManageParcelas
+    ? parcelasDetalhadas.length || 1
+    : (newTransaction.bandeira_parcelas ?? null);
+  const calculoDaBandeira =
+    bandeiraSelecionada && parcelasDaMaquineta
+      ? calcularPelaFaixa(
+          newTransaction.valor ?? 0,
+          faixasDaBandeira,
+          parcelasDaMaquineta,
+        )
+      : null;
+  // O parcelado futuro deixa a contagem passar do que a bandeira aceita enquanto
+  // o operador ainda está montando as parcelas; avisar é melhor do que impedir
+  // silenciosamente e deixá-lo sem entender por que o botão parou de responder.
+  const parcelasForaDaTabela =
+    Boolean(bandeiraSelecionada) && parcelasDaMaquineta != null && !calculoDaBandeira;
+  const liquidoTravadoPelaBandeira = Boolean(bandeiraSelecionada) && !taxaAjustada;
   /**
    * O que abate os documentos é o valor cobrado, não o que sobra depois da taxa
    * da adquirente.
@@ -256,6 +312,19 @@ export default function RegisterContent({
   const liquidoDoPagamento = isChecked
     ? (newTransaction.valorLiquido ?? valorRateado)
     : valorRateado;
+  const somaDasParcelas = parcelasDetalhadas.reduce(
+    (total, parcela) => total + (parcela.valor || 0),
+    0,
+  );
+  /**
+   * Quanto falta (ou sobra) para as parcelas fecharem no total a distribuir.
+   *
+   * Em centavos porque é o mesmo critério da validação do salvamento: comparar
+   * em reais faria a tela dar por fechado um resíduo binário que o `handleCreate`
+   * recusaria — e o operador veria "está tudo certo" e um erro ao salvar.
+   */
+  const diferencaDasParcelas =
+    paraCentavos(somaDasParcelas) - paraCentavos(valorTotalParcelamento);
   const nomeMetodoParcelado =
     newTransaction.metodopagamento === Metodo_pagamento.CREDITO
       ? "crédito"
@@ -602,6 +671,23 @@ export default function RegisterContent({
         return;
       }
 
+      if (bandeiraSelecionada) {
+        if (!parcelasDaMaquineta) {
+          toast.error("Informe em quantas vezes o pagamento foi passado no cartão.");
+          return;
+        }
+
+        // O servidor recusaria de qualquer jeito — ele relê a tabela da bandeira
+        // e não aceita faixa que não existe. Barrar aqui é só para a mensagem
+        // chegar antes de o formulário inteiro ir e voltar.
+        if (!calculoDaBandeira) {
+          toast.error(
+            `${bandeiraSelecionada.nome} não tem taxa cadastrada para ${parcelasDaMaquineta}x.`,
+          );
+          return;
+        }
+      }
+
       let parcelasPayload: Array<{ data: Date; valor: number }> | undefined;
 
       if (canManageParcelas) {
@@ -692,6 +778,7 @@ export default function RegisterContent({
           setParcelasDetalhadas([]);
           setParcelasIguais(false);
           setRelacionarDocumento(false);
+          setTaxaAjustada(false);
         }
         return;
       }
@@ -738,6 +825,7 @@ export default function RegisterContent({
         setParcelasDetalhadas([]);
         setParcelasIguais(false);
         setRelacionarDocumento(false);
+        setTaxaAjustada(false);
       }
     } catch (error) {
       if (isAxiosError(error)) {
@@ -769,6 +857,96 @@ export default function RegisterContent({
       setParcelasIguais(false);
     }
   }, [canManageParcelas]);
+
+  /**
+   * Trocar de conta ou de forma de pagamento derruba a bandeira escolhida.
+   *
+   * Uma bandeira pertence a um par (conta, método): a Visa crédito da Sicredi não
+   * existe no débito nem na conta da Stone. Sem isto, mudar o método deixava a
+   * transação apontando para uma bandeira que o novo seletor nem lista, e com
+   * uma taxa que ninguém mais conseguia ver de onde tinha vindo.
+   */
+  useEffect(() => {
+    setTaxaAjustada(false);
+    setNewTransaction((atual) =>
+      atual.bandeira_id == null
+        ? atual
+        : {
+            ...atual,
+            bandeira_id: null,
+            bandeira_parcelas: null,
+            bandeira_taxa_ajustada: false,
+          },
+    );
+    // Só o par importa; reagir ao objeto inteiro apagaria a bandeira a cada
+    // tecla digitada em qualquer outro campo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newTransaction.banco_id, newTransaction.metodopagamento]);
+
+  /**
+   * A conta da taxa: mantém `bandeira_parcelas` e o líquido em dia.
+   *
+   * No parcelado futuro a contagem é derivada — cada parcela adicionada muda a
+   * faixa e, com ela, a taxa. O líquido é recalculado pela MESMA função que o
+   * servidor usa (`calcularPelaFaixa`); um centavo de diferença entre os dois
+   * lados derrubaria o cadastro com "a soma das parcelas deve ser igual ao valor
+   * líquido", porque é contra este número que a soma é conferida.
+   */
+  useEffect(() => {
+    if (!bandeiraSelecionada) return;
+
+    setNewTransaction((atual) => {
+      const proximo = { ...atual };
+      let mudou = false;
+
+      if (canManageParcelas && atual.bandeira_parcelas !== parcelasDaMaquineta) {
+        proximo.bandeira_parcelas = parcelasDaMaquineta;
+        mudou = true;
+      }
+
+      // Taxa corrigida à mão: o número digitado manda, e recalcular por cima
+      // apagaria a correção a cada tecla.
+      if (!taxaAjustada && calculoDaBandeira) {
+        if (atual.valorLiquido !== calculoDaBandeira.liquido) {
+          proximo.valorLiquido = calculoDaBandeira.liquido;
+          mudou = true;
+        }
+      }
+
+      return mudou ? proximo : atual;
+    });
+
+    if (!taxaAjustada && calculoDaBandeira) setIsChecked(true);
+    // `faixasDaBandeira` e `calculoDaBandeira` são recriados a cada render; o que
+    // de fato muda a conta são o id da bandeira, a contagem e o bruto.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    bandeiraSelecionada?.id,
+    parcelasDaMaquineta,
+    newTransaction.valor,
+    taxaAjustada,
+    canManageParcelas,
+  ]);
+
+  /**
+   * Escolher uma bandeira já liga "parcelas iguais" — mas só como padrão.
+   *
+   * Maquineta parcela em valores iguais, então é o que se quer em quase todo
+   * lançamento de cartão. Travar, porém, seria errado: uma bandeira pode estar
+   * cadastrada num boleto, e boleto com entrada maior é lançamento legítimo.
+   *
+   * Quem desliga assume a soma. O risco real é que, com bandeira, o total a
+   * distribuir MUDA a cada parcela adicionada — a contagem troca a faixa de taxa
+   * —, e valores digitados antes ficam para trás. Por isso o aviso da soma logo
+   * abaixo da lista: sem ele o erro só apareceria ao salvar, sem dizer por que o
+   * alvo tinha mudado.
+   *
+   * A dependência é o id, não o objeto: reagir ao objeto reacenderia a chave a
+   * cada recarga da lista de bandeiras, desfazendo a escolha de quem a desligou.
+   */
+  useEffect(() => {
+    if (bandeiraSelecionada?.id && canManageParcelas) setParcelasIguais(true);
+  }, [bandeiraSelecionada?.id, canManageParcelas]);
 
   useEffect(() => {
     if (!canManageParcelas) return;
@@ -998,7 +1176,11 @@ export default function RegisterContent({
                     <Label htmlFor="valor">
                       Valor <span className="text-red-500">*</span>
                     </Label>
-                    {(newTransaction.tipo === Tipo_transacao.RECEITA ||
+                    {/* Com bandeira escolhida a chave some: quem decide se há taxa
+                        é a tabela dela, e deixar as duas coisas mandando no mesmo
+                        campo seria uma segunda verdade sobre o mesmo número. */}
+                    {!bandeiraSelecionada &&
+                      (newTransaction.tipo === Tipo_transacao.RECEITA ||
                       newTransaction.tipo === Tipo_transacao.SAQUE) && (
                       <div className="flex flex-row gap-2">
                         <span className="text-xs text-muted-foreground">
@@ -1060,15 +1242,181 @@ export default function RegisterContent({
                                   newTransaction.valorLiquido,
                               )
                             : 0}
+                          {bandeiraSelecionada && calculoDaBandeira && !taxaAjustada
+                            ? ` (${calculoDaBandeira.taxaPercentual
+                                .toFixed(2)
+                                .replace(".", ",")}%)`
+                            : null}
                         </span>
                       </div>
                       <ValueInput
                         price={newTransaction.valorLiquido || 0}
-                        setPrice={(v) => handleChange("valorLiquido", v)}
+                        setPrice={(v) => {
+                          handleChange("valorLiquido", v);
+                        }}
+                        disabled={liquidoTravadoPelaBandeira}
                       ></ValueInput>
+                      {/* O escape. Fica visível só quando há bandeira: sem ela o
+                          campo já é livre e o botão não teria o que destravar. */}
+                      {bandeiraSelecionada && (
+                        <button
+                          type="button"
+                          className="flex items-center gap-1.5 text-[11px] text-muted-foreground underline-offset-2 hover:cursor-pointer hover:underline"
+                          onClick={() => {
+                            const proximo = !taxaAjustada;
+                            setTaxaAjustada(proximo);
+                            setNewTransaction((atual) => ({
+                              ...atual,
+                              bandeira_taxa_ajustada: proximo,
+                              // Voltar para a tabela devolve o valor calculado; sem
+                              // isto o líquido corrigido continuaria lá, agora sem
+                              // nada explicando de onde veio.
+                              ...(proximo || !calculoDaBandeira
+                                ? {}
+                                : { valorLiquido: calculoDaBandeira.liquido }),
+                            }));
+                          }}
+                        >
+                          <Pencil className="size-3" aria-hidden="true" />
+                          {taxaAjustada
+                            ? "Voltar para a taxa da bandeira"
+                            : "A adquirente cobrou outro valor? Corrigir taxa"}
+                        </button>
+                      )}
+                      {taxaAjustada && (
+                        <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                          Taxa corrigida à mão. O lançamento fica marcado como
+                          ajustado, e o relatório por bandeira separa esta linha
+                          das que seguiram a tabela.
+                        </p>
+                      )}
                     </>
                   )}
                 </div>
+                {/*
+                  Só aparece quando há bandeira cadastrada para o par (conta,
+                  forma de pagamento). Quem não usa maquineta, ou não cadastrou
+                  bandeira nenhuma, não vê diferença alguma no formulário.
+                */}
+                {!pagamentoMultiplo &&
+                  (bandeiras.length > 0 || loadingBandeiras || errorBandeiras) && (
+                  <div className="w-full space-y-3 border border-border bg-background p-4 sm:col-span-3">
+                    <div className="flex items-center gap-2">
+                      <CreditCard className="size-4 text-primary" aria-hidden="true" />
+                      <span className="text-sm font-medium">Cartão</span>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2 w-full">
+                        <Label htmlFor="bandeira">Bandeira</Label>
+                        <SearchCombobox
+                          disabled={loadingBandeiras || !!errorBandeiras}
+                          loading={loadingBandeiras}
+                          value={newTransaction.bandeira_id?.toString() || ""}
+                          onValueChange={(value) => {
+                            const escolhida = bandeiras.find(
+                              (bandeira) => String(bandeira.id) === value,
+                            );
+
+                            setTaxaAjustada(false);
+                            setNewTransaction((atual) => ({
+                              ...atual,
+                              bandeira_id: escolhida?.id ?? null,
+                              // Ao escolher, a contagem começa na menor faixa da
+                              // bandeira — quase sempre 1x. Ao limpar, o líquido
+                              // volta a ser o bruto: sem bandeira não há taxa
+                              // calculada, e deixar o número anterior lá seria um
+                              // desconto sem origem.
+                              bandeira_parcelas: escolhida
+                                ? (faixasOrdenadas(escolhida.parcelas)[0]?.parcelas ?? null)
+                                : null,
+                              bandeira_taxa_ajustada: false,
+                              ...(escolhida ? {} : { valorLiquido: atual.valor }),
+                            }));
+
+                            if (!escolhida) setIsChecked(false);
+                          }}
+                          placeholder={
+                            errorBandeiras ? "Erro ao carregar" : "Selecione"
+                          }
+                          searchPlaceholder="Pesquisar bandeira..."
+                          emptyMessage="Nenhuma bandeira encontrada."
+                          clearable
+                          clearLabel="Sem bandeira"
+                          options={bandeiras.map((bandeira) => ({
+                            value: String(bandeira.id),
+                            label: bandeira.nome,
+                            description:
+                              bandeira.descricao ??
+                              `${bandeira.parcelas.length} faixa(s), até ${maximoDeParcelas(bandeira.parcelas)}x`,
+                          }))}
+                        />
+                      </div>
+
+                      {/*
+                        O segundo seletor só existe no recebimento à vista. No
+                        parcelado futuro a contagem já está escrita na tela — é o
+                        número de parcelas montadas — e perguntar de novo abriria
+                        espaço para as duas respostas divergirem.
+                      */}
+                      {bandeiraSelecionada && !canManageParcelas && (
+                        <div className="space-y-2 w-full">
+                          <Label htmlFor="bandeira-parcelas">
+                            Passou em quantas vezes{" "}
+                            <span className="text-red-500">*</span>
+                          </Label>
+                          <SearchCombobox
+                            value={newTransaction.bandeira_parcelas?.toString() || ""}
+                            onValueChange={(value) => {
+                              setTaxaAjustada(false);
+                              setNewTransaction((atual) => ({
+                                ...atual,
+                                bandeira_parcelas: value ? Number(value) : null,
+                                bandeira_taxa_ajustada: false,
+                              }));
+                            }}
+                            placeholder="Selecione"
+                            searchPlaceholder="Pesquisar parcelamento..."
+                            emptyMessage="Esta bandeira não tem faixa cadastrada."
+                            options={faixasDaBandeira.map((faixa) => ({
+                              value: String(faixa.parcelas),
+                              label: rotuloDaFaixa(faixa, newTransaction.valor),
+                              searchText: `${faixa.parcelas}x`,
+                            }))}
+                          />
+                          <p className="text-[11px] text-muted-foreground">
+                            O dinheiro entra de uma vez; a taxa é a da faixa em que
+                            o cliente parcelou.
+                          </p>
+                        </div>
+                      )}
+
+                      {bandeiraSelecionada && canManageParcelas && (
+                        <div className="space-y-2 w-full">
+                          <Label>Parcelamento</Label>
+                          <div className="flex h-10 items-center border border-border bg-muted/20 px-3 text-xs text-muted-foreground">
+                            {parcelasDaMaquineta}x — taxa de{" "}
+                            {calculoDaBandeira
+                              ? `${calculoDaBandeira.taxaPercentual.toFixed(2).replace(".", ",")}%`
+                              : "faixa não cadastrada"}
+                          </div>
+                          <p className="text-[11px] text-muted-foreground">
+                            Vem do número de parcelas abaixo. Até {maximoDaBandeira}x
+                            nesta bandeira.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {parcelasForaDaTabela && (
+                      <p className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                        {bandeiraSelecionada?.nome} não tem taxa cadastrada para{" "}
+                        {parcelasDaMaquineta}x. Escolha outro parcelamento ou
+                        cadastre a faixa em Configurações &gt; Tipos &gt; Bandeiras.
+                      </p>
+                    )}
+                  </div>
+                )}
                 {!canManageParcelas && (
                   <div className="space-y-2 w-full">
                     <Label htmlFor="data">Data</Label>
@@ -1324,6 +1672,10 @@ export default function RegisterContent({
                         <Label htmlFor="parcelas-iguais" className="text-xs">
                           Parcelas iguais
                         </Label>
+                        {/* Com bandeira já vem ligado, porque maquineta parcela
+                            em valores iguais — mas continua desligável: boleto
+                            com entrada maior é lançamento legítimo. O que segura
+                            o erro é o aviso da soma, logo abaixo. */}
                         <Switch
                           id="parcelas-iguais"
                           checked={parcelasIguais}
@@ -1421,25 +1773,65 @@ export default function RegisterContent({
                       ))}
                     </div>
 
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>
-                        {isChecked ? "Valor líquido a parcelar" : "Valor total"}: {" "}
-                        {formatarEmReal(valorTotalParcelamento)}
-                      </span>
-                      <span>
-                        Soma das parcelas:{" "}
-                        {formatarEmReal(
-                          parcelasDetalhadas.reduce(
-                            (acc, parcela) => acc + (parcela.valor || 0),
-                            0,
-                          ),
-                        )}
-                      </span>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>
+                          {isChecked ? "Valor líquido a parcelar" : "Valor total"}: {" "}
+                          {formatarEmReal(valorTotalParcelamento)}
+                        </span>
+                        <span
+                          className={
+                            diferencaDasParcelas === 0
+                              ? undefined
+                              : "font-medium text-destructive"
+                          }
+                        >
+                          Soma das parcelas: {formatarEmReal(somaDasParcelas)}
+                        </span>
+                      </div>
+
+                      {/*
+                        O aviso que substitui a trava de "parcelas iguais".
+
+                        Sem ele, quem desliga a chave e depois adiciona uma
+                        parcela vê o alvo mudar em silêncio — a contagem troca a
+                        faixa de taxa e o líquido junto — e só descobre no
+                        "Registrar", numa mensagem que não explica de onde veio o
+                        número novo.
+                      */}
+                      {diferencaDasParcelas !== 0 && (
+                        <p className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                          {diferencaDasParcelas < 0
+                            ? `Faltam ${formatarEmReal(Math.abs(diferencaDasParcelas) / 100)} para as parcelas fecharem em ${formatarEmReal(valorTotalParcelamento)}.`
+                            : `As parcelas somam ${formatarEmReal(diferencaDasParcelas / 100)} a mais que os ${formatarEmReal(valorTotalParcelamento)} a distribuir.`}
+                          {bandeiraSelecionada
+                            ? " Com bandeira, cada parcela adicionada muda a faixa de taxa — e com ela o total. Ligue “Parcelas iguais” para redistribuir."
+                            : ""}
+                        </p>
+                      )}
+
+                      {bandeiraSelecionada && !parcelasIguais && diferencaDasParcelas === 0 && (
+                        <p className="text-[11px] text-muted-foreground">
+                          Com valores digitados à mão, confira a soma depois de
+                          adicionar ou remover parcelas: a taxa da bandeira muda
+                          com a quantidade.
+                        </p>
+                      )}
                     </div>
 
                     <button
                       type="button"
-                      className="group mt-3 flex h-11 w-max flex-row items-center gap-2 border border-border bg-background px-3 text-xs font-semibold hover:cursor-pointer hover:bg-muted/50 sm:h-9"
+                      className="group mt-3 flex h-11 w-max flex-row items-center gap-2 border border-border bg-background px-3 text-xs font-semibold hover:cursor-pointer hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50 sm:h-9"
+                      disabled={
+                        maximoDaBandeira > 0 &&
+                        parcelasDetalhadas.length >= maximoDaBandeira
+                      }
+                      title={
+                        maximoDaBandeira > 0 &&
+                        parcelasDetalhadas.length >= maximoDaBandeira
+                          ? `${bandeiraSelecionada?.nome} parcela em até ${maximoDaBandeira}x.`
+                          : undefined
+                      }
                       onClick={() =>
                         setParcelas((prev) => {
                           const next = [

@@ -7,6 +7,7 @@ import { requireFinanceiroCreate, requireFinanceirosAccess } from "@/app/api/_au
 import { calculateFinancialTotal } from "@/lib/financial-surcharge";
 import { distribuirPorPesos } from "@/lib/financeiro/rateio";
 import { aplicarCamposDocumento, erroDeDocumento } from "./_lib/documento";
+import { aplicarCamposBandeira, erroDeBandeira, resolverBandeira } from "./_lib/bandeira";
 import { filtroDeBusca } from "./_lib/busca";
 
 const WRITABLE_FIELDS = new Set([
@@ -77,7 +78,7 @@ const ORDENAVEIS = new Set([
 const FORTALEZA_OFFSET = "-03:00";
 
 const TRANSACAO_FIELDS =
-  "id, descricao, descricao_pagamento, valor, valorLiquido, valor_base, valor_acrescimos, valor_descontos, adiantamento_id, eh_adiantamento, pagamento_multiplo_id, nomepagador, cpfcnpjpagador, pendente, data, competencia_em, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, fornecedor_id, banco_id, documento_tipo_id, documento_numero, documento_serie, documento_chave, documento_emitido_em, documento_valor, documento_observacao, created_at, updated_at";
+  "id, descricao, descricao_pagamento, valor, valorLiquido, valor_base, valor_acrescimos, valor_descontos, adiantamento_id, eh_adiantamento, pagamento_multiplo_id, nomepagador, cpfcnpjpagador, pendente, data, competencia_em, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, fornecedor_id, banco_id, documento_tipo_id, documento_numero, documento_serie, documento_chave, documento_emitido_em, documento_valor, documento_observacao, bandeira_id, bandeira_parcelas, bandeira_taxa_percentual, bandeira_taxa_ajustada, created_at, updated_at";
 
 const BANCO_FIELDS =
   "id, titulo, tipo, agencia, contanumero, proprietario, valorinicial, empresa_id, created_at, updated_at";
@@ -196,6 +197,10 @@ function sanitizeTransacaoPayload(body: any, { strict }: { strict: boolean }) {
   // vive compartilhada com a rota de pagamento de OS.
   aplicarCamposDocumento(body, output);
 
+  // Mesma razao: os campos de bandeira tem coercao propria e o percentual nem
+  // vem do cliente — ele e derivado da tabela da bandeira em `resolverBandeira`.
+  aplicarCamposBandeira(body, output);
+
   if (strict) {
     const required = ["descricao", "valor", "data", "tipo"];
     const missing = required.filter((key) => output[key] == null);
@@ -276,6 +281,7 @@ export async function GET(req: Request) {
         categoria_dados:categoriatransacao!transacao_categoria_id_fkey ( id, nome, icone ),
         plano_de_conta_dados:planosdeconta!transacao_plano_de_conta_id_fkey ( id, codigo, nome ),
         centro_custo_dados:centrosdecusto!transacao_centro_custo_id_fkey ( id, nome, descricao, ativo ),
+        bandeira_dados:bandeira_cartao!transacao_bandeira_id_fkey ( id, nome, metodopagamento ),
         fornecedor:fornecedor!transacao_fornecedor_id_fkey ( id, nomerazaosocial, nomefantasia, cpfcnpj ),
         pagamento_multiplo:pagamento_multiplo_id ( id, descricao, modo, valor_total, data )
         `,
@@ -374,6 +380,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: problemaNoDocumento }, { status: 400 });
     }
 
+    const problemaNaBandeira = erroDeBandeira(payload);
+    if (problemaNaBandeira) {
+      return NextResponse.json({ error: problemaNaBandeira }, { status: 400 });
+    }
+
     /*
      * Competência de lançamento gerado por documento pertence ao documento.
      *
@@ -432,6 +443,22 @@ export async function POST(req: Request) {
     const valorTotalCents = moneyToCents(payload.valor as any);
     if (valorTotalCents == null || valorTotalCents <= 0) {
       return NextResponse.json({ error: "O valor da transação deve ser maior que zero." }, { status: 400 });
+    }
+
+    /*
+     * A bandeira refaz a conta da taxa antes de o líquido ser lido.
+     *
+     * Precisa ser aqui, e não depois: `valorLiquidoTotalCents` é o número contra
+     * o qual a soma das parcelas é conferida. Resolver a bandeira depois disso
+     * deixaria a validação medindo o líquido que a tela mandou enquanto o banco
+     * gravaria outro.
+     */
+    const bandeira = await resolverBandeira(payload, centsToNumber(valorTotalCents));
+    if (!bandeira.ok) {
+      return NextResponse.json({ error: bandeira.erro }, { status: bandeira.status });
+    }
+    if (bandeira.liquido != null) {
+      payload.valorLiquido = bandeira.liquido;
     }
 
     const valorLiquidoTotalCents = moneyToCents(payload.valorLiquido as any) ?? valorTotalCents;
@@ -585,6 +612,7 @@ export async function POST(req: Request) {
         categoria_dados:categoriatransacao!transacao_categoria_id_fkey ( id, nome, icone ),
         plano_de_conta_dados:planosdeconta!transacao_plano_de_conta_id_fkey ( id, codigo, nome ),
         centro_custo_dados:centrosdecusto!transacao_centro_custo_id_fkey ( id, nome, descricao, ativo ),
+        bandeira_dados:bandeira_cartao!transacao_bandeira_id_fkey ( id, nome, metodopagamento ),
         fornecedor:fornecedor!transacao_fornecedor_id_fkey ( id, nomerazaosocial, nomefantasia, cpfcnpj )
         `
       );

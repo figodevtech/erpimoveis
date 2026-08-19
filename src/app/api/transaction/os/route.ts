@@ -10,6 +10,7 @@ import { distribuirPorPesos } from "@/lib/financeiro/rateio";
 import { valorDeFace } from "@/lib/financeiro/transacao";
 import { podeRegistrarPagamentoOs } from "@/lib/ordens/financeiro";
 import { aplicarCamposDocumento, erroDeDocumento } from "../_lib/documento";
+import { aplicarCamposBandeira, erroDeBandeira, resolverBandeira } from "../_lib/bandeira";
 
 /** Campos graváveis em transacao */
 const WRITABLE_FIELDS = new Set([
@@ -39,7 +40,7 @@ const WRITABLE_FIELDS = new Set([
 
 /** Campos retornados no select padrão (transacao) */
 const TRANSACAO_FIELDS =
-  "id, descricao, descricao_pagamento, valor, valorLiquido, valor_base, valor_acrescimos, valor_descontos, adiantamento_id, eh_adiantamento, data, ordemservicoid, vendaid, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, pendente, cliente_id, fornecedor_id, banco_id, documento_tipo_id, documento_numero, documento_serie, documento_chave, documento_emitido_em, documento_valor, documento_observacao, created_at, updated_at";
+  "id, descricao, descricao_pagamento, valor, valorLiquido, valor_base, valor_acrescimos, valor_descontos, adiantamento_id, eh_adiantamento, data, ordemservicoid, vendaid, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, pendente, cliente_id, fornecedor_id, banco_id, documento_tipo_id, documento_numero, documento_serie, documento_chave, documento_emitido_em, documento_valor, documento_observacao, bandeira_id, bandeira_parcelas, bandeira_taxa_percentual, bandeira_taxa_ajustada, created_at, updated_at";
 
 /** Campos do banco (bancoconta) alinhados ao que você precisa no front */
 const BANCO_FIELDS =
@@ -161,6 +162,7 @@ function sanitizeTransacaoPayload(body: any, { strict }: { strict: boolean }) {
   // Fora do laço: os campos de documento têm coerção própria e compartilhada com
   // /api/transaction, para o pagamento de OS gravar igual ao lançamento avulso.
   aplicarCamposDocumento(body, out);
+  aplicarCamposBandeira(body, out);
 
   if (strict) {
     const required = ["descricao", "valor", "data", "tipo"];
@@ -307,6 +309,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: problemaNoDocumento }, { status: 400 });
     }
 
+    const problemaNaBandeira = erroDeBandeira(payload);
+    if (problemaNaBandeira) {
+      return NextResponse.json({ error: problemaNaBandeira }, { status: 400 });
+    }
+
     if (!payload.pendente && (payload.banco_id == null || payload.metodopagamento == null)) {
       return NextResponse.json(
         { error: "Informe a conta bancária e o método de pagamento para registrar uma transação já realizada." },
@@ -357,6 +364,19 @@ export async function POST(req: Request) {
     const valorTotalCents = moneyToCents(payload?.valor as any);
     if (valorTotalCents == null || valorTotalCents <= 0) {
       return NextResponse.json({ error: "O valor da transação deve ser maior que zero." }, { status: 400 });
+    }
+
+    /*
+     * A bandeira refaz a conta da taxa antes de o líquido ser lido — mesma razão
+     * e mesma ordem de /api/transaction: `valorLiquidoTotalCents` é o número
+     * contra o qual a soma das parcelas é conferida logo abaixo.
+     */
+    const bandeira = await resolverBandeira(payload, centsToNumber(valorTotalCents));
+    if (!bandeira.ok) {
+      return NextResponse.json({ error: bandeira.erro }, { status: bandeira.status });
+    }
+    if (bandeira.liquido != null) {
+      payload.valorLiquido = bandeira.liquido;
     }
 
     // As parcelas informadas representam os valores líquidos que serão recebidos.

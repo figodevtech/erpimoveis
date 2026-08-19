@@ -14,6 +14,12 @@ import {
   CAMPOS_DOCUMENTO,
   erroDeDocumento,
 } from "@/app/api/transaction/_lib/documento";
+import {
+  aplicarCamposBandeira,
+  CAMPOS_BANDEIRA,
+  erroDeBandeira,
+  resolverBandeira,
+} from "@/app/api/transaction/_lib/bandeira";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -73,6 +79,7 @@ const TRANSACAO_FIELDS = `
   entrada_id, usoconsumo_entrada_id,
   documento_tipo_id, documento_numero, documento_serie, documento_chave,
   documento_emitido_em, documento_valor, documento_observacao,
+  bandeira_id, bandeira_parcelas, bandeira_taxa_percentual, bandeira_taxa_ajustada,
   created_at, updated_at
 `;
 
@@ -252,6 +259,11 @@ function sanitizePayload(body: any, { strict }: { strict: boolean }) {
   // monetário não negativo. Chaves ausentes continuam ausentes no PATCH.
   aplicarCamposDocumento(body, out);
 
+  // Bandeira idem. O percentual não vem daqui: é lido da tabela da bandeira em
+  // `respostaSeBandeiraInvalida`, para um PATCH forjado não conseguir registrar
+  // 0,5% onde a adquirente cobra 8,9%.
+  aplicarCamposBandeira(body, out);
+
   if (strict) {
     const required = [
       "descricao",
@@ -312,6 +324,63 @@ async function respostaSeDocumentoInvalido(
   return mensagem
     ? NextResponse.json({ error: mensagem }, { status: 400 })
     : null;
+}
+
+/**
+ * Fecha os campos de bandeira na edição, do mesmo jeito que o documento.
+ *
+ * Relê a linha atual e mescla por cima, porque no PATCH a tela costuma mandar só
+ * o que mudou: quem troca de 3x para 6x não reenvia `bandeira_id`, e julgar a
+ * coerência só pelo corpo recusaria uma edição perfeitamente válida.
+ *
+ * O bruto vem do banco, nunca do corpo — `validarEdicaoDeTransacao` já recusa
+ * qualquer tentativa de alterar `valor` por aqui.
+ */
+async function respostaSeBandeiraInvalida(
+  id: string,
+  body: Record<string, unknown>,
+  payload: Record<string, unknown>,
+) {
+  const informouBandeira = CAMPOS_BANDEIRA.some((campo) => campo in body);
+  if (!informouBandeira) return null;
+
+  const { data: atual, error } = await supabaseAdmin
+    .from("transacao")
+    .select(`valor, "valorLiquido", ${CAMPOS_BANDEIRA.join(", ")}`)
+    .eq("id", id)
+    .eq("is_deleted", false)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!atual) {
+    return NextResponse.json({ error: "Transação não encontrada." }, { status: 404 });
+  }
+
+  const mesclado: Record<string, unknown> = {
+    ...(atual as unknown as Record<string, unknown>),
+    ...payload,
+  };
+
+  const mensagem = erroDeBandeira(mesclado);
+  if (mensagem) {
+    return NextResponse.json({ error: mensagem }, { status: 400 });
+  }
+
+  const bruto = Number((atual as any).valor ?? 0);
+  const resolucao = await resolverBandeira(mesclado, bruto);
+  if (!resolucao.ok) {
+    return NextResponse.json({ error: resolucao.erro }, { status: resolucao.status });
+  }
+
+  // Só os campos da bandeira voltam para o payload. O líquido segue o caminho
+  // que a edição já tinha — `sincronizarTaxaRecebimento`, quando há desconto
+  // lançado —, e sobrescrevê-lo aqui seria uma segunda verdade sobre o mesmo
+  // número, exatamente o que o gatilho `transacao_valor_coerente_trg` evita.
+  for (const campo of CAMPOS_BANDEIRA) {
+    if (campo in mesclado) payload[campo] = mesclado[campo];
+  }
+
+  return null;
 }
 
 /**
@@ -409,6 +478,7 @@ export async function GET(_: Request, ctx: Params) {
         categoria_dados:categoriatransacao!transacao_categoria_id_fkey ( id, nome, icone ),
         plano_de_conta_dados:planosdeconta!transacao_plano_de_conta_id_fkey ( id, codigo, nome ),
         centro_custo_dados:centrosdecusto!transacao_centro_custo_id_fkey ( id, nome, descricao, ativo ),
+        bandeira_dados:bandeira_cartao!transacao_bandeira_id_fkey ( id, nome, metodopagamento ),
         fornecedor:fornecedor!transacao_fornecedor_id_fkey ( id, nomerazaosocial, nomefantasia, cpfcnpj )
         `
       )
@@ -651,6 +721,9 @@ export async function PATCH(req: NextRequest, ctx: Params) {
     const documentoInvalido = await respostaSeDocumentoInvalido(id, body, payload);
     if (documentoInvalido) return documentoInvalido;
 
+    const bandeiraInvalida = await respostaSeBandeiraInvalida(id, body, payload);
+    if (bandeiraInvalida) return bandeiraInvalida;
+
     if (Object.keys(payload).length === 1 && "updated_at" in payload) {
       return NextResponse.json(
         { error: "Nada para atualizar." },
@@ -729,6 +802,9 @@ export async function PUT(req: NextRequest, ctx: Params) {
     const payload = sanitizePayload(body, { strict: true });
     const documentoInvalido = await respostaSeDocumentoInvalido(id, body, payload);
     if (documentoInvalido) return documentoInvalido;
+
+    const bandeiraInvalida = await respostaSeBandeiraInvalida(id, body, payload);
+    if (bandeiraInvalida) return bandeiraInvalida;
 
     await carimbarAutor(payload);
 
