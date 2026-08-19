@@ -6,7 +6,17 @@ import { Loader2 } from "lucide-react";
 import { A4PdfActions } from "@/app/(app)/(full)/components/A4PdfActions";
 import { toast } from "@/lib/toast";
 
-const ROWS_PER_PAGE = 20;
+/**
+ * Medidas da folha por orientação. A folha impressa é uns milímetros menor que
+ * a do papel: sem essa folga o navegador estoura para uma página em branco a
+ * cada seção. Em pé cabe mais linha porque a página é mais alta.
+ */
+const FOLHAS = {
+  paisagem: { larguraTela: 297, largura: 296, altura: 210, alturaImpressa: 208, linhasPorPagina: 20 },
+  retrato: { larguraTela: 210, largura: 209, altura: 297, alturaImpressa: 295, linhasPorPagina: 30 },
+} as const;
+
+export type Orientacao = keyof typeof FOLHAS;
 
 type Cell = string | number | boolean | null;
 
@@ -22,7 +32,17 @@ function displayCell(value: Cell) {
   return String(value);
 }
 
-export function SpreadsheetReportView({ endpoint, title }: { endpoint: string; title: string }) {
+export function SpreadsheetReportView({
+  endpoint,
+  title,
+  orientacao = "paisagem",
+}: {
+  endpoint: string;
+  title: string;
+  orientacao?: Orientacao;
+}) {
+  const folha = FOLHAS[orientacao];
+  const deitada = orientacao === "paisagem";
   const [headers, setHeaders] = useState<string[]>([]);
   const [rows, setRows] = useState<Cell[][]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,7 +76,7 @@ export function SpreadsheetReportView({ endpoint, title }: { endpoint: string; t
     return () => { active = false; };
   }, [endpoint]);
 
-  const pages = useMemo(() => pagesOf(rows, ROWS_PER_PAGE), [rows]);
+  const pages = useMemo(() => pagesOf(rows, folha.linhasPorPagina), [rows, folha.linhasPorPagina]);
   const fontSize = headers.length > 15 ? "text-[5px]" : headers.length > 10 ? "text-[6px]" : "text-[7px]";
 
   if (loading) return <div className="flex min-h-screen items-center justify-center gap-2 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" />Preparando visualização...</div>;
@@ -65,21 +85,25 @@ export function SpreadsheetReportView({ endpoint, title }: { endpoint: string; t
   return (
     <>
       <style>{`
-        @page { size: A4 landscape; margin: 0; }
+        @page { size: A4 ${deitada ? "landscape" : "portrait"}; margin: 0; }
         @media print {
           html,body{margin:0!important;padding:0!important;background:#fff!important}
           .spreadsheet-shell{padding:0!important;background:#fff!important}
-          .spreadsheet-sheet{box-sizing:border-box!important;width:296mm!important;height:208mm!important;margin:0!important;padding:8mm!important;border:0!important;box-shadow:none!important;break-after:page!important;page-break-after:always!important;overflow:hidden!important}
+          .spreadsheet-sheet{box-sizing:border-box!important;width:${folha.largura}mm!important;height:${folha.alturaImpressa}mm!important;margin:0!important;padding:8mm!important;border:0!important;box-shadow:none!important;break-after:page!important;page-break-after:always!important;overflow:hidden!important}
           .spreadsheet-sheet:last-child{break-after:auto!important;page-break-after:auto!important}
         }
       `}</style>
       <main className="spreadsheet-shell min-h-screen bg-neutral-200 px-4 py-6 text-black">
-        <div className="mx-auto mb-4 flex w-[297mm] justify-end">
-          <A4PdfActions filename={`${title.toLowerCase().replace(/[^a-z0-9]+/gi, "-")}.pdf`} backHref="/relatorios" landscape selector=".spreadsheet-sheet" />
+        <div className="mx-auto mb-4 flex justify-end" style={{ width: `${folha.larguraTela}mm` }}>
+          <A4PdfActions filename={`${title.toLowerCase().replace(/[^a-z0-9]+/gi, "-")}.pdf`} backHref="/relatorios" landscape={deitada} selector=".spreadsheet-sheet" />
         </div>
-        <div className="mx-auto flex w-[297mm] flex-col gap-4 print:gap-0">
+        <div className="mx-auto flex flex-col gap-4 print:gap-0" style={{ width: `${folha.larguraTela}mm` }}>
           {pages.map((pageRows, pageIndex) => (
-            <section key={pageIndex} className="spreadsheet-sheet h-[210mm] w-[297mm] overflow-hidden border bg-white p-[10mm] shadow-xl">
+            <section
+              key={pageIndex}
+              className="spreadsheet-sheet overflow-hidden border bg-white p-[10mm] shadow-xl"
+              style={{ width: `${folha.larguraTela}mm`, height: `${folha.altura}mm` }}
+            >
               <header className="mb-4 flex items-start justify-between border-b-2 border-black pb-3">
                 <div><h1 className="text-xl font-bold uppercase">{title}</h1><p className="mt-1 text-[9px] text-neutral-500">{rows.length} registros</p></div>
                 <div className="text-right text-[9px] text-neutral-500">Página {pageIndex + 1} de {pages.length}</div>

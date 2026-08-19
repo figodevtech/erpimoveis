@@ -500,6 +500,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
     const usuarioIds = new Set<string>();
     const servicoIds = new Set<string>();
     const produtoIds = new Set<string>();
+    const clienteIds = new Set<string>();
     for (const evento of eventos) {
       const usuarioId = idReferenciado(evento, "usuarioid");
       const servicoId = idReferenciado(evento, "servicoid");
@@ -507,12 +508,19 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
       if (usuarioId !== null && usuarioId !== undefined) usuarioIds.add(String(usuarioId));
       if (servicoId !== null && servicoId !== undefined) servicoIds.add(String(servicoId));
       if (produtoId !== null && produtoId !== undefined) produtoIds.add(String(produtoId));
+      // A troca de titularidade guarda só o id: o nome vem do cadastro.
+      if (evento.tabela === "ordemservico") {
+        for (const dados of [evento.dados_anteriores, evento.dados_novos]) {
+          const clienteId = valor(dados, "clienteid");
+          if (clienteId !== null && clienteId !== undefined) clienteIds.add(String(clienteId));
+        }
+      }
     }
     for (const evento of eventosFinanceirosAtuais.data ?? []) {
       if (evento.created_by) usuarioIds.add(String(evento.created_by));
     }
 
-    const [usuarios, servicos, produtos] = await Promise.all([
+    const [usuarios, servicos, produtos, clientes] = await Promise.all([
       usuarioIds.size
         ? supabaseAdmin.from("usuario").select("id, nome, email").in("id", Array.from(usuarioIds))
         : Promise.resolve({ data: [], error: null }),
@@ -522,11 +530,15 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
       produtoIds.size
         ? supabaseAdmin.from("produto").select("id, titulo, descricao, referencia, precovenda").in("id", Array.from(produtoIds))
         : Promise.resolve({ data: [], error: null }),
+      clienteIds.size
+        ? supabaseAdmin.from("cliente").select("id, nomerazaosocial").in("id", Array.from(clienteIds))
+        : Promise.resolve({ data: [], error: null }),
     ]);
 
     if (usuarios.error) throw usuarios.error;
     if (servicos.error) throw servicos.error;
     if (produtos.error) throw produtos.error;
+    if (clientes.error) throw clientes.error;
 
     const nomesUsuarios = new Map<string, string>(
       (usuarios.data ?? []).map((usuario) => [
@@ -544,6 +556,12 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
       (produtos.data ?? []).map((produto) => [
         String(produto.id),
         String(produto.titulo || produto.descricao || produto.referencia || `Produto #${produto.id}`),
+      ]),
+    );
+    const nomesClientes = new Map<string, string>(
+      (clientes.data ?? []).map((cliente) => [
+        String(cliente.id),
+        String(cliente.nomerazaosocial || `Cliente #${cliente.id}`),
       ]),
     );
     const precosProdutos = new Map<string, number>(
@@ -903,6 +921,29 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
             tipo: "status",
             titulo: "Registrou a conclusão do pagamento",
             detalhe: dataHoraAuditoria(valor(novo, "pagamento_concluido_em")),
+          });
+          continue;
+        }
+        // Troca de titularidade merece linha própria: quem paga a OS mudou, e o
+        // genérico "atualizou informações" esconderia exatamente isso.
+        if (mudou(anterior, novo, "clienteid")) {
+          const de = nomeReferencia(
+            nomesClientes,
+            valor(anterior, "clienteid"),
+            "sem cliente",
+          );
+          const para = nomeReferencia(nomesClientes, valor(novo, "clienteid"), "sem cliente");
+          // Editar a OS troca o cliente junto com outros campos: eles entram no
+          // mesmo item para nenhuma alteração sumir do histórico.
+          const demaisCampos = (evento.campos_alterados ?? [])
+            .filter((campo) => campo !== "clienteid" && campo !== "updatedat")
+            .map((campo) => CAMPOS_ORDEM_LABEL[campo] ?? campo.replaceAll("_", " "));
+          adicionar(evento, {
+            tipo: "dados",
+            titulo: "Trocou o cliente da OS",
+            detalhe: demaisCampos.length
+              ? `${de} → ${para} • também alterou: ${demaisCampos.join(", ")}`
+              : `${de} → ${para}`,
           });
           continue;
         }

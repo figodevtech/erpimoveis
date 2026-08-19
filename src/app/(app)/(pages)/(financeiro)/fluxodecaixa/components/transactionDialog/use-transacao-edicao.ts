@@ -6,6 +6,7 @@ import axios, { isAxiosError } from "axios";
 import { toast } from "@/lib/toast";
 
 import {
+  antecipadoComLancamento,
   origemDaTransacao,
   taxaEhOUnicoDesconto,
   tipoTemValorLiquido,
@@ -407,6 +408,14 @@ export function useTransacaoEdicao(transacaoId: number | undefined) {
       return false;
     }
 
+    // As duas colunas sao NOT NULL. Antes o CPF/CNPJ era travado na tela e o
+    // caso nao existia; agora que ele se digita, esvaziar o campo voltava do
+    // servidor como 'Campo "cpfcnpjpagador" nao pode ser vazio ou nulo'.
+    if (!form.nomepagador?.trim() || !form.cpfcnpjpagador?.trim()) {
+      toast.error("Informe o nome e o CPF/CNPJ do pagador/recebedor.");
+      return false;
+    }
+
     if (form.relacionarDocumento && !form.documento_tipo_id) {
       toast.error("Selecione o tipo do documento relacionado.");
       return false;
@@ -459,14 +468,29 @@ export function useTransacaoEdicao(transacaoId: number | undefined) {
           plano_de_conta_id: form.plano_de_conta_id ?? null,
           centro_custo: form.centro_custo ?? null,
           centro_custo_id: form.centro_custo_id ?? null,
-          // Título liquidado por antecipação vai sempre sem banco: o dinheiro
-          // entrou pelo lançamento da antecipação, e repetir a conta aqui o
-          // faria aparecer no fluxo de caixa duas vezes. Mandar `null` em vez de
+          // Título liquidado por antecipação vai sem banco: o dinheiro entrou
+          // pelo lançamento da antecipação, e repetir a conta aqui o faria
+          // aparecer no fluxo de caixa duas vezes. Mandar `null` em vez de
           // omitir o campo também conserta a linha que já tenha sido salva com
           // banco antes de a trava existir.
-          banco_id: form.adiantamento_id != null ? null : (form.banco_id ?? null),
+          //
+          // O antecipado cuja baixa foi lançada na conta é a exceção e
+          // mantém o seu: ali a baixa registrou uma entrada real. Zerá-lo aqui
+          // apagaria dinheiro que entrou — e apagaria em qualquer edição, mesmo
+          // a de um campo de texto, sem ninguém pedir.
+          banco_id: antecipadoComLancamento(form)
+            ? (form.banco_id ?? null)
+            : form.adiantamento_id != null
+              ? null
+              : (form.banco_id ?? null),
           nomepagador: form.nomepagador || null,
           cpfcnpjpagador: form.cpfcnpjpagador || null,
+          // O vínculo com o cadastro é do pagamento, não do documento: uma OS do
+          // cliente A pode ser paga pela seguradora B, e trocar isto aqui não
+          // toca na ordem. O gatilho `transacao_contraparte_historico_trg`
+          // guarda a troca.
+          cliente_id: form.cliente_id ?? null,
+          fornecedor_id: form.fornecedor_id ?? null,
           documento_tipo_id: form.relacionarDocumento
             ? (form.documento_tipo_id ?? null)
             : null,

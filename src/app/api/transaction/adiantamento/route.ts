@@ -171,7 +171,13 @@ export async function GET(req: NextRequest) {
         .maybeSingle(),
       supabaseAdmin
         .from("transacao")
-        .select('id, descricao, descricao_pagamento, valor, "valorLiquido", valor_descontos, data, vencimento_em, tipo')
+        // `pendente`, `banco_id` e `adiantamento_id` são o que separa os três
+        // estados que a aba precisa mostrar no modo que mantém os títulos em
+        // aberto: aguardando o vencimento, baixado sem mover a conta, ou
+        // devolvido pelo banco e pago depois — este último com banco preenchido.
+        .select(
+          'id, descricao, descricao_pagamento, valor, "valorLiquido", valor_descontos, data, vencimento_em, tipo, pendente, banco_id, adiantamento_id',
+        )
         .eq("adiantamento_id", alvo)
         .eq("is_deleted", false)
         .order("data", { ascending: true }),

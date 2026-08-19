@@ -14,15 +14,24 @@ const ALLOWED_ENDPOINTS = [
   "/api/users/export/comissao-setor",
   "/api/users/export/vendas-setor",
   "/api/reports/ordens/export",
+  "/api/reports/estoque/movimentos/export",
 ];
 
 export default async function SpreadsheetReportPage({
   searchParams,
 }: {
-  searchParams: Promise<{ endpoint?: string; title?: string }>;
+  searchParams: Promise<{ endpoint?: string; title?: string; orientacao?: string }>;
 }) {
   const params = await searchParams;
   const endpoint = params.endpoint ?? "";
   if (!ALLOWED_ENDPOINTS.some((allowed) => endpoint === allowed || endpoint.startsWith(`${allowed}?`))) notFound();
-  return <SpreadsheetReportView endpoint={endpoint} title={(params.title || "Relatório").slice(0, 100)} />;
+  // Paisagem continua sendo o padrão: quem não pede orientação imprime como sempre imprimiu.
+  const orientacao = params.orientacao === "retrato" ? "retrato" : "paisagem";
+  return (
+    <SpreadsheetReportView
+      endpoint={endpoint}
+      title={(params.title || "Relatório").slice(0, 100)}
+      orientacao={orientacao}
+    />
+  );
 }

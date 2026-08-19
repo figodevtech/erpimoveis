@@ -76,7 +76,7 @@ import {
   Transaction,
   type TransactionRelationFilters,
 } from "../types";
-import { valorLiquidoEfetivo } from "@/lib/financeiro/transacao";
+import { antecipadoComLancamento, valorLiquidoEfetivo } from "@/lib/financeiro/transacao";
 import { getCategoryIcon, getTypeColor } from "../utils";
 import { ExportTransactionsButton } from "./ExportTransactionsButton";
 import ConcluidoAlert from "./concluidoAlert";
@@ -737,6 +737,19 @@ export default function FinancialTable({
                           (azul) e os títulos que ele quitou (verde). Sem isso, os
                           títulos parecem pagamentos que sumiram do caixa — eles
                           aparecem como pagos e sem banco.
+
+                          Do lado dos títulos os badges se compõem: "Antecipado" é
+                          o fato de sempre, e "Sem baixa" avisa que aquele ainda
+                          não foi baixado. É melhor do que um rótulo único por
+                          estado porque a pessoa varre a coluna procurando a mesma
+                          palavra, e só depois lê o qualificador.
+
+                          Não há badge para a baixa que foi lançada na conta. Ela
+                          se distingue sozinha: aparece no Fluxo e soma na cor do
+                          tipo, enquanto as outras ficam de fora e em âmbar. E o
+                          motivo dela — o banco ter devolvido o valor — não está
+                          registrado em lugar nenhum, então a lista não teria como
+                          afirmá-lo.
                         */}
                         {t.eh_adiantamento ? (
                           <Tooltip>
@@ -746,22 +759,49 @@ export default function FinancialTable({
                               </span>
                             </TooltipTrigger>
                             <TooltipContent side="top" align="start">
-                              Liquidou vários títulos de uma vez. Veja quais na aba
+                              Adiantou vários títulos de uma vez. Veja quais na aba
                               Adiantamento.
                             </TooltipContent>
                           </Tooltip>
                         ) : t.adiantamento_id != null ? (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="inline-flex cursor-default items-center rounded-sm border border-emerald-600/40 bg-emerald-600/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
-                                Antecipado
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent side="top" align="start">
-                              Liquidado pela antecipação #{t.adiantamento_id}. O dinheiro
-                              entrou por ela, não por este título.
-                            </TooltipContent>
-                          </Tooltip>
+                          <>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="inline-flex cursor-default items-center rounded-sm border border-emerald-600/40 bg-emerald-600/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+                                  Antecipado
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" align="start">
+                                {t.pendente
+                                  ? `Antecipado pelo lançamento #${t.adiantamento_id}: o dinheiro já entrou por ele.`
+                                  : `Liquidado pela antecipação #${t.adiantamento_id}. O dinheiro entrou por ela, não por este título.`}
+                              </TooltipContent>
+                            </Tooltip>
+
+                            {/*
+                              O título antecipado que segue em aberto. Ele fica
+                              em "a receber"/"a pagar" junto com os títulos
+                              comuns, e sem este aviso não há como distingui-lo
+                              de um que ainda não teve dinheiro nenhum — o que
+                              muda tudo na hora de cobrar: aqui o caixa já
+                              recebeu, e o que se acompanha é se o pagador vai
+                              honrar o boleto.
+                            */}
+                            {t.pendente ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="inline-flex cursor-default items-center rounded-sm border border-amber-600/40 bg-amber-600/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                                    Sem baixa
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" align="start">
+                                  Antecipado sem dar baixa, de propósito: segue em
+                                  aberto para acompanhar o vencimento. A baixa vem
+                                  quando o boleto for honrado.
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : null}
+                          </>
                         ) : null}
                       </span>
                       <span className="w-full truncate text-xs text-muted-foreground md:hidden">
@@ -824,13 +864,20 @@ export default function FinancialTable({
                     trouxe o dinheiro foi a antecipação. Somar esta coluna de
                     olho, nas abas que os listam, daria o dobro.
 
+    O antecipado cuja baixa foi lançada na conta é a exceção, e
+                                    por isso volta à cor do tipo: essa linha moveu caixa e PRECISA
+                    ser somada. Deixá-la amarela mandaria pular justamente o
+                    dinheiro que entrou.
+
                     No Fluxo o amarelo não tem função: aquela aba só mostra o que
                     passou por conta, então tudo ali moveu caixa de verdade e a
                     cor volta a significar apenas entrada ou saída.
                   */}
                   <TableCell
                     className={`text-right ${
-                      viewMode !== "FLUXO" && t.adiantamento_id != null
+                      viewMode !== "FLUXO" &&
+                      t.adiantamento_id != null &&
+                      !antecipadoComLancamento(t)
                         ? "text-amber-600 dark:text-amber-400"
                         : getTypeColor(t.tipo)
                     }`}
@@ -907,11 +954,19 @@ export default function FinancialTable({
                           o outro a desfaz. A antecipação não aparece aqui —
                           liquidada ela é, mas quem a desfaz é a exclusão, que
                           devolve os títulos que ela pagou.
+
+                          O título antecipado aparece quando a baixa é dele
+                          sozinho: a baixa lançada na conta foi feita depois, por
+                          quem acompanhou o vencimento, e é a única baixa da
+                          antecipação que move dinheiro — logo a única que pode
+                          precisar voltar. Quando a antecipação liquidou tudo no
+                          ato, a baixa é do conjunto e o servidor recusa; continua
+                          fora do menu.
                         */}
                         {canEdit &&
                           !t.pendente &&
                           !t.eh_adiantamento &&
-                          t.adiantamento_id == null &&
+                          (t.adiantamento_id == null || antecipadoComLancamento(t)) &&
                           t.pagamento_multiplo_id == null && (
                           <TransactionEstornoAlert
                             transactionId={t.id}

@@ -22,6 +22,19 @@ export async function POST(req: NextRequest, ctx: Params) {
     const metodoPagamento = String(body?.metodoPagamento ?? "").trim();
     const planoContaId = body?.planoContaId == null ? null : Number(body.planoContaId);
     const centroCustoId = body?.centroCustoId == null ? null : Number(body.centroCustoId);
+    /*
+     * Só título antecipado responde a isto, e só ele oferece a pergunta na tela.
+     *
+     * Antecipado e honrado no vencimento, a baixa não move a conta: o dinheiro
+     * entrou pela antecipação, e gravar o banco de novo somaria o mesmo valor
+     * duas vezes. Quando o pagador não paga, porém, o banco debita o valor de
+     * volta — e se o devedor quitar depois, aquela baixa é entrada de verdade.
+     * Só quem operou sabe em qual dos dois está, então a tela pergunta.
+     *
+     * O padrão é `false`: o caso comum é o boleto honrado, e quem chamar sem o
+     * campo recebe o comportamento de sempre.
+     */
+    const lancarNoCaixa = body?.lancarNoCaixa === true;
 
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dataPagamento)) {
       return NextResponse.json({ error: "Informe uma data de pagamento válida." }, { status: 400 });
@@ -42,11 +55,17 @@ export async function POST(req: NextRequest, ctx: Params) {
       p_plano_de_conta_id: Number.isSafeInteger(planoContaId) ? planoContaId : null,
       p_centro_custo_id: Number.isSafeInteger(centroCustoId) ? centroCustoId : null,
       p_baixado_por: (session?.user as any)?.id ?? null,
+      p_lancar_no_caixa: lancarNoCaixa,
     });
 
     if (error) {
       if (error.code === "23505" || error.message.includes("ja foi baixada")) {
         return NextResponse.json({ error: "Esta transação já foi baixada." }, { status: 409 });
+      }
+      // A RPC recusa a bandeira em título comum com mensagem pronta, e o mesmo
+      // código cobre as demais recusas de regra dela.
+      if (error.code === "22023") {
+        return NextResponse.json({ error: error.message }, { status: 400 });
       }
       if (error.code === "P0002") {
         return NextResponse.json({ error: "Transação não encontrada." }, { status: 404 });

@@ -27,6 +27,7 @@ import DialogVendasUsuario from "./dialogs/dialog-vendas-usuario";
 import DialogComissaoSetor from "./dialogs/dialog-comissao-setor";
 import DialogVendasSetor from "./dialogs/dialog-vendas-setor";
 import { DialogRelatorioOrdens } from "./dialogs/dialog-relatorio-ordens";
+import DialogMovimentacaoEstoque from "./dialogs/dialog-movimentacao-estoque";
 
 export function ReportsGrid() {
 
@@ -159,6 +160,7 @@ export function ReportsGrid() {
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <DialogMovimentacaoEstoque/>
           <ProdutosEstoqueBaixo/>
           <ProdutosEstoqueCritico/>
           <ProdutosSemEstoque/>

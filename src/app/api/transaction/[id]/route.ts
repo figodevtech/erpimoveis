@@ -623,6 +623,23 @@ async function validarEdicaoDeTransacao(id: string, body: any) {
   return null;
 }
 
+/**
+ * Marca quem esta alterando a linha.
+ *
+ * `updated_at` sempre foi gravado, `updated_by` nunca — a aba Historico mostrava
+ * "Alterada por" com o autor da criacao, ou vazio. Alem de consertar isso, o
+ * campo virou dado necessario: o gatilho de historico de pagador/recebedor tira
+ * dele o autor da troca.
+ *
+ * Sem sessao o campo nao vai no payload, em vez de ir nulo: apagar o ultimo
+ * autor conhecido seria pior do que manter o anterior.
+ */
+async function carimbarAutor(payload: Record<string, any>) {
+  const session = await auth().catch(() => null);
+  const usuarioId = (session?.user as { id?: string } | undefined)?.id;
+  if (usuarioId) payload.updated_by = usuarioId;
+}
+
 export async function PATCH(req: NextRequest, ctx: Params) {
   try {
     await requireFinanceiroEdit();
@@ -640,6 +657,9 @@ export async function PATCH(req: NextRequest, ctx: Params) {
         { status: 400 }
       );
     }
+
+    // Depois do teste de "nada para atualizar", que conta as chaves do payload.
+    await carimbarAutor(payload);
 
     const { data, error } = await supabaseAdmin
       .from("transacao")
@@ -709,6 +729,8 @@ export async function PUT(req: NextRequest, ctx: Params) {
     const payload = sanitizePayload(body, { strict: true });
     const documentoInvalido = await respostaSeDocumentoInvalido(id, body, payload);
     if (documentoInvalido) return documentoInvalido;
+
+    await carimbarAutor(payload);
 
     const { data, error } = await supabaseAdmin
       .from("transacao")
@@ -857,7 +879,9 @@ export async function DELETE(_: Request, ctx: Params) {
     if (transaction.adiantamento_id != null) {
       return NextResponse.json(
         {
-          error: `Este título foi liquidado pela antecipação #${transaction.adiantamento_id} e não pode ser excluído isoladamente.`,
+          // "Liquidado" não vale para o modo que mantém os títulos em aberto: ali
+          // o título pode estar a receber, esperando o vencimento.
+          error: `Este título faz parte da antecipação #${transaction.adiantamento_id} e não pode ser excluído isoladamente.`,
         },
         { status: 409 },
       );

@@ -40,7 +40,7 @@ import {
   valorLiquidoEmEdicao,
 } from "@/lib/financeiro/transacao";
 
-import { formatCpfCnpj } from "../../../utils";
+import { ContraparteEditor } from "./contraparte-editor";
 import { PlanoContaCombobox } from "../../plano-conta-combobox";
 import { SearchCombobox } from "../../search-combobox";
 import { paraDataDaApi, paraValorDeInputDate, parseLocalDateTime } from "../datas";
@@ -648,46 +648,7 @@ export function DetalhesTab({
         description="Identificação de quem realizou ou recebeu o pagamento."
         icon={UserRound}
       >
-        {form.fornecedor ? (
-        <div className="mb-4 border border-border bg-muted/30 px-3 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Fornecedor vinculado
-          </p>
-          <p className="mt-0.5 text-sm font-medium">
-            {form.fornecedor.nomerazaosocial ||
-              form.fornecedor.nomefantasia ||
-              `Fornecedor #${form.fornecedor.id}`}
-          </p>
-        </div>
-        ) : null}
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="w-full space-y-2">
-          <Label htmlFor="nomepagador">
-            Nome do pagador/recebedor <span className="text-red-500">*</span>
-          </Label>
-          <Input
-            id="nomepagador"
-            disabled={!editavel}
-            value={form.nomepagador || ""}
-            onChange={(evento) => setCampo("nomepagador", evento.target.value)}
-            placeholder="Nome do pagador/recebedor"
-          />
-        </div>
-
-        <div className="w-full space-y-2">
-          <Label htmlFor="cpfcnpjpagador">CPF/CNPJ do pagador/recebedor</Label>
-          <Input
-            id="cpfcnpjpagador"
-            disabled
-            value={formatCpfCnpj(form.cpfcnpjpagador || "") || ""}
-            placeholder="CPF/CNPJ"
-          />
-          <p className="text-xs text-muted-foreground">
-            Vem do cadastro do cliente ou fornecedor.
-          </p>
-        </div>
-      </div>
+        <ContraparteEditor form={form} setForm={setForm} editavel={editavel} />
       </TransactionSection>
 
       <TransactionSection

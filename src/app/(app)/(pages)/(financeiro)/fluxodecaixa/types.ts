@@ -176,10 +176,15 @@ export interface Transaction {
   valor_acrescimos?: number | null;
   /** Soma dos descontos lançados, incluindo a taxa de recebimento. */
   valor_descontos?: number | null;
-  /** Nas parcelas liquidadas por antecipação, aponta para o adiantamento. */
+  /** Nas parcelas de uma antecipação, aponta para o adiantamento. */
   adiantamento_id?: number | null;
   /** `true` no lançamento que representa o movimento único da antecipação. */
   eh_adiantamento?: boolean | null;
+  /**
+   * Só na antecipação: `true` quando ela manteve os títulos em aberto para a
+   * cobrança acompanhar até o vencimento, em vez de liquidá-los no ato.
+   */
+  adiantamento_manteve_pendentes?: boolean | null;
   /** Grupo do pagamento múltiplo que originou esta linha, quando houver. */
   pagamento_multiplo_id?: number | null;
   pagamento_multiplo?: {
@@ -203,7 +208,9 @@ export interface Transaction {
   centro_custo_id?: number | null;
   centro_custo_dados?: Centro_custo | null;
   tipo: Tipo_transacao;
-  cliente_id?: number;
+  // Anulável como `fornecedor_id`: desvincular o cadastro é um estado válido, e
+  // a transação segue com o pagador em texto livre.
+  cliente_id?: number | null;
   fornecedor_id?: number | null;
   fornecedor?: TransactionFornecedor | null;
   banco_id?: number | null;

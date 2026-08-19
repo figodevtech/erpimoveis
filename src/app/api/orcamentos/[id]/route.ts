@@ -11,6 +11,7 @@ import {
   requireOrcamentosDelete,
   requireOrcamentosEdit,
 } from "@/app/api/_authz/perms";
+import { normalizarAlvoOrcamento } from "@/lib/orcamentos/alvo";
 import { normalizarItens, OrcamentoInvalidoError } from "@/lib/orcamentos/itens";
 import { carregarItensDoOrcamento, gravarItensDoOrcamento } from "@/lib/orcamentos/persistencia";
 
@@ -28,8 +29,16 @@ const SELECT_CABECALHO = `
   total,
   created_at,
   updated_at,
+  alvo_tipo,
+  peca_titulo,
+  peca_descricao,
+  peca_lacre,
+  equipamento_nome,
+  equipamento_patrimonio,
+  equipamento_ano,
+  equipamento_horimetro,
   cliente:clienteid ( id, nomerazaosocial, cpfcnpj, telefone, email ),
-  veiculo:veiculoid ( id, placa, modelo, marca, ano ),
+  veiculo:veiculoid ( id, placa, modelo, marca, ano, cor ),
   criador:usuariocriadorid ( id, nome )
 `;
 
@@ -85,6 +94,25 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         ...itens,
         descontoTipo: (orcamento as any).desconto_tipo ?? null,
         valorFrete: Number((orcamento as any).valor_frete ?? 0),
+        // Aliases do alvo no formato que o formulario monta de volta no PUT —
+        // assim a tela nao precisa saber que peca e equipamento moram em
+        // colunas soltas.
+        alvoTipo: (orcamento as any).alvo_tipo ?? "VEICULO",
+        peca: (orcamento as any).peca_titulo
+          ? {
+              titulo: String((orcamento as any).peca_titulo),
+              descricao: (orcamento as any).peca_descricao ?? null,
+              lacre: (orcamento as any).peca_lacre ?? null,
+            }
+          : null,
+        equipamento: (orcamento as any).equipamento_nome
+          ? {
+              nome: String((orcamento as any).equipamento_nome),
+              patrimonio: (orcamento as any).equipamento_patrimonio ?? null,
+              ano: (orcamento as any).equipamento_ano ?? null,
+              horimetro: (orcamento as any).equipamento_horimetro ?? null,
+            }
+          : null,
         ordensGeradas: ordens ?? [],
       },
       { headers: { "Cache-Control": "no-store" } },
@@ -132,16 +160,12 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string 
 
     const clienteid =
       body?.clienteid === null || body?.clienteid === undefined ? null : Number(body.clienteid);
-    const veiculoid =
-      body?.veiculoid === null || body?.veiculoid === undefined ? null : Number(body.veiculoid);
 
     if (clienteid !== null && !Number.isInteger(clienteid)) {
       return NextResponse.json({ error: "Cliente inválido." }, { status: 400 });
     }
-    if (veiculoid !== null && !Number.isInteger(veiculoid)) {
-      return NextResponse.json({ error: "Veículo inválido." }, { status: 400 });
-    }
 
+    const alvo = normalizarAlvoOrcamento(body);
     const itens = normalizarItens(body);
     if (
       itens.produtos.length === 0 &&
@@ -158,7 +182,7 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string 
       .from("orcamento")
       .update({
         clienteid,
-        veiculoid,
+        ...alvo,
         descricao: body?.descricao ? String(body.descricao).trim() || null : null,
         observacoes: body?.observacoes ? String(body.observacoes).trim() || null : null,
         ...itens.cabecalho,

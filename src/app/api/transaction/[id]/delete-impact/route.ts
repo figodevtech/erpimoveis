@@ -80,10 +80,13 @@ export async function GET(_: Request, { params }: Params) {
       // A outra ponta continua fechada: o bruto da antecipação é a soma dos
       // líquidos dos títulos, e tirar um faria o lançamento cobrir valor que
       // ninguém deve. O caminho é desfazer a antecipação.
+      // "Liquidado" não serve para os dois modos: no que mantém os títulos em
+      // aberto o título pode estar justamente a receber, esperando o vencimento,
+      // e a frase antiga contava outra história para quem a lia.
       adiantamento = {
         bloqueado: true,
         motivo:
-          `Este título foi liquidado pela antecipação #${transaction.adiantamento_id} e não pode ser excluído sozinho. ` +
+          `Este título faz parte da antecipação #${transaction.adiantamento_id} e não sai sozinho. ` +
           `Exclua a antecipação primeiro: ela devolve este título e os demais para em aberto.`,
       };
     }

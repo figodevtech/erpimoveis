@@ -4,6 +4,9 @@ import type {
   ItemServico,
   TipoDesconto,
 } from "../ordens/components/orcamento/tipos";
+import type { AlvoTipoOrcamento } from "@/lib/orcamentos/alvo";
+
+export type { AlvoTipoOrcamento };
 
 /** Espelha o CHECK de public.orcamento.status. */
 export type SituacaoOrcamento = "ABERTO" | "CONVERTIDO";
@@ -22,9 +25,35 @@ export type VeiculoResumo = {
   modelo?: string | null;
   marca?: string | null;
   ano?: number | null;
+  cor?: string | null;
 };
 
-export type OrcamentoLinha = {
+export type PecaOrcamento = {
+  titulo: string;
+  descricao?: string | null;
+  lacre?: string | null;
+};
+
+export type EquipamentoOrcamento = {
+  nome: string;
+  patrimonio?: string | null;
+  ano?: number | null;
+  horimetro?: number | null;
+};
+
+/** Colunas de alvo como o banco devolve — a lista repassa a linha crua. */
+export type AlvoOrcamentoColunas = {
+  alvo_tipo?: AlvoTipoOrcamento | null;
+  peca_titulo?: string | null;
+  peca_descricao?: string | null;
+  peca_lacre?: string | null;
+  equipamento_nome?: string | null;
+  equipamento_patrimonio?: string | null;
+  equipamento_ano?: number | null;
+  equipamento_horimetro?: number | null;
+};
+
+export type OrcamentoLinha = AlvoOrcamentoColunas & {
   id: number;
   status: SituacaoOrcamento;
   descricao?: string | null;
@@ -49,6 +78,10 @@ export type OrcamentoDetalhe = OrcamentoLinha & {
   servicos: ItemServico[];
   descontoTipo: TipoDesconto | null;
   valorFrete: number;
+  /** Aliases em camelCase: é o formato que o formulário monta e devolve. */
+  alvoTipo: AlvoTipoOrcamento;
+  peca: PecaOrcamento | null;
+  equipamento: EquipamentoOrcamento | null;
   ordensGeradas: Array<{ id: number; status?: string | null }>;
 };
 
@@ -63,7 +96,11 @@ export type ListaOrcamentos = {
 
 export type PayloadOrcamento = {
   clienteid: number | null;
+  /** Só é considerado quando alvoTipo é VEICULO; nos demais o banco exige null. */
   veiculoid: number | null;
+  alvoTipo: AlvoTipoOrcamento;
+  peca: PecaOrcamento | null;
+  equipamento: EquipamentoOrcamento | null;
   descricao: string | null;
   observacoes: string | null;
   produtos: Array<{

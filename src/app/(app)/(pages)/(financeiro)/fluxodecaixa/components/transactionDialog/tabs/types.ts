@@ -109,6 +109,26 @@ export interface AjusteDeValor {
   alteradoPor: Autor;
 }
 
+/**
+ * Uma troca de pagador/recebedor.
+ *
+ * Guarda os ids e o texto do momento: o cadastro pode ser renomeado ou excluído
+ * depois, e sem o instantâneo o histórico viraria uma linha de números.
+ */
+export interface TrocaDeContraparte {
+  id: number;
+  cliente_anterior_id: number | null;
+  cliente_novo_id: number | null;
+  fornecedor_anterior_id: number | null;
+  fornecedor_novo_id: number | null;
+  nome_anterior: string | null;
+  nome_novo: string | null;
+  documento_anterior: string | null;
+  documento_novo: string | null;
+  created_at: string | null;
+  alteradoPor: Autor;
+}
+
 export interface TransacaoContexto {
   relacionadas: {
     origem: OrigemRelacionadas;
@@ -161,6 +181,8 @@ export interface TransacaoContexto {
   } | null;
   /** Mais recente primeiro. Vazio quando o valor nunca foi ajustado. */
   ajustes: AjusteDeValor[];
+  /** Mais recente primeiro. Vazio quando o pagador nunca foi trocado. */
+  contraparte: TrocaDeContraparte[];
   auditoria: {
     created_at: string | null;
     updated_at: string | null;

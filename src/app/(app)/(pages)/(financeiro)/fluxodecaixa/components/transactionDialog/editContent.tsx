@@ -348,8 +348,8 @@ export default function EditContent({
                   <ClienteTab
                     cliente={contexto.cliente}
                     fornecedor={contexto.fornecedor}
-                    nomepagador={form.nomepagador}
-                    cpfcnpjpagador={form.cpfcnpjpagador}
+                    form={form}
+                    editavel={editable}
                   />
                 )}
               </TabsContent>
@@ -373,6 +373,7 @@ export default function EditContent({
                   <HistoricoTab
                     baixa={contexto.baixa}
                     ajustes={contexto.ajustes ?? []}
+                    contraparte={contexto.contraparte ?? []}
                     auditoria={contexto.auditoria}
                   />
                 )}

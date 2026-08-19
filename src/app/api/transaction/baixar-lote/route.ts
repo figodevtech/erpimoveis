@@ -89,6 +89,18 @@ export async function POST(req: NextRequest) {
         p_plano_de_conta_id: null,
         p_centro_custo_id: null,
         p_baixado_por: baixadoPor,
+        /*
+         * Sempre sem lançamento, e não por esquecimento.
+         *
+         * Em título antecipado a baixa só move a conta quando o banco havia
+         * debitado o valor de volta — caso raro, que se descobre olhando um
+         * título de cada vez. O lote baixa dezenas de linhas com um banco só; ali
+         * a resposta certa para todas é a de sempre, e oferecer a escolha em
+         * massa convidaria a marcá-la sem querer e a dobrar o saldo.
+         *
+         * Quem precisa registrar a entrada abre aquele título e baixa sozinho.
+         */
+        p_lancar_no_caixa: false,
       });
 
       if (!error) {

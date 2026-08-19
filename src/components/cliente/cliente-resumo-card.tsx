@@ -9,7 +9,7 @@ import formatarTelefone from "@/utils/formatarTelefone";
 import { cn } from "@/lib/utils";
 import { ExternalLink, FileText, Mail, MapPin, Phone, User2 } from "lucide-react";
 import { useSession } from "next-auth/react";
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 
 /** Formato mínimo comum entre OS e venda: cada tela envia o que já carregou. */
 export type ClienteResumo = {
@@ -96,12 +96,18 @@ export function ClienteResumoCard({
   className,
   variant = "compact",
   onClienteAtualizado,
+  acoes,
 }: {
   cliente?: ClienteResumo | null;
   className?: string;
   /** "compact" segue as etiquetas em caixa alta dos painéis financeiros. */
   variant?: "compact" | "default";
   onClienteAtualizado?: () => void;
+  /**
+   * Ações do dono do card (ex.: trocar a titularidade da OS). Fica como slot
+   * para o card seguir servindo OS e vendas sem conhecer nenhuma das duas.
+   */
+  acoes?: ReactNode;
 }) {
   const { data: session } = useSession();
   const podeAcessarCliente = permissionSetHas((session?.user as any)?.permissoes, PERMS.CLIENTES);
@@ -142,20 +148,24 @@ export function ClienteResumoCard({
           </span>
         </div>
 
-        {cliente?.id && podeAcessarCliente ? (
-          <CustomerDialog customerId={Number(cliente.id)} onUpdate={() => onClienteAtualizado?.()}>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 shrink-0 gap-1 px-2 text-xs hover:cursor-pointer"
-              title="Abrir cadastro do cliente"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-              Cliente
-            </Button>
-          </CustomerDialog>
-        ) : null}
+        <div className="flex shrink-0 items-center gap-1.5">
+          {acoes}
+
+          {cliente?.id && podeAcessarCliente ? (
+            <CustomerDialog customerId={Number(cliente.id)} onUpdate={() => onClienteAtualizado?.()}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 shrink-0 gap-1 px-2 text-xs hover:cursor-pointer"
+                title="Abrir cadastro do cliente"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                Cliente
+              </Button>
+            </CustomerDialog>
+          ) : null}
+        </div>
       </div>
 
       {nome ? (

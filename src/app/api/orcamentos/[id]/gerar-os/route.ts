@@ -31,6 +31,21 @@ function normalizarPrioridade(valor: unknown) {
   return (PRIORIDADES as readonly string[]).includes(texto) ? texto : "NORMAL";
 }
 
+// O alvo agora vem do proprio orcamento. O corpo continua podendo mandar o dele
+// — e o que acontece quando o atendente troca o veiculo ou completa a peca na
+// hora de gerar — mas o que ele omitir cai no que ja estava cotado.
+function textoOuGuardado(doBody: unknown, guardado: unknown) {
+  const enviado = String(doBody ?? "").trim();
+  return enviado || String(guardado ?? "").trim();
+}
+
+function numeroOuGuardado(doBody: unknown, guardado: unknown) {
+  const bruto =
+    doBody === null || doBody === undefined || doBody === "" ? guardado : doBody;
+  if (bruto === null || bruto === undefined || bruto === "") return null;
+  return Number(bruto);
+}
+
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   // Rastreiam o que precisa ser desfeito: sem transacao no PostgREST, uma falha
   // no meio deixaria OS meia-criada e — pior — saldo reservado para uma OS que
@@ -58,7 +73,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
     const { data: orcamento, error: erroOrcamento } = await supabaseAdmin
       .from("orcamento")
-      .select("id, status, clienteid, veiculoid, descricao, observacoes, subtotal, desconto_tipo, desconto, valor_frete, total")
+      .select(
+        "id, status, clienteid, veiculoid, descricao, observacoes, subtotal, desconto_tipo, desconto, valor_frete, total, alvo_tipo, peca_titulo, peca_descricao, peca_lacre, equipamento_nome, equipamento_patrimonio, equipamento_ano, equipamento_horimetro",
+      )
       .eq("id", orcamentoId)
       .eq("is_deleted", false)
       .maybeSingle();
@@ -94,7 +111,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       body?.status === "AGUARDANDO_CHECKLIST" ? "AGUARDANDO_CHECKLIST" : "ORCAMENTO";
 
     const alvo = body?.alvo ?? {};
-    const alvoTipo = String(alvo?.tipo ?? "VEICULO").toUpperCase() as AlvoTipo;
+    const alvoTipo = String(
+      alvo?.tipo ?? orcamento.alvo_tipo ?? "VEICULO",
+    ).toUpperCase() as AlvoTipo;
 
     let veiculoid: number | null = null;
     let pecaid: number | null = null;
@@ -135,7 +154,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         }
       }
     } else if (alvoTipo === "PECA") {
-      const nome = String(alvo?.peca?.nome ?? "").trim();
+      const nome = textoOuGuardado(alvo?.peca?.nome, orcamento.peca_titulo);
       if (!nome) {
         return NextResponse.json(
           { error: "Para alvo PEÇA, informe o nome da peça." },
@@ -143,14 +162,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         );
       }
 
+      // So agora a peca entra no cadastro: enquanto era orcamento ela vivia nas
+      // colunas soltas de public.orcamento, para proposta recusada nao deixar
+      // registro orfao em public.peca.
       const { data: novaPeca, error: erroPeca } = await supabaseAdmin
         .from("peca")
         .insert({
           clienteid,
           veiculoid: null,
           titulo: nome,
-          descricao: String(alvo?.peca?.descricao ?? "").trim() || null,
-          lacre: String(alvo?.peca?.lacre ?? "").trim() || null,
+          descricao: textoOuGuardado(alvo?.peca?.descricao, orcamento.peca_descricao) || null,
+          lacre: textoOuGuardado(alvo?.peca?.lacre, orcamento.peca_lacre) || null,
         })
         .select("id")
         .single();
@@ -159,7 +181,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       pecaid = Number(novaPeca.id);
       pecaCriadaId = pecaid;
     } else if (alvoTipo === "EQUIPAMENTO") {
-      equipamentoNome = String(alvo?.equipamento?.nome ?? "").trim();
+      equipamentoNome = textoOuGuardado(alvo?.equipamento?.nome, orcamento.equipamento_nome);
       if (!equipamentoNome) {
         return NextResponse.json(
           { error: "Informe o nome da máquina ou equipamento." },
@@ -167,15 +189,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         );
       }
 
-      equipamentoPatrimonio = String(alvo?.equipamento?.patrimonio ?? "").trim() || null;
-      equipamentoAno =
-        alvo?.equipamento?.ano === null || alvo?.equipamento?.ano === undefined
-          ? null
-          : Number(alvo.equipamento.ano);
-      equipamentoHorimetro =
-        alvo?.equipamento?.horimetro === null || alvo?.equipamento?.horimetro === undefined
-          ? null
-          : Number(alvo.equipamento.horimetro);
+      equipamentoPatrimonio =
+        textoOuGuardado(alvo?.equipamento?.patrimonio, orcamento.equipamento_patrimonio) || null;
+      equipamentoAno = numeroOuGuardado(alvo?.equipamento?.ano, orcamento.equipamento_ano);
+      equipamentoHorimetro = numeroOuGuardado(
+        alvo?.equipamento?.horimetro,
+        orcamento.equipamento_horimetro,
+      );
 
       if (
         equipamentoAno !== null &&

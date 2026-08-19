@@ -105,6 +105,7 @@ import { formatPaymentMethodLabel, type PlannedPayment } from "@/lib/payment-met
 import { ChecklistImagePreview } from "./checklist-image-preview";
 import { FinanceiroOsTab } from "./financeiro-os-tab";
 import { ClienteResumoCard } from "@/components/cliente/cliente-resumo-card";
+import { TrocarClienteOsButton } from "./trocar-cliente-os-dialog";
 
 const PUBLIC_APPROVAL_BASE = "/aprovacao";
 function approvalUrlFromToken(token: string) {
@@ -1759,6 +1760,13 @@ export function OSDetalhesDialog({
                       cliente={data.os.cliente}
                       variant="default"
                       onClienteAtualizado={() => void recarregarDetalhes()}
+                      acoes={
+                        <TrocarClienteOsButton
+                          osId={data.os.id}
+                          clienteAtualNome={data.os.cliente?.nomerazaosocial}
+                          onTrocado={() => void recarregarDetalhes()}
+                        />
+                      }
                     />
 
                     <div className="rounded-lg border bg-card p-4">

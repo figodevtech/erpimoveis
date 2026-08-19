@@ -190,3 +190,45 @@ export function valorLiquidoEmEdicao(
 
   return Math.round((brutoSeguro - descontosSeguros) * 100) / 100;
 }
+
+/** As colunas que dizem em que ponto da antecipação um título está. */
+export interface TituloAntecipado {
+  adiantamento_id?: number | string | null;
+  banco_id?: number | string | null;
+  pendente?: boolean | null;
+}
+
+/**
+ * O título faz parte de uma antecipação?
+ *
+ * Vale para os dois modos: o que liquidou os títulos no ato e o que os manteve
+ * em aberto para a cobrança acompanhar.
+ */
+export function ehTituloAntecipado(transacao: TituloAntecipado | null | undefined): boolean {
+  return transacao?.adiantamento_id != null;
+}
+
+/**
+ * Título antecipado cuja baixa trouxe dinheiro novo.
+ *
+ * Acontece quando o pagador não honra o boleto e o banco debita o valor de volta
+ * da conta. Se o devedor pagar depois, aquela baixa é uma entrada de verdade — o
+ * banco já havia tirado o dinheiro que a antecipação tinha trazido.
+ *
+ * A pergunta se responde só com `banco_id` porque, num título antecipado, banco
+ * preenchido não tem outro jeito de existir: a antecipação grava nulo ao vincular
+ * o título, a baixa sem lançamento grava nulo, e o gatilho
+ * `transacao_antecipado_sem_banco_trg` recusa qualquer outro caminho — inclusive
+ * a edição manual que já dobrou saldo uma vez.
+ *
+ * Quem chama isto está quase sempre perguntando o contrário do que parece: se a
+ * resposta é `false`, a linha NÃO deve ser somada no extrato, porque o dinheiro
+ * dela entrou pela antecipação.
+ */
+export function antecipadoComLancamento(
+  transacao: TituloAntecipado | null | undefined,
+): boolean {
+  if (!ehTituloAntecipado(transacao)) return false;
+  if (transacao?.pendente === true) return false;
+  return transacao?.banco_id != null;
+}

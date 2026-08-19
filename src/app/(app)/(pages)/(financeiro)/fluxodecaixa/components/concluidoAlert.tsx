@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -24,7 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { valorLiquidoEfetivo } from "@/lib/financeiro/transacao";
+import { ehTituloAntecipado, valorLiquidoEfetivo } from "@/lib/financeiro/transacao";
 import { toast } from "@/lib/toast";
 import { formatDate } from "@/utils/formatDate";
 import formatarEmReal from "@/utils/formatarEmReal";
@@ -59,6 +60,7 @@ export default function ConcluidoAlert({
   const [selectedPlanoId, setSelectedPlanoId] = useState("");
   const [selectedCentroCustoId, setSelectedCentroCustoId] = useState("");
   const [dataPagamento, setDataPagamento] = useState("");
+  const [lancarNoCaixa, setLancarNoCaixa] = useState(false);
 
   const { gruposPlanosDeConta, loadingPlanos } = usePlanosDeConta();
   const { centrosCusto, loadingCentrosCusto, errorCentrosCusto } = useCentrosCusto();
@@ -70,6 +72,10 @@ export default function ConcluidoAlert({
     setSelectedMetodo(transaction.metodopagamento || "");
     setSelectedPlanoId(transaction.plano_de_conta_id ? String(transaction.plano_de_conta_id) : "");
     setSelectedCentroCustoId(transaction.centro_custo_id ? String(transaction.centro_custo_id) : "");
+    // Sempre desligado ao abrir. É a resposta certa na maioria esmagadora das
+    // vezes, e deixá-la marcada de uma baixa anterior lançaria dinheiro que não
+    // entrou na próxima.
+    setLancarNoCaixa(false);
     setDataPagamento(
       new Intl.DateTimeFormat("en-CA", {
         timeZone: "America/Sao_Paulo",
@@ -110,6 +116,13 @@ export default function ConcluidoAlert({
     };
   }, [isAlertOpen]);
 
+  /*
+   * Título antecipado é o único que precisa escolher se a baixa move a conta.
+   * Nos demais o banco é sempre gravado e não há nada a decidir — o servidor
+   * inclusive recusa a bandeira fora deste caso.
+   */
+  const antecipado = ehTituloAntecipado(transaction);
+
   async function handleConfirmarPagamento() {
     if (!transaction || isSubmitting) return;
 
@@ -137,6 +150,7 @@ export default function ConcluidoAlert({
         metodoPagamento: selectedMetodo,
         planoContaId: selectedPlanoId ? Number(selectedPlanoId) : null,
         centroCustoId: selectedCentroCustoId ? Number(selectedCentroCustoId) : null,
+        lancarNoCaixa: antecipado && lancarNoCaixa,
       });
 
       toast.success("Transação concluída com sucesso!");
@@ -201,12 +215,21 @@ export default function ConcluidoAlert({
               cobrado: é o líquido que bate com o extrato do banco. O bruto e a
               composição ficam abaixo, menores, para conferência.
             */}
+            {/*
+              "Entra na conta" é o rótulo certo quase sempre, e falso justamente
+              na baixa de título antecipado sem lançamento: ali a conta não se
+              move: o dinheiro entrou pela antecipação. O número continua sendo o
+              líquido — é o que o título vale, e é o que a pessoa confere contra o
+              boleto —, mas chamá-lo de entrada faria esperar um extrato que não
+              vem. Isso fica mais visível com juros: o título sobe para R$ 1.050 e
+              seria natural procurar esse valor no banco.
+            */}
             <div className="shrink-0 text-right">
               <p className="text-lg font-semibold text-primary">
                 {formatarEmReal(liquido)}
               </p>
               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                Entra na conta
+                {antecipado && !lancarNoCaixa ? "Valor do título" : "Entra na conta"}
               </p>
             </div>
           </div>
@@ -269,6 +292,54 @@ export default function ConcluidoAlert({
             </p>
           </div>
 
+          {/*
+            A pergunta que só o título antecipado responde.
+
+            Antecipar o boleto trouxe o dinheiro adiantado, mas a cobrança seguiu
+            até o vencimento. Se o boleto foi honrado, esta baixa é só a
+            confirmação disso e a conta não se move de novo. Se o pagador não
+            pagou, o banco debitou o valor de volta — e o pagamento que chega
+            agora é dinheiro entrando pela primeira vez.
+
+            O sistema não tem como saber em qual dos dois está: os dois terminam
+            com o mesmo boleto pago. Quem acompanhou o extrato sabe.
+          */}
+          {antecipado ? (
+            <div className="rounded-lg border bg-muted/30 p-3 sm:col-span-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 space-y-1">
+                  <Label htmlFor="baixa-lancar" className="text-sm font-medium">
+                    Lançar a entrada na conta
+                  </Label>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    {lancarNoCaixa ? (
+                      <>
+                        O banco <strong>debitou este valor de volta</strong> quando o
+                        boleto não foi pago, e o pagador quitou agora. A entrada será
+                        lançada na conta escolhida abaixo, como dinheiro novo.
+                      </>
+                    ) : (
+                      <>
+                        O dinheiro já entrou pela antecipação
+                        {transaction.adiantamento_id ? ` #${transaction.adiantamento_id}` : ""}.
+                        Esta baixa apenas confirma que o boleto foi honrado, e{" "}
+                        <strong>a conta não se move de novo</strong>. Ligue esta opção
+                        se o banco havia debitado o valor de volta.
+                      </>
+                    )}
+                  </p>
+                </div>
+                <Switch
+                  id="baixa-lancar"
+                  checked={lancarNoCaixa}
+                  onCheckedChange={setLancarNoCaixa}
+                  disabled={isSubmitting}
+                  className="mt-1 shrink-0"
+                />
+              </div>
+            </div>
+          ) : null}
+
           <div className="min-w-0 space-y-2">
             <Label>
               Banco / conta <span className="text-destructive">*</span>
@@ -295,6 +366,17 @@ export default function ConcluidoAlert({
               }))}
             />
             {bankLoadError ? <p className="text-xs text-destructive">{bankLoadError}</p> : null}
+            {/*
+              Sem este aviso, a pessoa escolhe um banco e ele simplesmente some —
+              o servidor grava nulo. Dizer que o campo não vale aqui é mais
+              honesto do que escondê-lo: ele volta a valer se ela ligar a opção
+              acima, e sumir e reaparecer seria pior.
+            */}
+            {antecipado && !lancarNoCaixa ? (
+              <p className="text-xs text-muted-foreground">
+                Não será gravado: o dinheiro deste título entrou pela antecipação.
+              </p>
+            ) : null}
           </div>
 
           <div className="min-w-0 space-y-2">

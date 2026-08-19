@@ -1,15 +1,19 @@
 // Impressão do orçamento avulso.
 //
 // Versão enxuta da folha da OS: mesmo cabeçalho de documento, mesma escala A4 e
-// mesmas cores de marca, sem o que só existe numa OS (alvo, checklist, garantia,
+// mesmas cores de marca, sem o que só existe numa OS (checklist, garantia,
 // realizadores, assinatura de responsável técnico). Um orçamento é proposta
-// comercial — o que precisa ficar legível é quem, o quê e quanto.
+// comercial — o que precisa ficar legível é quem, sobre o quê, o quê e quanto.
+//
+// O alvo divide a linha com o cliente em vez de ganhar faixa própria: a folha é
+// A4 de altura fixa e a tabela de itens ocupa o que sobrar, então gastar largura
+// não custa nenhuma linha de item.
 
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import Script from "next/script";
 import Link from "next/link";
-import { FileText, User } from "lucide-react";
+import { Car, Cog, FileText, Package, User } from "lucide-react";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { Button } from "@/components/ui/button";
@@ -82,6 +86,18 @@ function fmtPhone(value?: string | null) {
   if (digitos.length === 11) return digitos.replace(/(\d{2})(\d{5})(\d{4})/, "($1) $2-$3");
   if (digitos.length === 10) return digitos.replace(/(\d{2})(\d{4})(\d{4})/, "($1) $2-$3");
   return value || EMPTY;
+}
+
+function fmtKm(value: unknown) {
+  if (value == null || value === "") return EMPTY;
+  const numero = Number(value);
+  return Number.isFinite(numero) ? `${numero.toLocaleString("pt-BR")} km` : EMPTY;
+}
+
+function fmtHorimetro(value: unknown) {
+  if (value == null || value === "") return EMPTY;
+  const numero = Number(value);
+  return Number.isFinite(numero) ? `${numero.toLocaleString("pt-BR")} h` : EMPTY;
 }
 
 function joinParts(parts: Array<string | null | undefined>, separador = ", ") {
@@ -202,9 +218,20 @@ export default async function OrcamentoPrintPage({ params }: PageProps) {
   const empresaLocal = joinParts([empresa?.bairro, empresa?.cidade, empresa?.estado], " • ");
 
   const veiculo = orcamento.veiculo;
-  const veiculoTexto = veiculo
-    ? joinParts([veiculo.marca, veiculo.modelo, veiculo.placa], " • ")
-    : null;
+  const alvoTipo =
+    orcamento.alvo_tipo === "PECA"
+      ? "Peça"
+      : orcamento.alvo_tipo === "EQUIPAMENTO"
+        ? "Máquina/Equipamento"
+        : "Veículo";
+  // Alvo em branco não vira cartão vazio: o cliente volta a ocupar a linha
+  // inteira, como era antes de o orçamento ter alvo.
+  const temAlvo =
+    alvoTipo === "Veículo"
+      ? Boolean(veiculo)
+      : alvoTipo === "Peça"
+        ? Boolean(orcamento.peca_titulo)
+        : Boolean(orcamento.equipamento_nome);
 
   const situacao = orcamento.status === "CONVERTIDO" ? "Convertido em OS" : "Em aberto";
 
@@ -331,6 +358,13 @@ export default async function OrcamentoPrintPage({ params }: PageProps) {
         .linha-dado{ font-size:10px; color:var(--muted); }
         .linha-dado strong{ color:var(--ink); font-weight:600; }
 
+        .blocos-topo{ display:grid; grid-template-columns:1fr 1fr; gap:10px; align-items:stretch; }
+        .blocos-topo.sem-alvo{ grid-template-columns:1fr; }
+        .nome-alvo{ font-size:13px; font-weight:700; line-height:1.2; margin-bottom:4px; }
+        .kv{ display:flex; justify-content:space-between; gap:8px; font-size:10px; padding:1px 0; }
+        .kv .k{ color:var(--muted); }
+        .kv .v{ font-weight:600; }
+
         .tabela-container{ flex:1; min-height:0; overflow:hidden; border:1px solid var(--border); border-radius:var(--radius); }
         table{ width:100%; border-collapse:collapse; font-size:10px; }
         thead th{
@@ -435,6 +469,7 @@ export default async function OrcamentoPrintPage({ params }: PageProps) {
               ))}
             </div>
 
+            <div className={temAlvo ? "blocos-topo" : "blocos-topo sem-alvo"}>
             <div className="cartao cartao-destaque">
               <div className="titulo-secao">
                 <User className="w-3 h-3" aria-hidden="true" />
@@ -470,17 +505,83 @@ export default async function OrcamentoPrintPage({ params }: PageProps) {
                 <div className="nome-cliente">CONSUMIDOR NÃO IDENTIFICADO</div>
               )}
 
-              {veiculoTexto ? (
-                <div className="linha-dado" style={{ marginTop: 4 }}>
-                  <strong>Veículo:</strong> {veiculoTexto}
-                </div>
-              ) : null}
-
               {orcamento.descricao ? (
                 <div className="linha-dado" style={{ marginTop: 4 }}>
                   <strong>Referente a:</strong> {orcamento.descricao}
                 </div>
               ) : null}
+            </div>
+
+            {temAlvo ? (
+              <div className="cartao cartao-destaque">
+                <div className="titulo-secao">
+                  {alvoTipo === "Veículo" ? (
+                    <Car className="w-3 h-3" aria-hidden="true" />
+                  ) : alvoTipo === "Peça" ? (
+                    <Package className="w-3 h-3" aria-hidden="true" />
+                  ) : (
+                    <Cog className="w-3 h-3" aria-hidden="true" />
+                  )}
+                  {alvoTipo === "Peça" ? "Peça / Componente" : alvoTipo}
+                </div>
+
+                {alvoTipo === "Veículo" ? (
+                  <>
+                    <div className="nome-alvo">
+                      {fmtText(joinParts([veiculo?.marca, veiculo?.modelo], " ")).toUpperCase()}
+                    </div>
+                    <div className="kv">
+                      <span className="k">Placa</span>
+                      <span className="v">{fmtText(veiculo?.placa || veiculo?.placa_formatada)}</span>
+                    </div>
+                    <div className="kv">
+                      <span className="k">Ano</span>
+                      <span className="v">{fmtText(veiculo?.ano)}</span>
+                    </div>
+                    <div className="kv">
+                      <span className="k">Cor</span>
+                      <span className="v">{fmtText(veiculo?.cor)}</span>
+                    </div>
+                    <div className="kv">
+                      <span className="k">KM</span>
+                      <span className="v">{fmtKm(veiculo?.kmatual)}</span>
+                    </div>
+                  </>
+                ) : alvoTipo === "Peça" ? (
+                  <>
+                    <div className="nome-alvo">
+                      {String(orcamento.peca_titulo ?? "").toUpperCase()}
+                    </div>
+                    <div className="kv">
+                      <span className="k">Descrição</span>
+                      <span className="v">{fmtText(orcamento.peca_descricao)}</span>
+                    </div>
+                    <div className="kv">
+                      <span className="k">Lacre</span>
+                      <span className="v">{fmtText(orcamento.peca_lacre)}</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="nome-alvo">
+                      {String(orcamento.equipamento_nome ?? "").toUpperCase()}
+                    </div>
+                    <div className="kv">
+                      <span className="k">Patrimônio</span>
+                      <span className="v">{fmtText(orcamento.equipamento_patrimonio)}</span>
+                    </div>
+                    <div className="kv">
+                      <span className="k">Ano</span>
+                      <span className="v">{fmtText(orcamento.equipamento_ano)}</span>
+                    </div>
+                    <div className="kv">
+                      <span className="k">Horímetro</span>
+                      <span className="v">{fmtHorimetro(orcamento.equipamento_horimetro)}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : null}
             </div>
 
             {itens.length > 0 ? (

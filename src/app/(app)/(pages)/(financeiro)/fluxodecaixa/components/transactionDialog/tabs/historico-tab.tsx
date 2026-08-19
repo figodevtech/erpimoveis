@@ -1,19 +1,30 @@
 "use client";
 
-import { ArrowRight, History, PencilRuler, ReceiptText } from "lucide-react";
+import { ArrowRight, History, PencilRuler, ReceiptText, UserRoundCog } from "lucide-react";
 
 import formatarEmReal from "@/utils/formatarEmReal";
+
+import { formatCpfCnpj } from "../../../utils";
 
 import { Campo, Cartao, fmtDateTime, fmtText } from "./shared";
 import type { TransacaoContexto } from "./types";
 
+/** O rótulo do vínculo, para a troca dizer de onde para onde foi. */
+function vinculo(clienteId: number | null, fornecedorId: number | null) {
+  if (clienteId != null) return `cliente #${clienteId}`;
+  if (fornecedorId != null) return `fornecedor #${fornecedorId}`;
+  return "sem cadastro";
+}
+
 export function HistoricoTab({
   baixa,
   ajustes,
+  contraparte,
   auditoria,
 }: {
   baixa: TransacaoContexto["baixa"];
   ajustes: TransacaoContexto["ajustes"];
+  contraparte: TransacaoContexto["contraparte"];
   auditoria: TransacaoContexto["auditoria"];
 }) {
   return (
@@ -80,6 +91,47 @@ export function HistoricoTab({
         ) : (
           <p className="text-sm text-muted-foreground">
             Os valores nunca foram ajustados depois do registro.
+          </p>
+        )}
+      </Cartao>
+
+      <Cartao
+        titulo="Pagador / recebedor"
+        icone={<UserRoundCog className="h-3.5 w-3.5" />}
+      >
+        {contraparte.length ? (
+          <ul className="space-y-2">
+            {contraparte.map((troca) => (
+              <li key={troca.id} className="rounded-md border px-3 py-2 text-sm">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="text-muted-foreground line-through">
+                    {fmtText(troca.nome_anterior)}
+                  </span>
+                  <ArrowRight className="h-3 w-3 text-muted-foreground" aria-hidden />
+                  <span className="font-medium">{fmtText(troca.nome_novo)}</span>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {troca.documento_anterior
+                    ? formatCpfCnpj(troca.documento_anterior)
+                    : "sem documento"}
+                  {" → "}
+                  {troca.documento_novo
+                    ? formatCpfCnpj(troca.documento_novo)
+                    : "sem documento"}
+                  {" · "}
+                  {vinculo(troca.cliente_anterior_id, troca.fornecedor_anterior_id)}
+                  {" → "}
+                  {vinculo(troca.cliente_novo_id, troca.fornecedor_novo_id)}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {fmtDateTime(troca.created_at)} · {fmtText(troca.alteradoPor?.nome)}
+                </p>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            O pagador/recebedor nunca foi trocado depois do registro.
           </p>
         )}
       </Cartao>

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import { Loader2 } from "lucide-react";
 
+import { antecipadoComLancamento } from "@/lib/financeiro/transacao";
 import formatarEmReal from "@/utils/formatarEmReal";
 
 import { Cartao, EstadoVazio, fmtDate } from "./shared";
@@ -29,6 +30,9 @@ type Linha = {
   data: string;
   vencimento_em?: string | null;
   tipo: string;
+  pendente?: boolean | null;
+  banco_id?: number | null;
+  adiantamento_id?: number | null;
 };
 
 type Adiantamento = Linha & {
@@ -40,6 +44,24 @@ const num = (valor: unknown) => {
   const convertido = Number(valor ?? 0);
   return Number.isFinite(convertido) ? convertido : 0;
 };
+
+/**
+ * Em que pé cada título está.
+ *
+ * No modo que mantém os títulos em aberto a lista deixa de ser homogênea: uns
+ * ainda aguardam o vencimento, outros já foram baixados sem mover a conta, e um
+ * ou outro teve a baixa lançada na conta. Chamar todos de "liquidados", como a
+ * aba fazia, esconde justamente o que se veio olhar aqui.
+ *
+ * Os três rótulos descrevem estado registrado, não motivo. Que a baixa lançada
+ * tenha nascido de uma devolução do banco é o caso que a explica, mas isso não
+ * está gravado em lugar nenhum — a devolução é uma transação avulsa, solta.
+ */
+function situacaoDoTitulo(parcela: Linha): string {
+  if (parcela.pendente) return "sem baixa";
+  if (antecipadoComLancamento(parcela)) return "baixado com lançamento";
+  return "baixado";
+}
 
 export function AdiantamentoTab({ transacaoId }: { transacaoId: number }) {
   const [carregando, setCarregando] = useState(true);
@@ -96,6 +118,9 @@ export function AdiantamentoTab({ transacaoId }: { transacaoId: number }) {
   const liquido = num(adiantamento.valorLiquido) || bruto;
   const somaParcelas =
     parcelas.reduce((total, p) => total + Math.round(num(p.valorLiquido || p.valor) * 100), 0) / 100;
+  const comLancamento = parcelas.filter(
+    (p) => !p.pendente && antecipadoComLancamento(p),
+  ).length;
 
   return (
     <div className="space-y-3">
@@ -130,7 +155,7 @@ export function AdiantamentoTab({ transacaoId }: { transacaoId: number }) {
         </div>
       </Cartao>
 
-      <Cartao titulo={`Títulos liquidados (${parcelas.length})`}>
+      <Cartao titulo={`Títulos da antecipação (${parcelas.length})`}>
         {parcelas.length === 0 ? (
           <EstadoVazio>Nenhum título vinculado.</EstadoVazio>
         ) : (
@@ -150,6 +175,7 @@ export function AdiantamentoTab({ transacaoId }: { transacaoId: number }) {
                       {parcela.vencimento_em
                         ? ` · venceu em ${fmtDate(parcela.vencimento_em)}`
                         : ""}
+                      {` · ${situacaoDoTitulo(parcela)}`}
                       {parcela.id === transacaoId ? " · esta transação" : ""}
                     </p>
                   </div>
@@ -166,8 +192,19 @@ export function AdiantamentoTab({ transacaoId }: { transacaoId: number }) {
           </>
         )}
         <p className="mt-3 text-xs text-muted-foreground">
-          Estes títulos foram quitados sem banco: o dinheiro entrou pelo
-          adiantamento, e contá-lo neles também dobraria o saldo.
+          {comLancamento > 0 ? (
+            <>
+              Os títulos sem banco foram quitados pelo adiantamento — contá-los
+              de novo dobraria o saldo.{" "}
+              {comLancamento === 1 ? "Um deles" : `${comLancamento} deles`} teve a
+              baixa lançada na conta: ali o dinheiro entrou pelo próprio título.
+            </>
+          ) : (
+            <>
+              Estes títulos não carregam banco: o dinheiro entrou pelo
+              adiantamento, e contá-lo neles também dobraria o saldo.
+            </>
+          )}
         </p>
       </Cartao>
     </div>

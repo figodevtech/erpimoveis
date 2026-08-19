@@ -351,7 +351,7 @@ export async function GET(_: Request, { params }: Params) {
 
     /* ---------- Historico de baixa e auditoria ---------- */
 
-    const [{ data: baixa }, { data: ajustes }] = await Promise.all([
+    const [{ data: baixa }, { data: ajustes }, { data: contraparte }] = await Promise.all([
       supabaseAdmin
         .from("transacao_baixa_historico")
         .select("vencimento_em, pago_em, baixado_por, banco_id, metodopagamento, created_at")
@@ -365,6 +365,14 @@ export async function GET(_: Request, { params }: Params) {
         .eq("transacao_id", id)
         .order("created_at", { ascending: false })
         .limit(20),
+      supabaseAdmin
+        .from("transacao_contraparte_historico")
+        .select(
+          "id, cliente_anterior_id, cliente_novo_id, fornecedor_anterior_id, fornecedor_novo_id, nome_anterior, nome_novo, documento_anterior, documento_novo, alterado_por, created_at",
+        )
+        .eq("transacao_id", id)
+        .order("created_at", { ascending: false })
+        .limit(20),
     ]);
 
     // `baixado_por`/`created_by` sao uuid soltos, sem FK para `usuario`.
@@ -374,6 +382,7 @@ export async function GET(_: Request, { params }: Params) {
       transacao.baixado_por,
       baixa?.baixado_por,
       ...(ajustes ?? []).map((item) => item.alterado_por),
+      ...(contraparte ?? []).map((item) => item.alterado_por),
       ...relacionadas.map((item) => item.baixado_por),
     ]);
     const autor = (valor: unknown) => autores.get(String(valor ?? "")) ?? null;
@@ -416,6 +425,10 @@ export async function GET(_: Request, { params }: Params) {
         ? { ...baixa, baixadoPor: autor(baixa.baixado_por) }
         : null,
       ajustes: (ajustes ?? []).map((item) => ({
+        ...item,
+        alteradoPor: autor(item.alterado_por),
+      })),
+      contraparte: (contraparte ?? []).map((item) => ({
         ...item,
         alteradoPor: autor(item.alterado_por),
       })),

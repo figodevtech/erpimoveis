@@ -63,7 +63,28 @@ export function GerarOSDialog({ open, onOpenChange, orcamento, onGerada }: Gerar
     listarSetores()
       .then(setSetores)
       .catch((erro) => toast.error(erro?.message ?? "Falha ao carregar setores"));
-  }, [open]);
+
+    // O alvo já foi escolhido na cotação: aqui ele só é confirmado. Os campos
+    // que este dialog não mostra (descrição e lacre da peça, patrimônio, ano e
+    // horímetro do equipamento) continuam vindo do orçamento — a API usa o que
+    // está gravado sempre que o corpo omite.
+    const tipo = (orcamento?.alvo_tipo ?? "VEICULO") as AlvoTipo;
+    setAlvoTipo(tipo);
+    setPecaNome(orcamento?.peca_titulo ?? "");
+    setEquipamentoNome(orcamento?.equipamento_nome ?? "");
+
+    if (tipo === "VEICULO" && orcamento?.veiculo?.id) {
+      setVeiculoId(Number(orcamento.veiculo.id));
+      setVeiculoRotulo(
+        [orcamento.veiculo.marca, orcamento.veiculo.modelo, orcamento.veiculo.placa]
+          .filter(Boolean)
+          .join(" • ") || `Veículo #${orcamento.veiculo.id}`,
+      );
+    } else {
+      setVeiculoId(null);
+      setVeiculoRotulo("");
+    }
+  }, [open, orcamento]);
 
   useEffect(() => {
     if (open) return;
@@ -159,8 +180,8 @@ export function GerarOSDialog({ open, onOpenChange, orcamento, onGerada }: Gerar
         <DialogHeader>
           <DialogTitle>Gerar OS do orçamento #{orcamento?.id}</DialogTitle>
           <DialogDescription>
-            Os itens e valores vão para a OS exatamente como foram cotados. Falta informar o que a
-            OS exige e o orçamento não exigia.
+            Os itens, os valores e o alvo vão para a OS exatamente como foram cotados. Falta o
+            setor, que só a OS exige.
           </DialogDescription>
         </DialogHeader>
 
@@ -241,6 +262,7 @@ export function GerarOSDialog({ open, onOpenChange, orcamento, onGerada }: Gerar
                 <VehicleSelect
                   open={veiculoAberto}
                   setOpen={setVeiculoAberto}
+                  clienteId={orcamento?.cliente?.id ?? null}
                   OnSelect={(veiculo: any) => {
                     setVeiculoId(Number(veiculo.id));
                     setVeiculoRotulo(

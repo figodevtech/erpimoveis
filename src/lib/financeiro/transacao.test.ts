@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  antecipadoComLancamento,
+  ehTituloAntecipado,
   origemDaTransacao,
   tipoEhEditavel,
   tipoTemValorLiquido,
@@ -189,4 +191,46 @@ test("líquido em edição não sofre com ponto flutuante nem com lixo", () => {
     1000,
   );
   assert.equal(valorLiquidoEmEdicao({ valor: "abc", valor_descontos: "x" }, true), 0);
+});
+
+test("reconhece o título que faz parte de uma antecipação", () => {
+  assert.equal(ehTituloAntecipado({ adiantamento_id: 42 }), true);
+  assert.equal(ehTituloAntecipado({ adiantamento_id: null }), false);
+  assert.equal(ehTituloAntecipado(null), false);
+  assert.equal(ehTituloAntecipado(undefined), false);
+});
+
+test("título antecipado em aberto nunca conta como lançado no caixa", () => {
+  // É o estado em que a antecipação o deixa: o dinheiro entrou por ela.
+  assert.equal(
+    antecipadoComLancamento({ adiantamento_id: 42, pendente: true, banco_id: null }),
+    false,
+  );
+  // Mesmo com banco preenchido — que o gatilho recusa —, em aberto não soma.
+  assert.equal(
+    antecipadoComLancamento({ adiantamento_id: 42, pendente: true, banco_id: 3 }),
+    false,
+  );
+});
+
+test("a baixa sem lançamento não move a conta; a com lançamento move", () => {
+  // Boleto honrado: o caixa já recebeu pela antecipação.
+  assert.equal(
+    antecipadoComLancamento({ adiantamento_id: 42, pendente: false, banco_id: null }),
+    false,
+  );
+  // O banco debitou de volta e o pagador quitou depois: entrou dinheiro agora.
+  assert.equal(
+    antecipadoComLancamento({ adiantamento_id: 42, pendente: false, banco_id: 3 }),
+    true,
+  );
+});
+
+test("título comum nunca é antecipado com lançamento, mesmo com banco", () => {
+  // A pergunta só existe dentro de uma antecipação; fora dela o banco é sempre
+  // gravado e a linha sempre soma, sem nada a decidir.
+  assert.equal(
+    antecipadoComLancamento({ adiantamento_id: null, pendente: false, banco_id: 3 }),
+    false,
+  );
 });

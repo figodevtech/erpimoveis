@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireOrcamentosAccess, requireOrcamentosCreate } from "@/app/api/_authz/perms";
+import { normalizarAlvoOrcamento } from "@/lib/orcamentos/alvo";
 import { normalizarItens, OrcamentoInvalidoError } from "@/lib/orcamentos/itens";
 import { gravarItensDoOrcamento } from "@/lib/orcamentos/persistencia";
 
@@ -25,8 +26,16 @@ const SELECT_LISTA = `
   total,
   created_at,
   updated_at,
+  alvo_tipo,
+  peca_titulo,
+  peca_descricao,
+  peca_lacre,
+  equipamento_nome,
+  equipamento_patrimonio,
+  equipamento_ano,
+  equipamento_horimetro,
   cliente:clienteid ( id, nomerazaosocial, cpfcnpj, telefone ),
-  veiculo:veiculoid ( id, placa, modelo, marca ),
+  veiculo:veiculoid ( id, placa, modelo, marca, ano, cor ),
   criador:usuariocriadorid ( id, nome )
 `;
 
@@ -167,16 +176,14 @@ export async function POST(req: NextRequest) {
 
     const clienteid =
       body?.clienteid === null || body?.clienteid === undefined ? null : Number(body.clienteid);
-    const veiculoid =
-      body?.veiculoid === null || body?.veiculoid === undefined ? null : Number(body.veiculoid);
 
     if (clienteid !== null && !Number.isInteger(clienteid)) {
       return NextResponse.json({ error: "Cliente inválido." }, { status: 400 });
     }
-    if (veiculoid !== null && !Number.isInteger(veiculoid)) {
-      return NextResponse.json({ error: "Veículo inválido." }, { status: 400 });
-    }
 
+    // O alvo traz o veiculoid junto: quando o tipo nao e VEICULO ele volta nulo,
+    // que e o que o CHECK de coerencia do banco exige.
+    const alvo = normalizarAlvoOrcamento(body);
     const itens = normalizarItens(body);
     if (
       itens.produtos.length === 0 &&
@@ -193,7 +200,7 @@ export async function POST(req: NextRequest) {
       .from("orcamento")
       .insert({
         clienteid,
-        veiculoid,
+        ...alvo,
         usuariocriadorid,
         status: "ABERTO",
         descricao: body?.descricao ? String(body.descricao).trim() || null : null,
