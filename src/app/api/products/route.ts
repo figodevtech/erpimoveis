@@ -145,6 +145,28 @@ async function exigePrecoMedioCompra() {
   return data?.produto_preco_medio_compra_obrigatorio === true;
 }
 
+// O NCM da NF-e tem 8 digitos; um codigo pela metade nao serve para nada no
+// fiscal, entao "preenchido" aqui significa os 8 digitos completos.
+function ncmValido(value: unknown) {
+  return /^\d{8}$/.test(String(value ?? "").trim());
+}
+
+async function exigeNcm() {
+  const { data, error } = await supabaseAdmin
+    .from("config_geral")
+    .select("produto_ncm_obrigatorio")
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    if ((error as any).code === "42703") return false;
+    throw error;
+  }
+
+  return data?.produto_ncm_obrigatorio === true;
+}
+
 /** Saneia e valida payload de produto */
 function sanitizeProdutoPayload(body: any, { strict }: { strict: boolean }) {
   const out: Record<string, any> = {};
@@ -504,6 +526,13 @@ export async function POST(req: Request) {
     if ((await exigePrecoMedioCompra()) && !precoMedioCompraValido(payload.precocompra)) {
       return NextResponse.json(
         { error: "Informe um valor médio de compra maior que zero." },
+        { status: 400 },
+      );
+    }
+
+    if ((await exigeNcm()) && !ncmValido(payload.ncm)) {
+      return NextResponse.json(
+        { error: "Informe o NCM do produto com 8 dígitos." },
         { status: 400 },
       );
     }

@@ -17,6 +17,7 @@ export interface Config {
     impressao_cor_secundaria: string;
     modo_baixa_estoque_os: "ORCAMENTO" | "EXECUCAO";
     produto_preco_medio_compra_obrigatorio: boolean;
+    produto_ncm_obrigatorio: boolean;
     habilitar_edicao_transacoes: boolean;
     permitir_produto_avulso_os: boolean;
     setor_padrao_os_id: number | null;

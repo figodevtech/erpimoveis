@@ -65,6 +65,7 @@ export default function CadastroProduto({
   const { grupos } = useGruposProduto();
   const config = useConfig();
   const precoMedioCompraObrigatorio = config?.produto_preco_medio_compra_obrigatorio === true;
+  const ncmObrigatorio = config?.produto_ncm_obrigatorio === true;
 
   const tabTheme =
     " group !flex-none shrink-0 whitespace-nowrap h-11 rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-[background-color,color,box-shadow,transform] hover:text-foreground data-[state=active]:bg-primary dark:data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm sm:h-8";
@@ -150,6 +151,14 @@ export default function CadastroProduto({
         setCurrentTab("Geral");
         toast.error("Valor médio de compra obrigatório", {
           description: "Informe um valor médio de compra maior que zero.",
+        });
+        return;
+      }
+
+      if (ncmObrigatorio && !/^\d{8}$/.test(String(newProduct.ncm ?? "").trim())) {
+        setCurrentTab("Fiscal");
+        toast.error("NCM obrigatório", {
+          description: "Informe o NCM do produto com 8 dígitos.",
         });
         return;
       }
@@ -338,7 +347,7 @@ export default function CadastroProduto({
         precoMedioCompraObrigatorio={precoMedioCompraObrigatorio}
       />
 
-      <TabFiscal produto={newProduct} onChange={handleChange} />
+      <TabFiscal produto={newProduct} onChange={handleChange} ncmObrigatorio={ncmObrigatorio} />
       <TabEstoque mode="create" produto={newProduct} onChange={handleChange} />
       <TabImagensCreate
         pendentes={imagensPendentes}

@@ -210,6 +210,7 @@ export default function ConfigGeralPage() {
       impressao_cor_secundaria: "#0891b2",
       modo_baixa_estoque_os: "ORCAMENTO",
       produto_preco_medio_compra_obrigatorio: false,
+      produto_ncm_obrigatorio: false,
       habilitar_edicao_transacoes: false,
       permitir_produto_avulso_os: false,
       setor_padrao_os_id: null,
@@ -797,6 +798,21 @@ export default function ConfigGeralPage() {
                 checked={watch("produto_preco_medio_compra_obrigatorio")}
                 onCheckedChange={(value) =>
                   setValue("produto_preco_medio_compra_obrigatorio", value, { shouldDirty: true })
+                }
+              />
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col space-y-1">
+                <Label>NCM obrigatório</Label>
+                <span className="text-xs text-muted-foreground">
+                  Exige o NCM com 8 dígitos ao cadastrar ou editar produtos.
+                </span>
+              </div>
+              <Switch
+                checked={watch("produto_ncm_obrigatorio")}
+                onCheckedChange={(value) =>
+                  setValue("produto_ncm_obrigatorio", value, { shouldDirty: true })
                 }
               />
             </div>

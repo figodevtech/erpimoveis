@@ -11,7 +11,8 @@ const CONFIG_SELECT_BASE_LEGADO =
   "id, aviso_pagamento, checklist_obrigatorio, alerta_estoque_pdv, habilitar_emissao_nfe, emissao_nf_no_modulo_ordens, emissao_nf_no_modulo_vendas, emissao_nf_ordens_nao_pagas, emissao_nf_vendas_nao_pagas, modo_baixa_estoque_os, created_at, habilitar_drawers";
 
 const CONFIG_SELECT_BASE_SEM_SETOR_PADRAO = `${CONFIG_SELECT_BASE_LEGADO}, produto_preco_medio_compra_obrigatorio, habilitar_edicao_transacoes, permitir_produto_avulso_os`;
-const CONFIG_SELECT_BASE = `${CONFIG_SELECT_BASE_SEM_SETOR_PADRAO}, setor_padrao_os_id`;
+const CONFIG_SELECT_BASE_SEM_NCM_OBRIGATORIO = `${CONFIG_SELECT_BASE_SEM_SETOR_PADRAO}, setor_padrao_os_id`;
+const CONFIG_SELECT_BASE = `${CONFIG_SELECT_BASE_SEM_NCM_OBRIGATORIO}, produto_ncm_obrigatorio`;
 
 const CONFIG_SELECT_BASE_SEM_MODO_BAIXA =
   "id, aviso_pagamento, checklist_obrigatorio, alerta_estoque_pdv, habilitar_emissao_nfe, emissao_nf_no_modulo_ordens, emissao_nf_no_modulo_vendas, emissao_nf_ordens_nao_pagas, emissao_nf_vendas_nao_pagas, created_at, habilitar_drawers";
@@ -23,6 +24,7 @@ const CONFIG_SELECT_IMPRESSAO =
   "impressao_cor_primaria, impressao_cor_secundaria";
 
 const CONFIG_SELECT_SEM_IMPRESSAO = `${CONFIG_SELECT_BASE}, ${CONFIG_SELECT_AGENDAMENTO}`;
+const CONFIG_SELECT_COMPLETO_SEM_NCM_OBRIGATORIO = `${CONFIG_SELECT_BASE_SEM_NCM_OBRIGATORIO}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
 const CONFIG_SELECT_COMPLETO_SEM_SETOR_PADRAO = `${CONFIG_SELECT_BASE_SEM_SETOR_PADRAO}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
 const CONFIG_SELECT_COMPLETO_LEGADO = `${CONFIG_SELECT_BASE_LEGADO}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
 const CONFIG_SELECT_SEM_MODO_BAIXA = `${CONFIG_SELECT_BASE_SEM_MODO_BAIXA}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
@@ -84,6 +86,7 @@ function comPadroesAgendamento(config: any) {
     impressao_cor_secundaria: corHexValida(config.impressao_cor_secundaria) ?? "#0891b2",
     modo_baixa_estoque_os: modoBaixaEstoqueOSValido(config.modo_baixa_estoque_os) ?? "ORCAMENTO",
     produto_preco_medio_compra_obrigatorio: config.produto_preco_medio_compra_obrigatorio === true,
+    produto_ncm_obrigatorio: config.produto_ncm_obrigatorio === true,
     habilitar_edicao_transacoes: config.habilitar_edicao_transacoes === true,
     permitir_produto_avulso_os: config.permitir_produto_avulso_os === true,
     setor_padrao_os_id: Number.isInteger(Number(config.setor_padrao_os_id))
@@ -104,6 +107,16 @@ async function buscarConfigAtual() {
 
   if (!error) return comPadroesAgendamento(data);
   if (!colunaNaoExiste(error)) throw error;
+
+  const semNcmObrigatorio = await supabase
+    .from("config_geral")
+    .select(CONFIG_SELECT_COMPLETO_SEM_NCM_OBRIGATORIO)
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!semNcmObrigatorio.error) return comPadroesAgendamento(semNcmObrigatorio.data);
+  if (!colunaNaoExiste(semNcmObrigatorio.error)) throw semNcmObrigatorio.error;
 
   const semSetorPadrao = await supabase
     .from("config_geral")
@@ -168,6 +181,16 @@ async function criarConfigPadraoSeNaoExistir() {
 
   if (!error) return comPadroesAgendamento(data);
   if (!colunaNaoExiste(error)) throw error;
+
+  const semNcmObrigatorio = await supabase
+    .from("config_geral")
+    .select(CONFIG_SELECT_COMPLETO_SEM_NCM_OBRIGATORIO)
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!semNcmObrigatorio.error) return comPadroesAgendamento(semNcmObrigatorio.data);
+  if (!colunaNaoExiste(semNcmObrigatorio.error)) throw semNcmObrigatorio.error;
 
   const semSetorPadrao = await supabase
     .from("config_geral")
@@ -245,6 +268,7 @@ export async function PUT(request: Request) {
       "emissao_nf_ordens_nao_pagas",
       "emissao_nf_vendas_nao_pagas",
       "produto_preco_medio_compra_obrigatorio",
+      "produto_ncm_obrigatorio",
       "habilitar_edicao_transacoes",
       "permitir_produto_avulso_os",
     ];

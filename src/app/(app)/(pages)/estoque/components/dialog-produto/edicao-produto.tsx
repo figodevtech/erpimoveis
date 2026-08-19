@@ -83,6 +83,7 @@ export default function EdicaoProduto({
   const { grupos } = useGruposProduto();
   const config = useConfig();
   const precoMedioCompraObrigatorio = config?.produto_preco_medio_compra_obrigatorio === true;
+  const ncmObrigatorio = config?.produto_ncm_obrigatorio === true;
 
   const handleGetProduct = async (id: number) => {
     const myId = ++reqIdRef.current;
@@ -149,6 +150,14 @@ export default function EdicaoProduto({
       setCurrentTab("Geral");
       toast.error("Valor médio de compra obrigatório", {
         description: "Informe um valor médio de compra maior que zero.",
+      });
+      return;
+    }
+
+    if (ncmObrigatorio && !/^\d{8}$/.test(String(selectedProduct.ncm ?? "").trim())) {
+      setCurrentTab("Fiscal");
+      toast.error("NCM obrigatório", {
+        description: "Informe o NCM do produto com 8 dígitos.",
       });
       return;
     }
@@ -387,7 +396,7 @@ export default function EdicaoProduto({
             />
 
             <TabEtiquetas produto={selectedProduct} onChange={handleChange} />
-            <TabFiscal produto={selectedProduct} onChange={handleChange} />
+            <TabFiscal produto={selectedProduct} onChange={handleChange} ncmObrigatorio={ncmObrigatorio} />
             <TabEstoque mode="edit" produto={selectedProduct} onChange={handleChange} />
             <TabVendas produto={selectedProduct} />
             <TabOrdens produto={selectedProduct} />

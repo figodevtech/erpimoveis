@@ -232,6 +232,47 @@ async function validarPrecoMedioCompra(id: number, payload: Record<string, any>)
   }
 }
 
+// O NCM da NF-e tem 8 digitos; um codigo pela metade nao serve para nada no
+// fiscal, entao "preenchido" aqui significa os 8 digitos completos.
+function ncmValido(value: unknown) {
+  return /^\d{8}$/.test(String(value ?? "").trim());
+}
+
+async function exigeNcm() {
+  const { data, error } = await supabaseAdmin
+    .from("config_geral")
+    .select("produto_ncm_obrigatorio")
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    if ((error as any).code === "42703") return false;
+    throw error;
+  }
+
+  return data?.produto_ncm_obrigatorio === true;
+}
+
+async function validarNcm(id: number, payload: Record<string, any>) {
+  if (!(await exigeNcm())) return;
+
+  let valor = payload.ncm;
+  if (!("ncm" in payload)) {
+    const { data, error } = await supabaseAdmin
+      .from("produto")
+      .select("ncm")
+      .eq("id", id)
+      .maybeSingle();
+    if (error) throw error;
+    valor = data?.ncm;
+  }
+
+  if (!ncmValido(valor)) {
+    throw new Error("Informe o NCM do produto com 8 dígitos.");
+  }
+}
+
 async function scheduleMercadoLivrePriceSync(productId: number) {
   try {
     const queued = await enqueueMercadoLivreProductSync(productId);
@@ -427,6 +468,10 @@ export async function PATCH(req: NextRequest, context: { params: Promise<Params>
       await validarPrecoMedioCompra(id, payload);
     }
 
+    if ("ncm" in payload) {
+      await validarNcm(id, payload);
+    }
+
     // Se só veio updatedat (porque tudo foi omitido), não há mudanças
     if (Object.keys(payload).length === 1 && "updatedat" in payload) {
       return NextResponse.json({ error: "Nada para atualizar." }, { status: 400 });
@@ -440,7 +485,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<Params>
     const msg = e?.message ?? "Erro ao atualizar produto.";
     const status = e instanceof HttpError
       ? e.status
-      : msg.includes("ID inválido") || msg.includes("valor médio de compra")
+      : msg.includes("ID inválido") || msg.includes("valor médio de compra") || msg.includes("NCM")
         ? 400
         : 500;
     return NextResponse.json({ error: msg }, { status });
@@ -458,6 +503,7 @@ export async function PUT(req: NextRequest, context: { params: Promise<Params> }
     const payload = sanitizePayload(body, { strict: true });
 
     await validarPrecoMedioCompra(id, payload);
+    await validarNcm(id, payload);
 
     const data = await updateProduto(id, payload, expectedUpdatedAt);
     if ("precovenda" in payload) await scheduleMercadoLivrePriceSync(id);
@@ -467,7 +513,7 @@ export async function PUT(req: NextRequest, context: { params: Promise<Params> }
     const msg = e?.message ?? "Erro ao atualizar produto.";
     const status = e instanceof HttpError
       ? e.status
-      : msg.includes("ID inválido") || msg.includes("Campos obrigatórios") || msg.includes("valor médio de compra")
+      : msg.includes("ID inválido") || msg.includes("Campos obrigatórios") || msg.includes("valor médio de compra") || msg.includes("NCM")
         ? 400
         : 500;
     return NextResponse.json({ error: msg }, { status });

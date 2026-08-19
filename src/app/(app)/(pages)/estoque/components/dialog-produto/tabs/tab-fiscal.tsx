@@ -22,6 +22,7 @@ import { onlyDigits } from "../lib/utils";
 type Props = {
   produto: Produto;
   onChange: (field: keyof Produto, value: any) => void;
+  ncmObrigatorio?: boolean;
 };
 
 type FiscalSetup = {
@@ -48,16 +49,19 @@ function SectionTitle({ icon: Icon, children }: { icon: typeof FileText; childre
   );
 }
 
-function Field({ label, children, className = "" }: { label: string; children: React.ReactNode; className?: string }) {
+function Field({ label, children, className = "", required = false }: { label: string; children: React.ReactNode; className?: string; required?: boolean }) {
   return (
     <div className={`min-w-0 space-y-2 ${className}`}>
-      <Label>{label}</Label>
+      <Label>
+        {label}
+        {required && <span className="text-destructive"> *</span>}
+      </Label>
       {children}
     </div>
   );
 }
 
-export function TabFiscal({ produto, onChange }: Props) {
+export function TabFiscal({ produto, onChange, ncmObrigatorio = false }: Props) {
   const [setup, setSetup] = useState<FiscalSetup | null>(null);
 
   useEffect(() => {
@@ -127,7 +131,7 @@ export function TabFiscal({ produto, onChange }: Props) {
               </SelectContent>
             </Select>
           </Field>
-          <Field label="NCM">
+          <Field label="NCM" required={ncmObrigatorio}>
             <Input value={produto.ncm || ""} maxLength={8} inputMode="numeric" placeholder="00000000" onChange={(event) => onChange("ncm", onlyDigits(event.target.value))} />
           </Field>
           <Field label="CFOP padrão">
