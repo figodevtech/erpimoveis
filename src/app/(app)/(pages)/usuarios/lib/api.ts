@@ -8,6 +8,7 @@ export type Usuario = {
   id: number | string;
   nome: string;
   email: string;
+  username?: string | null;
 
   // ids “normalizados” pro front
   perfilid?: number | null;
@@ -30,6 +31,7 @@ export type Usuario = {
 export type UsuarioPayload = {
   nome: string;
   email: string;
+  username: string;
   perfilid?: number | null;
   setorid?: number | null;
   ativo?: boolean;
@@ -82,6 +84,7 @@ export async function buscarUsuarios(): Promise<Usuario[]> {
       id: u.id,
       nome: u.nome,
       email: u.email,
+      username: u.username ?? null,
 
       perfilid: typeof perfilIdNorm === "number" ? perfilIdNorm : perfilIdNorm ? Number(perfilIdNorm) : null,
       setorid: typeof setorIdNorm === "number" ? setorIdNorm : setorIdNorm ? Number(setorIdNorm) : null,
@@ -109,6 +112,7 @@ export async function criarUsuario(payload: UsuarioPayload) {
     body: JSON.stringify({
       nome: payload.nome,
       email: payload.email,
+      username: payload.username,
 
       // seu backend aceita perfilid/setorid (e também perfilId/setorId)
       perfilid: payload.perfilid ?? null,
@@ -140,6 +144,7 @@ export async function atualizarUsuario(id: string | number, payload: UsuarioPayl
     body: JSON.stringify({
       nome: payload.nome,
       email: payload.email,
+      username: payload.username,
 
       // seu backend atual usa perfilId/setorId no PUT
       perfilId: payload.perfilid ?? null,

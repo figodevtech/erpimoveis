@@ -3,13 +3,8 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { ensureAccess } from "../_authz";
 import { requireUsuariosEdit } from "@/app/api/_authz/perms";
-
-function isOpen() {
-  const v = (process.env.OPEN_PERMISSIONS ?? "").toString().trim().toLowerCase();
-  return v === "true" || v === "1" || v === "yes";
-}
+import { isValidUsername, normalizeUsername } from "@/lib/auth-identifier";
 
 function parseNumberOrNull(v: any) {
   if (v === null || typeof v === "undefined" || v === "") return null;
@@ -29,9 +24,7 @@ function parseDateOrNull(v: any) {
  */
 export async function POST(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const session = isOpen() ? null : await auth();
-    if (isOpen()) await ensureAccess(session);
-    else await requireUsuariosEdit();
+    await requireUsuariosEdit();
     const { id: userId } = await context.params;
 
     const body = (await req.json().catch(() => ({}))) as { acao?: string; senha?: string };
@@ -94,9 +87,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
 
 export async function PUT(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const session = isOpen() ? null : await auth();
-    if (isOpen()) await ensureAccess(session);
-    else await requireUsuariosEdit();
+    const session = await auth();
+    await requireUsuariosEdit();
     const actorId = ((session?.user as any)?.id as string | undefined) ?? null;
 
     const { id: userId } = await context.params;
@@ -106,6 +98,7 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
     const {
       nome,
       email,
+      username: usernameRaw,
       perfilId,
       perfilNome,
       setorId,
@@ -125,6 +118,32 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
       data_demissao: demissaoRaw,
       dataDemissao,
     }: any = body ?? {};
+
+    const username =
+      typeof usernameRaw === "undefined" ? undefined : normalizeUsername(usernameRaw);
+
+    if (typeof username !== "undefined") {
+      if (!username || !isValidUsername(username)) {
+        return NextResponse.json(
+          {
+            error:
+              "O nome de usuário deve ter de 3 a 30 caracteres e usar apenas letras, números, ponto, hífen ou sublinhado.",
+          },
+          { status: 400 }
+        );
+      }
+
+      const { data: usernameEmUso, error: usernameCheckError } = await supabaseAdmin
+        .from("usuario")
+        .select("id")
+        .eq("username", username)
+        .neq("id", userId)
+        .maybeSingle();
+      if (usernameCheckError) throw usernameCheckError;
+      if (usernameEmUso) {
+        return NextResponse.json({ error: "Este nome de usuário já está em uso." }, { status: 409 });
+      }
+    }
 
     // 1) Auth (email)
     if (typeof email !== "undefined" && email) {
@@ -182,6 +201,7 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
     const updatePayload: Record<string, any> = {};
     if (typeof nome !== "undefined") updatePayload.nome = nome;
     if (typeof email !== "undefined") updatePayload.email = email;
+    if (typeof username !== "undefined") updatePayload.username = username;
     if (typeof setorId !== "undefined") updatePayload.setorid = setorId;
     if (typeof newPerfilId !== "undefined") updatePayload.perfilid = newPerfilId;
     if (typeof ativo === "boolean") updatePayload.ativo = ativo;

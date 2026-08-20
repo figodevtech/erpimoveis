@@ -6,11 +6,6 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { requireOSAccess } from "@/app/api/_authz/perms";
 
-function isOpen() {
-  const v = (process.env.OPEN_PERMISSIONS ?? "").toString().trim().toLowerCase();
-  return v === "true" || v === "1" || v === "yes";
-}
-
 /**
  * GET /api/ordens/realizadores
  *
@@ -21,7 +16,7 @@ function isOpen() {
  */
 export async function GET() {
   try {
-    if (!isOpen()) await requireOSAccess();
+    await requireOSAccess();
 
     const { data, error } = await supabase
       .from("usuario")

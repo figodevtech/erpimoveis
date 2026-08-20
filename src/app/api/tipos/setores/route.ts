@@ -1,5 +1,6 @@
 // src/app/api/tipos/setores/route.ts
 import { NextResponse } from "next/server";
+import { requireAuthenticated, requireConfigEdit } from "@/app/api/_authz/perms";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
@@ -7,6 +8,7 @@ export const revalidate = 0;
 
 export async function GET(request: Request) {
   try {
+    await requireAuthenticated();
     const { searchParams } = new URL(request.url);
     const all = searchParams.get("all");
     const onlyAtivos = !(all === "1" || all === "true");
@@ -38,6 +40,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    await requireConfigEdit();
     const body = await request.json();
     const nome = (body?.nome ?? "").trim();
     const descricao = (body?.descricao ?? null) as string | null;

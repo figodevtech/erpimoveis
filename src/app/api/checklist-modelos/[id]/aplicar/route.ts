@@ -1,10 +1,8 @@
 // app/api/checklist-modelos/[id]/aplicar/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { requireOSEdit } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { auth } from "@/lib/auth";
-
-const OPEN = process.env.OPEN_PERMISSIONS === "true";
 
 const PayloadSchema = z.object({
   ordemservicoid: z.number().int().positive(),
@@ -17,15 +15,7 @@ export async function POST(
   { params }: { params: Promise<Params> }
 ) {
   try {
-    if (!OPEN) {
-      const session = await auth();
-      if (!session) {
-        return NextResponse.json(
-          { ok: false, error: "Unauthorized" },
-          { status: 401 }
-        );
-      }
-    }
+    await requireOSEdit();
 
     const { id } = await params;            // 👈 mudou
     const modeloId = Number(id);

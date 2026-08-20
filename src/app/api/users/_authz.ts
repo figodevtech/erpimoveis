@@ -2,14 +2,7 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { PERMS } from "@/app/api/_authz/permission-constants";
 
-function isOpen() {
-  const v = (process.env.OPEN_PERMISSIONS ?? "").toString().trim().toLowerCase();
-  return v === "true" || v === "1" || v === "yes";
-}
-
 export async function ensureAccess(session?: any) {
-  if (isOpen()) return;
-
   if (!session?.user) throw new Error("Nao autenticado");
 
   const directId = (session.user as any)?.id as string | undefined;

@@ -3,18 +3,11 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { auth } from "@/lib/auth";
-
-const OPEN = process.env.OPEN_PERMISSIONS === "true";
+import { requireUsuariosEdit } from "@/app/api/_authz/perms";
 
 export async function POST(req: NextRequest) {
   try {
-    if (!OPEN) {
-      const session = await auth();
-      if (!session) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      }
-    }
+    await requireUsuariosEdit();
 
     const body = await req.json().catch(() => ({}));
     const email = String(body?.email ?? "").trim().toLowerCase();

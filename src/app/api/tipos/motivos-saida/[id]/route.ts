@@ -1,18 +1,14 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireAuthenticated } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 const ESCOPOS = new Set(["PRODUTO", "USOCONSUMO", "AMBOS"]);
 
-function isOpen() {
-  const value = String(process.env.OPEN_PERMISSIONS ?? "").trim().toLowerCase();
-  return ["true", "1", "yes", "sim"].includes(value);
-}
 
 async function ensureAuth() {
-  if (!isOpen()) await auth();
+  await requireAuthenticated();
 }
 
 function parseId(value: string) {

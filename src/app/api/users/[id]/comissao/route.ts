@@ -2,14 +2,8 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { ensureAccess } from "../../_authz";
-
-function isOpen() {
-  const v = (process.env.OPEN_PERMISSIONS ?? "").toString().trim().toLowerCase();
-  return v === "true" || v === "1" || v === "yes";
-}
+import { requireUsuariosAccess } from "@/app/api/_authz/perms";
 
 function yyyymm(d: Date) {
   const y = d.getFullYear();
@@ -36,8 +30,7 @@ const keyOf = (ordemservicoid: number, servicoid: number): Key => `${ordemservic
 
 export async function GET(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const session = isOpen() ? null : await auth();
-    await ensureAccess(session);
+    await requireUsuariosAccess();
 
     const { id: userId } = await context.params;
 

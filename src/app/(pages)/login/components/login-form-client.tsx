@@ -10,7 +10,7 @@ import { toast } from "@/lib/toast";
 import ForgotPasswordDialog from "./forgot-password-dialog";
 
 export function LoginFormClient() {
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -21,8 +21,8 @@ export function LoginFormClient() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!email.trim() || !password.trim()) {
-      toast.error("Por favor, preencha e-mail e senha.");
+    if (!identifier.trim() || !password.trim()) {
+      toast.error("Por favor, preencha usuário/e-mail e senha.");
       return;
     }
 
@@ -30,7 +30,7 @@ export function LoginFormClient() {
 
     try {
       const res = await signIn("credentials", {
-        email,
+        identifier,
         password,
         redirect: false,
       });
@@ -39,24 +39,16 @@ export function LoginFormClient() {
         switch (res.error) {
           case "CredentialsSignin":
           case "INVALID_CREDENTIALS":
-            toast.error("E-mail ou senha inválidos.");
-            break;
-
-          case "CallbackRouteError":
-          case "USER_BLOCKED":
-            toast.error(
-              "Seu usuário foi bloqueado. Entre em contato com o administrador do sistema."
-            );
+            toast.error("Usuário/e-mail ou senha inválidos.");
             break;
 
           case "MISSING_CREDENTIALS":
           case "Por favor, forneça e-mail e senha.":
-            toast.error("Por favor, preencha e-mail e senha.");
+            toast.error("Por favor, preencha usuário/e-mail e senha.");
             break;
 
-          case "USER_NOT_FOUND":
-          case "Usuário não encontrado no sistema.":
-            toast.error("Usuário não encontrado. Solicite um cadastro.");
+          case "LOGIN_RATE_LIMITED":
+            toast.error("Muitas tentativas. Aguarde alguns minutos e tente novamente.");
             break;
 
           case "LOGIN_INTERNAL_ERROR":
@@ -64,7 +56,7 @@ export function LoginFormClient() {
             break;
 
           default:
-            toast.error("Não foi possível fazer login. Tente novamente.");
+            toast.error("Usuário/e-mail ou senha inválidos.");
             break;
         }
         return;
@@ -89,14 +81,14 @@ export function LoginFormClient() {
         </div>
 
         <div className="grid gap-3">
-          <Label htmlFor="email">Email</Label>
+          <Label htmlFor="identifier">Usuário ou e-mail</Label>
           <Input
-            id="email"
-            type="email"
-            placeholder="Email"
+            id="identifier"
+            type="text"
+            placeholder="Nome de usuário ou e-mail"
             required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            value={identifier}
+            onChange={(e) => setIdentifier(e.target.value)}
             autoComplete="username"
           />
         </div>

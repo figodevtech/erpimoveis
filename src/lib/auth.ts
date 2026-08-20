@@ -2,9 +2,19 @@
 import NextAuth from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 
-import { supabase } from "@/lib/supabase";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { expandPermissions } from "@/app/api/_authz/permission-constants";
+import { isEmailIdentifier, normalizeLoginIdentifier } from "@/lib/auth-identifier";
+import {
+  buildLoginRateLimitKeys,
+  credentialsHaveSafeLength,
+} from "@/lib/login-security";
+import {
+  checkLoginRateLimit,
+  clearLoginRateLimit,
+  registerLoginFailure,
+} from "@/lib/login-rate-limit";
+import { createSupabasePasswordAuthClient } from "@/lib/supabase-password-auth";
 
 const MAX_AGE_SECONDS = 60 * 60 * 24; // 24h
 
@@ -83,45 +93,87 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     CredentialsProvider({
       name: "Credenciais",
       credentials: {
-        email: { label: "E-mail", type: "email" },
+        identifier: { label: "Usuário ou e-mail", type: "text" },
         password: { label: "Senha", type: "password" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, request) {
         try {
-          if (!credentials?.email || !credentials?.password) {
+          const identifier = normalizeLoginIdentifier(
+            credentials?.identifier ?? (credentials as any)?.email
+          );
+          const password = String(credentials?.password ?? "");
+
+          if (!credentialsHaveSafeLength(identifier, password)) {
             throw new Error("MISSING_CREDENTIALS");
           }
 
-          const { data, error } = await supabase.auth.signInWithPassword({
-            email: String(credentials.email),
-            password: String(credentials.password),
+          const rateLimitKeys = buildLoginRateLimitKeys(identifier, request);
+          if ((await checkLoginRateLimit(rateLimitKeys)) > 0) {
+            throw new Error("LOGIN_RATE_LIMITED");
+          }
+
+          let email = identifier;
+          let usernameEncontrado = true;
+
+          if (!isEmailIdentifier(identifier)) {
+            const { data: usuario, error: usernameError } = await supabaseAdmin
+              .from("usuario")
+              .select("email")
+              .eq("username", identifier)
+              .maybeSingle();
+
+            if (usernameError) {
+              console.error("[auth] erro ao resolver nome de usuario:", usernameError);
+              throw new Error("LOGIN_INTERNAL_ERROR");
+            }
+
+            usernameEncontrado = Boolean(usuario?.email);
+            email = usernameEncontrado
+              ? String(usuario!.email).trim().toLowerCase()
+              : `invalid-${rateLimitKeys[0].slice(-32)}@invalid.local`;
+          }
+
+          const passwordAuth = createSupabasePasswordAuthClient();
+          const { data, error } = await passwordAuth.auth.signInWithPassword({
+            email,
+            password,
           });
 
-          if (error || !data?.user) {
+          if ((error as any)?.status === 429 || (error as any)?.code === "over_request_rate_limit") {
+            throw new Error("LOGIN_RATE_LIMITED");
+          }
+
+          if (!usernameEncontrado || error || !data?.user) {
+            const retryAfter = await registerLoginFailure(rateLimitKeys);
+            if (retryAfter > 0) throw new Error("LOGIN_RATE_LIMITED");
             throw new Error("INVALID_CREDENTIALS");
           }
 
           const { user } = data;
           const usuarioAplicacao = await carregarUsuarioAplicacao(user.id, user.email);
-          const ativo = usuarioAplicacao?.ativo ?? true;
 
-          if (!ativo) {
-            throw new Error("USER_BLOCKED");
+          if (!usuarioAplicacao || !usuarioAplicacao.ativo) {
+            await clearLoginRateLimit([rateLimitKeys[0]]);
+            throw new Error("INVALID_CREDENTIALS");
           }
 
+          // Sucesso limpa somente o contador da conta. O contador por IP deve
+          // continuar impedindo que uma conta controlada burle o throttling.
+          await clearLoginRateLimit([rateLimitKeys[0]]);
+
           return {
-            id: usuarioAplicacao?.id ?? user.id,
-            email: usuarioAplicacao?.email ?? user.email!,
-            nome: usuarioAplicacao?.nome ?? user.user_metadata?.nome ?? user.email ?? "Usuario",
-            perfilId: usuarioAplicacao?.perfilId ?? null,
-            setorId: usuarioAplicacao?.setorId ?? null,
-            ativo,
-            permissoes: usuarioAplicacao?.permissoes ?? [],
+            id: usuarioAplicacao.id,
+            email: usuarioAplicacao.email ?? user.email!,
+            nome: usuarioAplicacao.nome ?? user.user_metadata?.nome ?? user.email ?? "Usuario",
+            perfilId: usuarioAplicacao.perfilId,
+            setorId: usuarioAplicacao.setorId,
+            ativo: true,
+            permissoes: usuarioAplicacao.permissoes,
           } as any;
         } catch (e: any) {
           if (
             e instanceof Error &&
-            ["MISSING_CREDENTIALS", "INVALID_CREDENTIALS", "USER_BLOCKED"].includes(e.message)
+            ["MISSING_CREDENTIALS", "INVALID_CREDENTIALS", "LOGIN_RATE_LIMITED"].includes(e.message)
           ) {
             throw e;
           }

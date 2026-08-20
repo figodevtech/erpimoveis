@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import type { Usuario } from "../lib/api";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
@@ -62,11 +62,8 @@ export function TabelaUsuarios({
 
   const total = items.length;
   const totalPages = Math.max(1, Math.ceil(total / limit));
-  useEffect(() => {
-    if (page > totalPages) setPage(1);
-  }, [totalPages, page]);
-
-  const start = (page - 1) * limit;
+  const currentPage = Math.min(page, totalPages);
+  const start = (currentPage - 1) * limit;
   const end = Math.min(total, start + limit);
   const pageItems = items.slice(start, end);
 
@@ -79,6 +76,9 @@ export function TabelaUsuarios({
           </TableCell>
           <TableCell>
             <div className="h-3 w-40 bg-muted rounded" />
+          </TableCell>
+          <TableCell>
+            <div className="h-3 w-28 bg-muted rounded" />
           </TableCell>
           <TableCell>
             <div className="h-3 w-28 bg-muted rounded" />
@@ -150,6 +150,7 @@ export function TabelaUsuarios({
           <TableHeader>
             <TableRow>
               <TableHead>Nome</TableHead>
+              <TableHead>Usuário</TableHead>
               <TableHead>E-mail</TableHead>
               <TableHead>Setor</TableHead>
               <TableHead>Perfil</TableHead>
@@ -163,7 +164,7 @@ export function TabelaUsuarios({
               linhasSkeleton
             ) : total === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">
+                <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
                   Nenhum usuário encontrado. Clique em <b>Novo usuário</b> para cadastrar.
                 </TableCell>
               </TableRow>
@@ -171,6 +172,7 @@ export function TabelaUsuarios({
               pageItems.map((u) => (
                 <TableRow key={String(u.id)} className="hover:cursor-default">
                   <TableCell className="font-medium">{u.nome}</TableCell>
+                  <TableCell>{u.username ?? "—"}</TableCell>
                   <TableCell className="truncate">{u.email}</TableCell>
                   <TableCell>{u.setor ? <Badge variant="secondary">{u.setor.nome}</Badge> : "—"}</TableCell>
                   <TableCell>{u.perfil ? <Badge variant="outline">{u.perfil.nome}</Badge> : "—"}</TableCell>
@@ -232,7 +234,7 @@ export function TabelaUsuarios({
               size="icon"
               className="hover:cursor-pointer"
               onClick={() => setPage(1)}
-              disabled={page === 1 || total === 0}
+              disabled={currentPage === 1 || total === 0}
             >
               <ChevronsLeft className="h-4 w-4" />
             </Button>
@@ -241,19 +243,19 @@ export function TabelaUsuarios({
               size="icon"
               className="hover:cursor-pointer"
               onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1 || total === 0}
+              disabled={currentPage === 1 || total === 0}
             >
               <ChevronLeftIcon className="h-4 w-4" />
             </Button>
             <span className="text-xs font-medium text-nowrap">
-              Pg. {Math.min(page, totalPages)} de {totalPages}
+              Pg. {currentPage} de {totalPages}
             </span>
             <Button
               className="hover:cursor-pointer"
               variant="outline"
               size="icon"
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages || total === 0}
+              disabled={currentPage === totalPages || total === 0}
             >
               <ChevronRightIcon className="h-4 w-4" />
             </Button>
@@ -262,7 +264,7 @@ export function TabelaUsuarios({
               variant="outline"
               size="icon"
               onClick={() => setPage(totalPages)}
-              disabled={page === totalPages || total === 0}
+              disabled={currentPage === totalPages || total === 0}
             >
               <ChevronsRight className="h-4 w-4" />
             </Button>
