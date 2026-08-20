@@ -22,13 +22,13 @@ export function KpiFinanceiro({ rotulo, valor, valorNumero, Icone, destaque }: P
     : "bg-muted";
 
   return (
-    <div className="rounded-lg border p-2.5 sm:rounded-xl sm:p-3">
+    <div className="dashboard-kpi min-h-24 p-3.5">
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground sm:text-sm">{rotulo}</p>
-        {Icone ? <Icone className="h-3.5 w-3.5 text-muted-foreground sm:h-4 sm:w-4" /> : null}
+        {Icone ? <span className="flex size-8 items-center justify-center rounded-xl bg-primary/10 text-primary"><Icone className="h-3.5 w-3.5 sm:h-4 sm:w-4" /></span> : null}
       </div>
 
-      <div className="mt-1 text-lg font-semibold tracking-tight sm:text-xl md:text-2xl">{valor}</div>
+      <div className="relative z-10 mt-2 text-lg font-semibold tracking-tight sm:text-xl md:text-2xl">{valor}</div>
 
       <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted/60">
         <div

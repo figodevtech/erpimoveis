@@ -10,6 +10,9 @@ export const INSIGHTS_INICIAIS: InsightsClientes = {
   dailyNew: [],
   recent30d: 0,
   prev30d: 0,
+  clientesAtendidos30: 0,
+  clientesRecorrentes90: 0,
+  taxaRecorrencia90: 0,
 };
 
 export const BARRAS_UF_PADRAO = [

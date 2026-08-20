@@ -3,6 +3,7 @@ import { ResumoFinanceiro } from "./types";
 export const RESUMO_INICIAL: ResumoFinanceiro = {
   periodo: { inicio: new Date().toISOString(), fim: new Date().toISOString() },
   totais: { receita: 0, despesa: 0, saldo: 0, receitaPendente: 0 },
+  pendencias: { aPagar: 0, aPagarVencido: 0, aPagar30Dias: 0, aReceber: 0, aReceberVencido: 0 },
   fluxoDiario: [],
   porCategoria: [],
   porMetodoPagamento: [],

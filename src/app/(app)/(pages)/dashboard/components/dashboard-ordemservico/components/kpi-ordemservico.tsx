@@ -12,12 +12,12 @@ export type KpiProps = {
 
 export default function Kpi({ label, value, icon: Icon, className }: KpiProps) {
   return (
-    <div className={cn("rounded-lg border p-3", className)}>
+    <div className={cn("dashboard-kpi min-h-24 p-3.5", className)}>
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">{label}</p>
-        {Icon ? <Icon className="h-4 w-4 text-muted-foreground" aria-hidden="true" /> : null}
+        {Icon ? <span className="flex size-8 items-center justify-center rounded-xl bg-primary/10 text-primary"><Icon className="h-4 w-4" aria-hidden="true" /></span> : null}
       </div>
-      <div className="mt-1 xl:text-2xl font-semibold tracking-tight">{value}</div>
+      <div className="relative z-10 mt-2 text-xl font-semibold tracking-tight xl:text-2xl">{value}</div>
     </div>
   );
 }

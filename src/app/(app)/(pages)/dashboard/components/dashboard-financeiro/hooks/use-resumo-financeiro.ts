@@ -55,7 +55,7 @@ export function useResumoFinanceiro(
         resumo = montarResumoDeLista(listaTransacoes, inicio, fim);
       } else {
         resumo = normalizarResumoBruto(json, inicio, fim);
-        listaTransacoes = [];
+        listaTransacoes = Array.isArray(json.transacoes) ? json.transacoes : [];
       }
 
       setDados(resumo);

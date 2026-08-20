@@ -109,6 +109,8 @@ function classificarLancamentoFinanceiro(item: any) {
   if (pendente && tipo === "RECEITA") return { label: "A receber", className: "border-emerald-500/40 text-emerald-600" };
   if (tipo === "DESPESA") return { label: "Despesa", className: "border-red-500/30 text-red-600" };
   if (tipo === "RECEITA") return { label: "Receita", className: "border-emerald-500/30 text-emerald-600" };
+  if (tipo === "DEPOSITO") return { label: "Depósito", className: "border-emerald-500/30 text-emerald-600" };
+  if (tipo === "SAQUE") return { label: "Saque", className: "border-red-500/30 text-red-600" };
 
   return { label: statusText(tipo), className: "" };
 }
@@ -147,7 +149,7 @@ function MiniStats({ items }: { items: Array<{ label: string; value: string | nu
   return (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
       {items.map((item) => (
-        <div key={item.label} className="rounded-lg border bg-muted/20 p-3">
+        <div key={item.label} className="rounded-xl bg-muted/40 p-3">
           <p className="text-[11px] text-muted-foreground">{item.label}</p>
           <p className={cn("mt-1 text-sm font-semibold", item.tone)}>{item.value}</p>
         </div>
@@ -189,7 +191,7 @@ function Timeline({
   return (
     <div className={cn("space-y-2", items.length > 5 && "max-h-[380px] overflow-y-auto pr-1")}>
       {items.map((item, index) => (
-        <div key={`${item.id ?? index}-${index}`} className="flex gap-3 rounded-lg border bg-card p-3">
+        <div key={`${item.id ?? index}-${index}`} className="flex gap-3 rounded-xl bg-muted/30 p-3 transition-colors hover:bg-muted/55">
           <div className="mt-1 h-2 w-2 shrink-0 rounded-full bg-primary" />
           <div className="min-w-0 flex-1">{render(item)}</div>
         </div>
@@ -226,7 +228,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-lg border bg-card p-4 shadow-sm">
+    <div className="dashboard-surface p-4">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <p className="flex items-center gap-2 text-sm font-medium">
@@ -298,8 +300,8 @@ export default function ResumoDiarioDashboard() {
   }, [data]);
 
   return (
-    <Card className="w-full">
-      <CardHeader className="flex flex-row items-start justify-between gap-3">
+    <Card className="dashboard-root w-full">
+      <CardHeader className="flex flex-col items-start justify-between gap-4 sm:flex-row">
         <div className="space-y-1">
           <CardTitle className="flex items-center gap-2">
             <CalendarDays className="h-5 w-5" />
@@ -544,18 +546,18 @@ export default function ResumoDiarioDashboard() {
                 />
               </Section>
 
-              <Section title="Agendamentos" description="Agendamentos criados no dia." icon={CalendarDays}>
+              <Section title="Agenda do dia" description="Compromissos marcados para a data selecionada." icon={CalendarDays}>
                 <MiniStats
                   items={[
-                    { label: "Criados", value: formatNumber(data.agendamentos.total) },
+                    { label: "Na agenda", value: formatNumber(data.agendamentos.total) },
+                    { label: "Criados no dia", value: formatNumber(data.agendamentos.criados ?? 0) },
                     { label: "Agendados", value: formatNumber(data.agendamentos.porStatus?.AGENDADO ?? 0) },
-                    { label: "Pendentes", value: formatNumber(data.agendamentos.porStatus?.PENDENTE ?? 0) },
                   ]}
                 />
                 <StatusStrip items={mapToList(data.agendamentos.porStatus)} />
                 <Timeline
                   items={data.agendamentos.itens}
-                  empty="Nenhum agendamento criado neste dia."
+                  empty="Nenhum compromisso marcado para este dia."
                   render={(item) => (
                     <>
                       <div className="flex items-center justify-between gap-2">

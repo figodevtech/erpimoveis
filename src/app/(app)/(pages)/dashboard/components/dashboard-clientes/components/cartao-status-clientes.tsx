@@ -21,7 +21,7 @@ import { useContadorStatusClientes } from "../hooks/use-contador-status-clientes
 
 export function CartaoStatusClientes({
   className,
-  endpoint = "/api/customers/status-counter",
+  endpoint = "/api/dashboard/clientes/status-counter",
   autoRefreshMs,
 }: CartaoStatusClientesProps) {
   const { dados, carregando, erro, recarregar } = useContadorStatusClientes(endpoint, autoRefreshMs);
@@ -44,8 +44,8 @@ export function CartaoStatusClientes({
   const tudoZero = seriesAnimada.every((s) => s.value === 0);
 
   return (
-    <Card className={clsx("w-full", className)}>
-      <CardHeader className="flex flex-row items-start justify-between gap-2 px-3 py-3 sm:px-4 sm:py-4">
+    <Card className={clsx("dashboard-root w-full", className)}>
+      <CardHeader className="flex flex-col items-start justify-between gap-3 px-3 py-3 sm:flex-row sm:px-4 sm:py-4">
         <div>
           <CardTitle className="text-base sm:text-lg">Status dos Clientes</CardTitle>
           <CardDescription className="text-xs sm:text-sm">Distribuição por status da base</CardDescription>
@@ -104,7 +104,7 @@ export function CartaoStatusClientes({
 
           <div className="grid grid-cols-2 gap-2 self-center sm:grid-cols-3">
             {seriesAnimada.map((s) => (
-              <div key={s.key} className="rounded-lg border p-2">
+              <div key={s.key} className="dashboard-kpi p-3">
                 <div className="text-[10px] text-muted-foreground">{s.name}</div>
                 <div className="text-lg font-semibold">{s.value}</div>
                 <div className="mt-1 h-1.5 w-full rounded-full" style={{ background: s.fill }} />

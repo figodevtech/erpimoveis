@@ -4,40 +4,37 @@ export const runtime = 'nodejs';
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
-type ClienteRow = { status: 'ATIVO' | 'INATIVO' | 'PENDENTE' | null };
-
 export async function GET() {
   try {
-    const listPromise = supabaseAdmin
-      .from('cliente')
-      .select('status')
-      .returns<ClienteRow[]>();
+    const countStatus = (status: 'ATIVO' | 'INATIVO' | 'PENDENTE') =>
+      supabaseAdmin
+        .from('cliente')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_deleted', false)
+        .eq('status', status);
 
-    const totalPromise = supabaseAdmin
-      .from('cliente')
-      .select('*', { count: 'exact', head: true });
-
-    const [{ data, error }, { count, error: countError }] = await Promise.all([
-      listPromise,
-      totalPromise,
+    const [ativo, inativo, pendente, semStatus, total] = await Promise.all([
+      countStatus('ATIVO'),
+      countStatus('INATIVO'),
+      countStatus('PENDENTE'),
+      supabaseAdmin.from('cliente').select('*', { count: 'exact', head: true }).eq('is_deleted', false).is('status', null),
+      supabaseAdmin.from('cliente').select('*', { count: 'exact', head: true }).eq('is_deleted', false),
     ]);
 
-    if (error) throw error;
-    if (countError) throw countError;
+    const firstError = [ativo.error, inativo.error, pendente.error, semStatus.error, total.error].find(Boolean);
+    if (firstError) throw firstError;
 
-    const countsByStatus = (data ?? []).reduce<Record<string, number>>(
-      (acc, row) => {
-        const key = String(row.status ?? 'NULL');
-        acc[key] = (acc[key] ?? 0) + 1;
-        return acc;
-      },
-      { ATIVO: 0, INATIVO: 0, PENDENTE: 0 }
-    );
+    const countsByStatus = {
+      ATIVO: ativo.count ?? 0,
+      INATIVO: inativo.count ?? 0,
+      PENDENTE: pendente.count ?? 0,
+      NULL: semStatus.count ?? 0,
+    };
 
     return NextResponse.json(
       {
         countsByStatus,
-        totalClients: count ?? 0,
+        totalClients: total.count ?? 0,
       },
       { headers: { 'Cache-Control': 'no-store' } }
     );

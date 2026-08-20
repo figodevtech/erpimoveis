@@ -2,14 +2,16 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { requireDashboardAccess } from "@/app/api/_authz/perms";
-import { saldoEmAberto } from "@/lib/financeiro/transacao";
+import { saldoEmAberto, valorLiquidoEfetivo } from "@/lib/financeiro/transacao";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { fetchAllSupabaseRows } from "@/lib/supabase-pagination";
 
 const FORTALEZA_OFFSET = "-03:00";
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 function todayLocalYYYYMMDD() {
   const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Sao_Paulo",
+    timeZone: "America/Fortaleza",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -69,6 +71,9 @@ export async function GET(req: Request) {
 
     const { searchParams } = new URL(req.url);
     const date = searchParams.get("date")?.trim() || todayLocalYYYYMMDD();
+    if (!DATE_PATTERN.test(date)) {
+      return NextResponse.json({ error: "Data inválida." }, { status: 400 });
+    }
     const startIso = localDayStartToUtcIso(date);
     const endIso = localNextDayStartToUtcIso(date);
 
@@ -78,125 +83,142 @@ export async function GET(req: Request) {
       vendasRes,
       transacoesRes,
       clientesRes,
-      agendamentosRes,
+      agendaDoDiaRes,
+      agendamentosCriadosRes,
       produtosRes,
       entradasRes,
       nfeRes,
       nfseRes,
     ] = await Promise.all([
-      supabaseAdmin
-        .from("ordemservico")
-        .select(
-          "id, status, descricao, orcamentototal, dataentrada, datasaida, cliente:clienteid ( nomerazaosocial ), veiculo:veiculoid ( placa, modelo )",
-        )
-        .gte("dataentrada", startIso)
-        .lt("dataentrada", endIso)
-        .order("dataentrada", { ascending: false })
-        .limit(50),
-      supabaseAdmin
-        .from("ordemservico")
-        .select("id, status, descricao, orcamentototal, dataentrada, datasaida")
-        .gte("datasaida", startIso)
-        .lt("datasaida", endIso)
-        .order("datasaida", { ascending: false })
-        .limit(50),
-      supabaseAdmin
-        .from("venda")
-        .select(
-          "id, status, valortotal, datavenda, forma_pagamento, canal, cliente:clienteid ( nomerazaosocial ), vendedor_rel:vendedor ( nome )",
-        )
-        .gte("datavenda", startIso)
-        .lt("datavenda", endIso)
-        .order("datavenda", { ascending: false })
-        .limit(80),
-      supabaseAdmin
-        .from("transacao")
-        .select("id, descricao, valor, valorLiquido, valor_descontos, valor_baixado, data, metodopagamento, categoria, tipo, pendente, created_at")
-        .gte("data", startIso)
-        .lt("data", endIso)
-        .eq("is_deleted", false)
-        /*
-         * A baixa parcial é o dinheiro de um título que também está aqui. Contar
-         * as duas linhas somaria o mesmo recebimento duas vezes no resumo do dia.
-         * Fica o título, que é o que a pessoa reconhece na lista.
-         */
-        .is("baixa_de_transacao_id", null)
-        .order("data", { ascending: false })
-        .limit(120),
-      supabaseAdmin
-        .from("cliente")
-        .select("id, nomerazaosocial, cidade, estado, status, createdat")
-        .gte("createdat", startIso)
-        .lt("createdat", endIso)
-        .eq("is_deleted", false)
-        .order("createdat", { ascending: false })
-        .limit(50),
-      supabaseAdmin
-        .from("agendamento")
-        .select(
-          "id, titulo, status, origem, inicio, fim, solicitante_nome, createdat, cliente:clienteid ( nomerazaosocial ), veiculo:veiculoid ( placa, modelo )",
-        )
-        .gte("createdat", startIso)
-        .lt("createdat", endIso)
-        .order("createdat", { ascending: false })
-        .limit(50),
-      supabaseAdmin
-        .from("produto")
-        .select("id, titulo, estoque, estoqueminimo, status_estoque, createdat")
-        .gte("createdat", startIso)
-        .lt("createdat", endIso)
-        .eq("is_deleted", false)
-        .order("createdat", { ascending: false })
-        .limit(50),
-      supabaseAdmin
-        .from("entrada")
-        .select("id, tipo, status, fiscal, notachave, created_at, fornecedor:fornecedorid ( nomerazaosocial )")
-        .gte("created_at", startIso)
-        .lt("created_at", endIso)
-        .order("created_at", { ascending: false })
-        .limit(50),
-      supabaseAdmin
-        .from("nfe")
-        .select("id, status, modelo, numero, total_nfe, dataemissao, ordemservicoid, vendaid")
-        .gte("dataemissao", startIso)
-        .lt("dataemissao", endIso)
-        .eq("is_deleted", false)
-        .order("dataemissao", { ascending: false })
-        .limit(50),
-      supabaseAdmin
-        .from("nfse")
-        .select("id, status, numero, valor_total, dataemissao, ordemservicoid")
-        .gte("dataemissao", startIso)
-        .lt("dataemissao", endIso)
-        .order("dataemissao", { ascending: false })
-        .limit(50),
+      fetchAllSupabaseRows<any>(() =>
+        supabaseAdmin
+          .from("ordemservico")
+          .select(
+            "id, status, descricao, orcamentototal, dataentrada, datasaida, cliente:clienteid ( nomerazaosocial ), veiculo:veiculoid ( placa, modelo )",
+          )
+          .eq("is_deleted", false)
+          .gte("dataentrada", startIso)
+          .lt("dataentrada", endIso)
+          .order("dataentrada", { ascending: false })
+          .order("id", { ascending: false }),
+      ),
+      fetchAllSupabaseRows<any>(() =>
+        supabaseAdmin
+          .from("ordemservico")
+          .select("id, status, descricao, orcamentototal, dataentrada, datasaida")
+          .eq("is_deleted", false)
+          .eq("status", "CONCLUIDO")
+          .gte("datasaida", startIso)
+          .lt("datasaida", endIso)
+          .order("datasaida", { ascending: false })
+          .order("id", { ascending: false }),
+      ),
+      fetchAllSupabaseRows<any>(() =>
+        supabaseAdmin
+          .from("venda")
+          .select(
+            "id, status, valortotal, datavenda, forma_pagamento, canal, cliente:clienteid ( nomerazaosocial ), vendedor_rel:vendedor ( nome )",
+          )
+          .in("status", ["PAGAMENTO", "FINALIZADA", "PAGO", "AUTORIZADO"])
+          .gte("datavenda", startIso)
+          .lt("datavenda", endIso)
+          .order("datavenda", { ascending: false })
+          .order("id", { ascending: false }),
+      ),
+      fetchAllSupabaseRows<any>(() =>
+        supabaseAdmin
+          .from("transacao")
+          .select("id, descricao, valor, valorLiquido, valor_descontos, valor_baixado, banco_id, data, metodopagamento, categoria, tipo, pendente, adiantamento_id, baixa_de_transacao_id, created_at")
+          .gte("data", startIso)
+          .lt("data", endIso)
+          .eq("is_deleted", false)
+          .order("data", { ascending: false })
+          .order("id", { ascending: false }),
+      ),
+      fetchAllSupabaseRows<any>(() =>
+        supabaseAdmin
+          .from("cliente")
+          .select("id, nomerazaosocial, cidade, estado, status, createdat")
+          .gte("createdat", startIso)
+          .lt("createdat", endIso)
+          .eq("is_deleted", false)
+          .order("createdat", { ascending: false })
+          .order("id", { ascending: false }),
+      ),
+      fetchAllSupabaseRows<any>(() =>
+        supabaseAdmin
+          .from("agendamento")
+          .select(
+            "id, titulo, status, origem, inicio, fim, solicitante_nome, createdat, cliente:clienteid ( nomerazaosocial ), veiculo:veiculoid ( placa, modelo )",
+          )
+          .gte("inicio", startIso)
+          .lt("inicio", endIso)
+          .not("status", "in", "(CANCELADO,REPROVADO)")
+          .order("inicio", { ascending: true })
+          .order("id", { ascending: true }),
+      ),
+      fetchAllSupabaseRows<any>(() =>
+        supabaseAdmin
+          .from("agendamento")
+          .select(
+            "id, titulo, status, origem, inicio, fim, solicitante_nome, createdat, cliente:clienteid ( nomerazaosocial ), veiculo:veiculoid ( placa, modelo )",
+          )
+          .gte("createdat", startIso)
+          .lt("createdat", endIso)
+          .order("createdat", { ascending: false })
+          .order("id", { ascending: false }),
+      ),
+      fetchAllSupabaseRows<any>(() =>
+        supabaseAdmin
+          .from("produto")
+          .select("id, titulo, estoque, estoqueminimo, status_estoque, createdat")
+          .gte("createdat", startIso)
+          .lt("createdat", endIso)
+          .eq("is_deleted", false)
+          .order("createdat", { ascending: false })
+          .order("id", { ascending: false }),
+      ),
+      fetchAllSupabaseRows<any>(() =>
+        supabaseAdmin
+          .from("entrada")
+          .select("id, tipo, status, fiscal, notachave, created_at, fornecedor:fornecedorid ( nomerazaosocial )")
+          .gte("created_at", startIso)
+          .lt("created_at", endIso)
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: false }),
+      ),
+      fetchAllSupabaseRows<any>(() =>
+        supabaseAdmin
+          .from("nfe")
+          .select("id, status, modelo, numero, total_nfe, dataemissao, ordemservicoid, vendaid")
+          .gte("dataemissao", startIso)
+          .lt("dataemissao", endIso)
+          .eq("is_deleted", false)
+          .order("dataemissao", { ascending: false })
+          .order("id", { ascending: false }),
+      ),
+      fetchAllSupabaseRows<any>(() =>
+        supabaseAdmin
+          .from("nfse")
+          .select("id, status, numero, valor_total, dataemissao, ordemservicoid")
+          .gte("dataemissao", startIso)
+          .lt("dataemissao", endIso)
+          .order("dataemissao", { ascending: false })
+          .order("id", { ascending: false }),
+      ),
     ]);
 
-    const errors = [
-      osCriadasRes.error,
-      osConcluidasRes.error,
-      vendasRes.error,
-      transacoesRes.error,
-      clientesRes.error,
-      agendamentosRes.error,
-      produtosRes.error,
-      entradasRes.error,
-      nfeRes.error,
-      nfseRes.error,
-    ].filter(Boolean);
-
-    if (errors.length > 0) throw errors[0];
-
-    const osCriadas = osCriadasRes.data ?? [];
-    const osConcluidas = osConcluidasRes.data ?? [];
-    const vendas = vendasRes.data ?? [];
-    const transacoes = transacoesRes.data ?? [];
-    const clientes = clientesRes.data ?? [];
-    const agendamentos = agendamentosRes.data ?? [];
-    const produtos = produtosRes.data ?? [];
-    const entradas = entradasRes.data ?? [];
-    const nfes = nfeRes.data ?? [];
-    const nfses = nfseRes.data ?? [];
+    const osCriadas = osCriadasRes;
+    const osConcluidas = osConcluidasRes;
+    const vendas = vendasRes;
+    const transacoes = transacoesRes;
+    const clientes = clientesRes;
+    const agendamentosCriados = agendamentosCriadosRes;
+    const agendamentos = agendaDoDiaRes;
+    const produtos = produtosRes;
+    const entradas = entradasRes;
+    const nfes = nfeRes;
+    const nfses = nfseRes;
 
     let receita = 0;
     let despesa = 0;
@@ -205,25 +227,32 @@ export async function GET(req: Request) {
 
     for (const transacao of transacoes as any[]) {
       const tipo = String(transacao.tipo ?? "").toUpperCase();
-      const valor = toNumber(transacao.valorLiquido ?? transacao.valor);
+      const valor = valorLiquidoEfetivo(transacao);
       const pendente = transacao.pendente === true;
       const categoria = String(transacao.categoria ?? "Não informado");
+      const entrada = tipo === "RECEITA";
+      const saida = tipo === "DESPESA";
 
       if (pendente) {
-        // Em aberto é o que falta: um título já pago pela metade não tem o valor
-        // cheio a receber.
-        if (tipo === "RECEITA") receitaPendente += saldoEmAberto(transacao);
+        if (entrada && transacao.adiantamento_id == null) {
+          receitaPendente += saldoEmAberto(transacao);
+        }
         continue;
       }
+
+      // Somente dinheiro que passou por uma conta compõe entradas e saídas.
+      // Quitações sem banco (por exemplo, via adiantamento) não são um segundo
+      // movimento de caixa.
+      if (transacao.banco_id == null || (!entrada && !saida)) continue;
 
       const bucket = financeiroPorCategoria[categoria] ?? { receita: 0, despesa: 0 };
       financeiroPorCategoria[categoria] = bucket;
 
-      if (tipo === "RECEITA") {
+      if (entrada) {
         receita += valor;
         bucket.receita += valor;
       }
-      if (tipo === "DESPESA") {
+      if (saida) {
         despesa += valor;
         bucket.despesa += valor;
       }
@@ -241,7 +270,7 @@ export async function GET(req: Request) {
       vendas.length +
       transacoes.length +
       clientes.length +
-      agendamentos.length +
+      agendamentosCriados.length +
       produtos.length +
       entradas.length +
       nfes.length +
@@ -313,7 +342,7 @@ export async function GET(req: Request) {
             id: row.id,
             tipo: row.tipo,
             descricao: row.descricao,
-            valor: toNumber(row.valorLiquido ?? row.valor),
+            valor: valorLiquidoEfetivo(row),
             horario: row.created_at,
             dataFinanceira: row.data,
             categoria: row.categoria ?? null,
@@ -335,6 +364,7 @@ export async function GET(req: Request) {
         },
         agendamentos: {
           total: agendamentos.length,
+          criados: agendamentosCriados.length,
           porStatus: countBy(agendamentos as any[], "status"),
           itens: (agendamentos as any[]).map((row) => {
             const cliente = relationOne(row.cliente);
