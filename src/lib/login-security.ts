@@ -15,7 +15,7 @@ export function getClientIp(request: Request): string {
   return firstForwardedIp || "unknown";
 }
 
-function hashRateLimitValue(kind: "identifier" | "ip", value: string): string {
+function hashRateLimitValue(kind: string, value: string): string {
   const secret = process.env.AUTH_SECRET;
   if (!secret) throw new Error("AUTH_SECRET ausente para protecao do login.");
 
@@ -26,6 +26,27 @@ export function buildLoginRateLimitKeys(identifier: string, request: Request): s
   return [
     hashRateLimitValue("identifier", identifier),
     hashRateLimitValue("ip", getClientIp(request)),
+  ];
+}
+
+export function buildPublicApprovalRateLimitKeys(token: string, request: Request): string[] {
+  return [
+    hashRateLimitValue("approval-token", token),
+    hashRateLimitValue("approval-ip", getClientIp(request)),
+  ];
+}
+
+export function buildRecoveryRateLimitKeys(email: string, request: Request): string[] {
+  return [
+    hashRateLimitValue("recovery-email", email),
+    hashRateLimitValue("recovery-ip", getClientIp(request)),
+  ];
+}
+
+export function buildAppointmentRateLimitKeys(document: string, request: Request): string[] {
+  return [
+    hashRateLimitValue("appointment-document", document),
+    hashRateLimitValue("appointment-ip", getClientIp(request)),
   ];
 }
 

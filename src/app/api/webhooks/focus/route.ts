@@ -1,69 +1,94 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+
+import { isValidFocusWebhookSecret } from "@/lib/focus-webhook-security";
 import { extractNfseUrls } from "@/lib/nfse-urls";
 import { normalizarStatusNFSe } from "@/lib/services/fiscais/nfse-service";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-/**
- * Handler genérico para Webhooks da Focus NFe.
- * Suporta NFS-e (Serviço).
- */
+const MAX_WEBHOOK_BYTES = 256 * 1024;
+
 export async function POST(req: NextRequest) {
+  const receivedSecret =
+    req.headers.get("x-focus-webhook-secret") ??
+    req.nextUrl.searchParams.get("secret");
+
+  if (!isValidFocusWebhookSecret(receivedSecret)) {
+    return NextResponse.json(
+      { ok: false, message: "Webhook não autorizado." },
+      { status: 401, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  const declaredLength = Number(req.headers.get("content-length") ?? 0);
+  if (declaredLength > MAX_WEBHOOK_BYTES) {
+    return NextResponse.json({ ok: false, message: "Payload muito grande." }, { status: 413 });
+  }
+
   try {
-    const body = await req.json();
-    console.log("[Webhook Focus NFe] Recebido:", JSON.stringify(body, null, 2));
+    const rawBody = await req.text();
+    if (Buffer.byteLength(rawBody, "utf8") > MAX_WEBHOOK_BYTES) {
+      return NextResponse.json({ ok: false, message: "Payload muito grande." }, { status: 413 });
+    }
 
-    const referencia = body.ref;
-    const focusStatus = body.status;
+    const body = JSON.parse(rawBody) as Record<string, any>;
+    const referencia = String(body.ref ?? "").trim();
+    const focusStatus = String(body.status ?? "").trim();
 
-    if (!referencia) {
-      return NextResponse.json({ ok: false, message: "Webhook: referencia (ref) ausente." }, { status: 400 });
+    if (!referencia || referencia.length > 128 || focusStatus.length > 64) {
+      return NextResponse.json(
+        { ok: false, message: "Payload do webhook inválido." },
+        { status: 400 },
+      );
     }
 
     const finalStatus = normalizarStatusNFSe(focusStatus);
-
-    // Tentar encontrar a referência na tabela 'nfse'
-    const { data: nfse } = await supabaseAdmin
+    const { data: nfse, error: findError } = await supabaseAdmin
       .from("nfse")
       .select("id")
       .eq("referencia", referencia)
       .maybeSingle();
 
-    if (nfse) {
-      console.log(`[Webhook Focus NFe] Atualizando NFS-e ID: ${nfse.id} para status: ${finalStatus}`);
-      const urls = extractNfseUrls(body);
-      
-      const updatePayload: any = {
-        status: finalStatus,
-        numero: body.numero || undefined,
-        protocolo: body.codigo_verificacao || body.protocolo || undefined,
-        url_consulta: urls.consultationUrl || undefined,
-        url_pdf: urls.pdfUrl || undefined,
-        url_xml: body.caminho_xml_nota_fiscal || undefined,
-        erros: body.erros || (body.mensagem_sefaz ? [{ mensagem: body.mensagem_sefaz, codigo: body.status_sefaz }] : null),
-        updatedat: new Date().toISOString(),
-      };
-
-      // Limpa campos undefined
-      Object.keys(updatePayload).forEach(key => updatePayload[key] === undefined && delete updatePayload[key]);
-
-      const { error: updError } = await supabaseAdmin
-        .from("nfse")
-        .update(updatePayload)
-        .eq("id", nfse.id);
-
-      if (updError) throw updError;
-      
+    if (findError) throw findError;
+    if (!nfse) {
+      console.warn("[Webhook Focus NFe] Referência não vinculada.");
       return NextResponse.json({ ok: true });
     }
 
-    // Se não encontrou nada na 'nfse', ignoramos
-    console.warn(`[Webhook Focus NFe] Referência não encontrada no sistema: ${referencia}`);
-    return NextResponse.json({ ok: true, message: "Referência não vinculada a registros ativos." });
+    const urls = extractNfseUrls(body);
+    const updatePayload: Record<string, unknown> = {
+      status: finalStatus,
+      numero: body.numero || undefined,
+      protocolo: body.codigo_verificacao || body.protocolo || undefined,
+      url_consulta: urls.consultationUrl || undefined,
+      url_pdf: urls.pdfUrl || undefined,
+      url_xml: body.caminho_xml_nota_fiscal || undefined,
+      erros:
+        body.erros ||
+        (body.mensagem_sefaz
+          ? [{ mensagem: body.mensagem_sefaz, codigo: body.status_sefaz }]
+          : null),
+      updatedat: new Date().toISOString(),
+    };
 
-  } catch (e: any) {
-    console.error("[Webhook Focus NFe] Exception fatal:", e);
-    return NextResponse.json({ ok: true, error: e.message }, { status: 200 });
+    for (const key of Object.keys(updatePayload)) {
+      if (updatePayload[key] === undefined) delete updatePayload[key];
+    }
+
+    const { error: updateError } = await supabaseAdmin
+      .from("nfse")
+      .update(updatePayload)
+      .eq("id", nfse.id);
+
+    if (updateError) throw updateError;
+    console.info("[Webhook Focus NFe] NFS-e atualizada.", { id: nfse.id, status: finalStatus });
+    return NextResponse.json({ ok: true });
+  } catch (error: any) {
+    console.error("[Webhook Focus NFe] Falha no processamento:", error?.code ?? error?.name);
+    return NextResponse.json(
+      { ok: false, message: "Falha ao processar webhook." },
+      { status: 500, headers: { "Cache-Control": "no-store" } },
+    );
   }
 }

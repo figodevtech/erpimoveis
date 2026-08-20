@@ -2,6 +2,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
+  checkLoginRateLimit,
+  clearLoginRateLimit,
+  registerLoginFailure,
+} from "@/lib/login-rate-limit";
+import { buildPublicApprovalRateLimitKeys } from "@/lib/login-security";
+import {
   arredondarMoeda,
   calcularDescontoAplicado,
   sanitizeTipoDesconto,
@@ -87,6 +93,23 @@ type Bundle = {
 
 function onlyDigits(s: string | null | undefined) {
   return (s || "").replace(/\D+/g, "");
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function rateLimited(retryAfter: number) {
+  return NextResponse.json(
+    { error: "Muitas tentativas. Aguarde antes de tentar novamente." },
+    {
+      status: 429,
+      headers: {
+        "Retry-After": String(Math.max(1, retryAfter)),
+        "Cache-Control": "no-store",
+      },
+    },
+  );
 }
 
 function auditHeaderValue(value: string) {
@@ -239,20 +262,21 @@ type ParamsToken = { token: string };
  * GET /api/ordens/aprovacao/[token]
  * =========================== */
 export async function GET(
-  req: NextRequest,
+  _req: NextRequest,
   { params }: { params: Promise<ParamsToken> }
 ) {
   try {
     const { token } = await params; // 👈 aqui é o ajuste
-    const url = new URL(req.url);
-    const docParam = onlyDigits(url.searchParams.get("doc"));
+    if (!isUuid(token)) {
+      return NextResponse.json({ error: "Token inválido" }, { status: 404 });
+    }
 
     const bundle = await carregarPorToken(token);
     if (!bundle) {
       return NextResponse.json({ error: "Token inválido" }, { status: 404 });
     }
 
-    const { tokenRow, cliente, produtos, servicos, totais, statusOS, statusAprovacao } = bundle;
+    const { tokenRow, statusOS, statusAprovacao } = bundle;
 
     const now = new Date();
     const usado = !!tokenRow.usado_em;
@@ -271,10 +295,6 @@ export async function GET(
     const base = {
       ordemservicoid: bundle.ordemservicoid,
       osId: bundle.ordemservicoid,
-      cliente: {
-        nomerazaosocial: cliente.nomerazaosocial,
-        cpfcnpj: cliente.cpfcnpj,
-      },
       statusOS,
       statusAprovacao,
       statusToken,
@@ -298,37 +318,13 @@ export async function GET(
       );
     }
 
-    // Token ativo, mas sem doc → não libera valores ainda
-    if (!docParam) {
-      return NextResponse.json(
-        {
-          ...base,
-          acessoLiberado: false,
-          produtos: [],
-          servicos: [],
-          totais: TOTAIS_ZERADOS,
-        },
-        { status: 200 }
-      );
-    }
-
-    // Confere documento
-    const docOk = onlyDigits(cliente.cpfcnpj) === docParam;
-    if (!docOk) {
-      return NextResponse.json(
-        { error: "Documento não confere para este orçamento." },
-        { status: 400 }
-      );
-    }
-
-    // Documento confere → agora sim libera orçamento
     return NextResponse.json(
       {
         ...base,
-        acessoLiberado: true,
-        produtos,
-        servicos,
-        totais,
+        acessoLiberado: false,
+        produtos: [],
+        servicos: [],
+        totais: TOTAIS_ZERADOS,
       },
       { status: 200 }
     );
@@ -343,11 +339,11 @@ export async function GET(
 
 /* ===========================
  * POST /api/ordens/aprovacao/[token]
- * body: { acao: "aprovar" | "reprovar", doc: string }
+ * body: { acao: "consultar" | "aprovar" | "reprovar", doc: string }
  * =========================== */
 
 type PostBody = {
-  acao: "aprovar" | "reprovar";
+  acao: "consultar" | "aprovar" | "reprovar";
   doc: string;
 };
 
@@ -357,14 +353,21 @@ export async function POST(
 ) {
   try {
     const { token } = await params; // 👈 mesmo ajuste aqui
+    if (!isUuid(token)) {
+      return NextResponse.json({ error: "Token inválido." }, { status: 404 });
+    }
     const body = (await req.json()) as PostBody;
 
-    if (!body?.acao || !body?.doc) {
+    if (!body?.doc || !["consultar", "aprovar", "reprovar"].includes(body?.acao)) {
       return NextResponse.json(
         { error: "Ação e documento são obrigatórios." },
         { status: 400 }
       );
     }
+
+    const rateLimitKeys = buildPublicApprovalRateLimitKeys(token, req);
+    const retryAfter = await checkLoginRateLimit(rateLimitKeys);
+    if (retryAfter > 0) return rateLimited(retryAfter);
 
     const bundle = await carregarPorToken(token);
     if (!bundle) {
@@ -391,10 +394,30 @@ export async function POST(
 
     const doc = onlyDigits(body.doc);
     if (!doc || doc !== onlyDigits(cliente.cpfcnpj)) {
+      const blockedFor = await registerLoginFailure(rateLimitKeys);
+      if (blockedFor > 0) return rateLimited(blockedFor);
       return NextResponse.json(
         { error: "CPF/CNPJ não confere para este orçamento." },
         { status: 400 }
       );
+    }
+
+    if (body.acao === "consultar") {
+      await clearLoginRateLimit([rateLimitKeys[0]]);
+      return NextResponse.json({
+        ordemservicoid,
+        osId: ordemservicoid,
+        cliente: { nomerazaosocial: cliente.nomerazaosocial },
+        statusOS,
+        statusAprovacao,
+        statusToken: "valido",
+        usado: false,
+        expirado: false,
+        acessoLiberado: true,
+        produtos: bundle.produtos,
+        servicos: bundle.servicos,
+        totais: bundle.totais,
+      });
     }
 
     const desiredAprov: DBAprovacao =
@@ -406,50 +429,34 @@ export async function POST(
       `Cliente: ${cliente.nomerazaosocial} (link de aprovacao)`,
     );
 
-    // 1) Atualiza a OS com o resultado da aprovação
-    const upd = await supabaseAdmin
-      .from("ordemservico")
-      .update({
-        statusaprovacao: desiredAprov,
-        status: desiredOS,
+    const result = await supabaseAdmin
+      .rpc("responder_aprovacao_os", {
+        p_token: token,
+        p_documento: doc,
+        p_acao: body.acao,
       })
-      .eq("id", ordemservicoid)
       .setHeader("x-audit-actor-type", "cliente")
       .setHeader("x-audit-actor-name", auditActorName);
 
-    if (upd.error) throw upd.error;
-
-    // 2) Marca esse token como usado e registra quem aprovou (origem = LINK)
-    const mark = await supabaseAdmin
-      .from("osaprovacao")
-      .update({
-        usado_em: new Date().toISOString(),
-        origem: "LINK",
-        resultado: desiredAprov,
-        aprovador_doc: doc,
-        aprovador_usuario_id: null,
-      })
-      .eq("id", tokenRow.id)
-      .is("usado_em", null)
-      .setHeader("x-audit-actor-type", "cliente")
-      .setHeader("x-audit-actor-name", auditActorName);
-
-    if (mark.error) throw mark.error;
+    if (result.error) throw result.error;
+    await clearLoginRateLimit([rateLimitKeys[0]]);
 
     return NextResponse.json(
       {
         ok: true,
-        ordemservicoid,
-        status: desiredOS,
-        statusaprovacao: desiredAprov,
+        ordemservicoid: result.data?.ordemservicoid ?? ordemservicoid,
+        status: result.data?.status ?? desiredOS,
+        statusaprovacao: result.data?.statusaprovacao ?? desiredAprov,
       },
       { status: 200 }
     );
   } catch (err: any) {
     console.error("POST /api/ordens/aprovacao/[token]", err);
+    const code = String(err?.code ?? "");
+    const status = code === "P0002" ? 404 : code === "22023" ? 409 : 500;
     return NextResponse.json(
       { error: err?.message || "Falha ao registrar resposta do orçamento." },
-      { status: 500 }
+      { status }
     );
   }
 }

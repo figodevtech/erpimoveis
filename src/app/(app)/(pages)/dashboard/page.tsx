@@ -10,10 +10,10 @@ import ConteudoEstoque from "./components/dashboard-estoque/page";
 
 export default function PaginaDashboard() {
   return (
-    <div className="dashboard-canvas w-full p-2 sm:p-3 lg:p-4">
+    <div className="dashboard-canvas w-full p-1 sm:p-2 lg:p-3">
       <div className="relative z-10 flex gap-4">
-        <Tabs defaultValue="geral" className="w-full space-y-3">
-          <TabsList className="h-auto w-full justify-start gap-1 overflow-x-auto rounded-2xl border-0 bg-card/75 p-1.5 shadow-lg shadow-slate-900/5 backdrop-blur-xl sm:w-fit">
+        <Tabs defaultValue="geral" className="w-full space-y-1 sm:space-y-2">
+          <TabsList className="dashboard-tabs-list mx-auto h-auto w-fit max-w-full justify-center gap-1 overflow-x-auto rounded-2xl border-0 bg-card/80 p-1.5 shadow-lg shadow-slate-900/5 backdrop-blur-xl sm:mx-0">
             <OpcoesAbas />
           </TabsList>
 

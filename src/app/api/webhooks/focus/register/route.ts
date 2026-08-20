@@ -1,60 +1,71 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+
+import { requireConfigEdit } from "@/app/api/_authz/perms";
+import { getFocusWebhookSecret } from "@/lib/focus-webhook-security";
 import { FocusWebhookService } from "@/lib/services/fiscais/webhook-service";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-/**
- * GET /api/webhooks/focus/register
- * Rota para registrar os hooks na Focus NFe.
- */
-export async function GET(req: Request) {
+/** Registra os hooks na Focus. É uma mutação administrativa e aceita somente POST. */
+export async function POST() {
   try {
-    // 1. Buscar ambiente da empresa
-    const { data: empresa, error: empError } = await supabaseAdmin
+    await requireConfigEdit();
+
+    const { data: empresa, error: empresaError } = await supabaseAdmin
       .from("empresa")
       .select("ambiente, cnpj")
+      .order("id", { ascending: true })
       .limit(1)
-      .single();
+      .maybeSingle();
 
-    if (empError || !empresa) {
-      return NextResponse.json({ ok: false, message: "Empresa não encontrada para configuração." }, { status: 404 });
+    if (empresaError) throw empresaError;
+    if (!empresa) {
+      return NextResponse.json(
+        { ok: false, message: "Empresa não encontrada para configuração." },
+        { status: 404 },
+      );
     }
 
-    // 2. Determinar URL de callback
-    let baseUrl = process.env.NEXT_PUBLIC_APP_URL || "";
-    if (!baseUrl) {
-      const host = req.headers.get("host");
-      const protocol = host?.includes("localhost") ? "http" : "https";
-      baseUrl = `${protocol}://${host}`;
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "");
+    if (!baseUrl || !/^https:\/\//i.test(baseUrl)) {
+      return NextResponse.json(
+        { ok: false, message: "NEXT_PUBLIC_APP_URL HTTPS não configurada." },
+        { status: 503 },
+      );
     }
-    
-    baseUrl = baseUrl.replace(/\/$/, "");
-    const callbackUrl = `${baseUrl}/api/webhooks/focus`;
 
+    const secret = getFocusWebhookSecret(empresa.ambiente);
+    if (!secret) {
+      return NextResponse.json(
+        { ok: false, message: "Credencial de webhook da Focus não configurada." },
+        { status: 503 },
+      );
+    }
+
+    const callbackPath = "/api/webhooks/focus";
+    const callbackUrl = `${baseUrl}${callbackPath}?secret=${encodeURIComponent(secret)}`;
     const service = new FocusWebhookService();
     service.configurarAmbiente(empresa.ambiente);
 
-    console.log(`[Focus Register] Iniciando registro em ${empresa.ambiente} para ${callbackUrl}`);
-
-    // 3. Registrar hooks para NFe e NFSe
-    const events = ["nfe", "nfse", "nfsen"];
     const results = [];
-
-    for (const event of events) {
-      const res = await service.criarHook(event, callbackUrl, empresa.cnpj);
-      results.push({ event, ...res });
+    for (const event of ["nfe", "nfse", "nfsen"]) {
+      const result = await service.criarHook(event, callbackUrl, empresa.cnpj);
+      results.push({ event, ...result });
     }
 
     return NextResponse.json({
       ok: true,
       ambiente: empresa.ambiente,
-      url_registrada: callbackUrl,
-      resultados: results
+      url_registrada: `${baseUrl}${callbackPath}`,
+      resultados: results,
     });
-
-  } catch (e: any) {
-    console.error("[Focus Register] Erro fatal:", e);
-    return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
+  } catch (error: any) {
+    const status = Number(error?.statusCode) || 500;
+    console.error("[Focus Register] Falha:", error?.code ?? error?.name);
+    return NextResponse.json(
+      { ok: false, message: status === 403 ? "Acesso negado." : "Falha ao registrar webhooks." },
+      { status },
+    );
   }
 }

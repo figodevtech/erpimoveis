@@ -70,12 +70,13 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
         });
         const payload = (await response.json().catch(() => ({}))) as PreferencesPayload;
         if (!response.ok || !payload.data?.radio) {
-          throw new Error(payload.error || "Não foi possível carregar suas preferências.");
+          setRadio(fallbackRadio(sessionPermitted));
+          return;
         }
         setRadio(payload.data.radio);
       } catch (error) {
         if (controller.signal.aborted) return;
-        console.error("[preferencias] falha ao carregar", error);
+        console.warn("[preferencias] usando configuração local temporária", error);
         // Sem resposta da API, mantemos o padrão desligado em vez de exibir um
         // player que o usuário talvez não tenha ligado.
         setRadio(fallbackRadio(sessionPermitted));

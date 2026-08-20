@@ -7,8 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
-import { PieChart, Pie, Cell, LabelList } from "recharts";
-import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart";
+import { PieChart, Pie, Cell } from "recharts";
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 
 import { RefreshCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -44,7 +44,7 @@ export function CartaoStatusClientes({
   const tudoZero = seriesAnimada.every((s) => s.value === 0);
 
   return (
-    <Card className={clsx("dashboard-root w-full", className)}>
+    <Card className={clsx("dashboard-root w-full py-2", className)}>
       <CardHeader className="flex flex-col items-start justify-between gap-3 px-3 py-3 sm:flex-row sm:px-4 sm:py-4">
         <div>
           <CardTitle className="text-base sm:text-lg">Status dos Clientes</CardTitle>
@@ -87,25 +87,22 @@ export function CartaoStatusClientes({
               INATIVO: { label: ROTULO_STATUS["INATIVO"], color: COR_STATUS["INATIVO"] },
               NULL: { label: ROTULO_STATUS["NULL"], color: COR_STATUS["NULL"] },
             }}
-            className="h-52 text-primary/30 sm:h-60"
+            className="h-44 w-full text-primary/30 sm:h-56"
           >
             <PieChart>
-              <ChartTooltip content={<ChartTooltipContent hideLabel />} />
-              <Pie data={seriesAnimada} dataKey="value" nameKey="name" innerRadius={45} outerRadius={80} paddingAngle={4} strokeWidth={2} isAnimationActive={false}>
+              <ChartTooltip content={<ChartTooltipContent hideLabel nameKey="name" />} />
+              <Pie data={seriesAnimada} dataKey="value" nameKey="name" innerRadius="52%" outerRadius="76%" paddingAngle={4} strokeWidth={2} isAnimationActive={false}>
                 {seriesAnimada.map((s) => (
                   <Cell key={s.key} fill={s.fill} stroke="oklch(0.623 0.214 259.815)" />
                 ))}
-                <LabelList dataKey="value" position="outside" fontSize={10} formatter={(v: number) => (v > 0 ? v : "")} />
               </Pie>
-
-              <ChartLegend content={<ChartLegendContent nameKey="name" />} className="-translate-y-1 flex-wrap gap-2 text-xs" />
             </PieChart>
           </ChartContainer>
 
           <div className="grid grid-cols-2 gap-2 self-center sm:grid-cols-3">
             {seriesAnimada.map((s) => (
-              <div key={s.key} className="dashboard-kpi p-3">
-                <div className="text-[10px] text-muted-foreground">{s.name}</div>
+              <div key={s.key} className="dashboard-kpi min-w-0 p-2.5 sm:p-3">
+                <div className="truncate text-[10px] text-muted-foreground" title={s.name}>{s.name}</div>
                 <div className="text-lg font-semibold">{s.value}</div>
                 <div className="mt-1 h-1.5 w-full rounded-full" style={{ background: s.fill }} />
               </div>

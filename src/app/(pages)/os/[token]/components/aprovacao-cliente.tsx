@@ -106,10 +106,11 @@ export default function AprovacaoCliente({ token }: { token: string }) {
     setValidandoDoc(true);
     try {
       const doc = (cpfcnpj || "").replace(/\D+/g, "");
-      const url = new URL(`/api/ordens/aprovacao/${token}`, window.location.origin);
-      url.searchParams.set("doc", doc);
-
-      const r = await fetch(url.toString(), { cache: "no-store" });
+      const r = await fetch(`/api/ordens/aprovacao/${token}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ acao: "consultar", doc }),
+      });
       const j = await r.json().catch(() => ({}));
 
       if (!r.ok) throw new Error(j?.error || "CPF/CNPJ inválido para esta OS");

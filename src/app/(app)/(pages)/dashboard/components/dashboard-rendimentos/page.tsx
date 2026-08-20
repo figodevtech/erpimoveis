@@ -9,7 +9,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -106,16 +106,16 @@ export default function DashboardRendimentos() {
     : (data?.setoresRentabilidade ?? []);
 
   return (
-    <Card className="dashboard-root w-full">
-      <CardHeader className="flex flex-col items-start justify-between gap-4 sm:flex-row">
-        <div className="space-y-1">
-          <CardTitle className="flex items-center gap-2"><TrendingUp className="h-4 w-4 sm:h-5 sm:w-5" />Dashboard de Rendimentos</CardTitle>
-          <CardDescription className="text-xs sm:text-sm">Rentabilidade operacional de ordens, PDV e marketplaces.</CardDescription>
-          <Badge variant="default" className="text-[10px] sm:text-xs">Período: {new Date(`${inicio}T12:00:00`).toLocaleDateString("pt-BR")} — {new Date(`${fim}T12:00:00`).toLocaleDateString("pt-BR")}</Badge>
+    <Card className="dashboard-root w-full py-2">
+      <CardHeader className="flex flex-row items-start justify-between gap-2 px-3 sm:gap-4 sm:px-4">
+        <div className="min-w-0 flex-1 space-y-1">
+          <CardTitle className="flex items-center gap-2 text-base leading-tight sm:text-lg"><TrendingUp className="h-4 w-4 sm:h-5 sm:w-5" />Rendimentos</CardTitle>
+          <CardDescription className="hidden text-xs sm:block sm:text-sm">Rentabilidade operacional de ordens, PDV e marketplaces.</CardDescription>
+          <Badge variant="default" className="hidden text-[10px] sm:inline-flex sm:text-xs">Período: {new Date(`${inicio}T12:00:00`).toLocaleDateString("pt-BR")} — {new Date(`${fim}T12:00:00`).toLocaleDateString("pt-BR")}</Badge>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
+        <div className="grid w-[9.75rem] shrink-0 grid-cols-[2rem_minmax(0,1fr)_2rem] items-center gap-1.5 sm:flex sm:w-auto sm:gap-3">
           <Sheet open={filtrosAbertos} onOpenChange={setFiltrosAbertos}>
-            <SheetTrigger asChild><Button variant="outline" size="sm" className="gap-1"><SlidersHorizontal className="h-4 w-4" />Filtros</Button></SheetTrigger>
+            <SheetTrigger asChild><Button variant="outline" size="sm" aria-label="Abrir filtros" className="h-8 w-8 gap-1 px-0 sm:h-9 sm:w-auto sm:px-3"><SlidersHorizontal className="h-4 w-4" /><span className="hidden sm:inline">Filtros</span></Button></SheetTrigger>
             <SheetContent>
               <SheetHeader><SheetTitle>Filtros de rendimentos</SheetTitle></SheetHeader>
               <div className="grid flex-1 auto-rows-min gap-6 px-4">
@@ -138,7 +138,7 @@ export default function DashboardRendimentos() {
               </div>
             </SheetContent>
           </Sheet>
-          <Select value={visao} onValueChange={(value) => setVisao(value as "PREVISTO" | "REALIZADO")}><SelectTrigger className="h-9 w-[130px] text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="PREVISTO">Previsto</SelectItem><SelectItem value="REALIZADO">Realizado</SelectItem></SelectContent></Select>
+          <Select value={visao} onValueChange={(value) => setVisao(value as "PREVISTO" | "REALIZADO")}><SelectTrigger aria-label="Visão dos rendimentos" className="h-8 w-full min-w-0 px-2 text-[11px] sm:h-9 sm:w-[130px] sm:px-3 sm:text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="PREVISTO">Previsto</SelectItem><SelectItem value="REALIZADO">Realizado</SelectItem></SelectContent></Select>
           <Button variant="outline" size="icon" onClick={load} aria-label="Atualizar" className="h-8 w-8 sm:h-9 sm:w-9"><RefreshCcw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /></Button>
         </div>
       </CardHeader>
@@ -147,15 +147,84 @@ export default function DashboardRendimentos() {
 
       {(data?.qualidade?.semCusto > 0 || data?.qualidade?.estimados > 0) && <div className="flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm"><AlertTriangle className="size-4 shrink-0 text-amber-500" /><span>{data.qualidade.semCusto > 0 ? `${data.qualidade.semCusto} item(ns) estão sem custo de compra; ` : ""}{data.qualidade.estimados > 0 ? `${data.qualidade.estimados} item(ns) usam o custo atual como estimativa. ` : ""}A margem pode variar até que os custos históricos sejam informados.</span></div>}
       {loading ? <div className="flex gap-2"><Skeleton className="h-6 w-56" /><Skeleton className="h-6 w-52" /></div> : <div className="flex flex-wrap gap-2 text-xs"><Badge variant="outline">Receita vs. período anterior: {variacaoReceita == null ? "sem base" : `${variacaoReceita >= 0 ? "+" : ""}${variacaoReceita.toFixed(2)}%`}</Badge><Badge variant="outline">Lucro vs. período anterior: {variacaoLucro == null ? "sem base" : `${variacaoLucro >= 0 ? "+" : ""}${variacaoLucro.toFixed(2)}%`}</Badge></div>}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">{cards.map(([label, value]) => loading ? <div key={String(label)} className="dashboard-kpi p-3"><div className="flex items-center justify-between"><Skeleton className="h-4 w-28" /><Skeleton className="size-4 rounded-full" /></div><Skeleton className="mt-2 h-7 w-36" /></div> : <Kpi key={String(label)} label={String(label)} value={typeof value === "string" ? value : money(Number(value))} />)}</div>
+      <div className="dashboard-kpi-strip grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4" data-loading={loading} aria-busy={loading}>{cards.map(([label, value]) => loading ? <div key={String(label)} className="dashboard-kpi p-3"><div className="flex items-center justify-between gap-2"><p className="line-clamp-2 text-xs leading-tight text-muted-foreground sm:text-sm">{String(label)}</p><Skeleton className="size-4 shrink-0 rounded-full" /></div><Skeleton className="mt-2 h-7 w-24 max-w-[70%]" /></div> : <Kpi key={String(label)} label={String(label)} value={typeof value === "string" ? value : money(Number(value))} />)}</div>
 
       <div className="grid gap-4 xl:grid-cols-3">
-        <ChartCard title="Evolução dos rendimentos" description={`${visao === "PREVISTO" ? "Faturamento e lucro previsto" : "Recebimento e lucro realizado"} pela data do documento`} className="xl:col-span-2"><ChartContainer className="h-72 w-full" config={{ receita: { label: visao === "PREVISTO" ? "Faturamento" : "Recebido", color: "#8b5cf6" }, lucro: { label: "Lucro", color: "#10b981" } }}><AreaChart key={`evolucao-${animKey}-${loading}`} data={evolucaoGrafico}><CartesianGrid vertical={false} strokeDasharray="4 8" opacity={0.55} /><XAxis dataKey="data" axisLine={false} tickLine={false} tickFormatter={(v) => String(v).slice(5)} /><YAxis axisLine={false} tickLine={false} tickFormatter={shortMoney} /><ChartTooltip content={<ChartTooltipContent />} /><Area isAnimationActive={!loading} animationDuration={700} dataKey={visao === "PREVISTO" ? "faturamento" : "recebidoLiquido"} name="receita" stroke="var(--color-receita)" strokeWidth={2.5} fill="var(--color-receita)" fillOpacity={0.14} /><Area isAnimationActive={!loading} animationDuration={700} dataKey={visao === "PREVISTO" ? "lucroPrevisto" : "lucroRealizado"} name="lucro" stroke="var(--color-lucro)" strokeWidth={2.5} fill="var(--color-lucro)" fillOpacity={0.1} /></AreaChart></ChartContainer></ChartCard>
-        <ChartCard title="Composição dos custos" description="Produtos, comissões, taxas e despesas"><ChartContainer className="h-72 w-full" config={{ valor: { label: "Valor", color: "#6d28d9" } }}><PieChart key={`composicao-${animKey}-${loading}`}><ChartTooltip content={<ChartTooltipContent nameKey="nome" />} /><Pie data={composicaoGrafico} dataKey="valor" nameKey="nome" innerRadius={55} outerRadius={90} isAnimationActive={!loading} animationDuration={700}>{composicaoGrafico.map((_: any, index: number) => <Cell key={index} fill={COLORS[index % COLORS.length]} />)}</Pie></PieChart></ChartContainer></ChartCard>
+        <ChartCard title="Evolução dos rendimentos" description={`${visao === "PREVISTO" ? "Faturamento e lucro previsto" : "Recebimento e lucro realizado"} pela data do documento`} className="xl:col-span-2"><ChartContainer className="h-60 w-full sm:h-72" config={{ receita: { label: "Receita", color: "#8b5cf6" }, lucro: { label: "Lucro", color: "#10b981" }, faturamento: { label: "Faturamento", color: "#8b5cf6" }, recebidoLiquido: { label: "Recebido líquido", color: "#8b5cf6" }, lucroPrevisto: { label: "Lucro previsto", color: "#10b981" }, lucroRealizado: { label: "Lucro realizado", color: "#10b981" } }}><AreaChart key={`evolucao-${animKey}-${loading}`} data={evolucaoGrafico}><CartesianGrid vertical={false} strokeDasharray="4 8" opacity={0.55} /><XAxis dataKey="data" axisLine={false} tickLine={false} tickFormatter={(v) => String(v).slice(5)} /><YAxis axisLine={false} tickLine={false} tickFormatter={shortMoney} width={64} /><ChartTooltip content={<ChartTooltipContent />} /><Area isAnimationActive={!loading} animationDuration={700} dataKey={visao === "PREVISTO" ? "faturamento" : "recebidoLiquido"} name="receita" stroke="var(--color-receita)" strokeWidth={2.5} fill="var(--color-receita)" fillOpacity={0.14} /><Area isAnimationActive={!loading} animationDuration={700} dataKey={visao === "PREVISTO" ? "lucroPrevisto" : "lucroRealizado"} name="lucro" stroke="var(--color-lucro)" strokeWidth={2.5} fill="var(--color-lucro)" fillOpacity={0.1} /><ChartLegend content={<ChartLegendContent className="flex-wrap gap-x-3 gap-y-1 text-[10px] sm:text-xs" />} /></AreaChart></ChartContainer></ChartCard>
+        <ChartCard title="Composição dos custos" description="Produtos, comissões, taxas e despesas">
+          <ChartContainer className="h-52 w-full sm:h-64" config={{ valor: { label: "Valor", color: "#6d28d9" } }}>
+            <PieChart key={`composicao-${animKey}-${loading}`}>
+              <ChartTooltip content={<ChartTooltipContent nameKey="nome" />} />
+              <Pie data={composicaoGrafico} dataKey="valor" nameKey="nome" innerRadius="52%" outerRadius="78%" isAnimationActive={!loading} animationDuration={700}>
+                {composicaoGrafico.map((_: any, index: number) => <Cell key={index} fill={COLORS[index % COLORS.length]} />)}
+              </Pie>
+            </PieChart>
+          </ChartContainer>
+          <div className="mt-1 grid grid-cols-2 gap-1.5">
+            {composicaoGrafico.map((item: any, index: number) => (
+              <div key={item.nome} className="flex min-w-0 items-center gap-1.5 rounded-lg bg-muted/35 px-2 py-1.5 text-[10px] sm:text-xs">
+                <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
+                <span className="truncate text-muted-foreground" title={item.nome}>{item.nome}</span>
+              </div>
+            ))}
+          </div>
+        </ChartCard>
       </div>
-      <div className="grid items-start gap-4 xl:grid-cols-2">
-        <Card className="self-start"><CardHeader><CardTitle>Lucro por setor/canal</CardTitle></CardHeader><CardContent><ChartContainer className="h-72 w-full" config={{ lucro: { label: "Lucro", color: "#6d28d9" } }}><BarChart key={`setores-${animKey}-${loading}`} data={setoresGrafico} layout="vertical"><CartesianGrid horizontal={false} /><XAxis type="number" tickFormatter={shortMoney} /><YAxis type="category" dataKey="nome" width={100} /><ChartTooltip content={<ChartTooltipContent />} /><Bar isAnimationActive={!loading} animationDuration={700} dataKey={visao === "PREVISTO" ? "lucroPrevisto" : "lucroRealizado"} name="lucro" fill="var(--color-lucro)" radius={4} /></BarChart></ChartContainer></CardContent></Card>
-        <Card className="self-start"><CardHeader><CardTitle>Produtos com maior lucro bruto</CardTitle></CardHeader><CardContent className="max-h-72 space-y-2 overflow-y-auto overscroll-contain pr-2">{(data?.produtos ?? []).map((item: any, index: number) => <div key={item.produtoid} className="flex items-center gap-3 rounded-xl bg-muted/35 p-3"><span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-xs font-semibold text-primary">{index + 1}</span><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{item.nome}</p><p className="text-xs text-muted-foreground">Venda {money(item.receita)} · Custo {money(item.custo)}</p></div><span className="font-semibold text-emerald-600">{money(item.lucro)}</span></div>)}</CardContent></Card>
+      <div className="grid min-w-0 items-start gap-4 xl:grid-cols-2">
+        <Card className="dashboard-surface min-w-0 gap-0 self-start overflow-hidden py-0">
+          <CardHeader className="p-3 pb-2 sm:p-4 sm:pb-3">
+            <CardTitle className="dashboard-card-title">Lucro por setor/canal</CardTitle>
+          </CardHeader>
+          <CardContent className="min-w-0 px-0 pb-2 sm:px-2 sm:pb-3">
+            <ChartContainer
+              className="h-56 min-w-0 w-full sm:h-72"
+              config={{ lucro: { label: "Lucro", color: "#6d28d9" } }}
+            >
+              <BarChart key={`setores-${animKey}-${loading}`} data={setoresGrafico} layout="vertical" margin={{ left: 0, right: 8 }}>
+                <CartesianGrid horizontal={false} />
+                <XAxis type="number" tickFormatter={shortMoney} tick={{ fontSize: 10 }} />
+                <YAxis
+                  type="category"
+                  dataKey="nome"
+                  width={64}
+                  tick={{ fontSize: 10 }}
+                  tickFormatter={(value) => String(value).length > 9 ? `${String(value).slice(0, 8)}…` : String(value)}
+                />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <Bar
+                  isAnimationActive={!loading}
+                  animationDuration={700}
+                  dataKey={visao === "PREVISTO" ? "lucroPrevisto" : "lucroRealizado"}
+                  name="lucro"
+                  fill="var(--color-lucro)"
+                  radius={4}
+                />
+              </BarChart>
+            </ChartContainer>
+          </CardContent>
+        </Card>
+
+        <Card className="dashboard-surface min-w-0 gap-0 self-start overflow-hidden py-0">
+          <CardHeader className="p-3 pb-2 sm:p-4 sm:pb-3">
+            <CardTitle className="dashboard-card-title">Produtos com maior lucro</CardTitle>
+          </CardHeader>
+          <CardContent className="max-h-60 space-y-2 overflow-y-auto overscroll-contain px-2 pb-2 pr-1.5 sm:max-h-72 sm:px-4 sm:pb-3 sm:pr-2">
+            {(data?.produtos ?? []).map((item: any, index: number) => (
+              <div key={item.produtoid} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2 rounded-xl bg-muted/35 p-2.5 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center sm:gap-3 sm:p-3">
+                <span className="row-span-2 flex size-7 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-xs font-semibold text-primary sm:row-span-1 sm:size-8">
+                  {index + 1}
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{item.nome}</p>
+                  <p className="truncate text-[10px] text-muted-foreground sm:text-xs">Venda {money(item.receita)} · Custo {money(item.custo)}</p>
+                </div>
+                <span className="col-start-2 mt-1 justify-self-start whitespace-nowrap text-xs font-semibold text-emerald-600 sm:col-start-3 sm:row-start-1 sm:mt-0 sm:justify-self-end sm:text-sm">
+                  {money(item.lucro)}
+                </span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       </div>
       {(data?.prejuizos ?? []).length > 0 && <ChartCard title="Registros com prejuízo" description="Maiores resultados negativos do período"><div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{data.prejuizos.map((item: any) => <div key={`${item.origem}-${item.id}`} className="flex items-center justify-between rounded-lg border border-red-500/20 bg-red-500/5 p-3"><div><p className="text-sm font-medium">{item.origem === "MERCADO_LIVRE" ? "Mercado Livre" : item.origem} #{item.id}</p><p className="text-xs text-muted-foreground">{item.cliente}</p></div><span className="font-semibold text-red-500">{money(visao === "PREVISTO" ? item.lucroPrevisto : item.lucroRealizado)}</span></div>)}</div></ChartCard>}
       <Card><CardHeader><CardTitle>Detalhamento por origem ({k.ordens || 0})</CardTitle></CardHeader><CardContent className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Origem</TableHead><TableHead>Registro</TableHead><TableHead>Data</TableHead><TableHead>Cliente</TableHead><TableHead>Setor/canal</TableHead><TableHead>{visao === "PREVISTO" ? "Faturamento" : "Recebido"}</TableHead><TableHead>Custos</TableHead><TableHead>Lucro</TableHead><TableHead>Margem</TableHead></TableRow></TableHeader><TableBody>{(data?.ordens ?? []).map((item: any) => { const lucro = visao === "PREVISTO" ? item.lucroPrevisto : item.lucroRealizado; const base = visao === "PREVISTO" ? item.faturamento : item.recebidoLiquido; const custos = visao === "PREVISTO" ? item.custosPrevistos : item.custosRealizados; const margem = base > 0 ? lucro / base * 100 : 0; return <TableRow key={`${item.origem}-${item.id}`}><TableCell><Badge variant="outline">{item.origem === "MERCADO_LIVRE" ? "Mercado Livre" : item.origem}</Badge></TableCell><TableCell className="font-medium">#{item.id}</TableCell><TableCell>{new Date(`${item.data}T12:00:00`).toLocaleDateString("pt-BR")}</TableCell><TableCell>{item.cliente}</TableCell><TableCell>{item.setor}</TableCell><TableCell>{money(base)}</TableCell><TableCell>{money(custos)}</TableCell><TableCell className={lucro < 0 ? "text-red-500" : "text-emerald-600"}>{money(lucro)}</TableCell><TableCell><Badge variant="outline">{margem.toFixed(2)}%</Badge></TableCell></TableRow>; })}</TableBody></Table></CardContent></Card>

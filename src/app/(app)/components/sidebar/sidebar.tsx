@@ -211,7 +211,7 @@ const data = {
           title: "Fiscal",
           url: "/fiscal",
           icon: Receipt,
-          perm: PERMS.FINANCEIRO,
+          perm: PERMS.FINANCEIRO_NOTAS_FISCAIS,
         },
         {
           title: "Pagamento de Ordens",

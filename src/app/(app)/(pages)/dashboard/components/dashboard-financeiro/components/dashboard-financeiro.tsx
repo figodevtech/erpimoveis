@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 
 import { AreaChart, Area, CartesianGrid, XAxis, YAxis, BarChart, Bar, PieChart, Pie, Cell, LabelList } from "recharts";
 import { RefreshCcw, ArrowUpCircle, ArrowDownCircle, Wallet, AlertCircle, CreditCard, AlarmClock, CalendarClock, HandCoins, ReceiptText } from "lucide-react";
@@ -119,15 +119,15 @@ export default function DashboardFinanceiro({
   }
 
   return (
-    <Card className={clsx("dashboard-root w-full", className)}>
-      <CardHeader className="flex flex-col items-start justify-between gap-4 sm:flex-row">
-        <div className="space-y-1">
-          <CardTitle className="flex items-center gap-2">
+    <Card className={clsx("dashboard-root w-full py-2", className)}>
+      <CardHeader className="flex flex-row items-start justify-between gap-2 sm:gap-4">
+        <div className="min-w-0 flex-1 space-y-1">
+          <CardTitle className="flex items-center gap-2 text-base leading-tight sm:text-lg">
             <Wallet className="h-4 w-4 sm:h-5 sm:w-5" />
             Dashboard Financeiro
           </CardTitle>
 
-          <CardDescription className="text-xs sm:text-sm">
+          <CardDescription className="hidden text-xs sm:block sm:text-sm">
             Visão geral de receitas, despesas e fluxo de caixa a partir das transações.
           </CardDescription>
           
@@ -153,7 +153,7 @@ export default function DashboardFinanceiro({
           )}
         </div>
 
-        <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 sm:gap-3">
           <SheetFinanceiroFiltros
             aberto={filtroAberto}
             aoMudarAberto={setFiltroAberto}
@@ -195,7 +195,7 @@ export default function DashboardFinanceiro({
           </div>
         )}
 
-        <div className={clsx("grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4", carregando && "opacity-80")}>
+        <div className="dashboard-kpi-strip grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4" data-loading={carregando} aria-busy={carregando}>
           <KpiFinanceiro
             rotulo="Receitas"
             valor={formatarMoeda.format(receita)}
@@ -225,7 +225,7 @@ export default function DashboardFinanceiro({
           />
         </div>
 
-        <div className={clsx("grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5", carregando && "opacity-80")}>
+        <div className="dashboard-kpi-strip grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5" data-loading={carregando} aria-busy={carregando}>
           <KpiFinanceiro
             rotulo="Total a pagar"
             valor={formatarMoeda.format(resumoBase.pendencias.aPagar)}
@@ -267,8 +267,8 @@ export default function DashboardFinanceiro({
           <div className="dashboard-surface p-3 sm:p-4 lg:col-span-3">
             <div className="mb-2 flex flex-col items-start justify-between gap-2 sm:mb-3 sm:flex-row sm:items-center">
               <div>
-                <p className="text-xs font-medium sm:text-sm">Fluxo de caixa</p>
-                <p className="text-[10px] text-muted-foreground sm:text-xs">
+                <p className="dashboard-card-title">Fluxo de caixa</p>
+                <p className="dashboard-card-description">
                   Entradas, saídas e saldo acumulado por dia
                 </p>
               </div>
@@ -350,6 +350,7 @@ export default function DashboardFinanceiro({
                     isAnimationActive
                   />
                 )}
+                <ChartLegend content={<ChartLegendContent className="flex-wrap gap-x-3 gap-y-1 text-[10px] sm:text-xs" />} />
               </AreaChart>
             </ChartContainer>
           </div>
@@ -363,8 +364,8 @@ export default function DashboardFinanceiro({
           >
             <div className="mb-2 flex items-center justify-between gap-2 sm:mb-3">
               <div>
-                <p className="text-xs font-medium sm:text-sm">Por categoria</p>
-                <p className="text-[10px] text-muted-foreground sm:text-xs">
+                <p className="dashboard-card-title">Por categoria</p>
+                <p className="dashboard-card-description">
                   Comparativo de receitas e despesas por categoria
                 </p>
               </div>
@@ -423,6 +424,7 @@ export default function DashboardFinanceiro({
                         formatter={(v: number) => (v > 0 ? formatarMoeda.format(v).replace("R$", "").trim() : "")}
                       />
                     </Bar>
+                    <ChartLegend content={<ChartLegendContent className="flex-wrap gap-x-3 gap-y-1 text-[10px] sm:text-xs" />} />
                   </BarChart>
                 </ChartContainer>
               </div>
@@ -438,8 +440,8 @@ export default function DashboardFinanceiro({
           >
             <div className="mb-2 flex items-center justify-between gap-2 sm:mb-3">
               <div>
-                <p className="text-xs font-medium sm:text-sm">Métodos de pagamento</p>
-                <p className="text-[10px] text-muted-foreground sm:text-xs">Distribuição de receitas por método</p>
+                <p className="dashboard-card-title">Métodos de pagamento</p>
+                <p className="dashboard-card-description">Distribuição de receitas por método</p>
               </div>
             </div>
 

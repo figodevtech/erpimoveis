@@ -234,15 +234,16 @@ export default function ServiceOrdersDashboard({
   }, [statusItems.length]);
 
   return (
-    <Card className={cn("dashboard-root w-full", className)}>
-      <CardHeader className="flex flex-col items-start justify-between gap-4 sm:flex-row">
-        <div className="space-y-1">
-          <CardTitle className="flex items-center gap-2">
+    <Card className={cn("dashboard-root w-full py-2", className)}>
+      <CardHeader className="flex flex-row items-start justify-between gap-2 sm:gap-4">
+        <div className="min-w-0 flex-1 space-y-1">
+          <CardTitle className="flex items-center gap-2 text-base leading-tight sm:text-lg">
             <ClipboardList className="h-5 w-5" aria-hidden="true" />
-            Dashboard de Ordens de Serviço
+            <span className="sm:hidden">Ordens de Serviço</span>
+            <span className="hidden sm:inline">Dashboard de Ordens de Serviço</span>
           </CardTitle>
 
-          <CardDescription className="text-xs sm:text-sm">
+          <CardDescription className="hidden text-xs sm:block sm:text-sm">
             Visão executiva de produtividade, prazos e receita.
           </CardDescription>
 
@@ -251,7 +252,7 @@ export default function ServiceOrdersDashboard({
           </Badge>
         </div>
 
-        <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 sm:gap-3">
           <SheetOsFiltros
             aberto={filtroAberto}
             aoMudarAberto={setFiltroAberto}
@@ -280,9 +281,9 @@ export default function ServiceOrdersDashboard({
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-6 px-2 pb-2 sm:px-3 sm:pb-3">
+      <CardContent className="space-y-4 px-2 pb-2 sm:space-y-6 sm:px-3 sm:pb-3">
         {/* KPIs */}
-        <div className="grid grid-cols-1 gap-3 xs:grid-cols-2 md:grid-cols-4 2xl:grid-cols-7">
+        <div className="dashboard-kpi-strip grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-4 2xl:grid-cols-7" data-loading={loading} aria-busy={loading}>
           <Kpi icon={ClipboardList} label="Total de OS" value={formatNumber(total)} />
           <Kpi icon={Activity} label="OS do dia" value={formatNumber(data?.ordersToday ?? 0)} />
           <Kpi icon={CheckCircle2} label="Concluídas" value={formatNumber(completed)} />

@@ -4,6 +4,9 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
 
+const CAMPOS_RETORNO =
+  'id, cnpj, razaosocial, nomefantasia, inscricaoestadual, inscricaomunicipal, endereco, codigomunicipio, regimetributario, ambiente, bairro, numero, complemento, cep, uf, codigopais, nomepais, telefone, cnae, inscricaoestadualst';
+
 // Campos permitidos para insert/update
 const CAMPOS_EMPRESA = [
   'cnpj',
@@ -53,7 +56,7 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const cnpj = searchParams.get('cnpj')?.replace(/\D/g, '') ?? null;
 
-    let query = supabaseAdmin.from('empresa').select('*');
+    let query = supabaseAdmin.from('empresa').select(CAMPOS_RETORNO);
 
     if (cnpj) {
       query = query.eq('cnpj', cnpj);
@@ -117,7 +120,7 @@ export async function POST(req: Request) {
     const { data, error } = await supabaseAdmin
       .from('empresa')
       .insert([{ ...dados }])
-      .select()
+      .select('id')
       .single();
 
     if (error) {

@@ -105,6 +105,7 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
   const permissoes = (session?.user as { permissoes?: unknown } | undefined)?.permissoes;
   const podeRegistrarEntrada = permissionSetHas(permissoes, PERMS.ESTOQUE_CRIAR);
   const podeRegistrarSaida = permissionSetHas(permissoes, PERMS.ESTOQUE_EDITAR);
+  const podeEmitirNota = permissionSetHas(permissoes, PERMS.FINANCEIRO_NOTAS_FISCAIS);
 
   const [movimentacoes, setMovimentacoes] = useState<Movimento[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -414,7 +415,7 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
                                 <Eye className="mr-2 h-4 w-4" />
                                 Detalhes
                               </DropdownMenuItem>
-                              {entradaInfo?.status === "CONFIRMADA" && entradaInfo.origem !== "NFE_TERCEIRO" ? (
+                              {podeEmitirNota && entradaInfo?.status === "CONFIRMADA" && entradaInfo.origem !== "NFE_TERCEIRO" ? (
                                 <Button
                                   onClick={() => setNfeDialogEntradaId(entradaInfo.id)}
                                   variant="ghost"

@@ -27,7 +27,6 @@ const PUBLIC_API_PREFIXES = [
   "/api/ordens/aprovacao",
   "/api/venda/aprovacao",
   "/api/site/agendamentos",
-  "/api/webhooks/focus",
   // Chamadas servidor-servidor. Cada rota aplica sua propria validacao.
   "/api/integracoes/mercadolivre/cron",
   "/api/integracoes/mercadolivre/webhook",
@@ -60,6 +59,7 @@ function isPublicPath(pathname: string) {
 function isPublicApi(pathname: string) {
   if (!pathname.startsWith("/api")) return false;
   if (pathname.startsWith("/api/auth")) return true; // NextAuth sempre pÃºblico
+  if (pathname === "/api/webhooks/focus") return true;
   return PUBLIC_API_PREFIXES.some(
     (p) => pathname === p || pathname.startsWith(p + "/"),
   );
@@ -85,6 +85,11 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
   { prefix: "/api/dre", perm: PERMS.FINANCEIRO },
   { prefix: "/api/pagamentos", perm: PERMS.FINANCEIRO },
   { prefix: "/api/banks", perm: PERMS.FINANCEIRO },
+  { prefix: "/api/fiscal", perm: PERMS.FINANCEIRO_NOTAS_FISCAIS },
+  { prefix: "/api/nfe", perm: PERMS.FINANCEIRO_NOTAS_FISCAIS },
+  { prefix: "/api/nfce", perm: PERMS.FINANCEIRO_NOTAS_FISCAIS },
+  { prefix: "/api/nfse", perm: PERMS.FINANCEIRO_NOTAS_FISCAIS },
+  { prefix: "/api/empresa", perm: PERMS.CONFIG },
   { prefix: "/api/users", perm: PERMS.USUARIOS },
   { prefix: "/api/perfis", perm: PERMS.PERMISSOES },
   { prefix: "/api/config", perm: PERMS.CONFIG },
@@ -114,6 +119,7 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
   { prefix: "/fluxodecaixa", perm: PERMS.FINANCEIRO },
   { prefix: "/pagamentodeordens", perm: PERMS.FINANCEIRO },
   { prefix: "/pagamentodevendas", perm: PERMS.FINANCEIRO },
+  { prefix: "/fiscal", perm: PERMS.FINANCEIRO_NOTAS_FISCAIS },
 
   { prefix: "/historicovendas", perm: PERMS.VENDAS },
   { prefix: "/pdv", perm: PERMS.VENDAS },
@@ -160,6 +166,7 @@ const API_ACTION_PERMS: Array<{
   { prefix: "/api/users", read: PERMS.USUARIOS, create: PERMS.USUARIOS_CRIAR, edit: PERMS.USUARIOS_EDITAR, delete: PERMS.USUARIOS_EXCLUIR },
   { prefix: "/api/perfis", read: PERMS.PERMISSOES, create: PERMS.PERMISSOES_CRIAR, edit: PERMS.PERMISSOES_EDITAR, delete: PERMS.PERMISSOES_EXCLUIR },
   { prefix: "/api/config", read: PERMS.CONFIG, edit: PERMS.CONFIG_EDITAR },
+  { prefix: "/api/empresa", read: PERMS.CONFIG, create: PERMS.CONFIG_EDITAR, edit: PERMS.CONFIG_EDITAR, delete: PERMS.CONFIG_EDITAR },
 ];
 
 const API_MUTATION_PERMS: Array<{ prefix: string; perm: Permission }> = [
@@ -222,7 +229,7 @@ function isExecutorOnly(user: any) {
 }
 
 async function fetchFreshUserState(userId: string) {
-  if (!supabaseUrl || !serviceKey) return null;
+  if (!supabaseUrl || !serviceKey) return { available: false as const, user: null };
 
   const url = new URL(`${supabaseUrl}/rest/v1/usuario`);
   url.searchParams.set("id", `eq.${userId}`);
@@ -231,6 +238,7 @@ async function fetchFreshUserState(userId: string) {
 
   const res = await fetch(url.toString(), {
     cache: "no-store",
+    signal: AbortSignal.timeout(3_000),
     headers: {
       apikey: serviceKey,
       Authorization: `Bearer ${serviceKey}`,
@@ -240,11 +248,14 @@ async function fetchFreshUserState(userId: string) {
 
   if (!res.ok) {
     console.error("[Middleware] Erro ao buscar usuario:", res.status, await res.text().catch(() => ""));
-    return null;
+    return { available: false as const, user: null };
   }
 
   const rows = await res.json().catch(() => []);
-  return Array.isArray(rows) ? rows[0] ?? null : null;
+  return {
+    available: true as const,
+    user: Array.isArray(rows) ? rows[0] ?? null : null,
+  };
 }
 
 async function fetchPlatformAccess() {
@@ -275,6 +286,13 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
   // ignora assets
   if (isStaticAsset(pathname)) return NextResponse.next();
 
+  const isApi = pathname.startsWith("/api");
+
+  // Rotas públicas não dependem da consulta adicional ao Supabase. Isso evita
+  // que uma oscilação do banco interrompa login, sessão e recuperação.
+  if (isApi && isPublicApi(pathname)) return NextResponse.next();
+  if (!isApi && isPublicPath(pathname)) return NextResponse.next();
+
   const session = req.auth;
   const user = session?.user;
 
@@ -282,6 +300,7 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
 
   // VariÃ¡veis locais para decisÃ£o (evita mutar o objeto user da sessÃ£o original se possÃ­vel)
   let isInactive = false;
+  let userVerificationUnavailable = false;
 
   // Se tiver usuÃ¡rio, pega o ID e consulta dados frescos
   const userId = (user as any)?.id as string | undefined;
@@ -293,27 +312,20 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
 
   if (userId) {
     try {
-      const data = await fetchFreshUserState(userId);
-      if (data) {
+      const result = await fetchFreshUserState(userId);
+      if (!result.available) {
+        userVerificationUnavailable = true;
+      } else if (result.user) {
         // Atualiza as variÃ¡veis locais com a verdade do banco
-        isInactive = data.ativo === false;
-
+        isInactive = result.user.ativo === false;
+      } else {
+        // Sessão aponta para um usuário que já não existe na aplicação.
+        isInactive = true;
       }
     } catch (err) {
-      console.error("[Middleware] Falha geral user check:", err);
+      console.warn("[Middleware] Verificação temporariamente indisponível:", err);
+      userVerificationUnavailable = true;
     }
-  }
-
-  const isApi = pathname.startsWith("/api");
-
-  // âœ… API pÃºblica
-  if (isApi && isPublicApi(pathname)) {
-    return NextResponse.next();
-  }
-
-  // âœ… pÃ¡gina pÃºblica
-  if (!isApi && isPublicPath(pathname)) {
-    return NextResponse.next();
   }
 
   // âŒ nÃ£o logado
@@ -409,6 +421,18 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
       return NextResponse.json(
         { error: "FORBIDDEN" },
         { status: 403, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+  }
+
+  if (userVerificationUnavailable) {
+    // A sessão JWT continua autenticada e carrega permissões assinadas. Durante
+    // uma falha transitória, leituras e navegação permanecem disponíveis, mas
+    // nenhuma escrita é autorizada sem confirmar o estado atual do usuário.
+    if (isApi && isMutation) {
+      return NextResponse.json(
+        { error: "USER_VERIFICATION_UNAVAILABLE" },
+        { status: 503, headers: { "Cache-Control": "no-store" } },
       );
     }
   }

@@ -228,14 +228,14 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div className="dashboard-surface p-4">
-      <div className="mb-4 flex items-start justify-between gap-3">
+    <div className="dashboard-surface p-3 sm:p-4">
+      <div className="mb-3 flex items-start justify-between gap-3 sm:mb-4">
         <div>
-          <p className="flex items-center gap-2 text-sm font-medium">
+          <p className="dashboard-card-title flex items-start gap-2">
             <Icon className="h-4 w-4 text-primary" />
             {title}
           </p>
-          <p className="text-xs text-muted-foreground">{description}</p>
+          <p className="dashboard-card-description">{description}</p>
         </div>
       </div>
       <div className="space-y-4">{children}</div>
@@ -300,14 +300,14 @@ export default function ResumoDiarioDashboard() {
   }, [data]);
 
   return (
-    <Card className="dashboard-root w-full">
-      <CardHeader className="flex flex-col items-start justify-between gap-4 sm:flex-row">
-        <div className="space-y-1">
-          <CardTitle className="flex items-center gap-2">
+    <Card className="dashboard-root w-full py-2">
+      <CardHeader className="flex flex-row items-start justify-between gap-2 sm:gap-4">
+        <div className="min-w-0 flex-1 space-y-1">
+          <CardTitle className="flex items-center gap-2 text-base leading-tight sm:text-lg">
             <CalendarDays className="h-5 w-5" />
             Resumo Diário
           </CardTitle>
-          <CardDescription className="text-xs sm:text-sm">
+          <CardDescription className="hidden text-xs sm:block sm:text-sm">
             Tudo que entrou e movimentou o sistema no dia selecionado.
           </CardDescription>
           <Badge variant="default" className="text-[10px] sm:text-xs">
@@ -315,16 +315,16 @@ export default function ResumoDiarioDashboard() {
           </Badge>
         </div>
 
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2">
           <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
             <PopoverTrigger asChild>
               <Button
                 type="button"
                 variant="outline"
-                className="h-8 w-[150px] justify-start text-left text-xs font-normal sm:h-9"
+                className="h-8 w-8 justify-center px-0 text-left text-xs font-normal sm:h-9 sm:w-[150px] sm:justify-start sm:px-3"
               >
-                <CalendarIcon className="mr-1.5 h-4 w-4" />
-                {formatarDataCompleta(date)}
+                <CalendarIcon className="h-4 w-4 sm:mr-1.5" />
+                <span className="hidden sm:inline">{formatarDataCompleta(date)}</span>
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0" align="end">
@@ -352,7 +352,7 @@ export default function ResumoDiarioDashboard() {
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-6">
+      <CardContent className="space-y-4 px-2 pb-2 sm:space-y-6 sm:px-3 sm:pb-3">
         {error && !loading ? (
           <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm">
             Erro ao carregar resumo: <span className="font-medium">{error}</span>
@@ -361,18 +361,44 @@ export default function ResumoDiarioDashboard() {
 
         {loading && !data ? (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              {Array.from({ length: 8 }).map((_, index) => (
-                <Skeleton key={index} className="h-24" />
+            <div className="dashboard-kpi-strip grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4" data-loading="true" aria-busy="true">
+              {["Movimentações", "OS criadas", "Vendas", "Clientes novos", "Receitas", "Despesas", "Saldo", "Agendamentos"].map((label) => (
+                <div key={label} className="dashboard-kpi min-h-20 p-3 sm:min-h-24 sm:p-3.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="line-clamp-2 text-xs leading-tight text-muted-foreground sm:text-sm">{label}</p>
+                    <Skeleton className="size-4 shrink-0 rounded-full" />
+                  </div>
+                  <Skeleton className="mt-2 h-7 w-20 max-w-[70%]" />
+                </div>
               ))}
             </div>
-            <Skeleton className="h-72" />
+            <ChartCard title="Volume por categoria" description="Quantidade de registros e eventos no dia" badge="Dia">
+              <Skeleton className="h-60 rounded-2xl sm:h-72" />
+            </ChartCard>
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+              {[
+                { title: "Ordens de Serviço", description: "OS criadas e concluídas no dia.", icon: ClipboardList },
+                { title: "Vendas", description: "Pedidos e faturamento comercial do dia.", icon: ShoppingCart },
+                { title: "Financeiro", description: "Entradas, saídas e pendências lançadas.", icon: Wallet },
+                { title: "Clientes", description: "Novos cadastros incluídos no dia.", icon: Users },
+                { title: "Agenda do dia", description: "Compromissos marcados para a data selecionada.", icon: CalendarDays },
+                { title: "Estoque", description: "Produtos e entradas incluídos no estoque.", icon: PackagePlus },
+                { title: "Fiscal", description: "Notas emitidas ou geradas no dia.", icon: FileText },
+              ].map((item) => (
+                <Section key={item.title} title={item.title} description={item.description} icon={item.icon}>
+                  <div className="space-y-2">
+                    <Skeleton className="h-14 rounded-xl" />
+                    <Skeleton className="h-14 rounded-xl" />
+                  </div>
+                </Section>
+              ))}
+            </div>
           </div>
         ) : null}
 
         {data ? (
           <>
-            <div className={cn("grid grid-cols-2 gap-3 lg:grid-cols-4", loading && "opacity-80")}>
+            <div className="dashboard-kpi-strip grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4" data-loading={loading} aria-busy={loading}>
               <Kpi icon={Activity} label="Movimentações" value={formatNumber(data.kpis.movimentacoes)} />
               <Kpi icon={ClipboardList} label="OS criadas" value={formatNumber(data.kpis.osCriadas)} />
               <Kpi icon={ShoppingCart} label="Vendas" value={formatNumber(data.kpis.vendas)} />

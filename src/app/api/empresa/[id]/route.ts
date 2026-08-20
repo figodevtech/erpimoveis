@@ -3,6 +3,9 @@ import { NextResponse } from 'next/server';
 import { parsePostgresIntegerId } from '@/lib/postgres-id';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
+const CAMPOS_RETORNO =
+  'id, cnpj, razaosocial, nomefantasia, inscricaoestadual, inscricaomunicipal, endereco, codigomunicipio, regimetributario, ambiente, bairro, numero, complemento, cep, uf, codigopais, nomepais, telefone, cnae, inscricaoestadualst';
+
 const CAMPOS_EMPRESA = [
   'cnpj',
   'razaosocial',
@@ -64,7 +67,7 @@ export async function GET(_req: Request, { params }: Contexto) {
 
     const { data, error } = await supabaseAdmin
       .from('empresa')
-      .select('*')
+      .select(CAMPOS_RETORNO)
       .eq('id', idNumber)
       .single();
 
@@ -131,7 +134,7 @@ export async function PUT(req: Request, { params }: Contexto) {
       .from('empresa')
       .update(dados)
       .eq('id', idNumber)
-      .select()
+      .select('id')
       .single();
 
     if (error) {

@@ -122,6 +122,10 @@ export function RowActions<TRow extends RowBase>({
   const config = useConfig();
   const canEdit = permissionSetHas((session?.user as any)?.permissoes, PERMS.ORDENS_EDITAR);
   const canFinanceiroEdit = permissionSetHas((session?.user as any)?.permissoes, PERMS.FINANCEIRO_EDITAR);
+  const canNotasFiscais = permissionSetHas(
+    (session?.user as any)?.permissoes,
+    PERMS.FINANCEIRO_NOTAS_FISCAIS,
+  );
   const canFinishNoCharge = permissionSetHas(
     (session?.user as any)?.permissoes,
     PERMS.ORDENS_FINALIZAR_SEM_COBRANCA,
@@ -306,7 +310,7 @@ export function RowActions<TRow extends RowBase>({
           </DropdownMenuItem>
         )} */}
 
-        {config?.habilitar_emissao_nfe && showEmissaoDeNota && config?.emissao_nf_no_modulo_ordens && (
+        {canNotasFiscais && config?.habilitar_emissao_nfe && showEmissaoDeNota && config?.emissao_nf_no_modulo_ordens && (
           <DropdownMenuItem
             onClick={() => {
               setEmissaoId(row.id);

@@ -297,7 +297,7 @@ export async function requireVendasDelete() {
  * para autorizar ou cancelar nota na SEFAZ.
  */
 export async function requireEmissaoFiscalAccess() {
-  return requireAny([PERMS.FINANCEIRO, PERMS.ORDENS, PERMS.VENDAS, PERMS.ESTOQUE]);
+  return requirePerm(PERMS.FINANCEIRO_NOTAS_FISCAIS);
 }
 
 export async function hasVeiculosAccess() {

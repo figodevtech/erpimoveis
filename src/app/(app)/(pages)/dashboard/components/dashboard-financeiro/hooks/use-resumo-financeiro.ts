@@ -10,7 +10,7 @@ export function useResumoFinanceiro(
 ) {
   const [dados, setDados] = React.useState<ResumoFinanceiro>(RESUMO_INICIAL);
   const [transacoes, setTransacoes] = React.useState<any[]>([]);
-  const [carregando, setCarregando] = React.useState(false);
+  const [carregando, setCarregando] = React.useState(true);
   const [erro, setErro] = React.useState<string | null>(null);
 
   // força remount/animação

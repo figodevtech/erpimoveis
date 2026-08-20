@@ -323,6 +323,10 @@ export default function VendasDataTable({
   const config = useConfig();
   const canEdit = permissionSetHas((session?.user as any)?.permissoes, PERMS.VENDAS_EDITAR);
   const canDelete = permissionSetHas((session?.user as any)?.permissoes, PERMS.VENDAS_EXCLUIR);
+  const canNotasFiscais = permissionSetHas(
+    (session?.user as any)?.permissoes,
+    PERMS.FINANCEIRO_NOTAS_FISCAIS,
+  );
   const hasActiveFilters = Boolean(
     filters.dataInicio ||
       filters.dataFim ||
@@ -719,7 +723,7 @@ export default function VendasDataTable({
                       <DropdownMenuContent className="space-y-1">
                         {config?.habilitar_emissao_nfe &&
                           config?.emissao_nf_no_modulo_vendas &&
-                          (config?.emissao_nf_vendas_nao_pagas
+                          canNotasFiscais && (config?.emissao_nf_vendas_nao_pagas
                             ? p.status === "FINALIZADA" || p.status === "PAGO" || p.status === "PAGAMENTO"
                             : p.status === "FINALIZADA") && (
                             <DropdownMenuItem

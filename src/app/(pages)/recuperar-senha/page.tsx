@@ -121,6 +121,7 @@ export default function RecuperarSenhaPage() {
     try {
       const { error } = await supabase.auth.updateUser({ password: pwd });
       if (error) throw error;
+      await supabase.auth.signOut({ scope: "local" });
       // Sucesso → vai para tela de sucesso
       router.push("/recuperar-senha/sucesso");
     } catch (e: any) {

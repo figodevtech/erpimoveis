@@ -13,8 +13,6 @@ import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
-  ChartLegend,
-  ChartLegendContent,
 } from "@/components/ui/chart";
 
 import { RefreshCcw, Users, TrendingUp, Activity, MapPin, Repeat2, UserCheck } from "lucide-react";
@@ -162,14 +160,14 @@ export default function DashboardClientes({
   }));
 
   return (
-    <Card className={clsx("dashboard-root w-full", className)}>
-      <CardHeader className="flex flex-col items-start justify-between gap-4 sm:flex-row">
-        <div className="space-y-1">
-          <CardTitle className="flex items-center gap-2">
-            <Users className="h-4 w-4 sm:h-5 sm:w-5" /> Dashboard de Clientes
+    <Card className={clsx("dashboard-root w-full py-2", className)}>
+      <CardHeader className="flex flex-row items-start justify-between gap-2 sm:gap-4">
+        <div className="min-w-0 flex-1 space-y-1">
+          <CardTitle className="flex items-center gap-2 text-base leading-tight sm:text-lg">
+            <Users className="h-4 w-4 sm:h-5 sm:w-5" /> Dashboard Clientes
           </CardTitle>
 
-          <CardDescription className="text-xs sm:text-sm">
+          <CardDescription className="hidden text-xs sm:block sm:text-sm">
             Visão geral da base de clientes, distribuição geográfica e tendências.
           </CardDescription>
 
@@ -178,7 +176,7 @@ export default function DashboardClientes({
           </Badge>
         </div>
 
-        <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 sm:gap-3">
           <SheetClientesFiltros
             aberto={filtroAberto}
             aoMudarAberto={setFiltroAberto}
@@ -209,9 +207,9 @@ export default function DashboardClientes({
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-6">
+      <CardContent className="space-y-4 px-2 pb-2 sm:space-y-6 sm:px-3 sm:pb-3">
         {/* KPIs */}
-        <div className="grid grid-cols-1 gap-2 xs:grid-cols-2 sm:grid-cols-3 xl:grid-cols-8 sm:gap-3 md:gap-4">
+        <div className="dashboard-kpi-strip grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3 md:grid-cols-4 md:gap-4" data-loading={carregando} aria-busy={carregando}>
           <IndicadorResumo label="Cadastros no período" valor={total} icone={Users} />
           <IndicadorResumo label="Novos (30d)" valor={novos30} icone={Activity} />
           <IndicadorResumo label="Crescimento (30d)" valor={`${crescimento30}%`} />
@@ -237,8 +235,8 @@ export default function DashboardClientes({
           <div className="dashboard-surface p-3 sm:p-4 lg:col-span-3">
             <div className="mb-2 flex flex-col gap-2 sm:mb-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-xs font-medium sm:text-sm">Novos clientes</p>
-                <p className="text-[10px] text-muted-foreground sm:text-xs">
+                <p className="dashboard-card-title">Novos clientes</p>
+                <p className="dashboard-card-description">
                   {usarDiario ? "Por dia (mês atual)" : "Por mês (período selecionado)"}
                 </p>
               </div>
@@ -268,16 +266,19 @@ export default function DashboardClientes({
                   dataKey="rotulo"
                   axisLine={false}
                   tickLine={false}
-                  fontSize={12}
+                  fontSize={10}
                   tickMargin={4}
+                  minTickGap={24}
+                  interval="preserveStartEnd"
                   stroke="hsl(var(--muted-foreground))"
                 />
                 <YAxis
                   allowDecimals={false}
                   axisLine={false}
                   tickLine={false}
-                  fontSize={12}
+                  fontSize={10}
                   tickMargin={8}
+                  width={28}
                   stroke="hsl(var(--muted-foreground))"
                   domain={[0, "dataMax + 1"]}
                 />
@@ -301,8 +302,8 @@ export default function DashboardClientes({
           <div className="dashboard-surface p-3 sm:p-4 lg:col-span-2">
             <div className="mb-2 flex flex-col gap-1 sm:mb-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-xs font-medium sm:text-sm">Top UFs por clientes</p>
-                <p className="text-[10px] text-muted-foreground sm:text-xs">Estados com mais clientes</p>
+                <p className="dashboard-card-title">Top UFs por clientes</p>
+                <p className="dashboard-card-description">Estados com mais clientes</p>
               </div>
               <Badge variant="outline" className="w-fit text-xs">
                 Barras
@@ -311,7 +312,28 @@ export default function DashboardClientes({
 
             <ChartContainer
               config={{ count: { label: "Clientes", color: "hsl(var(--chart-2))" } }}
-              className="h-48 text-primary/30 xs:h-56 sm:h-64 md:h-72"
+              className="h-64 w-full sm:hidden"
+            >
+              <BarChart
+                key={`clientes-ufs-mobile-${animKey}`}
+                data={dadosUfs}
+                layout="vertical"
+                margin={{ top: 4, right: 28, left: 0, bottom: 4 }}
+                barSize={16}
+              >
+                <CartesianGrid strokeDasharray="4 8" horizontal={false} stroke="hsl(var(--border))" opacity={0.55} />
+                <XAxis type="number" allowDecimals={false} axisLine={false} tickLine={false} fontSize={10} />
+                <YAxis type="category" dataKey="uf" axisLine={false} tickLine={false} width={28} fontSize={10} />
+                <ChartTooltip content={<ChartTooltipContent indicator="line" />} />
+                <Bar dataKey="count" fill="#0ea5e9" radius={[0, 6, 6, 0]}>
+                  <LabelList dataKey="count" position="right" className="fill-foreground" fontSize={10} />
+                </Bar>
+              </BarChart>
+            </ChartContainer>
+
+            <ChartContainer
+              config={{ count: { label: "Clientes", color: "hsl(var(--chart-2))" } }}
+              className="hidden h-64 text-primary/30 sm:block md:h-72"
             >
               <BarChart
                 key={`clientes-ufs-${animKey}`}
@@ -362,16 +384,16 @@ export default function DashboardClientes({
                 FISICA: { label: "Pessoa Física", color: "hsl(var(--chart-4))" },
                 JURIDICA: { label: "Pessoa Jurídica", color: "hsl(var(--chart-5))" },
               }}
-              className="w-full text-primary/30 h-52 sm:h-60 md:h-72"
+              className="h-44 w-full text-primary/30 sm:h-56 md:h-64"
             >
               <PieChart key={`clientes-tipo-${animKey}`}>
-                <ChartTooltip content={<ChartTooltipContent hideLabel />} />
+                <ChartTooltip content={<ChartTooltipContent hideLabel nameKey="name" />} />
                 <Pie
                   data={dadosTipoAnimados}
                   dataKey="valor"
-                  nameKey="key"
-                  innerRadius="55%"
-                  outerRadius="80%"
+                  nameKey="name"
+                  innerRadius="52%"
+                  outerRadius="76%"
                   paddingAngle={4}
                   strokeWidth={2}
                   isAnimationActive
@@ -380,22 +402,20 @@ export default function DashboardClientes({
                   {dadosTipoAnimados.map((entrada, index) => (
                     <Cell key={entrada.key} fill={["#8b5cf6", "#06b6d4"][index]} />
                   ))}
-                  <LabelList
-                    dataKey="valor"
-                    position="outside"
-                    fontSize={12}
-                    stroke="none"
-                    formatter={(valor: number) => (valor > 0 ? valor : "")}
-                    className="fill-foreground"
-                  />
                 </Pie>
-
-                <ChartLegend
-                  content={<ChartLegendContent nameKey="key" />}
-                    
-                />
               </PieChart>
             </ChartContainer>
+            <div className="mt-1 grid grid-cols-2 gap-2">
+              {dadosTipoAnimados.map((item, index) => (
+                <div key={item.key} className="min-w-0 rounded-xl bg-muted/35 p-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: ["#8b5cf6", "#06b6d4"][index] }} />
+                    <span className="truncate text-[11px] text-muted-foreground" title={item.name}>{item.name}</span>
+                  </div>
+                  <p className="mt-1 text-base font-semibold">{item.valor}</p>
+                </div>
+              ))}
+            </div>
           </ChartCard>
         </div>
       </CardContent>

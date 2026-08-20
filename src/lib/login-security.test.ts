@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildAppointmentRateLimitKeys,
+  buildPublicApprovalRateLimitKeys,
   buildLoginRateLimitKeys,
+  buildRecoveryRateLimitKeys,
   credentialsHaveSafeLength,
   getClientIp,
   MAX_LOGIN_IDENTIFIER_LENGTH,
@@ -38,10 +41,35 @@ test("gera chaves opacas e estaveis sem armazenar identificador ou IP", () => {
   }
 });
 
+test("separa as chaves de aprovacao publica das chaves de login", () => {
+  const previousSecret = process.env.AUTH_SECRET;
+  process.env.AUTH_SECRET = "segredo-de-teste-com-tamanho-suficiente";
+
+  try {
+  const request = new Request("https://example.test", {
+    headers: { "x-real-ip": "203.0.113.8" },
+  });
+  const loginKeys = buildLoginRateLimitKeys("cliente", request);
+  const approvalKeys = buildPublicApprovalRateLimitKeys("token", request);
+
+  assert.equal(approvalKeys.length, 2);
+  assert.notDeepEqual(approvalKeys, loginKeys);
+  assert.match(approvalKeys[0], /^approval-token:[a-f0-9]{64}$/);
+  assert.match(approvalKeys[1], /^approval-ip:[a-f0-9]{64}$/);
+
+    const recoveryKeys = buildRecoveryRateLimitKeys("cliente@example.com", request);
+    const appointmentKeys = buildAppointmentRateLimitKeys("12345678901", request);
+    assert.match(recoveryKeys[0], /^recovery-email:[a-f0-9]{64}$/);
+    assert.match(appointmentKeys[0], /^appointment-document:[a-f0-9]{64}$/);
+  } finally {
+    if (typeof previousSecret === "undefined") delete process.env.AUTH_SECRET;
+    else process.env.AUTH_SECRET = previousSecret;
+  }
+});
+
 test("rejeita credenciais vazias ou excessivamente grandes", () => {
   assert.equal(credentialsHaveSafeLength("usuario", "senha"), true);
   assert.equal(credentialsHaveSafeLength("", "senha"), false);
   assert.equal(credentialsHaveSafeLength("a".repeat(MAX_LOGIN_IDENTIFIER_LENGTH + 1), "senha"), false);
   assert.equal(credentialsHaveSafeLength("usuario", "a".repeat(MAX_LOGIN_PASSWORD_LENGTH + 1)), false);
 });
-

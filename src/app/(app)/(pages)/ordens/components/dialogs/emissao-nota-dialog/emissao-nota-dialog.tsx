@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import {
   Dialog,
   DialogContent,
@@ -29,6 +30,7 @@ import { ExcluirRascunhoNfeButton } from "./excluirRascunhoNfeButton";
 import { CancelarNotaDialog } from "./cancelar-nota-dialog";
 import { nfseEntregaPdf } from "@/lib/nfse-modelos";
 import { MODELO_NFCE } from "@/lib/nfe/modeloDocumento";
+import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 
 type NfeResumo = {
   id: number;
@@ -241,6 +243,11 @@ export function EmissaoNotaDialog({
    */
   saidaId?: number | null;
 }) {
+  const { data: session, status: sessionStatus } = useSession();
+  const canNotasFiscais = permissionSetHas(
+    (session?.user as { permissoes?: unknown } | undefined)?.permissoes,
+    PERMS.FINANCEIRO_NOTAS_FISCAIS,
+  );
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const [nfes, setNfes] = useState<NfeResumo[] | null>(null);
@@ -282,7 +289,13 @@ export function EmissaoNotaDialog({
           : null;
   const origemId = osId ?? vendaId ?? entradaId ?? saidaId ?? null;
 
-  const canFetch = open && !!origem && !!origemId;
+  const canFetch = open && canNotasFiscais && !!origem && !!origemId;
+
+  useEffect(() => {
+    if (!open || sessionStatus !== "authenticated" || canNotasFiscais) return;
+    toast.error("Você não possui permissão para acessar notas fiscais.");
+    onOpenChange(false);
+  }, [canNotasFiscais, onOpenChange, open, sessionStatus]);
 
   const ambienteProducao = empresaFiscal?.ambiente === "PRODUCAO";
   const ambienteLabel = ambienteProducao ? "Produção" : "Homologação";
@@ -639,10 +652,10 @@ export function EmissaoNotaDialog({
 
   const fetchEmpresa = async () => {
     try {
-      const res = await fetch("/api/empresa");
+      const res = await fetch("/api/fiscal/empresa-contexto", { cache: "no-store" });
       const json = await res.json();
-      if (json.ok && json.empresas?.length > 0) {
-        const empresa = json.empresas[0];
+      if (json.ok && json.empresa) {
+        const empresa = json.empresa;
         setEmpresaFiscal({
           ambiente: empresa.ambiente ?? null,
           codigomunicipio: empresa.codigomunicipio ?? null,

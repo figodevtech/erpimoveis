@@ -40,10 +40,15 @@ const ACTION_LABELS: Record<string, string> = {
   excluir: "Excluir",
   rentabilidade: "Ver rentabilidade",
   eventos_financeiros: "Ver eventos financeiros",
+  entrada: "Entrada",
+  saida: "Saída",
+  cancelar_movimento: "Cancelar movimento",
+  notas_fiscais: "Notas fiscais",
   finalizar_sem_cobranca: "Finalizar sem cobrança",
 };
 
 const MODULE_LABELS: Record<string, string> = {
+  usoconsumo: "Uso/Consumo",
   radios: "Rádio",
 };
 
@@ -57,7 +62,8 @@ function formatModulo(nome: string) {
 
 function formatAcao(nome: string) {
   const acao = nome.split(":")[1] ?? nome;
-  return ACTION_LABELS[acao] ?? acao.replace(/_/g, " ");
+  const label = ACTION_LABELS[acao] ?? acao.replace(/_/g, " ");
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
 export function DialogPerfil({
