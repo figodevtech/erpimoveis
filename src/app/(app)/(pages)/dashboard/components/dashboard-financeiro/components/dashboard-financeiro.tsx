@@ -10,7 +10,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 
 import { AreaChart, Area, CartesianGrid, XAxis, YAxis, BarChart, Bar, PieChart, Pie, Cell, LabelList } from "recharts";
-import { RefreshCcw, ArrowUpCircle, ArrowDownCircle, Wallet, AlertCircle, CreditCard } from "lucide-react";
+import { RefreshCcw, ArrowUpCircle, ArrowDownCircle, Wallet, AlertCircle, CreditCard, AlarmClock, CalendarClock, HandCoins, ReceiptText } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -29,9 +29,25 @@ import { useResumoFinanceiro } from "../hooks/use-resumo-financeiro";
 import { SheetFinanceiroFiltros } from "./sheet-financeiro-filtros";
 import { KpiFinanceiro } from "./kpi-financeiro";
 
+function CategoriaTick(props: any) {
+  const { x, y, payload } = props;
+  const label: string = payload?.value ?? "";
+  const maxLen = 14;
+  const display = label.length > maxLen ? label.slice(0, maxLen).trimEnd() + "…" : label;
+
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text x={0} y={0} dy={16} textAnchor="middle" fontSize={11} className="fill-muted-foreground">
+        <title>{label}</title>
+        {display}
+      </text>
+    </g>
+  );
+}
+
 export default function DashboardFinanceiro({
   className,
-  endpoint = "/api/transaction",
+  endpoint = "/api/dashboard/financeiro",
   autoAtualizarMs,
 }: PropriedadesDashboardFinanceiro) {
   const periodoInicial = React.useMemo(() => obterPeriodoInicial(), []);
@@ -57,7 +73,7 @@ export default function DashboardFinanceiro({
   const resumoFiltrado: ResumoFinanceiro = React.useMemo(() => {
     if (!metodoSelecionado || !dataInicio || !dataFim) return resumoBase;
     const filtradas = transacoes.filter((t) => obterMetodoTransacao(t) === metodoSelecionado);
-    return montarResumoDeLista(filtradas, dataInicio, dataFim);
+    return { ...montarResumoDeLista(filtradas, dataInicio, dataFim), pendencias: resumoBase.pendencias };
   }, [metodoSelecionado, transacoes, dataInicio, dataFim, resumoBase]);
 
   const { receita, despesa, saldo, receitaPendente } = resumoFiltrado.totais;
@@ -102,25 +118,9 @@ export default function DashboardFinanceiro({
     setMetodoSelecionado(null);
   }
 
-  function CategoriaTick(props: any) {
-    const { x, y, payload } = props;
-    const label: string = payload?.value ?? "";
-    const maxLen = 14;
-    const display = label.length > maxLen ? label.slice(0, maxLen).trimEnd() + "…" : label;
-
-    return (
-      <g transform={`translate(${x},${y})`}>
-        <text x={0} y={0} dy={16} textAnchor="middle" fontSize={11} className="fill-muted-foreground">
-          <title>{label}</title>
-          {display}
-        </text>
-      </g>
-    );
-  }
-
   return (
-    <Card className={clsx("w-full", className)}>
-      <CardHeader className="flex flex-row items-start justify-between gap-2">
+    <Card className={clsx("dashboard-root w-full", className)}>
+      <CardHeader className="flex flex-col items-start justify-between gap-4 sm:flex-row">
         <div className="space-y-1">
           <CardTitle className="flex items-center gap-2">
             <Wallet className="h-4 w-4 sm:h-5 sm:w-5" />
@@ -225,9 +225,46 @@ export default function DashboardFinanceiro({
           />
         </div>
 
+        <div className={clsx("grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5", carregando && "opacity-80")}>
+          <KpiFinanceiro
+            rotulo="Total a pagar"
+            valor={formatarMoeda.format(resumoBase.pendencias.aPagar)}
+            valorNumero={resumoBase.pendencias.aPagar}
+            Icone={ReceiptText}
+            destaque="negativo"
+          />
+          <KpiFinanceiro
+            rotulo="A pagar vencido"
+            valor={formatarMoeda.format(resumoBase.pendencias.aPagarVencido)}
+            valorNumero={resumoBase.pendencias.aPagarVencido}
+            Icone={AlarmClock}
+            destaque="negativo"
+          />
+          <KpiFinanceiro
+            rotulo="A pagar em 30 dias"
+            valor={formatarMoeda.format(resumoBase.pendencias.aPagar30Dias)}
+            valorNumero={resumoBase.pendencias.aPagar30Dias}
+            Icone={CalendarClock}
+          />
+          <KpiFinanceiro
+            rotulo="Total a receber"
+            valor={formatarMoeda.format(resumoBase.pendencias.aReceber)}
+            valorNumero={resumoBase.pendencias.aReceber}
+            Icone={HandCoins}
+            destaque="positivo"
+          />
+          <KpiFinanceiro
+            rotulo="A receber vencido"
+            valor={formatarMoeda.format(resumoBase.pendencias.aReceberVencido)}
+            valorNumero={resumoBase.pendencias.aReceberVencido}
+            Icone={CreditCard}
+            destaque={resumoBase.pendencias.aReceberVencido > 0 ? "negativo" : undefined}
+          />
+        </div>
+
         <div className={clsx("grid grid-cols-1 gap-3 lg:grid-cols-3", carregando && "opacity-80")}>
           {/* Fluxo */}
-          <div className="rounded-xl border bg-card p-2 sm:p-3 md:p-4 lg:col-span-3">
+          <div className="dashboard-surface p-3 sm:p-4 lg:col-span-3">
             <div className="mb-2 flex flex-col items-start justify-between gap-2 sm:mb-3 sm:flex-row sm:items-center">
               <div>
                 <p className="text-xs font-medium sm:text-sm">Fluxo de caixa</p>
@@ -261,7 +298,7 @@ export default function DashboardFinanceiro({
               className="h-56 w-full sm:h-64 md:h-72 lg:h-80"
             >
               <AreaChart key={`fluxo-${animKey}`} data={fluxo} margin={{ top: 12, right: 16, left: 20, bottom: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                <CartesianGrid strokeDasharray="4 8" vertical={false} stroke="hsl(var(--border))" opacity={0.55} />
                 <XAxis
                   dataKey="dataRotulo"
                   axisLine={false}
@@ -320,7 +357,7 @@ export default function DashboardFinanceiro({
           {/* Categorias */}
           <div
             className={clsx(
-              "rounded-xl border bg-card p-2 sm:p-3 md:p-4",
+              "dashboard-surface p-3 sm:p-4",
               muitasCategorias ? "lg:col-span-3" : "lg:col-span-2"
             )}
           >
@@ -350,7 +387,7 @@ export default function DashboardFinanceiro({
                     barCategoryGap={32}
                     barGap={12}
                   >
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                    <CartesianGrid strokeDasharray="4 8" vertical={false} stroke="hsl(var(--border))" opacity={0.55} />
                     <XAxis
                       dataKey="categoria"
                       axisLine={false}
@@ -395,7 +432,7 @@ export default function DashboardFinanceiro({
           {/* Métodos */}
           <div
             className={clsx(
-              "rounded-xl border bg-card p-2 sm:p-3 md:p-4",
+              "dashboard-surface p-3 sm:p-4",
               muitasCategorias ? "lg:col-span-3" : "lg:col-span-1"
             )}
           >

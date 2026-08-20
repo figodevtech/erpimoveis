@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { fetchAllSupabaseRows } from "@/lib/supabase-pagination";
 
 type Row = {
   status: "ATIVO" | "INATIVO" | "PENDENTE" | null;
@@ -38,6 +39,10 @@ function localDateKeyFromIso(iso: string) {
   return new Date(localMs).toISOString().slice(0, 10);
 }
 
+function localMonthKeyFromIso(iso: string) {
+  return localDateKeyFromIso(iso).slice(0, 7);
+}
+
 function mesesEntre(inicioLocal: Date, fimLocal: Date) {
   const start = new Date(inicioLocal.getFullYear(), inicioLocal.getMonth(), 1);
   const end = new Date(fimLocal.getFullYear(), fimLocal.getMonth(), 1);
@@ -68,16 +73,17 @@ export async function GET(req: Request) {
     const dateFrom = url.searchParams.get("dateFrom"); // YYYY-MM-DD
     const dateTo = url.searchParams.get("dateTo"); // YYYY-MM-DD
 
-    let query = supabaseAdmin.from("cliente").select("status, tipopessoa, estado, cidade, createdat");
+    const rows = await fetchAllSupabaseRows<Row>(() => {
+      let query = supabaseAdmin
+        .from("cliente")
+        .select("status, tipopessoa, estado, cidade, createdat")
+        .eq("is_deleted", false)
+        .order("id", { ascending: true });
 
-    // filtros ANTES do returns()
-    if (dateFrom) query = query.gte("createdat", localDayStartToUtcIso(dateFrom));
-    if (dateTo) query = query.lt("createdat", localNextDayStartToUtcIso(dateTo));
-
-    const { data, error } = await query.returns<Row[]>();
-    if (error) throw error;
-
-    const rows = data ?? [];
+      if (dateFrom) query = query.gte("createdat", localDayStartToUtcIso(dateFrom));
+      if (dateTo) query = query.lt("createdat", localNextDayStartToUtcIso(dateTo));
+      return query;
+    });
     const totalClients = rows.length;
 
     const countsByStatus: Record<string, number> = { ATIVO: 0, INATIVO: 0, PENDENTE: 0 };
@@ -92,8 +98,60 @@ export async function GET(req: Request) {
     const startCurr = new Date(fimRef.getTime() - ms30);
     const startPrev = new Date(fimRef.getTime() - 2 * ms30);
 
-    let recent30d = 0;
-    let prev30d = 0;
+    const start90 = new Date(fimRef.getTime() - 90 * MS_DIA);
+    const [
+      { count: recent30d, error: recentError },
+      { count: prev30d, error: prevError },
+      ordensRecentes,
+      vendasRecentes,
+    ] = await Promise.all([
+      supabaseAdmin
+        .from("cliente")
+        .select("*", { count: "exact", head: true })
+        .eq("is_deleted", false)
+        .gte("createdat", startCurr.toISOString())
+        .lte("createdat", fimRef.toISOString()),
+      supabaseAdmin
+        .from("cliente")
+        .select("*", { count: "exact", head: true })
+        .eq("is_deleted", false)
+        .gte("createdat", startPrev.toISOString())
+        .lt("createdat", startCurr.toISOString()),
+      fetchAllSupabaseRows<any>(() =>
+        supabaseAdmin
+          .from("ordemservico")
+          .select("clienteid,dataentrada")
+          .eq("is_deleted", false)
+          .not("clienteid", "is", null)
+          .gte("dataentrada", start90.toISOString())
+          .lte("dataentrada", fimRef.toISOString())
+          .order("dataentrada", { ascending: true }),
+      ),
+      fetchAllSupabaseRows<any>(() =>
+        supabaseAdmin
+          .from("venda")
+          .select("clienteid,datavenda")
+          .not("clienteid", "is", null)
+          .in("status", ["PAGAMENTO", "FINALIZADA", "PAGO", "AUTORIZADO"])
+          .gte("datavenda", start90.toISOString())
+          .lte("datavenda", fimRef.toISOString())
+          .order("datavenda", { ascending: true }),
+      ),
+    ]);
+    if (recentError) throw recentError;
+    if (prevError) throw prevError;
+
+    const interacoes90 = new Map<number, number>();
+    const clientesAtendidos30 = new Set<number>();
+    for (const item of [...ordensRecentes, ...vendasRecentes]) {
+      const clienteId = Number(item.clienteid);
+      if (!Number.isFinite(clienteId)) continue;
+      interacoes90.set(clienteId, (interacoes90.get(clienteId) ?? 0) + 1);
+      const dataInteracao = String(item.dataentrada ?? item.datavenda ?? "");
+      if (dataInteracao >= startCurr.toISOString()) clientesAtendidos30.add(clienteId);
+    }
+    const clientesRecorrentes90 = Array.from(interacoes90.values()).filter((quantidade) => quantidade >= 2).length;
+    const taxaRecorrencia90 = interacoes90.size > 0 ? (clientesRecorrentes90 / interacoes90.size) * 100 : 0;
 
     // ---- buckets mensais ----
     let monthsKeys: string[] = [];
@@ -134,12 +192,7 @@ export async function GET(req: Request) {
       if (cid) byCidade[cid] = (byCidade[cid] ?? 0) + 1;
 
       if (r.createdat) {
-        const d = new Date(r.createdat);
-
-        if (d >= startCurr) recent30d++;
-        else if (d >= startPrev && d < startCurr) prev30d++;
-
-        const keyMes = ym(d);
+        const keyMes = localMonthKeyFromIso(r.createdat);
         if (monthlyMap[keyMes] !== undefined) monthlyMap[keyMes]++;
 
         if (dailyMap) {
@@ -169,8 +222,11 @@ export async function GET(req: Request) {
         topCidades,
         monthlyNew,
         dailyNew,
-        recent30d,
-        prev30d,
+        recent30d: recent30d ?? 0,
+        prev30d: prev30d ?? 0,
+        clientesAtendidos30: clientesAtendidos30.size,
+        clientesRecorrentes90,
+        taxaRecorrencia90,
       },
       { headers: { "Cache-Control": "no-store" } }
     );

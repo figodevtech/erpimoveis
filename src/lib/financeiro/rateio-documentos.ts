@@ -1,4 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { fetchAllSupabaseRowsByChunks } from "@/lib/supabase-pagination";
+import { valorLiquidoEfetivo } from "@/lib/financeiro/transacao";
 
 /**
  * Fatias de pagamento múltiplo por documento.
@@ -20,6 +22,8 @@ export type FatiaRateada = {
   transacaoId: number;
   /** O que coube a ESTE documento — não o valor cheio do recebimento. */
   valor: number;
+  /** Parcela líquida proporcional, depois de descontos/taxas da transação. */
+  valorLiquido: number;
   descricao: string | null;
   data: string | null;
   metodopagamento: string | null;
@@ -41,29 +45,36 @@ export async function carregarFatiasRateadas(
   ];
   if (alvos.length === 0) return new Map();
 
-  const { data, error } = await supabaseAdmin
-    .from("pagamento_multiplo_rateio")
-    .select(
-      "documento_id, valor, pagamento_multiplo_id, transacao:transacao_id ( id, descricao, data, metodopagamento, categoria, pendente, is_deleted )",
-    )
-    .eq("tipo_documento", tipo)
-    .in("documento_id", alvos);
-
-  if (error) throw error;
+  const data = await fetchAllSupabaseRowsByChunks<any, number>(
+    alvos,
+    (lote) =>
+      supabaseAdmin
+        .from("pagamento_multiplo_rateio")
+        .select(
+          "documento_id, valor, pagamento_multiplo_id, transacao:transacao_id ( id, descricao, valor, valorLiquido, valor_descontos, data, metodopagamento, categoria, pendente, is_deleted )",
+        )
+        .eq("tipo_documento", tipo)
+        .in("documento_id", lote)
+        .order("documento_id", { ascending: true }),
+  );
 
   const porDocumento = new Map<number, FatiaRateada[]>();
 
-  for (const linha of (data ?? []) as any[]) {
+  for (const linha of data) {
     const transacao = linha.transacao;
     // Transação excluída não abate mais nada; o rateio dela fica no banco só
     // como histórico do que aquele pagamento cobriu.
     if (!transacao || transacao.is_deleted) continue;
 
     const documentoId = Number(linha.documento_id);
+    const valor = Number(linha.valor ?? 0);
+    const valorTotal = Number(transacao.valor ?? 0);
+    const valorLiquidoTotal = valorLiquidoEfetivo(transacao);
     const fatia: FatiaRateada = {
       documentoId,
       transacaoId: Number(transacao.id),
-      valor: Number(linha.valor ?? 0),
+      valor,
+      valorLiquido: valorTotal > 0 ? (valor * valorLiquidoTotal) / valorTotal : valor,
       descricao: transacao.descricao ?? null,
       data: transacao.data ?? null,
       metodopagamento: transacao.metodopagamento ?? null,
@@ -90,7 +101,7 @@ export function fatiaComoTransacao(fatia: FatiaRateada) {
     id: fatia.transacaoId,
     descricao: fatia.descricao ?? "",
     valor: fatia.valor,
-    valorLiquido: fatia.valor,
+    valorLiquido: fatia.valorLiquido,
     valor_acrescimos: 0,
     valor_descontos: 0,
     data: fatia.data,

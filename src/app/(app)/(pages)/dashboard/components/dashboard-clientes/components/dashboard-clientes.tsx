@@ -17,7 +17,7 @@ import {
   ChartLegendContent,
 } from "@/components/ui/chart";
 
-import { RefreshCcw, Users, TrendingUp, Activity, MapPin } from "lucide-react";
+import { RefreshCcw, Users, TrendingUp, Activity, MapPin, Repeat2, UserCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 import ChartCard from "../../dashboard-ordemservico/components/chart-card";
@@ -49,11 +49,11 @@ function rotuloDia(yyyyMmDd: string) {
 
 export default function DashboardClientes({
   className,
-  endpointInsights = "/api/customers/insights",
+  endpointInsights = "/api/dashboard/clientes/insights",
   autoRefreshMs,
 }: DashboardClientesProps) {
   // padrão: primeiro dia do mês até hoje
-  const periodoInicial = React.useMemo(obterPeriodoInicial, []);
+  const periodoInicial = React.useMemo(() => obterPeriodoInicial(), []);
   const [dataInicio, setDataInicio] = React.useState<Date | null>(periodoInicial.inicio);
   const [dataFim, setDataFim] = React.useState<Date | null>(periodoInicial.fim);
   const [filtroAberto, setFiltroAberto] = React.useState(false);
@@ -113,7 +113,6 @@ export default function DashboardClientes({
   const crescimento30 = taxaCrescimento(novos30, prev30);
 
   const ufsAtendidas = Object.keys(d.byEstado ?? {}).length;
-  const topCidades = d.topCidades ?? [];
 
   const dadosTipoBase = [
     { key: "FISICA", name: "Pessoa Física", value: d.countsByTipo?.FISICA ?? 0 },
@@ -163,8 +162,8 @@ export default function DashboardClientes({
   }));
 
   return (
-    <Card className={clsx("w-full", className)}>
-      <CardHeader className="flex flex-row items-start justify-between gap-2">
+    <Card className={clsx("dashboard-root w-full", className)}>
+      <CardHeader className="flex flex-col items-start justify-between gap-4 sm:flex-row">
         <div className="space-y-1">
           <CardTitle className="flex items-center gap-2">
             <Users className="h-4 w-4 sm:h-5 sm:w-5" /> Dashboard de Clientes
@@ -212,13 +211,15 @@ export default function DashboardClientes({
 
       <CardContent className="space-y-6">
         {/* KPIs */}
-        <div className="grid grid-cols-1 gap-2 xs:grid-cols-2 sm:grid-cols-3 md:grid-cols-6 sm:gap-3 md:gap-4">
-          <IndicadorResumo label="Total" valor={total} icone={Users} />
+        <div className="grid grid-cols-1 gap-2 xs:grid-cols-2 sm:grid-cols-3 xl:grid-cols-8 sm:gap-3 md:gap-4">
+          <IndicadorResumo label="Cadastros no período" valor={total} icone={Users} />
           <IndicadorResumo label="Novos (30d)" valor={novos30} icone={Activity} />
           <IndicadorResumo label="Crescimento (30d)" valor={`${crescimento30}%`} />
-          <IndicadorResumo label="% Ativos" valor={`${ativosPct}%`} />
+          <IndicadorResumo label="% ativos no período" valor={`${ativosPct}%`} />
           <IndicadorResumo label="UFs atendidas" valor={ufsAtendidas} icone={MapPin} />
-          <IndicadorResumo label="Top cidades" valor={Math.min(10, topCidades.length)} />
+          <IndicadorResumo label="Atendidos (30d)" valor={d.clientesAtendidos30} icone={UserCheck} />
+          <IndicadorResumo label="Recorrentes (90d)" valor={d.clientesRecorrentes90} icone={Repeat2} />
+          <IndicadorResumo label="Taxa de recorrência" valor={`${Number(d.taxaRecorrencia90 ?? 0).toFixed(1)}%`} />
         </div>
 
         {/* Erro */}
@@ -233,7 +234,7 @@ export default function DashboardClientes({
           className={clsx("grid w-full grid-cols-1 gap-3 sm:gap-4 md:gap-6 lg:grid-cols-3", carregando && "opacity-80")}
         >
           {/* Linha: Novos clientes */}
-          <div className="rounded-xl border bg-card p-2 sm:p-3 md:p-4 lg:col-span-3">
+          <div className="dashboard-surface p-3 sm:p-4 lg:col-span-3">
             <div className="mb-2 flex flex-col gap-2 sm:mb-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-xs font-medium sm:text-sm">Novos clientes</p>
@@ -257,12 +258,12 @@ export default function DashboardClientes({
               >
                 <defs>
                   <linearGradient id="areaFillClientes" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="80%" stopColor="currentColor" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="currentColor" stopOpacity={0} />
+                    <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
                   </linearGradient>
                 </defs>
 
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                <CartesianGrid strokeDasharray="4 8" vertical={false} stroke="hsl(var(--border))" opacity={0.55} />
                 <XAxis
                   dataKey="rotulo"
                   axisLine={false}
@@ -284,9 +285,9 @@ export default function DashboardClientes({
                 <Area
                   type="monotone"
                   dataKey="count"
-                  stroke="currentColor"
+                  stroke="#8b5cf6"
                   fill="url(#areaFillClientes)"
-                  strokeWidth={2}
+                  strokeWidth={2.5}
                   dot={false}
                   connectNulls
                   isAnimationActive
@@ -297,7 +298,7 @@ export default function DashboardClientes({
           </div>
 
           {/* Barras: UFs */}
-          <div className="rounded-xl border bg-card p-2 sm:p-3 md:p-4 lg:col-span-2">
+          <div className="dashboard-surface p-3 sm:p-4 lg:col-span-2">
             <div className="mb-2 flex flex-col gap-1 sm:mb-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-xs font-medium sm:text-sm">Top UFs por clientes</p>
@@ -317,7 +318,7 @@ export default function DashboardClientes({
                 data={dadosUfs}
                 margin={{ top: 16, right: 8, left: -12, bottom: 8 }}
               >
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                <CartesianGrid strokeDasharray="4 8" vertical={false} stroke="hsl(var(--border))" opacity={0.55} />
                 <XAxis
                   dataKey="uf"
                   axisLine={false}
@@ -338,9 +339,7 @@ export default function DashboardClientes({
                 <ChartTooltip content={<ChartTooltipContent indicator="line" />} />
                 <Bar
                   dataKey="count"
-                  stroke="oklch(0.623 0.214 259.815)"
-                  strokeWidth={2}
-                  fill="currentColor"
+                  fill="#0ea5e9"
                   radius={[6, 6, 0, 0]}
                   isAnimationActive
                   animationDuration={700}
@@ -378,8 +377,8 @@ export default function DashboardClientes({
                   isAnimationActive
                   animationDuration={600}
                 >
-                  {dadosTipoAnimados.map((entrada) => (
-                    <Cell key={entrada.key} fill="currentColor" stroke="oklch(0.623 0.214 259.815)" />
+                  {dadosTipoAnimados.map((entrada, index) => (
+                    <Cell key={entrada.key} fill={["#8b5cf6", "#06b6d4"][index]} />
                   ))}
                   <LabelList
                     dataKey="valor"

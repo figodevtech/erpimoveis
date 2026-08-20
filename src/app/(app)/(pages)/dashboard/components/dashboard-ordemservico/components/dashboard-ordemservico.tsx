@@ -25,6 +25,11 @@ import {
   CheckCircle2,
   CircleAlert,
   UserX,
+  Medal,
+  BadgeDollarSign,
+  ClockAlert,
+  ListTodo,
+  Percent,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -55,52 +60,42 @@ function useMediaQuery(query: string) {
   return matches;
 }
 
-function abreviarSegundoNome(nome: string) {
-  const parts = String(nome ?? "")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
+const ROTULOS_STATUS_OS: Record<string, string> = {
+  AGUARDANDO_CHECKLIST: "Aguardando checklist",
+  ORCAMENTO: "Orçamento",
+  APROVACAO_ORCAMENTO: "Aprovação do orçamento",
+  ORCAMENTO_APROVADO: "Orçamento aprovado",
+  ORCAMENTO_RECUSADO: "Orçamento recusado",
+  EM_ANDAMENTO: "Em andamento",
+  PAGAMENTO: "Pagamento",
+  CONCLUIDO: "Concluído",
+  SEM_COBRANCA: "Sem cobrança",
+  CANCELADO: "Cancelado",
+};
 
-  if (parts.length <= 1) return parts.join(" ");
+const ROTULOS_PRIORIDADE: Record<string, string> = {
+  URGENTE: "Urgente",
+  ALTA: "Alta",
+  MEDIA: "Média",
+  NORMAL: "Normal",
+  BAIXA: "Baixa",
+};
 
-  const connectors = new Set(["de", "da", "do", "dos", "das", "e"]);
-  let idx = 1;
-  while (idx < parts.length && connectors.has(parts[idx].toLowerCase())) idx++;
-  if (idx >= parts.length) return parts.join(" ");
-
-  const p = parts[idx];
-  parts[idx] = p ? `${p[0]}.` : p;
-  return parts.join(" ");
+function formatarStatusOS(raw: string) {
+  const chave = String(raw ?? "").trim().toUpperCase();
+  if (!chave) return "Não informado";
+  return ROTULOS_STATUS_OS[chave] ?? chave.toLocaleLowerCase("pt-BR").replaceAll("_", " ").replace(/^./, (letra) => letra.toLocaleUpperCase("pt-BR"));
 }
 
 function encurtarStatusOS(raw: string) {
-  const base = String(raw ?? "")
-    .trim()
-    .replace(/_/g, " ")
-    .toUpperCase();
-
-  if (!base) return "";
-
-  const tokenMap: Record<string, string> = {
-    AGUARDANDO: "Aguard.",
-    CHECKLIST: "Check.",
-    APROVACAO: "Aprov.",
-    ORCAMENTO: "Orc.",
-    EM: "Em",
-    ANDAMENTO: "and.",
-    CONCLUIDO: "Concl.",
-    CANCELADO: "Canc.",
-    SEM: "Sem",
-    COBRANCA: "cobr.",
+  const status = formatarStatusOS(raw);
+  const compactos: Record<string, string> = {
+    "Aguardando checklist": "Aguard. checklist",
+    "Aprovação do orçamento": "Aprovação orçamento",
+    "Orçamento aprovado": "Orç. aprovado",
+    "Orçamento recusado": "Orç. recusado",
   };
-
-  const out = base
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((t) => tokenMap[t] ?? (t.length > 12 ? `${t.slice(0, 12)}.` : t))
-    .join(" ");
-
-  return out.length > 18 ? `${out.slice(0, 18)}...` : out;
+  return compactos[status] ?? status;
 }
 
 function StatusValueLabelRight(props: any) {
@@ -109,7 +104,7 @@ function StatusValueLabelRight(props: any) {
   const cx = Number(x ?? 0) + Number(width ?? 0) + 8;
   const cy = Number(y ?? 0) + Number(height ?? 0) / 2 + 4;
   return (
-    <text x={cx} y={cy} textAnchor="start" fill="#fff" fontSize={12} fontWeight={400}>
+    <text x={cx} y={cy} textAnchor="start" fill="hsl(var(--foreground))" fontSize={12} fontWeight={500}>
       {value}
     </text>
   );
@@ -121,7 +116,7 @@ function StatusValueLabelTop(props: any) {
   const cx = Number(x ?? 0) + Number(width ?? 0) / 2;
   const cy = Number(y ?? 0) - 6;
   return (
-    <text x={cx} y={cy} textAnchor="middle" fill="#fff" fontSize={12} fontWeight={400}>
+    <text x={cx} y={cy} textAnchor="middle" fill="hsl(var(--foreground))" fontSize={12} fontWeight={500}>
       {value}
     </text>
   );
@@ -129,12 +124,12 @@ function StatusValueLabelTop(props: any) {
 
 export default function ServiceOrdersDashboard({
   className,
-  insightsEndpoint = "/api/ordens/insights",
+  insightsEndpoint = "/api/dashboard/ordens",
   autoRefreshMs,
 }: ServiceOrdersDashboardProps) {
   const isMobile = useMediaQuery("(max-width: 640px)");
 
-  const periodoInicial = React.useMemo(obterPeriodoInicial, []);
+  const periodoInicial = React.useMemo(() => obterPeriodoInicial(), []);
   const [dataInicio, setDataInicio] = React.useState<Date | null>(periodoInicial.inicio);
   const [dataFim, setDataFim] = React.useState<Date | null>(periodoInicial.fim);
   const [filtroAberto, setFiltroAberto] = React.useState(false);
@@ -202,35 +197,32 @@ export default function ServiceOrdersDashboard({
   const statusKeys = React.useMemo(() => Object.keys(data?.countsByStatus ?? {}), [data?.countsByStatus]);
 
   // mantém como no seu original (não vamos usar para colorir, mas deixa disponível)
-  const statusItems = (statusKeys.length ? statusKeys : []).map((name) => ({
-    name,
-    value: data?.countsByStatus?.[name] ?? 0,
-    fill: pickColorForKey(name),
+  const statusItems = (statusKeys.length ? statusKeys : []).map((status) => ({
+    name: formatarStatusOS(status),
+    value: data?.countsByStatus?.[status] ?? 0,
+    fill: pickColorForKey(status),
   }));
 
   const prioEntries = Object.entries(data?.countsByPriority ?? {}).filter(([, v]) => Number(v) > 0);
   const prioItems = prioEntries.map(([key, value]) => ({
-    key,
+    key: ROTULOS_PRIORIDADE[key.toUpperCase()] ?? formatarStatusOS(key),
     value: Number(value) || 0,
     color: pickColorForKey(key),
   }));
 
-  const servicesByUser = data?.servicesByUser ?? [];
   const servicesByUserSorted = React.useMemo(() => {
-    return [...servicesByUser].sort((a, b) => b.totalServicos - a.totalServicos);
-  }, [servicesByUser]);
+    return [...(data?.servicesByUser ?? [])].sort((a, b) => b.totalServicos - a.totalServicos);
+  }, [data?.servicesByUser]);
 
-  // Altura dinamica para permitir scroll quando ha muitos usuarios.
-  const servicesByUserChartHeight = React.useMemo(() => {
-    const rowH = 38; // altura aproximada por usuario na barra horizontal
-    const n = servicesByUserSorted.length || 1;
-    return Math.max(220, n * rowH);
-  }, [servicesByUserSorted.length]);
+  const servicesByUserMax = Math.max(1, ...servicesByUserSorted.map((item) => item.totalServicos));
 
   const total = data?.totalOrders ?? 0;
   const inProgress = data?.countsByStatus?.EM_ANDAMENTO ?? 0;
   const completed = data?.ordersCompleted ?? 0;
   const avgHrs = data?.avgCompletionHours ?? 0;
+  const aprovacoes = data?.countsByApproval ?? {};
+  const totalAprovacoes = Object.values(aprovacoes).reduce((total, quantidade) => total + Number(quantidade ?? 0), 0);
+  const taxaAprovacao = totalAprovacoes > 0 ? ((aprovacoes.APROVADA ?? 0) / totalAprovacoes) * 100 : 0;
 
   // novo: serviços sem realizador (padrão novo)
   const servicesWithoutRealizador = (data as any)?.servicesWithoutRealizador ?? 0;
@@ -242,8 +234,8 @@ export default function ServiceOrdersDashboard({
   }, [statusItems.length]);
 
   return (
-    <Card className={cn("w-full", className)}>
-      <CardHeader className="flex flex-row items-start justify-between gap-2">
+    <Card className={cn("dashboard-root w-full", className)}>
+      <CardHeader className="flex flex-col items-start justify-between gap-4 sm:flex-row">
         <div className="space-y-1">
           <CardTitle className="flex items-center gap-2">
             <ClipboardList className="h-5 w-5" aria-hidden="true" />
@@ -288,16 +280,20 @@ export default function ServiceOrdersDashboard({
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-6">
+      <CardContent className="space-y-6 px-2 pb-2 sm:px-3 sm:pb-3">
         {/* KPIs */}
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-7">
+        <div className="grid grid-cols-1 gap-3 xs:grid-cols-2 md:grid-cols-4 2xl:grid-cols-7">
           <Kpi icon={ClipboardList} label="Total de OS" value={formatNumber(total)} />
           <Kpi icon={Activity} label="OS do dia" value={formatNumber(data?.ordersToday ?? 0)} />
           <Kpi icon={CheckCircle2} label="Concluídas" value={formatNumber(completed)} />
           <Kpi icon={CircleAlert} label="Em andamento" value={formatNumber(inProgress)} />
           <Kpi icon={Timer} label="Tempo médio" value={formatDurationHours(avgHrs)} />
-          <Kpi icon={DollarSign} label="Receita (30d)" value={formatCurrencyBRL(data?.revenue30d ?? 0)} />
+          <Kpi icon={DollarSign} label="Valor concluído (30d)" value={formatCurrencyBRL(data?.revenue30d ?? 0)} />
           <Kpi icon={UserX} label="Serviços sem realizador" value={formatNumber(servicesWithoutRealizador)} />
+          <Kpi icon={ListTodo} label="OS abertas" value={formatNumber(data?.ordersOpen ?? 0)} />
+          <Kpi icon={BadgeDollarSign} label="Ticket médio" value={formatCurrencyBRL(data?.avgTicketAll ?? 0)} />
+          <Kpi icon={Percent} label="Taxa de aprovação" value={`${taxaAprovacao.toFixed(1)}%`} />
+          <Kpi icon={ClockAlert} label="90% concluídas em" value={formatDurationHours(data?.p90CompletionHours ?? 0)} />
         </div>
 
         {error && !loading ? (
@@ -329,8 +325,8 @@ export default function ServiceOrdersDashboard({
                     <stop offset="95%" stopColor="rgb(43, 127, 255)" stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="areaDone" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="rgba(255, 210, 0, 0.8)" stopOpacity={0.25} />
-                    <stop offset="95%" stopColor="rgba(255, 210, 0, 0.8)" stopOpacity={0} />
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.24} />
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                   </linearGradient>
                 </defs>
 
@@ -365,7 +361,7 @@ export default function ServiceOrdersDashboard({
                 <Area
                   type="monotone"
                   dataKey="done"
-                  stroke="rgba(255, 210, 0, 0.8)"
+                  stroke="#10b981"
                   fill="url(#areaDone)"
                   strokeWidth={2}
                   dot={false}
@@ -383,62 +379,27 @@ export default function ServiceOrdersDashboard({
             badge="Ranking"
             className="md:col-span-2 xl:col-span-1"
           >
-            <div className="max-h-60 overflow-y-auto pr-1 sm:max-h-80">
-              <ChartContainer
-                config={{
-                  // ChartContainer injeta `--color-${key}`; usamos isso no `fill` do Bar.
-                  totalServicos: { label: "Serviços", color: "hsl(var(--chart-3))" },
-                }}
-                className="w-full"
-                style={{ height: servicesByUserChartHeight }}
-              >
-                <BarChart
-                  accessibilityLayer
-                  data={servicesByUserSorted}
-                  layout="vertical"
-                  margin={{ top: 8, right: 16, left: 0, bottom: 8 }}
-                  barSize={18}
-                >
-                  <CartesianGrid horizontal={false} stroke="hsl(var(--border))" />
-
-                  <XAxis
-                    type="number"
-                    allowDecimals={false}
-                    axisLine={false}
-                    tickLine={false}
-                    fontSize={12}
-                    tickMargin={8}
-                    stroke="hsl(var(--muted-foreground))"
-                  />
-
-                  <YAxis
-                    type="category"
-                    dataKey="usuarioNome"
-                    axisLine={false}
-                    tickLine={false}
-                    fontSize={12}
-                    width={90}
-                    tickFormatter={(v) => {
-                      const s = abreviarSegundoNome(String(v ?? ""));
-                      const max = isMobile ? 14 : 18;
-                      return s.length > max ? `${s.slice(0, max)}...` : s;
-                    }}
-                    stroke="hsl(var(--muted-foreground))"
-                  />
-
-                  <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-
-                  <Bar
-                    dataKey="totalServicos"
-                    radius={[0, 4, 4, 0]}
-                    fill="rgba(43, 127, 255, 0.4)"
-                    stroke="rgb(43, 127, 255)"
-                    strokeWidth={2}
-                  >
-                    <LabelList dataKey="totalServicos" position="right" className="fill-foreground" fontSize={12} />
-                  </Bar>
-                </BarChart>
-              </ChartContainer>
+            <div className="max-h-80 space-y-3 overflow-y-auto pr-1">
+              {servicesByUserSorted.length ? servicesByUserSorted.map((item, index) => {
+                const percentual = Math.max(6, (item.totalServicos / servicesByUserMax) * 100);
+                return (
+                  <div key={`${item.usuarioNome}-${index}`} className="rounded-2xl bg-muted/35 p-3">
+                    <div className="mb-2 flex items-center gap-3">
+                      <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-xs font-semibold text-primary">
+                        {index < 3 ? <Medal className="size-4" /> : index + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium" title={item.usuarioNome}>{item.usuarioNome}</p>
+                        <p className="text-[11px] text-muted-foreground">{index === 0 ? "Maior produtividade no período" : "Serviços finalizados"}</p>
+                      </div>
+                      <span className="rounded-lg bg-card px-2.5 py-1 text-sm font-semibold shadow-sm">{item.totalServicos}</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-primary/8">
+                      <div className="h-full rounded-full bg-gradient-to-r from-violet-600 to-sky-500 transition-all duration-700" style={{ width: `${percentual}%` }} />
+                    </div>
+                  </div>
+                );
+              }) : <p className="py-12 text-center text-sm text-muted-foreground">Nenhum serviço concluído no período.</p>}
             </div>
           </ChartCard>
 
@@ -485,7 +446,7 @@ export default function ServiceOrdersDashboard({
 
                     <Bar dataKey="value" radius={[0, 6, 6, 0]}>
                       {statusItems.map((s) => (
-                        <Cell key={s.name} fill="rgba(43, 127, 255, 0.3)" stroke="rgb(43, 127, 255)" strokeWidth={2} />
+                        <Cell key={s.name} fill={s.fill} opacity={0.82} />
                       ))}
                       <LabelList dataKey="value" position="right" content={<StatusValueLabelRight />} />
                     </Bar>
@@ -519,7 +480,7 @@ export default function ServiceOrdersDashboard({
 
                     <Bar dataKey="value" radius={[6, 6, 0, 0]}>
                       {statusItems.map((s) => (
-                        <Cell key={s.name} fill="rgba(43, 127, 255, 0.3)" stroke="rgb(43, 127, 255)" strokeWidth={2} />
+                        <Cell key={s.name} fill={s.fill} opacity={0.82} />
                       ))}
                       <LabelList dataKey="value" position="top" content={<StatusValueLabelTop />} />
                     </Bar>
@@ -531,7 +492,7 @@ export default function ServiceOrdersDashboard({
             </div>
           </ChartCard>
 
-          {/* Prioridade (pizza) - mantém exatamente as cores originais (azul) */}
+          {/* Prioridade das ordens */}
           <ChartCard
             title="Prioridade das OS"
             description="Carga por nível"
@@ -554,7 +515,7 @@ export default function ServiceOrdersDashboard({
                   strokeWidth={2}
                 >
                   {prioItems.map((p) => (
-                    <Cell key={p.key} fill="rgba(43, 127, 255, 0.3)" stroke="rgb(43, 127, 255)" strokeWidth={2} />
+                    <Cell key={p.key} fill={p.color} />
                   ))}
                   <LabelList
                     dataKey="value"
@@ -570,6 +531,33 @@ export default function ServiceOrdersDashboard({
                 </Pie>
                 <ChartLegend content={<ChartLegendContent nameKey="key" />} />
               </PieChart>
+            </ChartContainer>
+          </ChartCard>
+
+          <ChartCard
+            title="Receita concluída por mês"
+            description="Evolução do valor das OS concluídas nos últimos 12 meses"
+            badge="Receita"
+            badgeIcon={<DollarSign className="h-3.5 w-3.5" />}
+            className="md:col-span-2 xl:col-span-3"
+          >
+            <ChartContainer
+              config={{ amount: { label: "Receita concluída", color: "#8b5cf6" } }}
+              className="h-56 w-full sm:h-64 md:h-72"
+            >
+              <AreaChart data={monthly.rev} margin={{ top: 12, right: 12, left: 8, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="areaRevenue" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="4 8" vertical={false} stroke="hsl(var(--border))" opacity={0.55} />
+                <XAxis dataKey="label" axisLine={false} tickLine={false} tickMargin={8} fontSize={12} />
+                <YAxis axisLine={false} tickLine={false} tickMargin={8} fontSize={11} tickFormatter={(value) => formatCurrencyBRL(Number(value)).replace("R$", "").trim()} />
+                <ChartTooltip content={<ChartTooltipContent indicator="line" formatter={(value) => formatCurrencyBRL(Number(value))} />} />
+                <Area type="monotone" dataKey="amount" stroke="#8b5cf6" fill="url(#areaRevenue)" strokeWidth={2.5} dot={false} />
+              </AreaChart>
             </ChartContainer>
           </ChartCard>
         </div>

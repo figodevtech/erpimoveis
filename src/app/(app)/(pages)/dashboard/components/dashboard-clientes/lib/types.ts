@@ -17,6 +17,9 @@ export type InsightsClientes = {
   dailyNew?: { date: string; count: number }[];
   recent30d: number;
   prev30d: number;
+  clientesAtendidos30: number;
+  clientesRecorrentes90: number;
+  taxaRecorrencia90: number;
 };
 
 export type RespostaContadorStatusClientes = {
