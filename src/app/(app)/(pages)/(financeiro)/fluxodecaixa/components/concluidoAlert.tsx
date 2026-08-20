@@ -160,6 +160,7 @@ export default function ConcluidoAlert({
   // ele reteve o principal.
   const acrescimosDoTitulo = Math.max(Number(transaction?.valor_acrescimos ?? 0) || 0, 0);
   const parcial = Math.round(valorBaixa * 100) < Math.round(saldo * 100);
+  const jaTemBaixas = Number(transaction?.valor_baixado ?? 0) > 0;
   const restante = Math.round((saldo - valorBaixa) * 100) / 100;
 
   /*
@@ -221,10 +222,19 @@ export default function ConcluidoAlert({
         centroCustoId: selectedCentroCustoId ? Number(selectedCentroCustoId) : null,
         // Só título antecipado responde; nos demais o servidor recusa o campo.
         valorLancado: antecipado && lancarNoCaixa ? valorLancado : null,
-        // Só vai quando é menos que o saldo. Mandar o cheio empurraria o título
-        // para o caminho da baixa parcial sem necessidade, criando uma transação
-        // filha onde o título dá conta sozinho.
-        valor: parcial ? valorBaixa : null,
+        /*
+         * Vai quando é menos que o saldo — e também quando o título JÁ TEM baixas
+         * parciais, mesmo pagando o restante exato.
+         *
+         * Nesse segundo caso o título não pode voltar a carregar banco: o
+         * dinheiro dele mora nas filhas. Omitir o valor mandava a baixa pelo
+         * caminho "de uma vez", que grava o banco no título, e o servidor recusava
+         * — deixando o usuário sem como terminar de receber.
+         *
+         * Sem filhas e pagando tudo, segue nulo: o título dá conta sozinho e não
+         * há por que criar uma transação a mais.
+         */
+        valor: parcial || jaTemBaixas ? valorBaixa : null,
       });
 
       toast.success("Transação concluída com sucesso!");

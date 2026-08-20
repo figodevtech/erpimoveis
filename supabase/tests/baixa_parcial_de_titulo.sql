@@ -531,7 +531,84 @@ BEGIN
     END IF;
   END;
 
-  /* ---------------- 11. a filha nao vira receita nova na DRE --------------- */
+  /* ---------------- 11. terminar de receber SEM informar o valor ---------- */
+  -- Foi o caso do titulo #382 no Demir: R$ 758,65 com uma parcial de R$ 37,57.
+  -- Marcar o restante como pago mandava p_valor nulo — a tela so mandava valor
+  -- quando era MENOS que o saldo, e o lote nunca manda —, e nulo significava
+  -- "baixa de uma vez", que grava banco no titulo. Num titulo que ja tem filhas
+  -- isso e o que a trava proibe, e a baixa era recusada.
+
+  DECLARE
+    v_r bigint;
+    v_saldo_antes numeric(14,2);
+  BEGIN
+    UPDATE _molde SET
+      id = nextval(pg_get_serial_sequence('public.transacao','id')),
+      tipo = 'RECEITA'::public.tipos_transacao, ordemservicoid = NULL, vendaid = NULL,
+      valor = 758.65, valor_base = 758.65, "valorLiquido" = 758.65,
+      valor_acrescimos = 0, valor_descontos = 0,
+      valor_baixado = 0, baixa_de_transacao_id = NULL, pendente = true,
+      banco_id = NULL, pago_em = NULL,
+      vencimento_em = date_trunc('day', now()), data = date_trunc('day', now()),
+      descricao = 'TESTE RESTANTE SEM VALOR';
+    INSERT INTO public.transacao SELECT * FROM _molde;
+    SELECT id INTO v_r FROM _molde;
+    INSERT INTO _criadas VALUES (v_r);
+
+    v_resultado := public.baixar_transacao_pendente(
+      v_r, now(), v_banco, 'PIX', NULL, NULL, NULL, 37.57, NULL);
+    INSERT INTO _criadas VALUES ((v_resultado->>'baixa_id')::bigint);
+
+    v_saldo_antes := pg_temp.saldo_do_teste(v_banco);
+
+    -- p_valor NULO, como a tela e o lote mandavam
+    BEGIN
+      v_resultado := public.baixar_transacao_pendente(
+        v_r, now(), v_banco, 'PIX', NULL, NULL, NULL, NULL, NULL);
+      INSERT INTO _criadas VALUES ((v_resultado->>'baixa_id')::bigint);
+
+      SELECT * INTO v_tx FROM public.transacao WHERE id = v_r;
+
+      IF v_tx.pendente = false AND v_tx.banco_id IS NULL
+         AND v_tx.valor_baixado = 758.65
+         AND pg_temp.saldo_do_teste(v_banco) = v_saldo_antes + 721.08 THEN
+        v_ok := v_ok + 1;
+        RAISE NOTICE 'OK 20: p_valor nulo terminou de receber pelo caminho da filha';
+      ELSE
+        v_falhou := v_falhou + 1;
+        RAISE NOTICE 'FALHOU 20: pendente=% banco=% baixado=% conta=%',
+          v_tx.pendente, v_tx.banco_id, v_tx.valor_baixado, pg_temp.saldo_do_teste(v_banco);
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      v_falhou := v_falhou + 1;
+      RAISE NOTICE 'FALHOU 20: recusou terminar de receber: %', sqlerrm;
+    END;
+
+    -- e o titulo SEM filhas segue baixando de uma vez, com banco nele
+    UPDATE _molde SET
+      id = nextval(pg_get_serial_sequence('public.transacao','id')),
+      valor = 200.00, valor_base = 200.00, "valorLiquido" = 200.00,
+      valor_baixado = 0, baixa_de_transacao_id = NULL, pendente = true,
+      banco_id = NULL, pago_em = NULL, descricao = 'TESTE SEM FILHAS SEGUE IGUAL';
+    INSERT INTO public.transacao SELECT * FROM _molde;
+    SELECT id INTO v_r FROM _molde;
+    INSERT INTO _criadas VALUES (v_r);
+
+    PERFORM public.baixar_transacao_pendente(
+      v_r, now(), v_banco, 'PIX', NULL, NULL, NULL, NULL, NULL);
+    SELECT * INTO v_tx FROM public.transacao WHERE id = v_r;
+
+    IF v_tx.banco_id = v_banco AND v_tx.valor_baixado = 0
+       AND NOT EXISTS (SELECT 1 FROM public.transacao WHERE baixa_de_transacao_id = v_r) THEN
+      v_ok := v_ok + 1;
+      RAISE NOTICE 'OK 21: sem filhas, p_valor nulo segue sendo a baixa de uma vez';
+    ELSE
+      v_falhou := v_falhou + 1;
+      RAISE NOTICE 'FALHOU 21: banco=% baixado=%', v_tx.banco_id, v_tx.valor_baixado;
+    END IF;
+  END;
+
+  /* ---------------- 12. a filha nao vira receita nova na DRE --------------- */
 
   SELECT count(*) INTO v_n
     FROM public.eventos_financeiros
