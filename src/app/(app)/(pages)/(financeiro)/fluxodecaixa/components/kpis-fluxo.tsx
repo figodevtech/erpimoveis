@@ -21,7 +21,13 @@ import type { FluxoViewMode, TransactionRelationFilters } from "../types";
  * assunto. Sem isso, valores trocando no lugar pareceriam correção de cálculo.
  */
 
-type Kpi = { rotulo: string; valor: number; tom: "positivo" | "negativo" | "neutro" };
+type Kpi = {
+  rotulo: string;
+  valor: number;
+  tom: "positivo" | "negativo" | "neutro";
+  /** Só vem na visão sem filtro: o mesmo número no mês anterior. */
+  comparacao?: { anterior: number; variacao: number | null };
+};
 
 /**
  * Último resultado de cada consulta, fora do React.
@@ -48,14 +54,26 @@ export function KpisFluxo({
   dateFrom,
   dateTo,
   search,
+  tiposParam,
   relationFilters,
+  revalidacao,
 }: {
   viewMode: FluxoViewMode;
   dateFrom: string;
   dateTo: string;
   search: string;
+  /** Os tipos selecionados, como a tabela os manda: "RECEITA,DESPESA". */
+  tiposParam: string;
   /** Os mesmos filtros da tabela: os cartões respondem pelo que está na tela. */
   relationFilters: TransactionRelationFilters;
+  /**
+   * Sobe a cada baixa, estorno ou exclusão feita na lista.
+   *
+   * Os filtros não mudam quando alguém dá uma baixa, então sem este contador a
+   * consulta seria a mesma e os cartões ficariam com o número de antes da
+   * operação — bem no momento em que a pessoa olha para eles para conferir.
+   */
+  revalidacao: number;
 }) {
   /**
    * O que está na tela e a que aba pertence, trocados **juntos**.
@@ -75,6 +93,7 @@ export function KpisFluxo({
       dateFrom: dateFrom || undefined,
       dateTo: dateTo || undefined,
       search: search || undefined,
+      tipos: tiposParam || undefined,
       categoriaId: categoriaId || undefined,
       bancoId: bancoId || undefined,
       planoContaId: planoContaId || undefined,
@@ -86,6 +105,7 @@ export function KpisFluxo({
       dateFrom,
       dateTo,
       search,
+      tiposParam,
       categoriaId,
       bancoId,
       planoContaId,
@@ -94,7 +114,9 @@ export function KpisFluxo({
     ],
   );
 
-  const chave = JSON.stringify(consulta);
+  // A revalidação entra na chave, não nos parâmetros: ela não é um filtro, é só
+  // o sinal de que os dados por trás mudaram.
+  const chave = `${JSON.stringify(consulta)}#${revalidacao}`;
 
   const [exibido, setExibido] = useState<{ viewMode: FluxoViewMode; kpis: Kpi[] } | null>(
     () => {
@@ -158,6 +180,36 @@ export function KpisFluxo({
                     <p className={`text-2xl font-semibold tabular-nums ${COR[kpi.tom]}`}>
                       {formatarEmReal(kpi.valor)}
                     </p>
+
+                    {/*
+                      A comparação com o mês anterior, que só existe sem filtro.
+                      Fica discreta e embaixo: o número do mês é a resposta, e
+                      isto é contexto.
+                    */}
+                    {kpi.comparacao ? (
+                      <p className="text-xs text-muted-foreground">
+                        {kpi.comparacao.variacao == null ? (
+                          <>Nada no mês anterior</>
+                        ) : (
+                          <>
+                            <span
+                              className={
+                                kpi.comparacao.variacao >= 0
+                                  ? "font-medium text-emerald-600 dark:text-emerald-400"
+                                  : "font-medium text-destructive"
+                              }
+                            >
+                              {kpi.comparacao.variacao >= 0 ? "↑" : "↓"}{" "}
+                              {Math.abs(kpi.comparacao.variacao).toLocaleString("pt-BR", {
+                                maximumFractionDigits: 1,
+                              })}
+                              %
+                            </span>{" "}
+                            vs. {formatarEmReal(kpi.comparacao.anterior)} no mês anterior
+                          </>
+                        )}
+                      </p>
+                    ) : null}
                     {/* Linha de contexto: além de informar, iguala a altura à da
                         fileira de indicadores gerais, que tem três linhas. */}
                     <p className="text-xs text-muted-foreground">No período filtrado</p>

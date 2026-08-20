@@ -50,8 +50,8 @@ DECLARE
   v_ok int := 0;
   v_falhou int := 0;
 BEGIN
-  IF to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid,boolean,numeric)') IS NULL THEN
-    RAISE EXCEPTION 'baixar_transacao_pendente ainda nao aceita p_valor. Rode as migrations.';
+  IF to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid,numeric,numeric)') IS NULL THEN
+    RAISE EXCEPTION 'baixar_transacao_pendente ainda nao aceita p_valor_lancado. Rode as migrations.';
   END IF;
 
   SELECT id INTO v_banco FROM public.bancoconta ORDER BY id LIMIT 1;
@@ -91,7 +91,7 @@ BEGIN
   /* ---------------- 2. paga R$ 400 ---------------- */
 
   v_resultado := public.baixar_transacao_pendente(
-    v_titulo, now(), v_banco, 'PIX', NULL, NULL, NULL, false, 400.00
+    v_titulo, now(), v_banco, 'PIX', NULL, NULL, NULL, 400.00, NULL
   );
   v_filha1 := (v_resultado->>'baixa_id')::bigint;
   INSERT INTO _criadas VALUES (v_filha1);
@@ -125,7 +125,7 @@ BEGIN
 
   BEGIN
     PERFORM public.baixar_transacao_pendente(
-      v_titulo, now(), v_banco, 'PIX', NULL, NULL, NULL, false, 700.00
+      v_titulo, now(), v_banco, 'PIX', NULL, NULL, NULL, 700.00, NULL
     );
     v_falhou := v_falhou + 1;
     RAISE NOTICE 'FALHOU 4: aceitou baixa acima do saldo';
@@ -141,7 +141,7 @@ BEGIN
 
   BEGIN
     PERFORM public.baixar_transacao_pendente(
-      v_titulo, now(), v_banco, 'PIX', NULL, NULL, NULL, false, 0
+      v_titulo, now(), v_banco, 'PIX', NULL, NULL, NULL, 0, NULL
     );
     v_falhou := v_falhou + 1;
     RAISE NOTICE 'FALHOU 5: aceitou baixa de valor zero';
@@ -172,7 +172,7 @@ BEGIN
   /* ---------------- 4. paga os R$ 600 restantes ---------------- */
 
   v_resultado := public.baixar_transacao_pendente(
-    v_titulo, now(), v_banco, 'PIX', NULL, NULL, NULL, false, 600.00
+    v_titulo, now(), v_banco, 'PIX', NULL, NULL, NULL, 600.00, NULL
   );
   v_filha2 := (v_resultado->>'baixa_id')::bigint;
   INSERT INTO _criadas VALUES (v_filha2);
@@ -236,7 +236,7 @@ BEGIN
   INSERT INTO _criadas VALUES (v_comum);
 
   PERFORM public.baixar_transacao_pendente(
-    v_comum, now(), v_banco, 'PIX', NULL, NULL, NULL, false, NULL
+    v_comum, now(), v_banco, 'PIX', NULL, NULL, NULL, NULL, NULL
   );
   SELECT * INTO v_tx FROM public.transacao WHERE id = v_comum;
 
@@ -266,7 +266,7 @@ BEGIN
   v_saldo := pg_temp.saldo_do_teste(v_banco);
 
   v_resultado := public.baixar_transacao_pendente(
-    v_despesa, now(), v_banco, 'PIX', NULL, NULL, NULL, false, 300.00
+    v_despesa, now(), v_banco, 'PIX', NULL, NULL, NULL, 300.00, NULL
   );
   INSERT INTO _criadas VALUES ((v_resultado->>'baixa_id')::bigint);
 
@@ -334,7 +334,7 @@ BEGIN
         FROM public.resumo_financeiro_os(v_os);
 
       v_resultado := public.baixar_transacao_pendente(
-        v_titulo_os, now(), v_banco, 'PIX', NULL, NULL, NULL, false, 40.00
+        v_titulo_os, now(), v_banco, 'PIX', NULL, NULL, NULL, 40.00, NULL
       );
       INSERT INTO _criadas VALUES ((v_resultado->>'baixa_id')::bigint);
 
@@ -385,7 +385,7 @@ BEGIN
 
   BEGIN
     v_resultado := public.baixar_transacao_pendente(
-      v_com_banco, now(), v_banco, 'PIX', NULL, NULL, NULL, false, 40.00
+      v_com_banco, now(), v_banco, 'PIX', NULL, NULL, NULL, 40.00, NULL
     );
     v_filha_banco := (v_resultado->>'baixa_id')::bigint;
     INSERT INTO _criadas VALUES (v_filha_banco);
@@ -412,7 +412,7 @@ BEGIN
   -- baixas dele. O saldo restante e 96,66 - 40 = 56,66.
   BEGIN
     v_resultado := public.baixar_transacao_pendente(
-      v_com_banco, now(), v_banco, 'PIX', NULL, NULL, NULL, false, 56.66
+      v_com_banco, now(), v_banco, 'PIX', NULL, NULL, NULL, 56.66, NULL
     );
     INSERT INTO _criadas VALUES ((v_resultado->>'baixa_id')::bigint);
 
@@ -453,7 +453,85 @@ BEGIN
     END IF;
   END;
 
-  /* ---------------- 10. a filha nao vira receita nova na DRE --------------- */
+  /* ---------------- 10. a data de liquidacao ------------------------------ */
+  -- `data` e a data de liquidacao, e e por ela que as listas e os KPIs recortam o
+  -- periodo. Dois titulos quitados no mesmo dia tem que cair no mesmo mes, tendo
+  -- sido pagos de uma vez ou em partes.
+
+  DECLARE
+    v_dt bigint;
+    v_dt_comum bigint;
+    v_ultima bigint;
+  BEGIN
+    UPDATE _molde SET
+      id = nextval(pg_get_serial_sequence('public.transacao','id')),
+      tipo = 'RECEITA'::public.tipos_transacao, ordemservicoid = NULL, vendaid = NULL,
+      valor = 1000.00, valor_base = 1000.00, "valorLiquido" = 1000.00,
+      valor_acrescimos = 0, valor_descontos = 0,
+      valor_baixado = 0, baixa_de_transacao_id = NULL, pendente = true,
+      banco_id = NULL, pago_em = NULL,
+      vencimento_em = '2026-07-10'::timestamptz, data = '2026-07-10'::timestamptz,
+      descricao = 'TESTE DATA POR PARCIAIS';
+    INSERT INTO public.transacao SELECT * FROM _molde;
+    SELECT id INTO v_dt FROM _molde;
+    INSERT INTO _criadas VALUES (v_dt);
+
+    v_resultado := public.baixar_transacao_pendente(
+      v_dt, '2026-08-05'::timestamptz, v_banco, 'PIX', NULL, NULL, NULL, 400.00, NULL);
+    INSERT INTO _criadas VALUES ((v_resultado->>'baixa_id')::bigint);
+
+    SELECT * INTO v_tx FROM public.transacao WHERE id = v_dt;
+    IF v_tx.data::date = '2026-07-10' AND v_tx.pago_em IS NULL THEN
+      v_ok := v_ok + 1;
+      RAISE NOTICE 'OK 17: em aberto, o titulo segue valendo pelo vencimento';
+    ELSE
+      v_falhou := v_falhou + 1;
+      RAISE NOTICE 'FALHOU 17: data=% pago=%', v_tx.data, v_tx.pago_em;
+    END IF;
+
+    v_resultado := public.baixar_transacao_pendente(
+      v_dt, '2026-08-19'::timestamptz, v_banco, 'PIX', NULL, NULL, NULL, 600.00, NULL);
+    v_ultima := (v_resultado->>'baixa_id')::bigint;
+    INSERT INTO _criadas VALUES (v_ultima);
+
+    SELECT * INTO v_tx FROM public.transacao WHERE id = v_dt;
+
+    -- o mesmo titulo, baixado de uma vez no mesmo dia, para comparar
+    UPDATE _molde SET
+      id = nextval(pg_get_serial_sequence('public.transacao','id')),
+      valor_baixado = 0, baixa_de_transacao_id = NULL, pendente = true,
+      banco_id = NULL, pago_em = NULL,
+      vencimento_em = '2026-07-10'::timestamptz, data = '2026-07-10'::timestamptz,
+      descricao = 'TESTE DATA DE UMA VEZ';
+    INSERT INTO public.transacao SELECT * FROM _molde;
+    SELECT id INTO v_dt_comum FROM _molde;
+    INSERT INTO _criadas VALUES (v_dt_comum);
+    PERFORM public.baixar_transacao_pendente(
+      v_dt_comum, '2026-08-19'::timestamptz, v_banco, 'PIX', NULL, NULL, NULL, NULL, NULL);
+
+    IF v_tx.data::date = '2026-08-19' AND v_tx.pago_em::date = '2026-08-19'
+       AND v_tx.data::date = (SELECT data::date FROM public.transacao WHERE id = v_dt_comum) THEN
+      v_ok := v_ok + 1;
+      RAISE NOTICE 'OK 18: fechado por parciais cai no mesmo dia do baixado de uma vez';
+    ELSE
+      v_falhou := v_falhou + 1;
+      RAISE NOTICE 'FALHOU 18: parciais data=% vs de uma vez data=%',
+        v_tx.data, (SELECT data FROM public.transacao WHERE id = v_dt_comum);
+    END IF;
+
+    -- reabrir devolve a data ao vencimento
+    PERFORM public.estornar_baixa_transacao(v_ultima, NULL);
+    SELECT * INTO v_tx FROM public.transacao WHERE id = v_dt;
+    IF v_tx.pendente = true AND v_tx.data::date = '2026-07-10' AND v_tx.pago_em IS NULL THEN
+      v_ok := v_ok + 1;
+      RAISE NOTICE 'OK 19: o estorno devolveu a data ao vencimento';
+    ELSE
+      v_falhou := v_falhou + 1;
+      RAISE NOTICE 'FALHOU 19: data=% pago=% pendente=%', v_tx.data, v_tx.pago_em, v_tx.pendente;
+    END IF;
+  END;
+
+  /* ---------------- 11. a filha nao vira receita nova na DRE --------------- */
 
   SELECT count(*) INTO v_n
     FROM public.eventos_financeiros

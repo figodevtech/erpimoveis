@@ -90,7 +90,7 @@ export async function GET(_: Request, { params }: Params) {
     const { data: transacao, error: transacaoError } = await supabaseAdmin
       .from("transacao")
       .select(
-        "id, descricao, valor, data, tipo, pendente, created_at, updated_at, created_by, updated_by, baixado_por, cliente_id, fornecedor_id, ordemservicoid, vendaid, evento_financeiro_id, pagamento_multiplo_id, parcelamento_id",
+        "id, descricao, valor, data, tipo, pendente, created_at, updated_at, created_by, updated_by, baixado_por, cliente_id, fornecedor_id, ordemservicoid, vendaid, evento_financeiro_id, pagamento_multiplo_id, parcelamento_id, baixa_de_transacao_id",
       )
       .eq("id", id)
       .eq("is_deleted", false)
@@ -387,7 +387,48 @@ export async function GET(_: Request, { params }: Params) {
     ]);
     const autor = (valor: unknown) => autores.get(String(valor ?? "")) ?? null;
 
+    /*
+     * De onde esta linha veio, quando ela é o dinheiro da baixa de um título.
+     *
+     * Sem isto a transação de baixa chega ao dialog órfã: nenhuma aba a reconhece
+     * — a de Adiantamento chega a dizer que ela "não faz parte de um
+     * adiantamento" —, e a única pista de origem é a descrição, que é texto solto
+     * e some se alguém a editar.
+     */
+    let baixaDe: {
+      id: number;
+      descricao: string | null;
+      valor: number;
+      valorLiquido: number;
+      valorBaixado: number;
+      pendente: boolean;
+      vencimentoEm: string | null;
+      antecipado: boolean;
+    } | null = null;
+
+    if (transacao.baixa_de_transacao_id != null) {
+      const { data: titulo } = await supabaseAdmin
+        .from("transacao")
+        .select('id, descricao, valor, "valorLiquido", valor_baixado, pendente, vencimento_em, adiantamento_id')
+        .eq("id", transacao.baixa_de_transacao_id)
+        .maybeSingle();
+
+      if (titulo) {
+        baixaDe = {
+          id: Number(titulo.id),
+          descricao: titulo.descricao ?? null,
+          valor: Number(titulo.valor ?? 0),
+          valorLiquido: Number(titulo.valorLiquido ?? titulo.valor ?? 0),
+          valorBaixado: Number(titulo.valor_baixado ?? 0),
+          pendente: titulo.pendente === true,
+          vencimentoEm: titulo.vencimento_em ?? null,
+          antecipado: titulo.adiantamento_id != null,
+        };
+      }
+    }
+
     return NextResponse.json({
+      baixaDe,
       relacionadas: {
         origem,
         itens: relacionadas.map((item) => ({

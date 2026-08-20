@@ -1,3 +1,16 @@
+/** O título que esta linha pagou, quando ela é a transação de uma baixa. */
+export type BaixaDeTitulo = {
+  id: number;
+  descricao: string | null;
+  valor: number;
+  valorLiquido: number;
+  valorBaixado: number;
+  pendente: boolean;
+  vencimentoEm: string | null;
+  /** O título veio de uma antecipação: aqui a linha é repasse, não quitação. */
+  antecipado: boolean;
+};
+
 /** Formato devolvido por GET /api/transaction/[id]/contexto. */
 
 export type Autor = { id: string; nome: string | null } | null;
@@ -130,6 +143,8 @@ export interface TrocaDeContraparte {
 }
 
 export interface TransacaoContexto {
+  /** Preenchido só quando esta transação é o dinheiro da baixa de um título. */
+  baixaDe?: BaixaDeTitulo | null;
   relacionadas: {
     origem: OrigemRelacionadas;
     itens: LancamentoRelacionado[];

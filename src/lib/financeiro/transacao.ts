@@ -195,6 +195,7 @@ export function valorLiquidoEmEdicao(
 export interface TituloAntecipado {
   adiantamento_id?: number | string | null;
   banco_id?: number | string | null;
+  valor_baixado?: number | string | null;
   pendente?: boolean | null;
 }
 
@@ -209,17 +210,18 @@ export function ehTituloAntecipado(transacao: TituloAntecipado | null | undefine
 }
 
 /**
- * Título antecipado cuja baixa trouxe dinheiro novo.
+ * A baixa deste título antecipado trouxe dinheiro para a conta?
  *
- * Acontece quando o pagador não honra o boleto e o banco debita o valor de volta
- * da conta. Se o devedor pagar depois, aquela baixa é uma entrada de verdade — o
- * banco já havia tirado o dinheiro que a antecipação tinha trazido.
+ * Acontece de dois jeitos, e os dois têm a mesma forma: o banco devolveu o valor
+ * inteiro e o pagador quitou depois, ou o banco reteve o principal que havia
+ * adiantado e repassou só o juros do atraso. Nos dois o dinheiro entra por uma
+ * transação própria, ligada ao título — nunca pelo título, que é antecipado e
+ * por isso jamais carrega banco (`transacao_antecipado_sem_banco_trg`).
  *
- * A pergunta se responde só com `banco_id` porque, num título antecipado, banco
- * preenchido não tem outro jeito de existir: a antecipação grava nulo ao vincular
- * o título, a baixa sem lançamento grava nulo, e o gatilho
- * `transacao_antecipado_sem_banco_trg` recusa qualquer outro caminho — inclusive
- * a edição manual que já dobrou saldo uma vez.
+ * `valor_baixado` é a soma dessas transações filhas, mantida pelo gatilho
+ * `transacao_baixa_parcial_trg`. Perguntar por ela é perguntar o que existe, em
+ * vez de deduzir de `banco_id` — que foi o que essa função fazia antes de o
+ * repasse existir, e que deixaria de valer agora.
  *
  * Quem chama isto está quase sempre perguntando o contrário do que parece: se a
  * resposta é `false`, a linha NÃO deve ser somada no extrato, porque o dinheiro
@@ -230,7 +232,8 @@ export function antecipadoComLancamento(
 ): boolean {
   if (!ehTituloAntecipado(transacao)) return false;
   if (transacao?.pendente === true) return false;
-  return transacao?.banco_id != null;
+  const baixado = Number(transacao?.valor_baixado ?? 0);
+  return Number.isFinite(baixado) && baixado > 0;
 }
 
 /** As colunas que dizem quanto de um título já foi pago. */

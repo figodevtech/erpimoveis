@@ -34,7 +34,29 @@ export async function POST(req: NextRequest, ctx: Params) {
      * O padrão é `false`: o caso comum é o boleto honrado, e quem chamar sem o
      * campo recebe o comportamento de sempre.
      */
-    const lancarNoCaixa = body?.lancarNoCaixa === true;
+    /*
+     * Quanto desta baixa entra na conta. Só título antecipado responde.
+     *
+     * Nele os dois números divergem: o boleto foi pago por inteiro, mas parte do
+     * dinheiro já tinha vindo pela antecipação. Zero = o boleto foi honrado e a
+     * conta não se move. O líquido inteiro = o banco devolveu tudo e o pagador
+     * quitou depois. Um valor no meio = o banco reteve o que adiantou e repassou
+     * só o resto, tipicamente o juros do atraso.
+     *
+     * Ausente é o comportamento de sempre: em título comum o banco é gravado no
+     * próprio título; em antecipado, nada entra.
+     */
+    const valorLancadoBruto = body?.valorLancado;
+    const valorLancado =
+      valorLancadoBruto == null || valorLancadoBruto === ""
+        ? null
+        : Number(valorLancadoBruto);
+    if (valorLancado != null && (!Number.isFinite(valorLancado) || valorLancado < 0)) {
+      return NextResponse.json(
+        { error: "O valor lançado na conta deve ser um número não negativo." },
+        { status: 400 },
+      );
+    }
     /*
      * Baixa parcial: quanto deste título está sendo pago agora.
      *
@@ -71,8 +93,8 @@ export async function POST(req: NextRequest, ctx: Params) {
       p_plano_de_conta_id: Number.isSafeInteger(planoContaId) ? planoContaId : null,
       p_centro_custo_id: Number.isSafeInteger(centroCustoId) ? centroCustoId : null,
       p_baixado_por: (session?.user as any)?.id ?? null,
-      p_lancar_no_caixa: lancarNoCaixa,
       p_valor: valor,
+      p_valor_lancado: valorLancado,
     });
 
     if (error) {

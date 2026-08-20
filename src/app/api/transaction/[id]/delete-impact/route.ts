@@ -77,17 +77,32 @@ export async function GET(_: Request, { params }: Params) {
         };
       }
     } else if (transaction.adiantamento_id != null) {
-      // A outra ponta continua fechada: o bruto da antecipação é a soma dos
-      // líquidos dos títulos, e tirar um faria o lançamento cobrir valor que
-      // ninguém deve. O caminho é desfazer a antecipação.
-      // "Liquidado" não serve para os dois modos: no que mantém os títulos em
-      // aberto o título pode estar justamente a receber, esperando o vencimento,
-      // e a frase antiga contava outra história para quem a lia.
+      /*
+       * Excluir o título continua fechado: o bruto da antecipação é a soma dos
+       * líquidos, e tirar um faria o lançamento cobrir valor que ninguém deve.
+       *
+       * Mas o caminho a indicar não é sempre o mesmo. Quando a antecipação
+       * manteve os títulos em aberto, a baixa deste título é dele sozinho e pode
+       * ser desfeita por "Excluir do fluxo de caixa" — mandar desfazer a
+       * antecipação inteira ali é conselho grande demais para o problema, e foi
+       * o que aconteceu com quem só queria refazer a própria baixa.
+       */
+      const { data: antecipacao } = await supabaseAdmin
+        .from("transacao")
+        .select("adiantamento_manteve_pendentes")
+        .eq("id", transaction.adiantamento_id)
+        .maybeSingle();
+
+      const baixaPropria =
+        antecipacao?.adiantamento_manteve_pendentes === true && transaction.pendente === false;
+
       adiantamento = {
         bloqueado: true,
-        motivo:
-          `Este título faz parte da antecipação #${transaction.adiantamento_id} e não sai sozinho. ` +
-          `Exclua a antecipação primeiro: ela devolve este título e os demais para em aberto.`,
+        motivo: baixaPropria
+          ? `Este título faz parte da antecipação #${transaction.adiantamento_id} e não sai sozinho. ` +
+            `Para refazer a baixa dele, use "Excluir do fluxo de caixa": isso o devolve para em aberto sem mexer na antecipação.`
+          : `Este título faz parte da antecipação #${transaction.adiantamento_id} e não sai sozinho. ` +
+            `Exclua a antecipação primeiro: ela devolve este título e os demais para em aberto.`,
       };
     }
 

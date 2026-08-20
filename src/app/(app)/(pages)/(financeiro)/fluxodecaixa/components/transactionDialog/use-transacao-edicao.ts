@@ -6,7 +6,6 @@ import axios, { isAxiosError } from "axios";
 import { toast } from "@/lib/toast";
 
 import {
-  antecipadoComLancamento,
   origemDaTransacao,
   taxaEhOUnicoDesconto,
   tipoTemValorLiquido,
@@ -474,15 +473,10 @@ export function useTransacaoEdicao(transacaoId: number | undefined) {
           // omitir o campo também conserta a linha que já tenha sido salva com
           // banco antes de a trava existir.
           //
-          // O antecipado cuja baixa foi lançada na conta é a exceção e
-          // mantém o seu: ali a baixa registrou uma entrada real. Zerá-lo aqui
-          // apagaria dinheiro que entrou — e apagaria em qualquer edição, mesmo
-          // a de um campo de texto, sem ninguém pedir.
-          banco_id: antecipadoComLancamento(form)
-            ? (form.banco_id ?? null)
-            : form.adiantamento_id != null
-              ? null
-              : (form.banco_id ?? null),
+          // Não há exceção: título antecipado NUNCA carrega banco. O dinheiro que
+          // o banco repassar depois da baixa entra numa transação própria, ligada
+          // a ele, e é ela que aparece no extrato.
+          banco_id: form.adiantamento_id != null ? null : (form.banco_id ?? null),
           nomepagador: form.nomepagador || null,
           cpfcnpjpagador: form.cpfcnpjpagador || null,
           // O vínculo com o cadastro é do pagamento, não do documento: uma OS do

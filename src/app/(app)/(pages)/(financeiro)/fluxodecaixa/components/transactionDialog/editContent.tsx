@@ -21,6 +21,7 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import formatarEmReal from "@/utils/formatarEmReal";
 import {
   CABECALHO_FIXO,
   COLUNA_CHEIA,
@@ -210,6 +211,49 @@ export default function EditContent({
             </MioloCentralizado>
           </div>
         ) : (
+          <>
+            {/*
+              De onde esta linha veio, quando ela é o dinheiro de uma baixa.
+              Fica acima das abas de propósito: é a primeira coisa a saber sobre
+              ela, e nenhuma aba a reconhecia — a de Adiantamento chegava a
+              afirmar que ela não fazia parte de um adiantamento.
+            */}
+            {contexto?.baixaDe ? (
+              <div className="shrink-0 border-b border-amber-600/30 bg-amber-600/10 px-4 py-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                  {contexto.baixaDe.antecipado ? "Repasse de um título antecipado" : "Pagamento de um título"}
+                </p>
+                <p className="mt-1 text-sm text-foreground">
+                  Este lançamento é o dinheiro que entrou pela baixa do título{" "}
+                  <strong>#{contexto.baixaDe.id}</strong>
+                  {contexto.baixaDe.descricao ? ` — ${contexto.baixaDe.descricao}` : ""}.
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  {contexto.baixaDe.antecipado ? (
+                    <>
+                      O título vale {formatarEmReal(contexto.baixaDe.valorLiquido)} e foi
+                      quitado; o resto dele veio da antecipação e não passou por conta
+                      nenhuma. Só esta linha aparece no extrato.
+                    </>
+                  ) : contexto.baixaDe.pendente ? (
+                    <>
+                      O título vale {formatarEmReal(contexto.baixaDe.valorLiquido)}, já
+                      recebeu {formatarEmReal(contexto.baixaDe.valorBaixado)} e continua em
+                      aberto pelo restante.
+                    </>
+                  ) : (
+                    <>
+                      O título vale {formatarEmReal(contexto.baixaDe.valorLiquido)} e foi
+                      coberto por pagamentos como este.
+                    </>
+                  )}{" "}
+                  <strong>Mudar o valor aqui muda o saldo daquele título.</strong> Para
+                  desfazer o pagamento, use &ldquo;Excluir do fluxo de caixa&rdquo; nesta
+                  linha: o título volta a dever a parte dela.
+                </p>
+              </div>
+            ) : null}
+
             <Tabs defaultValue="detalhes" className="flex min-h-0 flex-1 flex-col">
               <div className="shrink-0 overflow-x-auto border-b border-border bg-background">
                 <TabsList className={tabsListClass}>
@@ -380,6 +424,7 @@ export default function EditContent({
               </TabsContent>
               </div>
             </Tabs>
+          </>
         )}
 
         <Footer className={RODAPE_FIXO}>

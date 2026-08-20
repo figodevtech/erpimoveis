@@ -66,6 +66,7 @@ export default function ConcluidoAlert({
   const [selectedCentroCustoId, setSelectedCentroCustoId] = useState("");
   const [dataPagamento, setDataPagamento] = useState("");
   const [lancarNoCaixa, setLancarNoCaixa] = useState(false);
+  const [valorLancado, setValorLancado] = useState(0);
   const [valorBaixa, setValorBaixa] = useState(0);
 
   const { gruposPlanosDeConta, loadingPlanos } = usePlanosDeConta();
@@ -85,6 +86,23 @@ export default function ConcluidoAlert({
     // Nasce no saldo: baixar tudo é o que se faz quase sempre, e quem vai receber
     // menos edita o número.
     setValorBaixa(saldoEmAberto(transaction));
+    /*
+     * O repasse nasce no juros, quando existe juros.
+     *
+     * Num título antecipado com acréscimo, o que o banco costuma repassar é
+     * exatamente ele: o principal já foi adiantado e fica retido, e o que sobra é
+     * o que o atraso rendeu. Preencher com o valor cheio obrigava a apagar e
+     * redigitar bem no caso mais comum — e, pior, um clique distraído lançaria o
+     * título inteiro na conta.
+     *
+     * Sem acréscimo, o caso é "o banco devolveu tudo", e aí o cheio é o certo.
+     */
+    const acrescimos = Number(transaction.valor_acrescimos ?? 0);
+    setValorLancado(
+      Number.isFinite(acrescimos) && acrescimos > 0
+        ? acrescimos
+        : saldoEmAberto(transaction),
+    );
     setDataPagamento(
       new Intl.DateTimeFormat("en-CA", {
         timeZone: "America/Sao_Paulo",
@@ -138,8 +156,20 @@ export default function ConcluidoAlert({
    * único número que existia aqui antes.
    */
   const saldo = saldoEmAberto(transaction);
+  // O juros lançado no título: é o palpite certo de quanto o banco repassa quando
+  // ele reteve o principal.
+  const acrescimosDoTitulo = Math.max(Number(transaction?.valor_acrescimos ?? 0) || 0, 0);
   const parcial = Math.round(valorBaixa * 100) < Math.round(saldo * 100);
   const restante = Math.round((saldo - valorBaixa) * 100) / 100;
+
+  /*
+   * Quanto de fato entra na conta, e quanto do título é quitado sem mover caixa.
+   * São dois números diferentes só em título antecipado; nos demais o segundo é
+   * sempre zero.
+   */
+  const entraNaConta = antecipado ? (lancarNoCaixa ? valorLancado : 0) : valorBaixa;
+  const semCaixa = Math.round((valorBaixa - entraNaConta) * 100) / 100;
+  const bancoEscolhido = banks.find((b) => String(b.id) === selectedBankId)?.titulo ?? "a conta escolhida";
 
   async function handleConfirmarPagamento() {
     if (!transaction || isSubmitting) return;
@@ -169,6 +199,17 @@ export default function ConcluidoAlert({
       return;
     }
 
+    if (antecipado && lancarNoCaixa) {
+      if (valorLancado <= 0) {
+        toast.error("Informe quanto o banco repassou para a conta.");
+        return;
+      }
+      if (Math.round(valorLancado * 100) > Math.round(saldo * 100)) {
+        toast.error("O valor lançado na conta passa do valor do título.");
+        return;
+      }
+    }
+
     try {
       setIsSubmitting(true);
 
@@ -178,7 +219,8 @@ export default function ConcluidoAlert({
         metodoPagamento: selectedMetodo,
         planoContaId: selectedPlanoId ? Number(selectedPlanoId) : null,
         centroCustoId: selectedCentroCustoId ? Number(selectedCentroCustoId) : null,
-        lancarNoCaixa: antecipado && lancarNoCaixa,
+        // Só título antecipado responde; nos demais o servidor recusa o campo.
+        valorLancado: antecipado && lancarNoCaixa ? valorLancado : null,
         // Só vai quando é menos que o saldo. Mandar o cheio empurraria o título
         // para o caminho da baixa parcial sem necessidade, criando uma transação
         // filha onde o título dá conta sozinho.
@@ -380,17 +422,27 @@ export default function ConcluidoAlert({
                   <p className="text-xs leading-relaxed text-muted-foreground">
                     {lancarNoCaixa ? (
                       <>
-                        O banco <strong>debitou este valor de volta</strong> quando o
-                        boleto não foi pago, e o pagador quitou agora. A entrada será
-                        lançada na conta escolhida abaixo, como dinheiro novo.
+                        O banco mandou dinheiro para a conta por causa deste título —
+                        seja porque <strong>devolveu o valor</strong> e o pagador quitou
+                        depois, seja porque <strong>reteve o que havia adiantado e
+                        repassou só o juros</strong> do atraso. Informe quanto entrou.
                       </>
                     ) : (
                       <>
                         O dinheiro já entrou pela antecipação
                         {transaction.adiantamento_id ? ` #${transaction.adiantamento_id}` : ""}.
                         Esta baixa apenas confirma que o boleto foi honrado, e{" "}
-                        <strong>a conta não se move de novo</strong>. Ligue esta opção
-                        se o banco havia debitado o valor de volta.
+                        <strong>a conta não se move de novo</strong>.
+                        {acrescimosDoTitulo > 0 ? (
+                          <>
+                            {" "}Este título tem{" "}
+                            <strong>{formatarEmReal(acrescimosDoTitulo)} de acréscimo</strong>:
+                            se o banco reteve o que adiantou e repassou só isso, ligue
+                            aqui.
+                          </>
+                        ) : (
+                          <> Ligue esta opção se o banco repassou algum valor.</>
+                        )}
                       </>
                     )}
                   </p>
@@ -403,6 +455,29 @@ export default function ConcluidoAlert({
                   className="mt-1 shrink-0"
                 />
               </div>
+
+              {/*
+                Quanto o banco repassou. Vem no valor cheio — "devolveu tudo" é o
+                caso mais simples de explicar —, e no caso do juros a pessoa troca
+                R$ 1.050 por R$ 50.
+              */}
+              {lancarNoCaixa ? (
+                <div className="mt-3 space-y-2 border-t pt-3">
+                  <Label htmlFor="baixa-repasse">
+                    Valor que entrou na conta <span className="text-destructive">*</span>
+                  </Label>
+                  <ValueInput
+                    id="baixa-repasse"
+                    value={valorLancado}
+                    onValueChange={setValorLancado}
+                    disabled={isSubmitting}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    O resto do título é quitado sem mover a conta: aquele dinheiro
+                    veio da antecipação.
+                  </p>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -499,6 +574,86 @@ export default function ConcluidoAlert({
             />
           </div>
         </div>
+
+        {/*
+          O que vai acontecer, em texto, antes de a pessoa clicar.
+
+          Esta tela decide três coisas ao mesmo tempo — se o título fecha, quanto
+          entra na conta e se sobra saldo — e as três dependem de campos que estão
+          longe uns dos outros. Quem confere um extrato precisa saber o número que
+          vai aparecer nele ANTES de gravar, não depois.
+        */}
+        <section
+          className="rounded-xl border border-primary/30 bg-primary/5 p-4"
+          aria-label="Resumo da operação"
+        >
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Ao confirmar
+          </p>
+          <ul className="mt-2 space-y-1.5 text-sm">
+            <li className="flex gap-2">
+              <span aria-hidden className="text-primary">•</span>
+              <span>
+                {parcial ? (
+                  <>
+                    O título <strong>#{transaction.id}</strong> recebe um pagamento de{" "}
+                    <strong>{formatarEmReal(valorBaixa)}</strong> e{" "}
+                    <strong>continua em aberto</strong> com {formatarEmReal(restante)}.
+                  </>
+                ) : (
+                  <>
+                    O título <strong>#{transaction.id}</strong> será{" "}
+                    <strong>quitado</strong> por {formatarEmReal(valorBaixa)}.
+                  </>
+                )}
+              </span>
+            </li>
+
+            {semCaixa > 0 ? (
+              <li className="flex gap-2">
+                <span aria-hidden className="text-primary">•</span>
+                <span>
+                  <strong>{formatarEmReal(semCaixa)}</strong> não movimentam a conta:
+                  esse dinheiro entrou pela antecipação
+                  {transaction.adiantamento_id ? ` #${transaction.adiantamento_id}` : ""}.
+                </span>
+              </li>
+            ) : null}
+
+            <li className="flex gap-2">
+              <span aria-hidden className="text-primary">•</span>
+              <span>
+                {entraNaConta > 0 ? (
+                  <>
+                    <strong>{formatarEmReal(entraNaConta)}</strong>{" "}
+                    {transaction.tipo === "DESPESA" || transaction.tipo === "SAQUE"
+                      ? "saem de"
+                      : "entram em"}{" "}
+                    <strong>{bancoEscolhido}</strong>
+                    {antecipado || parcial
+                      ? ", como uma transação própria ligada a este título."
+                      : "."}
+                  </>
+                ) : (
+                  <>
+                    <strong>A conta não se move.</strong> Nada será lançado no extrato
+                    por esta baixa.
+                  </>
+                )}
+              </span>
+            </li>
+
+            {entraNaConta > 0 && (antecipado || parcial) ? (
+              <li className="flex gap-2">
+                <span aria-hidden className="text-primary">•</span>
+                <span className="text-muted-foreground">
+                  Essa transação aparece no Fluxo e pode ser desfeita sozinha, sem
+                  mexer no título.
+                </span>
+              </li>
+            ) : null}
+          </ul>
+        </section>
 
         <DialogFooter className="mt-1 flex-col-reverse gap-2 sm:flex-row sm:gap-2">
           <Button

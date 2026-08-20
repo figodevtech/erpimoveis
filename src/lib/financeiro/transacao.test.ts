@@ -205,34 +205,43 @@ test("reconhece o título que faz parte de uma antecipação", () => {
 test("título antecipado em aberto nunca conta como lançado no caixa", () => {
   // É o estado em que a antecipação o deixa: o dinheiro entrou por ela.
   assert.equal(
-    antecipadoComLancamento({ adiantamento_id: 42, pendente: true, banco_id: null }),
-    false,
-  );
-  // Mesmo com banco preenchido — que o gatilho recusa —, em aberto não soma.
-  assert.equal(
-    antecipadoComLancamento({ adiantamento_id: 42, pendente: true, banco_id: 3 }),
+    antecipadoComLancamento({ adiantamento_id: 42, pendente: true, valor_baixado: 0 }),
     false,
   );
 });
 
-test("a baixa sem lançamento não move a conta; a com lançamento move", () => {
-  // Boleto honrado: o caixa já recebeu pela antecipação.
+test("a baixa sem lançamento não move a conta; a com repasse move", () => {
+  // Boleto honrado: o caixa já recebeu pela antecipação, e não nasce filha.
   assert.equal(
-    antecipadoComLancamento({ adiantamento_id: 42, pendente: false, banco_id: null }),
+    antecipadoComLancamento({ adiantamento_id: 42, pendente: false, valor_baixado: 0 }),
     false,
   );
-  // O banco debitou de volta e o pagador quitou depois: entrou dinheiro agora.
+  // O banco devolveu tudo e o pagador quitou: entrou o valor inteiro.
   assert.equal(
-    antecipadoComLancamento({ adiantamento_id: 42, pendente: false, banco_id: 3 }),
+    antecipadoComLancamento({ adiantamento_id: 42, pendente: false, valor_baixado: 1000 }),
+    true,
+  );
+  // O banco reteve o principal e repassou só o juros: entrou uma fração.
+  assert.equal(
+    antecipadoComLancamento({ adiantamento_id: 42, pendente: false, valor_baixado: 50 }),
     true,
   );
 });
 
-test("título comum nunca é antecipado com lançamento, mesmo com banco", () => {
+test("banco no título não decide mais se houve lançamento", () => {
+  // Título antecipado nunca carrega banco — o gatilho recusa. Se aparecer um por
+  // dado antigo, o que vale é a existência da transação filha.
+  assert.equal(
+    antecipadoComLancamento({ adiantamento_id: 42, pendente: false, banco_id: 3, valor_baixado: 0 }),
+    false,
+  );
+});
+
+test("título comum nunca é antecipado com lançamento", () => {
   // A pergunta só existe dentro de uma antecipação; fora dela o banco é sempre
   // gravado e a linha sempre soma, sem nada a decidir.
   assert.equal(
-    antecipadoComLancamento({ adiantamento_id: null, pendente: false, banco_id: 3 }),
+    antecipadoComLancamento({ adiantamento_id: null, pendente: false, valor_baixado: 400 }),
     false,
   );
 });

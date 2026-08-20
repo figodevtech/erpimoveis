@@ -22,7 +22,42 @@ import { filtroDeBusca } from "../_lib/busca";
 
 const FORTALEZA = "-03:00";
 
-type Kpi = { rotulo: string; valor: number; tom: "positivo" | "negativo" | "neutro" };
+type Kpi = {
+  rotulo: string;
+  valor: number;
+  tom: "positivo" | "negativo" | "neutro";
+  /**
+   * O mesmo número no mês anterior. Só existe na visão sem filtro.
+   *
+   * Comparar um recorte filtrado com "o mês passado inteiro" seria comparar
+   * coisas diferentes, e a variação sairia com cara de fato. Filtrou, some.
+   */
+  comparacao?: { anterior: number; variacao: number | null };
+};
+
+/** Primeiro e último instante do mês, no fuso de Fortaleza. */
+function limitesDoMes(offsetMeses: number) {
+  const agora = new Date();
+  const inicio = new Date(
+    Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth() + offsetMeses, 1, 3, 0, 0),
+  );
+  const fim = new Date(
+    Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth() + offsetMeses + 1, 1, 3, 0, 0),
+  );
+  return { inicio: inicio.toISOString(), fim: fim.toISOString() };
+}
+
+/**
+ * Quanto variou, em pontos percentuais.
+ *
+ * Sem base anterior não há variação — dividir por zero daria "infinito por
+ * cento", que não informa nada. E num saldo, que troca de sinal, a porcentagem
+ * mente: cair de -100 para -50 apareceria como queda de 50%, quando melhorou.
+ */
+function variacaoPercentual(atual: number, anterior: number): number | null {
+  if (!Number.isFinite(anterior) || anterior <= 0) return null;
+  return Math.round(((atual - anterior) / anterior) * 1000) / 10;
+}
 
 const soma = (linhas: Array<{ valor?: unknown; valorLiquido?: unknown }> | null) =>
   (linhas ?? []).reduce((total, linha) => {
@@ -84,11 +119,53 @@ export async function GET(req: NextRequest) {
       ""
     ).trim();
 
-    const base = () => {
+    /*
+     * O filtro de tipo, que faltava.
+     *
+     * No Fluxo e em Liquidadas a tela deixa filtrar por RECEITA, DESPESA, SAQUE
+     * ou DEPÓSITO, e sem isto os cartões respondiam pelos quatro: filtrar por
+     * despesa encolhia a lista e mantinha "Entradas" cheio em cima dela.
+     *
+     * Nas abas A Pagar e A Receber o tipo já é fixo pela própria aba, e o que
+     * vier daqui é ignorado — o `tipo` do ramo delas continua mandando.
+     */
+    const TIPOS_CONHECIDOS = new Set(["RECEITA", "DESPESA", "SAQUE", "DEPOSITO"]);
+    const tipos = (searchParams.get("tipos") ?? "")
+      .split(",")
+      .map((valor) => valor.trim().toUpperCase())
+      .filter((valor) => TIPOS_CONHECIDOS.has(valor));
+
+    /*
+     * A visão sem filtro nenhum assume o mês corrente e ganha a comparação com o
+     * anterior — era o que os cards antigos mostravam em Fluxo e Liquidadas, e a
+     * única pergunta que faz sentido responder quando ninguém recortou nada.
+     *
+     * Qualquer filtro desliga as duas coisas: os cartões passam a somar o que
+     * está na tela, sem período implícito e sem comparação.
+     */
+    const semFiltro =
+      !dateFrom &&
+      !dateTo &&
+      !search &&
+      tipos.length === 0 &&
+      categoriaId == null &&
+      bancoId == null &&
+      planoContaId == null &&
+      centroCustoId == null &&
+      !metodoPagamento;
+
+    const comparavel = semFiltro && (viewMode === "FLUXO" || viewMode === "LIQUIDADAS");
+
+    const base = (offsetMeses?: number) => {
       let q = supabaseAdmin
         .from("transacao")
         .select('valor, "valorLiquido", valor_descontos, valor_baixado, tipo, pendente')
         .eq("is_deleted", false);
+
+      if (offsetMeses != null) {
+        const { inicio, fim } = limitesDoMes(offsetMeses);
+        q = q.gte("data", inicio).lt("data", fim);
+      }
 
       if (dateFrom) q = q.gte("data", new Date(`${dateFrom}T00:00:00${FORTALEZA}`).toISOString());
       if (dateTo) {
@@ -102,6 +179,7 @@ export async function GET(req: NextRequest) {
       if (planoContaId != null) q = q.eq("plano_de_conta_id", planoContaId);
       if (centroCustoId != null) q = q.eq("centro_custo_id", centroCustoId);
       if (metodoPagamento) q = q.eq("metodopagamento", metodoPagamento);
+      if (tipos.length > 0) q = q.in("tipo", tipos);
       return q;
     };
 
@@ -110,17 +188,47 @@ export async function GET(req: NextRequest) {
 
     if (viewMode === "FLUXO") {
       // Só o que passou por conta: é o extrato, e é o que forma saldo.
+      const doMes = (offset?: number) =>
+        base(offset).eq("pendente", false).not("banco_id", "is", null);
+
+      const mes = comparavel ? 0 : undefined;
       const [entradas, saidas] = await Promise.all([
-        base().eq("pendente", false).not("banco_id", "is", null).in("tipo", ["RECEITA", "DEPOSITO"]),
-        base().eq("pendente", false).not("banco_id", "is", null).in("tipo", ["DESPESA", "SAQUE"]),
+        doMes(mes).in("tipo", ["RECEITA", "DEPOSITO"]),
+        doMes(mes).in("tipo", ["DESPESA", "SAQUE"]),
       ]);
       const entrou = soma(entradas.data);
       const saiu = soma(saidas.data);
+
+      let antes = { entrou: 0, saiu: 0 };
+      if (comparavel) {
+        const [e, s2] = await Promise.all([
+          doMes(-1).in("tipo", ["RECEITA", "DEPOSITO"]),
+          doMes(-1).in("tipo", ["DESPESA", "SAQUE"]),
+        ]);
+        antes = { entrou: soma(e.data), saiu: soma(s2.data) };
+      }
+
       kpis = [
-        { rotulo: "Entradas", valor: entrou, tom: "positivo" },
-        { rotulo: "Saídas", valor: saiu, tom: "negativo" },
         {
-          rotulo: "Saldo do período",
+          rotulo: "Entradas",
+          valor: entrou,
+          tom: "positivo",
+          ...(comparavel
+            ? { comparacao: { anterior: antes.entrou, variacao: variacaoPercentual(entrou, antes.entrou) } }
+            : {}),
+        },
+        {
+          rotulo: "Saídas",
+          valor: saiu,
+          tom: "negativo",
+          ...(comparavel
+            ? { comparacao: { anterior: antes.saiu, variacao: variacaoPercentual(saiu, antes.saiu) } }
+            : {}),
+        },
+        {
+          // Sem comparação: o saldo troca de sinal, e porcentagem sobre número
+          // que vira negativo diz o contrário do que aconteceu.
+          rotulo: comparavel ? "Saldo do mês" : "Saldo do período",
           valor: Math.round((entrou - saiu) * 100) / 100,
           tom: entrou - saiu >= 0 ? "positivo" : "negativo",
         },
@@ -164,17 +272,45 @@ export async function GET(req: NextRequest) {
     } else {
       // Liquidadas: tudo que foi baixado, com conta ou sem — inclui os títulos
       // quitados por antecipação, que não aparecem no Fluxo.
+      const doMes = (offset?: number) =>
+        base(offset).eq("pendente", false).is("baixa_de_transacao_id", null);
+
+      const mes = comparavel ? 0 : undefined;
       const [recebido, pago] = await Promise.all([
-        base().eq("pendente", false).is("baixa_de_transacao_id", null).in("tipo", ["RECEITA", "DEPOSITO"]),
-        base().eq("pendente", false).is("baixa_de_transacao_id", null).in("tipo", ["DESPESA", "SAQUE"]),
+        doMes(mes).in("tipo", ["RECEITA", "DEPOSITO"]),
+        doMes(mes).in("tipo", ["DESPESA", "SAQUE"]),
       ]);
       const entrou = soma(recebido.data);
       const saiu = soma(pago.data);
+
+      let antes = { entrou: 0, saiu: 0 };
+      if (comparavel) {
+        const [r, p2] = await Promise.all([
+          doMes(-1).in("tipo", ["RECEITA", "DEPOSITO"]),
+          doMes(-1).in("tipo", ["DESPESA", "SAQUE"]),
+        ]);
+        antes = { entrou: soma(r.data), saiu: soma(p2.data) };
+      }
+
       kpis = [
-        { rotulo: "Recebido", valor: entrou, tom: "positivo" },
-        { rotulo: "Pago", valor: saiu, tom: "negativo" },
         {
-          rotulo: "Líquido",
+          rotulo: "Recebido",
+          valor: entrou,
+          tom: "positivo",
+          ...(comparavel
+            ? { comparacao: { anterior: antes.entrou, variacao: variacaoPercentual(entrou, antes.entrou) } }
+            : {}),
+        },
+        {
+          rotulo: "Pago",
+          valor: saiu,
+          tom: "negativo",
+          ...(comparavel
+            ? { comparacao: { anterior: antes.saiu, variacao: variacaoPercentual(saiu, antes.saiu) } }
+            : {}),
+        },
+        {
+          rotulo: comparavel ? "Líquido do mês" : "Líquido",
           valor: Math.round((entrou - saiu) * 100) / 100,
           tom: entrou - saiu >= 0 ? "positivo" : "negativo",
         },

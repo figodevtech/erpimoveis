@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
         p_centro_custo_id: null,
         p_baixado_por: baixadoPor,
         /*
-         * Sempre sem lançamento, e não por esquecimento.
+         * Sempre sem lançamento na conta, e não por esquecimento.
          *
          * Em título antecipado a baixa só move a conta quando o banco havia
          * debitado o valor de volta — caso raro, que se descobre olhando um
@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
          *
          * Quem precisa registrar a entrada abre aquele título e baixa sozinho.
          */
-        p_lancar_no_caixa: false,
+        p_valor_lancado: null,
       });
 
       if (!error) {

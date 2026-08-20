@@ -58,6 +58,7 @@ DECLARE
   v_adi2 bigint;
   v_resultado jsonb;
   v_adi_foto jsonb;
+  v_filha bigint;
   v_tx public.transacao%ROWTYPE;
   v_saldo numeric(14,2);
   v_n int;
@@ -68,12 +69,12 @@ DECLARE
 BEGIN
   /* ---------------- pré-requisitos ---------------- */
 
-  IF to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid,boolean,numeric)') IS NULL THEN
-    RAISE EXCEPTION 'baixar_transacao_pendente ainda nao aceita p_lancar_no_caixa/p_valor. Rode as migrations.';
+  IF to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid,numeric,numeric)') IS NULL THEN
+    RAISE EXCEPTION 'baixar_transacao_pendente ainda nao aceita p_valor_lancado. Rode as migrations.';
   END IF;
 
   IF to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid)') IS NOT NULL
-     OR to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid,boolean)') IS NOT NULL THEN
+     OR to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid,boolean,numeric)') IS NOT NULL THEN
     RAISE EXCEPTION 'Sobrou uma assinatura antiga de baixar_transacao_pendente: a chamada por nome fica ambigua.';
   END IF;
 
@@ -193,7 +194,7 @@ BEGIN
   /* ---------------- 2. o primeiro boleto e honrado: baixa SEM lancamento --- */
 
   PERFORM public.baixar_transacao_pendente(
-    v_p1, now(), v_banco, 'BOLETO', NULL, NULL, NULL, false
+    v_p1, now(), v_banco, 'BOLETO', NULL, NULL, NULL, NULL, NULL
   );
 
   SELECT * INTO v_tx FROM public.transacao WHERE id = v_p1;
@@ -232,30 +233,36 @@ BEGIN
   /* ---------------- 4. o devedor paga: baixa COM lancamento --------------- */
 
   v_resultado := public.baixar_transacao_pendente(
-    v_p2, now(), v_banco, 'BOLETO', NULL, NULL, NULL, true
+    v_p2, now(), v_banco, 'BOLETO', NULL, NULL, NULL, NULL, 1000.00
   );
+
+  -- O dinheiro entra por uma transacao propria, ligada ao titulo. O titulo em si
+  -- nunca carrega banco quando e antecipado.
+  v_filha := (v_resultado->>'baixa_id')::bigint;
+  IF v_filha IS NOT NULL THEN INSERT INTO _criadas VALUES (v_filha); END IF;
 
   SELECT * INTO v_tx FROM public.transacao WHERE id = v_p2;
   v_saldo := pg_temp.saldo_do_teste(v_banco);
 
-  IF v_tx.pendente = false AND v_tx.banco_id = v_banco
-     AND (v_resultado->>'lancado_no_caixa')::boolean IS TRUE
+  IF v_tx.pendente = false AND v_tx.banco_id IS NULL
+     AND v_filha IS NOT NULL
      AND v_saldo = 3000.00 THEN
     v_ok := v_ok + 1;
     RAISE NOTICE 'OK 5: a baixa com lancamento devolveu a conta para R$ 3.000,00';
   ELSE
     v_falhou := v_falhou + 1;
-    RAISE NOTICE 'FALHOU 5: banco=%, conta=%, retorno=%', v_tx.banco_id, v_saldo, v_resultado;
+    RAISE NOTICE 'FALHOU 5: banco=%, filha=%, conta=%', v_tx.banco_id, v_filha, v_saldo;
   END IF;
 
   -- A entrada precisa aparecer no recorte do extrato, que e por onde o
-  -- proprietario confere o dia.
+  -- proprietario confere o dia. Quem aparece e a filha.
   SELECT count(*) INTO v_n
     FROM public.transacao
-   WHERE id = v_p2 AND pendente = false AND banco_id IS NOT NULL AND is_deleted = false;
+   WHERE id = v_filha AND pendente = false AND banco_id IS NOT NULL
+     AND baixa_de_transacao_id = v_p2 AND is_deleted = false;
   IF v_n = 1 THEN
     v_ok := v_ok + 1;
-    RAISE NOTICE 'OK 6: o titulo aparece no extrato (comBanco)';
+    RAISE NOTICE 'OK 6: o repasse aparece no extrato (comBanco)';
   ELSE
     v_falhou := v_falhou + 1;
     RAISE NOTICE 'FALHOU 6: o titulo nao entrou no recorte do extrato';
@@ -282,7 +289,7 @@ BEGIN
     v_falhou := v_falhou + 1;
     RAISE NOTICE 'FALHOU 8: desfez a antecipacao apagando uma baixa com dinheiro real';
   EXCEPTION WHEN OTHERS THEN
-    IF sqlerrm ILIKE '%baixado com lancamento%' OR sqlerrm ILIKE '%baixado com lançamento%' THEN
+    IF sqlerrm ILIKE '%dinheiro lancado na conta%' OR sqlerrm ILIKE '%dinheiro lançado na conta%' THEN
       v_ok := v_ok + 1;
       RAISE NOTICE 'OK 8: recusou desfazer a antecipacao e apontou o estorno';
     ELSE
@@ -299,9 +306,10 @@ BEGIN
   v_saldo := pg_temp.saldo_do_teste(v_banco);
 
   IF v_tx.pendente = true AND v_tx.banco_id IS NULL
-     AND v_tx.adiantamento_id = v_adi AND v_saldo = 2000.00 THEN
+     AND v_tx.adiantamento_id = v_adi AND v_saldo = 2000.00
+     AND NOT EXISTS (SELECT 1 FROM public.transacao WHERE id = v_filha) THEN
     v_ok := v_ok + 1;
-    RAISE NOTICE 'OK 9: estornou; o titulo voltou a antecipado em aberto e a conta a R$ 2.000,00';
+    RAISE NOTICE 'OK 9: estornou; a filha sumiu e o titulo voltou a antecipado em aberto';
   ELSE
     v_falhou := v_falhou + 1;
     RAISE NOTICE 'FALHOU 9: pendente=%, banco=%, adiantamento=%, conta=%',
@@ -324,7 +332,7 @@ BEGIN
   -- move a conta.
 
   PERFORM public.baixar_transacao_pendente(
-    v_p2, now(), v_banco, 'BOLETO', NULL, NULL, NULL, false
+    v_p2, now(), v_banco, 'BOLETO', NULL, NULL, NULL, NULL, NULL
   );
   SELECT * INTO v_tx FROM public.transacao WHERE id = v_p2;
   v_saldo := pg_temp.saldo_do_teste(v_banco);
@@ -341,14 +349,14 @@ BEGIN
 
   BEGIN
     PERFORM public.baixar_transacao_pendente(
-      v_avulsa, now(), v_banco, 'PIX', NULL, NULL, NULL, true
+      v_avulsa, now(), v_banco, 'PIX', NULL, NULL, NULL, NULL, 250.00
     );
     v_falhou := v_falhou + 1;
-    RAISE NOTICE 'FALHOU 12: aceitou p_lancar_no_caixa num titulo comum';
+    RAISE NOTICE 'FALHOU 12: aceitou p_valor_lancado num titulo comum';
   EXCEPTION WHEN OTHERS THEN
     IF sqlerrm ILIKE '%antecipado escolhe%' THEN
       v_ok := v_ok + 1;
-      RAISE NOTICE 'OK 12: recusou a bandeira em titulo comum';
+      RAISE NOTICE 'OK 12: recusou o valor lancado em titulo comum';
     ELSE
       v_falhou := v_falhou + 1;
       RAISE NOTICE 'FALHOU 12: recusou com outra mensagem: %', sqlerrm;
@@ -357,7 +365,7 @@ BEGIN
 
   -- E a baixa comum dele continua gravando o banco, como sempre.
   PERFORM public.baixar_transacao_pendente(
-    v_avulsa, now(), v_banco, 'PIX', NULL, NULL, NULL, false
+    v_avulsa, now(), v_banco, 'PIX', NULL, NULL, NULL, NULL, NULL
   );
   SELECT * INTO v_tx FROM public.transacao WHERE id = v_avulsa;
   IF v_tx.banco_id = v_banco AND pg_temp.saldo_do_teste(v_banco) = 2250.00 THEN
@@ -466,7 +474,7 @@ BEGIN
   -- descricao nao pode esbarrar na trava do banco.
   PERFORM public.estornar_baixa_transacao(v_p2, NULL);
   PERFORM public.baixar_transacao_pendente(
-    v_p2, now(), v_banco, 'BOLETO', NULL, NULL, NULL, true
+    v_p2, now(), v_banco, 'BOLETO', NULL, NULL, NULL, NULL, 1000.00
   );
   BEGIN
     UPDATE public.transacao
@@ -482,7 +490,7 @@ BEGIN
   -- E o estorno o devolve, para a conta fechar como o passo 13 espera.
   PERFORM public.estornar_baixa_transacao(v_p2, NULL);
   PERFORM public.baixar_transacao_pendente(
-    v_p2, now(), v_banco, 'BOLETO', NULL, NULL, NULL, false
+    v_p2, now(), v_banco, 'BOLETO', NULL, NULL, NULL, NULL, NULL
   );
 
   /* ---------------- 13. fechamento da conta ------------------------------- */

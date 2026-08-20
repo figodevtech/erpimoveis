@@ -7,22 +7,25 @@ import {
   DIRECAO_INICIAL,
   type FluxoViewMode,
   type Ordenacao,
-  StatusInfo,
   Tipo_transacao,
   Transaction,
   type TransactionRelationFilters,
 } from "./types";
-import Cards from "./components/cards";
 import { KpisFluxo } from "./components/kpis-fluxo";
 import FinancialTable from "./components/financialTable";
 
 export default function FinanceiroPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingStatus, setIsLoadingStatus] = useState(false);
-  const [statusInfo, setStatusInfo] = useState<StatusInfo | undefined>(
-    undefined
-  );
+  /*
+   * Sobe a cada operação da lista, e é o que manda os cartões buscarem de novo.
+   *
+   * Antes isto recarregava o `status-counter`, que alimentava um bloco de
+   * cartões que não conhecia filtro nenhum. Os cartões passaram a ser os mesmos
+   * das outras abas, que respondem ao que está filtrado — e o que eles precisam
+   * saber é só que algo mudou.
+   */
+  const [revalidacao, setRevalidacao] = useState(0);
   const [tipo, setTipo] = useState<Tipo_transacao | "">("");
   const [pagination, setPagination] = useState({
     total: 0,
@@ -187,31 +190,16 @@ export default function FinanceiroPage() {
     setPagination((current) => ({ ...current, limit, page: 1 }));
   }, []);
 
-  const handleGetStatusCounter = useCallback(async () => {
-    setIsLoadingStatus(true);
-    try {
-      // Os mesmos cards aparecem em Fluxo e Liquidadas, mas respondem a
-      // perguntas diferentes: Fluxo só soma dinheiro que passou por banco;
-      // Liquidadas mantém a visão geral, inclusive baixas por adiantamento.
-      const params = viewMode === "FLUXO" ? { comBanco: true } : undefined;
-      const response = await axios.get("/api/transaction/status-counter", {
-        params,
-      });
-      const response2 = await axios.get("/api/transaction/status-counter", {
-        params: { ...params, offset: -1 },
-      });
-      if (response.status === 200 && response2.status === 200) {
-        setStatusInfo((current) => ({
-          ...current,
-          mesAtual: response.data,
-          mesAnterior: response2.data,
-        }));
-      }
-    } catch {
-    } finally {
-      setIsLoadingStatus(false);
-    }
-  }, [viewMode]);
+  /*
+   * Algo mudou na lista — uma baixa, um estorno, uma exclusão.
+   *
+   * Os cartões buscam sozinhos quando os filtros mudam, mas uma baixa não muda
+   * filtro nenhum: sem este empurrão eles ficariam com o número de antes da
+   * operação, justamente quando a pessoa olha para conferir.
+   */
+  const revalidarIndicadores = useCallback(() => {
+    setRevalidacao((atual) => atual + 1);
+  }, []);
 
   // Mudou filtro, período ou busca? `handleGetTransactions` muda junto e o
   // efeito refaz a consulta a partir da primeira página — a atual pode nem
@@ -227,9 +215,6 @@ export default function FinanceiroPage() {
     }
   }, [tipo, viewMode]);
 
-  useEffect(() => {
-    void handleGetStatusCounter();
-  }, [handleGetStatusCounter]);
 
   return (
     <div className="p-y-4 space-y-4">
@@ -256,24 +241,34 @@ export default function FinanceiroPage() {
           exit={{ opacity: 0, y: -10 }}
           transition={{ duration: 0.2, ease: "easeOut" }}
         >
-          {viewMode === "A_PAGAR" || viewMode === "A_RECEBER" ? (
-            <KpisFluxo
-              viewMode={viewMode}
-              dateFrom={dateFrom}
-              dateTo={dateTo}
-              search={search}
-              relationFilters={relationFilters}
-            />
-          ) : (
-            <Cards isLoadingStatus={isLoadingStatus} statusInfo={statusInfo} />
-          )}
+          {/*
+            Os mesmos cartões nas quatro abas, e todos respondendo ao que está
+            filtrado.
+
+            Fluxo e Liquidadas mostravam o `Cards`, que compara mês atual com o
+            anterior e não conhece filtro nenhum: com a lista filtrada por uma
+            categoria, os cartões continuavam somando o mês inteiro em cima dela.
+            Quem lê um cartão sobre uma lista lê "o total do que estou vendo".
+
+            A comparação com o mês anterior se perde nessa troca. Ela é útil, mas
+            é outra pergunta — e estava respondendo por cima da que a tela faz.
+          */}
+          <KpisFluxo
+            viewMode={viewMode}
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            search={search}
+            tiposParam={tiposParam}
+            relationFilters={relationFilters}
+            revalidacao={revalidacao}
+          />
         </motion.div>
       </AnimatePresence>
       </div>
       <FinancialTable
         dateFrom={dateFrom}
         dateTo={dateTo}
-        handleGetStatusCounter={handleGetStatusCounter}
+        revalidarIndicadores={revalidarIndicadores}
         isLoading={isLoading}
         search={search}
         tipo={effectiveTipo}

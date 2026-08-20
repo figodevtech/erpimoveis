@@ -32,6 +32,7 @@ type Linha = {
   tipo: string;
   pendente?: boolean | null;
   banco_id?: number | null;
+  valor_baixado?: number | string | null;
   adiantamento_id?: number | null;
 };
 
@@ -59,7 +60,11 @@ const num = (valor: unknown) => {
  */
 function situacaoDoTitulo(parcela: Linha): string {
   if (parcela.pendente) return "sem baixa";
-  if (antecipadoComLancamento(parcela)) return "baixado com lançamento";
+  if (antecipadoComLancamento(parcela)) {
+    // O valor importa: ele diz se o banco devolveu tudo ou repassou só um
+    // pedaço, que é a diferença entre os dois casos que chegam aqui.
+    return `baixado · entraram ${formatarEmReal(num(parcela.valor_baixado))}`;
+  }
   return "baixado";
 }
 
@@ -196,8 +201,9 @@ export function AdiantamentoTab({ transacaoId }: { transacaoId: number }) {
             <>
               Os títulos sem banco foram quitados pelo adiantamento — contá-los
               de novo dobraria o saldo.{" "}
-              {comLancamento === 1 ? "Um deles" : `${comLancamento} deles`} teve a
-              baixa lançada na conta: ali o dinheiro entrou pelo próprio título.
+              {comLancamento === 1 ? "Um deles" : `${comLancamento} deles`} trouxe
+              dinheiro para a conta na baixa — o banco devolveu o valor, ou reteve o
+              que adiantou e repassou o resto —, numa transação própria.
             </>
           ) : (
             <>

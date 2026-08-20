@@ -15,6 +15,10 @@
 --   3. o cliente aparece atrasado — lança-se R$ 50 de juros no título;
 --   4. a baixa é feita COM lançamento, e entram R$ 1.050 na conta.
 --
+-- E, no fim, o caso irmão — o que de fato acontece com mais frequência: o banco
+-- NÃO devolveu o principal, esperou, e quando o pagador quitou repassou só os
+-- R$ 50 do juros, retendo os R$ 1.000 que já havia adiantado.
+--
 -- OS DOIS INVARIANTES
 -- O juros é dinheiro que nasceu do atraso, não do que o banco adiantou: ele
 -- entra por este título e por mais nada. E a antecipação de R$ 3.000 continua
@@ -46,6 +50,7 @@ DECLARE
   v_p1 bigint; v_p2 bigint; v_p3 bigint;
   v_adi bigint;
   v_adi_foto jsonb;
+  v_filha bigint;
   v_resultado jsonb;
   v_tx public.transacao%ROWTYPE;
   v_saldo numeric(14,2);
@@ -54,8 +59,8 @@ DECLARE
   v_ok int := 0;
   v_falhou int := 0;
 BEGIN
-  IF to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid,boolean,numeric)') IS NULL THEN
-    RAISE EXCEPTION 'baixar_transacao_pendente ainda nao aceita p_lancar_no_caixa/p_valor. Rode as migrations.';
+  IF to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid,numeric,numeric)') IS NULL THEN
+    RAISE EXCEPTION 'baixar_transacao_pendente ainda nao aceita p_valor_lancado. Rode as migrations.';
   END IF;
 
   SELECT id INTO v_banco FROM public.bancoconta ORDER BY id LIMIT 1;
@@ -183,18 +188,23 @@ BEGIN
   /* ---------------- 4. a baixa COM lancamento, ja com o juros ------------ */
 
   v_resultado := public.baixar_transacao_pendente(
-    v_p2, now(), v_banco, 'BOLETO', NULL, NULL, NULL, true
+    v_p2, now(), v_banco, 'BOLETO', NULL, NULL, NULL, NULL, 1050.00
   );
+
+  v_filha := (v_resultado->>'baixa_id')::bigint;
+  IF v_filha IS NOT NULL THEN INSERT INTO _criadas VALUES (v_filha); END IF;
 
   SELECT * INTO v_tx FROM public.transacao WHERE id = v_p2;
   v_saldo := pg_temp.saldo_do_teste(v_banco);
 
-  IF v_tx.banco_id = v_banco AND v_tx.valor = 1050.00 AND v_saldo = 3050.00 THEN
+  IF v_tx.banco_id IS NULL AND v_filha IS NOT NULL
+     AND v_tx.valor = 1050.00 AND v_saldo = 3050.00 THEN
     v_ok := v_ok + 1;
     RAISE NOTICE 'OK 6: entraram R$ 1.050,00 e a conta foi a R$ 3.050,00';
   ELSE
     v_falhou := v_falhou + 1;
-    RAISE NOTICE 'FALHOU 6: banco=%, valor=%, conta=%', v_tx.banco_id, v_tx.valor, v_saldo;
+    RAISE NOTICE 'FALHOU 6: banco=%, filha=%, valor=%, conta=%',
+      v_tx.banco_id, v_filha, v_tx.valor, v_saldo;
   END IF;
 
   -- Os R$ 50 acima dos R$ 3.000 antecipados sao exatamente o juros: o atraso
@@ -241,7 +251,8 @@ BEGIN
   v_saldo := pg_temp.saldo_do_teste(v_banco);
 
   IF v_tx.pendente = true AND v_tx.valor = 1000.00 AND v_tx.valor_acrescimos = 0
-     AND v_tx.banco_id IS NULL AND v_tx.adiantamento_id = v_adi AND v_saldo = 2000.00 THEN
+     AND v_tx.banco_id IS NULL AND v_tx.adiantamento_id = v_adi AND v_saldo = 2000.00
+     AND NOT EXISTS (SELECT 1 FROM public.transacao WHERE id = v_filha) THEN
     v_ok := v_ok + 1;
     RAISE NOTICE 'OK 10: estornou, tirou o juros e voltou a R$ 1.000,00 em aberto';
   ELSE
@@ -256,6 +267,116 @@ BEGIN
   ELSE
     v_falhou := v_falhou + 1;
     RAISE NOTICE 'FALHOU 11: a antecipacao mudou no estorno';
+  END IF;
+
+  /* ------- 8. o caso irmao: o banco reteve o principal e repassou o juros --- */
+  --
+  -- A parcela 3 segue antecipada e em aberto. Aqui o banco nao devolveu nada: ele
+  -- esperou, o pagador pagou 1.050, e o banco ficou com os 1.000 que havia
+  -- adiantado e mandou so os 50.
+  --
+  -- O titulo e quitado por 1.050 e a conta sobe 50. Sao os dois eixos separados:
+  -- quanto foi liquidado e quanto virou dinheiro.
+
+  INSERT INTO public.transacao_ajuste (
+    transacao_id, tipo_id, natureza, modo, valor_informado, valor_calculado, created_by
+  ) VALUES (
+    v_p3, v_tipo_juros, 'ACRESCIMO', 'FIXO', 50.00, 50.00, NULL
+  );
+
+  v_saldo := pg_temp.saldo_do_teste(v_banco);
+
+  v_resultado := public.baixar_transacao_pendente(
+    v_p3, now(), v_banco, 'BOLETO', NULL, NULL, NULL, NULL, 50.00
+  );
+  v_filha := (v_resultado->>'baixa_id')::bigint;
+  IF v_filha IS NOT NULL THEN INSERT INTO _criadas VALUES (v_filha); END IF;
+
+  SELECT * INTO v_tx FROM public.transacao WHERE id = v_p3;
+
+  IF v_tx.pendente = false AND v_tx.valor = 1050.00 AND v_tx.banco_id IS NULL THEN
+    v_ok := v_ok + 1;
+    RAISE NOTICE 'OK 12: o titulo foi quitado por R$ 1.050,00, sem banco nele';
+  ELSE
+    v_falhou := v_falhou + 1;
+    RAISE NOTICE 'FALHOU 12: pendente=%, valor=%, banco=%',
+      v_tx.pendente, v_tx.valor, v_tx.banco_id;
+  END IF;
+
+  -- O ponto do caso: entraram 50, nao 1.050 e nem 1.000.
+  IF pg_temp.saldo_do_teste(v_banco) = v_saldo + 50.00 THEN
+    v_ok := v_ok + 1;
+    RAISE NOTICE 'OK 13: entraram exatamente R$ 50,00 na conta';
+  ELSE
+    v_falhou := v_falhou + 1;
+    RAISE NOTICE 'FALHOU 13: a conta variou % em vez de 50.00',
+      pg_temp.saldo_do_teste(v_banco) - v_saldo;
+  END IF;
+
+  SELECT * INTO v_tx FROM public.transacao WHERE id = v_filha;
+  IF v_tx.valor = 50.00 AND v_tx.banco_id = v_banco
+     AND v_tx.baixa_de_transacao_id = v_p3
+     AND v_tx.ordemservicoid IS NULL AND v_tx.vendaid IS NULL
+     AND v_tx.adiantamento_id IS NULL THEN
+    v_ok := v_ok + 1;
+    RAISE NOTICE 'OK 14: o repasse de R$ 50,00 e uma linha propria, ligada ao titulo';
+  ELSE
+    v_falhou := v_falhou + 1;
+    RAISE NOTICE 'FALHOU 14: valor=%, banco=%, pai=%',
+      v_tx.valor, v_tx.banco_id, v_tx.baixa_de_transacao_id;
+  END IF;
+
+  -- O repasse nao pode reabrir o titulo: 50 e menor que 1.050, mas quem quitou
+  -- o principal foi a antecipacao, nao ele.
+  SELECT * INTO v_tx FROM public.transacao WHERE id = v_p3;
+  IF v_tx.pendente = false THEN
+    v_ok := v_ok + 1;
+    RAISE NOTICE 'OK 15: o repasse nao reabriu o titulo que a baixa quitou';
+  ELSE
+    v_falhou := v_falhou + 1;
+    RAISE NOTICE 'FALHOU 15: o titulo foi reaberto pelo proprio repasse';
+  END IF;
+
+  -- Valor lancado acima do titulo e recusado.
+  BEGIN
+    PERFORM public.baixar_transacao_pendente(
+      v_p1, now(), v_banco, 'BOLETO', NULL, NULL, NULL, NULL, 99999.00
+    );
+    v_falhou := v_falhou + 1;
+    RAISE NOTICE 'FALHOU 16: aceitou lancar mais do que o titulo vale';
+  EXCEPTION WHEN OTHERS THEN
+    IF sqlerrm ILIKE '%passa do valor do titulo%' OR sqlerrm ILIKE '%passa do valor do título%'
+       OR sqlerrm ILIKE '%ja foi baixada%' OR sqlerrm ILIKE '%já foi baixada%' THEN
+      v_ok := v_ok + 1;
+      RAISE NOTICE 'OK 16: recusou lancar acima do valor do titulo';
+    ELSE
+      v_falhou := v_falhou + 1;
+      RAISE NOTICE 'FALHOU 16: recusou com outra mensagem: %', sqlerrm;
+    END IF;
+  END;
+
+  -- Estornar o titulo apaga o repasse junto: a baixa foi uma so.
+  PERFORM public.estornar_baixa_transacao(v_p3, NULL);
+  SELECT * INTO v_tx FROM public.transacao WHERE id = v_p3;
+
+  IF v_tx.pendente = true AND v_tx.valor = 1000.00 AND v_tx.valor_acrescimos = 0
+     AND v_tx.adiantamento_id = v_adi
+     AND NOT EXISTS (SELECT 1 FROM public.transacao WHERE id = v_filha)
+     AND pg_temp.saldo_do_teste(v_banco) = v_saldo THEN
+    v_ok := v_ok + 1;
+    RAISE NOTICE 'OK 17: o estorno apagou o repasse, tirou o juros e devolveu a conta';
+  ELSE
+    v_falhou := v_falhou + 1;
+    RAISE NOTICE 'FALHOU 17: pendente=%, valor=%, conta=%',
+      v_tx.pendente, v_tx.valor, pg_temp.saldo_do_teste(v_banco);
+  END IF;
+
+  IF (SELECT to_jsonb(t) FROM public.transacao t WHERE t.id = v_adi) = v_adi_foto THEN
+    v_ok := v_ok + 1;
+    RAISE NOTICE 'OK 18: a antecipacao seguiu intocada tambem neste caminho';
+  ELSE
+    v_falhou := v_falhou + 1;
+    RAISE NOTICE 'FALHOU 18: a antecipacao mudou';
   END IF;
 
   RAISE NOTICE '---';

@@ -48,6 +48,7 @@ DECLARE
   v_p1 bigint; v_p2 bigint; v_p3 bigint;
   v_adi bigint;
   v_adi_foto jsonb;
+  v_filha bigint;
   v_resultado jsonb;
   v_tx public.transacao%ROWTYPE;
   v_saldo numeric(14,2);
@@ -56,8 +57,8 @@ DECLARE
   v_ok int := 0;
   v_falhou int := 0;
 BEGIN
-  IF to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid,boolean,numeric)') IS NULL THEN
-    RAISE EXCEPTION 'baixar_transacao_pendente ainda nao aceita p_lancar_no_caixa/p_valor. Rode as migrations.';
+  IF to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid,numeric,numeric)') IS NULL THEN
+    RAISE EXCEPTION 'baixar_transacao_pendente ainda nao aceita p_valor_lancado. Rode as migrations.';
   END IF;
 
   SELECT id INTO v_banco FROM public.bancoconta ORDER BY id LIMIT 1;
@@ -135,7 +136,7 @@ BEGIN
   -- confirmou; aqui credita de volta uma saida que nao se confirmou.
 
   PERFORM public.baixar_transacao_pendente(
-    v_p1, now(), v_banco, 'PIX', NULL, NULL, NULL, false
+    v_p1, now(), v_banco, 'PIX', NULL, NULL, NULL, NULL, NULL
   );
 
   UPDATE _molde SET
@@ -160,19 +161,21 @@ BEGIN
   /* ---------------- 3. paga o fornecedor de fato: COM lancamento --------- */
 
   v_resultado := public.baixar_transacao_pendente(
-    v_p2, now(), v_banco, 'PIX', NULL, NULL, NULL, true
+    v_p2, now(), v_banco, 'PIX', NULL, NULL, NULL, NULL, 1000.00
   );
+
+  v_filha := (v_resultado->>'baixa_id')::bigint;
+  IF v_filha IS NOT NULL THEN INSERT INTO _criadas VALUES (v_filha); END IF;
 
   SELECT * INTO v_tx FROM public.transacao WHERE id = v_p2;
   v_saldo := pg_temp.saldo_do_teste(v_banco);
 
-  IF v_tx.banco_id = v_banco AND (v_resultado->>'lancado_no_caixa')::boolean IS TRUE
-     AND v_saldo = -3000.00 THEN
+  IF v_tx.banco_id IS NULL AND v_filha IS NOT NULL AND v_saldo = -3000.00 THEN
     v_ok := v_ok + 1;
     RAISE NOTICE 'OK 4: a saida real levou a conta de volta a -3.000,00';
   ELSE
     v_falhou := v_falhou + 1;
-    RAISE NOTICE 'FALHOU 4: banco=%, conta=%', v_tx.banco_id, v_saldo;
+    RAISE NOTICE 'FALHOU 4: banco=%, filha=%, conta=%', v_tx.banco_id, v_filha, v_saldo;
   END IF;
 
   /* ---------------- 4. as mesmas recusas valem aqui ---------------------- */
@@ -182,7 +185,7 @@ BEGIN
     v_falhou := v_falhou + 1;
     RAISE NOTICE 'FALHOU 5: desfez o pagamento antecipado apagando uma saida real';
   EXCEPTION WHEN OTHERS THEN
-    IF sqlerrm ILIKE '%baixado com lancamento%' OR sqlerrm ILIKE '%baixado com lançamento%' THEN
+    IF sqlerrm ILIKE '%dinheiro lancado na conta%' OR sqlerrm ILIKE '%dinheiro lançado na conta%' THEN
       v_ok := v_ok + 1;
       RAISE NOTICE 'OK 5: recusou desfazer o pagamento antecipado, como no a receber';
     ELSE

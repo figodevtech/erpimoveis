@@ -232,7 +232,8 @@ interface FinancialTableProps {
   setViewMode: (value: FluxoViewMode) => void;
   relationFilters: TransactionRelationFilters;
   setRelationFilters: (value: TransactionRelationFilters) => void;
-  handleGetStatusCounter: () => void;
+  /** Avisa a página de que os números mudaram: baixa, estorno, exclusão. */
+  revalidarIndicadores: () => void;
 }
 
 export default function FinancialTable({
@@ -257,7 +258,7 @@ export default function FinancialTable({
   setViewMode,
   relationFilters,
   setRelationFilters,
-  handleGetStatusCounter,
+  revalidarIndicadores,
   dateTo,
   dateFrom,
 }: FinancialTableProps) {
@@ -359,7 +360,7 @@ export default function FinancialTable({
       const { acrescimos_removidos } = await estornarBaixa(id);
       const removidos = Number(acrescimos_removidos ?? 0);
       handleGetTransactions(pagination.page, pagination.limit);
-      handleGetStatusCounter();
+      revalidarIndicadores();
       toast.success(
         removidos > 0
           ? `Título reaberto. Os ${formatarEmReal(removidos)} de acréscimo saíram junto com a baixa.`
@@ -388,7 +389,7 @@ export default function FinancialTable({
       if (response.status === 204) {
         toast("Transação deletada!");
         handleGetTransactions(pagination.page, pagination.limit);
-        handleGetStatusCounter();
+        revalidarIndicadores();
       } else {
         toast.warning(`Status inesperado: ${response.status}`);
       }
@@ -427,7 +428,7 @@ export default function FinancialTable({
                 type="button"
                 onClick={() => {
                   handleGetTransactions(pagination.page, pagination.limit);
-                  handleGetStatusCounter();
+                  revalidarIndicadores();
                 }}
                 className="inline-flex items-center gap-1 text-foreground/50 hover:text-foreground/70 hover:cursor-pointer"
               >
@@ -579,7 +580,7 @@ export default function FinancialTable({
                   editable={canEdit && config?.habilitar_edicao_transacoes === true}
                   handleGetTransactions={() => {
                     handleGetTransactions(pagination.page, pagination.limit);
-                    handleGetStatusCounter();
+                    revalidarIndicadores();
                   }}
                 />
               ) : null}
@@ -816,6 +817,26 @@ export default function FinancialTable({
                           diferença muda a conversa da cobrança, porque parte da
                           dívida já foi honrada.
                         */}
+                        {/*
+                          A linha do dinheiro de uma baixa. No Fluxo ela aparece
+                          ao lado das transações comuns e, sem isto, parece um
+                          lançamento avulso qualquer — a descrição diz de onde
+                          veio, mas descrição é texto solto e pode ser editada.
+                        */}
+                        {t.baixa_de_transacao_id != null ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="inline-flex cursor-default items-center rounded-sm border border-violet-600/40 bg-violet-600/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-violet-700 dark:text-violet-400">
+                                Baixa de #{t.baixa_de_transacao_id}
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" align="start">
+                              É o dinheiro que entrou pela baixa daquele título. O
+                              título em si não passa por conta nenhuma.
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : null}
+
                         {ehBaixaParcial(t) ? (
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -993,18 +1014,25 @@ export default function FinancialTable({
                           liquidada ela é, mas quem a desfaz é a exclusão, que
                           devolve os títulos que ela pagou.
 
-                          O título antecipado aparece quando a baixa é dele
-                          sozinho: a baixa lançada na conta foi feita depois, por
-                          quem acompanhou o vencimento, e é a única baixa da
-                          antecipação que move dinheiro — logo a única que pode
-                          precisar voltar. Quando a antecipação liquidou tudo no
-                          ato, a baixa é do conjunto e o servidor recusa; continua
-                          fora do menu.
+                          O título antecipado também aparece, e por baixa própria
+                          entenda-se qualquer uma: no modo que mantém os títulos em
+                          aberto, quem acompanhou o vencimento é que deu a baixa, e
+                          ela é dele sozinho — tenha trazido dinheiro ou não.
+
+                          Condicionar isto ao repasse escondia o item justamente
+                          nos títulos baixados como "boleto honrado", que são a
+                          maioria; quem quisesse refazer a baixa não achava o
+                          caminho e caía em Excluir, que fala de outra coisa.
+
+                          Quando a antecipação liquidou tudo no ato, a baixa é do
+                          conjunto e o servidor recusa — com a mensagem que aponta
+                          a operação certa. A lista não tem como saber em qual dos
+                          dois modos a antecipação foi feita: esse dado está na
+                          linha dela, não na do título.
                         */}
                         {canEdit &&
                           !t.pendente &&
                           !t.eh_adiantamento &&
-                          (t.adiantamento_id == null || antecipadoComLancamento(t)) &&
                           t.pagamento_multiplo_id == null && (
                           <TransactionEstornoAlert
                             transactionId={t.id}
@@ -1150,7 +1178,7 @@ export default function FinancialTable({
           transaction={selectedTransactionForPago}
           onSuccess={() => {
             handleGetTransactions(pagination.page, pagination.limit);
-            handleGetStatusCounter();
+            revalidarIndicadores();
           }}
         />
       )}
@@ -1176,7 +1204,7 @@ export default function FinancialTable({
               // liquidadas e o modo não tem mais o que selecionar.
               sairDaBaixaMultipla();
               handleGetTransactions(pagination.page, pagination.limit);
-              handleGetStatusCounter();
+              revalidarIndicadores();
             }}
           />
           <BaixaMultiplaDialog
@@ -1194,7 +1222,7 @@ export default function FinancialTable({
                 return proximo;
               });
               handleGetTransactions(pagination.page, pagination.limit);
-              handleGetStatusCounter();
+              revalidarIndicadores();
             }}
           />
         </>
