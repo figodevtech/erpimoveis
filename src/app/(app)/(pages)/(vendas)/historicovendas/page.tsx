@@ -68,6 +68,11 @@ export default function HistoricoVendas() {
             ? activeFilters.dataFim.toISOString().slice(0, 10)
             : "",
           apenasMinhas: activeFilters.apenasMinhas ? "1" : "",
+          canal: activeFilters.canal || "",
+          categoriaVendaId: activeFilters.categoriaVendaId || "",
+          vendedorId: activeFilters.vendedorId || "",
+          valorMin: activeFilters.valorMin ?? "",
+          valorMax: activeFilters.valorMax ?? "",
         },
       });
       if (response.status === 200) {

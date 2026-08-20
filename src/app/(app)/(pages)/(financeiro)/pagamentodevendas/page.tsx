@@ -40,6 +40,12 @@ export default function AssistentePagamentoVendas (){
           dateTo: filters?.dataFim
             ? filters.dataFim.toISOString().slice(0, 10)
             : "",
+          apenasMinhas: filters?.apenasMinhas ? "1" : "",
+          canal: filters?.canal || "",
+          categoriaVendaId: filters?.categoriaVendaId || "",
+          vendedorId: filters?.vendedorId || "",
+          valorMin: filters?.valorMin ?? "",
+          valorMax: filters?.valorMax ?? "",
         },
       });
       if (response.status === 200) {

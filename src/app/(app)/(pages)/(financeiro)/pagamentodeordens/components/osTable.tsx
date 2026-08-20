@@ -37,6 +37,8 @@ import {
   PaymentListFilters,
   PaymentsFilterSheet,
 } from "../../components/payments-filter-sheet";
+import { Label } from "@/components/ui/label";
+import { UserRound } from "lucide-react";
 import { resumirBaixas } from "../../components/payment-settler";
 import { resumirPagamentos } from "../../components/payment-totals";
 import { TotalPago } from "../../components/total-pago";
@@ -46,6 +48,7 @@ import TransactionDialog from "../../fluxodecaixa/components/transactionDialog/t
 import { PagamentoMultiploFooter } from "../../components/pagamento-multiplo-footer";
 import type { DocumentoSelecionavel } from "../../components/pagamento-multiplo";
 import { calcularResumoFinanceiroOs, podeRegistrarPagamentoOs } from "@/lib/ordens/financeiro";
+import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
 
 interface OsTableProps {
   ordens: Ordem[];
@@ -113,6 +116,9 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
     cliente: "",
     notaNumero: "",
   });
+  const [setores, setSetores] = useState<Array<{ value: string; label: string }>>([]);
+  const [responsaveis, setResponsaveis] = useState<Array<{ value: string; label: string }>>([]);
+  const { options: metodosPagamento } = usePaymentMethodOptions();
   const limitListboxId = `${limitUid}-os-limit-listbox`;
   const [modoPagamentoMultiplo, setModoPagamentoMultiplo] = useState(false);
   const [selecionadas, setSelecionadas] = useState<Set<number>>(new Set());
@@ -121,8 +127,54 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
     filters.cliente.trim() ||
       filters.notaNumero.trim() ||
       filters.dataInicio ||
-      filters.dataFim,
+      filters.dataFim ||
+      filters.setorId ||
+      filters.prioridade ||
+      filters.alvoTipo ||
+      filters.responsavelId ||
+      filters.metodoPagamento ||
+      filters.valorMin != null ||
+      filters.valorMax != null,
   );
+
+  // Setores e responsáveis para o painel de filtros. Mesmas listas que a tela de
+  // ordens usa — carregadas uma vez, não a cada abertura do painel.
+  useEffect(() => {
+    let ativo = true;
+    fetch("/api/tipos/setores?all=1", { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) return;
+        const items = Array.isArray(payload.items ?? payload.data) ? payload.items ?? payload.data : [];
+        if (ativo) {
+          setSetores(
+            items
+              .map((s: any) => ({ value: s.id != null ? String(s.id) : "", label: s.nome || "Sem setor" }))
+              .filter((s: { value: string }) => s.value),
+          );
+        }
+      })
+      .catch(() => {});
+    // Lista enxuta de usuários — mesma rota que o vínculo de realizadores usa,
+    // porque quem só tem acesso a Pagamentos não alcança /api/users.
+    fetch("/api/ordens/realizadores", { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) return;
+        const items = Array.isArray(payload.realizadores) ? payload.realizadores : [];
+        if (ativo) {
+          setResponsaveis(
+            items
+              .map((u: any) => ({ value: String(u.id ?? ""), label: String(u.nome ?? "").trim() || "Sem nome" }))
+              .filter((u: { value: string }) => u.value),
+          );
+        }
+      })
+      .catch(() => {});
+    return () => {
+      ativo = false;
+    };
+  }, []);
 
   /**
    * Saldo em aberto de cada OS pela MESMA função que o servidor usa — total menos
@@ -233,6 +285,20 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
 
           <div className="flex items-center gap-2">
             <Button
+              variant={filters.apenasMinhas ? "default" : "ghost"}
+              size="sm"
+              className="hover:cursor-pointer"
+              aria-pressed={Boolean(filters.apenasMinhas)}
+              onClick={() => {
+                const next = { ...filters, apenasMinhas: !filters.apenasMinhas };
+                setFilters(next);
+                handleGetOrdens(selectedStatus, 1, pagination.limit, search, next);
+              }}
+            >
+              <UserRound className="h-4 w-4" aria-hidden />
+              Minhas OS
+            </Button>
+            <Button
               variant={modoPagamentoMultiplo ? "secondary" : "ghost"}
               size="sm"
               className="hover:cursor-pointer"
@@ -263,6 +329,7 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
               onOpenChange={setFiltersOpen}
               filters={filters}
               onFiltersChange={setFilters}
+              valorLabel="Orçamento (R$)"
               onAplicar={() =>
                 handleGetOrdens(selectedStatus, 1, pagination.limit, search, filters)
               }
@@ -271,7 +338,96 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
                 setFilters(cleared);
                 handleGetOrdens(selectedStatus, 1, pagination.limit, search, cleared);
               }}
-            />
+            >
+              <div className="space-y-2">
+                <Label>Setor</Label>
+                <Select
+                  value={filters.setorId || "TODOS"}
+                  onValueChange={(value) =>
+                    setFilters({ ...filters, setorId: value === "TODOS" ? undefined : value })
+                  }
+                >
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="TODOS">Todos os setores</SelectItem>
+                    {setores.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2 border-t pt-4">
+                <Label>Prioridade</Label>
+                <Select
+                  value={filters.prioridade || "TODAS"}
+                  onValueChange={(value) =>
+                    setFilters({ ...filters, prioridade: value === "TODAS" ? undefined : value })
+                  }
+                >
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="TODAS">Todas as prioridades</SelectItem>
+                    <SelectItem value="ALTA">Alta</SelectItem>
+                    <SelectItem value="NORMAL">Normal</SelectItem>
+                    <SelectItem value="BAIXA">Baixa</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2 border-t pt-4">
+                <Label>Alvo atendido</Label>
+                <Select
+                  value={filters.alvoTipo || "TODOS"}
+                  onValueChange={(value) =>
+                    setFilters({ ...filters, alvoTipo: value === "TODOS" ? undefined : value })
+                  }
+                >
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="TODOS">Todos os alvos</SelectItem>
+                    <SelectItem value="VEICULO">Veículo</SelectItem>
+                    <SelectItem value="PECA">Peça</SelectItem>
+                    <SelectItem value="EQUIPAMENTO">Máquina/Equipamento</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2 border-t pt-4">
+                <Label>Responsável</Label>
+                <Select
+                  value={filters.responsavelId || "TODOS"}
+                  onValueChange={(value) =>
+                    setFilters({ ...filters, responsavelId: value === "TODOS" ? undefined : value })
+                  }
+                  disabled={responsaveis.length === 0}
+                >
+                  <SelectTrigger className="w-full"><SelectValue placeholder="Todos os responsáveis" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="TODOS">Todos os responsáveis</SelectItem>
+                    {responsaveis.map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">Quem abriu a ordem.</p>
+              </div>
+
+              <div className="space-y-2 border-t pt-4">
+                <Label>Forma de pagamento</Label>
+                <Select
+                  value={filters.metodoPagamento || "TODAS"}
+                  onValueChange={(value) =>
+                    setFilters({ ...filters, metodoPagamento: value === "TODAS" ? undefined : value })
+                  }
+                >
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="TODAS">Qualquer forma</SelectItem>
+                    {metodosPagamento.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  OS com ao menos um pagamento registrado nessa forma, mesmo se ainda não baixado.
+                </p>
+              </div>
+            </PaymentsFilterSheet>
           </div>
         </div>
       </CardHeader>

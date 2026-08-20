@@ -107,6 +107,23 @@ export async function GET(req: Request) {
     );
     const campoData =
       CAMPOS_DATA[(searchParams.get("campoData") ?? "").trim().toLowerCase()] ?? "dataentrada";
+    // Faixa de orçamento. Serve a quem cobra: "OS grandes primeiro" ou "ver só as
+    // pequenas que travaram no pagamento" são perguntas de valor, não de status.
+    // `!valor` descarta ausente e vazio antes do Number() — sem isso,
+    // `Number("")` vale 0, e "sem máximo" vira "orçamento até zero": toda OS de
+    // verdade some da lista.
+    const orcamentoMinRaw = searchParams.get("orcamentoMin");
+    const orcamentoMin = orcamentoMinRaw && Number.isFinite(Number(orcamentoMinRaw)) && Number(orcamentoMinRaw) >= 0
+      ? Number(orcamentoMinRaw)
+      : null;
+    const orcamentoMaxRaw = searchParams.get("orcamentoMax");
+    const orcamentoMax = orcamentoMaxRaw && Number.isFinite(Number(orcamentoMaxRaw)) && Number(orcamentoMaxRaw) >= 0
+      ? Number(orcamentoMaxRaw)
+      : null;
+    // Livre porque o enum de metodo de pagamento e por empresa (ver
+    // METODOS_PAGAMENTO_PADRAO); validar contra uma lista fixa aqui rejeitaria
+    // metodo que so existe no banco de um cliente especifico.
+    const metodoPagamento = (searchParams.get("metodoPagamento") ?? "").trim().toUpperCase().slice(0, 40);
     const sort = searchParams.get("sort")?.trim() || "";
     const dir = searchParams.get("dir")?.trim().toLowerCase() === "asc" ? "asc" : "desc";
 
@@ -166,6 +183,58 @@ export async function GET(req: Request) {
         ),
       ];
       if (realizadorOrdemIds.length === 0) return emptyResponse();
+    }
+
+    /**
+     * OS com pagamento registrado no metodo escolhido.
+     *
+     * "Registrado" e qualquer receita nao apagada ligada a OS, pendente ou nao —
+     * a transacao existir ja e o registro, a baixa e outra pergunta. Duas fontes
+     * porque o pagamento multiplo nao preenche `ordemservicoid`: a transacao fica
+     * solta e o elo com a OS mora no rateio.
+     */
+    let metodoOrdemIds: number[] | null = null;
+    if (metodoPagamento) {
+      const diretas = await supabaseAdmin
+        .from("transacao")
+        .select("ordemservicoid")
+        .eq("tipo", "RECEITA")
+        .eq("is_deleted", false)
+        .is("evento_financeiro_id", null)
+        .eq("metodopagamento", metodoPagamento)
+        .not("ordemservicoid", "is", null)
+        .limit(5000);
+      // 22P02: metodo fora do enum do banco (URL antiga, digitado a mao). Nao e
+      // erro de servidor, e so uma busca que nao acha nada.
+      if (diretas.error) {
+        if (diretas.error.code === "22P02") return emptyResponse();
+        throw diretas.error;
+      }
+
+      const rateadas = await supabaseAdmin
+        .from("pagamento_multiplo_rateio")
+        .select("documento_id, transacao:transacao_id!inner(metodopagamento, tipo, is_deleted)")
+        .eq("tipo_documento", "OS")
+        .eq("transacao.metodopagamento", metodoPagamento)
+        .eq("transacao.tipo", "RECEITA")
+        .eq("transacao.is_deleted", false)
+        .limit(5000);
+      if (rateadas.error) {
+        if (rateadas.error.code === "22P02") return emptyResponse();
+        throw rateadas.error;
+      }
+
+      metodoOrdemIds = [
+        ...new Set([
+          ...(diretas.data ?? [])
+            .map((item) => Number(item.ordemservicoid))
+            .filter((value) => Number.isFinite(value)),
+          ...(rateadas.data ?? [])
+            .map((item) => Number(item.documento_id))
+            .filter((value) => Number.isFinite(value)),
+        ]),
+      ];
+      if (metodoOrdemIds.length === 0) return emptyResponse();
     }
 
     let clienteIds: number[] | null = null;
@@ -343,9 +412,16 @@ export async function GET(req: Request) {
         query = query.in("id", realizadorOrdemIds);
       }
 
+      if (metodoOrdemIds) {
+        query = query.in("id", metodoOrdemIds);
+      }
+
       if (destacadas) {
         query = query.eq("destacada", true);
       }
+
+      if (orcamentoMin != null) query = query.gte("orcamentototal", orcamentoMin);
+      if (orcamentoMax != null) query = query.lte("orcamentototal", orcamentoMax);
 
       if (setorIds) {
         query = query.in("setorid", setorIds);

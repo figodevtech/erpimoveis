@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Save } from "lucide-react";
 import { toast } from "@/lib/toast";
+import { compactarXml, formatXml } from "@/lib/xml-pretty";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -35,37 +36,6 @@ export default function EditorNfePage({ params }: Props) {
 
   const resolvedParams = use(params);
   const nfeId = Number(resolvedParams.id);
-
-  function formatXml(raw: string): string {
-    const parser = new DOMParser();
-    const dom = parser.parseFromString(raw, "application/xml");
-    if (dom.getElementsByTagName("parsererror").length) {
-      throw new Error("XML invalido para formatar.");
-    }
-    const serializer = new XMLSerializer();
-    const serialized = serializer.serializeToString(dom);
-    const PADDING = "  ";
-    const reg = /(>)(<)(\/*)/g;
-    const xmlString = serialized.replace(reg, "$1\n$2$3");
-    let pad = 0;
-    return xmlString
-      .split("\n")
-      .map((line) => {
-        const trimmed = line.trim();
-        if (trimmed.match(/^<\/.+>/)) pad = Math.max(pad - 1, 0);
-        const indent = PADDING.repeat(pad);
-        if (trimmed.match(/^<[^!?][^>]*[^\/]>$/) && !trimmed.startsWith("</")) {
-          pad += 1;
-        }
-        return indent + trimmed;
-      })
-      .join("\n");
-  }
-
-  function compactarXml(raw: string): string {
-    const semQuebras = raw.replace(/[\r\n\t]/g, "");
-    return semQuebras.replace(/>\s+</g, "><").trim();
-  }
 
   useEffect(() => {
     let active = true;

@@ -42,11 +42,12 @@ import { resumirBaixas } from "../../components/payment-settler";
 import { resumirPagamentos } from "../../components/payment-totals";
 import { TotalPago } from "../../components/total-pago";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Split } from "lucide-react";
+import { Split, UserRound } from "lucide-react";
 import TransactionDialog from "../../fluxodecaixa/components/transactionDialog/transactionDialog";
 import { PagamentoMultiploFooter } from "../../components/pagamento-multiplo-footer";
 import type { DocumentoSelecionavel } from "../../components/pagamento-multiplo";
 import { calcularResumoFinanceiroOs } from "@/lib/ordens/financeiro";
+import { Label } from "@/components/ui/label";
 
 interface OsTableProps {
   vendas: VendaComItens[];
@@ -75,6 +76,8 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
     cliente: "",
     notaNumero: "",
   });
+  const [categorias, setCategorias] = useState<Array<{ value: string; label: string }>>([]);
+  const [vendedores, setVendedores] = useState<Array<{ value: string; label: string }>>([]);
   const limitUid = React.useId();
   const limitListboxId = `${limitUid}-os-limit-listbox`;
   const [modoPagamentoMultiplo, setModoPagamentoMultiplo] = useState(false);
@@ -84,8 +87,47 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
     filters.cliente.trim() ||
       filters.notaNumero.trim() ||
       filters.dataInicio ||
-      filters.dataFim,
+      filters.dataFim ||
+      filters.canal ||
+      filters.categoriaVendaId ||
+      filters.vendedorId ||
+      filters.valorMin != null ||
+      filters.valorMax != null,
   );
+
+  // Categorias e vendedores para o painel de filtros, carregados uma vez.
+  useEffect(() => {
+    let ativo = true;
+    fetch("/api/tipos/categorias-venda?ativo=true", { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) return;
+        const items = Array.isArray(payload.items) ? payload.items : [];
+        if (ativo) {
+          setCategorias(items.map((c: any) => ({ value: String(c.id), label: String(c.nome ?? "") })));
+        }
+      })
+      .catch(() => {});
+    // Mesma rota que a ficha da venda usa para atribuir vendedor — exige a
+    // permissão de Usuários, igual à edição já exige.
+    fetch("/api/users?ativos=1", { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) return;
+        const items = Array.isArray(payload.users) ? payload.users : [];
+        if (ativo) {
+          setVendedores(
+            items
+              .map((u: any) => ({ value: String(u.id ?? ""), label: String(u.nome ?? u.email ?? "").trim() || "Sem nome" }))
+              .filter((u: { value: string }) => u.value),
+          );
+        }
+      })
+      .catch(() => {});
+    return () => {
+      ativo = false;
+    };
+  }, []);
 
   /**
    * Saldo em aberto da venda pela mesma função da OS — ela só tem nome de OS: o
@@ -195,6 +237,20 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
 
           <div className="flex items-center gap-2">
             <Button
+              variant={filters.apenasMinhas ? "default" : "ghost"}
+              size="sm"
+              className="hover:cursor-pointer"
+              aria-pressed={Boolean(filters.apenasMinhas)}
+              onClick={() => {
+                const next = { ...filters, apenasMinhas: !filters.apenasMinhas };
+                setFilters(next);
+                handleGetVendas(selectedStatus, 1, pagination.limit, search, next);
+              }}
+            >
+              <UserRound className="h-4 w-4" aria-hidden />
+              Minhas vendas
+            </Button>
+            <Button
               variant={modoPagamentoMultiplo ? "secondary" : "ghost"}
               size="sm"
               className="hover:cursor-pointer"
@@ -225,6 +281,7 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
               onOpenChange={setFiltersOpen}
               filters={filters}
               onFiltersChange={setFilters}
+              valorLabel="Valor total (R$)"
               onAplicar={() =>
                 handleGetVendas(selectedStatus, 1, pagination.limit, search, filters)
               }
@@ -233,7 +290,60 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
                 setFilters(cleared);
                 handleGetVendas(selectedStatus, 1, pagination.limit, search, cleared);
               }}
-            />
+            >
+              <div className="space-y-2">
+                <Label>Canal</Label>
+                <Select
+                  value={filters.canal || "TODOS"}
+                  onValueChange={(value) =>
+                    setFilters({ ...filters, canal: value === "TODOS" ? undefined : value })
+                  }
+                >
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="TODOS">Todos os canais</SelectItem>
+                    <SelectItem value="PDV">PDV (balcão)</SelectItem>
+                    <SelectItem value="ONLINE">Site próprio</SelectItem>
+                    <SelectItem value="MERCADO_LIVRE">Mercado Livre</SelectItem>
+                    <SelectItem value="SHOPEE">Shopee</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2 border-t pt-4">
+                <Label>Categoria da venda</Label>
+                <Select
+                  value={filters.categoriaVendaId || "TODAS"}
+                  onValueChange={(value) =>
+                    setFilters({ ...filters, categoriaVendaId: value === "TODAS" ? undefined : value })
+                  }
+                  disabled={categorias.length === 0}
+                >
+                  <SelectTrigger className="w-full"><SelectValue placeholder="Todas as categorias" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="TODAS">Todas as categorias</SelectItem>
+                    {categorias.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2 border-t pt-4">
+                <Label>Vendedor</Label>
+                <Select
+                  value={filters.vendedorId || "TODOS"}
+                  onValueChange={(value) =>
+                    setFilters({ ...filters, vendedorId: value === "TODOS" ? undefined : value })
+                  }
+                  disabled={vendedores.length === 0}
+                >
+                  <SelectTrigger className="w-full"><SelectValue placeholder="Todos os vendedores" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="TODOS">Todos os vendedores</SelectItem>
+                    {vendedores.map((v) => <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </PaymentsFilterSheet>
           </div>
         </div>
       </CardHeader>

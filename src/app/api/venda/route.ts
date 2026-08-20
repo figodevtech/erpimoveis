@@ -25,6 +25,10 @@ type Status =
   | "FINALIZADA"
   | "CANCELADA"
   | "CANCELADO";
+/** Canais reais de venda: PDV (balcão), Online (site próprio) e marketplaces. */
+const CANAIS = new Set(["PDV", "ONLINE", "MERCADO_LIVRE", "SHOPEE"]);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const STATUS_SET = new Set<Status>([
   "ORCAMENTO",
   "APROVACAO_ORCAMENTO",
@@ -224,6 +228,26 @@ export async function GET(req: Request) {
     const apenasMinhas = ["1", "true", "yes"].includes(
       (searchParams.get("apenasMinhas") ?? "").trim().toLowerCase()
     );
+    const canalParam = (searchParams.get("canal") ?? "").trim().toUpperCase();
+    const canal = CANAIS.has(canalParam) ? canalParam : "";
+    const categoriaVendaIdParam = Number(searchParams.get("categoriaVendaId"));
+    const categoriaVendaId =
+      Number.isInteger(categoriaVendaIdParam) && categoriaVendaIdParam > 0 ? categoriaVendaIdParam : null;
+    const vendedorIdParam = (searchParams.get("vendedorId") ?? "").trim();
+    const vendedorId = UUID.test(vendedorIdParam) ? vendedorIdParam : "";
+    // Faixa de valor: "vendas grandes primeiro" ou "só as pequenas que travaram
+    // no pagamento" são pergunta de valor, não de status.
+    // `!valor` descarta ausente e vazio antes do Number() — sem isso,
+    // `Number("")` vale 0, e "sem máximo" vira "valor até zero": toda venda de
+    // verdade some da lista.
+    const valorMinRaw = searchParams.get("valorMin");
+    const valorMin = valorMinRaw && Number.isFinite(Number(valorMinRaw)) && Number(valorMinRaw) >= 0
+      ? Number(valorMinRaw)
+      : null;
+    const valorMaxRaw = searchParams.get("valorMax");
+    const valorMax = valorMaxRaw && Number.isFinite(Number(valorMaxRaw)) && Number(valorMaxRaw) >= 0
+      ? Number(valorMaxRaw)
+      : null;
 
     const statusParam = (searchParams.get("status") ?? "TODOS").toUpperCase();
     const statusFilter = STATUS_SET.has(statusParam as Status)
@@ -443,6 +467,12 @@ export async function GET(req: Request) {
     if (statusFilter) {
       query = query.eq("status", statusFilter);
     }
+
+    if (canal) query = query.eq("canal", canal);
+    if (categoriaVendaId) query = query.eq("categoriavendaid", categoriaVendaId);
+    if (vendedorId) query = query.eq("vendedor", vendedorId);
+    if (valorMin != null) query = query.gte("valortotal", valorMin);
+    if (valorMax != null) query = query.lte("valortotal", valorMax);
 
     const { data, error, count } = await query;
 

@@ -40,6 +40,14 @@ export default function AssistentePagamento (){
           dateTo: filters?.dataFim
             ? filters.dataFim.toISOString().slice(0, 10)
             : "",
+          apenasMinhas: filters?.apenasMinhas ? "1" : "",
+          setor: filters?.setorId || "",
+          prioridade: filters?.prioridade || "",
+          alvoTipo: filters?.alvoTipo || "",
+          responsavel: filters?.responsavelId || "",
+          metodoPagamento: filters?.metodoPagamento || "",
+          orcamentoMin: filters?.valorMin ?? "",
+          orcamentoMax: filters?.valorMax ?? "",
         },
       });
       if (response.status === 200) {

@@ -10,6 +10,7 @@ export type NfseSyncRecord = {
   status?: string | null;
   url_consulta?: string | null;
   url_pdf?: string | null;
+  url_xml?: string | null;
   protocolo?: string | null;
   numero?: string | null;
 };
@@ -77,6 +78,9 @@ export async function syncNfseWithFocus(nfse: NfseSyncRecord) {
     && result.url_consulta === nfse.url_pdf,
   );
   const pdfUrl = result.url_pdf || (oldPdfWasConsultation ? null : nfse.url_pdf) || null;
+  // O XML só existe depois de autorizar; guardado aqui, o visualizador abre sem
+  // ter de consultar a Focus de novo a cada vez.
+  const xmlUrl = result.url_xml || nfse.url_xml || null;
   const errors = result.erros && result.erros.length > 0 ? result.erros : null;
   const updateError = await atualizarRegistroNFSe(
     nfse.id,
@@ -84,6 +88,7 @@ export async function syncNfseWithFocus(nfse: NfseSyncRecord) {
       status: finalStatus,
       url_consulta: consultationUrl,
       url_pdf: pdfUrl,
+      url_xml: xmlUrl,
       erros: errors,
       protocolo: result.codigo_verificacao || nfse.protocolo || null,
       numero: result.numero || nfse.numero || null,

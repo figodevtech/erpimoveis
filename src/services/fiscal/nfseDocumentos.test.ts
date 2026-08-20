@@ -30,6 +30,27 @@ describe("URLs de documentos da NFS-e", () => {
 
     assert.equal(urls.pdfUrl, "https://api.focusnfe.com.br/arquivos/DANFSEs/nota.pdf");
   });
+
+  it("separa o XML da nota do PDF e do espelho", () => {
+    const urls = extractNfseUrls(
+      {
+        url: "https://receita.joaopessoa.pb.gov.br/notafiscal-ws/consulta",
+        url_danfse: "https://focusnfe.s3.sa-east-1.amazonaws.com/arquivos/DANFSEs/nota.pdf",
+        caminho_xml_nota_fiscal: "/arquivos/12260723000109/202608/XMLsNFSe/nota-nfse.xml",
+      },
+      "https://api.focusnfe.com.br",
+    );
+
+    assert.equal(urls.xmlUrl, "https://api.focusnfe.com.br/arquivos/12260723000109/202608/XMLsNFSe/nota-nfse.xml");
+    assert.equal(urls.pdfUrl, "https://focusnfe.s3.sa-east-1.amazonaws.com/arquivos/DANFSEs/nota.pdf");
+    assert.equal(urls.consultationUrl, "https://receita.joaopessoa.pb.gov.br/notafiscal-ws/consulta");
+  });
+
+  it("não inventa XML para nota que ainda não autorizou", () => {
+    const urls = extractNfseUrls({ status: "erro_autorizacao" }, "https://api.focusnfe.com.br");
+
+    assert.equal(urls.xmlUrl, null);
+  });
 });
 
 describe("download do PDF da NFS-e", () => {

@@ -324,7 +324,14 @@ export default function VendasDataTable({
   const canEdit = permissionSetHas((session?.user as any)?.permissoes, PERMS.VENDAS_EDITAR);
   const canDelete = permissionSetHas((session?.user as any)?.permissoes, PERMS.VENDAS_EXCLUIR);
   const hasActiveFilters = Boolean(
-    filters.dataInicio || filters.dataFim || filters.apenasMinhas,
+    filters.dataInicio ||
+      filters.dataFim ||
+      filters.apenasMinhas ||
+      filters.canal ||
+      filters.categoriaVendaId ||
+      filters.vendedorId ||
+      filters.valorMin != null ||
+      filters.valorMax != null,
   );
 
   const toggleApenasMinhas = () => {

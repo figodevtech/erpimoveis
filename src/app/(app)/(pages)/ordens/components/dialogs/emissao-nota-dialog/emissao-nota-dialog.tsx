@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/lib/toast";
-import { Loader2, Receipt, AlertCircle, CheckCircle2, XCircle, Info, X, Plus, RotateCw, Ellipsis, Download, Package, Paperclip, Wrench, Trash2 } from "lucide-react";
+import { Loader2, Receipt, AlertCircle, CheckCircle2, XCircle, Info, X, Plus, RotateCw, Ellipsis, Download, Package, Paperclip, Wrench, Trash2, FileCode } from "lucide-react";
 import { AutorizarNfeButton } from "./autorizarNfe-button";
 import { GerarNotaDeOsDialog } from "./gerarNotaDeOsDialog/gerarNotaDeOsDialog";
 import { CustomerDialog } from "@/app/(app)/(pages)/clientes/components/customerDialogRegister/customerDialog";
@@ -1036,6 +1036,23 @@ export function EmissaoNotaDialog({
                                         <RotateCw className="mr-1.5 h-3.5 w-3.5" />
                                       )}
                                       Reenviar sem alterar
+                                    </Button>
+                                  )}
+
+                                  {/* O XML é o documento que a prefeitura emitiu:
+                                      existe para autorizada e cancelada, nunca
+                                      para rejeitada. */}
+                                  {(isAutorizada || isCancelada) && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="text-xs hover:cursor-pointer"
+                                      onClick={() =>
+                                        window.open(`/nfse/${nfe.id}/xml`, "_blank", "noopener,noreferrer")
+                                      }
+                                    >
+                                      <FileCode className="mr-1.5 h-3.5 w-3.5" />
+                                      Ver XML
                                     </Button>
                                   )}
 

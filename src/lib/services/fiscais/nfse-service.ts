@@ -645,6 +645,7 @@ export class NFSeService {
       codigo_verificacao: json?.codigo_verificacao,
       url_consulta: urls.consultationUrl,
       url_pdf: urls.pdfUrl,
+      url_xml: urls.xmlUrl,
       caminho_xml_nota_fiscal: json?.caminho_xml_nota_fiscal,
       erros: json?.erros,
     };
