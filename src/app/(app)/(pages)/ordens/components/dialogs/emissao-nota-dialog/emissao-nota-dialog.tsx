@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/lib/toast";
-import { Loader2, Receipt, AlertCircle, CheckCircle2, XCircle, Info, X, Plus, RotateCw, Ellipsis, Download, Package, Paperclip, Wrench } from "lucide-react";
+import { Loader2, Receipt, AlertCircle, CheckCircle2, XCircle, Info, X, Plus, RotateCw, Ellipsis, Download, Package, Paperclip, Wrench, Trash2 } from "lucide-react";
 import { AutorizarNfeButton } from "./autorizarNfe-button";
 import { GerarNotaDeOsDialog } from "./gerarNotaDeOsDialog/gerarNotaDeOsDialog";
 import { CustomerDialog } from "@/app/(app)/(pages)/clientes/components/customerDialogRegister/customerDialog";
@@ -265,6 +265,8 @@ export function EmissaoNotaDialog({
   const [selectedNfseId, setSelectedNfseId] = useState<number | null>(null);
   const [downloadingXmlId, setDownloadingXmlId] = useState<number | null>(null);
   const [anexandoDanfeId, setAnexandoDanfeId] = useState<number | null>(null);
+  const [reenviandoNfseId, setReenviandoNfseId] = useState<number | null>(null);
+  const [excluindoNfseId, setExcluindoNfseId] = useState<number | null>(null);
   const [clienteEmRevisao, setClienteEmRevisao] = useState<number | null>(null);
   /** Status da volta anterior, para avisar só quem mudou de estado. */
   const statusAnteriorRef = useRef<Map<number, string>>(new Map());
@@ -418,6 +420,71 @@ export function EmissaoNotaDialog({
       });
     } finally {
       setAnexandoDanfeId(null);
+    }
+  };
+
+  /**
+   * Manda de novo a mesma NFS-e rejeitada, sem passar pelo diálogo de emissão.
+   *
+   * Serve para rejeição que não é do conteúdo — prefeitura fora do ar, falha do
+   * lado deles. Quando o erro é de dados, reenviar igual repete a recusa: aí o
+   * caminho é corrigir e emitir de novo.
+   */
+  const reenviarNfse = async (nfe: NfeResumo) => {
+    if (reenviandoNfseId === nfe.id) return;
+
+    const toastId = toast.loading("Reenviando NFS-e para aprovação...");
+    setReenviandoNfseId(nfe.id);
+
+    try {
+      const response = await fetch(`/api/nfse/${nfe.id}/reemitir`, { method: "POST" });
+      const json = await response.json().catch(() => null);
+
+      if (!response.ok || !json?.ok) {
+        throw new Error(json?.message || "Não foi possível reenviar a NFS-e.");
+      }
+
+      toast.success("NFS-e reenviada para processamento.", { id: toastId });
+      fetchNfes();
+    } catch (error: any) {
+      toast.error("A NFS-e não foi aceita.", { id: toastId, description: error?.message });
+      // A tentativa vira registro mesmo quando é recusada: sem recarregar, a
+      // rejeição nova ficaria de fora da lista.
+      fetchNfes();
+    } finally {
+      setReenviandoNfseId(null);
+    }
+  };
+
+  /**
+   * Descarta uma NFS-e rejeitada. Só rejeitada: a prefeitura nunca a registrou,
+   * e ela não prende numeração nenhuma.
+   */
+  const excluirNfse = async (nfe: NfeResumo) => {
+    if (excluindoNfseId === nfe.id) return;
+
+    const confirmado = window.confirm(
+      "Excluir esta NFS-e rejeitada?\nO envio e o retorno da prefeitura vão junto, e essa ação não pode ser desfeita.",
+    );
+    if (!confirmado) return;
+
+    const toastId = toast.loading("Excluindo NFS-e rejeitada...");
+    setExcluindoNfseId(nfe.id);
+
+    try {
+      const response = await fetch(`/api/nfse/${nfe.id}/excluir`, { method: "DELETE" });
+      const json = await response.json().catch(() => null);
+
+      if (!response.ok || !json?.ok) {
+        throw new Error(json?.message || "Não foi possível excluir a NFS-e.");
+      }
+
+      toast.success("NFS-e rejeitada excluída.", { id: toastId });
+      fetchNfes();
+    } catch (error: any) {
+      toast.error("Não foi possível excluir a NFS-e.", { id: toastId, description: error?.message });
+    } finally {
+      setExcluindoNfseId(null);
     }
   };
 
@@ -901,6 +968,10 @@ export function EmissaoNotaDialog({
                     const isRejeitada = statusUpper === "REJEITADA";
                     const isCancelada = statusUpper === "CANCELADA" || statusUpper === "CANCELADO";
                     const isProcessing = statusUpper === "PROCESSANDO" || statusUpper === "PROCESSANDO_AUTORIZACAO";
+                    // NFS-e gravada antes da normalização de status guardou o
+                    // `erro_autorizacao` cru da Focus, que quer dizer rejeitada.
+                    // Sem isto ela ficaria sem reenvio e sem exclusão.
+                    const isNfseRejeitada = isRejeitada || statusUpper === "ERRO_AUTORIZACAO";
 
                     const observacao = buildObservacao(nfe);
 
@@ -946,6 +1017,27 @@ export function EmissaoNotaDialog({
                                   >
                                     Consultar NFS-e
                                   </Button>
+
+                                  {/* Rejeitada não virou documento na prefeitura:
+                                      dá para mandar o mesmo envio de novo, e dá
+                                      para descartar. */}
+                                  {isNfseRejeitada && (
+                                    <Button
+                                      className="text-xs hover:cursor-pointer"
+                                      variant="outline"
+                                      size="sm"
+                                      disabled={reenviandoNfseId === nfe.id}
+                                      title="Manda para a prefeitura exatamente o mesmo envio, sem remontar a nota."
+                                      onClick={() => void reenviarNfse(nfe)}
+                                    >
+                                      {reenviandoNfseId === nfe.id ? (
+                                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        <RotateCw className="mr-1.5 h-3.5 w-3.5" />
+                                      )}
+                                      Reenviar sem alterar
+                                    </Button>
+                                  )}
 
                                   {isAutorizada && (
                                     <Button
@@ -1000,6 +1092,27 @@ export function EmissaoNotaDialog({
                                     <span className="text-xs px-2 py-1 text-muted-foreground text-center">
                                       Nota Cancelada.
                                     </span>
+                                  )}
+
+                                  {isNfseRejeitada && (
+                                    <Button
+                                      size="sm"
+                                      disabled={excluindoNfseId === nfe.id}
+                                      onClick={() => void excluirNfse(nfe)}
+                                      className="size-full flex items-center gap-1 text-xs justify-start px-0 rounded-sm py-2 hover:cursor-pointer not-dark:text-gray-800 bg-red-500/20 hover:bg-red-900 group hover:text-white transition-all"
+                                    >
+                                      {excluindoNfseId === nfe.id ? (
+                                        <>
+                                          <Loader2 className="h-3 w-3 animate-spin" />
+                                          Excluindo...
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Trash2 className="h-3 w-3" />
+                                          Excluir nota
+                                        </>
+                                      )}
+                                    </Button>
                                   )}
                                 </div>
                               ) : (

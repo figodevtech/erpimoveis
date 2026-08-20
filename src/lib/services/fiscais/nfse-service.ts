@@ -405,8 +405,45 @@ function valorTotalServicos(itens: NFSeItemEmissao[]) {
 }
 
 function criarReferencia(osId: number, itens: NFSeItemEmissao[]) {
-  const ids = itens.map((item) => item.servicoid).sort((a, b) => a - b).join("-");
+  return criarReferenciaPorServicos(osId, itens.map((item) => item.servicoid));
+}
+
+/**
+ * A referência é única por tentativa: a Focus não aceita reenviar uma que já
+ * foi usada, nem quando a anterior foi rejeitada. O reenvio precisa gerar a
+ * dele, e precisa gerar no mesmo formato — daí este exportado.
+ */
+export function criarReferenciaPorServicos(osId: number, servicoIds: number[]) {
+  const ids = [...servicoIds].sort((a, b) => a - b).join("-");
   return `OS_${osId}_SRVS_${ids}_${Date.now()}`;
+}
+
+/**
+ * Prepara o reenvio de uma emissão que já aconteceu: pega o payload gravado e
+ * devolve o mesmo conteúdo pronto para ir de novo.
+ *
+ * Só duas coisas mudam, e as duas são obrigatórias:
+ *
+ * - a referência, porque a Focus não aceita repetir uma já usada, nem depois
+ *   de a nota ter sido rejeitada;
+ * - a data de emissão, que sai daqui para o serviço recalcular no envio — um
+ *   RPS com data de ontem é recusado pela prefeitura.
+ *
+ * Tirar a data importa mais do que parece: `emitir` põe a nova por último e
+ * sobrescreveria a antiga de qualquer jeito, mas `emitirNacional` espalha os
+ * dados DEPOIS da data, então a antiga é que venceria. Sem esta remoção o
+ * reenvio do modelo Nacional sairia com a data da tentativa anterior.
+ *
+ * `data_competencia`, que só o Nacional tem, fica: é a competência do serviço
+ * prestado, não do envio.
+ */
+export function prepararReenvioNFSe<T extends Record<string, unknown>>(
+  payloadAnterior: T,
+  referencia: string,
+) {
+  const dados = { ...payloadAnterior };
+  delete dados.data_emissao;
+  return { ...dados, referencia };
 }
 
 // Um retorno da Focus cabe folgado nisto. O corte existe para o caso de a
