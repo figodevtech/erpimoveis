@@ -39,6 +39,19 @@ npm run db:deploy:clients
 Digite `CLIENTES` quando solicitado. O comando confirma que a Demonstração está
 atualizada, aplica no Demir, no AlphaGarage e no Garage Premium e compara os quatro bancos.
 
+### Ordem especial para `20260820170000_public_schema_lockdown`
+
+Essa migration remove o acesso direto de `anon` e `authenticated` às tabelas,
+views, sequences e funções da aplicação. Antes de aplicá-la nos clientes:
+
+1. publique a versão nova da aplicação em cada projeto da Vercel;
+2. remova a variável `OPEN_PERMISSIONS` de Preview, Production e Development;
+3. valide login, Dashboard, Clientes, Ordens, Estoque, Financeiro,
+   Configurações e Usuários na Demonstração;
+4. somente então execute `npm run db:deploy:clients`.
+
+Não recrie `OPEN_PERMISSIONS`: a aplicação não utiliza mais essa opção.
+
 ## 4. Conferência final
 
 ```powershell

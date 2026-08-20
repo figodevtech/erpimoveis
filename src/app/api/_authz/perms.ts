@@ -49,6 +49,16 @@ async function getUserPerms(): Promise<Set<string>> {
 
 /* -------------------- Funções genéricas -------------------- */
 
+export async function requireAuthenticated() {
+  const session = await auth();
+  if (!session?.user) {
+    const error = new Error("Não autenticado");
+    (error as any).statusCode = 401;
+    throw error;
+  }
+  return session;
+}
+
 export async function hasPerm(perm: Permission): Promise<boolean> {
   const perms = await getUserPerms();
   return permissionSetHas(Array.from(perms), perm);

@@ -1,19 +1,12 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { ensureAccess } from "../_authz";
-
-function isOpen() {
-  const v = (process.env.OPEN_PERMISSIONS ?? "").toString().trim().toLowerCase();
-  return v === "true" || v === "1" || v === "yes";
-}
+import { requireUsuariosAccess } from "@/app/api/_authz/perms";
 
 export async function GET() {
   try {
-    const session = isOpen() ? null : await auth();
-    await ensureAccess(session);
+    await requireUsuariosAccess();
 
     const [s, p, pf] = await Promise.all([
       supabaseAdmin.from("setor").select("id, nome").eq("ativo", true).order("nome"),

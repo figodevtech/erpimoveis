@@ -4,6 +4,7 @@ export const revalidate = 0;
 
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { requireConfigEdit } from "@/app/api/_authz/perms";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 
 // Contexto esperado pelo validator do Next 15
@@ -12,6 +13,7 @@ type ParamsCtx = { params: Promise<{ id: string }> };
 // PUT /api/tipos/setores/[id] -> atualizar setor inteiro
 export async function PUT(request: NextRequest, ctx: ParamsCtx) {
   try {
+    await requireConfigEdit();
     const { id } = await ctx.params;
     const setorId = Number(id);
 
@@ -74,6 +76,7 @@ export async function PUT(request: NextRequest, ctx: ParamsCtx) {
 // PATCH /api/tipos/setores/[id] -> atualização parcial
 export async function PATCH(request: NextRequest, ctx: ParamsCtx) {
   try {
+    await requireConfigEdit();
     const { id } = await ctx.params;
     const setorId = Number(id);
 

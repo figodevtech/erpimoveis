@@ -3,13 +3,8 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { ensureAccess } from "./_authz";
 import { requireUsuariosAccess, requireUsuariosCreate } from "@/app/api/_authz/perms";
-
-function isOpen() {
-  const v = (process.env.OPEN_PERMISSIONS ?? "").toString().trim().toLowerCase();
-  return v === "true" || v === "1" || v === "yes";
-}
+import { isValidUsername, normalizeUsername } from "@/lib/auth-identifier";
 
 function gerarSenhaTemporaria() {
   if (typeof crypto !== "undefined" && (crypto as any).randomUUID) {
@@ -44,6 +39,7 @@ async function carregarUsuarios(opts?: { onlyActive?: boolean; q?: string }) {
         "id",
         "nome",
         "email",
+        "username",
         "createdat",
         "updatedat",
         "ativo",
@@ -63,7 +59,7 @@ async function carregarUsuarios(opts?: { onlyActive?: boolean; q?: string }) {
   }
 
   if (q) {
-    query = query.or(`nome.ilike.%${q}%,email.ilike.%${q}%`);
+    query = query.or(`nome.ilike.%${q}%,email.ilike.%${q}%,username.ilike.%${q}%`);
   }
 
   const { data: usuarios, error: uErr } = await query;
@@ -73,6 +69,7 @@ async function carregarUsuarios(opts?: { onlyActive?: boolean; q?: string }) {
     id: u.id as string,
     nome: u.nome as string,
     email: u.email as string,
+    username: (u.username as string | null) ?? null,
     createdAt: u.createdat as string | null,
     updatedAt: u.updatedat as string | null,
     ativo: typeof u.ativo === "boolean" ? u.ativo : true,
@@ -96,9 +93,7 @@ async function carregarUsuarios(opts?: { onlyActive?: boolean; q?: string }) {
 // GET /api/users?ativos=1&q=fulano
 export async function GET(req: NextRequest) {
   try {
-    const session = isOpen() ? null : await auth();
-    if (isOpen()) await ensureAccess(session);
-    else await requireUsuariosAccess();
+    await requireUsuariosAccess();
 
     const { searchParams } = new URL(req.url);
     const ativos = searchParams.get("ativos"); // "1" => só ativos
@@ -119,15 +114,15 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: Request) {
   try {
-    const session = isOpen() ? null : await auth();
-    if (isOpen()) await ensureAccess(session);
-    else await requireUsuariosCreate();
+    const session = await auth();
+    await requireUsuariosCreate();
     const actorId = ((session?.user as any)?.id as string | undefined) ?? null;
 
     const body = (await req.json().catch(() => ({}))) as any;
 
     const nome = (body.nome ?? "").toString().trim();
     const email = (body.email ?? "").toString().trim();
+    const username = normalizeUsername(body.username);
 
     // aceitamos tanto perfilid / setorid quanto perfilId / setorId
     const perfilidRaw = body.perfilid ?? body.perfilId ?? null;
@@ -144,7 +139,31 @@ export async function POST(req: Request) {
     const data_admissao = parseDateOrNull(body.data_admissao ?? body.dataAdmissao);
     const data_demissao = parseDateOrNull(body.data_demissao ?? body.dataDemissao);
 
-    if (!nome || !email) throw new Error("Nome e e-mail são obrigatórios");
+    if (!nome || !email || !username) {
+      return NextResponse.json(
+        { error: "Nome, e-mail e nome de usuário são obrigatórios." },
+        { status: 400 }
+      );
+    }
+    if (!isValidUsername(username)) {
+      return NextResponse.json(
+        {
+          error:
+            "O nome de usuário deve ter de 3 a 30 caracteres e usar apenas letras, números, ponto, hífen ou sublinhado.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const { data: usernameEmUso, error: usernameCheckError } = await supabaseAdmin
+      .from("usuario")
+      .select("id")
+      .eq("username", username)
+      .maybeSingle();
+    if (usernameCheckError) throw usernameCheckError;
+    if (usernameEmUso) {
+      return NextResponse.json({ error: "Este nome de usuário já está em uso." }, { status: 409 });
+    }
 
     if (salario != null && salario < 0) throw new Error("Salário não pode ser negativo.");
     if (comissao_percent != null && (comissao_percent < 0 || comissao_percent > 100)) {
@@ -185,6 +204,7 @@ export async function POST(req: Request) {
       email_confirm: true,
       user_metadata: {
         nome,
+        username,
         setorid,
         perfilid: resolvedPerfilId,
         salario,
@@ -204,6 +224,7 @@ export async function POST(req: Request) {
       {
         id: userId,
         email,
+        username,
         nome,
         setorid,
         perfilid: resolvedPerfilId,
@@ -221,7 +242,13 @@ export async function POST(req: Request) {
       { onConflict: "id" }
     );
 
-    if (upErr) throw upErr;
+    if (upErr) {
+      const { error: cleanupError } = await supabaseAdmin.auth.admin.deleteUser(userId);
+      if (cleanupError) {
+        console.error("[/api/users POST] erro ao desfazer usuario do Auth:", cleanupError);
+      }
+      throw upErr;
+    }
 
     const users = await carregarUsuarios();
     return NextResponse.json({ users });

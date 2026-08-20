@@ -6,6 +6,7 @@ import type { EnumPermissoes } from "./enum";
 export interface Usuario {
   id: string;                    // uuid (FK -> auth.users.id)
   email: string;
+  username?: string | null;
   nome: string;
   setorid?: number | null;
   perfilid?: number | null;

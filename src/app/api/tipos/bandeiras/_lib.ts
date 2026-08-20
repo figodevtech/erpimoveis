@@ -1,4 +1,4 @@
-import { auth } from "@/lib/auth";
+import { requireAuthenticated } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { faixasOrdenadas, type FaixaDeParcela } from "@/lib/financeiro/bandeira";
 
@@ -15,13 +15,9 @@ export const SELECT_BANDEIRA =
 
 export const SELECT_COM_FAIXAS = `${SELECT_BANDEIRA}, parcelas:bandeira_cartao_parcela ( id, parcelas, taxa_percentual )`;
 
-function isOpen() {
-  const value = String(process.env.OPEN_PERMISSIONS ?? "").trim().toLowerCase();
-  return ["true", "1", "yes", "sim"].includes(value);
-}
 
 export async function ensureAuth() {
-  if (!isOpen()) await auth();
+  await requireAuthenticated();
 }
 
 export function parseId(value: string) {

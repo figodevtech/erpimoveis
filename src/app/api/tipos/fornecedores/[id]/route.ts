@@ -2,18 +2,13 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireAuthenticated } from "@/app/api/_authz/perms";
 import { parsePostgresIntegerId } from "@/lib/postgres-id";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-function isOpen() {
-  const v = (process.env.OPEN_PERMISSIONS ?? "").toString().trim().toLowerCase();
-  return v === "true" || v === "1" || v === "yes" || v === "sim";
-}
 
 async function ensureAuth() {
-  if (isOpen()) return;
-  await auth();
+  await requireAuthenticated();
 }
 
 function parseId(paramId: string): number | null {

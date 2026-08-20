@@ -153,6 +153,7 @@ export function EditarUsuarioDialog({
   const [tab, setTab] = useState<"dados" | "financeiro" | "vinculo">("dados");
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [perfilid, setPerfilid] = useState("");
   const [setorid, setSetorid] = useState("");
   const [ativo, setAtivo] = useState(true);
@@ -169,6 +170,7 @@ export function EditarUsuarioDialog({
     setTab("dados");
     setNome(usuario.nome ?? "");
     setEmail(usuario.email ?? "");
+    setUsername(usuario.username ?? "");
 
     const perfilIdFromUser =
       (usuario as any).perfilid ??
@@ -204,7 +206,9 @@ export function EditarUsuarioDialog({
 
   const canSave = useMemo(() => {
     if (!usuario) return false;
-    if (!nome.trim() || !email.trim()) return false;
+    if (!nome.trim() || !email.trim() || !/^[a-z0-9._-]{3,30}$/.test(username.trim().toLowerCase())) {
+      return false;
+    }
 
     const c = comissao.trim() ? Number(comissao) : 0;
     if (Number.isNaN(c) || c < 0 || c > 100) return false;
@@ -219,7 +223,7 @@ export function EditarUsuarioDialog({
       return false;
 
     return true;
-  }, [usuario, nome, email, comissao, comissaoVenda, salarioNumber]);
+  }, [usuario, nome, email, username, comissao, comissaoVenda, salarioNumber]);
 
   const handleSave = async () => {
     if (!usuario || !canSave || saving) return;
@@ -229,6 +233,7 @@ export function EditarUsuarioDialog({
       await onSave(usuario.id, {
         nome: nome.trim(),
         email: email.trim(),
+        username: username.trim().toLowerCase(),
         perfilid: perfilid ? Number(perfilid) : null,
         setorid: setorid ? Number(setorid) : null,
         ativo,
@@ -296,6 +301,21 @@ export function EditarUsuarioDialog({
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="email@dominio.com"
                     />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="edit-username">Nome de usuário</Label>
+                    <Input
+                      id="edit-username"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value.toLowerCase())}
+                      placeholder="Ex.: atendente.01"
+                      autoComplete="off"
+                      maxLength={30}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Use de 3 a 30 letras minúsculas, números, ponto, hífen ou sublinhado.
+                    </p>
                   </div>
 
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

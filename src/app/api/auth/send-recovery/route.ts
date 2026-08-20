@@ -5,18 +5,20 @@ export async function POST(req: NextRequest) {
   try {
     const { email } = (await req.json()) as { email?: string };
     const value = (email || "").trim().toLowerCase();
-    if (!value)
+    if (!value || value.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))
       return NextResponse.json({ error: "E-mail inválido" }, { status: 400 });
 
-    // ✅ SEM redirectTo → Supabase usa dashboard config
-    await supabaseAdmin.auth.resetPasswordForEmail(value);
+    const { error } = await supabaseAdmin.auth.resetPasswordForEmail(value);
+    if (error) {
+      // A resposta externa permanece idêntica para não revelar contas.
+      console.error("[auth/recovery] falha ao solicitar recuperacao:", error.code);
+    }
 
-    // Sempre sucesso (melhor UX)
-    return NextResponse.json({ ok: true });
-  } catch {
     return NextResponse.json(
-      { error: "Erro ao enviar recuperação" },
-      { status: 500 }
+      { ok: true },
+      { headers: { "Cache-Control": "no-store" } }
     );
+  } catch {
+    return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
   }
 }

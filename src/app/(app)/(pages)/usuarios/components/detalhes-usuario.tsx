@@ -166,6 +166,7 @@ export function DetalhesUsuarioDialog({ open, onOpenChange, usuario }: Props) {
     return {
       nome: usuario.nome,
       email: usuario.email,
+      username: usuario.username ?? "—",
       perfil: usuario.perfil?.nome ?? "—",
       setor: usuario.setor?.nome ?? "—",
       status: usuario.ativo ? "Ativo" : "Inativo",
@@ -220,6 +221,11 @@ export function DetalhesUsuarioDialog({ open, onOpenChange, usuario }: Props) {
                     <div className="rounded-md border p-3">
                       <p className="text-xs text-muted-foreground">E-mail</p>
                       <p className="text-sm font-medium">{info.email}</p>
+                    </div>
+
+                    <div className="rounded-md border p-3">
+                      <p className="text-xs text-muted-foreground">Nome de usuário</p>
+                      <p className="text-sm font-medium">{info.username}</p>
                     </div>
 
                     <div className="rounded-md border p-3">

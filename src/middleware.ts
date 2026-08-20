@@ -162,6 +162,13 @@ const API_ACTION_PERMS: Array<{
   { prefix: "/api/config", read: PERMS.CONFIG, edit: PERMS.CONFIG_EDITAR },
 ];
 
+const API_MUTATION_PERMS: Array<{ prefix: string; perm: Permission }> = [
+  // As listas auxiliares abastecem formulários de várias áreas e continuam
+  // legíveis para usuários logados. Somente a configuração pode alterá-las.
+  { prefix: "/api/tipos", perm: PERMS.CONFIG_EDITAR },
+  { prefix: "/api/checklist-modelos", perm: PERMS.CONFIG_EDITAR },
+];
+
 function matchRule(pathname: string) {
   return ROUTE_PERMS.find(
     (r) => pathname === r.prefix || pathname.startsWith(r.prefix + "/"),
@@ -186,6 +193,16 @@ function matchApiActionRule(pathname: string, method: string) {
   if (normalizedMethod === "PUT" || normalizedMethod === "PATCH") return rule.edit ?? rule.read;
   if (normalizedMethod === "DELETE") return rule.delete ?? rule.edit ?? rule.read;
   return rule.read;
+}
+
+function matchApiMutationRule(pathname: string, method: string) {
+  if (["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())) return null;
+  if (/^\/api\/checklist-modelos\/[^/]+\/aplicar$/.test(pathname)) {
+    return PERMS.ORDENS_EDITAR;
+  }
+  return API_MUTATION_PERMS.find(
+    (rule) => pathname === rule.prefix || pathname.startsWith(rule.prefix + "/"),
+  )?.perm ?? null;
 }
 
 function hasPermFromSession(user: any, perm: string) {
@@ -394,6 +411,14 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
         { status: 403, headers: { "Cache-Control": "no-store" } },
       );
     }
+  }
+
+  const apiMutationPerm = isApi ? matchApiMutationRule(pathname, req.method) : null;
+  if (apiMutationPerm && !hasPermFromSession(user, apiMutationPerm)) {
+    return NextResponse.json(
+      { error: "FORBIDDEN" },
+      { status: 403, headers: { "Cache-Control": "no-store" } },
+    );
   }
 
   // âœ… autorizaÃ§Ã£o por permissÃ£o (rotas)

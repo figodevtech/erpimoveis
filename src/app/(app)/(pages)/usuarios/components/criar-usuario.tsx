@@ -37,6 +37,7 @@ import { ptBR } from "date-fns/locale";
 type Payload = {
   nome: string;
   email: string;
+  username: string;
   perfilid?: number | null;
   setorid?: number | null;
   ativo?: boolean;
@@ -154,6 +155,7 @@ export function CriarUsuarioDialog({
   const [tab, setTab] = useState<"dados" | "financeiro" | "vinculo">("dados");
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [perfilid, setPerfilid] = useState("");
   const [setorid, setSetorid] = useState("");
   const [ativo, setAtivo] = useState(true);
@@ -170,7 +172,9 @@ export function CriarUsuarioDialog({
   }, [salario]);
 
   const canSave = useMemo(() => {
-    if (!nome.trim() || !email.trim()) return false;
+    if (!nome.trim() || !email.trim() || !/^[a-z0-9._-]{3,30}$/.test(username.trim().toLowerCase())) {
+      return false;
+    }
 
     const c = comissao.trim() ? Number(comissao) : 0;
     if (Number.isNaN(c) || c < 0 || c > 100) return false;
@@ -185,7 +189,7 @@ export function CriarUsuarioDialog({
       return false;
 
     return true;
-  }, [nome, email, comissao, comissaoVenda, salarioNumber]);
+  }, [nome, email, username, comissao, comissaoVenda, salarioNumber]);
 
   const handleSave = async () => {
     if (!canSave || saving) return;
@@ -195,6 +199,7 @@ export function CriarUsuarioDialog({
       await onCreate({
         nome: nome.trim(),
         email: email.trim(),
+        username: username.trim().toLowerCase(),
         perfilid: perfilid ? Number(perfilid) : null,
         setorid: setorid ? Number(setorid) : null,
         ativo,
@@ -210,6 +215,7 @@ export function CriarUsuarioDialog({
       setTab("dados");
       setNome("");
       setEmail("");
+      setUsername("");
       setPerfilid("");
       setSetorid("");
       setAtivo(true);
@@ -273,6 +279,21 @@ export function CriarUsuarioDialog({
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="email@dominio.com"
                   />
+                </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="create-username">Nome de usuário</Label>
+                  <Input
+                    id="create-username"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value.toLowerCase())}
+                    placeholder="Ex.: atendente.01"
+                    autoComplete="off"
+                    maxLength={30}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Use de 3 a 30 letras minúsculas, números, ponto, hífen ou sublinhado.
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

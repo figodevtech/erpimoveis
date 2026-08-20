@@ -90,6 +90,7 @@ export default function GerenciamentoUsuarios() {
         return (
           u.nome?.toLowerCase().includes(term) ||
           u.email?.toLowerCase().includes(term) ||
+          u.username?.toLowerCase().includes(term) ||
           perfilNome.toLowerCase().includes(term) ||
           setorNome.toLowerCase().includes(term)
         );
@@ -124,6 +125,7 @@ export default function GerenciamentoUsuarios() {
   const handleCreate = async (payload: {
     nome: string;
     email: string;
+    username: string;
     perfilid?: number | null;
     setorid?: number | null;
     ativo?: boolean;
@@ -140,7 +142,14 @@ export default function GerenciamentoUsuarios() {
 
   const handleUpdate = async (
     id: string | number,
-    payload: { nome: string; email: string; perfilid?: number | null; setorid?: number | null; ativo?: boolean }
+    payload: {
+      nome: string;
+      email: string;
+      username: string;
+      perfilid?: number | null;
+      setorid?: number | null;
+      ativo?: boolean;
+    }
   ) => {
     try {
       await atualizarUsuario(id, payload);
@@ -209,7 +218,7 @@ export default function GerenciamentoUsuarios() {
           <Search className="h-4 w-4 text-muted-foreground absolute left-2 top-1/2 -translate-y-1/2" />
           <Input
             className="pl-8"
-            placeholder="Buscar por nome, e-mail, perfil ou setor"
+            placeholder="Buscar por nome, usuário, e-mail, perfil ou setor"
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />

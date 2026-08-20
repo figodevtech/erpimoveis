@@ -28,35 +28,6 @@ export default function ForgotPasswordDialog({ open, onOpenChange }: Props) {
 
     setWorking(true);
     try {
-      // 1) verifica se existe
-      const chk = await fetch("/api/auth/check-email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: value }),
-      });
-
-      // tenta ler JSON; se o endpoint estiver faltando (404 de rota inexistente), evita crash
-      let cj: any = {};
-      try {
-        cj = await chk.json();
-      } catch {}
-
-      if (!chk.ok) {
-        // Trate 404 como "não encontrado"
-        if (chk.status === 404 || cj?.exists === false) {
-          toast.error("Não encontramos uma conta com este e-mail.");
-        } else {
-          toast.error(cj?.error || "Falha ao consultar o e-mail.");
-        }
-        return;
-      }
-
-      if (!cj?.exists) {
-        toast.error("Não encontramos uma conta com este e-mail.");
-        return;
-      }
-
-      // 2) envia o e-mail de recuperação
       const r = await fetch("/api/auth/send-recovery", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -69,15 +40,11 @@ export default function ForgotPasswordDialog({ open, onOpenChange }: Props) {
       } catch {}
 
       if (!r.ok) {
-        if (r.status === 404) {
-          toast.error("Não encontramos uma conta com este e-mail.");
-        } else {
-          toast.error(j?.error || "Falha ao enviar o e-mail de recuperação.");
-        }
+        toast.error(j?.error || "Não foi possível processar a solicitação.");
         return;
       }
 
-      toast.success("Enviamos um link de recuperação para o seu e-mail.");
+      toast.success("Se o e-mail estiver cadastrado, enviaremos um link de recuperação.");
       onOpenChange(false);
       setEmail("");
     } catch (e: any) {

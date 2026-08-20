@@ -1,5 +1,6 @@
 // app/api/checklist-modelos/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { PERMS, requireAny, requireConfigEdit } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 // helper booleano para querystring
@@ -10,6 +11,7 @@ function isTrue(v: string | null) {
 
 export async function GET(req: NextRequest) {
   try {
+    await requireAny([PERMS.CONFIG, PERMS.ORDENS]);
     const { searchParams } = new URL(req.url);
     const onlyActive = isTrue(searchParams.get("ativos"));
 
@@ -77,6 +79,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    await requireConfigEdit();
     const body = await req.json().catch(() => null);
 
     if (!body || typeof body !== "object") {

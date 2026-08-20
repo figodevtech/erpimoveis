@@ -25,11 +25,11 @@ setup("autenticar conta de captura", async ({ page }) => {
     );
   }
 
-  const emailInput = page.getByLabel("Email");
+  const identifierInput = page.getByLabel("Usuário ou e-mail");
   const passwordInput = page.getByLabel("Senha");
-  await expect(emailInput, "O campo Email não apareceu na página de login").toBeVisible();
+  await expect(identifierInput, "O campo Usuário ou e-mail não apareceu na página de login").toBeVisible();
   await expect(passwordInput, "O campo Senha não apareceu na página de login").toBeVisible();
-  await emailInput.fill(email);
+  await identifierInput.fill(email);
   await passwordInput.fill(password);
 
   console.log("Enviando as credenciais da conta de captura...");

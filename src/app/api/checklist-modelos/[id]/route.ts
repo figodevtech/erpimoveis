@@ -1,10 +1,8 @@
 // app/api/checklist-modelos/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { z, ZodError } from "zod";
+import { PERMS, requireAny, requireConfigEdit } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { auth } from "@/lib/auth";
-
-const OPEN = process.env.OPEN_PERMISSIONS === "true";
 
 const ItemSchema = z.object({
   titulo: z.string().min(1),
@@ -88,15 +86,7 @@ export async function GET(
   { params }: { params: Promise<Params> }
 ) {
   try {
-    if (!OPEN) {
-      const session = await auth();
-      if (!session) {
-        return NextResponse.json(
-          { ok: false, error: "Unauthorized" },
-          { status: 401 }
-        );
-      }
-    }
+    await requireAny([PERMS.CONFIG, PERMS.ORDENS]);
 
     const { id } = await params;
     const modeloId = Number(id);
@@ -156,15 +146,7 @@ export async function PUT(
   { params }: { params: Promise<Params> }
 ) {
   try {
-    if (!OPEN) {
-      const session = await auth();
-      if (!session) {
-        return NextResponse.json(
-          { ok: false, error: "Unauthorized" },
-          { status: 401 }
-        );
-      }
-    }
+    await requireConfigEdit();
 
     const { id } = await params;
     const modeloId = Number(id);
@@ -285,15 +267,7 @@ export async function PUT(
 //   { params }: { params: Promise<Params> }
 // ) {
 //   try {
-//     if (!OPEN) {
-//       const session = await auth();
-//       if (!session) {
-//         return NextResponse.json(
-//           { ok: false, error: "Unauthorized" },
-//           { status: 401 }
-//         );
-//       }
-//     }
+//     await requireConfigEdit();
 
 //     const { id } = await params;
 //     const modeloId = Number(id);
