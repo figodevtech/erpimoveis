@@ -43,6 +43,10 @@ import {
   CommandList,
 } from "@/components/ui/command";
 
+export type CampoData = "entrada" | "saida" | "concluido";
+
+type Opcao = { value: string; label: string };
+
 type FilterSheetProps = {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -50,15 +54,111 @@ type FilterSheetProps = {
   setPrioFiltro: (v: PrioFiltro) => void;
   setorFiltro: string;
   setSetorFiltro: (v: string) => void;
-  setores: Array<{ value: string; label: string }>;
+  setores: Opcao[];
   alvoFiltro: "TODOS" | "VEICULO" | "PECA" | "EQUIPAMENTO";
   setAlvoFiltro: (v: "TODOS" | "VEICULO" | "PECA" | "EQUIPAMENTO") => void;
+  /** Usuários ativos: servem tanto para responsável quanto para realizador. */
+  pessoas: Opcao[];
+  responsavelFiltro: string;
+  setResponsavelFiltro: (v: string) => void;
+  realizadorFiltro: string;
+  setRealizadorFiltro: (v: string) => void;
+  somenteDestacadas: boolean;
+  setSomenteDestacadas: (v: boolean) => void;
+  campoData: CampoData;
+  setCampoData: (v: CampoData) => void;
   dataInicio?: Date;
   dataFim?: Date;
   onSetInicio: (d?: Date) => void;
   onSetFim: (d?: Date) => void;
   onLimpar: () => void;
 };
+
+/**
+ * Seletor com busca, para listas que crescem com a oficina (setor, pessoas).
+ * Um `Select` simples obrigaria a rolar até achar o nome.
+ */
+function ComboFiltro({
+  valor,
+  aoEscolher,
+  opcoes,
+  rotuloTodos,
+  placeholderBusca,
+  vazio,
+}: {
+  valor: string;
+  aoEscolher: (v: string) => void;
+  opcoes: Opcao[];
+  rotuloTodos: string;
+  placeholderBusca: string;
+  vazio: string;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const escolhida = opcoes.find((o) => o.value === valor);
+
+  return (
+    <Popover open={aberto} onOpenChange={setAberto}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={aberto}
+          className="w-full justify-between"
+        >
+          <span className="truncate">
+            {valor === "TODOS" ? rotuloTodos : escolhida?.label || "Selecione..."}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="p-0"
+        align="start"
+        side="bottom"
+        style={{ width: "var(--radix-popover-trigger-width)" }}
+        onWheel={(e) => e.stopPropagation()}
+        onTouchMove={(e) => e.stopPropagation()}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
+        <Command>
+          <CommandInput placeholder={placeholderBusca} className="h-9 text-base" />
+          <CommandList className="max-h-52 overflow-auto" onWheel={(e) => e.stopPropagation()}>
+            <CommandEmpty>{vazio}</CommandEmpty>
+            <CommandGroup>
+              <CommandItem
+                value="TODOS"
+                className="hover:cursor-pointer"
+                onSelect={() => {
+                  aoEscolher("TODOS");
+                  setAberto(false);
+                }}
+              >
+                {rotuloTodos}
+                <Check className={cn("ml-auto h-4 w-4", valor === "TODOS" ? "opacity-100" : "opacity-0")} />
+              </CommandItem>
+              {opcoes.map((opcao) => (
+                <CommandItem
+                  key={opcao.value}
+                  value={opcao.label || opcao.value}
+                  className="hover:cursor-pointer"
+                  onSelect={() => {
+                    aoEscolher(opcao.value);
+                    setAberto(false);
+                  }}
+                >
+                  {opcao.label || "-"}
+                  <Check
+                    className={cn("ml-auto h-4 w-4", valor === opcao.value ? "opacity-100" : "opacity-0")}
+                  />
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export function OrdensFilterSheet({
   open,
@@ -70,14 +170,21 @@ export function OrdensFilterSheet({
   setores,
   alvoFiltro,
   setAlvoFiltro,
+  pessoas,
+  responsavelFiltro,
+  setResponsavelFiltro,
+  realizadorFiltro,
+  setRealizadorFiltro,
+  somenteDestacadas,
+  setSomenteDestacadas,
+  campoData,
+  setCampoData,
   dataInicio,
   dataFim,
   onSetInicio,
   onSetFim,
   onLimpar,
 }: FilterSheetProps) {
-  const [setorOpen, setSetorOpen] = useState(false);
-
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetTrigger asChild>
@@ -95,7 +202,8 @@ export function OrdensFilterSheet({
           <SheetTitle>Filtros da listagem</SheetTitle>
         </SheetHeader>
 
-        <div className="grid flex-1 auto-rows-min gap-6 px-4">
+        {/* Só o miolo rola: Limpar e Aplicar ficam ancorados no rodapé. */}
+        <div className="grid min-h-0 flex-1 auto-rows-min gap-6 overflow-y-auto px-4 pb-4">
           {/* Prioridade */}
           <div className="space-y-2">
             <Label>Prioridade</Label>
@@ -118,84 +226,14 @@ export function OrdensFilterSheet({
           {/* Setor */}
           <div className="space-y-2">
             <Label>Setor</Label>
-            <Popover open={setorOpen} onOpenChange={setSetorOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  role="combobox"
-                  aria-expanded={setorOpen}
-                  className="w-full justify-between"
-                >
-                  <span className="truncate">
-                    {setorFiltro === "TODOS"
-                      ? "Todos"
-                      : setores.find((s) => s.value === setorFiltro)?.label ||
-                        "Selecione..."}
-                  </span>
-                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent
-                className="p-0"
-                align="start"
-                 side="bottom"
-                style={{ width: "var(--radix-popover-trigger-width)" }}
-                onWheel={(e) => e.stopPropagation()}
-                onTouchMove={(e) => e.stopPropagation()}
-                onOpenAutoFocus={(e) => e.preventDefault()}
-              >
-                <Command>
-                  <CommandInput placeholder="Buscar setor..." className="h-9 text-base" />
-                  <CommandList
-                    className="max-h-52 overflow-auto"
-                    onWheel={(e) => e.stopPropagation()}
-                  >
-                    <CommandEmpty>Nenhum setor encontrado.</CommandEmpty>
-                    <CommandGroup>
-                      <CommandItem
-                        value="TODOS"
-                        className="hover:cursor-pointer"
-                        onSelect={() => {
-                          setSetorFiltro("TODOS");
-                          setSetorOpen(false);
-                        }}
-                      >
-                        Todos
-                        <Check
-                          className={cn(
-                            "ml-auto h-4 w-4",
-                            setorFiltro === "TODOS"
-                              ? "opacity-100"
-                              : "opacity-0"
-                          )}
-                        />
-                      </CommandItem>
-                      {setores.map((s) => (
-                        <CommandItem
-                          key={s.value}
-                          value={s.label || s.value}
-                          className="hover:cursor-pointer"
-                          onSelect={() => {
-                            setSetorFiltro(s.value);
-                            setSetorOpen(false);
-                          }}
-                        >
-                          {s.label || "-"}
-                          <Check
-                            className={cn(
-                              "ml-auto h-4 w-4",
-                              setorFiltro === s.value
-                                ? "opacity-100"
-                                : "opacity-0"
-                            )}
-                          />
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
+            <ComboFiltro
+              valor={setorFiltro}
+              aoEscolher={setSetorFiltro}
+              opcoes={setores}
+              rotuloTodos="Todos"
+              placeholderBusca="Buscar setor..."
+              vazio="Nenhum setor encontrado."
+            />
           </div>
 
           {/* Alvo */}
@@ -219,9 +257,71 @@ export function OrdensFilterSheet({
             </Select>
           </div>
 
+          {/* Responsável: quem abriu a OS. */}
+          <div className="space-y-2">
+            <Label>Responsável</Label>
+            <ComboFiltro
+              valor={responsavelFiltro}
+              aoEscolher={setResponsavelFiltro}
+              opcoes={pessoas}
+              rotuloTodos="Todos"
+              placeholderBusca="Buscar pessoa..."
+              vazio="Nenhuma pessoa encontrada."
+            />
+            <p className="text-xs text-muted-foreground">
+              Quem abriu a ordem. Escolher alguém desliga o botão &ldquo;Minhas OS&rdquo;.
+            </p>
+          </div>
+
+          {/* Realizador: quem executou serviço, que raramente é quem abriu. */}
+          <div className="space-y-2">
+            <Label>Realizador</Label>
+            <ComboFiltro
+              valor={realizadorFiltro}
+              aoEscolher={setRealizadorFiltro}
+              opcoes={pessoas}
+              rotuloTodos="Todos"
+              placeholderBusca="Buscar pessoa..."
+              vazio="Nenhuma pessoa encontrada."
+            />
+            <p className="text-xs text-muted-foreground">
+              OS com algum serviço atribuído a essa pessoa.
+            </p>
+          </div>
+
+          {/* Destaque */}
+          <div className="space-y-2">
+            <Label>Destaque</Label>
+            <Select
+              value={somenteDestacadas ? "DESTACADAS" : "TODAS"}
+              onValueChange={(v) => setSomenteDestacadas(v === "DESTACADAS")}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="TODAS">Todas as ordens</SelectItem>
+                <SelectItem value="DESTACADAS">Somente destacadas</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* Datas */}
           <div className="space-y-3">
-            <p className="text-sm font-medium">Data de entrada (intervalo)</p>
+            <p className="text-sm font-medium">Período</p>
+            <div className="space-y-2">
+              <span className="text-xs text-muted-foreground">Medir por</span>
+              <Select value={campoData} onValueChange={(v) => setCampoData(v as CampoData)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="entrada">Data de entrada</SelectItem>
+                  <SelectItem value="saida">Data de saída</SelectItem>
+                  <SelectItem value="concluido">Conclusão do pagamento</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* Data início */}
               <div className="space-y-2">
@@ -284,25 +384,30 @@ export function OrdensFilterSheet({
               </div>
             </div>
           </div>
-          <div className="mt-2 flex justify-between gap-2">
-            <Button
-              variant="outline"
-              className="w-30"
-              size="default"
-              type="button"
-              onClick={onLimpar}
-            >
-              Limpar
-            </Button>
-            <Button
-              size="default"
-              className="w-30"
-              type="button"
-              onClick={() => onOpenChange(false)}
-            >
-              Aplicar
-            </Button>
-          </div>
+        </div>
+
+        {/*
+          Fora da área que rola: com sete filtros no painel, os botões que
+          encerram a escolha não podem depender de chegar ao fim da lista.
+        */}
+        <div className="flex shrink-0 justify-between gap-2 border-t bg-background p-4">
+          <Button
+            variant="outline"
+            className="w-30"
+            size="default"
+            type="button"
+            onClick={onLimpar}
+          >
+            Limpar
+          </Button>
+          <Button
+            size="default"
+            className="w-30"
+            type="button"
+            onClick={() => onOpenChange(false)}
+          >
+            Aplicar
+          </Button>
         </div>
       </SheetContent>
     </Sheet>

@@ -60,6 +60,10 @@ import { LancarFinanceiroEntradaDialog } from "@/components/entrada-fiscal/lanca
  * `/api/usoconsumo/movimentos`). A tela pede uma pagina por vez e mostra o
  * total real do resultado — antes ela baixava um lote grande e filtrava no
  * navegador, entao a busca so enxergava o que ja tinha vindo.
+ *
+ * A busca livre varre o texto achatado da linha, que inclui o motivo da entrada
+ * e o da saida — codigo e nome cadastrado. Quem precisa de recorte exato usa o
+ * painel de filtros, onde motivo, autor e lancamento viram igualdade no banco.
  */
 
 type InventoryKind = "produtos" | "uso-consumo";
@@ -68,6 +72,13 @@ type DirectionFilter = "todos" | Direction;
 type StatusFilter = "todos" | "CONFIRMADA" | "CANCELADA";
 type FiscalFilter = "todos" | "com_nf" | "sem_nf";
 type FinanceiroFilter = "todos" | "sem_lancamento";
+type AcaoFilter = "todas" | "REGISTRO" | "ESTORNO";
+
+/** "todos" e o valor de "sem filtro" — Select do Radix nao aceita item vazio. */
+const SEM_FILTRO = "todos";
+
+/** Opcao de motivo (tipos_entrada / tipos_motivo_saida) ou de autor. */
+type Opcao = { valor: string; rotulo: string };
 
 type Origem = "ENTRADA" | "SAIDA_MANUAL" | "VENDA" | "ORDEM_SERVICO" | "NAO_IDENTIFICADA";
 type OrigemFilter = "todas" | Origem;
@@ -99,9 +110,18 @@ type RawLedgerMovement = {
     origem?: string | null;
     fiscal?: boolean | null;
     numero_nota?: string | null;
+    /** Motivo da entrada: codigo de `tipos_entrada` e o nome cadastrado. */
+    tipo?: string | null;
+    tipo_nome?: string | null;
+    observacao?: string | null;
     fornecedor?: { nomerazaosocial?: string | null } | null;
   } | null;
-  saida?: { status?: string | null; motivo?: string | null; observacao?: string | null } | null;
+  saida?: {
+    status?: string | null;
+    motivo?: string | null;
+    motivo_nome?: string | null;
+    observacao?: string | null;
+  } | null;
 };
 
 /** Linha do historico de uso e consumo (/api/usoconsumo/movimentos). */
@@ -113,8 +133,10 @@ type RawUsoConsumoMovement = {
   valor_total: number | null;
   numero_nota: string | null;
   tipo: string | null;
+  tipo_nome: string | null;
   origem: string | null;
   motivo: string | null;
+  motivo_nome: string | null;
   observacao: string | null;
   parte: string | null;
   fiscal: boolean | null;
@@ -133,6 +155,8 @@ type Movement = {
   description: string;
   party: string;
   items: string;
+  /** Motivo da entrada ou da saida, ja no nome legivel do cadastro. */
+  motivo: string | null;
   total: number | null;
   status: string;
   fiscal?: boolean;
@@ -155,6 +179,13 @@ type Filtros = {
   direcao: DirectionFilter;
   status: StatusFilter;
   origem: OrigemFilter;
+  acao: AcaoFilter;
+  /** Codigo de `tipos_entrada`, ou SEM_FILTRO. */
+  tipoEntrada: string;
+  /** Codigo de `tipos_motivo_saida`, ou SEM_FILTRO. */
+  motivoSaida: string;
+  /** Id do usuario que assinou o movimento, ou SEM_FILTRO. */
+  usuario: string;
   fiscal: FiscalFilter;
   financeiro: FinanceiroFilter;
   dataInicial: string;
@@ -169,6 +200,10 @@ const FILTROS_INICIAIS: Filtros = {
   direcao: "todos",
   status: "todos",
   origem: "todas",
+  acao: "todas",
+  tipoEntrada: SEM_FILTRO,
+  motivoSaida: SEM_FILTRO,
+  usuario: SEM_FILTRO,
   fiscal: "todos",
   financeiro: "todos",
   dataInicial: "",
@@ -219,6 +254,14 @@ function normalizeLedgerMovement(raw: RawLedgerMovement): Movement {
   const itemUnit = raw.produto?.unidade ? ` ${raw.produto.unidade}` : "";
   const movementItem = `${itemTitle} (${Math.abs(raw.quantidade)}${itemUnit})`;
 
+  // Entrada guarda o motivo em `tipo`; saida manual, em `motivo`. Quando o
+  // codigo gravado saiu do cadastro, o proprio codigo vira o rotulo.
+  const motivoCru =
+    direction === "entrada"
+      ? raw.entrada?.tipo_nome || raw.entrada?.tipo
+      : raw.saida?.motivo_nome || raw.saida?.motivo;
+  const motivo = motivoCru ? label(motivoCru) : null;
+
   let documentKind: Direction | null = null;
   let documentId: number | null = null;
 
@@ -243,6 +286,7 @@ function normalizeLedgerMovement(raw: RawLedgerMovement): Movement {
         : raw.documento_label || ROTULO_ORIGEM[raw.origem] || "Movimentação",
     party,
     items: movementItem,
+    motivo,
     total: null,
     status: raw.status || "CONFIRMADA",
     fiscal: Boolean(raw.fiscal),
@@ -259,7 +303,11 @@ function normalizeLedgerMovement(raw: RawLedgerMovement): Movement {
 
 function normalizeUsoConsumoMovement(raw: RawUsoConsumoMovement): Movement {
   const padrao = raw.sentido === "entrada" ? "Entrada no estoque" : "Saída do estoque";
-  const descricaoCrua = raw.motivo || raw.tipo;
+  // Entrada guarda o motivo em `tipo`; saida, em `motivo`. Sem nota fiscal, e o
+  // motivo que descreve a linha.
+  const motivoCru =
+    raw.sentido === "entrada" ? raw.tipo_nome || raw.tipo : raw.motivo_nome || raw.motivo;
+  const motivo = motivoCru ? label(motivoCru) : null;
 
   return {
     key: `uso-${raw.sentido}-${raw.id}`,
@@ -267,13 +315,10 @@ function normalizeUsoConsumoMovement(raw: RawUsoConsumoMovement): Movement {
     inventory: "uso-consumo",
     direction: raw.sentido,
     createdAt: raw.created_at,
-    description: raw.numero_nota
-      ? `Nota fiscal nº ${raw.numero_nota}`
-      : descricaoCrua
-        ? label(descricaoCrua)
-        : padrao,
+    description: raw.numero_nota ? `Nota fiscal nº ${raw.numero_nota}` : motivo ?? padrao,
     party: raw.parte || raw.criador_nome || "—",
     items: raw.itens_resumo || "—",
+    motivo,
     total: raw.valor_total ?? null,
     status: raw.status || "CONFIRMADA",
     fiscal: Boolean(raw.fiscal),
@@ -349,6 +394,17 @@ function MovementRow({
                   className={`shrink-0 px-1.5 py-0 text-[10px] font-normal ${COR_ORIGEM[movement.origem]}`}
                 >
                   {ROTULO_ORIGEM[movement.origem]}
+                </Badge>
+              ) : null}
+              {/* Motivo da entrada ou da saida. Some quando ja e a propria
+                  descricao da linha, para nao repetir a mesma palavra duas vezes. */}
+              {movement.motivo && movement.motivo !== movement.description ? (
+                <Badge
+                  variant="outline"
+                  className="shrink-0 px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
+                  title={isEntrada ? "Motivo da entrada" : "Motivo da saída"}
+                >
+                  {movement.motivo}
                 </Badge>
               ) : null}
               {isEntrada && movement.fiscal ? (
@@ -484,6 +540,81 @@ function MovementRow({
   );
 }
 
+const SEM_OPCOES: { tiposEntrada: Opcao[]; motivosSaida: Opcao[]; autores: Opcao[] } = {
+  tiposEntrada: [],
+  motivosSaida: [],
+  autores: [],
+};
+
+/** Cadastro de tipos: `{ codigo, nome }` vira `{ valor, rotulo }`. */
+function paraOpcoes(items: unknown): Opcao[] {
+  return ((items ?? []) as { codigo?: unknown; nome?: unknown }[]).map((item) => ({
+    valor: String(item.codigo ?? ""),
+    rotulo: String(item.nome || item.codigo || ""),
+  }));
+}
+
+/**
+ * Opcoes dos filtros de motivo e de autor.
+ *
+ * Carrega uma vez por estoque escolhido, e so quando o painel abre — quem nunca
+ * filtra nao paga as tres requisicoes. Os tipos vem sem `ativo=true` de
+ * proposito: motivo desativado hoje continua existindo no historico de ontem, e
+ * precisa continuar filtravel.
+ */
+function useOpcoesDeFiltro(inventory: InventoryKind, enabled: boolean) {
+  const [opcoes, setOpcoes] = useState(SEM_OPCOES);
+  const [carregando, setCarregando] = useState(false);
+  const carregado = useRef<InventoryKind | null>(null);
+
+  useEffect(() => {
+    if (!enabled || carregado.current === inventory) return;
+    let ativo = true;
+    const escopo = inventory === "uso-consumo" ? "USOCONSUMO" : "PRODUTO";
+    const autoresUrl =
+      inventory === "uso-consumo"
+        ? "/api/usoconsumo/movimentos/autores"
+        : "/api/estoque/movimentos/autores";
+
+    // O setState fica na cadeia de promise, e nao no corpo do efeito, pela mesma
+    // regra que o resto do modulo segue (react-hooks/set-state-in-effect).
+    void Promise.resolve()
+      .then(() => {
+        if (!ativo) return null;
+        setCarregando(true);
+        return Promise.all([
+          axios.get(`/api/tipos/tipos-entrada?escopo=${escopo}`),
+          axios.get(`/api/tipos/motivos-saida?escopo=${escopo}`),
+          axios.get(autoresUrl),
+        ]);
+      })
+      .then((respostas) => {
+        if (!ativo || !respostas) return;
+        const [tipos, motivos, autores] = respostas;
+        carregado.current = inventory;
+        setOpcoes({
+          tiposEntrada: paraOpcoes(tipos.data?.items),
+          motivosSaida: paraOpcoes(motivos.data?.items),
+          autores: ((autores.data?.autores ?? []) as { id?: unknown; nome?: unknown }[]).map(
+            (autor) => ({ valor: String(autor.id ?? ""), rotulo: String(autor.nome ?? "") }),
+          ),
+        });
+      })
+      .catch(() => {
+        if (ativo) toast.error("Opções de filtro não carregadas.");
+      })
+      .finally(() => {
+        if (ativo) setCarregando(false);
+      });
+
+    return () => {
+      ativo = false;
+    };
+  }, [enabled, inventory]);
+
+  return { opcoes, carregandoOpcoes: carregando };
+}
+
 function MovementTable({
   filtros,
   movements,
@@ -521,11 +652,18 @@ function MovementTable({
   const [draftDirection, setDraftDirection] = useState<DirectionFilter>(filtros.direcao);
   const [draftStatus, setDraftStatus] = useState<StatusFilter>(filtros.status);
   const [draftOrigem, setDraftOrigem] = useState<OrigemFilter>(filtros.origem);
+  const [draftAcao, setDraftAcao] = useState<AcaoFilter>(filtros.acao);
+  const [draftTipoEntrada, setDraftTipoEntrada] = useState(filtros.tipoEntrada);
+  const [draftMotivoSaida, setDraftMotivoSaida] = useState(filtros.motivoSaida);
+  const [draftUsuario, setDraftUsuario] = useState(filtros.usuario);
   const [draftFiscal, setDraftFiscal] = useState<FiscalFilter>(filtros.fiscal);
   const [draftFinanceiro, setDraftFinanceiro] =
     useState<FinanceiroFilter>(filtros.financeiro);
   const [draftDateFrom, setDraftDateFrom] = useState(filtros.dataInicial);
   const [draftDateTo, setDraftDateTo] = useState(filtros.dataFinal);
+
+  const { opcoes, carregandoOpcoes } = useOpcoesDeFiltro(filtros.inventory, sheetOpen);
+  const produtos = filtros.inventory === "produtos";
 
   const showActions = movements.length > 0;
   const colSpan = showActions ? 6 : 5;
@@ -535,6 +673,10 @@ function MovementTable({
     Number(filtros.direcao !== "todos") +
     Number(filtros.status !== "todos") +
     Number(filtros.origem !== "todas") +
+    Number(filtros.acao !== "todas") +
+    Number(filtros.tipoEntrada !== SEM_FILTRO) +
+    Number(filtros.motivoSaida !== SEM_FILTRO) +
+    Number(filtros.usuario !== SEM_FILTRO) +
     Number(filtros.fiscal !== "todos") +
     Number(filtros.financeiro !== "todos") +
     Number(Boolean(filtros.dataInicial)) +
@@ -550,6 +692,10 @@ function MovementTable({
       setDraftDirection(filtros.direcao);
       setDraftStatus(filtros.status);
       setDraftOrigem(filtros.origem);
+      setDraftAcao(filtros.acao);
+      setDraftTipoEntrada(filtros.tipoEntrada);
+      setDraftMotivoSaida(filtros.motivoSaida);
+      setDraftUsuario(filtros.usuario);
       setDraftFiscal(filtros.fiscal);
       setDraftFinanceiro(filtros.financeiro);
       setDraftDateFrom(filtros.dataInicial);
@@ -558,14 +704,38 @@ function MovementTable({
     setSheetOpen(open);
   }
 
+  /**
+   * Motivo de entrada e motivo de saida vivem em lados opostos do histórico: os
+   * dois juntos nunca devolvem linha. Escolher um solta o outro e já acerta o
+   * sentido — e, no razão de produtos, também a origem, porque motivo de saída
+   * só existe na saída manual.
+   */
+  function changeDraftTipoEntrada(valor: string) {
+    setDraftTipoEntrada(valor);
+    if (valor === SEM_FILTRO) return;
+    setDraftMotivoSaida(SEM_FILTRO);
+    setDraftDirection("entrada");
+    if (produtos) setDraftOrigem("ENTRADA");
+  }
+
+  function changeDraftMotivoSaida(valor: string) {
+    setDraftMotivoSaida(valor);
+    if (valor === SEM_FILTRO) return;
+    setDraftTipoEntrada(SEM_FILTRO);
+    setDraftDirection("saida");
+    if (produtos) setDraftOrigem("SAIDA_MANUAL");
+  }
+
   function applyFilters() {
     onFiltrosChange({
       direcao: draftFinanceiro === "sem_lancamento" ? "entrada" : draftDirection,
       status: draftFinanceiro === "sem_lancamento" ? "CONFIRMADA" : draftStatus,
       origem:
-        draftFinanceiro === "sem_lancamento" && filtros.inventory === "produtos"
-          ? "ENTRADA"
-          : draftOrigem,
+        draftFinanceiro === "sem_lancamento" && produtos ? "ENTRADA" : draftOrigem,
+      acao: draftAcao,
+      tipoEntrada: draftTipoEntrada,
+      motivoSaida: draftMotivoSaida,
+      usuario: draftUsuario,
       fiscal: draftFiscal,
       financeiro: draftFinanceiro,
       dataInicial: draftDateFrom,
@@ -578,6 +748,10 @@ function MovementTable({
     setDraftDirection("todos");
     setDraftStatus("todos");
     setDraftOrigem("todas");
+    setDraftAcao("todas");
+    setDraftTipoEntrada(SEM_FILTRO);
+    setDraftMotivoSaida(SEM_FILTRO);
+    setDraftUsuario(SEM_FILTRO);
     setDraftFiscal("todos");
     setDraftFinanceiro("todos");
     setDraftDateFrom("");
@@ -630,7 +804,7 @@ function MovementTable({
               <Input
                 value={filtros.busca}
                 onChange={(event) => onFiltrosChange({ busca: event.target.value })}
-                placeholder="Buscar no histórico..."
+                placeholder="Buscar por item, nota, motivo, pessoa..."
                 className="h-9 pl-9"
               />
             </div>
@@ -652,7 +826,7 @@ function MovementTable({
                   <SheetTitle>Filtros do histórico de estoque</SheetTitle>
                 </SheetHeader>
 
-                <div className="grid flex-1 auto-rows-min gap-5 overflow-y-auto p-4">
+                <div className="grid min-h-0 flex-1 auto-rows-min gap-5 overflow-y-auto px-4 pb-4">
                   <div className="space-y-5 rounded-xl border bg-card p-4">
                     <div className="space-y-2">
                       <Label>Movimentação</Label>
@@ -668,7 +842,7 @@ function MovementTable({
                       </Select>
                     </div>
 
-                    {filtros.inventory === "produtos" ? (
+                    {produtos ? (
                       <div className="space-y-2 border-t pt-4">
                         <Label>Origem</Label>
                         <Select value={draftOrigem} onValueChange={(value) => setDraftOrigem(value as OrigemFilter)}>
@@ -682,6 +856,85 @@ function MovementTable({
                             <SelectItem value="VENDA">Venda</SelectItem>
                             <SelectItem value="ORDEM_SERVICO">Ordem de serviço</SelectItem>
                             <SelectItem value="NAO_IDENTIFICADA">Sem origem</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ) : null}
+
+                    <div className="space-y-2 border-t pt-4">
+                      <Label htmlFor="estoque-motivo-entrada">Motivo da entrada</Label>
+                      <Select value={draftTipoEntrada} onValueChange={changeDraftTipoEntrada}>
+                        <SelectTrigger id="estoque-motivo-entrada" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={SEM_FILTRO}>Todos os motivos de entrada</SelectItem>
+                          {opcoes.tiposEntrada.map((opcao) => (
+                            <SelectItem key={opcao.valor} value={opcao.valor}>
+                              {opcao.rotulo}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        {carregandoOpcoes
+                          ? "Carregando motivos..."
+                          : "Tipos cadastrados em Configurações › Tipos."}
+                      </p>
+                    </div>
+
+                    <div className="space-y-2 border-t pt-4">
+                      <Label htmlFor="estoque-motivo-saida">Motivo da saída</Label>
+                      <Select value={draftMotivoSaida} onValueChange={changeDraftMotivoSaida}>
+                        <SelectTrigger id="estoque-motivo-saida" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={SEM_FILTRO}>Todos os motivos de saída</SelectItem>
+                          {opcoes.motivosSaida.map((opcao) => (
+                            <SelectItem key={opcao.valor} value={opcao.valor}>
+                              {opcao.rotulo}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2 border-t pt-4">
+                      <Label htmlFor="estoque-usuario">Usuário</Label>
+                      <Select value={draftUsuario} onValueChange={setDraftUsuario}>
+                        <SelectTrigger id="estoque-usuario" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={SEM_FILTRO}>Todos os usuários</SelectItem>
+                          {opcoes.autores.map((opcao) => (
+                            <SelectItem key={opcao.valor} value={opcao.valor}>
+                              {opcao.rotulo}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Quem registrou o movimento. Venda e ordem de serviço podem não ter autor.
+                      </p>
+                    </div>
+
+                    {/*
+                      Estorno é a linha que desfaz outra: escondê-lo deixa só o
+                      que de fato aconteceu, sem o par de cancelamento no meio.
+                    */}
+                    {produtos ? (
+                      <div className="space-y-2 border-t pt-4">
+                        <Label>Lançamento</Label>
+                        <Select value={draftAcao} onValueChange={(value) => setDraftAcao(value as AcaoFilter)}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="todas">Registros e estornos</SelectItem>
+                            <SelectItem value="REGISTRO">Somente registros</SelectItem>
+                            <SelectItem value="ESTORNO">Somente estornos</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
@@ -725,9 +978,8 @@ function MovementTable({
                           if (financeiro === "sem_lancamento") {
                             setDraftDirection("entrada");
                             setDraftStatus("CONFIRMADA");
-                            if (filtros.inventory === "produtos") {
-                              setDraftOrigem("ENTRADA");
-                            }
+                            setDraftMotivoSaida(SEM_FILTRO);
+                            if (produtos) setDraftOrigem("ENTRADA");
                           }
                         }}
                       >
@@ -770,16 +1022,21 @@ function MovementTable({
                         </div>
                       </div>
                     </div>
-
-                    <div className="flex justify-end gap-2 border-t pt-4">
-                      <Button type="button" variant="outline" onClick={clearDraftFilters}>
-                        Limpar
-                      </Button>
-                      <Button type="button" onClick={applyFilters}>
-                        Aplicar filtros
-                      </Button>
-                    </div>
                   </div>
+                </div>
+
+                {/*
+                  Fora da area que rola: sao dez filtros no painel, e os dois
+                  botoes que encerram a escolha nao podem depender de o usuario
+                  chegar ao fim da lista para reaparecer.
+                */}
+                <div className="flex shrink-0 justify-end gap-2 border-t bg-background p-4">
+                  <Button type="button" variant="outline" onClick={clearDraftFilters}>
+                    Limpar
+                  </Button>
+                  <Button type="button" onClick={applyFilters}>
+                    Aplicar filtros
+                  </Button>
                 </div>
               </SheetContent>
             </Sheet>
@@ -967,8 +1224,19 @@ export default function HistoricoEstoquePage() {
       // Mudou qualquer criterio? A pagina volta ao inicio — so a navegacao
       // explicita de pagina mantem onde estava.
       if (patch.page === undefined) proximo.page = 1;
-      // Origem so existe no razao de produtos.
-      if (proximo.inventory === "uso-consumo") proximo.origem = "todas";
+      // Origem e acao so existem no razao de produtos.
+      if (proximo.inventory === "uso-consumo") {
+        proximo.origem = "todas";
+        proximo.acao = "todas";
+      }
+      // Trocar de estoque troca os cadastros por tras dos filtros: os codigos de
+      // motivo tem escopo, e cada aba tem sua propria lista de autores. Manter a
+      // escolha antiga so devolveria lista vazia sem explicar por que.
+      if (patch.inventory && patch.inventory !== atual.inventory) {
+        proximo.tipoEntrada = SEM_FILTRO;
+        proximo.motivoSaida = SEM_FILTRO;
+        proximo.usuario = SEM_FILTRO;
+      }
       return proximo;
     });
   }
@@ -1005,6 +1273,9 @@ export default function HistoricoEstoquePage() {
       if (buscaAplicada) params.q = buscaAplicada;
       if (filtros.direcao !== "todos") params.sentido = filtros.direcao;
       if (filtros.status !== "todos") params.status = filtros.status;
+      if (filtros.tipoEntrada !== SEM_FILTRO) params.tipoEntrada = filtros.tipoEntrada;
+      if (filtros.motivoSaida !== SEM_FILTRO) params.motivoSaida = filtros.motivoSaida;
+      if (filtros.usuario !== SEM_FILTRO) params.usuario = filtros.usuario;
       if (filtros.fiscal !== "todos") params.fiscal = filtros.fiscal;
       if (filtros.financeiro !== "todos") params.financeiro = filtros.financeiro;
       if (filtros.dataInicial) params.desde = new Date(`${filtros.dataInicial}T00:00:00`).toISOString();
@@ -1012,6 +1283,7 @@ export default function HistoricoEstoquePage() {
 
       const produtos = filtros.inventory === "produtos";
       if (produtos && filtros.origem !== "todas") params.origem = filtros.origem;
+      if (produtos && filtros.acao !== "todas") params.acao = filtros.acao;
 
       const { data } = await axios.get(
         produtos ? "/api/estoque/movimentos" : "/api/usoconsumo/movimentos",
@@ -1045,6 +1317,7 @@ export default function HistoricoEstoquePage() {
     buscaAplicada,
     canProducts,
     canUse,
+    filtros.acao,
     filtros.dataFinal,
     filtros.dataInicial,
     filtros.direcao,
@@ -1052,9 +1325,12 @@ export default function HistoricoEstoquePage() {
     filtros.financeiro,
     filtros.inventory,
     filtros.limit,
+    filtros.motivoSaida,
     filtros.origem,
     filtros.page,
     filtros.status,
+    filtros.tipoEntrada,
+    filtros.usuario,
   ]);
 
   useEffect(() => {

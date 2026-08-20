@@ -14,6 +14,37 @@ type AlvoTipo = "VEICULO" | "PECA" | "EQUIPAMENTO" | null;
 const PRIORIDADES = ["ALTA", "NORMAL", "BAIXA"];
 const ALVOS = ["VEICULO", "PECA", "EQUIPAMENTO"];
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Campos de data que o intervalo pode olhar.
+ *
+ * O intervalo sempre mediu a entrada, o que nao serve para fechar mes: uma OS
+ * que entrou em marco e foi paga em abril pertence aos dois recortes, e cada
+ * pergunta quer um deles.
+ */
+const CAMPOS_DATA: Record<string, string> = {
+  entrada: "dataentrada",
+  saida: "datasaida",
+  concluido: "pagamento_concluido_em",
+};
+
+/**
+ * Limpa o termo antes de ele entrar num filtro do PostgREST.
+ *
+ * Virgula e parenteses quebram a gramatica do `or=(...)` — um cliente chamado
+ * "Silva, Joao" derrubava a consulta inteira. `%` e `_` seriam curinga de LIKE
+ * digitado pelo usuario. O ponto fica: o PostgREST so usa os dois primeiros
+ * para separar `coluna.operador.valor`, entao e-mail continua pesquisavel.
+ */
+function sanitizarTermo(valor: string) {
+  return valor
+    .replace(/[%_(),"\\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 100);
+}
+
 /** Ordenar o pai por uma coluna do embed exige PostgREST >= 10. */
 const COLUNA_SETOR_POR_NOME = "setor(nome)";
 
@@ -51,7 +82,12 @@ export async function GET(req: Request) {
 
     const status = (searchParams.get("status") as StatusOS) || "TODAS";
     const statuses = parseStatuses(searchParams.get("statuses"));
-    const q = searchParams.get("q")?.trim() || "";
+    // "@" abre a busca especifica por lacre da peca: so o lacre entra na conta,
+    // sem o ruido de um numero que tambem aparece em telefone ou descricao.
+    const qBruto = searchParams.get("q")?.trim() || "";
+    const buscaPorLacre = qBruto.startsWith("@");
+    const lacre = buscaPorLacre ? sanitizarTermo(qBruto.slice(1)) : "";
+    const q = buscaPorLacre ? "" : sanitizarTermo(qBruto);
     const cliente = searchParams.get("cliente")?.trim() || "";
     const notaNumero = searchParams.get("notaNumero")?.trim() || "";
     const dateFrom = searchParams.get("dateFrom")?.trim() || "";
@@ -64,6 +100,13 @@ export async function GET(req: Request) {
     const setor = searchParams.get("setor")?.trim() || "";
     const alvoTipoParam = (searchParams.get("alvoTipo") ?? "").trim().toUpperCase();
     const alvoTipo = ALVOS.includes(alvoTipoParam) ? alvoTipoParam : "";
+    const responsavel = (searchParams.get("responsavel") ?? "").trim();
+    const realizador = (searchParams.get("realizador") ?? "").trim();
+    const destacadas = ["1", "true", "yes"].includes(
+      (searchParams.get("destacadas") ?? "").trim().toLowerCase()
+    );
+    const campoData =
+      CAMPOS_DATA[(searchParams.get("campoData") ?? "").trim().toLowerCase()] ?? "dataentrada";
     const sort = searchParams.get("sort")?.trim() || "";
     const dir = searchParams.get("dir")?.trim().toLowerCase() === "asc" ? "asc" : "desc";
 
@@ -91,6 +134,38 @@ export async function GET(req: Request) {
       const usuarioId = (session?.user as any)?.id as string | undefined;
       if (!usuarioId) return emptyResponse();
       usuarioCriadorId = usuarioId;
+    } else if (UUID.test(responsavel)) {
+      // O mesmo recorte, para outra pessoa. Os dois juntos se anulariam (duas
+      // igualdades na mesma coluna), entao o botao da barra tem preferencia — e
+      // a tela desliga um ao escolher o outro.
+      usuarioCriadorId = responsavel;
+    }
+
+    /**
+     * Realizador: quem executou algum servico da OS, e nao quem a abriu. O elo
+     * mora em `osservico_realizador`, uma tabela a parte, entao os ids vem antes
+     * e entram como recorte de `id`. O teto e folgado de proposito — a maior
+     * carteira nos bancos em producao tem dezenas de OS, nao milhares.
+     */
+    let realizadorOrdemIds: number[] | null = null;
+    if (UUID.test(realizador)) {
+      const { data: execucoes, error: execucoesError } = await supabaseAdmin
+        .from("osservico_realizador")
+        .select("ordemservicoid")
+        .eq("usuarioid", realizador)
+        .not("ordemservicoid", "is", null)
+        .limit(2000);
+
+      if (execucoesError) throw execucoesError;
+
+      realizadorOrdemIds = [
+        ...new Set(
+          (execucoes ?? [])
+            .map((item) => Number(item.ordemservicoid))
+            .filter((value) => Number.isFinite(value)),
+        ),
+      ];
+      if (realizadorOrdemIds.length === 0) return emptyResponse();
     }
 
     let clienteIds: number[] | null = null;
@@ -195,7 +270,8 @@ export async function GET(req: Request) {
           peca:pecaid (
             id,
             titulo,
-            descricao
+            descricao,
+            lacre
           ),
           setor:setorid (
             id,
@@ -246,11 +322,11 @@ export async function GET(req: Request) {
       }
 
       if (dateFrom) {
-        query = query.gte("dataentrada", `${dateFrom}T00:00:00.000Z`);
+        query = query.gte(campoData, `${dateFrom}T00:00:00.000Z`);
       }
 
       if (dateTo) {
-        query = query.lte("dataentrada", `${dateTo}T23:59:59.999Z`);
+        query = query.lte(campoData, `${dateTo}T23:59:59.999Z`);
       }
 
       if (clienteIds) {
@@ -259,6 +335,16 @@ export async function GET(req: Request) {
 
       if (notaOrdemIds) {
         query = query.in("id", notaOrdemIds);
+      }
+
+      // Dois recortes de `id` no mesmo pedido se somam como interseccao, que e
+      // exatamente o esperado de dois filtros marcados ao mesmo tempo.
+      if (realizadorOrdemIds) {
+        query = query.in("id", realizadorOrdemIds);
+      }
+
+      if (destacadas) {
+        query = query.eq("destacada", true);
       }
 
       if (setorIds) {
@@ -287,7 +373,7 @@ export async function GET(req: Request) {
         query = query.or(`placa.ilike.${like},modelo.ilike.${like},marca.ilike.${like}`, {
           foreignTable: "vFilter",
         });
-        query = query.or(`titulo.ilike.${like},descricao.ilike.${like}`, {
+        query = query.or(`titulo.ilike.${like},descricao.ilike.${like},lacre.ilike.${like}`, {
           foreignTable: "pFilter",
         });
 
@@ -305,6 +391,14 @@ export async function GET(req: Request) {
         if (onlyDigits) topOr.push(`id.eq.${Number(onlyDigits)}`);
 
         query = query.or(topOr.join(","));
+      }
+
+      // Busca por lacre: mesmo mecanismo do bloco acima — o filtro no embed
+      // `pFilter` o anula quando nao casa, e a linha so fica de pe se ele
+      // sobreviveu. Sem o segundo `or`, o filtro do embed nao recortaria o pai.
+      if (lacre) {
+        query = query.or(`lacre.ilike.%${lacre}%`, { foreignTable: "pFilter" });
+        query = query.or("pFilter.not.is.null");
       }
 
       const ordenacao = ORDENACOES[sort];
@@ -381,6 +475,7 @@ export async function GET(req: Request) {
             id: r.peca.id as number,
             titulo: r.peca.titulo as string,
             descricao: (r.peca.descricao as string | null) ?? null,
+            lacre: (r.peca.lacre as string | null) ?? null,
           }
         : null,
 

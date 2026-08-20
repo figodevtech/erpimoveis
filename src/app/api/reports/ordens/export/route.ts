@@ -10,6 +10,41 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 const LOCAL_OFFSET = "-03:00";
 const PAGE_SIZE = 1000;
 
+/** Status válidos de OS. Filtro fora desta lista é descartado, não aplicado. */
+const STATUS_OS = new Set([
+  "AGUARDANDO_CHECKLIST",
+  "ORCAMENTO",
+  "APROVACAO_ORCAMENTO",
+  "ORCAMENTO_APROVADO",
+  "ORCAMENTO_RECUSADO",
+  "EM_ANDAMENTO",
+  "PAGAMENTO",
+  "SEM_COBRANCA",
+  "CONCLUIDO",
+  "CANCELADO",
+]);
+
+const PRIORIDADES = new Set(["ALTA", "NORMAL", "BAIXA"]);
+const ALVOS = new Set(["VEICULO", "PECA", "EQUIPAMENTO"]);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Lista de status vinda da tela: `CONCLUIDO,PAGAMENTO`.
+ *
+ * Antes o filtro era um status só, e a pergunta mais comum do balcão — "tudo
+ * que ainda não fechou" — exigia gerar um relatório por status e juntar à mão.
+ */
+function statusSelecionados(valor: string | null) {
+  return [
+    ...new Set(
+      (valor ?? "")
+        .split(",")
+        .map((item) => item.trim().toUpperCase())
+        .filter((item) => STATUS_OS.has(item)),
+    ),
+  ];
+}
+
 function integer(value: string | null) {
   if (!value) return null;
   const parsed = Number(value);
@@ -78,7 +113,13 @@ export async function GET(request: Request) {
     await requireRelatoriosAccess();
     const { searchParams } = new URL(request.url);
     const mode = searchParams.get("mode") === "financeiro" ? "financeiro" : "simples";
-    const status = safeText(searchParams.get("status"), 40);
+    const status = statusSelecionados(searchParams.get("status"));
+    const prioridadeParam = safeText(searchParams.get("prioridade"), 20).toUpperCase();
+    const prioridade = PRIORIDADES.has(prioridadeParam) ? prioridadeParam : "";
+    const alvoParam = safeText(searchParams.get("alvoTipo"), 20).toUpperCase();
+    const alvoTipo = ALVOS.has(alvoParam) ? alvoParam : "";
+    const responsavelParam = safeText(searchParams.get("responsavelId"), 40);
+    const responsavelId = UUID.test(responsavelParam) ? responsavelParam : "";
     const dateFrom = safeText(searchParams.get("dateFrom"), 10);
     const dateTo = safeText(searchParams.get("dateTo"), 10);
     const ordemId = integer(searchParams.get("ordemId"));
@@ -96,7 +137,7 @@ export async function GET(request: Request) {
         .from("ordemservico")
         .select(`
           id, descricao, status, prioridade, dataentrada, datasaida, execucao_fim_em, orcamentototal,
-          equipamento_nome, equipamento_patrimonio, equipamento_ano, equipamento_horimetro,
+          alvo_tipo, equipamento_nome, equipamento_patrimonio, equipamento_ano, equipamento_horimetro,
           cliente:clienteid(id, nomerazaosocial, cpfcnpj),
           veiculo:veiculoid(id, placa, marca, modelo),
           peca:pecaid(id, titulo, descricao),
@@ -106,12 +147,18 @@ export async function GET(request: Request) {
         .eq("is_deleted", false)
         .order(colunaPeriodo, { ascending: true })
         .order("id", { ascending: true });
-      if (status && status !== "TODAS") query = query.eq("status", status);
+      if (status.length === 1) query = query.eq("status", status[0]);
+      if (status.length > 1) query = query.in("status", status);
       if (dateFrom) query = query.gte(colunaPeriodo, startOfDay(dateFrom));
       if (dateTo) query = query.lt(colunaPeriodo, nextDay(dateTo));
       if (ordemId) query = query.eq("id", ordemId);
       if (clienteId) query = query.eq("clienteid", clienteId);
       if (setorId) query = query.eq("setorid", setorId);
+      if (prioridade) query = query.eq("prioridade", prioridade);
+      // OS antiga nasceu sem `alvo_tipo` e sempre foi tratada como veículo.
+      if (alvoTipo === "VEICULO") query = query.or("alvo_tipo.is.null,alvo_tipo.eq.VEICULO");
+      else if (alvoTipo) query = query.eq("alvo_tipo", alvoTipo);
+      if (responsavelId) query = query.eq("usuariocriadorid", responsavelId);
       return query;
     };
 

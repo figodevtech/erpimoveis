@@ -35,6 +35,19 @@ const LIMITE_MAXIMO = 500;
 /** Termos alem disso nao estreitam mais nada e so custam varredura. */
 const MAX_TERMOS_BUSCA = 6;
 
+/** Formato dos codigos de `tipos_entrada` e `tipos_motivo_saida`. */
+const CODIGO_TIPO = /^[A-Z0-9_]{1,60}$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Codigo de tipo vindo da tela. Os codigos sao cadastrados em maiuscula, entao
+ * qualquer coisa fora do formato e descartada em vez de virar filtro vazio.
+ */
+function codigoDeTipo(valor: string | null) {
+  const codigo = (valor ?? "").trim().toUpperCase();
+  return CODIGO_TIPO.test(codigo) ? codigo : null;
+}
+
 /**
  * Quebra a busca em termos e limpa os curingas do LIKE.
  *
@@ -131,6 +144,11 @@ function paraMovimento(
           origem: linha.entrada_origem,
           fiscal: linha.entrada_fiscal,
           numero_nota: linha.entrada_numero_nota,
+          tipo: linha.entrada_tipo,
+          // Nome cadastrado do tipo. Nulo quando o codigo gravado na entrada nao
+          // existe mais no cadastro — a tela cai no codigo nesse caso.
+          tipo_nome: linha.entrada_tipo_nome,
+          observacao: linha.entrada_observacao,
           fornecedor: linha.fornecedor_nome ? { nomerazaosocial: linha.fornecedor_nome } : null,
         }
       : null,
@@ -139,6 +157,7 @@ function paraMovimento(
           id: linha.saida_id,
           status: linha.saida_status,
           motivo: linha.saida_motivo,
+          motivo_nome: linha.saida_motivo_nome,
           observacao: linha.saida_observacao,
         }
       : null,
@@ -199,6 +218,18 @@ export async function GET(req: NextRequest) {
         .eq("status", "CONFIRMADA")
         .eq("financeiro_lancado", false);
     }
+
+    // Motivo da entrada (tipos_entrada) e da saida (tipos_motivo_saida). Cada um
+    // so existe de um lado do razao, entao filtrar por um deles ja restringe o
+    // sentido sem precisar dizer isso duas vezes.
+    const tipoEntrada = codigoDeTipo(params.get("tipoEntrada"));
+    if (tipoEntrada) query = query.eq("entrada_tipo", tipoEntrada);
+
+    const motivoSaida = codigoDeTipo(params.get("motivoSaida"));
+    if (motivoSaida) query = query.eq("saida_motivo", motivoSaida);
+
+    const usuario = (params.get("usuario") ?? "").trim();
+    if (UUID.test(usuario)) query = query.eq("created_by", usuario);
 
     const vendaId = Number(params.get("vendaId"));
     if (Number.isInteger(vendaId) && vendaId > 0) query = query.eq("venda_id", vendaId);

@@ -22,6 +22,15 @@ const STATUS = new Set(["CONFIRMADA", "CANCELADA"]);
 const LIMITE_MAXIMO = 500;
 const MAX_TERMOS_BUSCA = 6;
 
+/** Mesmo formato de codigo da rota de produtos. */
+const CODIGO_TIPO = /^[A-Z0-9_]{1,60}$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function codigoDeTipo(valor: string | null) {
+  const codigo = (valor ?? "").trim().toUpperCase();
+  return CODIGO_TIPO.test(codigo) ? codigo : null;
+}
+
 /** Mesma limpeza da rota de produtos: sem curinga de LIKE vindo do usuario. */
 function termosDeBusca(valor: string | null) {
   return (valor ?? "")
@@ -98,6 +107,17 @@ export async function GET(req: NextRequest) {
         .eq("status", "CONFIRMADA")
         .eq("financeiro_lancado", false);
     }
+
+    // `tipo` so vem preenchido na entrada e `motivo` so na saida: filtrar por um
+    // deles ja escolhe o lado do historico.
+    const tipoEntrada = codigoDeTipo(params.get("tipoEntrada"));
+    if (tipoEntrada) query = query.eq("tipo", tipoEntrada);
+
+    const motivoSaida = codigoDeTipo(params.get("motivoSaida"));
+    if (motivoSaida) query = query.eq("motivo", motivoSaida);
+
+    const usuario = (params.get("usuario") ?? "").trim();
+    if (UUID.test(usuario)) query = query.eq("created_by", usuario);
 
     const desde = params.get("desde");
     if (desde) query = query.gte("created_at", desde);

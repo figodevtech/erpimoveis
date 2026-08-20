@@ -102,11 +102,22 @@ type FetchParams = {
   prioFiltro: PrioFiltro;
   setorFiltro: string;
   alvoFiltro: "TODOS" | "VEICULO" | "PECA" | "EQUIPAMENTO";
+  /** Id de quem abriu a OS, ou TODOS. */
+  responsavelFiltro: string;
+  /** Id de quem executou algum serviço da OS, ou TODOS. */
+  realizadorFiltro: string;
+  somenteDestacadas: boolean;
+  campoData: CampoData;
   dataInicio?: Date;
   dataFim?: Date;
   sortKey: SortKey;
   sortDir: SortDir;
 };
+
+/** Qual data o intervalo mede. */
+type CampoData = "entrada" | "saida" | "concluido";
+
+const SEM_FILTRO = "TODOS";
 
 /** Dia local em YYYY-MM-DD (toISOString converteria para UTC e podia trocar o dia). */
 function toDiaISO(date: Date) {
@@ -190,9 +201,28 @@ export function OrdensTabela({
   const [prioFiltro, setPrioFiltro] = useState<PrioFiltro>("TODAS");
   const [setorFiltro, setSetorFiltro] = useState<string>("TODOS");
   const [alvoFiltro, setAlvoFiltro] = useState<"TODOS" | "VEICULO" | "PECA" | "EQUIPAMENTO">("TODOS");
+  const [responsavelFiltro, setResponsavelFiltro] = useState<string>(SEM_FILTRO);
+  const [realizadorFiltro, setRealizadorFiltro] = useState<string>(SEM_FILTRO);
+  const [somenteDestacadas, setSomenteDestacadas] = useState(false);
+  const [campoData, setCampoData] = useState<CampoData>("entrada");
   const [dataInicio, setDataInicioState] = useState<Date | undefined>();
   const [dataFim, setDataFimState] = useState<Date | undefined>();
   const [setoresApiOptions, setSetoresApiOptions] = useState<Array<{ value: string; label: string }>>([]);
+  const [pessoasOptions, setPessoasOptions] = useState<Array<{ value: string; label: string }>>([]);
+
+  /**
+   * "Minhas ordens" e o filtro de responsável são a mesma pergunta feita de dois
+   * lugares: no banco viram a mesma coluna, e ligados juntos se anulariam.
+   */
+  function escolherResponsavel(valor: string) {
+    setResponsavelFiltro(valor);
+    if (valor !== SEM_FILTRO) setApenasMinhas(false);
+  }
+
+  function alternarApenasMinhas(valor: boolean) {
+    setApenasMinhas(valor);
+    if (valor) setResponsavelFiltro(SEM_FILTRO);
+  }
 
   const [viewMode, setViewMode] = useState<"grid" | "table">(() => {
     if (typeof window !== "undefined") {
@@ -235,6 +265,10 @@ export function OrdensTabela({
     prioFiltro: "TODAS",
     setorFiltro: "TODOS",
     alvoFiltro: "TODOS",
+    responsavelFiltro: SEM_FILTRO,
+    realizadorFiltro: SEM_FILTRO,
+    somenteDestacadas: false,
+    campoData: "entrada",
     dataInicio: undefined,
     dataFim: undefined,
     sortKey: defaultSortKey,
@@ -250,6 +284,10 @@ export function OrdensTabela({
       prioFiltro,
       setorFiltro,
       alvoFiltro,
+      responsavelFiltro,
+      realizadorFiltro,
+      somenteDestacadas,
+      campoData,
       dataInicio,
       dataFim,
       sortKey,
@@ -264,6 +302,10 @@ export function OrdensTabela({
     prioFiltro,
     setorFiltro,
     alvoFiltro,
+    responsavelFiltro,
+    realizadorFiltro,
+    somenteDestacadas,
+    campoData,
     dataInicio,
     dataFim,
     sortKey,
@@ -282,6 +324,10 @@ export function OrdensTabela({
       prioFiltro: prio,
       setorFiltro: setor,
       alvoFiltro: alvo,
+      responsavelFiltro: responsavel,
+      realizadorFiltro: realizador,
+      somenteDestacadas: destacadas,
+      campoData: campoDaData,
       dataInicio: inicio,
       dataFim: fim,
       sortKey: ordenarPor,
@@ -316,8 +362,13 @@ export function OrdensTabela({
       if (prio && prio !== "TODAS") url.searchParams.set("prioridade", prio);
       if (setor && setor !== "TODOS") url.searchParams.set("setor", setor);
       if (alvo && alvo !== "TODOS") url.searchParams.set("alvoTipo", alvo);
+      if (responsavel && responsavel !== SEM_FILTRO) url.searchParams.set("responsavel", responsavel);
+      if (realizador && realizador !== SEM_FILTRO) url.searchParams.set("realizador", realizador);
+      if (destacadas) url.searchParams.set("destacadas", "1");
       if (inicio) url.searchParams.set("dateFrom", toDiaISO(inicio));
       if (fim) url.searchParams.set("dateTo", toDiaISO(fim));
+      // Só acompanha o intervalo: sozinho não recorta nada.
+      if (inicio || fim) url.searchParams.set("campoData", campoDaData);
 
       if (ordenarPor) {
         url.searchParams.set("sort", ordenarPor);
@@ -377,6 +428,10 @@ export function OrdensTabela({
     prioFiltro,
     setorFiltro,
     alvoFiltro,
+    responsavelFiltro,
+    realizadorFiltro,
+    somenteDestacadas,
+    campoData,
     dataInicio,
     dataFim,
     sortKey,
@@ -401,7 +456,18 @@ export function OrdensTabela({
   // no resultado filtrado.
   useEffect(() => {
     setPage(1);
-  }, [apenasMinhas, prioFiltro, setorFiltro, alvoFiltro, dataInicio, dataFim]);
+  }, [
+    apenasMinhas,
+    prioFiltro,
+    setorFiltro,
+    alvoFiltro,
+    responsavelFiltro,
+    realizadorFiltro,
+    somenteDestacadas,
+    campoData,
+    dataInicio,
+    dataFim,
+  ]);
 
   // Antes isto criava um client Supabase próprio e trocava de canal a cada aba
   // de status. Agora divide a inscrição com os contadores das abas.
@@ -441,6 +507,25 @@ export function OrdensTabela({
       }
     }
     loadSetores();
+  }, []);
+
+  // Mesma lista que o diálogo de realizadores usa. Existe fora de /api/users
+  // justamente porque quem opera a oficina não tem a permissão de Usuários.
+  useEffect(() => {
+    async function loadPessoas() {
+      try {
+        const r = await fetch("/api/ordens/realizadores", { cache: "no-store" });
+        const j = await r.json().catch(() => ({} as any));
+        if (!r.ok) return;
+        const mapped = (Array.isArray(j.realizadores) ? j.realizadores : [])
+          .map((u: any) => ({ value: String(u.id ?? ""), label: String(u.nome ?? "").trim() || "Sem nome" }))
+          .filter((u: any) => u.value);
+        if (mapped.length) setPessoasOptions(mapped);
+      } catch {
+        // silencioso: sem a lista, os dois seletores ficam só com "Todos"
+      }
+    }
+    loadPessoas();
   }, []);
 
   const setoresFromRows = useMemo(() => {
@@ -914,6 +999,10 @@ export function OrdensTabela({
     setPrioFiltro("TODAS");
     setSetorFiltro("TODOS");
     setAlvoFiltro("TODOS");
+    setResponsavelFiltro(SEM_FILTRO);
+    setRealizadorFiltro(SEM_FILTRO);
+    setSomenteDestacadas(false);
+    setCampoData("entrada");
     setDataInicioState(undefined);
     setDataFimState(undefined);
     setApenasMinhas(false);
@@ -948,8 +1037,8 @@ export function OrdensTabela({
                 <Input
                   value={localSearch}
                   onChange={(e) => setLocalSearch(e.target.value)}
-                  placeholder="Buscar... (use #ID para ID exato)"
-                  title="Digite para buscar. Use # para encontrar o ID exato (ex: #14)"
+                  placeholder="Buscar... (#ID, @lacre)"
+                  title="Digite para buscar. #14 procura o ID exato; @A1B2 procura só pelo lacre da peça."
                   className="pl-8 pr-9"
                 />
                 {localSearch?.length > 0 && (
@@ -998,7 +1087,7 @@ export function OrdensTabela({
                     size="sm"
                     className="shrink-0 gap-1.5 hover:cursor-pointer"
                     aria-pressed={apenasMinhas}
-                    onClick={() => setApenasMinhas((atual) => !atual)}
+                    onClick={() => alternarApenasMinhas(!apenasMinhas)}
                   >
                     <UserRound className="h-4 w-4" />
                     <span className="hidden lg:inline">Minhas Ordens de Serviço</span>
@@ -1022,6 +1111,15 @@ export function OrdensTabela({
                 setores={setoresOptions}
                 alvoFiltro={alvoFiltro}
                 setAlvoFiltro={setAlvoFiltro}
+                pessoas={pessoasOptions}
+                responsavelFiltro={responsavelFiltro}
+                setResponsavelFiltro={escolherResponsavel}
+                realizadorFiltro={realizadorFiltro}
+                setRealizadorFiltro={setRealizadorFiltro}
+                somenteDestacadas={somenteDestacadas}
+                setSomenteDestacadas={setSomenteDestacadas}
+                campoData={campoData}
+                setCampoData={setCampoData}
                 dataInicio={dataInicio}
                 dataFim={dataFim}
                 onSetInicio={handleSetDataInicio}
@@ -1044,8 +1142,8 @@ export function OrdensTabela({
               <Input
                 value={localSearch}
                 onChange={(e) => setLocalSearch(e.target.value)}
-                placeholder="Buscar... (use #ID para ID exato)"
-                title="Digite para buscar. Use # para encontrar o ID exato (ex: #14)"
+                placeholder="Buscar... (#ID, @lacre)"
+                title="Digite para buscar. #14 procura o ID exato; @A1B2 procura só pelo lacre da peça."
                 className="pl-8 pr-9"
               />
               {localSearch?.length > 0 && (
@@ -1102,7 +1200,14 @@ export function OrdensTabela({
                     (r as any).alvoTipo === "EQUIPAMENTO";
                   const pecaTitulo = (r as any)?.peca?.titulo as string | undefined;
                   const pecaDesc = (r as any)?.peca?.descricao as string | undefined;
-                  const pecaStr = isPeca ? pecaTitulo || pecaDesc || "Peça" : "";
+                  // O lacre acompanha a peça na linha: é por ele que se procura
+                  // a OS (@lacre), e sem ele na tela não dá para conferir.
+                  const pecaLacre = (r as any)?.peca?.lacre as string | undefined;
+                  const pecaStr = isPeca
+                    ? [pecaTitulo || pecaDesc || "Peça", pecaLacre ? `Lacre ${pecaLacre}` : null]
+                        .filter(Boolean)
+                        .join(" — ")
+                    : "";
                   const equipamento = (r as any)?.equipamento;
                   const equipamentoStr = isEquipamento
                     ? [
@@ -1408,7 +1513,14 @@ export function OrdensTabela({
                       (r as any).alvoTipo === "EQUIPAMENTO";
                     const pecaTitulo = (r as any)?.peca?.titulo as string | undefined;
                     const pecaDesc = (r as any)?.peca?.descricao as string | undefined;
-                    const pecaStr = isPeca ? pecaTitulo || pecaDesc || "Peça" : "";
+                    // O lacre acompanha a peça na linha: é por ele que se procura
+                    // a OS (@lacre), e sem ele na tela não dá para conferir.
+                    const pecaLacre = (r as any)?.peca?.lacre as string | undefined;
+                    const pecaStr = isPeca
+                      ? [pecaTitulo || pecaDesc || "Peça", pecaLacre ? `Lacre ${pecaLacre}` : null]
+                          .filter(Boolean)
+                          .join(" — ")
+                      : "";
                     const equipamento = (r as any)?.equipamento;
                     const equipamentoStr = isEquipamento
                       ? [
