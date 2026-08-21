@@ -299,21 +299,21 @@ export default function DashboardFinanceiro({
               className="h-56 w-full sm:h-64 md:h-72 lg:h-80"
             >
               <AreaChart key={`fluxo-${animKey}`} data={fluxo} margin={{ top: 12, right: 16, left: 20, bottom: 8 }}>
-                <CartesianGrid strokeDasharray="4 8" vertical={false} stroke="hsl(var(--border))" opacity={0.55} />
+                <CartesianGrid strokeDasharray="4 8" vertical={false} stroke="var(--border)" opacity={0.7} />
                 <XAxis
                   dataKey="dataRotulo"
                   axisLine={false}
                   tickLine={false}
                   tickMargin={8}
                   fontSize={11}
-                  stroke="hsl(var(--muted-foreground))"
+                  stroke="var(--muted-foreground)"
                 />
                 <YAxis
                   axisLine={false}
                   tickLine={false}
                   tickMargin={12}
                   fontSize={11}
-                  stroke="hsl(var(--muted-foreground))"
+                  stroke="var(--muted-foreground)"
                   tickFormatter={(v) => formatarMoeda.format(v).replace("R$", "").trim()}
                 />
                 <ChartTooltip content={<ChartTooltipContent labelFormatter={(label) => `Dia ${label}`} />} />
@@ -397,7 +397,7 @@ export default function DashboardFinanceiro({
                     barCategoryGap={32}
                     barGap={12}
                   >
-                    <CartesianGrid strokeDasharray="4 8" vertical={false} stroke="hsl(var(--border))" opacity={0.55} />
+                    <CartesianGrid strokeDasharray="4 8" vertical={false} stroke="var(--border)" opacity={0.7} />
                     <XAxis
                       dataKey="categoria"
                       axisLine={false}
@@ -412,7 +412,7 @@ export default function DashboardFinanceiro({
                       tickLine={false}
                       tickMargin={12}
                       fontSize={11}
-                      stroke="hsl(var(--muted-foreground))"
+                      stroke="var(--muted-foreground)"
                       tickFormatter={(v) => formatarMoeda.format(v).replace("R$", "").trim()}
                     />
                     <ChartTooltip content={<ChartTooltipContent />} />
@@ -491,7 +491,7 @@ export default function DashboardFinanceiro({
                       <Cell
                         key={metodo ?? indice}
                         fill={CORES_METODOS[indice % CORES_METODOS.length]}
-                        stroke={selecionado ? "hsl(var(--primary))" : "hsl(var(--border))"}
+                        stroke={selecionado ? "var(--primary)" : "var(--border)"}
                         strokeWidth={selecionado ? 2 : 1}
                         opacity={!filtroAtivo || selecionado ? 1 : 0.4}
                         className="cursor-pointer transition-all"

@@ -246,7 +246,7 @@ export default function DashboardClientes({
             </div>
 
             <ChartContainer
-              config={{ count: { label: "Novos clientes", color: "hsl(var(--chart-1))" } }}
+              config={{ count: { label: "Novos clientes", color: "var(--chart-1)" } }}
               className="h-48 w-full text-primary dark:text-primary xs:h-56 sm:h-64 md:h-72 lg:h-80"
             >
               <AreaChart
@@ -261,7 +261,7 @@ export default function DashboardClientes({
                   </linearGradient>
                 </defs>
 
-                <CartesianGrid strokeDasharray="4 8" vertical={false} stroke="hsl(var(--border))" opacity={0.55} />
+                <CartesianGrid strokeDasharray="4 8" vertical={false} stroke="var(--border)" opacity={0.7} />
                 <XAxis
                   dataKey="rotulo"
                   axisLine={false}
@@ -270,7 +270,7 @@ export default function DashboardClientes({
                   tickMargin={4}
                   minTickGap={24}
                   interval="preserveStartEnd"
-                  stroke="hsl(var(--muted-foreground))"
+                  stroke="var(--muted-foreground)"
                 />
                 <YAxis
                   allowDecimals={false}
@@ -279,7 +279,7 @@ export default function DashboardClientes({
                   fontSize={10}
                   tickMargin={8}
                   width={28}
-                  stroke="hsl(var(--muted-foreground))"
+                  stroke="var(--muted-foreground)"
                   domain={[0, "dataMax + 1"]}
                 />
                 <ChartTooltip content={<ChartTooltipContent indicator="line" />} />
@@ -311,7 +311,7 @@ export default function DashboardClientes({
             </div>
 
             <ChartContainer
-              config={{ count: { label: "Clientes", color: "hsl(var(--chart-2))" } }}
+              config={{ count: { label: "Clientes", color: "var(--chart-2)" } }}
               className="h-64 w-full sm:hidden"
             >
               <BarChart
@@ -321,7 +321,7 @@ export default function DashboardClientes({
                 margin={{ top: 4, right: 28, left: 0, bottom: 4 }}
                 barSize={16}
               >
-                <CartesianGrid strokeDasharray="4 8" horizontal={false} stroke="hsl(var(--border))" opacity={0.55} />
+                <CartesianGrid strokeDasharray="4 8" horizontal={false} stroke="var(--border)" opacity={0.7} />
                 <XAxis type="number" allowDecimals={false} axisLine={false} tickLine={false} fontSize={10} />
                 <YAxis type="category" dataKey="uf" axisLine={false} tickLine={false} width={28} fontSize={10} />
                 <ChartTooltip content={<ChartTooltipContent indicator="line" />} />
@@ -332,7 +332,7 @@ export default function DashboardClientes({
             </ChartContainer>
 
             <ChartContainer
-              config={{ count: { label: "Clientes", color: "hsl(var(--chart-2))" } }}
+              config={{ count: { label: "Clientes", color: "var(--chart-2)" } }}
               className="hidden h-64 text-primary/30 sm:block md:h-72"
             >
               <BarChart
@@ -340,14 +340,14 @@ export default function DashboardClientes({
                 data={dadosUfs}
                 margin={{ top: 16, right: 8, left: -12, bottom: 8 }}
               >
-                <CartesianGrid strokeDasharray="4 8" vertical={false} stroke="hsl(var(--border))" opacity={0.55} />
+                <CartesianGrid strokeDasharray="4 8" vertical={false} stroke="var(--border)" opacity={0.7} />
                 <XAxis
                   dataKey="uf"
                   axisLine={false}
                   tickLine={false}
                   fontSize={11}
                   tickMargin={4}
-                  stroke="hsl(var(--muted-foreground))"
+                  stroke="var(--muted-foreground)"
                 />
                 <YAxis
                   allowDecimals={false}
@@ -355,7 +355,7 @@ export default function DashboardClientes({
                   tickLine={false}
                   fontSize={11}
                   tickMargin={8}
-                  stroke="hsl(var(--muted-foreground))"
+                  stroke="var(--muted-foreground)"
                   domain={[0, "dataMax + 1"]}
                 />
                 <ChartTooltip content={<ChartTooltipContent indicator="line" />} />
@@ -381,8 +381,8 @@ export default function DashboardClientes({
           >
             <ChartContainer
               config={{
-                FISICA: { label: "Pessoa Física", color: "hsl(var(--chart-4))" },
-                JURIDICA: { label: "Pessoa Jurídica", color: "hsl(var(--chart-5))" },
+                FISICA: { label: "Pessoa Física", color: "var(--chart-4)" },
+                JURIDICA: { label: "Pessoa Jurídica", color: "var(--chart-5)" },
               }}
               className="h-44 w-full text-primary/30 sm:h-56 md:h-64"
             >

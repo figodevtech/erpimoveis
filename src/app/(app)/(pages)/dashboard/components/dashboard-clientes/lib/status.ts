@@ -10,10 +10,10 @@ export const ROTULO_STATUS: Record<StatusCliente, string> = {
 };
 
 export const COR_STATUS: Record<StatusCliente, string> = {
-  ATIVO: "hsl(var(--chart-1))",
-  PENDENTE: "hsl(var(--chart-2))",
-  INATIVO: "hsl(var(--chart-3))",
-  NULL: "hsl(var(--muted-foreground))",
+  ATIVO: "var(--chart-1)",
+  PENDENTE: "var(--chart-2)",
+  INATIVO: "var(--chart-3)",
+  NULL: "var(--muted-foreground)",
 };
 
 export function statusConhecido(chave: StatusCliente) {
