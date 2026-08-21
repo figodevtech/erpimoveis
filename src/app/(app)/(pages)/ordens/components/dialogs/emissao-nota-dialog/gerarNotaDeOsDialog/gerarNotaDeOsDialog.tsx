@@ -189,6 +189,23 @@ type SourceResponse = {
   itens: SourceProduct[];
 };
 
+type SaidaRelacionadaResponse = {
+  ok: boolean;
+  message?: string;
+  candidatos?: Array<{
+    saidaId: number;
+    saidaItemId: number;
+    sourceItemId: string;
+    entradaItemOrigemId: number | null;
+    numeroItemReferenciado: number | null;
+    confianca: "VINCULO_EXISTENTE" | "PRODUTO_UNICO" | "AMBIGUA";
+    selecionavel: boolean;
+    motivoIndisponivel: string | null;
+    entradaCandidata: EntradaCandidata | null;
+    item: SourceProduct;
+  }>;
+};
+
 type AssistedFiscalConfig = {
   consumidorFinal: boolean;
   indicadorPresenca: string;
@@ -425,6 +442,11 @@ export function GerarNotaDeOsDialog({
   const [saidaOperacoes, setSaidaOperacoes] = useState<OperacaoFiscalSaidaOption[]>([]);
   const [entradasCandidatas, setEntradasCandidatas] = useState<EntradaCandidata[]>([]);
   const [espelhando, setEspelhando] = useState(false);
+  const [buscandoRelacionadas, setBuscandoRelacionadas] = useState(false);
+  const [resumoRelacionadas, setResumoRelacionadas] = useState<{
+    encontradas: number;
+    indisponiveis: number;
+  } | null>(null);
 
   // Consumidor final e a IE do destinatário mudam a exigência do DIFAL. Reavalia
   // na hora, preservando o que já foi digitado nos campos.
@@ -593,6 +615,7 @@ export function GerarNotaDeOsDialog({
             const gravado = gravadoPorItem.get(saidaItemId);
             return {
               sourceItemId: item.sourceItemId,
+              saidaId: Number(saidaId),
               saidaItemId,
               produtoId: item.produtoId,
               titulo: item.titulo,
@@ -623,6 +646,7 @@ export function GerarNotaDeOsDialog({
       setItems([]);
       setSelectedIds([]);
       setDescontoGeral(0);
+      setResumoRelacionadas(null);
       setEntrySupplier(emptyEntrySupplier);
       setFiscalConfig(defaultFiscalConfig);
     } finally {
@@ -828,6 +852,9 @@ export function GerarNotaDeOsDialog({
       : origin === "ENTRADA" ? "Operação de entrada" : "Operação de saída";
 
   function toggleItem(sourceItemId: string, checked: boolean) {
+    const itemDaSaidaPrincipal = origin === "SAIDA" &&
+      sourceItemId.startsWith(`saida:${originId}:`);
+    if (itemDaSaidaPrincipal && !checked) return;
     setSelectedIds((current) => {
       const next = new Set(current);
       if (checked) next.add(sourceItemId);
@@ -894,6 +921,108 @@ export function GerarNotaDeOsDialog({
   }
 
   /**
+   * Depois que a entrada da saída principal é confirmada, procura outras baixas
+   * físicas dos produtos daquela mesma NF-e. As linhas entram desmarcadas: o
+   * reconhecimento ajuda, mas a decisão de documentá-las continua humana.
+   */
+  async function buscarSaidasRelacionadas(next: SaidaOrigemDraft, saidaItemId: number) {
+    const alvo = next.itens.find((item) => item.saidaItemId === saidaItemId);
+    if (!setup || !originId || !alvo?.entradaItemOrigemId || alvo.saidaId !== Number(originId)) {
+      return next;
+    }
+
+    setBuscandoRelacionadas(true);
+    try {
+      const response = await fetch(`/api/estoque/saidas/${originId}/relacionadas`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          saidaItemId,
+          entradaItemOrigemId: alvo.entradaItemOrigemId,
+          operacaoFiscalCodigo: next.operacaoFiscalCodigo,
+          ufDestinatario: entrySupplier.estado || null,
+        }),
+      });
+      const json = (await response.json().catch(() => null)) as SaidaRelacionadaResponse | null;
+      if (!response.ok || !json?.ok) {
+        throw new Error(json?.message || "Não foi possível procurar outras saídas desta nota.");
+      }
+
+      const candidatos = json.candidatos ?? [];
+      const selecionaveis = candidatos.filter((candidato) => candidato.selecionavel);
+      const novosItens = selecionaveis.map((candidato) =>
+        createAssistedItem(candidato.item, setup, {
+          tipoOperacao: "SAIDA",
+          parceiroUf: entrySupplier.estado,
+          indFinal: entrySupplier.indicadorIe === "9" ? 1 : 0,
+          indIEDest: entrySupplier.indicadorIe,
+        }),
+      );
+      const itensPrincipais = next.itens.filter((item) => item.saidaId === Number(originId));
+      const itensRelacionados = selecionaveis.map((candidato) => {
+        const quantidadeEntrada = Number(candidato.entradaCandidata?.quantidade ?? 0);
+        return {
+          sourceItemId: candidato.sourceItemId,
+          saidaId: candidato.saidaId,
+          saidaItemId: candidato.saidaItemId,
+          produtoId: candidato.item.produtoId,
+          titulo: candidato.item.titulo,
+          quantidade: candidato.item.quantidade,
+          entradaItemOrigemId: candidato.entradaItemOrigemId,
+          numeroItemReferenciado: candidato.numeroItemReferenciado,
+          percentualDevolucao: quantidadeEntrada > 0
+            ? Math.min(100, Number(((candidato.item.quantidade / quantidadeEntrada) * 100).toFixed(4)))
+            : 100,
+          valorIpiDevolvido: 0,
+          aviso: candidato.confianca === "PRODUTO_UNICO"
+            ? "Vínculo sugerido pelo produto; confirme a linha da NF-e de origem."
+            : null,
+        };
+      });
+      const nextCompleto = { ...next, itens: [...itensPrincipais, ...itensRelacionados] };
+
+      setItems((current) => [
+        ...current.filter((item) => item.sourceItemId.startsWith(`saida:${originId}:`)),
+        ...novosItens,
+      ]);
+      // A saída que abriu o diálogo permanece como estava; sugestões novas não
+      // são marcadas automaticamente.
+      setSelectedIds((current) =>
+        current.filter((sourceItemId) => sourceItemId.startsWith(`saida:${originId}:`)),
+      );
+      setSaidaOrigem(nextCompleto);
+      setEntradasCandidatas((current) => {
+        const byId = new Map(current.map((item) => [Number(item.id), item]));
+        candidatos.forEach((candidato) => {
+          if (candidato.entradaCandidata) {
+            byId.set(Number(candidato.entradaCandidata.id), candidato.entradaCandidata);
+          }
+        });
+        return Array.from(byId.values());
+      });
+      setResumoRelacionadas({
+        encontradas: selecionaveis.length,
+        indisponiveis: candidatos.length - selecionaveis.length,
+      });
+
+      await Promise.all([
+        aplicarEspelhoFiscal(nextCompleto, saidaItemId),
+        ...itensRelacionados
+          .filter((item) => item.numeroItemReferenciado)
+          .map((item) => aplicarEspelhoFiscal(nextCompleto, item.saidaItemId)),
+      ]);
+      return nextCompleto;
+    } catch (error: any) {
+      setResumoRelacionadas(null);
+      toast.warning(error?.message || "Não foi possível procurar outras saídas desta nota.");
+      await aplicarEspelhoFiscal(next, saidaItemId);
+      return next;
+    } finally {
+      setBuscandoRelacionadas(false);
+    }
+  }
+
+  /**
    * Busca o perfil tributário da NF-e que trouxe a mercadoria e aplica no item.
    *
    * A devolução tem de espelhar a compra, então o que vem do XML de origem
@@ -908,7 +1037,7 @@ export function GerarNotaDeOsDialog({
 
     setEspelhando(true);
     try {
-      const response = await fetch(`/api/estoque/saidas/${originId}/espelho-fiscal`, {
+      const response = await fetch(`/api/estoque/saidas/${alvo.saidaId}/espelho-fiscal`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1040,7 +1169,10 @@ export function GerarNotaDeOsDialog({
       return;
     }
     if (origin === "SAIDA") {
-      const origemErros = validarOrigemFiscalSaida(saidaOrigem);
+      const origemErros = validarOrigemFiscalSaida({
+        ...saidaOrigem,
+        itens: saidaOrigem.itens.filter((item) => selectedSet.has(item.sourceItemId)),
+      });
       if (origemErros.length) {
         toast.error("Complete a origem fiscal da saída.", { description: origemErros[0] });
         return;
@@ -1082,7 +1214,10 @@ export function GerarNotaDeOsDialog({
                   documentoReferenciadoObrigatorio:
                     saidaOrigem.documentoReferenciadoObrigatorio,
                   chaveAcessoReferenciada: saidaOrigem.chaveAcessoReferenciada,
-                  itens: saidaOrigem.itens.map((item) => ({
+                  itens: saidaOrigem.itens
+                    .filter((item) => selectedSet.has(item.sourceItemId))
+                    .map((item) => ({
+                    saidaId: item.saidaId,
                     saidaItemId: item.saidaItemId,
                     entradaItemOrigemId: item.entradaItemOrigemId,
                     numeroItemReferenciado: item.numeroItemReferenciado,
@@ -1234,12 +1369,37 @@ export function GerarNotaDeOsDialog({
                     onChange={setSaidaOrigem}
                     operacoes={saidaOperacoes}
                     entradasCandidatas={entradasCandidatas}
-                    espelhando={espelhando}
+                    selectedSourceIds={selectedIds}
+                    espelhando={espelhando || buscandoRelacionadas}
                     onEscolherEntrada={(next, saidaItemId) => {
                       vincularFornecedorDaEntrada(next, saidaItemId);
-                      void aplicarEspelhoFiscal(next, saidaItemId);
+                      const alvo = next.itens.find((item) => item.saidaItemId === saidaItemId);
+                      if (alvo?.saidaId === Number(originId)) {
+                        void buscarSaidasRelacionadas(next, saidaItemId);
+                      } else {
+                        void aplicarEspelhoFiscal(next, saidaItemId);
+                      }
                     }}
                   />
+                ) : null}
+
+                {origin === "SAIDA" && resumoRelacionadas ? (
+                  <Alert>
+                    <PackageSearch className="h-4 w-4" />
+                    <AlertTitle>
+                      {resumoRelacionadas.encontradas > 0
+                        ? `${resumoRelacionadas.encontradas} outra(s) saída(s) disponível(is)`
+                        : "Nenhuma outra saída disponível"}
+                    </AlertTitle>
+                    <AlertDescription>
+                      {resumoRelacionadas.encontradas > 0
+                        ? "Elas aparecem desmarcadas em Produtos da emissão. Marque somente as baixas que deseja reunir nesta NF-e."
+                        : "A emissão continua normalmente apenas com a saída que abriu o diálogo."}
+                      {resumoRelacionadas.indisponiveis > 0
+                        ? ` ${resumoRelacionadas.indisponiveis} baixa(s) foi(ram) ignorada(s) por ambiguidade, quantidade ou NF-e já existente.`
+                        : ""}
+                    </AlertDescription>
+                  </Alert>
                 ) : null}
 
                 {usesEditableRecipient ? (
@@ -1669,7 +1829,15 @@ export function GerarNotaDeOsDialog({
                         <Checkbox
                           checked={allSelected ? true : partiallySelected ? "indeterminate" : false}
                           onCheckedChange={(checked) =>
-                            setSelectedIds(checked ? items.map((item) => item.sourceItemId) : [])
+                            setSelectedIds(
+                              checked
+                                ? items.map((item) => item.sourceItemId)
+                                : origin === "SAIDA"
+                                  ? items
+                                      .filter((item) => item.sourceItemId.startsWith(`saida:${originId}:`))
+                                      .map((item) => item.sourceItemId)
+                                  : [],
+                            )
                           }
                         />
                         Selecionar todos
@@ -1678,7 +1846,8 @@ export function GerarNotaDeOsDialog({
                     <Separator />
 
                     <div className="min-w-0 space-y-2 rounded-md border bg-muted/20 p-3">
-                      <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] sm:items-start">
+                      {origin !== "SAIDA" ? (
+                        <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] sm:items-start">
                         <div className="min-w-0 space-y-1.5">
                           <Label>Desconto geral da nota</Label>
                           <ValueInput price={descontoGeral} setPrice={aplicarDescontoGeral} />
@@ -1689,7 +1858,8 @@ export function GerarNotaDeOsDialog({
                           Alterar aqui refaz o rateio sobre os itens selecionados; depois disso cada item
                           ainda pode ser ajustado à mão na tributação.
                         </p>
-                      </div>
+                        </div>
+                      ) : null}
 
                       {/* Só aparece quando o desconto da origem foi partido entre
                           produtos e serviços: é a conta que explica o valor do campo. */}
@@ -1723,7 +1893,7 @@ export function GerarNotaDeOsDialog({
                         ) : null}
                         <span>Total da NF-e: <b>{fmtMoney(selectedTotal)}</b></span>
                       </div>
-                      {descontoDivergeDoRateio ? (
+                      {origin !== "SAIDA" && descontoDivergeDoRateio ? (
                         <p className="text-[11px] text-amber-600 dark:text-amber-400">
                           O vDesc somado ({fmtMoney(descontoTotalDaNota)}) não bate com o desconto geral
                           acima ({fmtMoney(descontoGeral)}): {motivoDaDivergencia}. Vale a nota o vDesc dos
@@ -1736,6 +1906,10 @@ export function GerarNotaDeOsDialog({
                       {items.map((item) => {
                         const issues = issuesByItem.get(item.sourceItemId) ?? [];
                         const selected = selectedSet.has(item.sourceItemId);
+                        const itemSaidaId = item.sourceItemId.startsWith("saida:")
+                          ? Number(item.sourceItemId.split(":")[1])
+                          : null;
+                        const itemDaSaidaPrincipal = origin === "SAIDA" && itemSaidaId === Number(originId);
                         return (
                           <article
                             key={item.sourceItemId}
@@ -1743,6 +1917,7 @@ export function GerarNotaDeOsDialog({
                           >
                             <Checkbox
                               checked={selected}
+                              disabled={itemDaSaidaPrincipal}
                               className="mt-1"
                               onCheckedChange={(checked) => toggleItem(item.sourceItemId, Boolean(checked))}
                             />
@@ -1751,6 +1926,11 @@ export function GerarNotaDeOsDialog({
                                 <span className="min-w-0 break-words font-medium [overflow-wrap:anywhere]">
                                   {item.titulo}
                                 </span>
+                                {itemSaidaId ? (
+                                  <Badge variant={itemDaSaidaPrincipal ? "default" : "secondary"}>
+                                    Saída #{itemSaidaId}{itemDaSaidaPrincipal ? " · obrigatória" : ""}
+                                  </Badge>
+                                ) : null}
                                 {issues.length === 0 ? (
                                   <Badge className="gap-1 bg-emerald-600 hover:bg-emerald-600">
                                     <CheckCircle2 className="h-3 w-3" /> Pronto

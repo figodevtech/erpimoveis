@@ -114,6 +114,10 @@ export type AssistedFiscalItem = {
   csosn: string;
   cst: string;
   aliquotaIcms: string;
+  /** Valores de ICMS-ST retido recuperados da NF-e de entrada. */
+  vBCSTRet: string;
+  pST: string;
+  vICMSSTRet: string;
   cest: string;
   cstPis: string;
   modoPis: "" | ModoCalculoPisCofins;
@@ -263,6 +267,9 @@ export function createAssistedItem(
       source.aliquotaicms === null || source.aliquotaicms === undefined
         ? ""
         : String(source.aliquotaicms),
+    vBCSTRet: "",
+    pST: "",
+    vICMSSTRet: "",
     cest: onlyDigits(source.cest),
     cstPis: normalizeCode(source.cst_pis, 2),
     modoPis,
@@ -324,6 +331,11 @@ export type EspelhoFiscalResposta = {
   campos: Record<string, unknown>;
   procedencia?: Record<string, string>;
   valorUnitario?: number | null;
+  substituicaoTributaria?: {
+    vBCSTRet?: number | null;
+    pST?: number | null;
+    vICMSSTRet?: number | null;
+  } | null;
 };
 
 /**
@@ -365,6 +377,9 @@ export function aplicarCamposFiscais(
     csosn: manter(campos.csosn, item.csosn),
     cst: manter(campos.cst, item.cst),
     aliquotaIcms: manter(campos.aliquotaicms, item.aliquotaIcms),
+    vBCSTRet: manter(espelho.substituicaoTributaria?.vBCSTRet, item.vBCSTRet),
+    pST: manter(espelho.substituicaoTributaria?.pST, item.pST),
+    vICMSSTRet: manter(espelho.substituicaoTributaria?.vICMSSTRet, item.vICMSSTRet),
     cstPis: manter(campos.cst_pis, item.cstPis),
     modoPis,
     aliquotaPis: manter(campos.aliquota_pis, item.aliquotaPis),
@@ -444,6 +459,9 @@ export function toNFeItem(item: AssistedFiscalItem, index = 0): NFeItem {
     cstIcms: item.cst || null,
     aliquotaIcms: optionalDecimal(item.aliquotaIcms),
     baseCalculoIcms: item.aliquotaIcms.trim() ? valorLiquido : undefined,
+    vBCSTRet: optionalDecimal(item.vBCSTRet),
+    pST: optionalDecimal(item.pST),
+    vICMSSTRet: optionalDecimal(item.vICMSSTRet),
     cstPis: item.cstPis || null,
     aliquotaPis: optionalDecimal(item.aliquotaPis),
     cstCofins: item.cstCofins || null,
@@ -606,6 +624,9 @@ export function toApiItem(item: AssistedFiscalItem) {
     csosn: item.csosn || null,
     cst: item.cst || null,
     aliquotaIcms: item.aliquotaIcms || null,
+    vBCSTRet: item.vBCSTRet || null,
+    pST: item.pST || null,
+    vICMSSTRet: item.vICMSSTRet || null,
     cest: item.cest || null,
     cstPis: item.cstPis || null,
     modoPis: item.modoPis || null,

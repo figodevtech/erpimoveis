@@ -66,6 +66,9 @@ export type NFeAvulsaItemInput = {
   cstCofins?: string | null;
   aliquotaCofins?: string | number | null;
   aliquotaIcms?: string | number | null;
+  vBCSTRet?: string | number | null;
+  pST?: string | number | null;
+  vICMSSTRet?: string | number | null;
   cest?: string | null;
   modoPis?: "PERCENTUAL" | "QUANTIDADE" | "NAO_TRIBUTADO" | null;
   basePis?: string | number | null;
@@ -322,6 +325,9 @@ function mapInputToTaxItem(item: NFeAvulsaItemInput, index: number): NFeItem {
     cstIcms: cleanText(item.cst) || null,
     aliquotaIcms: toOptionalDecimal(item.aliquotaIcms) ?? undefined,
     baseCalculoIcms: toOptionalDecimal(item.aliquotaIcms) === null ? undefined : valorLiquido,
+    vBCSTRet: toOptionalDecimal(item.vBCSTRet) ?? undefined,
+    pST: toOptionalDecimal(item.pST) ?? undefined,
+    vICMSSTRet: toOptionalDecimal(item.vICMSSTRet) ?? undefined,
     cstPis: cleanText(item.cstPis) || null,
     aliquotaPis: toOptionalDecimal(item.aliquotaPis) ?? undefined,
     cstCofins: cleanText(item.cstCofins) || null,
@@ -612,6 +618,36 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
     });
   }
 
+  input.itens.forEach((item, index) => {
+    const referencia = item.dfeReferenciado;
+    if (!referencia) return;
+    const chave = onlyDigits(referencia.chaveAcesso);
+    const nItem = Number(referencia.nItem ?? 0);
+    if (!chaveAcessoValida(chave)) {
+      errors.push({
+        step: "products",
+        itemIndex: index,
+        field: "dfeReferenciado.chaveAcesso",
+        message: "Chave da NF-e de origem inválida: confira os 44 dígitos e o dígito verificador.",
+      });
+    }
+    if (!Number.isInteger(nItem) || nItem < 1 || nItem > 990) {
+      errors.push({
+        step: "products",
+        itemIndex: index,
+        field: "dfeReferenciado.nItem",
+        message: "Informe o número do item (1 a 990) na NF-e de origem.",
+      });
+    }
+  });
+  if (exigeReferencia && referenciasDosItens.length > 0 && referenciasDosItens.length !== input.itens.length) {
+    errors.push({
+      step: "products",
+      field: "dfeReferenciado",
+      message: "Na devolução com referência por item, todos os produtos devem apontar sua linha na NF-e de origem.",
+    });
+  }
+
   const modelo = input.modelo ?? MODELO_NFE;
   const destinatario = input.destinatario ?? {};
   const docDestinatario = onlyDigits(destinatario.cpfCnpj);
@@ -657,6 +693,13 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
         step: "recipient",
         field: "indicadorIe",
         message: "Indicador de inscrição estadual do destinatário é inválido.",
+      });
+    }
+    if (cleanText(destinatario.indicadorIe) === "9" && input.operacao?.consumidorFinal === false) {
+      errors.push({
+        step: "recipient",
+        field: "consumidorFinal",
+        message: "Destinatário não contribuinte deve ser informado como consumidor final.",
       });
     }
     if (
