@@ -126,7 +126,7 @@ export async function GET(req: Request) {
     const todayStart = localDayStartToUtcIso(today);
     const tomorrowStart = localNextDayStartToUtcIso(today);
 
-    const [todayRows, todayCompletedRows, recentCompletedRows] = await Promise.all([
+    const [todayRows, completedDateCandidates] = await Promise.all([
       fetchAllSupabaseRows<Row>(() =>
         supabaseAdmin
           .from("ordemservico")
@@ -155,6 +155,16 @@ export async function GET(req: Request) {
           .order("id", { ascending: true }),
       ),
     ]);
+
+    const completionDate = (row: Row) => row.datasaida ?? row.dataentrada;
+    const todayCompletedRows = completedDateCandidates.filter((row) => {
+      const value = completionDate(row);
+      return !!value && value >= todayStart && value < tomorrowStart;
+    });
+    const recentCompletedRows = completedDateCandidates.filter((row) => {
+      const value = completionDate(row);
+      return !!value && value >= start30Date.toISOString() && value < tomorrowStart;
+    });
 
     const monthlyNew: Record<string, number> = Object.fromEntries(monthKeys.map((k) => [k, 0]));
     const monthlyCompleted: Record<string, number> = Object.fromEntries(monthKeys.map((k) => [k, 0]));
