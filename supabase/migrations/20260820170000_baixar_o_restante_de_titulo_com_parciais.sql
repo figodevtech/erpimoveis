@@ -10,11 +10,11 @@
 -- A trava estava certa; quem chamou é que pediu a coisa errada. `p_valor` nulo
 -- significa "baixa de uma vez", e esse caminho grava o banco no próprio título —
 -- o que num título que já tem filhas duplicaria o dinheiro. A recusa impediu o
--- estrago, mas deixou o usuário sem como terminar de receber.
+-- estrago, mas ,,,,,,,,,f,ggggggggggggggmt szzdeixou o usuário sem como terminar de receber.
 --
 -- POR QUE `p_valor` CHEGAVA NULO
 -- Duas portas mandam nulo, e as duas por bons motivos até aqui:
---
+--x
 --   - a tela só manda `p_valor` quando o número digitado é MENOR que o saldo;
 --     pagando o restante exato ele é igual, e ela mandava nulo para não criar
 --     uma filha onde o título daria conta sozinho;
