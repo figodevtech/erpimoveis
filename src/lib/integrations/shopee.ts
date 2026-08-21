@@ -41,6 +41,16 @@ export function getShopeeGatewayConnection() {
   return shopeeGatewayRequest<ShopeeGatewayConnection>("/api/v1/shopee/connection");
 }
 
+export async function getShopeeLanguage() {
+  try {
+    const connection = await getShopeeGatewayConnection();
+    const region = String(connection.account?.region || "").toUpperCase();
+    return ({ BR: "pt-BR", TH: "th", VN: "vi", ID: "id", MY: "ms", TW: "zh-Hant", PL: "pl", MX: "es-MX", CO: "es-CO", CL: "es-CL" } as Record<string, string>)[region] || "en";
+  } catch {
+    return "en";
+  }
+}
+
 export function disconnectShopeeGateway() {
   return shopeeGatewayRequest<{ disconnected: boolean }>("/api/v1/shopee/connection", { method: "DELETE" });
 }

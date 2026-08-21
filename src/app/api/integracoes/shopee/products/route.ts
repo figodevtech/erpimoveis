@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireEstoqueAccess, requireEstoqueEdit } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
-import { getShopeeCategoryAttributes, shopeeShopApi, uploadShopeeImageFromUrl } from "@/lib/integrations/shopee";
+import { getShopeeCategoryAttributes, getShopeeLanguage, shopeeShopApi, uploadShopeeImageFromUrl } from "@/lib/integrations/shopee";
+import { buildShopeeAttributeList, normalizeShopeeAttribute, normalizeShopeeLogisticsChannel, validateShopeeListingLimits, validateShopeePackage, type ShopeeAttributeDefinition, type ShopeeLogisticsChannel } from "@/lib/integrations/shopee-listing";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -104,19 +105,57 @@ export async function POST(request: NextRequest) {
     const weight = positiveNumber(body.weight);
     const priceOverride = optionalPositiveNumber(body.price);
     const stockOverride = optionalNonNegativeInteger(body.stock);
-    const logisticIds = Array.isArray(body.logisticIds) ? body.logisticIds.map(positiveInteger).filter(Boolean) : [];
+    const logisticIds: number[] = Array.from(new Set(Array.isArray(body.logisticIds) ? body.logisticIds.map(positiveInteger).filter(Boolean) : []));
+    const condition = String(body.condition || "NEW").toUpperCase();
     if (!produtoId || !categoryId) return NextResponse.json({ error: "Produto e categoria Shopee são obrigatórios." }, { status: 400 });
     if (!weight) return NextResponse.json({ error: "Informe o peso do pacote em kg." }, { status: 400 });
     if (!logisticIds.length) return NextResponse.json({ error: "Selecione ao menos um canal logístico da Shopee." }, { status: 400 });
+    if (!["NEW", "USED"].includes(condition)) return NextResponse.json({ error: "A condição do produto deve ser Novo ou Usado." }, { status: 400 });
 
-    const attributeDefinitions = await getShopeeCategoryAttributes(categoryId);
+    const dimension = {
+      package_length: positiveNumber(body.length),
+      package_width: positiveNumber(body.width),
+      package_height: positiveNumber(body.height),
+    };
+    if (Object.values(dimension).some((value) => !value)) return NextResponse.json({ error: "Informe comprimento, largura e altura do pacote em cm." }, { status: 400 });
+
+    const language = await getShopeeLanguage();
+    const rawAttributeDefinitions = await getShopeeCategoryAttributes(categoryId, language);
+    const attributeDefinitions: ShopeeAttributeDefinition[] = rawAttributeDefinitions
+      .map((attribute: any) => normalizeShopeeAttribute(attribute, language))
+      .filter((attribute: ShopeeAttributeDefinition | null): attribute is ShopeeAttributeDefinition => Boolean(attribute));
     const attributeValues = body.attributeValues && typeof body.attributeValues === "object" ? body.attributeValues as Record<string, unknown> : {};
     const requiredMissing = attributeDefinitions
-      .filter((attribute: any) => Boolean(attribute?.is_mandatory ?? attribute?.mandatory ?? attribute?.required))
-      .filter((attribute: any) => !String(attributeValues[String(attribute?.attribute_id)] ?? "").trim())
-      .map((attribute: any) => String(attribute?.original_attribute_name ?? attribute?.display_attribute_name ?? attribute?.attribute_name ?? attribute?.attribute_id));
+      .filter((attribute) => attribute.required)
+      .filter((attribute) => !String(attributeValues[String(attribute.id)] ?? "").trim())
+      .map((attribute) => attribute.name);
     if (requiredMissing.length) return NextResponse.json({ error: `Preencha os atributos obrigatórios: ${requiredMissing.join(", ")}.` }, { status: 400 });
-    const dynamicAttributeList = buildShopeeAttributes(attributeDefinitions, attributeValues);
+    const dynamicAttributeList = buildShopeeAttributeList(attributeDefinitions, attributeValues);
+
+    const logisticsResponse = await shopeeShopApi<any>({ path: "/api/v2/logistics/get_channel_list" });
+    const availableChannels: ShopeeLogisticsChannel[] = (logisticsResponse?.response?.logistics_channel_list ?? logisticsResponse?.response?.logistic_channel_list ?? [])
+      .map(normalizeShopeeLogisticsChannel)
+      .filter((channel: ShopeeLogisticsChannel | null): channel is ShopeeLogisticsChannel => Boolean(channel));
+    const selectedChannels = logisticIds
+      .map((id) => availableChannels.find((channel) => channel.id === id))
+      .filter((channel): channel is NonNullable<typeof channel> => Boolean(channel));
+    if (selectedChannels.length !== logisticIds.length) return NextResponse.json({ error: "Um ou mais canais logísticos não estão disponíveis para esta loja." }, { status: 400 });
+    const packageErrors = validateShopeePackage({
+      weight,
+      length: dimension.package_length,
+      width: dimension.package_width,
+      height: dimension.package_height,
+      channels: selectedChannels,
+    });
+    if (packageErrors.length) return NextResponse.json({ error: packageErrors.join(" ") }, { status: 400 });
+
+    const brandResponse = await shopeeShopApi<any>({ path: "/api/v2/product/get_brand_list", query: { category_id: categoryId, offset: 0, page_size: 100, status: 1 } });
+    const brandIdProvided = body.brandId !== undefined && body.brandId !== "";
+    const brandId = brandIdProvided ? Number(body.brandId) : null;
+    const availableBrands = brandResponse?.response?.brand_list ?? [];
+    const selectedBrand = brandIdProvided ? availableBrands.find((brand: any) => Number(brand?.brand_id) === brandId) : null;
+    if (brandResponse?.response?.is_mandatory && !brandIdProvided) return NextResponse.json({ error: "Selecione a marca exigida pela categoria (use Sem marca quando aplicável)." }, { status: 400 });
+    if (brandIdProvided && !selectedBrand) return NextResponse.json({ error: "A marca selecionada não é válida para esta categoria Shopee." }, { status: 400 });
 
     const [{ data: product, error: productError }, { data: existing, error: existingError }] = await Promise.all([
       supabaseAdmin.from("produto").select("id, titulo, descricao, referencia, precovenda, estoque, tituloMarketplace, descricaoMarketplace, imgUrl, fabricante, codigobarras").eq("id", produtoId).eq("is_deleted", false).single(),
@@ -129,19 +168,6 @@ export async function POST(request: NextRequest) {
     if (existingError) throw publicationStageError("verificar o vínculo do anúncio", existingError);
     if (existing?.item_id) return NextResponse.json({ error: "Este produto já possui anúncio Shopee vinculado." }, { status: 409 });
 
-    const { data: extraImages, error: imagesError } = await supabaseAdmin.from("produto_imagem").select("url").eq("produto_id", produtoId).order("ordem").limit(9);
-    if (imagesError) throw publicationStageError("consultar as imagens do produto", imagesError);
-    const imageUrls = Array.from(new Set([product.imgUrl, ...(extraImages ?? []).map((row: any) => row.url), ...(Array.isArray(body.imageUrls) ? body.imageUrls : [])].map(String).filter(Boolean))).slice(0, 9);
-    if (!imageUrls.length) return NextResponse.json({ error: "Cadastre ao menos uma imagem pública HTTPS no produto." }, { status: 400 });
-    const imageIds: string[] = [];
-    for (const [index, url] of imageUrls.entries()) {
-      try {
-        imageIds.push(await uploadShopeeImageFromUrl(url));
-      } catch (error) {
-        throw publicationStageError(`preparar a imagem ${index + 1}`, error);
-      }
-    }
-
     const title = String(body.title || product.tituloMarketplace || product.titulo || "").trim();
     const description = String(body.description || product.descricaoMarketplace || product.descricao || title).trim();
     const price = priceOverride ?? Number(product.precovenda);
@@ -150,12 +176,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Título, descrição e preço válido são obrigatórios." }, { status: 400 });
     }
 
-    const dimension = {
-      package_length: positiveNumber(body.length),
-      package_width: positiveNumber(body.width),
-      package_height: positiveNumber(body.height),
-    };
-    if (Object.values(dimension).some((value) => !value)) return NextResponse.json({ error: "Informe comprimento, largura e altura do pacote em cm." }, { status: 400 });
+    const { data: extraImages, error: imagesError } = await supabaseAdmin.from("produto_imagem").select("url").eq("produto_id", produtoId).order("ordem").limit(9);
+    if (imagesError) throw publicationStageError("consultar as imagens do produto", imagesError);
+    const imageUrls = Array.from(new Set([product.imgUrl, ...(extraImages ?? []).map((row: any) => row.url), ...(Array.isArray(body.imageUrls) ? body.imageUrls : [])].map(String).filter(Boolean))).slice(0, 9);
+    if (!imageUrls.length) return NextResponse.json({ error: "Cadastre ao menos uma imagem pública HTTPS no produto." }, { status: 400 });
+    const itemLimits = await shopeeShopApi<any>({ path: "/api/v2/product/get_item_limit" });
+    const listingLimitErrors = validateShopeeListingLimits({ title, description, price, stock, imageCount: imageUrls.length, limits: itemLimits?.response });
+    if (listingLimitErrors.length) return NextResponse.json({ error: listingLimitErrors.join(" ") }, { status: 400 });
+    const imageIds: string[] = [];
+    for (const [index, url] of imageUrls.entries()) {
+      try {
+        imageIds.push(await uploadShopeeImageFromUrl(url));
+      } catch (error) {
+        throw publicationStageError(`preparar a imagem ${index + 1}`, error);
+      }
+    }
 
     const payload: Record<string, unknown> = {
       item_name: title,
@@ -166,14 +201,17 @@ export async function POST(request: NextRequest) {
       seller_stock: [{ stock }],
       weight,
       dimension,
-      condition: String(body.condition || "NEW").toUpperCase(),
+      condition,
       image: { image_id_list: imageIds },
       logistic_info: logisticIds.map((logisticId: number) => ({ logistic_id: logisticId, enabled: true })),
     };
     if (dynamicAttributeList.length) payload.attribute_list = dynamicAttributeList;
     else if (Array.isArray(body.attributeList) && body.attributeList.length) payload.attribute_list = body.attributeList;
-    if ((body.brandId !== undefined && body.brandId !== "") || body.brandName || product.fabricante) {
-      payload.brand = { brand_id: Number(body.brandId || 0), original_brand_name: String(body.brandName || product.fabricante || "No Brand") };
+    if (selectedBrand) {
+      payload.brand = {
+        brand_id: Number(selectedBrand.brand_id),
+        original_brand_name: String(selectedBrand.original_brand_name ?? selectedBrand.display_brand_name ?? "").trim(),
+      };
     }
 
     let created: any;
@@ -214,6 +252,15 @@ export async function PATCH(request: NextRequest) {
     const itemId = Number(link.item_id);
     const modelId = link.model_id ? Number(link.model_id) : undefined;
     const action = String(body.action || "sync");
+    const supportedActions = new Set(["sync", "stock", "price", "unlist", "relist", "edit", "delete"]);
+    if (!supportedActions.has(action)) return NextResponse.json({ error: "Ação de anúncio Shopee inválida." }, { status: 400 });
+
+    if (action === "delete") {
+      await shopeeShopApi({ path: "/api/v2/product/delete_item", method: "POST", body: { item_id: itemId } });
+      const { error: deleteLinkError } = await supabaseAdmin.from("shopee_product_link").delete().eq("id", link.id).eq("empresa_id", empresaId);
+      if (deleteLinkError) throw publicationStageError("remover o vínculo excluído do ERP", deleteLinkError);
+      return NextResponse.json({ ok: true, deleted: true, itemId });
+    }
 
     if (action === "stock" || action === "sync") {
       const stock = optionalNonNegativeInteger(body.stock);
@@ -250,10 +297,17 @@ export async function PATCH(request: NextRequest) {
 async function loadRemoteItems() {
   const ids = new Set<number>();
   for (const status of ["NORMAL", "UNLIST", "BANNED"]) {
-    const list = await shopeeShopApi<any>({ path: "/api/v2/product/get_item_list", query: { offset: 0, page_size: 100, item_status: status } });
-    for (const row of list?.response?.item ?? []) if (Number(row.item_id)) ids.add(Number(row.item_id));
+    let offset = 0;
+    for (let page = 0; page < 20; page += 1) {
+      const list = await shopeeShopApi<any>({ path: "/api/v2/product/get_item_list", query: { offset, page_size: 100, item_status: status } });
+      const rows = list?.response?.item ?? [];
+      for (const row of rows) if (Number(row.item_id)) ids.add(Number(row.item_id));
+      if (!list?.response?.has_next_page) break;
+      const nextOffset = Number(list?.response?.next);
+      offset = Number.isFinite(nextOffset) && nextOffset > offset ? nextOffset : offset + Math.max(rows.length, 100);
+    }
   }
-  const itemIds = Array.from(ids).slice(0, 100);
+  const itemIds = Array.from(ids);
   const result: RemoteItem[] = [];
   for (let index = 0; index < itemIds.length; index += 50) {
     const detail = await shopeeShopApi<any>({ path: "/api/v2/product/get_item_base_info", query: { item_id_list: itemIds.slice(index, index + 50).join(","), need_tax_info: false, need_complaint_policy: false } });
@@ -293,18 +347,22 @@ function positiveInteger(value: unknown) {
 }
 
 function positiveNumber(value: unknown) {
-  const parsed = Number(value);
+  const parsed = parseLocalizedNumber(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
 function optionalPositiveNumber(value: unknown): number | null {
-  const parsed = Number(value);
+  const parsed = parseLocalizedNumber(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 function optionalNonNegativeInteger(value: unknown): number | null {
-  const parsed = Number(value);
+  const parsed = parseLocalizedNumber(value);
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function parseLocalizedNumber(value: unknown) {
+  return Number(typeof value === "string" ? value.trim().replace(",", ".") : value);
 }
 
 function friendlyShopeeError(error: any) {
@@ -322,26 +380,4 @@ function publicationStageError(stage: string, cause: unknown) {
   const statusCode = Number((cause as any)?.statusCode);
   if (Number.isInteger(statusCode)) (error as any).statusCode = statusCode;
   return error;
-}
-
-function buildShopeeAttributes(definitions: any[], values: Record<string, unknown>) {
-  return definitions.flatMap((attribute: any) => {
-    const attributeId = Number(attribute?.attribute_id);
-    const entered = String(values[String(attributeId)] ?? "").trim();
-    if (!attributeId || !entered) return [];
-    const options = attribute?.attribute_value_list ?? [];
-    const selected = options.find((option: any) => String(option?.value_id) === entered);
-    const attributeValue = selected
-      ? {
-          value_id: Number(selected.value_id),
-          original_value_name: selected.original_value_name || selected.display_value_name || selected.value_name || selected.name,
-          ...(selected.value_unit ? { value_unit: selected.value_unit } : {}),
-        }
-      : (() => {
-          const defaultUnit = (attribute?.attribute_unit ?? attribute?.unit_list ?? []).map((unit: any) => String(unit?.value_unit ?? unit?.unit ?? unit ?? "").trim()).find(Boolean);
-          const unit = String(values[`${attributeId}__unit`] ?? defaultUnit ?? "").trim();
-          return { original_value_name: entered, ...(unit ? { value_unit: unit } : {}) };
-        })();
-    return [{ attribute_id: attributeId, attribute_value_list: [attributeValue] }];
-  });
 }

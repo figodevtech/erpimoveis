@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowRight, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Eye, Heart, Info, LayoutDashboard, Link2, Loader2, PackageSearch, Plus, RefreshCcw, Search, Settings2, ShoppingBag, Star, Store, TrendingUp, UploadCloud } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, ArrowRight, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Eye, Heart, ImagePlus, Info, LayoutDashboard, Link2, Loader2, PackageSearch, Plus, RefreshCcw, Search, Settings2, ShoppingBag, Star, Store, TrendingUp, UploadCloud } from "lucide-react";
 import ProductSelect from "@/app/(app)/components/productSelect";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
+import { prepareProductImageForUpload, productImageUploadError } from "@/lib/product-image-upload";
 import { MarketplaceConversationPanel } from "./marketplace-conversation-panel";
 import { MarketplaceAttentionCenter, MarketplaceChatLauncher, MarketplaceHeader, MarketplaceListToolbar, MarketplaceLoadingLine, MarketplacePagination, MarketplaceSectionNav, useMarketplaceQueryValue, useMarketplaceSection, type MarketplaceAttentionItem } from "./marketplace-layout";
 
@@ -34,13 +35,13 @@ type ShopeeMessage = { message_id?: string | number; id?: string | number; from_
 type ShopeeTab = "overview" | "products" | "listings" | "orders" | "performance";
 const SHOPEE_MARKETPLACE_SECTIONS: readonly ShopeeTab[] = ["overview", "products", "listings", "orders", "performance"];
 type ShopeePerformance = { items: Array<{ item_id: number; views?: number; view_count?: number; likes?: number; like_count?: number; sale?: number; sold?: number; sold_quantity?: number; comment_count?: number; rating_count?: number; link?: { title?: string; produto_id?: number } | null }>; summary: { views: number; likes: number; sales: number; comments: number } };
-type ShopeeAttribute = { id: number; name: string; required: boolean; inputType: string; allowCustomValue: boolean; units: string[]; values: Array<{ id: number | null; name: string; unit?: string | null }> };
+type ShopeeAttribute = { id: number; name: string; required: boolean; inputType: string; maxValueCount?: number; allowCustomValue: boolean; units: string[]; values: Array<{ id: number | null; name: string; originalName?: string; unit?: string | null }> };
 type ShopeeCategory = { id: number; parentId: number; name: string; hasChildren: boolean };
-type ShopeeBrand = { id: number; name: string };
+type ShopeeBrand = { id: number; name: string; originalName: string };
 type PublishStep = "product" | "content" | "category" | "shipping";
 
 function emptyPublishForm() {
-  return { produtoId: "", title: "", description: "", categoryId: "", brandId: "", brandName: "", condition: "NEW", price: "", stock: "", weight: "", length: "", width: "", height: "", logisticId: "" };
+  return { produtoId: "", title: "", description: "", categoryId: "", brandId: "", brandName: "", brandOriginalName: "", condition: "NEW", price: "", stock: "", weight: "", length: "", width: "", height: "", logisticId: "" };
 }
 
 export default function ShopeeMarketplace() {
@@ -53,6 +54,8 @@ export default function ShopeeMarketplace() {
   const [productPickerOpen, setProductPickerOpen] = useState(false);
   const [selectedPublishProduct, setSelectedPublishProduct] = useState<Product | null>(null);
   const [selectedProductLoading, setSelectedProductLoading] = useState(false);
+  const [publishImageUploading, setPublishImageUploading] = useState(false);
+  const publishImageInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useMarketplaceSection(SHOPEE_MARKETPLACE_SECTIONS, "overview");
   const [orderSearch, setOrderSearch] = useMarketplaceQueryValue("sp_pedido_busca");
   const [orderStatusFilter, setOrderStatusFilter] = useMarketplaceQueryValue("sp_pedido_status", "all");
@@ -74,6 +77,7 @@ export default function ShopeeMarketplace() {
   const [publishStep, setPublishStep] = useState<PublishStep>("product");
   const [categoryAttributes, setCategoryAttributes] = useState<ShopeeAttribute[]>([]);
   const [categoryBrands, setCategoryBrands] = useState<ShopeeBrand[]>([]);
+  const [categoryBrandRequired, setCategoryBrandRequired] = useState(false);
   const [categories, setCategories] = useState<ShopeeCategory[]>([]);
   const [categorySearch, setCategorySearch] = useState("");
   const [categoriesLoading, setCategoriesLoading] = useState(false);
@@ -82,7 +86,7 @@ export default function ShopeeMarketplace() {
   const [attributesLoading, setAttributesLoading] = useState(false);
   const [attributesError, setAttributesError] = useState<string | null>(null);
   const [attributesCategoryId, setAttributesCategoryId] = useState("");
-  const [logistics, setLogistics] = useState<Array<{ logistics_channel_id?: number; logistic_id?: number; logistics_channel_name?: string; logistic_name?: string; enabled?: boolean }>>([]);
+  const [logistics, setLogistics] = useState<Array<{ id: number; name: string; logistics_channel_id?: number; logistic_id?: number; logistics_channel_name?: string; logistic_name?: string; enabled: boolean; compulsory?: boolean; minWeight?: number | null; maxWeight?: number | null }>>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<ShopeeMessage[]>([]);
@@ -250,14 +254,24 @@ export default function ShopeeMarketplace() {
       ]);
       const [attributesJson, brandsJson] = await Promise.all([attributesResponse.json(), brandsResponse.json()]);
       if (!attributesResponse.ok) throw new Error(attributesJson.error || "Falha ao consultar atributos da categoria.");
+      const loadedBrands: ShopeeBrand[] = brandsResponse.ok && Array.isArray(brandsJson.data) ? brandsJson.data : [];
+      const brandRequired = Boolean(brandsResponse.ok && brandsJson.required);
+      const noBrand = loadedBrands.find((brand) => brand.id === 0);
       setCategoryAttributes(Array.isArray(attributesJson.data) ? attributesJson.data : []);
-      setCategoryBrands(brandsResponse.ok && Array.isArray(brandsJson.data) ? brandsJson.data : []);
+      setCategoryBrands(loadedBrands);
+      setCategoryBrandRequired(brandRequired);
       setAttributeValues({});
-      setPublishForm((current) => ({ ...current, brandId: "", brandName: "" }));
+      setPublishForm((current) => ({
+        ...current,
+        brandId: brandRequired && noBrand ? String(noBrand.id) : "",
+        brandName: brandRequired && noBrand ? noBrand.name : "",
+        brandOriginalName: brandRequired && noBrand ? noBrand.originalName : "",
+      }));
       setAttributesCategoryId(String(categoryId));
     } catch (error: any) {
       setCategoryAttributes([]);
       setCategoryBrands([]);
+      setCategoryBrandRequired(false);
       setAttributesCategoryId("");
       const message = String(error?.message || "Não foi possível consultar os atributos da categoria.");
       setAttributesError(message.includes("Módulo Shopee não autorizado") ? `${message} Publique a versão atual da Figo Central e tente novamente.` : message);
@@ -339,6 +353,33 @@ export default function ShopeeMarketplace() {
     }
   }
 
+  async function uploadPublishProductImage(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !selectedPublishProduct) return;
+    const productId = selectedPublishProduct.id;
+
+    setPublishImageUploading(true);
+    try {
+      const preparedFile = await prepareProductImageForUpload(file);
+      const form = new FormData();
+      form.append("files", preparedFile);
+      const response = await fetch(`/api/products/${productId}/images`, { method: "POST", body: form });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json.error || "Falha ao enviar a imagem do produto.");
+      const uploadedUrls = (Array.isArray(json.imagens) ? json.imagens : []).map((image: any) => String(image?.url || "").trim()).filter(Boolean);
+      if (!uploadedUrls.length) throw new Error("O upload foi concluído sem retornar a imagem salva.");
+      const mergeImageUrls = (product: Product) => ({ ...product, imageUrls: Array.from(new Set([...(product.imageUrls ?? []), ...uploadedUrls])) });
+      setSelectedPublishProduct((current) => current && Number(current.id) === Number(productId) ? mergeImageUrls(current) : current);
+      setProducts((current) => current.map((product) => Number(product.id) === Number(productId) ? mergeImageUrls(product) : product));
+      toast.success("Imagem adicionada", { description: "A imagem já está pronta para a publicação na Shopee." });
+    } catch (error) {
+      toast.error("Não foi possível adicionar a imagem", { description: productImageUploadError(error, file.name) });
+    } finally {
+      setPublishImageUploading(false);
+    }
+  }
+
   async function recommendCategory() {
     if (!publishForm.title) return;
     try {
@@ -366,6 +407,7 @@ export default function ShopeeMarketplace() {
       const json = await response.json();
       if (!response.ok) throw new Error(json.error || "Falha ao publicar produto.");
       toast.success("Produto publicado na Shopee", { description: `Item ID ${json.link?.item_id || json.item?.item_id}` });
+      resetPublishDraft();
       closePublishDialog();
       await load();
     } catch (error: any) {
@@ -379,11 +421,13 @@ export default function ShopeeMarketplace() {
     setPublishForm(emptyPublishForm());
     setSelectedPublishProduct(null);
     setSelectedProductLoading(false);
+    setPublishImageUploading(false);
     setProductPickerOpen(false);
     setPublishStep("product");
     setCategorySearch("");
     setCategoryAttributes([]);
     setCategoryBrands([]);
+    setCategoryBrandRequired(false);
     setAttributeValues({});
     setAttributesLoading(false);
     setAttributesError(null);
@@ -392,7 +436,6 @@ export default function ShopeeMarketplace() {
 
   function closePublishDialog() {
     setPublishOpen(false);
-    resetPublishDraft();
   }
 
   function handlePublishOpenChange(open: boolean) {
@@ -404,7 +447,8 @@ export default function ShopeeMarketplace() {
     closePublishDialog();
   }
 
-  async function updateListing(product: Product, action: "sync" | "unlist" | "relist") {
+  async function updateListing(product: Product, action: "sync" | "unlist" | "relist" | "delete") {
+    if (action === "delete" && !window.confirm(`Excluir definitivamente o anúncio Shopee de ${product.titulo}? Esta ação não pode ser desfeita.`)) return;
     try {
       const response = await fetch("/api/integracoes/shopee/products", {
         method: "PATCH",
@@ -413,7 +457,7 @@ export default function ShopeeMarketplace() {
       });
       const json = await response.json();
       if (!response.ok) throw new Error(json.error || "Falha ao atualizar anúncio.");
-      toast.success(action === "sync" ? "Preço e estoque enviados" : action === "unlist" ? "Anúncio pausado" : "Anúncio reativado");
+      toast.success(action === "sync" ? "Preço e estoque enviados" : action === "unlist" ? "Anúncio pausado" : action === "relist" ? "Anúncio reativado" : "Anúncio excluído da Shopee");
       await load();
     } catch (error: any) {
       toast.error("Erro ao atualizar Shopee", { description: error?.message });
@@ -552,9 +596,9 @@ export default function ShopeeMarketplace() {
   const publishStepValidity = useMemo(() => ({
     product: Boolean(selectedPublishProduct?.id && selectedPublishProduct.imageUrls?.length && !selectedProductLoading),
     content: Boolean(publishForm.title.trim() && publishForm.description.trim()),
-    category: Boolean(publishForm.categoryId && attributesCategoryId === publishForm.categoryId && !attributesLoading && !attributesError && missingRequiredAttributes.length === 0),
+    category: Boolean(publishForm.categoryId && attributesCategoryId === publishForm.categoryId && !attributesLoading && !attributesError && missingRequiredAttributes.length === 0 && (!categoryBrandRequired || publishForm.brandId !== "")),
     shipping: Boolean(Number(publishForm.price) > 0 && Number.isInteger(Number(publishForm.stock)) && Number(publishForm.stock) >= 0 && Number(publishForm.weight) > 0 && Number(publishForm.length) > 0 && Number(publishForm.width) > 0 && Number(publishForm.height) > 0 && publishForm.logisticId),
-  }), [selectedPublishProduct, selectedProductLoading, publishForm, attributesCategoryId, attributesLoading, attributesError, missingRequiredAttributes.length]);
+  }), [selectedPublishProduct, selectedProductLoading, publishForm, attributesCategoryId, attributesLoading, attributesError, missingRequiredAttributes.length, categoryBrandRequired]);
   const publishSteps: Array<{ value: PublishStep; number: number; title: string; short: string }> = [
     { value: "product", number: 1, title: "Produto do ERP", short: "Produto" },
     { value: "content", number: 2, title: "Conteúdo do anúncio", short: "Conteúdo" },
@@ -704,7 +748,7 @@ export default function ShopeeMarketplace() {
               <div className="space-y-5 p-4 lg:p-6">
                 <div className="overflow-hidden rounded-lg border">
                   <div className="border-b bg-muted/20 px-4 py-3"><p className="text-sm font-semibold">Anúncios e estoque</p><p className="text-xs text-muted-foreground">Itens publicados ou vinculados à loja Shopee.</p></div>
-                  <Table><TableHeader className="bg-muted/30"><TableRow><TableHead className="pl-4">Produto</TableHead><TableHead>Shopee</TableHead><TableHead>Preço / estoque</TableHead><TableHead className="pr-4 text-right">Ações</TableHead></TableRow></TableHeader><TableBody>{paginatedListings.map((product) => <TableRow key={product.id}><TableCell className="pl-4"><p className="font-medium">{product.titulo}</p><p className="text-xs text-muted-foreground">{product.referencia || `ERP #${product.id}`}</p></TableCell><TableCell><p>Item {product.shopee?.item_id}</p><Badge variant="outline" className="mt-1">{product.shopee?.status || "Vinculado"}</Badge></TableCell><TableCell><p>{formatMoney(product.precovenda, "BRL")}</p><p className="text-xs text-muted-foreground">{Math.max(0, Math.trunc(Number(product.estoque || 0)))} unidade(s)</p></TableCell><TableCell className="pr-4"><div className="flex justify-end gap-1"><Button size="sm" variant="ghost" onClick={() => openEditListing(product)}>Editar</Button><Button size="sm" variant="outline" onClick={() => updateListing(product, "sync")}>Sincronizar</Button><Button size="sm" variant="ghost" onClick={() => updateListing(product, product.shopee?.status === "UNLIST" ? "relist" : "unlist")}>{product.shopee?.status === "UNLIST" ? "Ativar" : "Pausar"}</Button></div></TableCell></TableRow>)}{!filteredListings.length ? <TableRow><TableCell colSpan={4}><EmptyState icon={<PackageSearch className="h-6 w-6" />} title={linkedProducts.length ? "Nenhum anúncio encontrado" : "Nenhum anúncio vinculado"} description={linkedProducts.length ? "Altere a busca ou o filtro de situação." : "Clique em Importar anúncios para consultar a loja Shopee."} /></TableCell></TableRow> : null}</TableBody></Table>
+                  <Table><TableHeader className="bg-muted/30"><TableRow><TableHead className="pl-4">Produto</TableHead><TableHead>Shopee</TableHead><TableHead>Preço / estoque</TableHead><TableHead className="pr-4 text-right">Ações</TableHead></TableRow></TableHeader><TableBody>{paginatedListings.map((product) => <TableRow key={product.id}><TableCell className="pl-4"><p className="font-medium">{product.titulo}</p><p className="text-xs text-muted-foreground">{product.referencia || `ERP #${product.id}`}</p></TableCell><TableCell><p>Item {product.shopee?.item_id}</p><Badge variant="outline" className="mt-1">{product.shopee?.status || "Vinculado"}</Badge></TableCell><TableCell><p>{formatMoney(product.precovenda, "BRL")}</p><p className="text-xs text-muted-foreground">{Math.max(0, Math.trunc(Number(product.estoque || 0)))} unidade(s)</p></TableCell><TableCell className="pr-4"><div className="flex justify-end gap-1"><Button size="sm" variant="ghost" onClick={() => openEditListing(product)}>Editar</Button><Button size="sm" variant="outline" onClick={() => updateListing(product, "sync")}>Sincronizar</Button><Button size="sm" variant="ghost" onClick={() => updateListing(product, product.shopee?.status === "UNLIST" ? "relist" : "unlist")}>{product.shopee?.status === "UNLIST" ? "Ativar" : "Pausar"}</Button><Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => updateListing(product, "delete")}>Excluir</Button></div></TableCell></TableRow>)}{!filteredListings.length ? <TableRow><TableCell colSpan={4}><EmptyState icon={<PackageSearch className="h-6 w-6" />} title={linkedProducts.length ? "Nenhum anúncio encontrado" : "Nenhum anúncio vinculado"} description={linkedProducts.length ? "Altere a busca ou o filtro de situação." : "Clique em Importar anúncios para consultar a loja Shopee."} /></TableCell></TableRow> : null}</TableBody></Table>
                   <MarketplacePagination page={safeListingPage} totalPages={listingTotalPages} pageSize={listingPageSize} total={filteredListings.length} visible={paginatedListings.length} onPageChange={setListingPage} onPageSizeChange={setListingPageSize} />
                 </div>
                 {unlinkedRemoteItems.length ? <div className="overflow-hidden rounded-lg border border-orange-300/70"><div className="border-b bg-orange-50 px-4 py-3 dark:bg-orange-950/20"><p className="text-sm font-semibold">Anúncios sem vínculo no ERP</p><p className="text-xs text-muted-foreground">Encontrados na Shopee, mas o SKU não correspondeu automaticamente a um produto.</p></div><div className="divide-y">{unlinkedRemoteItems.map((item) => <div key={item.item_id} className="grid gap-3 p-4 md:grid-cols-[minmax(0,1fr)_minmax(220px,0.8fr)_auto] md:items-center"><div className="min-w-0"><p className="truncate text-sm font-medium">{item.item_name || `Item ${item.item_id}`}</p><p className="text-xs text-muted-foreground">Item {item.item_id} · SKU {item.item_sku || "não informado"}</p></div><Select value={remoteSelections[String(item.item_id)] || ""} onValueChange={(value) => setRemoteSelections((current) => ({ ...current, [String(item.item_id)]: value }))}><SelectTrigger><SelectValue placeholder="Vincular ao produto..." /></SelectTrigger><SelectContent>{products.filter((product) => !product.shopee).map((product) => <SelectItem key={product.id} value={String(product.id)}>#{product.id} · {product.titulo}</SelectItem>)}</SelectContent></Select><Button size="sm" onClick={() => linkRemoteItem(item)} disabled={savingLink || !remoteSelections[String(item.item_id)]}><Link2 className="mr-2 h-4 w-4" />Vincular</Button></div>)}</div></div> : null}
@@ -747,7 +791,25 @@ export default function ShopeeMarketplace() {
               <TabsContent value="product" className="m-0 space-y-5">
                 <StepHeading number="1" title="Produto do ERP" description="Escolha o produto que dará origem ao anúncio. Produto e imagem são obrigatórios." />
                 <div className="grid gap-3 lg:grid-cols-3"><PublicationNotice title="Sempre obrigatório" tone="required" items={["Ao menos uma imagem pública", "Produto sem anúncio Shopee vinculado", "Preço e estoque cadastrados no ERP"]} /><PublicationNotice title="Depende da categoria" tone="dynamic" items={["Cor, tamanho, material e atributos", "Marca e certificações", "Regras regionais da Shopee"]} /><PublicationNotice title="Ainda não suportado" tone="warning" items={["Grades completas de variações", "Preço e estoque por variação", "Vídeo no anúncio"]} /></div>
-                <div className="flex flex-col gap-3 rounded-lg border bg-background p-4 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0">{selectedPublishProduct ? <><p className="truncate font-medium">{selectedPublishProduct.titulo}</p><p className="text-xs text-muted-foreground">#{selectedPublishProduct.id} · {selectedPublishProduct.referencia || "Sem referência"} · {formatMoney(selectedPublishProduct.precovenda, "BRL")} · {Math.max(0, Math.trunc(Number(selectedPublishProduct.estoque || 0)))} em estoque</p><p className={`mt-2 text-xs font-medium ${selectedPublishProduct.imageUrls?.length ? "text-emerald-600" : "text-destructive"}`}>{selectedProductLoading ? "Verificando imagens..." : selectedPublishProduct.imageUrls?.length ? `${selectedPublishProduct.imageUrls.length} imagem(ns) pronta(s) para envio à Shopee.` : "Obrigatório: cadastre ao menos uma imagem pública HTTPS antes de avançar."}</p></> : <><p className="font-medium">Nenhum produto selecionado</p><p className="text-xs text-muted-foreground">Busque por nome, ID, referência, código de barras ou NCM.</p></>}</div><ProductSelect open={productPickerOpen} setOpen={setProductPickerOpen} OnSelect={(product) => { if (!product.id) return; void choosePublishProductFromPicker({ id: product.id, titulo: product.titulo || `Produto #${product.id}`, descricao: product.descricao, referencia: product.referencia, precovenda: product.precovenda, estoque: product.estoque, imageUrls: product.imgUrl ? [product.imgUrl] : [] }); }}><Button type="button" variant={selectedPublishProduct ? "outline" : "default"} className="shrink-0"><PackageSearch className="mr-2 h-4 w-4" />{selectedPublishProduct ? "Trocar produto" : "Selecionar produto"}</Button></ProductSelect></div>
+                <div className="flex flex-col gap-3 rounded-lg border bg-background p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    {selectedPublishProduct ? <>
+                      <p className="truncate font-medium">{selectedPublishProduct.titulo}</p>
+                      <p className="text-xs text-muted-foreground">#{selectedPublishProduct.id} · {selectedPublishProduct.referencia || "Sem referência"} · {formatMoney(selectedPublishProduct.precovenda, "BRL")} · {Math.max(0, Math.trunc(Number(selectedPublishProduct.estoque || 0)))} em estoque</p>
+                      <p className={`mt-2 text-xs font-medium ${selectedPublishProduct.imageUrls?.length ? "text-emerald-600" : "text-destructive"}`}>{selectedProductLoading ? "Verificando imagens..." : selectedPublishProduct.imageUrls?.length ? `${selectedPublishProduct.imageUrls.length} imagem(ns) pronta(s) para envio à Shopee.` : "Obrigatório: adicione ao menos uma imagem antes de avançar."}</p>
+                    </> : <>
+                      <p className="font-medium">Nenhum produto selecionado</p>
+                      <p className="text-xs text-muted-foreground">Busque por nome, ID, referência, código de barras ou NCM.</p>
+                    </>}
+                  </div>
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    <input ref={publishImageInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" className="hidden" onChange={uploadPublishProductImage} />
+                    {selectedPublishProduct && !selectedPublishProduct.imageUrls?.length ? <Button type="button" variant="outline" onClick={() => publishImageInputRef.current?.click()} disabled={publishImageUploading || selectedProductLoading}>{publishImageUploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ImagePlus className="mr-2 h-4 w-4" />}{publishImageUploading ? "Enviando..." : "Adicionar imagem"}</Button> : null}
+                    <ProductSelect open={productPickerOpen} setOpen={setProductPickerOpen} OnSelect={(product) => { if (!product.id) return; void choosePublishProductFromPicker({ id: product.id, titulo: product.titulo || `Produto #${product.id}`, descricao: product.descricao, referencia: product.referencia, precovenda: product.precovenda, estoque: product.estoque, imageUrls: product.imgUrl ? [product.imgUrl] : [] }); }}>
+                      <Button type="button" variant={selectedPublishProduct ? "outline" : "default"}><PackageSearch className="mr-2 h-4 w-4" />{selectedPublishProduct ? "Trocar produto" : "Selecionar produto"}</Button>
+                    </ProductSelect>
+                  </div>
+                </div>
               </TabsContent>
 
               <TabsContent value="content" className="m-0 space-y-5"><StepHeading number="2" title="Conteúdo do anúncio" description="Revise as informações que serão exibidas para o comprador." /><div className="grid gap-4"><RequiredField label="Título"><Input value={publishForm.title} onChange={(event) => setPublishForm((current) => ({ ...current, title: event.target.value }))} aria-invalid={!publishForm.title.trim()} /></RequiredField><RequiredField label="Descrição"><Textarea rows={8} value={publishForm.description} onChange={(event) => setPublishForm((current) => ({ ...current, description: event.target.value }))} aria-invalid={!publishForm.description.trim()} /></RequiredField></div></TabsContent>
