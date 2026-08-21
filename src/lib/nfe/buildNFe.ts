@@ -18,7 +18,7 @@ import { mapEmpresaToEmitente } from './mapEmpresaToEmitente';
 import { getCodigoUF } from './ufUtils';
 import { calcularTotaisNFe, normalizarCRT, valorLiquidoItem } from './fiscal';
 import { cfopDispensaDifal, deveGerarICMSUFDest, montarICMSUFDest } from './difal';
-import { escapeXml } from './xmlUtils';
+import { escapeXml, truncateNfeXNome } from './xmlUtils';
 import { validarInscricaoEstadualDestinatario } from './indIEDest';
 import {
   NFCE_HOMOLOGACAO_PRIMEIRO_ITEM_DESCRICAO,
@@ -144,7 +144,7 @@ function formatDecimal(value: unknown) {
 
 function buildTransportaXml(transportadora?: NFeTransporteOptions["transportadora"] | null) {
   const documento = onlyDigits(transportadora?.documento);
-  const nome = cleanText(transportadora?.nome);
+  const nome = truncateNfeXNome(cleanText(transportadora?.nome));
   const ie = cleanText(transportadora?.inscricaoEstadual);
   const endereco = cleanText(transportadora?.endereco);
   const municipio = cleanText(transportadora?.municipio);

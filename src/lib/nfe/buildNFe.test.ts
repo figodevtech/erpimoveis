@@ -111,6 +111,42 @@ describe("destino da operação na NF-e", () => {
   });
 });
 
+describe("limite de xNome", () => {
+  it("corta emitente, destinatário e transportadora em 60 caracteres sem alterar a origem", () => {
+    const nomeEmitente = "E".repeat(61);
+    const nomeDestinatario = "D".repeat(61);
+    const nomeTransportadora = "T".repeat(61);
+    const empresaLonga = { ...empresa, ambiente: "PRODUCAO" as const, razaosocial: nomeEmitente };
+    const destinatarioLongo = { ...destinatario("SP"), razaoSocial: nomeDestinatario };
+
+    const { xml } = buildNFePreviewXml(
+      empresaLonga,
+      10,
+      1,
+      [item],
+      destinatarioLongo,
+      {
+        nomeMunicipioEmitente: "SAO PAULO",
+        ambiente: "PRODUCAO",
+        transporte: {
+          modFrete: "0",
+          transportadora: {
+            documento: "12345678000199",
+            nome: nomeTransportadora,
+            uf: "SP",
+          },
+        },
+      },
+    );
+
+    const nomesNoXml = Array.from(xml.matchAll(/<xNome>(.*?)<\/xNome>/g), (match) => match[1]);
+    assert.deepEqual(nomesNoXml.map((nome) => nome.length), [60, 60, 60]);
+    assert.deepEqual(nomesNoXml, ["E".repeat(60), "D".repeat(60), "T".repeat(60)]);
+    assert.equal(empresaLonga.razaosocial, nomeEmitente);
+    assert.equal(destinatarioLongo.razaoSocial, nomeDestinatario);
+  });
+});
+
 describe("documentos referenciados e devolução", () => {
   const chaveOriginal = "35260812345678000199550010000001231000001234";
 

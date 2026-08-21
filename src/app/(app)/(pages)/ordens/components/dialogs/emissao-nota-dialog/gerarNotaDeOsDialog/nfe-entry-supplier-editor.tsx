@@ -36,6 +36,7 @@ import {
   isValidCpf,
   onlyFiscalDigits,
 } from "@/lib/nfe/recipientNormalization";
+import { NFE_XNOME_MAX_LENGTH, sanitizeString } from "@/lib/nfe/xmlUtils";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 
@@ -177,6 +178,8 @@ export function NfeEntrySupplierEditor({
       ? isValidCpf(value.cpfCnpj)
       : isValidCnpj(value.cpfCnpj));
   const fieldErrors = getEntrySupplierFieldErrors(value);
+  const nomeFiscalTruncado =
+    sanitizeString(value.nomeRazaoSocial).length > NFE_XNOME_MAX_LENGTH;
 
   async function searchCep() {
     const cep = onlyFiscalDigits(value.cep);
@@ -369,6 +372,11 @@ export function NfeEntrySupplierEditor({
             value={value.nomeRazaoSocial}
             onChange={(event) => update("nomeRazaoSocial", event.target.value)}
           />
+          {nomeFiscalTruncado ? (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              O nome será reduzido para {NFE_XNOME_MAX_LENGTH} caracteres no XML da NF-e.
+            </p>
+          ) : null}
         </Field>
         <Field label="Indicador IE" required>
           <Select value={value.indicadorIe} onValueChange={(next) => update("indicadorIe", next)}>

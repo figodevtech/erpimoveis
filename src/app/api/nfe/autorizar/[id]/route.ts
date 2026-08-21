@@ -20,6 +20,7 @@ import { atualizarDataEmissao } from "@/lib/nfe/nfce/dataEmissao";
 import { resolveSefazEndpoint } from "@/lib/nfe/webservices";
 import { anexarQrCodeNfce } from "@/services/fiscal/nfceQrCodeService";
 import type { ClienteRow, EmpresaRow } from "@/lib/nfe/types";
+import { truncateNfeXNomeInXml } from "@/lib/nfe/xmlUtils";
 
 export const runtime = "nodejs";
 
@@ -465,8 +466,10 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
     // Duas correcoes de rascunho legado antes de numerar e assinar: a ordem do
     // NFref dentro do <ide> e a convivencia proibida entre referencia de
     // cabecalho e de item (rejeicao 1010).
-    const xmlRascunhoNormalizado = normalizarNiveisDeReferencia(
-      normalizarOrdemNfRefIde(xmlRascunhoSalvo),
+    const xmlRascunhoNormalizado = truncateNfeXNomeInXml(
+      normalizarNiveisDeReferencia(
+        normalizarOrdemNfRefIde(xmlRascunhoSalvo),
+      ),
     );
     const numeracao = await garantirNumeroDefinitivo(nfeId, xmlRascunhoNormalizado);
     const modeloNota = exigirModelo(nfe.modelo);

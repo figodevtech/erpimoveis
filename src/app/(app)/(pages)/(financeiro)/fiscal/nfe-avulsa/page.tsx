@@ -60,6 +60,7 @@ import type { Customer } from "@/app/(app)/(pages)/clientes/types";
 import type { Produto } from "@/app/(app)/(pages)/estoque/types";
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
 import { isValidCnpj } from "@/lib/nfe/recipientNormalization";
+import { NFE_XNOME_MAX_LENGTH, sanitizeString } from "@/lib/nfe/xmlUtils";
 import { chaveAcessoValida } from "@/lib/nfe/chaveAcesso";
 import { normalizarIndIEDest, sugerirIndIEDest } from "@/lib/nfe/indIEDest";
 import { normalizeCfopForOperation } from "@/lib/nfe/cfopOperation";
@@ -2155,6 +2156,12 @@ export default function NFeAvulsaPage() {
                         }))
                       }
                     />
+                    {!isHomologacao &&
+                    sanitizeString(draft.destinatario.nomeRazaoSocial).length > NFE_XNOME_MAX_LENGTH ? (
+                      <p className="text-xs text-amber-600 dark:text-amber-400">
+                        O nome será reduzido para {NFE_XNOME_MAX_LENGTH} caracteres no XML da NF-e.
+                      </p>
+                    ) : null}
                   </Field>
                   <Field label="Indicador IE" required>
                     <Select

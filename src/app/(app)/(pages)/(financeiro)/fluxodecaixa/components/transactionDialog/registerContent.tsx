@@ -656,6 +656,14 @@ export default function RegisterContent({
   const handleCreateTransaction = async () => {
     setIsSubmitting(true);
     try {
+      if (
+        !newTransaction.nomepagador?.trim() ||
+        !newTransaction.cpfcnpjpagador?.trim()
+      ) {
+        toast.error("Informe o nome e o CPF/CNPJ do pagador/recebedor.");
+        return;
+      }
+
       if (excedeSaldoDisponivel) {
         toast.error("O valor informado ultrapassa o saldo disponível.", {
           description: `O maior pagamento permitido agora é ${formatarEmReal(maximumAmount ?? 0)}.`,

@@ -29,6 +29,7 @@ import {
   isValidCpf,
   normalizeFiscalRecipient,
 } from "@/lib/nfe/recipientNormalization";
+import { truncateNfeXNome } from "@/lib/nfe/xmlUtils";
 
 type NFeConfigRow = {
   id: number;
@@ -370,7 +371,7 @@ function getDestinatarioSnapshot(
     return {
       cnpj: pessoaJuridica ? documento : undefined,
       cpf: pessoaJuridica ? undefined : documento,
-      razaoSocial: cleanText(dest.nomeRazaoSocial) || "CONSUMIDOR",
+      razaoSocial: truncateNfeXNome(cleanText(dest.nomeRazaoSocial) || "CONSUMIDOR"),
       indIEDest: "9",
       endereco: {
         logradouro: cleanText(dest.endereco) || "",
@@ -400,10 +401,11 @@ function getDestinatarioSnapshot(
   return {
     cnpj: isCnpj && documento ? documento : undefined,
     cpf: isCpf && !isCnpj && documento ? documento : undefined,
-    razaoSocial:
+    razaoSocial: truncateNfeXNome(
       empresa.ambiente === "PRODUCAO"
         ? cleanText(dest.nomeRazaoSocial)
         : NFE_HOMOLOGACAO_DESTINATARIO_NOME,
+    ),
     indIEDest: normalizarIndIEDest(indicadorIe) as NFeDestinatario["indIEDest"],
     inscricaoEstadual: indicadorIe === "1" ? ie || undefined : undefined,
     endereco: {
