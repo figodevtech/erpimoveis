@@ -231,6 +231,14 @@ describe("emissão avulsa: destinatário e transporte", () => {
 
     assert.equal(erros(draft, "cpfCnpj").length, 1);
   });
+
+  it("recusa não contribuinte marcado como não consumidor final", () => {
+    const draft = draftBase({
+      operacao: { ...draftBase().operacao, consumidorFinal: false },
+    });
+
+    assert.equal(erros(draft, "consumidorFinal").length, 1);
+  });
 });
 
 describe("emissão avulsa: NF-e referenciada", () => {
@@ -245,6 +253,11 @@ describe("emissão avulsa: NF-e referenciada", () => {
         naturezaOperacao: "DEVOLUCAO DE MERCADORIA",
         consumidorFinal: false,
         indicadorPresenca: "0",
+      },
+      destinatario: {
+        ...draftBase().destinatario,
+        indicadorIe: "1",
+        inscricaoEstadual: "160000000",
       },
       pagamentos: [{ meio: "90", valor: 0, tipoIntegracao: "2" }],
       ...overrides,
@@ -266,6 +279,34 @@ describe("emissão avulsa: NF-e referenciada", () => {
     });
 
     assert.deepEqual(erros(draft, "documentosReferenciados"), []);
+  });
+
+  it("valida o dígito da chave referenciada no item", () => {
+    const chaveErrada = `${chaveValida.slice(0, 43)}0`;
+    const draft = devolucao({
+      itens: [itemBase({ dfeReferenciado: { chaveAcesso: chaveErrada, nItem: 1 } })],
+    });
+
+    assert.equal(erros(draft, "dfeReferenciado.chaveAcesso").length, 1);
+  });
+
+  it("exige nItem válido na referência granular", () => {
+    const draft = devolucao({
+      itens: [itemBase({ dfeReferenciado: { chaveAcesso: chaveValida, nItem: 0 } })],
+    });
+
+    assert.equal(erros(draft, "dfeReferenciado.nItem").length, 1);
+  });
+
+  it("exige referência granular em todos os produtos da devolução", () => {
+    const draft = devolucao({
+      itens: [
+        itemBase({ dfeReferenciado: { chaveAcesso: chaveValida, nItem: 1 } }),
+        itemBase({ descricao: "SEGUNDO PRODUTO" }),
+      ],
+    });
+
+    assert.equal(erros(draft, "dfeReferenciado").length, 1);
   });
 
   it("recusa chave com dígito verificador errado", () => {
@@ -313,6 +354,11 @@ describe("emissão avulsa: níveis de referenciamento", () => {
         naturezaOperacao: "DEVOLUCAO DE MERCADORIA",
         consumidorFinal: false,
         indicadorPresenca: "0",
+      },
+      destinatario: {
+        ...draftBase().destinatario,
+        indicadorIe: "1",
+        inscricaoEstadual: "160000000",
       },
       pagamentos: [{ meio: "90", valor: 0, tipoIntegracao: "2" }],
       ...overrides,

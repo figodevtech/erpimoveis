@@ -32,6 +32,7 @@ export type EntradaCandidata = {
   quantidade: number;
   valor_unitario_compra?: number | string | null;
   precovenda?: number | string | null;
+  numero_item_fiscal?: number | null;
   entrada?: {
     id: number;
     notachave?: string | null;
@@ -43,6 +44,7 @@ export type EntradaCandidata = {
 export type SaidaOrigemItem = {
   /** `sourceItemId` do item no assistente: `saida:{saidaId}:{itemId}`. */
   sourceItemId: string;
+  saidaId: number;
   saidaItemId: number;
   produtoId: number;
   titulo: string;
@@ -116,6 +118,7 @@ export function NfeSaidaOrigemEditor({
   onChange,
   operacoes,
   entradasCandidatas,
+  selectedSourceIds,
   espelhando = false,
   onEscolherEntrada,
 }: {
@@ -123,6 +126,8 @@ export function NfeSaidaOrigemEditor({
   onChange: (next: SaidaOrigemDraft) => void;
   operacoes: OperacaoFiscalSaidaOption[];
   entradasCandidatas: EntradaCandidata[];
+  /** Exibe a origem somente das linhas que realmente irão para a NF-e. */
+  selectedSourceIds?: string[];
   /** Consulta da NF-e de origem em andamento. */
   espelhando?: boolean;
   /**
@@ -135,6 +140,9 @@ export function NfeSaidaOrigemEditor({
   const isCustom = value.operacaoFiscalCodigo === "OUTRA";
   const chaveDigitos = onlyDigits(value.chaveAcessoReferenciada);
   const chaveInvalida = chaveDigitos.length > 0 && !chaveAcessoValida(chaveDigitos);
+  const itensVisiveis = selectedSourceIds
+    ? value.itens.filter((item) => selectedSourceIds.includes(item.sourceItemId))
+    : value.itens;
 
   function atualizarItem(saidaItemId: number, patch: Partial<SaidaOrigemItem>) {
     return {
@@ -174,7 +182,14 @@ export function NfeSaidaOrigemEditor({
 
     const chaveEntrada = onlyDigits(entrada?.notachave);
     const next: SaidaOrigemDraft = {
-      ...atualizarItem(saidaItemId, { entradaItemOrigemId, percentualDevolucao, aviso: null }),
+      ...atualizarItem(saidaItemId, {
+        entradaItemOrigemId,
+        percentualDevolucao,
+        numeroItemReferenciado: candidato?.numero_item_fiscal
+          ? Number(candidato.numero_item_fiscal)
+          : item?.numeroItemReferenciado ?? null,
+        aviso: null,
+      }),
       // Todos os itens referenciam a mesma entrada nesta versão, então a chave
       // do cabeçalho acompanha a entrada escolhida.
       chaveAcessoReferenciada: chaveEntrada.length === 44
@@ -284,15 +299,22 @@ export function NfeSaidaOrigemEditor({
 
       {exigeReferencia ? (
         <div className="space-y-3">
-          {value.itens.map((item) => {
+          {itensVisiveis.map((item) => {
             const candidatos = entradasCandidatas.filter(
-              (candidato) => Number(candidato.produto_id) === Number(item.produtoId),
+              (candidato) => {
+                if (Number(candidato.produto_id) !== Number(item.produtoId)) return false;
+                const entrada = relacaoUnica<any>(candidato.entrada);
+                const chaveCandidata = onlyDigits(entrada?.notachave);
+                return !chaveDigitos || chaveCandidata === chaveDigitos;
+              },
             );
             return (
               <div key={item.sourceItemId} className="min-w-0 space-y-3 rounded-md border p-3">
                 <div className="min-w-0">
                   <p className="break-words font-medium">{item.titulo}</p>
-                  <p className="text-xs text-muted-foreground">Quantidade baixada: {item.quantidade}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Saída #{item.saidaId} · quantidade baixada: {item.quantidade}
+                  </p>
                 </div>
 
                 {candidatos.length === 0 ? (
