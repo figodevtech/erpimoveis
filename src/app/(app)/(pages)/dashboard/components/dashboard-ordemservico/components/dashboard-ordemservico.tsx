@@ -104,7 +104,7 @@ function StatusValueLabelRight(props: any) {
   const cx = Number(x ?? 0) + Number(width ?? 0) + 8;
   const cy = Number(y ?? 0) + Number(height ?? 0) / 2 + 4;
   return (
-    <text x={cx} y={cy} textAnchor="start" fill="hsl(var(--foreground))" fontSize={12} fontWeight={500}>
+    <text x={cx} y={cy} textAnchor="start" fill="var(--foreground)" fontSize={12} fontWeight={600}>
       {value}
     </text>
   );
@@ -116,7 +116,7 @@ function StatusValueLabelTop(props: any) {
   const cx = Number(x ?? 0) + Number(width ?? 0) / 2;
   const cy = Number(y ?? 0) - 6;
   return (
-    <text x={cx} y={cy} textAnchor="middle" fill="hsl(var(--foreground))" fontSize={12} fontWeight={500}>
+    <text x={cx} y={cy} textAnchor="middle" fill="var(--foreground)" fontSize={12} fontWeight={600}>
       {value}
     </text>
   );
@@ -314,8 +314,8 @@ export default function ServiceOrdersDashboard({
           >
             <ChartContainer
               config={{
-                new: { label: "Novas", color: "hsl(var(--chart-1))" },
-                done: { label: "Concluídas", color: "hsl(var(--chart-2))" },
+                new: { label: "Novas", color: "var(--chart-1)" },
+                done: { label: "Concluídas", color: "var(--chart-2)" },
               }}
               className="h-48 w-full xs:h-56 sm:h-64 md:h-72 lg:h-80"
             >
@@ -331,14 +331,14 @@ export default function ServiceOrdersDashboard({
                   </linearGradient>
                 </defs>
 
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
                 <XAxis
                   dataKey="label"
                   axisLine={false}
                   tickLine={false}
                   fontSize={12}
                   tickMargin={8}
-                  stroke="hsl(var(--muted-foreground))"
+                  stroke="var(--muted-foreground)"
                 />
                 <YAxis
                   allowDecimals={false}
@@ -346,7 +346,7 @@ export default function ServiceOrdersDashboard({
                   tickLine={false}
                   fontSize={12}
                   tickMargin={8}
-                  stroke="hsl(var(--muted-foreground))"
+                  stroke="var(--muted-foreground)"
                 />
 
                 <ChartTooltip content={<ChartTooltipContent indicator="line" />} />
@@ -409,7 +409,7 @@ export default function ServiceOrdersDashboard({
             <div className="w-full" style={{ height: isMobile ? statusChartHeight : 280 }}>
               <ChartContainer
                 config={{
-                  value: { label: "Quantidade de Ordens", color: "hsl(var(--chart-1))" },
+                  value: { label: "Quantidade de Ordens", color: "var(--chart-1)" },
                 }}
                 className="h-full w-full"
               >
@@ -420,7 +420,7 @@ export default function ServiceOrdersDashboard({
                     margin={{ top: 8, right: 16, left: -20, bottom: 8 }}
                     barSize={14}
                   >
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="hsl(var(--border))" />
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--border)" />
 
                     <XAxis
                       type="number"
@@ -429,7 +429,7 @@ export default function ServiceOrdersDashboard({
                       tickLine={false}
                       fontSize={12}
                       tickMargin={8}
-                      stroke="hsl(var(--muted-foreground))"
+                      stroke="var(--muted-foreground)"
                     />
 
                     <YAxis
@@ -440,7 +440,7 @@ export default function ServiceOrdersDashboard({
                       fontSize={12}
                       width={120}
                       tickFormatter={encurtarStatusOS}
-                      stroke="hsl(var(--muted-foreground))"
+                      stroke="var(--muted-foreground)"
                     />
 
                     <ChartTooltip content={<ChartTooltipContent indicator="dashed" />} />
@@ -456,7 +456,7 @@ export default function ServiceOrdersDashboard({
                   </BarChart>
                 ) : (
                   <BarChart data={statusItems} margin={{ top: 20, right: 20, left: 0, bottom: 0 }} barSize={50}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
 
                     <XAxis
                       dataKey="name"
@@ -465,7 +465,7 @@ export default function ServiceOrdersDashboard({
                       fontSize={12}
                       tickMargin={8}
                       tickFormatter={encurtarStatusOS}
-                      stroke="hsl(var(--muted-foreground))"
+                      stroke="var(--muted-foreground)"
                     />
 
                     <YAxis
@@ -474,7 +474,7 @@ export default function ServiceOrdersDashboard({
                       tickLine={false}
                       fontSize={12}
                       tickMargin={8}
-                      stroke="hsl(var(--muted-foreground))"
+                      stroke="var(--muted-foreground)"
                     />
 
                     <ChartTooltip content={<ChartTooltipContent indicator="dashed" />} />
@@ -553,7 +553,7 @@ export default function ServiceOrdersDashboard({
                     <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="4 8" vertical={false} stroke="hsl(var(--border))" opacity={0.55} />
+                <CartesianGrid strokeDasharray="4 8" vertical={false} stroke="var(--border)" opacity={0.7} />
                 <XAxis dataKey="label" axisLine={false} tickLine={false} tickMargin={8} fontSize={12} />
                 <YAxis axisLine={false} tickLine={false} tickMargin={8} fontSize={11} tickFormatter={(value) => formatCurrencyBRL(Number(value)).replace("R$", "").trim()} />
                 <ChartTooltip content={<ChartTooltipContent indicator="line" formatter={(value) => formatCurrencyBRL(Number(value))} />} />

@@ -411,11 +411,11 @@ export default function ResumoDiarioDashboard() {
 
             <ChartCard title="Volume por categoria" description="Quantidade de registros e eventos no dia" badge="Dia">
               <ChartContainer
-                config={{ value: { label: "Total", color: "hsl(var(--chart-1))" } }}
+                config={{ value: { label: "Total", color: "var(--chart-1)" } }}
                 className="h-60 w-full sm:h-72"
               >
                 <BarChart data={chartData} margin={{ top: 20, right: 12, left: -16, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
                   <XAxis dataKey="name" axisLine={false} tickLine={false} tickMargin={8} fontSize={12} />
                   <YAxis allowDecimals={false} axisLine={false} tickLine={false} tickMargin={8} fontSize={12} />
                   <ChartTooltip content={<ChartTooltipContent />} />

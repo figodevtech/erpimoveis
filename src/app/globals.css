@@ -77,29 +77,29 @@
 }
 
 .dark {
-  --background: #121016;
+  --background: #0f0d13;
   --foreground: #f7f2ff;
-  --card: #1d1922;
+  --card: #1b1720;
   --card-foreground: #f7f2ff;
-  --popover: #1d1922;
+  --popover: #1b1720;
   --popover-foreground: #f7f2ff;
   --primary: #8b5cf6;
   --primary-foreground: #ffffff;
-  --secondary: #2b2532;
+  --secondary: #29222f;
   --secondary-foreground: #f7f2ff;
-  --muted: #2b2532;
-  --muted-foreground: #b8adbf;
+  --muted: #27212d;
+  --muted-foreground: #c4b8cc;
   --accent: #332642;
   --accent-foreground: #f7f2ff;
   --destructive: #f05252;
-  --border: rgb(255 255 255 / 10%);
+  --border: rgb(255 255 255 / 12%);
   --input: rgb(255 255 255 / 15%);
   --ring: #a78bfa;
-  --chart-1: #6d28d9;
-  --chart-2: #a855f7;
-  --chart-3: #c026d3;
-  --chart-4: #9333ea;
-  --chart-5: #4c1d95;
+  --chart-1: #a78bfa;
+  --chart-2: #38bdf8;
+  --chart-3: #f472b6;
+  --chart-4: #fbbf24;
+  --chart-5: #34d399;
   --sidebar: #160b2e;
   --sidebar-foreground: #f7f2ff;
   --sidebar-primary: #8b5cf6;
@@ -142,12 +142,20 @@
       0 14px 36px -20px rgb(15 23 42 / 0.28) !important;
   }
 
-  .dark .dashboard-canvas [data-slot="card"],
+  .dark .dashboard-canvas [data-slot="card"]:not(.dashboard-root),
   .dark .dashboard-surface {
-    background: color-mix(in srgb, var(--card) 92%, transparent) !important;
+    border: 1px solid color-mix(in srgb, white 8%, transparent) !important;
+    background: color-mix(in srgb, var(--card) 97%, #251d2d) !important;
     box-shadow:
-      0 1px 1px rgb(255 255 255 / 0.025) inset,
-      0 18px 44px -24px rgb(0 0 0 / 0.75) !important;
+      0 1px 0 rgb(255 255 255 / 0.035) inset,
+      0 18px 44px -24px rgb(0 0 0 / 0.82) !important;
+  }
+
+  .dark .dashboard-canvas {
+    background:
+      radial-gradient(circle at 8% 4%, color-mix(in srgb, var(--primary) 15%, transparent) 0, transparent 28rem),
+      radial-gradient(circle at 94% 18%, color-mix(in srgb, #38bdf8 9%, transparent) 0, transparent 24rem),
+      #110e15;
   }
 
   .dashboard-canvas [data-slot="card"].dashboard-root {
@@ -228,6 +236,18 @@
   .dashboard-kpi:hover {
     transform: translateY(-2px);
     box-shadow: 0 18px 38px -22px rgb(15 23 42 / 0.42);
+  }
+
+  .dark .dashboard-kpi {
+    border: 1px solid color-mix(in srgb, white 8%, transparent);
+    background: linear-gradient(145deg, #211b28, #18141d);
+    box-shadow:
+      0 1px 0 rgb(255 255 255 / 0.035) inset,
+      0 16px 36px -24px rgb(0 0 0 / 0.9);
+  }
+
+  .dark .dashboard-kpi::after {
+    background: color-mix(in srgb, var(--primary) 16%, transparent);
   }
 
   .dashboard-kpi-strip > * {
