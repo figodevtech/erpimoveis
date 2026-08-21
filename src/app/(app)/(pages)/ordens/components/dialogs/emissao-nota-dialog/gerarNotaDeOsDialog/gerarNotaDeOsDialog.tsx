@@ -102,6 +102,7 @@ import {
 /** Contexto fiscal da saída, carregado junto dos itens quando origin = SAIDA. */
 type SaidaFiscalResponse = {
   ok: boolean;
+  message?: string;
   contexto?: {
     operacao_fiscal_codigo?: string | null;
     natureza_operacao?: string | null;
@@ -586,6 +587,11 @@ export function GerarNotaDeOsDialog({
         const saidaJson = (await saidaFiscalResponse?.json().catch(() => null)) as
           | SaidaFiscalResponse
           | null;
+        if (!saidaFiscalResponse?.ok || !saidaJson?.ok) {
+          throw new Error(
+            saidaJson?.message || "Não foi possível carregar a origem fiscal da saída.",
+          );
+        }
         const operacoes = saidaJson?.operacoes ?? [];
         const contexto = saidaJson?.contexto ?? null;
         const gravadoPorItem = new Map(
@@ -599,7 +605,7 @@ export function GerarNotaDeOsDialog({
 
         setSaidaOperacoes(operacoes);
         setEntradasCandidatas(saidaJson?.entradasCandidatas ?? []);
-        setSaidaOrigem({
+        const origemCarregada: SaidaOrigemDraft = {
           operacaoFiscalCodigo: operacaoGravada?.codigo ?? "",
           naturezaOperacao: contexto?.natureza_operacao ?? operacaoGravada?.naturezaOperacao ?? "",
           finalidade: contexto?.finalidade ?? operacaoGravada?.finalidade ?? "NORMAL",
@@ -631,7 +637,23 @@ export function GerarNotaDeOsDialog({
               aviso: null,
             };
           }),
-        });
+        };
+        setSaidaOrigem(origemCarregada);
+
+        // Um contexto já salvo precisa ter o mesmo comportamento de uma entrada
+        // escolhida agora: procura as outras baixas físicas daquela NF-e assim
+        // que o diálogo abre. Elas continuam desmarcadas para decisão humana.
+        const itemComOrigem = origemCarregada.itens.find(
+          (item) => item.entradaItemOrigemId && item.saidaId === Number(originId),
+        );
+        if (itemComOrigem) {
+          await buscarSaidasRelacionadas(origemCarregada, itemComOrigem.saidaItemId, {
+            fiscalSetup,
+            destinatario: productsJson.destinatario ?? emptyEntrySupplier,
+            entradas: saidaJson.entradasCandidatas ?? [],
+            signal,
+          });
+        }
       }
 
       setDescontoGeral(Math.max(0, Number(productsJson.desconto_geral ?? 0)));
@@ -925,9 +947,36 @@ export function GerarNotaDeOsDialog({
    * físicas dos produtos daquela mesma NF-e. As linhas entram desmarcadas: o
    * reconhecimento ajuda, mas a decisão de documentá-las continua humana.
    */
-  async function buscarSaidasRelacionadas(next: SaidaOrigemDraft, saidaItemId: number) {
-    const alvo = next.itens.find((item) => item.saidaItemId === saidaItemId);
-    if (!setup || !originId || !alvo?.entradaItemOrigemId || alvo.saidaId !== Number(originId)) {
+  async function buscarSaidasRelacionadas(
+    next: SaidaOrigemDraft,
+    saidaItemId: number,
+    opcoes?: {
+      fiscalSetup?: FiscalSetup;
+      destinatario?: NFeEntrySupplierDraft;
+      entradas?: EntradaCandidata[];
+      signal?: AbortSignal;
+    },
+  ) {
+    const setupAtual = opcoes?.fiscalSetup ?? setup;
+    const destinatarioAtual = opcoes?.destinatario ?? entrySupplier;
+    const entradasAtuais = opcoes?.entradas ?? entradasCandidatas;
+    const alvoInicial = next.itens.find((item) => item.saidaItemId === saidaItemId);
+    const entradaCanonica = entradasAtuais.find(
+      (item) => Number(item.id) === Number(alvoInicial?.entradaItemOrigemId),
+    );
+    const numeroCanonico = Number(entradaCanonica?.numero_item_fiscal ?? 0);
+    const nextCanonico = Number.isInteger(numeroCanonico) && numeroCanonico >= 1 && numeroCanonico <= 990
+      ? {
+          ...next,
+          itens: next.itens.map((item) =>
+            item.saidaItemId === saidaItemId
+              ? { ...item, numeroItemReferenciado: numeroCanonico }
+              : item,
+          ),
+        }
+      : next;
+    const alvo = nextCanonico.itens.find((item) => item.saidaItemId === saidaItemId);
+    if (!setupAtual || !originId || !alvo?.entradaItemOrigemId || alvo.saidaId !== Number(originId)) {
       return next;
     }
 
@@ -936,11 +985,12 @@ export function GerarNotaDeOsDialog({
       const response = await fetch(`/api/estoque/saidas/${originId}/relacionadas`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: opcoes?.signal,
         body: JSON.stringify({
           saidaItemId,
           entradaItemOrigemId: alvo.entradaItemOrigemId,
-          operacaoFiscalCodigo: next.operacaoFiscalCodigo,
-          ufDestinatario: entrySupplier.estado || null,
+          operacaoFiscalCodigo: nextCanonico.operacaoFiscalCodigo,
+          ufDestinatario: destinatarioAtual.estado || null,
         }),
       });
       const json = (await response.json().catch(() => null)) as SaidaRelacionadaResponse | null;
@@ -951,14 +1001,14 @@ export function GerarNotaDeOsDialog({
       const candidatos = json.candidatos ?? [];
       const selecionaveis = candidatos.filter((candidato) => candidato.selecionavel);
       const novosItens = selecionaveis.map((candidato) =>
-        createAssistedItem(candidato.item, setup, {
+        createAssistedItem(candidato.item, setupAtual, {
           tipoOperacao: "SAIDA",
-          parceiroUf: entrySupplier.estado,
-          indFinal: entrySupplier.indicadorIe === "9" ? 1 : 0,
-          indIEDest: entrySupplier.indicadorIe,
+          parceiroUf: destinatarioAtual.estado,
+          indFinal: destinatarioAtual.indicadorIe === "9" ? 1 : 0,
+          indIEDest: destinatarioAtual.indicadorIe,
         }),
       );
-      const itensPrincipais = next.itens.filter((item) => item.saidaId === Number(originId));
+      const itensPrincipais = nextCanonico.itens.filter((item) => item.saidaId === Number(originId));
       const itensRelacionados = selecionaveis.map((candidato) => {
         const quantidadeEntrada = Number(candidato.entradaCandidata?.quantidade ?? 0);
         return {
@@ -979,7 +1029,7 @@ export function GerarNotaDeOsDialog({
             : null,
         };
       });
-      const nextCompleto = { ...next, itens: [...itensPrincipais, ...itensRelacionados] };
+      const nextCompleto = { ...nextCanonico, itens: [...itensPrincipais, ...itensRelacionados] };
 
       setItems((current) => [
         ...current.filter((item) => item.sourceItemId.startsWith(`saida:${originId}:`)),
@@ -1006,17 +1056,22 @@ export function GerarNotaDeOsDialog({
       });
 
       await Promise.all([
-        aplicarEspelhoFiscal(nextCompleto, saidaItemId),
+        aplicarEspelhoFiscal(nextCompleto, saidaItemId, destinatarioAtual.estado),
         ...itensRelacionados
           .filter((item) => item.numeroItemReferenciado)
-          .map((item) => aplicarEspelhoFiscal(nextCompleto, item.saidaItemId)),
+          .map((item) => aplicarEspelhoFiscal(
+            nextCompleto,
+            item.saidaItemId,
+            destinatarioAtual.estado,
+          )),
       ]);
       return nextCompleto;
     } catch (error: any) {
+      if (error?.name === "AbortError") return nextCanonico;
       setResumoRelacionadas(null);
       toast.warning(error?.message || "Não foi possível procurar outras saídas desta nota.");
-      await aplicarEspelhoFiscal(next, saidaItemId);
-      return next;
+      await aplicarEspelhoFiscal(nextCanonico, saidaItemId, destinatarioAtual.estado);
+      return nextCanonico;
     } finally {
       setBuscandoRelacionadas(false);
     }
@@ -1031,7 +1086,11 @@ export function GerarNotaDeOsDialog({
    * de entrada não está guardada no sistema, o servidor devolve um aviso e os
    * campos continuam com o que veio do cadastro.
    */
-  async function aplicarEspelhoFiscal(next: SaidaOrigemDraft, saidaItemId: number) {
+  async function aplicarEspelhoFiscal(
+    next: SaidaOrigemDraft,
+    saidaItemId: number,
+    ufDestinatario = entrySupplier.estado,
+  ) {
     const alvo = next.itens.find((item) => item.saidaItemId === saidaItemId);
     if (!originId || !alvo?.entradaItemOrigemId) return;
 
@@ -1041,7 +1100,7 @@ export function GerarNotaDeOsDialog({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ufDestinatario: entrySupplier.estado || null,
+          ufDestinatario: ufDestinatario || null,
           // A natureza decide o destino da compra e, com a presença de ST no
           // documento de origem, a linha da tabela de CFOP de devolução.
           operacaoFiscalCodigo: next.operacaoFiscalCodigo,

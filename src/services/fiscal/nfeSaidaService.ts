@@ -14,6 +14,7 @@ import { extrairItemFiscalNfe } from "@/services/fiscal/dfeXmlParser";
 import { buscarContextoPadraoFiscal, buscarFiscalConfig } from "@/services/fiscal/nfeConfigService";
 import {
   montarReferenciasFiscaisSaida,
+  normalizarNumeroItemReferenciado,
   OPERACOES_FISCAIS_SAIDA,
   type FinalidadeFiscalSaida,
   validarReferenciaFiscalSaida,
@@ -559,6 +560,10 @@ export async function salvarContextoFiscalSaida(
     repetidos.add(saidaItemId);
 
     const entradaItemId = Number(item.entradaItemOrigemId ?? 0) || null;
+    let numeroItemReferenciado = normalizarNumeroItemReferenciado(
+      null,
+      item.numeroItemReferenciado,
+    );
     if (exigeReferencia && !entradaItemId) {
       throw new Error(`Vincule o item ${index + 1} à entrada fiscal que originou a mercadoria.`);
     }
@@ -593,6 +598,10 @@ export async function salvarContextoFiscalSaida(
       const fornecedorOrigem = relationOne<any>(entrada?.fornecedor);
       const documentoOrigem = onlyDigits(fornecedorOrigem?.cpfcnpj);
       if (documentoOrigem) documentoFornecedorOrigem = documentoOrigem;
+      numeroItemReferenciado = normalizarNumeroItemReferenciado(
+        entradaItem.numero_item_fiscal,
+        item.numeroItemReferenciado,
+      );
     }
 
     const percentualDevolucao = numberValue(item.percentualDevolucao ?? 100);
@@ -607,7 +616,7 @@ export async function salvarContextoFiscalSaida(
     itensNormalizados.push({
       saidaItemId,
       entradaItemOrigemId: entradaItemId,
-      numeroItemReferenciado: item.numeroItemReferenciado ?? null,
+      numeroItemReferenciado,
       percentualDevolucao: finalidade === "DEVOLUCAO"
         ? percentualDevolucao
         : null,
@@ -750,7 +759,10 @@ export async function montarEspelhoFiscalSaida(
       const linha = await carregarEntradaItem(entradaItemId);
       const entrada = relationOne<any>(linha?.entrada);
       const xml = entrada ? await carregarXmlDaEntrada(entrada) : null;
-      const nItem = Number(entradaItem.numeroItemReferenciado ?? 0) || null;
+      const nItem = normalizarNumeroItemReferenciado(
+        linha?.numero_item_fiscal,
+        entradaItem.numeroItemReferenciado,
+      );
 
       if (!xml) {
         aviso = "A NF-e desta entrada não está guardada no sistema; os tributos vieram do cadastro do produto.";

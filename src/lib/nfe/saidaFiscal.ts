@@ -80,6 +80,28 @@ export function sugerirCfopSaida(
 }
 
 /**
+ * Resolve o nItem citado na NF-e de saída.
+ *
+ * Quando a linha da entrada já conhece sua posição no documento recebido,
+ * ela é a fonte canônica. O valor enviado pela tela existe apenas para entradas
+ * antigas que ainda não puderam ser reconciliadas com o XML.
+ */
+export function normalizarNumeroItemReferenciado(
+  numeroItemFiscal: unknown,
+  numeroItemInformado: unknown,
+) {
+  const canonico = Number(numeroItemFiscal ?? 0);
+  if (Number.isInteger(canonico) && canonico >= 1 && canonico <= 990) {
+    return canonico;
+  }
+
+  const informado = Number(numeroItemInformado ?? 0);
+  return Number.isInteger(informado) && informado >= 1 && informado <= 990
+    ? informado
+    : null;
+}
+
+/**
  * Documentos que a NF-e de saída deve citar no grupo `<NFref>` do `<ide>`.
  *
  * A regra VC02 cobra um documento referenciado em toda nota com `finNFe=4` —

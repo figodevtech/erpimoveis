@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   getOperacaoFiscalSaida,
   montarReferenciasFiscaisSaida,
+  normalizarNumeroItemReferenciado,
   sugerirCfopSaida,
   validarReferenciaFiscalSaida,
 } from "./saidaFiscal";
@@ -45,6 +46,22 @@ describe("natureza fiscal da saída de estoque", () => {
       itens: [{ numeroItemReferenciado: 2 }],
     });
     assert.deepEqual(errors, []);
+  });
+});
+
+describe("nItem da nota de origem", () => {
+  it("prefere o nItem canônico da linha de entrada ao valor salvo na saída", () => {
+    assert.equal(normalizarNumeroItemReferenciado(2, 1), 2);
+  });
+
+  it("mantém o valor informado para entradas antigas ainda sem reconciliação", () => {
+    assert.equal(normalizarNumeroItemReferenciado(null, 3), 3);
+  });
+
+  it("rejeita números ausentes ou fora do limite do leiaute da NF-e", () => {
+    assert.equal(normalizarNumeroItemReferenciado(null, null), null);
+    assert.equal(normalizarNumeroItemReferenciado(null, 0), null);
+    assert.equal(normalizarNumeroItemReferenciado(null, 991), null);
   });
 });
 
