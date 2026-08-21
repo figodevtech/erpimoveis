@@ -5,10 +5,13 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { chunkValues, fetchAllSupabaseRows, fetchAllSupabaseRowsByChunks } from "@/lib/supabase-pagination";
-
-/** Ajuste aqui se quiser considerar somente status específicos como "concluída".
- *  Por padrão, consideramos 'concluída' quando datasaida != null. */
-const COMPLETED_BY_STATUS: string[] | null = ["CONCLUIDO"];
+import {
+  SERVICE_ORDER_COMPLETION_COLUMN,
+  isServiceOrderCompleted,
+  isServiceOrderOpen,
+  serviceOrderCompletionDate,
+  serviceOrderCompletionDurationHours,
+} from "@/lib/dashboard/service-order-completion";
 
 type Row = {
   id: number;
@@ -16,7 +19,7 @@ type Row = {
   statusaprovacao: string | null;
   prioridade: string | null;
   dataentrada: string | null;
-  datasaida: string | null;
+  execucao_fim_em: string | null;
   orcamentototal: string | number | null;
   clienteid: number | null;
   setorid: number | null;
@@ -27,7 +30,6 @@ function toNum(n: any) {
   return Number.isFinite(v) ? v : 0;
 }
 
-const MS_PER_HOUR = 1000 * 60 * 60;
 const localDateKey = (value: Date | string) =>
   new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Fortaleza",
@@ -84,7 +86,7 @@ export async function GET(req: Request) {
       await fetchAllSupabaseRows<Row>(() => {
         let query = supabaseAdmin
           .from("ordemservico")
-          .select("id, status, statusaprovacao, prioridade, dataentrada, datasaida, orcamentototal, clienteid, setorid")
+          .select("id, status, statusaprovacao, prioridade, dataentrada, execucao_fim_em, orcamentototal, clienteid, setorid")
           .eq("is_deleted", false)
           .order("id", { ascending: true });
         if (dateFrom) query = query.gte("dataentrada", localDayStartToUtcIso(dateFrom));
@@ -97,13 +99,12 @@ export async function GET(req: Request) {
     const completedPeriodRows = await fetchAllSupabaseRows<Row>(() => {
       let query = supabaseAdmin
         .from("ordemservico")
-        .select("id, status, statusaprovacao, prioridade, dataentrada, datasaida, orcamentototal, clienteid, setorid")
+        .select("id, status, statusaprovacao, prioridade, dataentrada, execucao_fim_em, orcamentototal, clienteid, setorid")
         .eq("is_deleted", false)
-        .eq("status", "CONCLUIDO")
-        .not("datasaida", "is", null)
+        .not(SERVICE_ORDER_COMPLETION_COLUMN, "is", null)
         .order("id", { ascending: true });
-      if (dateFrom) query = query.gte("datasaida", localDayStartToUtcIso(dateFrom));
-      if (dateTo) query = query.lt("datasaida", localNextDayStartToUtcIso(dateTo));
+      if (dateFrom) query = query.gte(SERVICE_ORDER_COMPLETION_COLUMN, localDayStartToUtcIso(dateFrom));
+      if (dateTo) query = query.lt(SERVICE_ORDER_COMPLETION_COLUMN, localNextDayStartToUtcIso(dateTo));
       return query;
     });
 
@@ -113,12 +114,12 @@ export async function GET(req: Request) {
       await fetchAllSupabaseRows<Row>(() =>
         supabaseAdmin
           .from("ordemservico")
-          .select("id, status, dataentrada, datasaida, orcamentototal")
+          .select("id, status, dataentrada, execucao_fim_em, orcamentototal")
           .eq("is_deleted", false)
-          .or(`dataentrada.gte.${monthlyStartIso},datasaida.gte.${monthlyStartIso}`)
+          .or(`dataentrada.gte.${monthlyStartIso},${SERVICE_ORDER_COMPLETION_COLUMN}.gte.${monthlyStartIso}`)
           .order("id", { ascending: true }),
       )
-    ).filter((row) => row.dataentrada || row.datasaida);
+    ).filter((row) => row.dataentrada || row.execucao_fim_em);
 
     const start30Date = new Date(`${today}T00:00:00${FORTALEZA_OFFSET}`);
     start30Date.setUTCDate(start30Date.getUTCDate() - 29);
@@ -129,7 +130,7 @@ export async function GET(req: Request) {
       fetchAllSupabaseRows<Row>(() =>
         supabaseAdmin
           .from("ordemservico")
-          .select("id, status, dataentrada, datasaida, orcamentototal")
+          .select("id, status, dataentrada, execucao_fim_em, orcamentototal")
           .eq("is_deleted", false)
           .gte("dataentrada", todayStart)
           .lt("dataentrada", tomorrowStart)
@@ -138,21 +139,19 @@ export async function GET(req: Request) {
       fetchAllSupabaseRows<Row>(() =>
         supabaseAdmin
           .from("ordemservico")
-          .select("id, status, dataentrada, datasaida, orcamentototal")
+          .select("id, status, dataentrada, execucao_fim_em, orcamentototal")
           .eq("is_deleted", false)
-          .eq("status", "CONCLUIDO")
-          .gte("datasaida", todayStart)
-          .lt("datasaida", tomorrowStart)
+          .gte(SERVICE_ORDER_COMPLETION_COLUMN, todayStart)
+          .lt(SERVICE_ORDER_COMPLETION_COLUMN, tomorrowStart)
           .order("id", { ascending: true }),
       ),
       fetchAllSupabaseRows<Row>(() =>
         supabaseAdmin
           .from("ordemservico")
-          .select("id, status, dataentrada, datasaida, orcamentototal")
+          .select("id, status, dataentrada, execucao_fim_em, orcamentototal")
           .eq("is_deleted", false)
-          .eq("status", "CONCLUIDO")
-          .gte("datasaida", start30Date.toISOString())
-          .lt("datasaida", tomorrowStart)
+          .gte(SERVICE_ORDER_COMPLETION_COLUMN, start30Date.toISOString())
+          .lt(SERVICE_ORDER_COMPLETION_COLUMN, tomorrowStart)
           .order("id", { ascending: true }),
       ),
     ]);
@@ -183,13 +182,6 @@ export async function GET(req: Request) {
     const ordersTodayCompleted = todayCompletedRows.length;
 
     const durationsHours: number[] = [];
-    const isCompleted = (r: Row) => {
-      const hasExitDate = !!r.datasaida;
-      if (COMPLETED_BY_STATUS && COMPLETED_BY_STATUS.length > 0) {
-        return hasExitDate && !!r.status && COMPLETED_BY_STATUS.includes(r.status);
-      }
-      return hasExitDate;
-    };
 
     for (const r of rows) {
       const ve = r.dataentrada ? new Date(r.dataentrada) : null;
@@ -206,7 +198,7 @@ export async function GET(req: Request) {
       const pr = String(r.prioridade ?? "NULL");
       countsByPriority[pr] = (countsByPriority[pr] ?? 0) + 1;
 
-      if (!["CONCLUIDO", "SEM_COBRANCA", "CANCELADO", "ORCAMENTO_RECUSADO"].includes(st)) ordersOpen += 1;
+      if (isServiceOrderOpen(st)) ordersOpen += 1;
 
       if (ve) {
         const dk = dateKey(ve);
@@ -216,14 +208,14 @@ export async function GET(req: Request) {
     }
 
     for (const row of completedPeriodRows) {
-      if (!row.dataentrada || !row.datasaida) continue;
-      const hours = (new Date(row.datasaida).getTime() - new Date(row.dataentrada).getTime()) / MS_PER_HOUR;
-      if (Number.isFinite(hours) && hours >= 0) durationsHours.push(hours);
+      const hours = serviceOrderCompletionDurationHours(row);
+      if (hours !== null) durationsHours.push(hours);
     }
 
     for (const r of monthlyRows) {
       const ve = r.dataentrada ? new Date(r.dataentrada) : null;
-      const vs = r.datasaida ? new Date(r.datasaida) : null;
+      const completedAt = serviceOrderCompletionDate(r);
+      const vs = completedAt ? new Date(completedAt) : null;
       const budget = toNum(r.orcamentototal);
 
       if (ve) {
@@ -231,7 +223,7 @@ export async function GET(req: Request) {
         if (monthlyNew[key] !== undefined) monthlyNew[key] += 1;
       }
 
-      if (isCompleted(r) && vs) {
+      if (isServiceOrderCompleted(r) && vs) {
         const key2 = localDateKey(vs).slice(0, 7);
         if (monthlyCompleted[key2] !== undefined) monthlyCompleted[key2] += 1;
         if (monthlyRevenue[key2] !== undefined) monthlyRevenue[key2] += budget;

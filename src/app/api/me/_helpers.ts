@@ -3,14 +3,21 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { hasUsuariosAccess } from "@/app/api/_authz/perms";
 
+export {
+  parsePeriodo,
+  STATUS_OS_EM_EXECUCAO,
+  STATUS_OS_FINALIZADAS,
+  STATUS_VENDAS_REALIZADAS,
+} from "@/lib/meu-perfil/regras";
+export type { PeriodoConsulta as Periodo } from "@/lib/meu-perfil/regras";
+
 /**
  * Helpers da Central Pessoal (/meu-perfil).
  *
  * As rotas /api/me/* nao aparecem em ROUTE_PERMS do middleware: qualquer usuario
- * autenticado passa. Isso so e seguro porque elas devolvem exclusivamente dados
- * do proprio usuario, e o id SEMPRE sai da sessao — nunca de um parametro da
- * query. Aceitar um `usuarioId` do cliente transformaria a rota em leitura livre
- * das vendas e ordens de qualquer colega.
+ * autenticado passa. Por padrao, elas devolvem exclusivamente dados do usuario
+ * da sessao. A consulta de outro `usuarioId` so e aceita para quem possui a
+ * permissao de visualizar usuarios.
  */
 export async function getMeUserId(req?: Request): Promise<string | NextResponse> {
   const session = await auth();
@@ -39,30 +46,6 @@ export async function getMeUserId(req?: Request): Promise<string | NextResponse>
 
 export function isNextResponse(value: unknown): value is NextResponse {
   return value instanceof NextResponse;
-}
-
-/**
- * Status de OS em que o trabalho ja terminou.
- *
- * `PAGAMENTO` conta como finalizada: o servico foi executado e o veiculo
- * liberado, restando apenas a baixa do financeiro. Compartilhado entre a lista
- * e o resumo para os dois nunca divergirem.
- */
-export const STATUS_FINALIZADAS = ["CONCLUIDO", "PAGAMENTO"] as const;
-
-export type Periodo = { inicio: string | null; fim: string | null };
-
-const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
-
-/** Converte `de`/`ate` (YYYY-MM-DD) nos limites ISO usados nos filtros de data. */
-export function parsePeriodo(searchParams: URLSearchParams): Periodo {
-  const de = (searchParams.get("de") ?? "").trim();
-  const ate = (searchParams.get("ate") ?? "").trim();
-
-  return {
-    inicio: DATA_ISO.test(de) ? `${de}T00:00:00.000Z` : null,
-    fim: DATA_ISO.test(ate) ? `${ate}T23:59:59.999Z` : null,
-  };
 }
 
 export type Paginacao = { page: number; limit: number; from: number; to: number };

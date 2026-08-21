@@ -90,6 +90,7 @@ export default function DashboardFinanceiro({
   const categorias = resumoFiltrado.porCategoria ?? [];
   const metodos = resumoBase.porMetodoPagamento ?? [];
   const muitasCategorias = (resumoBase.porCategoria ?? []).length > 8;
+  const larguraMinimaGraficoCategorias = Math.max(640, categorias.length * 120);
 
   const saldoPositivo = saldo >= 0;
   const corSaldoLinha = saldoPositivo ? COR_SALDO_POSITIVO : COR_SALDO_NEGATIVO;
@@ -371,8 +372,16 @@ export default function DashboardFinanceiro({
               </div>
             </div>
 
-            <div className="mt-1 w-full overflow-x-auto">
-              <div className={clsx("h-64 sm:h-72 md:h-80", muitasCategorias && "min-w-[640px]")}>
+            <div
+              className="mt-1 w-full touch-pan-x overflow-x-auto overscroll-x-contain pb-2 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border"
+              role="region"
+              aria-label="Gráfico de receitas e despesas por categoria"
+              tabIndex={0}
+            >
+              <div
+                className="h-64 w-full sm:h-72 md:h-80"
+                style={{ minWidth: `${larguraMinimaGraficoCategorias}px` }}
+              >
                 <ChartContainer
                   config={{
                     receita: { label: "Receitas", color: COR_RECEITA },

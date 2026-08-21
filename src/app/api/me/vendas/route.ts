@@ -14,6 +14,7 @@ import {
   parsePaginacao,
   parsePeriodo,
   relacaoNomeada,
+  STATUS_VENDAS_REALIZADAS,
   texto,
   totalDePaginas,
 } from "../_helpers";
@@ -60,7 +61,9 @@ export async function GET(req: Request) {
     let query = supabaseAdmin
       .from("venda")
       .select(SELECT, { count: "exact" })
-      .eq("vendedor", userId);
+      .eq("vendedor", userId)
+      .in("status", STATUS_VENDAS_REALIZADAS)
+      .not("pagamento_em", "is", null);
 
     // Eixo de periodo: `pagamento_em`, o momento em que a venda foi para
     // pagamento — nao `datavenda`, que e quando o orcamento foi digitado. Mesma
@@ -68,7 +71,7 @@ export async function GET(req: Request) {
     // orcamento ainda nao aprovado tem `pagamento_em` nulo e fica fora da aba,
     // porque ainda nao virou receita de ninguem.
     if (periodo.inicio) query = query.gte("pagamento_em", periodo.inicio);
-    if (periodo.fim) query = query.lte("pagamento_em", periodo.fim);
+    if (periodo.fimExclusivo) query = query.lt("pagamento_em", periodo.fimExclusivo);
     if (status && status !== "TODOS") query = query.eq("status", status);
 
     const { data, error, count } = await query

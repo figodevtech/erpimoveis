@@ -3,13 +3,20 @@ import { endOfMonth, startOfMonth } from "date-fns";
 import type { Periodo } from "../types";
 
 const MOEDA = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
-const DATA = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+const FUSO_OFICINA = "America/Fortaleza";
+const DATA = new Intl.DateTimeFormat("pt-BR", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  timeZone: FUSO_OFICINA,
+});
 const DATA_HORA = new Intl.DateTimeFormat("pt-BR", {
   day: "2-digit",
   month: "2-digit",
   year: "numeric",
   hour: "2-digit",
   minute: "2-digit",
+  timeZone: FUSO_OFICINA,
 });
 
 export function formatarMoeda(valor: number): string {

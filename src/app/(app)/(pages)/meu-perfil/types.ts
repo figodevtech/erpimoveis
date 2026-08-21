@@ -22,7 +22,7 @@ export type MeuResumo = {
   periodo: { de: string | null; ate: string | null };
   vendas: ResumoValor;
   ordens: ResumoValor;
-  servicosFinalizados: ResumoValor;
+  servicosRealizados: ResumoValor;
   servicosEmAndamento: { quantidade: number; parcial: boolean };
 };
 
@@ -96,9 +96,6 @@ export type IndicadoresOrdens = {
   parcial: boolean;
 };
 
-/** Enum de `osservico_realizador.status_execucao`. */
-export type StatusExecucao = "PENDENTE" | "EM_EXECUCAO" | "FINALIZADO";
-
 export type MeuServico = {
   ordemId: number;
   servicoId: number;
@@ -107,9 +104,6 @@ export type MeuServico = {
   quantidade: number;
   valorUnitario: number;
   subtotal: number;
-  statusExecucao: string | null;
-  iniciadoEm: string | null;
-  finalizadoEm: string | null;
   observacao: string | null;
   ordem: {
     status: string | null;

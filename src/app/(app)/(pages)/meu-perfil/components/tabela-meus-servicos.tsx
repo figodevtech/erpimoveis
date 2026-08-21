@@ -5,7 +5,7 @@ import { useCallback } from "react";
 import { Table, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { buscarMeusServicos } from "../lib/api";
-import { formatarDataHora, formatarDuracao, formatarMoeda } from "../lib/format";
+import { formatarDataHora, formatarMoeda, formatarQuantidade } from "../lib/format";
 import { useListaPaginada } from "../hooks/use-lista-paginada";
 import type { MeuServico, Periodo } from "../types";
 import { StatusBadge } from "./status-badge";
@@ -21,11 +21,6 @@ import {
 
 const COLUNAS = 7;
 const LIMITE = 15;
-
-/** `status_execucao` tem default no banco; o fallback cobre linhas antigas. */
-function statusDaExecucao(servico: MeuServico): string {
-  return servico.statusExecucao ?? "PENDENTE";
-}
 
 export function TabelaMeusServicos({ periodo, ativo, usuarioId }: { periodo: Periodo; ativo: boolean; usuarioId?: string }) {
   const buscar = useCallback(
@@ -49,9 +44,9 @@ export function TabelaMeusServicos({ periodo, ativo, usuarioId }: { periodo: Per
             <TableHead className="w-20">OS</TableHead>
             <TableHead>Serviço</TableHead>
             <TableHead className="w-40">Cliente</TableHead>
-            <TableHead className="w-36">Execução</TableHead>
-            <TableHead className="w-40">Início</TableHead>
-            <TableHead className="w-24">Duração</TableHead>
+            <TableHead className="w-36">Status da OS</TableHead>
+            <TableHead className="w-40">Fim da execução</TableHead>
+            <TableHead className="w-24 text-right">Qtd.</TableHead>
             <TableHead className="w-32 text-right">Valor</TableHead>
           </TableRow>
         </TableHeader>
@@ -64,7 +59,7 @@ export function TabelaMeusServicos({ periodo, ativo, usuarioId }: { periodo: Per
           ) : lista.items.length === 0 ? (
             <LinhaVazia
               colunas={COLUNAS}
-              mensagem="Nenhum serviço registrado em seu nome no período selecionado."
+              mensagem="Nenhum serviço realizado em seu nome no período selecionado."
             />
           ) : (
             lista.items.map((servico) => (
@@ -90,15 +85,15 @@ export function TabelaMeusServicos({ periodo, ativo, usuarioId }: { periodo: Per
                 </TableCell>
 
                 <TableCell>
-                  <StatusBadge status={statusDaExecucao(servico)} />
+                  <StatusBadge status={servico.ordem.status} />
                 </TableCell>
 
                 <TableCell className="text-muted-foreground tabular-nums">
-                  {formatarDataHora(servico.iniciadoEm)}
+                  {formatarDataHora(servico.ordem.concluidaEm)}
                 </TableCell>
 
-                <TableCell className="text-muted-foreground tabular-nums">
-                  {formatarDuracao(servico.iniciadoEm, servico.finalizadoEm)}
+                <TableCell className="text-right text-muted-foreground tabular-nums">
+                  {formatarQuantidade(servico.quantidade)}
                 </TableCell>
 
                 <TableCell className="text-right font-medium tabular-nums">

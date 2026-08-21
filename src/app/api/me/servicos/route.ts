@@ -13,6 +13,7 @@ import {
   parsePaginacao,
   parsePeriodo,
   relacaoNomeada,
+  STATUS_OS_FINALIZADAS,
   texto,
   totalDePaginas,
 } from "../_helpers";
@@ -33,9 +34,6 @@ import {
 const SELECT = `
   ordemservicoid,
   servicoid,
-  status_execucao,
-  iniciado_em,
-  finalizado_em,
   observacao_execucao,
   item:osservico!inner (
     descricao,
@@ -46,6 +44,7 @@ const SELECT = `
     ordem:ordemservicoid!inner (
       id,
       status,
+      is_deleted,
       dataentrada,
       datasaida,
       execucao_fim_em,
@@ -68,27 +67,25 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const periodo = parsePeriodo(searchParams);
     const { page, limit, from, to } = parsePaginacao(searchParams);
-    const status = (searchParams.get("status") ?? "").trim().toUpperCase();
-
     let query = supabaseAdmin
       .from("osservico_realizador")
       .select(SELECT, { count: "exact" })
-      .eq("usuarioid", userId);
+      .eq("usuarioid", userId)
+      .eq("item.ordem.is_deleted", false)
+      .in("item.ordem.status", STATUS_OS_FINALIZADAS)
+      .not("item.ordem.execucao_fim_em", "is", null);
 
     /*
      * Periodo pela conclusao da execucao da OS, nao pela entrada dela: o
      * trabalho precisa contar no mes em que foi encerrado.
      *
-     * O ideal seria o `finalizado_em` do proprio usuario, que e por servico —
-     * mas ele so e gravado pelo modulo de execucao, e hoje nenhuma linha da
-     * base tem esse campo preenchido (realizadores sao definidos pela tela de
-     * responsaveis, que nao carimba data). `ordemservico.execucao_fim_em` e o
-     * sinal de conclusao que existe de fato, e o modulo de execucao o atualiza
-     * no mesmo instante em que o ultimo servico e finalizado.
+     * A regra desta aba e deliberadamente a da OS: todo servico atribuido ao
+     * usuario entra quando a OS possui `execucao_fim_em` e permanece em
+     * PAGAMENTO ou CONCLUIDO. O estado interno da atribuicao nao participa do
+     * recorte, pois ha OS encerradas por fluxos que nao atualizam esse estado.
      */
     if (periodo.inicio) query = query.gte("item.ordem.execucao_fim_em", periodo.inicio);
-    if (periodo.fim) query = query.lte("item.ordem.execucao_fim_em", periodo.fim);
-    if (status && status !== "TODOS") query = query.eq("status_execucao", status);
+    if (periodo.fimExclusivo) query = query.lt("item.ordem.execucao_fim_em", periodo.fimExclusivo);
 
     // Ordenacao deterministica: a PK e composta e nao ha coluna de data
     // preenchida em todas as linhas (servico so atribuido fica sem iniciado_em).
@@ -116,9 +113,6 @@ export async function GET(req: Request) {
         quantidade: num(item?.quantidade) || 1,
         valorUnitario: num(item?.precounitario),
         subtotal: num(item?.subtotal),
-        statusExecucao: texto(linha.status_execucao),
-        iniciadoEm: texto(linha.iniciado_em),
-        finalizadoEm: texto(linha.finalizado_em),
         observacao: texto(linha.observacao_execucao),
         ordem: {
           status: texto(ordem?.status),

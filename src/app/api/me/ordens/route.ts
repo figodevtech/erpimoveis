@@ -14,7 +14,7 @@ import {
   parsePaginacao,
   parsePeriodo,
   relacaoNomeada,
-  STATUS_FINALIZADAS,
+  STATUS_OS_FINALIZADAS,
   texto,
   totalDePaginas,
 } from "../_helpers";
@@ -79,10 +79,12 @@ export async function GET(req: Request) {
       .from("ordemservico")
       .select(SELECT, { count: "exact" })
       .eq("usuariocriadorid", userId)
-      .in("status", STATUS_FINALIZADAS);
+      .eq("is_deleted", false)
+      .in("status", STATUS_OS_FINALIZADAS)
+      .not("execucao_fim_em", "is", null);
 
     if (periodo.inicio) query = query.gte("execucao_fim_em", periodo.inicio);
-    if (periodo.fim) query = query.lte("execucao_fim_em", periodo.fim);
+    if (periodo.fimExclusivo) query = query.lt("execucao_fim_em", periodo.fimExclusivo);
 
     const { data, error, count } = await query
       .order("execucao_fim_em", { ascending: false, nullsFirst: false })

@@ -6,7 +6,6 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { MotionConfig, motion } from "motion/react";
 import { Tabs } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { buscarPerfil, buscarResumo } from "./lib/api";
 import { periodoPadrao } from "./lib/format";
@@ -18,6 +17,7 @@ import { ResumoCards } from "./components/resumo-cards";
 import { TabelaMeusServicos } from "./components/tabela-meus-servicos";
 import { TabelaMinhasOrdens } from "./components/tabela-minhas-ordens";
 import { TabelaMinhasVendas } from "./components/tabela-minhas-vendas";
+import { UsuarioCombobox } from "./components/usuario-combobox";
 import type { AbaCentral, MeuPerfil, MeuResumo, Periodo } from "./types";
 
 function abaValida(valor: string | null): AbaCentral {
@@ -99,6 +99,7 @@ export function MeuPerfilClient() {
       })
       .catch(() => {
         // O cabecalho degrada para o titulo generico; nao vale bloquear a tela.
+        if (!controller.signal.aborted) setEstadoPerfil({ chave: chavePerfil, dados: null });
       })
 
     return () => controller.abort();
@@ -132,24 +133,12 @@ export function MeuPerfilClient() {
           perfil={perfil}
           carregando={carregandoPerfil}
           seletorUsuario={podeVerUsuarios ? (
-            <Select
+            <UsuarioCombobox
+              usuarios={usuarios}
               value={usuarioId ?? usuarioLogadoId}
+              usuarioLogadoId={usuarioLogadoId}
               onValueChange={(id) => atualizarUrl({ usuarioId: id === usuarioLogadoId ? null : id })}
-            >
-              <SelectTrigger
-                className="h-8 w-full border-border/60 bg-transparent text-xs text-muted-foreground shadow-none"
-                aria-label="Usuário visualizado"
-              >
-                <SelectValue placeholder="Selecione um usuário" />
-              </SelectTrigger>
-              <SelectContent>
-                {usuarios.map((usuario) => (
-                  <SelectItem key={usuario.id} value={usuario.id}>
-                    {usuario.nome || usuario.email}{usuario.id === usuarioLogadoId ? " (você)" : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            />
           ) : undefined}
         />
 

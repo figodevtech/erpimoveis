@@ -38,7 +38,14 @@ export function CorpoAnimado({ className, children, ...props }: HTMLMotionProps<
 
 export function LinhaAnimada({ className, children, ...props }: HTMLMotionProps<"tr">) {
   return (
-    <motion.tr data-slot="table-row" className={cn(CLASSE_LINHA, className)} variants={linha} {...props}>
+    <motion.tr
+      data-slot="table-row"
+      className={cn(CLASSE_LINHA, className)}
+      variants={linha}
+      initial="oculto"
+      animate="visivel"
+      {...props}
+    >
       {children}
     </motion.tr>
   );

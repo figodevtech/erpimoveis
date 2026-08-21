@@ -11,7 +11,7 @@ import {
   isNextResponse,
   num,
   parsePeriodo,
-  STATUS_FINALIZADAS,
+  STATUS_OS_FINALIZADAS,
 } from "../../_helpers";
 
 /**
@@ -39,10 +39,12 @@ export async function GET(req: Request) {
       .from("ordemservico")
       .select("id, orcamentototal", { count: "exact" })
       .eq("usuariocriadorid", userId)
-      .in("status", STATUS_FINALIZADAS);
+      .eq("is_deleted", false)
+      .in("status", STATUS_OS_FINALIZADAS)
+      .not("execucao_fim_em", "is", null);
 
     if (periodo.inicio) ordensQuery = ordensQuery.gte("execucao_fim_em", periodo.inicio);
-    if (periodo.fim) ordensQuery = ordensQuery.lte("execucao_fim_em", periodo.fim);
+    if (periodo.fimExclusivo) ordensQuery = ordensQuery.lt("execucao_fim_em", periodo.fimExclusivo);
 
     const { data: ordens, error, count } = await ordensQuery.range(0, TETO_ORDENS - 1);
     if (error) throw error;
