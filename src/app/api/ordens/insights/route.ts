@@ -6,8 +6,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { chunkValues, fetchAllSupabaseRows, fetchAllSupabaseRowsByChunks } from "@/lib/supabase-pagination";
 
-/** Ajuste aqui se quiser considerar somente status específicos como "concluída".
- *  Por padrão, consideramos 'concluída' quando datasaida != null. */
+/** Status que representam uma OS concluída. A data de saída é opcional. */
 const COMPLETED_BY_STATUS: string[] | null = ["CONCLUIDO"];
 
 type Row = {
@@ -94,18 +93,7 @@ export async function GET(req: Request) {
     ).filter((row) => row.dataentrada);
     const totalOrders = rows.length;
 
-    const completedPeriodRows = await fetchAllSupabaseRows<Row>(() => {
-      let query = supabaseAdmin
-        .from("ordemservico")
-        .select("id, status, statusaprovacao, prioridade, dataentrada, datasaida, orcamentototal, clienteid, setorid")
-        .eq("is_deleted", false)
-        .eq("status", "CONCLUIDO")
-        .not("datasaida", "is", null)
-        .order("id", { ascending: true });
-      if (dateFrom) query = query.gte("datasaida", localDayStartToUtcIso(dateFrom));
-      if (dateTo) query = query.lt("datasaida", localNextDayStartToUtcIso(dateTo));
-      return query;
-    });
+    const completedPeriodRows = rows.filter((row) => row.status === "CONCLUIDO");
 
     // Base independente do filtro da tela para os graficos mensais.
     const monthlyStartIso = localDayStartToUtcIso(`${monthKeys[0]}-01`);
@@ -125,7 +113,7 @@ export async function GET(req: Request) {
     const todayStart = localDayStartToUtcIso(today);
     const tomorrowStart = localNextDayStartToUtcIso(today);
 
-    const [todayRows, todayCompletedRows, recentCompletedRows] = await Promise.all([
+    const [todayRows, completedDateCandidates] = await Promise.all([
       fetchAllSupabaseRows<Row>(() =>
         supabaseAdmin
           .from("ordemservico")
@@ -141,21 +129,20 @@ export async function GET(req: Request) {
           .select("id, status, dataentrada, datasaida, orcamentototal")
           .eq("is_deleted", false)
           .eq("status", "CONCLUIDO")
-          .gte("datasaida", todayStart)
-          .lt("datasaida", tomorrowStart)
-          .order("id", { ascending: true }),
-      ),
-      fetchAllSupabaseRows<Row>(() =>
-        supabaseAdmin
-          .from("ordemservico")
-          .select("id, status, dataentrada, datasaida, orcamentototal")
-          .eq("is_deleted", false)
-          .eq("status", "CONCLUIDO")
-          .gte("datasaida", start30Date.toISOString())
-          .lt("datasaida", tomorrowStart)
+          .or(`dataentrada.gte.${start30Date.toISOString()},datasaida.gte.${start30Date.toISOString()}`)
           .order("id", { ascending: true }),
       ),
     ]);
+
+    const completionDate = (row: Row) => row.datasaida ?? row.dataentrada;
+    const todayCompletedRows = completedDateCandidates.filter((row) => {
+      const value = completionDate(row);
+      return !!value && value >= todayStart && value < tomorrowStart;
+    });
+    const recentCompletedRows = completedDateCandidates.filter((row) => {
+      const value = completionDate(row);
+      return !!value && value >= start30Date.toISOString() && value < tomorrowStart;
+    });
 
     const monthlyNew: Record<string, number> = Object.fromEntries(monthKeys.map((k) => [k, 0]));
     const monthlyCompleted: Record<string, number> = Object.fromEntries(monthKeys.map((k) => [k, 0]));
@@ -184,11 +171,10 @@ export async function GET(req: Request) {
 
     const durationsHours: number[] = [];
     const isCompleted = (r: Row) => {
-      const hasExitDate = !!r.datasaida;
       if (COMPLETED_BY_STATUS && COMPLETED_BY_STATUS.length > 0) {
-        return hasExitDate && !!r.status && COMPLETED_BY_STATUS.includes(r.status);
+        return !!r.status && COMPLETED_BY_STATUS.includes(r.status);
       }
-      return hasExitDate;
+      return !!r.datasaida;
     };
 
     for (const r of rows) {
@@ -223,7 +209,8 @@ export async function GET(req: Request) {
 
     for (const r of monthlyRows) {
       const ve = r.dataentrada ? new Date(r.dataentrada) : null;
-      const vs = r.datasaida ? new Date(r.datasaida) : null;
+      const completedAt = completionDate(r);
+      const vs = completedAt ? new Date(completedAt) : null;
       const budget = toNum(r.orcamentototal);
 
       if (ve) {
