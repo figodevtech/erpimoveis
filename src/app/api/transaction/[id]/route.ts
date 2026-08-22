@@ -20,6 +20,10 @@ import {
   erroDeBandeira,
   resolverBandeira,
 } from "@/app/api/transaction/_lib/bandeira";
+import {
+  attachmentPathsForTransactions,
+  removeAttachmentObjects,
+} from "@/app/api/transaction/_lib/anexos";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -963,6 +967,8 @@ export async function DELETE(_: Request, ctx: Params) {
       );
     }
 
+    const attachmentPaths = await attachmentPathsForTransactions([id]);
+
     const { data, error } = await supabaseAdmin
       .from("transacao")
       .delete()
@@ -988,6 +994,15 @@ export async function DELETE(_: Request, ctx: Params) {
       if (transaction.vendaid != null) {
         await revalidarStatusVenda(Number(transaction.vendaid));
       }
+    }
+
+    try {
+      await removeAttachmentObjects(attachmentPaths);
+    } catch (storageError) {
+      // A transação e os metadados já foram removidos. O bucket é privado;
+      // uma falha de limpeza vira log para reconciliação, não uma falsa falha
+      // da exclusão que acabou de ser concluída.
+      console.warn("Falha ao limpar anexos da transação excluída", storageError);
     }
 
     return new NextResponse(null, { status: 204 });

@@ -2,6 +2,8 @@
 
 import { useEffect, useRef } from "react";
 
+import { PRINT_FONT_SCALE_ATTRIBUTE } from "@/lib/print/fontScale";
+
 const ROOT_SELECTOR = "[data-print-pagination-root]";
 const SOURCE_SELECTOR = "[data-print-pagination-source]";
 const SOURCE_HOLDER_SELECTOR = "[data-print-pagination-source-holder]";
@@ -226,6 +228,7 @@ export function PrintA4Paginator() {
         "data-os-observacoes",
         "data-print-ocultar-cliente",
         "data-print-ocultar-valores",
+        PRINT_FONT_SCALE_ATTRIBUTE,
       ],
     });
 

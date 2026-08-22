@@ -3,6 +3,10 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 
 import { requireFinanceiroEdit } from "@/app/api/_authz/perms";
+import {
+  attachmentPathsForTransactions,
+  removeAttachmentObjects,
+} from "@/app/api/transaction/_lib/anexos";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -29,6 +33,7 @@ export async function POST(_: Request, ctx: Params) {
       return NextResponse.json({ error: "Transação inválida." }, { status: 400 });
     }
 
+    const attachmentPaths = await attachmentPathsForTransactions([id]);
     const { data, error } = await supabaseAdmin.rpc("estornar_baixa_transacao", {
       p_transacao_id: id,
       p_estornado_por: (sessao?.user as { id?: string } | undefined)?.id ?? null,
@@ -40,6 +45,18 @@ export async function POST(_: Request, ctx: Params) {
       const status = error.code === "P0002" ? 404 : error.code === "22023" ? 409 : 500;
       if (status === 500) throw error;
       return NextResponse.json({ error: error.message }, { status });
+    }
+
+    // Numa baixa parcial, o estorno apaga a transação que representava
+    // aquele pagamento. Nos demais casos a linha apenas volta a ficar pendente,
+    // e seus anexos devem continuar nela.
+    const baixaEstornada = Number((data as { baixa_estornada?: unknown } | null)?.baixa_estornada);
+    if (Number.isSafeInteger(baixaEstornada) && String(baixaEstornada) === id) {
+      try {
+        await removeAttachmentObjects(attachmentPaths);
+      } catch (storageError) {
+        console.warn("Falha ao limpar anexos da baixa parcial estornada", storageError);
+      }
     }
 
     return NextResponse.json({ data });

@@ -51,7 +51,7 @@ export function PrintDocumentHeader({
       <div className="os-header-box">
         <div className="os-label">{documentLabel}</div>
         <h1 className="os-numero">#{documentNumber}</h1>
-        <Badge className="os-status-badge text-[10px] font-bold" variant="outline">
+        <Badge className="os-status-badge font-bold" variant="outline">
           {status}
         </Badge>
       </div>
@@ -99,7 +99,7 @@ export const PRINT_DOCUMENT_HEADER_CSS = `
     align-items:center;
     justify-content:center;
     color:var(--brand-primary);
-    font-size:24px;
+    font-size:calc(24px * var(--print-font-scale, 1));
     font-weight:800;
   }
 
@@ -108,14 +108,16 @@ export const PRINT_DOCUMENT_HEADER_CSS = `
   }
 
   .empresa-nome{
+    min-width:0;
     margin-bottom:4px;
-    font-size:18px;
+    font-size:calc(18px * var(--print-font-scale, 1));
     font-weight:700;
     line-height:1.2;
+    overflow-wrap:anywhere;
   }
 
   .empresa-details{
-    font-size:9px;
+    font-size:calc(9px * var(--print-font-scale, 1));
     line-height:1.4;
     opacity:.95;
     overflow-wrap:anywhere;
@@ -131,16 +133,18 @@ export const PRINT_DOCUMENT_HEADER_CSS = `
     background:color-mix(in srgb, var(--brand-header-text, #ffffff) 15%, transparent);
     backdrop-filter:blur(10px);
     text-align:right;
+    overflow-wrap:anywhere;
   }
 
   .os-status-badge{
     border-color:color-mix(in srgb, var(--brand-header-text, #ffffff) 50%, transparent) !important;
     background:color-mix(in srgb, var(--brand-header-text, #ffffff) 10%, transparent) !important;
     color:var(--brand-header-text, #ffffff) !important;
+    font-size:calc(10px * var(--print-font-scale, 1));
   }
 
   .os-label{
-    font-size:8px;
+    font-size:calc(8px * var(--print-font-scale, 1));
     font-weight:800;
     letter-spacing:.2em;
     line-height:1.2;
@@ -150,7 +154,7 @@ export const PRINT_DOCUMENT_HEADER_CSS = `
 
   .os-numero{
     margin:4px 0;
-    font-size:28px;
+    font-size:calc(28px * var(--print-font-scale, 1));
     font-weight:900;
     font-variant-numeric:tabular-nums;
     letter-spacing:-.02em;

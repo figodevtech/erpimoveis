@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { Banknote, FileText, History, Layers, Link2, Loader2, Percent, Split, User } from "lucide-react";
+import { Banknote, FileText, History, Layers, Link2, Loader2, Paperclip, Percent, Split, User } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -30,6 +30,7 @@ import {
   classesDoConteudo,
 } from "./shell";
 import { AdiantamentoTab } from "./tabs/adiantamento-tab";
+import { AnexosTab } from "./tabs/anexos-tab";
 import { AjustesTab, esquecerAjustesEmCache } from "./tabs/ajustes-tab";
 import { ClienteTab } from "./tabs/cliente-tab";
 import { DetalhesTab } from "./tabs/detalhes-tab";
@@ -41,6 +42,7 @@ import { tabsListClass, tabTriggerClass } from "./tabs/shared";
 import { DreBadge } from "./dre-badge";
 import { TransactionBadge } from "./transaction-dialog-ui";
 import { useTransacaoEdicao } from "./use-transacao-edicao";
+import { useTransacaoAnexos } from "./use-transacao-anexos";
 
 interface EditContentProps {
   selectedTransactionId: number | undefined;
@@ -100,6 +102,7 @@ export default function EditContent({
     aplicarTotais,
     recarregarContextoSilencioso,
   } = useTransacaoEdicao(selectedTransactionId);
+  const anexos = useTransacaoAnexos(selectedTransactionId);
 
   /**
    * Lançar acréscimo ou desconto muda o valor da transação, e a lista atrás do
@@ -305,6 +308,12 @@ export default function EditContent({
                       </span>
                     </TabsTrigger>
                   ) : null}
+                  <TabsTrigger value="anexos" className={tabTriggerClass}>
+                    <span className="flex items-center gap-2">
+                      <Paperclip className="h-3.5 w-3.5" aria-hidden />
+                      Anexos
+                    </span>
+                  </TabsTrigger>
                   <TabsTrigger value="historico" className={tabTriggerClass}>
                     <span className="flex items-center gap-2">
                       <History className="h-3.5 w-3.5" aria-hidden />
@@ -409,6 +418,21 @@ export default function EditContent({
                   <PagamentoMultiploTab pagamento={grupo} />
                 </TabsContent>
               ) : null}
+
+              <TabsContent value="anexos" className="mt-0">
+                <AnexosTab
+                  anexos={anexos.anexos}
+                  carregando={anexos.carregando}
+                  enviando={anexos.enviando}
+                  excluindoId={anexos.excluindoId}
+                  erro={anexos.erro}
+                  maxAnexos={anexos.maxAnexos}
+                  editavel={editable}
+                  onCarregar={() => void anexos.carregar()}
+                  onAdicionar={anexos.adicionar}
+                  onExcluir={anexos.excluir}
+                />
+              </TabsContent>
 
               <TabsContent value="historico" className="mt-0">
                 {carregandoContexto || !contexto ? (
