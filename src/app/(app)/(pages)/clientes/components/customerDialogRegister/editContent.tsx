@@ -109,6 +109,14 @@ const formatDate = (date: string | Date | null | undefined) => {
   }).format(new Date(date));
 };
 
+const getOrdemTimestamp = (ordem: any) => {
+  const timestamp = new Date(
+    ordem.dataentrada || ordem.createdat || ordem.created_at || 0,
+  ).getTime();
+
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+};
+
 const getStatusBadge = (status?: string | null) => {
   if (!status) return <Badge variant="outline">Desconhecido</Badge>;
   const upper = status.toUpperCase();
@@ -1231,7 +1239,9 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                       </TableHeader>
                       <TableBody>
                         {selectedCustomer.ordens?.length > 0 ? (
-                          selectedCustomer.ordens.map((ordem: any) => {
+                          [...selectedCustomer.ordens]
+                            .sort((a: any, b: any) => getOrdemTimestamp(b) - getOrdemTimestamp(a))
+                            .map((ordem: any) => {
                             const dataOrdem = ordem.dataentrada || ordem.createdat || ordem.created_at;
                             const produtos = Array.isArray(ordem.produtos) ? ordem.produtos : [];
                             const servicos = Array.isArray(ordem.servicos) ? ordem.servicos : [];

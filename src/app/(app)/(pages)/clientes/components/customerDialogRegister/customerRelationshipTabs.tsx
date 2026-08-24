@@ -112,6 +112,12 @@ function formatarData(valor: string | null) {
   return Number.isNaN(data.getTime()) ? "—" : dataCurta.format(data);
 }
 
+function timestampData(valor: string | null) {
+  if (!valor) return 0;
+  const timestamp = new Date(valor).getTime();
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
 function textoEnum(valor: string | null) {
   if (!valor) return "Não informado";
   return valor
@@ -608,7 +614,10 @@ export default function CustomerRelationshipTabs({
 
       const resultado = body as RelacionamentoClienteResponse;
       setDados(resultado);
-      setVendas((atuais) => append ? [...atuais, ...resultado.data.vendas] : resultado.data.vendas);
+      setVendas((atuais) => {
+        const todas = append ? [...atuais, ...resultado.data.vendas] : resultado.data.vendas;
+        return [...todas].sort((a, b) => timestampData(b.dataVenda) - timestampData(a.dataVenda));
+      });
     } catch (requestError) {
       if (requestError instanceof DOMException && requestError.name === "AbortError") return;
       setError(true);

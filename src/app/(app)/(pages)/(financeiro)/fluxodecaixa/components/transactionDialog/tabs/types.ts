@@ -142,9 +142,26 @@ export interface TrocaDeContraparte {
   alteradoPor: Autor;
 }
 
+/**
+ * A transferência de que esta linha é uma das pernas.
+ *
+ * Diferente de `BaixaDeTitulo`: lá a linha paga alguma coisa, aqui ela e a
+ * gêmea são o mesmo dinheiro visto de duas contas.
+ */
+export interface TransferenciaContexto {
+  id: number;
+  valor: number;
+  origem: string | null;
+  destino: string | null;
+  sentido: "SAIDA" | "ENTRADA";
+  contraparteId: number | null;
+}
+
 export interface TransacaoContexto {
   /** Preenchido só quando esta transação é o dinheiro da baixa de um título. */
   baixaDe?: BaixaDeTitulo | null;
+  /** Preenchido só nas duas pernas de uma transferência entre contas. */
+  transferencia?: TransferenciaContexto | null;
   relacionadas: {
     origem: OrigemRelacionadas;
     itens: LancamentoRelacionado[];

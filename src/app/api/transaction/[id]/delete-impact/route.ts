@@ -19,7 +19,7 @@ export async function GET(_: Request, { params }: Params) {
 
     const { data: transaction, error } = await supabaseAdmin
       .from("transacao")
-      .select("id, valor, valor_base, valor_acrescimos, tipo, pendente, ordemservicoid, vendaid, evento_financeiro_id, adiantamento_id, eh_adiantamento, pagamento_multiplo_id")
+      .select("id, valor, valor_base, valor_acrescimos, tipo, pendente, ordemservicoid, vendaid, evento_financeiro_id, adiantamento_id, eh_adiantamento, pagamento_multiplo_id, transferencia_id")
       .eq("id", id)
       .eq("is_deleted", false)
       .maybeSingle();
@@ -174,6 +174,56 @@ export async function GET(_: Request, { params }: Params) {
       }
     }
 
+    /*
+     * Transferência entre contas: a linha é uma das duas pernas, e nenhuma sai
+     * sozinha — sobraria uma conta com o dinheiro saído e nenhuma com ele
+     * entrado.
+     *
+     * Aqui, ao contrário do adiantamento, não há nada a recusar: excluir é
+     * legítimo, só não é o que a pessoa imagina. Ela clicou numa linha e vão
+     * embora duas. É a única coisa que este aviso precisa dizer.
+     */
+    let transferencia:
+      | {
+          id: number;
+          valor: number;
+          origem: string | null;
+          destino: string | null;
+          motivo: string;
+        }
+      | null = null;
+
+    if (transaction.transferencia_id != null) {
+      const { data: operacao } = await supabaseAdmin
+        .from("transacao_transferencia")
+        .select(
+          "id, valor, " +
+            "origem:bancoconta!transacao_transferencia_banco_origem_id_fkey ( titulo ), " +
+            "destino:bancoconta!transacao_transferencia_banco_destino_id_fkey ( titulo )",
+        )
+        .eq("id", transaction.transferencia_id)
+        .maybeSingle();
+
+      // O tipo gerado do Supabase ainda não conhece `transacao_transferencia`;
+      // até ele ser regerado, a leitura passa por `any` como nos demais embeds.
+      const op = operacao as any;
+      if (op) {
+        const origem = op.origem?.titulo ?? null;
+        const destino = op.destino?.titulo ?? null;
+        const valor = Number(op.valor ?? 0);
+        transferencia = {
+          id: Number(op.id),
+          valor,
+          origem,
+          destino,
+          motivo:
+            `Esta transação é uma das pernas da transferência de ${valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}` +
+            (origem && destino ? ` de ${origem} para ${destino}` : "") +
+            `. Excluir apaga as duas: o dinheiro volta a estar onde estava antes.`,
+        };
+      }
+    }
+
     const targets: Array<{ tipo: "OS" | "VENDA"; id: number }> = [];
     const isPagamento = String(transaction.tipo).toUpperCase() === "RECEITA" && transaction.evento_financeiro_id == null;
 
@@ -209,12 +259,17 @@ export async function GET(_: Request, { params }: Params) {
      * também são liquidados, e a recusa deles é mais específica, dizendo qual
      * operação desfaz aquele conjunto. Só sobra este aviso quando a baixa é
      * desta transação sozinha, que é o caso em que estornar resolve.
+     *
+     * A transferência também fica de fora: as duas pernas nascem liquidadas, mas
+     * não há baixa a estornar nelas — mandar tirar do fluxo primeiro seria um
+     * conselho que não leva a lugar nenhum.
      */
     const liquidado =
       transaction.pendente === false &&
       !transaction.eh_adiantamento &&
       transaction.adiantamento_id == null &&
-      transaction.pagamento_multiplo_id == null
+      transaction.pagamento_multiplo_id == null &&
+      transaction.transferencia_id == null
         ? {
             bloqueado: true as const,
             estornavel: true as const,
@@ -237,6 +292,7 @@ export async function GET(_: Request, { params }: Params) {
       targets,
       adiantamento,
       pagamentoMultiplo,
+      transferencia,
       liquidado,
     });
   } catch (error: any) {

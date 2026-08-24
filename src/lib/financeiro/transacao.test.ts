@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   antecipadoComLancamento,
   ehBaixaParcial,
+  ehTransferencia,
   saldoEmAberto,
   ehTituloAntecipado,
   origemDaTransacao,
@@ -295,4 +296,14 @@ test("só é baixa parcial o título que ainda tem saldo", () => {
   assert.equal(ehBaixaParcial({ valor_baixado: 1000, pendente: false }), false);
   assert.equal(ehBaixaParcial({ valor_baixado: 0, pendente: true }), false);
   assert.equal(ehBaixaParcial(null), false);
+});
+
+test("a perna de transferência se reconhece pelo vínculo, não pelo tipo", () => {
+  // As duas pernas respondem igual: uma é DESPESA e a outra RECEITA, e o que
+  // as define é serem o mesmo dinheiro visto de duas contas.
+  assert.equal(ehTransferencia({ transferencia_id: 7 }), true);
+  assert.equal(ehTransferencia({ transferencia_id: "7" }), true);
+  assert.equal(ehTransferencia({ transferencia_id: null }), false);
+  assert.equal(ehTransferencia({}), false);
+  assert.equal(ehTransferencia(null), false);
 });

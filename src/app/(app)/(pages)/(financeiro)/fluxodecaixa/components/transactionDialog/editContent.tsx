@@ -257,6 +257,47 @@ export default function EditContent({
               </div>
             ) : null}
 
+            {/*
+              A perna de uma transferência. Vem pelo mesmo motivo da faixa acima —
+              é a primeira coisa a saber sobre a linha, e nenhuma aba a conta.
+
+              Aqui a faixa carrega ainda mais peso: os campos de valor, conta e
+              tipo estão travados, e sem dizer por quê a tela pareceria quebrada.
+            */}
+            {contexto?.transferencia ? (
+              <div className="shrink-0 border-b border-sky-600/30 bg-sky-600/10 px-4 py-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-sky-700 dark:text-sky-400">
+                  {contexto.transferencia.sentido === "ENTRADA"
+                    ? "Entrada de uma transferência"
+                    : "Saída de uma transferência"}
+                </p>
+                <p className="mt-1 text-sm text-foreground">
+                  {formatarEmReal(contexto.transferencia.valor)}{" "}
+                  {contexto.transferencia.sentido === "ENTRADA" ? "que vieram de" : "que foram para"}{" "}
+                  <strong>
+                    {contexto.transferencia.sentido === "ENTRADA"
+                      ? (contexto.transferencia.origem ?? "outra conta")
+                      : (contexto.transferencia.destino ?? "outra conta")}
+                  </strong>
+                  {contexto.transferencia.contraparteId != null ? (
+                    <> — a outra perna é a transação #{contexto.transferencia.contraparteId}.</>
+                  ) : (
+                    "."
+                  )}
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  O dinheiro só mudou de conta: isto não é receita nem despesa e não
+                  entra no DRE.{" "}
+                  <strong>
+                    Valor, conta e tipo não mudam de um lado só — seria o mesmo dinheiro
+                    contado errado.
+                  </strong>{" "}
+                  Para corrigir, exclua a transferência e refaça; excluir esta linha leva
+                  a outra junto.
+                </p>
+              </div>
+            ) : null}
+
             <Tabs defaultValue="detalhes" className="flex min-h-0 flex-1 flex-col">
               <div className="shrink-0 overflow-x-auto border-b border-border bg-background">
                 <TabsList className={tabsListClass}>

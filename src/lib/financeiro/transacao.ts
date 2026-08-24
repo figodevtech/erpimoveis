@@ -279,3 +279,18 @@ export function ehBaixaParcial(transacao: TituloComSaldo | null | undefined): bo
   const baixado = Number(transacao.valor_baixado ?? 0);
   return Number.isFinite(baixado) && baixado > 0 && transacao.pendente === true;
 }
+
+/**
+ * A linha é uma das duas pernas de uma transferência entre contas próprias?
+ *
+ * As duas pernas são movimento de conta de verdade — aparecem no extrato e mexem
+ * no saldo de cada banco —, mas não são fato econômico: a empresa não ficou mais
+ * rica por receber o próprio dinheiro na outra conta. Daí a pergunta ter valor
+ * em vários lugares ao mesmo tempo: a tabela marca a linha, o dialog de edição
+ * trava o valor, e a exclusão avisa que vão embora duas.
+ */
+export function ehTransferencia(
+  transacao: { transferencia_id?: number | string | null } | null | undefined,
+): boolean {
+  return transacao?.transferencia_id != null;
+}

@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/table";
 import {
   ArrowDown,
+  ArrowLeftRight,
   ArrowUp,
   Calendar,
   Check,
@@ -79,11 +80,13 @@ import {
 import {
   antecipadoComLancamento,
   ehBaixaParcial,
+  ehTransferencia,
   saldoEmAberto,
   valorLiquidoEfetivo,
 } from "@/lib/financeiro/transacao";
 import { getCategoryIcon, getTypeColor } from "../utils";
 import { ExportTransactionsButton } from "./ExportTransactionsButton";
+import { TransferenciaDialog } from "./transferencia-dialog";
 import ConcluidoAlert from "./concluidoAlert";
 import SearchFilter from "./searchFilter";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
@@ -316,6 +319,7 @@ export default function FinancialTable({
     [transactions, selecionadas],
   );
   const [isPagoDialogOpen, setIsPagoDialogOpen] = useState(false);
+  const [transferenciaAberta, setTransferenciaAberta] = useState(false);
   const [, setIsDeleting] = useState(false);
   const canCreate = permissionSetHas(
     (session?.user as any)?.permissoes,
@@ -546,6 +550,22 @@ export default function FinancialTable({
                     >
                       <Plus className="h-4 w-4" />
                       Nova transação
+                    </DropdownMenuItem>
+                  ) : null}
+
+                  {/*
+                    Fica ao lado de "Nova transação" porque é irmã dela: uma
+                    operação que nasce aqui, e não algo que se faça a uma linha
+                    existente. Por isso não está no menu de cada linha, que age
+                    sempre sobre a transação daquela linha.
+                  */}
+                  {canCreate ? (
+                    <DropdownMenuItem
+                      className="hover:cursor-pointer"
+                      onSelect={() => setTransferenciaAberta(true)}
+                    >
+                      <ArrowLeftRight className="h-4 w-4" />
+                      Transferência entre contas
                     </DropdownMenuItem>
                   ) : null}
 
@@ -837,6 +857,31 @@ export default function FinancialTable({
                           </Tooltip>
                         ) : null}
 
+                        {/*
+                          A perna de uma transferência. No Fluxo ela senta ao lado
+                          de despesas e receitas de verdade e some no meio delas —
+                          e é justamente o que ela não é: a empresa não gastou nem
+                          faturou nada, o dinheiro só mudou de conta. Sem o badge,
+                          quem varre a coluna lê uma despesa de R$ 50.000 que nunca
+                          existiu.
+                        */}
+                        {ehTransferencia(t) ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="inline-flex cursor-default items-center rounded-sm border border-sky-600/40 bg-sky-600/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-sky-700 dark:text-sky-400">
+                                Transferência
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" align="start">
+                              {String(t.tipo).toUpperCase() === "RECEITA"
+                                ? "Entrada de uma transferência entre contas suas: o dinheiro veio de outra conta, não de fora."
+                                : "Saída de uma transferência entre contas suas: o dinheiro foi para outra conta, não para fora."}{" "}
+                              Não entra no DRE, e a outra perna sai junto se esta
+                              for excluída.
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : null}
+
                         {ehBaixaParcial(t) ? (
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -1030,9 +1075,18 @@ export default function FinancialTable({
                           dois modos a antecipação foi feita: esse dado está na
                           linha dela, não na do título.
                         */}
+                        {/*
+                          A transferência fica de fora: as duas pernas nascem
+                          liquidadas, mas não há baixa a desfazer nelas. Estornar
+                          reabriria uma perna e deixaria a outra paga — meia
+                          transferência, que é o estado que a operação inteira
+                          existe para impedir. O caminho dela é excluir, que leva
+                          as duas.
+                        */}
                         {canEdit &&
                           !t.pendente &&
                           !t.eh_adiantamento &&
+                          !ehTransferencia(t) &&
                           t.pagamento_multiplo_id == null && (
                           <TransactionEstornoAlert
                             transactionId={t.id}
@@ -1182,6 +1236,17 @@ export default function FinancialTable({
           }}
         />
       )}
+
+      {canCreate ? (
+        <TransferenciaDialog
+          aberto={transferenciaAberta}
+          setAberto={setTransferenciaAberta}
+          onConcluido={() => {
+            handleGetTransactions(pagination.page, pagination.limit);
+            revalidarIndicadores();
+          }}
+        />
+      ) : null}
 
       {modoBaixaMultipla ? (
         <>

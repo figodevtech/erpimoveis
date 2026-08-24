@@ -879,12 +879,51 @@ export async function DELETE(_: Request, ctx: Params) {
 
     const { data: transaction, error: transactionError } = await supabaseAdmin
       .from("transacao")
-      .select("id, tipo, pendente, ordemservicoid, vendaid, evento_financeiro_id, adiantamento_id, eh_adiantamento")
+      .select("id, tipo, pendente, ordemservicoid, vendaid, evento_financeiro_id, adiantamento_id, eh_adiantamento, transferencia_id")
       .eq("id", id)
       .maybeSingle();
     if (transactionError) throw transactionError;
     if (!transaction) {
       return NextResponse.json({ error: "Transação não encontrada." }, { status: 404 });
+    }
+
+    /*
+     * Transferência entre contas: excluir uma perna exclui a operação inteira.
+     *
+     * Vem antes da trava de "liquidada" porque as duas pernas nascem liquidadas,
+     * e a trava mandaria tirar do fluxo de caixa primeiro — conselho que não se
+     * aplica aqui: não há baixa a desfazer, há uma transferência a cancelar.
+     *
+     * Meia exclusão seria pior que nenhuma: sobraria uma conta com o dinheiro
+     * saído e nenhuma com ele entrado. Por isso quem é apagado é o registro da
+     * operação, e a FK `ON DELETE CASCADE` leva as duas pernas junto, no mesmo
+     * comando.
+     */
+    if (transaction.transferencia_id != null) {
+      const { data: pernas } = await supabaseAdmin
+        .from("transacao")
+        .select("id")
+        .eq("transferencia_id", transaction.transferencia_id);
+
+      const ids = (pernas ?? []).map((p: { id: number }) => Number(p.id));
+      const attachmentPaths = await attachmentPathsForTransactions(
+        ids.length > 0 ? ids : [id],
+      );
+
+      const { error: transferenciaError } = await supabaseAdmin
+        .from("transacao_transferencia")
+        .delete()
+        .eq("id", transaction.transferencia_id);
+
+      if (transferenciaError) throw transferenciaError;
+
+      try {
+        await removeAttachmentObjects(attachmentPaths);
+      } catch (storageError) {
+        console.warn("Falha ao limpar anexos da transferência excluída", storageError);
+      }
+
+      return new NextResponse(null, { status: 204 });
     }
 
     /*
