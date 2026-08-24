@@ -137,6 +137,7 @@ export async function GET(request: Request) {
               "id,status,orcamentototal,valor_frete,subtotal,dataentrada,datasaida,setor:setorid(id,nome),cliente:clienteid(nomerazaosocial)",
             )
             .eq("is_deleted", false)
+            .is("migracao_referencia", null)
             .gte("dataentrada", `${inicio}T00:00:00-03:00`)
             .lte("dataentrada", `${fim}T23:59:59-03:00`)
             .order("dataentrada", { ascending: true })

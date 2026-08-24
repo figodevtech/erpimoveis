@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { normalizarIndIEDest } from "@/lib/nfe/indIEDest";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireClientesAccess, requireClientesDelete, requireClientesEdit } from "@/app/api/_authz/perms";
+import { resolveOrdemVehicle } from "@/lib/ordens/vehicle-snapshot";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -20,7 +21,7 @@ const VEICULO_FIELDS = `
 `;
 
 const ORDEM_FIELDS = `
-  id, clienteid, descricao, status, prioridade, alvo_tipo,
+  id, clienteid, descricao, status, prioridade, alvo_tipo, migracao_referencia, veiculo_snapshot,
   equipamento_nome, equipamento_patrimonio, equipamento_ano, equipamento_horimetro,
   dataentrada, createdat, orcamentototal,
   peca:peca ( id, titulo, descricao, lacre ),
@@ -155,7 +156,16 @@ export async function GET(_: Request, ctx: Params) {
       throw error;
     }
 
-    return NextResponse.json({ data });
+    const resposta = {
+      ...data,
+      ordens: (data.ordens ?? []).map((ordem: any) => ({
+        ...ordem,
+        migracaoReferencia: ordem.migracao_referencia ?? null,
+        veiculo: resolveOrdemVehicle(ordem.veiculo, ordem.veiculo_snapshot),
+      })),
+    };
+
+    return NextResponse.json({ data: resposta });
   } catch (e: any) {
     const msg = e?.message ?? "Erro ao buscar cliente.";
     const status = msg.includes("ID inválido") ? 400 : 500;

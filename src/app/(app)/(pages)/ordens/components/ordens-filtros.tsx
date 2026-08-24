@@ -318,7 +318,7 @@ export function OrdensFilterSheet({
                 <SelectContent>
                   <SelectItem value="entrada">Data de entrada</SelectItem>
                   <SelectItem value="saida">Data de saída</SelectItem>
-                  <SelectItem value="concluido">Conclusão do pagamento</SelectItem>
+                  <SelectItem value="concluido">Finalização da OS</SelectItem>
                 </SelectContent>
               </Select>
             </div>

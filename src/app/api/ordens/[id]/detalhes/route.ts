@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
+import { resolveOrdemVehicle } from "@/lib/ordens/vehicle-snapshot";
 
 // Tipagem compatível com Next 15 (params é Promise)
 type RouteCtx = { params: Promise<{ id: string }> };
@@ -33,6 +34,8 @@ export async function GET(_req: NextRequest, ctx: RouteCtx) {
         statusaprovacao,
         dataentrada,
         datasaida,
+        pagamento_concluido_em,
+        finalizado_em,
         orcamentototal,
         destacada,
         destaque_motivo,
@@ -41,6 +44,8 @@ export async function GET(_req: NextRequest, ctx: RouteCtx) {
         destacada_em,
         observacoes,
         updatedat,
+        migracao_referencia,
+        veiculo_snapshot,
         cliente:clienteid ( id, nomerazaosocial ),
         veiculo:veiculoid ( id, placa, modelo, marca, ano, cor, kmatual, chassi ),
         setor:setorid ( id, nome ),
@@ -53,7 +58,10 @@ export async function GET(_req: NextRequest, ctx: RouteCtx) {
     if (!data) return NextResponse.json({ error: "OS não encontrada" }, { status: 404 });
 
     const cliente = one<any>((data as any).cliente);
-    const veiculo = one<any>((data as any).veiculo);
+    const veiculo = resolveOrdemVehicle(
+      one<any>((data as any).veiculo),
+      (data as any).veiculo_snapshot,
+    );
     const setor = one<any>((data as any).setor);
     const checklist = Array.isArray((data as any).checklist) ? (data as any).checklist : [];
 
@@ -65,6 +73,8 @@ export async function GET(_req: NextRequest, ctx: RouteCtx) {
         statusaprovacao: data.statusaprovacao,
         dataentrada: data.dataentrada,
         datasaida: data.datasaida,
+        pagamento_concluido_em: (data as any).pagamento_concluido_em ?? null,
+        finalizado_em: (data as any).finalizado_em ?? null,
         orcamentototal: data.orcamentototal,
         destacada: data.destacada === true,
         destaque_motivo: data.destaque_motivo ?? null,
@@ -73,6 +83,8 @@ export async function GET(_req: NextRequest, ctx: RouteCtx) {
         destacada_em: data.destacada_em ?? null,
         observacoes: data.observacoes,
         updatedat: data.updatedat,
+        migracaoReferencia: (data as any).migracao_referencia ?? null,
+        veiculo_snapshot: (data as any).veiculo_snapshot ?? null,
         cliente: cliente ? { id: cliente.id, nomerazaosocial: cliente.nomerazaosocial } : null,
         veiculo: veiculo
           ? {

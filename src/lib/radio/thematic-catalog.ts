@@ -122,6 +122,32 @@ export const THEMATIC_RADIO_CATALOG: ThematicChannelCatalogEntry[] = [
     sources: [vagalume("https://stream.vagalume.fm/hls/14671417541091220806/aac.m3u8")],
   },
   {
+    name: "Para Trabalhar",
+    slug: "para-trabalhar",
+    description: "Hits de pop, rock e eletrônica para animar o ambiente de trabalho",
+    genres: ["Pop", "Rock", "Eletrônica", "Hits"],
+    sourcePage: "https://vagalume.fm/musicas-para-trabalhar/",
+    sources: [vagalume("https://stream.vagalume.fm/hls/1489516250733476/aac.m3u8")],
+  },
+  {
+    name: "Top 50 Brasil",
+    slug: "top-50-brasil",
+    description:
+      "Um termômetro com os sucessos nacionais do momento, baseado no Top Vagalume e músicas mais ouvidas nas rádios e serviços de streaming",
+    genres: ["Brasil", "Hits", "Top 50"],
+    sourcePage: "https://vagalume.fm/top-50-brasil/",
+    sources: [vagalume("https://stream.vagalume.fm/hls/147017028452123/aac.m3u8")],
+  },
+  {
+    name: "Top 50 Internacional",
+    slug: "top-50-internacional",
+    description:
+      "Um termômetro com os sucessos internacionais do momento, baseado no Top Vagalume e músicas mais ouvidas nas rádios e serviços de streaming",
+    genres: ["Internacional", "Hits", "Top 50"],
+    sourcePage: "https://vagalume.fm/top-50-internacional/",
+    sources: [vagalume("https://stream.vagalume.fm/hls/1470170299760930/aac.m3u8")],
+  },
+  {
     name: "Hits Anos 80",
     slug: "anos-80",
     description: "Sucessos que marcaram os anos 80",
@@ -163,6 +189,14 @@ export const THEMATIC_RADIO_CATALOG: ThematicChannelCatalogEntry[] = [
     genres: ["Gospel", "Internacional"],
     sourcePage: "https://vagalume.fm/gospel-internacional/",
     sources: [vagalume("https://stream.vagalume.fm/hls/1470245767122628/aac.m3u8")],
+  },
+  {
+    name: "Músicas Católicas",
+    slug: "musicas-catolicas",
+    description: "Música católica, louvor e adoração",
+    genres: ["Cristã", "Católica", "Louvor", "Adoração"],
+    sourcePage: "https://vagalume.fm/musicas-catolicas/",
+    sources: [vagalume("https://stream.vagalume.fm/hls/1520610908163452/aac.m3u8")],
   },
   {
     name: "Reggae",

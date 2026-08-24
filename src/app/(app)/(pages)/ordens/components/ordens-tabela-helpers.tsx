@@ -9,6 +9,7 @@ import { toMs, safeStatus } from "./ordens-utils";
 export type OrdemComDatas = Ordem & {
   dataEntrada?: string | null;
   dataSaida?: string | null;
+  finalizadoEm?: string | null;
   prioridade?: "ALTA" | "NORMAL" | "BAIXA" | null;
 };
 
@@ -49,7 +50,9 @@ export function getTempoMs(r: OrdemComDatas, now: number) {
   const st = safeStatus(r.status);
   const endMs =
     st === "CONCLUIDO" || st === "SEM_COBRANCA" || st === "CANCELADO"
-      ? toMs(r.dataSaida) ??
+      ? toMs(r.finalizadoEm) ??
+        toMs((r as any).finalizado_em) ??
+        toMs(r.dataSaida) ??
         toMs((r as any).updatedat) ??
         toMs((r as any).updatedAt) ??
         now

@@ -47,6 +47,7 @@ export type RowBase = {
   setor?: { nome?: string | null } | null;
   dataSaida?: string | null;
   datasaida?: string | null;
+  migracaoReferencia?: string | null;
 };
 
 type Policy = {
@@ -131,6 +132,7 @@ export function RowActions<TRow extends RowBase>({
     PERMS.ORDENS_FINALIZAR_SEM_COBRANCA,
   );
   const st = String(row.status ?? "").toUpperCase();
+  const migrada = Boolean(row.migracaoReferencia);
 
   // ✅ finais: sem reset/cancelar
   const isFinalState = st === "CANCELADO" || st === "FINALIZADA" || st === "CONCLUIDO" || st === "SEM_COBRANCA";
@@ -161,14 +163,14 @@ export function RowActions<TRow extends RowBase>({
   // Enviar p/ aprovação
   const showSendToApproval = canEdit && policy.showSendToApproval && (st === "ORCAMENTO" || st === "ORCAMENTO_RECUSADO");
 
-  const showEmissaoDeNota = config?.emissao_nf_ordens_nao_pagas ? st === "CONCLUIDO" || st === "PAGAMENTO" : st === "CONCLUIDO";
+  const showEmissaoDeNota = !migrada && (config?.emissao_nf_ordens_nao_pagas ? st === "CONCLUIDO" || st === "PAGAMENTO" : st === "CONCLUIDO");
 
   // Produção / Pagamento
   const showStart = canEdit && policy.showStart && st === "ORCAMENTO_APROVADO";
   const showSendToPayment = canEdit && policy.showSendToPayment && st === "EM_ANDAMENTO";
   const showReceivePayment = canFinanceiroEdit && policy.showReceivePayment && st === "PAGAMENTO";
   const showFinishNoCharge = canEdit && canFinishNoCharge && st === "EM_ANDAMENTO";
-  const showRegistrarSaida = canEdit && ["PAGAMENTO", "CONCLUIDO", "SEM_COBRANCA"].includes(st)
+  const showRegistrarSaida = !migrada && canEdit && ["PAGAMENTO", "CONCLUIDO", "SEM_COBRANCA"].includes(st)
     && !(row.dataSaida ?? row.datasaida);
 
   return (

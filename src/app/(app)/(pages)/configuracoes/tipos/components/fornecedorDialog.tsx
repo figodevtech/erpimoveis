@@ -13,7 +13,11 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/lib/toast";
-import { isValidCnpj, onlyFiscalDigits } from "@/lib/nfe/recipientNormalization";
+import {
+  hasValidCpfCnpjLength,
+  isValidCnpj,
+  onlyFiscalDigits,
+} from "@/lib/nfe/recipientNormalization";
 import { formatCpfCnpj } from "../../../(financeiro)/fluxodecaixa/utils";
 import { formatCep } from "../../../clientes/components/customerDialogRegister/utils";
 
@@ -174,13 +178,20 @@ export default function FornecedorDialog({
   }
 
   async function handleSave() {
-    if (!form.cpfcnpj.trim() || !form.nomerazaosocial.trim()) {
-      toast.error("CNPJ e Razão Social são obrigatórios.");
+    const cpfCnpj = onlyFiscalDigits(form.cpfcnpj);
+
+    if (!hasValidCpfCnpjLength(cpfCnpj)) {
+      toast.error("Digite um CPF ou CNPJ válido.");
+      return;
+    }
+
+    if (!form.nomerazaosocial.trim()) {
+      toast.error("Nome/Razão Social é obrigatório.");
       return;
     }
 
     const payload = {
-      cpfcnpj: form.cpfcnpj?.trim(),
+      cpfcnpj: cpfCnpj,
       nomerazaosocial: form.nomerazaosocial?.trim(),
       nomefantasia: form.nomefantasia?.trim() || null,
       endereco: form.endereco?.trim() || null,
@@ -326,7 +337,10 @@ export default function FornecedorDialog({
                       variant="ghost"
                       size="icon"
                       className="absolute right-0 top-0 h-9 w-9"
-                      disabled={isLoadingCnpj}
+                      disabled={
+                        isLoadingCnpj ||
+                        onlyFiscalDigits(form.cpfcnpj).length !== 14
+                      }
                       onClick={() => void handleGetCnpj()}
                       aria-label="Consultar CNPJ"
                       title="Consultar CNPJ"

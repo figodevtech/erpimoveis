@@ -26,6 +26,10 @@ export function onlyFiscalDigits(value: unknown) {
   return String(value ?? "").replace(/\D/g, "");
 }
 
+export function hasValidCpfCnpjLength(value: unknown) {
+  return [11, 14].includes(onlyFiscalDigits(value).length);
+}
+
 function hasRepeatedDigits(value: string) {
   return /^(\d)\1+$/.test(value);
 }

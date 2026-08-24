@@ -41,7 +41,6 @@ async function countByStatus(status: StatusOS) {
 
 export async function GET() {
   try {
-    // roda 9 contagens (1 por status)
     const counts = await Promise.all(ALL_STATUSES.map((s) => countByStatus(s)));
 
     const counters = ALL_STATUSES.reduce((acc, status, idx) => {

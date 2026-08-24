@@ -446,7 +446,7 @@ export function OrdensTabela({
         : "prioridade";
     setSortKey(initialSort);
     setSortDir("desc");
-  }, [statusesKey]);
+  }, [statuses, statusesKey]);
 
   useEffect(() => {
     setPage(1);
@@ -1324,6 +1324,11 @@ export function OrdensTabela({
                             <h3 className="font-semibold text-sm sm:text-base text-foreground leading-snug whitespace-normal break-words" title={clienteFull}>
                               {clienteFull}
                             </h3>
+                            {r.migracaoReferencia ? (
+                              <span className="shrink-0 rounded-full border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700 dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-300">
+                                Migrada
+                              </span>
+                            ) : null}
                             {whatsappUrl ? (
                               <a
                                 href={whatsappUrl}
@@ -1388,9 +1393,9 @@ export function OrdensTabela({
                             <span>Entrada: <strong className="font-medium text-foreground">{dataEntradaFmt}</strong></span>
                           </span>
 
-                          {isFinalizadas && ((r as any).pagamentoConcluidoEm ?? (r as any).pagamento_concluido_em) ? (
+                          {isFinalizadas && ((r as any).finalizadoEm ?? (r as any).finalizado_em) ? (
                             <span>
-                              Concluído: <strong className="font-medium text-foreground">{fmtDate((r as any).pagamentoConcluidoEm ?? (r as any).pagamento_concluido_em)}</strong>
+                              Finalizado: <strong className="font-medium text-foreground">{fmtDate((r as any).finalizadoEm ?? (r as any).finalizado_em)}</strong>
                             </span>
                           ) : null}
 
@@ -1469,7 +1474,7 @@ export function OrdensTabela({
 
                   {isFinalizadas ? (
                     <TableHead className="min-w-[110px]">
-                      <SortableHeader label="Concluído em" columnKey="concluido" sortKey={sortKey} sortDir={sortDir} onChange={handleSortChange} />
+                      <SortableHeader label="Finalizado em" columnKey="concluido" sortKey={sortKey} sortDir={sortDir} onChange={handleSortChange} />
                     </TableHead>
                   ) : null}
 
@@ -1622,6 +1627,11 @@ export function OrdensTabela({
                           <div className="flex items-center justify-center w-min bg-red-500/20 py-1 px-2 rounded-full">
                             <span className="text-[11px]">{r.setor?.nome ?? "-"}</span>
                           </div>
+                          {r.migracaoReferencia ? (
+                            <span className="mt-1 inline-flex rounded-full border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700 dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-300">
+                              Migrada
+                            </span>
+                          ) : null}
 
                           <div className="flex min-w-0 items-center gap-2">
                             <Tooltip>
@@ -1687,11 +1697,9 @@ export function OrdensTabela({
                         <TableCell>{fmtDate((r as any).dataEntrada ?? (r as any).dataentrada)}</TableCell>
                         {isFinalizadas ? (
                           <TableCell>
-                            {((r as any).pagamentoConcluidoEm ?? (r as any).pagamento_concluido_em)
-                              ? fmtDate((r as any).pagamentoConcluidoEm ?? (r as any).pagamento_concluido_em)
-                              : ((r as any).dataSaida ?? (r as any).datasaida)
-                                ? fmtDate((r as any).dataSaida ?? (r as any).datasaida)
-                                : "—"}
+                            {((r as any).finalizadoEm ?? (r as any).finalizado_em)
+                              ? fmtDate((r as any).finalizadoEm ?? (r as any).finalizado_em)
+                              : "—"}
                           </TableCell>
                         ) : null}
                         <TableCell>

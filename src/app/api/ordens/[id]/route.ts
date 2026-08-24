@@ -3,6 +3,10 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { NextRequest, NextResponse } from "next/server";
+import {
+  resolveOrdemVehicle,
+  type OrdemVehicleSnapshot,
+} from "@/lib/ordens/vehicle-snapshot";
 import { carregarFatiasRateadas, fatiaComoTransacao } from "@/lib/financeiro/rateio-documentos";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
@@ -48,6 +52,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
           "dataentrada",
           "datasaida",
           "pagamento_concluido_em",
+          "finalizado_em",
           "destacada",
           "destaque_motivo",
           "destaque_cor",
@@ -81,7 +86,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
           "equipamento_horimetro",
           "motivo_cancelamento",
           "execucao_inicio_em",
-          "execucao_fim_em"
+          "execucao_fim_em",
+          "migracao_referencia",
+          "veiculo_snapshot"
         ].join(",")
       )
       .eq("id", osId)
@@ -103,6 +110,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       dataentrada: string | null;
       datasaida: string | null;
       pagamento_concluido_em: string | null;
+      finalizado_em: string | null;
       destacada: boolean;
       destaque_motivo: string | null;
       destaque_cor?: string | null;
@@ -138,6 +146,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       equipamento_horimetro: number | null;
       motivo_cancelamento?: string | null;
       motivo_sem_cobranca?: string | null;
+      migracao_referencia?: string | null;
+      veiculo_snapshot?: OrdemVehicleSnapshot | null;
     };
 
     const osRow = os_res.data as OrdemRow | null;
@@ -232,7 +242,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     // Veículo
     let veiculo:
       | {
-          id: number;
+          id: number | null;
           placa: string | null;
           modelo: string | null;
           marca: string | null;
@@ -240,6 +250,11 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
           cor: string | null;
           kmatual: number | null;
           chassi: string | null;
+          ano_modelo?: number | null;
+          renavam?: string | null;
+          combustivel?: string | null;
+          descricao_veiculo?: string | null;
+          historico?: boolean;
         }
       | null = null;
 
@@ -259,6 +274,24 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         };
       }
     }
+    const veiculoResolvido = resolveOrdemVehicle(veiculo, osRow.veiculo_snapshot);
+    veiculo = veiculoResolvido
+      ? {
+          id: veiculoResolvido.id ?? null,
+          placa: veiculoResolvido.placa ?? null,
+          modelo: veiculoResolvido.modelo ?? null,
+          marca: veiculoResolvido.marca ?? null,
+          ano: veiculoResolvido.ano ?? null,
+          cor: veiculoResolvido.cor ?? null,
+          kmatual: veiculoResolvido.kmatual ?? null,
+          chassi: veiculoResolvido.chassi ?? null,
+          ano_modelo: veiculoResolvido.ano_modelo ?? null,
+          renavam: veiculoResolvido.renavam ?? null,
+          combustivel: veiculoResolvido.combustivel ?? null,
+          descricao_veiculo: veiculoResolvido.descricao_veiculo ?? null,
+          historico: veiculoResolvido.historico === true,
+        }
+      : null;
 
     // Peça (opcional)
     let peca: { id: number; titulo: string; descricao: string | null; lacre?: string | null } | null = null;
@@ -761,6 +794,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       dataentrada: osRow.dataentrada ?? null,
       datasaida: osRow.datasaida ?? null,
       pagamento_concluido_em: osRow.pagamento_concluido_em ?? null,
+      finalizado_em: osRow.finalizado_em ?? null,
       destacada: osRow.destacada === true,
       destaque_motivo: osRow.destaque_motivo ?? null,
       destaque_cor: osRow.destaque_cor ?? "vermelho",
@@ -770,6 +804,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       setor: setor ? { id: setor.id, nome: setor.nome } : null,
       cliente,
       veiculo,
+      migracaoReferencia: osRow.migracao_referencia ?? null,
+      veiculo_snapshot: osRow.veiculo_snapshot ?? null,
       peca,
       equipamento,
     };
@@ -832,6 +868,19 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string 
     const { id } = await ctx.params;
     const osId = Number(id);
     if (!osId) return NextResponse.json({ error: "ID inválido" }, { status: 400 });
+
+    const { data: ordemProtegida, error: ordemProtegidaError } = await supabase
+      .from("ordemservico")
+      .select("migracao_referencia")
+      .eq("id", osId)
+      .maybeSingle();
+    if (ordemProtegidaError) throw ordemProtegidaError;
+    if (ordemProtegida?.migracao_referencia) {
+      return NextResponse.json(
+        { error: "Esta OS foi migrada como histórico e é somente leitura." },
+        { status: 409 },
+      );
+    }
 
     const body: any = await req.json().catch(() => ({}));
 

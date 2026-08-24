@@ -6,6 +6,7 @@ import * as XLSX from "xlsx";
 
 import { requireRelatoriosAccess } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { resolveOrdemVehicle } from "@/lib/ordens/vehicle-snapshot";
 
 const LOCAL_OFFSET = "-03:00";
 const PAGE_SIZE = 1000;
@@ -75,7 +76,8 @@ function formatDate(value: unknown) {
 }
 
 function targetLabel(os: any) {
-  if (os.veiculo) return [os.veiculo.placa, os.veiculo.marca, os.veiculo.modelo].filter(Boolean).join(" · ");
+  const veiculo = resolveOrdemVehicle(os.veiculo, os.veiculo_snapshot);
+  if (veiculo) return [veiculo.placa, veiculo.marca, veiculo.modelo].filter(Boolean).join(" · ");
   if (os.peca) return os.peca.titulo || os.peca.descricao || `Peça #${os.peca.id}`;
   if (os.equipamento_nome) {
     return [
@@ -138,6 +140,7 @@ export async function GET(request: Request) {
         .select(`
           id, descricao, status, prioridade, dataentrada, datasaida, execucao_fim_em, orcamentototal,
           alvo_tipo, equipamento_nome, equipamento_patrimonio, equipamento_ano, equipamento_horimetro,
+          migracao_referencia, veiculo_snapshot,
           cliente:clienteid(id, nomerazaosocial, cpfcnpj),
           veiculo:veiculoid(id, placa, marca, modelo),
           peca:pecaid(id, titulo, descricao),

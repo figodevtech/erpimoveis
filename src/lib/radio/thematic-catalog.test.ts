@@ -3,9 +3,9 @@ import test from "node:test";
 
 import { THEMATIC_RADIO_CATALOG } from "./thematic-catalog";
 
-test("catálogo temático possui os 19 canais desejados sem duplicação", () => {
-  assert.equal(THEMATIC_RADIO_CATALOG.length, 19);
-  assert.equal(new Set(THEMATIC_RADIO_CATALOG.map((channel) => channel.slug)).size, 19);
+test("catálogo temático possui os 23 canais desejados sem duplicação", () => {
+  assert.equal(THEMATIC_RADIO_CATALOG.length, 23);
+  assert.equal(new Set(THEMATIC_RADIO_CATALOG.map((channel) => channel.slug)).size, 23);
 
   for (const channel of THEMATIC_RADIO_CATALOG) {
     assert.ok(channel.sources.length > 0, `${channel.slug} precisa ter uma fonte`);

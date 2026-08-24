@@ -20,6 +20,7 @@ import { fetchLogoEmpresaDataUrl } from "@/lib/empresa-logo";
 import { fetchPrintColors } from "@/lib/print-config";
 import { getTermoAceiteOS, type AceiteAlvo } from "@/lib/print-aceite";
 import { loadPrintPaymentSummary } from "@/lib/print-payment-display-server";
+import { resolveOrdemVehicle } from "@/lib/ordens/vehicle-snapshot";
 
 export const runtime = "nodejs";
 
@@ -300,15 +301,16 @@ export default async function OSFullPage({ params }: PageProps) {
     " • "
   );
 
-  const veiculoNome = joinParts([os.veiculo?.marca, os.veiculo?.modelo], " ");
+  const veiculoExibicao = resolveOrdemVehicle(os.veiculo, os.veiculo_snapshot);
+  const veiculoNome = joinParts([veiculoExibicao?.marca, veiculoExibicao?.modelo], " ");
   // A placa impressa e a cadastrada — e a que esta no carro e no CRLV.
   // `placa_formatada` e uma coluna gerada que converte placa antiga para o
   // equivalente Mercosul, entao so entra como referencia secundaria e apenas
   // quando difere da original (em placa ja no padrao novo as duas sao iguais).
-  const veiculoPlaca = os.veiculo?.placa || os.veiculo?.placa_formatada;
+  const veiculoPlaca = veiculoExibicao?.placa || veiculoExibicao?.placa_formatada;
   const veiculoPlacaMercosul =
-    os.veiculo?.placa_formatada && os.veiculo.placa_formatada !== os.veiculo.placa
-      ? os.veiculo.placa_formatada
+    veiculoExibicao?.placa_formatada && veiculoExibicao.placa_formatada !== veiculoExibicao.placa
+      ? veiculoExibicao.placa_formatada
       : null;
   const alvoTipo =
     os.alvo_tipo === "PECA"
@@ -420,6 +422,7 @@ export default async function OSFullPage({ params }: PageProps) {
     },
     { k: "Impressão", v: fmtDateTime(new Date()) },
     { k: "Entrada", v: fmtDate(os.dataentrada) },
+    { k: "Finalização", v: fmtDate(os.finalizado_em) },
     { k: "Saída", v: fmtDate(os.datasaida) },
     { k: "Alvo", v: alvoTipo },
     { k: "Criado por", v: fmtText(criadorNome) },
@@ -1204,7 +1207,7 @@ export default async function OSFullPage({ params }: PageProps) {
                   </div>
                 ) : (
                   <>
-                  {os.veiculo ? (
+                  {veiculoExibicao ? (
                     <>
                     <div className="h2">{fmtText(veiculoNome)}</div>
                     <div style={{ marginTop: 8 }}>
@@ -1221,15 +1224,15 @@ export default async function OSFullPage({ params }: PageProps) {
                       </div>
                       <div className="kv">
                         <span className="k">Cor</span>
-                        <span className="v">{fmtText(os.veiculo?.cor)}</span>
+                        <span className="v">{fmtText(veiculoExibicao?.cor)}</span>
                       </div>
                       <div className="kv">
                         <span className="k">Ano</span>
-                        <span className="v">{fmtText(os.veiculo?.ano)}</span>
+                        <span className="v">{fmtText(veiculoExibicao?.ano)}</span>
                       </div>
                       <div className="kv">
                         <span className="k">KM</span>
-                        <span className="v">{fmtKm(os.veiculo?.kmatual)}</span>
+                        <span className="v">{fmtKm(veiculoExibicao?.kmatual)}</span>
                       </div>
                     </div></>
                   ):

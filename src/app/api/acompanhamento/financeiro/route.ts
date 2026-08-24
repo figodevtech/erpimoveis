@@ -192,6 +192,7 @@ export async function GET(req: NextRequest) {
             .select(OS_SELECT)
             .in("status", ["ORCAMENTO_APROVADO", "EM_ANDAMENTO", "PAGAMENTO", "CONCLUIDO"])
             .eq("is_deleted", false)
+            .is("migracao_referencia", null)
             .order("updatedat", { ascending: false })
             .limit(limite);
 

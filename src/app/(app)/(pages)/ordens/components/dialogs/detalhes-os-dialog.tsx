@@ -276,6 +276,7 @@ type OS = {
   /** Saida fisica, registrada independentemente do pagamento. */
   datasaida?: string | null;
   pagamento_concluido_em?: string | null;
+  finalizado_em?: string | null;
   destacada?: boolean;
   destaque_motivo?: string | null;
   destaque_cor?: "vermelho" | "amarelo" | string | null;
@@ -1639,16 +1640,24 @@ export function OSDetalhesDialog({
                   ) : null}
                 </div>
 
-                <span className="grid grid-cols-3 gap-2 text-left sm:ml-auto sm:min-w-[390px] sm:text-right">
+                <span className="grid grid-cols-2 gap-2 text-left sm:ml-auto sm:min-w-[520px] sm:grid-cols-4 sm:text-right">
                   <span className="rounded-md border bg-card px-2.5 py-1.5">
                     <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                       Entrada
                     </span>
                     <span className="block text-xs font-semibold text-foreground">{fmtDate(data?.os?.dataentrada)}</span>
                   </span>
+                  <span className="rounded-md border bg-card px-2.5 py-1.5" title="Quando a OS entrou em um status final">
+                    <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Finalizada
+                    </span>
+                    <span className="block text-xs font-semibold text-foreground">
+                      {fmtDate(data?.os?.finalizado_em)}
+                    </span>
+                  </span>
                   <span
                     className="rounded-md border bg-card px-2.5 py-1.5"
-                    title="Quando o andamento foi finalizado"
+                    title="Quando o pagamento foi concluído"
                   >
                     <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                       Pagamento concluído
