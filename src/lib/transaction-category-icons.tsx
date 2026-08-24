@@ -3,6 +3,7 @@ import type { LucideIcon, LucideProps } from "lucide-react";
 import {
   Activity,
   AlarmClock,
+  ArrowLeftRight,
   Ambulance,
   Apple,
   Armchair,
@@ -106,6 +107,7 @@ import {
 export const TRANSACTION_CATEGORY_ICONS = {
   activity: Activity,
   alarm: AlarmClock,
+  "arrow-left-right": ArrowLeftRight,
   ambulance: Ambulance,
   apple: Apple,
   armchair: Armchair,
@@ -214,6 +216,7 @@ export const TRANSACTION_CATEGORY_ICON_OPTIONS: Array<{
 }> = [
   { value: "activity", label: "Atividade" },
   { value: "alarm", label: "Alarme / Horário" },
+  { value: "arrow-left-right", label: "Transferência" },
   { value: "ambulance", label: "Ambulância" },
   { value: "apple", label: "Alimentação saudável" },
   { value: "armchair", label: "Móveis" },

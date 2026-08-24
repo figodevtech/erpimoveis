@@ -109,12 +109,24 @@ BEGIN
   END IF;
 
   IF v_id IS NULL THEN
+    -- `banknote` e o icone que a propria baseline ja da a uma categoria chamada
+    -- TRANSFERENCIA, e e o mesmo do ADIANTAMENTO.
+    --
+    -- Nao e o icone ideal — 'arrow-left-right' diria melhor —, mas ele nao existe
+    -- ainda: `categoriatransacao_icone_check` e uma lista fechada, e inserir um
+    -- valor de fora dela abortava esta migration justamente nos bancos que ainda
+    -- nao tinham a categoria criada a mao (nos que tinham, o ramo ELSE rodava e
+    -- nada quebrava — foi por isso que a Demonstracao passou e a Demir nao).
+    --
+    -- Quem abre a lista e troca o icone e a 20260824130000, que roda logo em
+    -- seguida. Nesta ordem porque a constraint precisa aceitar o valor antes de
+    -- alguem grava-lo.
     INSERT INTO public.categoriatransacao
       (nome, descricao, icone, ativo, codigo_sistema, createdat, updatedat)
     VALUES
       ('TRANSFERÊNCIA',
        'Categoria de sistema para transferências entre contas próprias.',
-       'arrow-left-right', true, 'TRANSFERENCIA', now(), now());
+       'banknote', true, 'TRANSFERENCIA', now(), now());
   ELSE
     UPDATE public.categoriatransacao
        SET codigo_sistema = 'TRANSFERENCIA',
