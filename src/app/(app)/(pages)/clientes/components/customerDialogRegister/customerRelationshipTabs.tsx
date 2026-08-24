@@ -50,6 +50,7 @@ type TituloFinanceiro = {
   ordemServicoId: number | null;
   vendaId: number | null;
   metodoPagamento: string | null;
+  migrado: boolean;
 };
 
 type ResumoFinanceiro = {
@@ -67,6 +68,9 @@ type ResumoFinanceiro = {
   quantidadeAvaliada: number;
   percentualPagoEmDia: number | null;
   mediaDiasAtraso: number | null;
+  totalMigrado: number;
+  quantidadeMigrada: number;
+  tetoPorTituloMigrado: boolean;
   titulos: TituloFinanceiro[];
   quantidadeTitulosExibidos: number;
   quantidadeTitulos: number;
@@ -190,6 +194,13 @@ function AvisoTeto({ resumo }: { resumo: ResumoFinanceiro }) {
       Limitado a <strong className="font-semibold tabular-nums">{resumo.tetoAplicado}</strong> por
       título vencido há {dias} dia{dias === 1 ? "" : "s"}. Só pelo histórico seria{" "}
       <strong className="font-semibold tabular-nums">{resumo.scoreBase}</strong>.
+      {resumo.tetoPorTituloMigrado && (
+        <>
+          {" "}
+          O atraso está inteiro em título trazido de outro sistema — sem essa
+          carga, a nota não teria teto.
+        </>
+      )}
     </p>
   );
 }
@@ -518,9 +529,15 @@ function FinanceiroContent({ resumo }: { resumo: ResumoFinanceiro }) {
           <div className="space-y-2">
             {resumo.titulos.map((titulo) => {
               const badge = badgeTitulo(titulo.situacao);
+              // Título avulso não tem OS nem venda — antes ele nem chegava aqui,
+              // e a origem caía em "Venda #null".
               const origem = titulo.ordemServicoId
                 ? `OS #${titulo.ordemServicoId}`
-                : `Venda #${titulo.vendaId}`;
+                : titulo.vendaId
+                  ? `Venda #${titulo.vendaId}`
+                  : titulo.migrado
+                    ? "Título de outro sistema"
+                    : "Título avulso";
 
               return (
                 <article key={titulo.id} className="rounded-xl border bg-card p-4">
@@ -531,7 +548,18 @@ function FinanceiroContent({ resumo }: { resumo: ResumoFinanceiro }) {
                         Vencimento em {formatarData(titulo.vencimentoEm)}
                       </p>
                     </div>
-                    <Badge variant="outline" className={badge.classe}>{badge.texto}</Badge>
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      {titulo.migrado && (
+                        <Badge
+                          variant="outline"
+                          className="border-sky-300 bg-sky-50 text-sky-900 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-200"
+                          title="Veio da carga de outro sistema, não foi gerado neste ERP."
+                        >
+                          Migrado
+                        </Badge>
+                      )}
+                      <Badge variant="outline" className={badge.classe}>{badge.texto}</Badge>
+                    </div>
                   </div>
                   <div className="mt-3 flex flex-wrap items-end justify-between gap-3 border-t pt-3">
                     <div>

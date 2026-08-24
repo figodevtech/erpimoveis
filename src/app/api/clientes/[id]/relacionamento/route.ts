@@ -1,10 +1,8 @@
 export const runtime = "nodejs";
 
 import { requireFinanceirosAccess } from "@/app/api/_authz/perms";
-import {
-  calcularScoreCliente,
-  type TituloClienteInput,
-} from "@/lib/financeiro/score-cliente";
+import { calcularScoreCliente } from "@/lib/financeiro/score-cliente";
+import { carregarTitulosDoCliente } from "@/lib/financeiro/titulos-cliente";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -13,7 +11,6 @@ type RouteContext = {
 };
 
 const LIMITE_VENDAS = 20;
-const LOTE_TRANSACOES = 1_000;
 const LIMITE_TITULOS_EXIBIDOS = 100;
 
 function numero(valor: unknown) {
@@ -25,54 +22,6 @@ function inteiroPositivo(valor: string | null, padrao: number, maximo: number) {
   const convertido = Number(valor);
   if (!Number.isInteger(convertido) || convertido <= 0) return padrao;
   return Math.min(convertido, maximo);
-}
-
-async function carregarTransacoesPorOrigem(
-  clienteId: number,
-  origem: "ordem" | "venda",
-) {
-  const transacoes: any[] = [];
-  const relacao = origem === "ordem"
-    ? "ordem:ordemservicoid!inner(clienteid)"
-    : "venda:vendaid!inner(clienteid)";
-
-  for (let inicio = 0; ; inicio += LOTE_TRANSACOES) {
-    const { data, error } = await supabaseAdmin
-      .from("transacao")
-      .select(
-        `id, valor, valor_acrescimos, valor_baixado, pendente, data, vencimento_em, pago_em, ordemservicoid, vendaid, metodopagamento, ${relacao}`,
-      )
-      .eq(`${origem}.clienteid`, clienteId)
-      .eq("tipo", "RECEITA")
-      .eq("is_deleted", false)
-      .is("evento_financeiro_id", null)
-      .order("data", { ascending: false })
-      .range(inicio, inicio + LOTE_TRANSACOES - 1);
-
-    if (error) throw error;
-
-    const lote = (data ?? []) as any[];
-    transacoes.push(...lote);
-    if (lote.length < LOTE_TRANSACOES) break;
-  }
-
-  return transacoes;
-}
-
-async function carregarTransacoesDoCliente(clienteId: number) {
-  const [transacoesOs, transacoesVendas] = await Promise.all([
-    carregarTransacoesPorOrigem(clienteId, "ordem"),
-    carregarTransacoesPorOrigem(clienteId, "venda"),
-  ]);
-
-  return Array.from(
-    new Map(
-      [...transacoesOs, ...transacoesVendas].map((transacao) => [
-        Number(transacao.id),
-        transacao,
-      ]),
-    ).values(),
-  );
 }
 
 function respostaDeErro(error: any) {
@@ -100,7 +49,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const limite = inteiroPositivo(searchParams.get("limit"), LIMITE_VENDAS, 50);
     const inicio = (pagina - 1) * limite;
 
-    const [clienteResult, vendasResult, transacoes] = await Promise.all([
+    const [clienteResult, vendasResult, titulos] = await Promise.all([
       supabaseAdmin
         .from("cliente")
         .select("id, nomerazaosocial, cpfcnpj")
@@ -117,7 +66,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
         .order("datavenda", { ascending: false })
         .order("id", { ascending: false })
         .range(inicio, inicio + limite - 1),
-      carregarTransacoesDoCliente(clienteId),
+      carregarTitulosDoCliente(clienteId),
     ]);
 
     if (clienteResult.error) throw clienteResult.error;
@@ -126,22 +75,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     }
     if (vendasResult.error) throw vendasResult.error;
 
-    const entradasScore: TituloClienteInput[] = transacoes.map((transacao) => ({
-      id: Number(transacao.id),
-      valor: numero(transacao.valor),
-      valorAcrescimos: numero(transacao.valor_acrescimos),
-      valorBaixado: numero(transacao.valor_baixado),
-      pendente: Boolean(transacao.pendente),
-      data: String(transacao.data),
-      vencimentoEm: transacao.vencimento_em ?? null,
-      pagoEm: transacao.pago_em ?? null,
-      ordemServicoId: transacao.ordemservicoid == null
-        ? null
-        : Number(transacao.ordemservicoid),
-      vendaId: transacao.vendaid == null ? null : Number(transacao.vendaid),
-      metodoPagamento: transacao.metodopagamento ?? null,
-    }));
-    const resumoCompleto = calcularScoreCliente(entradasScore);
+    const resumoCompleto = calcularScoreCliente(titulos);
     const totalVendas = vendasResult.count ?? 0;
 
     return NextResponse.json(

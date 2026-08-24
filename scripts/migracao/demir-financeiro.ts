@@ -4,6 +4,7 @@
  * Uso:
  *   npm run migracao:demir:financeiro -- --pagar               -> simulacao (termina em ROLLBACK)
  *   npm run migracao:demir:financeiro -- --de-para             -> so as tabelas de conversao
+ *   npm run migracao:demir:financeiro -- --duplicados          -> relacao de cadastros em duplicidade (so le)
  *   npm run migracao:demir:financeiro -- --pagar --aplicar     -> grava (COMMIT)
  *   npm run migracao:demir:financeiro -- --pagar --refazer --aplicar -> apaga essa carga e regrava
  *
@@ -763,6 +764,250 @@ async function gerarRelacoes() {
   }
 }
 
+/**
+ * Nome comparavel entre os dois sistemas.
+ *
+ * Tira acento, pontuacao e sufixo societario, porque e neles que a mesma
+ * empresa se escreve de dez jeitos: "EDVAN SERVICOS MECANICOS LTDA",
+ * "Edvan Servicos Mecanicos ltda." e "EDVAN SERVICOS MECANICOS" sao a mesma
+ * pessoa e nenhum casamento exato as junta.
+ */
+const SUFIXOS = /\b(LTDA|ME|EPP|EIRELI|SA|MEI|MICROEMPRESA|MATRIZ|FILIAL)\b/g;
+
+function nomeComparavel(texto: string) {
+  return (texto ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9 ]/g, " ")
+    .replace(SUFIXOS, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Telefone que diz alguma coisa: os da carga entraram como texto fixo. */
+function telefoneComparavel(texto: string | null) {
+  const digitos = soDigitos(texto ?? "");
+  return digitos.length >= 8 ? digitos : "";
+}
+
+/**
+ * Relacao de possiveis cadastros em duplicidade, para conferencia humana.
+ *
+ * POR QUE ISSO EXISTE
+ * A carga vincula titulo a cliente so por CPF/CNPJ exato, e o banco tem UNIQUE
+ * em `cpfcnpj` e em `nomerazaosocial` — duas linhas com o mesmo documento, ou o
+ * mesmo nome exato, sao impossiveis. Sobra um caso: a MESMA pessoa cadastrada
+ * duas vezes com documentos diferentes ou grafia diferente. O cadastro antigo,
+ * salvo pelo apelido e as vezes sem CNPJ, nao casou por documento, e a carga
+ * criou um segundo cadastro com a razao social. A divida foi para o novo; o
+ * antigo, que e o que a oficina conhece, aparece zerado.
+ *
+ * A pista mais forte e o apelido: o CSV do DATASYSTEM traz "Cliente" (nome
+ * fantasia) e "Razao Social" em colunas separadas, e a carga usou so a segunda.
+ * Em 69 casos os dois diferem — e o apelido e justamente o nome pelo qual a
+ * oficina cadastrou a pessoa aqui.
+ *
+ * SO LE. Nao altera cadastro, nao move titulo, nao apaga nada: quem decide
+ * fundir dois cadastros e uma pessoa olhando o dinheiro de cada lado.
+ */
+async function gerarDuplicados() {
+  const configuracao = loadDatabaseConfigs().find((banco) => banco.key === "demir");
+  if (!configuracao) throw new Error("Banco do Demir nao configurado.");
+  const { client } = await connectDatabase(configuracao);
+
+  try {
+    // Apelido por documento, direto do CSV: e o que a carga descartou.
+    const apelido = new Map<string, string>();
+    for (const linha of lerCsv(acharCsv("CONTAS A RECEBER"))) {
+      const doc = soDigitos(linha["CNPJ/CPF"]);
+      const nome = (linha["Cliente"] || "").trim();
+      const razao = (linha["Razão Social"] || "").trim();
+      if (doc && nome && nomeComparavel(nome) !== nomeComparavel(razao)) {
+        apelido.set(doc, nome);
+      }
+    }
+
+    type Cadastro = {
+      id: number;
+      documento: string;
+      nome: string;
+      telefone: string | null;
+      cidade: string | null;
+      temOs: boolean;
+      temVenda: boolean;
+      titulosMigrados: number;
+      totalMigrado: number;
+    };
+
+    const cadastros = (
+      await client.query<Cadastro>(
+        `select c.id,
+                regexp_replace(coalesce(c.cpfcnpj,''), '\\D', '', 'g') documento,
+                c.nomerazaosocial nome,
+                c.telefone,
+                c.cidade,
+                exists (select 1 from public.ordemservico o where o.clienteid = c.id) "temOs",
+                exists (select 1 from public.venda v where v.clienteid = c.id) "temVenda",
+                (select count(*) from public.transacao t
+                  where t.cliente_id = c.id and t.origem = $1
+                    and coalesce(t.is_deleted, false) = false) "titulosMigrados",
+                (select coalesce(sum(t.valor), 0) from public.transacao t
+                  where t.cliente_id = c.id and t.origem = $1 and t.pendente
+                    and coalesce(t.is_deleted, false) = false) "totalMigrado"
+           from public.cliente c
+          where c.is_deleted = false`,
+        [ORIGEM],
+      )
+    ).rows.map((linha) => ({
+      ...linha,
+      titulosMigrados: Number(linha.titulosMigrados),
+      totalMigrado: Number(linha.totalMigrado),
+    }));
+
+    // Nasceu da carga: so tem titulo migrado, nenhuma OS e nenhuma venda.
+    const daCarga = cadastros.filter(
+      (cadastro) => cadastro.titulosMigrados > 0 && !cadastro.temOs && !cadastro.temVenda,
+    );
+    const idsDaCarga = new Set(daCarga.map((cadastro) => cadastro.id));
+    const demais = cadastros.filter((cadastro) => !idsDaCarga.has(cadastro.id));
+
+    type Par = {
+      novo: Cadastro;
+      antigo: Cadastro;
+      motivos: string[];
+      forca: number;
+    };
+    const pares: Par[] = [];
+
+    for (const novo of daCarga) {
+      const nomeNovo = nomeComparavel(novo.nome);
+      const apelidoDele = apelido.get(novo.documento) ?? "";
+      const apelidoNovo = nomeComparavel(apelidoDele);
+      const telefoneNovo = telefoneComparavel(novo.telefone);
+      const inicioNovo = nomeNovo.split(" ").slice(0, 2).join(" ");
+
+      for (const antigo of demais) {
+        const nomeAntigo = nomeComparavel(antigo.nome);
+        const motivos: string[] = [];
+        let forca = 0;
+
+        /*
+         * Mesma raiz de CNPJ e a mesma empresa em outro estabelecimento —
+         * matriz e filial. NAO e duplicata: sao inscricoes distintas, cada uma
+         * com sua divida, e fundir as duas seria o erro. Aparece aqui porque a
+         * semelhanca de nome ia trazer o par de qualquer forma, e sem esse
+         * rotulo alguem poderia fundir por engano.
+         *
+         * O "2" no fim de um dos nomes costuma ser marca disso: o UNIQUE em
+         * nomerazaosocial recusa o nome repetido e quem cadastrou desempatou
+         * no numero.
+         */
+        const raizNovo = novo.documento.length === 14 ? novo.documento.slice(0, 8) : "";
+        const raizAntigo = antigo.documento.length === 14 ? antigo.documento.slice(0, 8) : "";
+        const filial = Boolean(raizNovo) && raizNovo === raizAntigo;
+
+        if (filial) {
+          pares.push({
+            novo,
+            antigo,
+            motivos: ["mesma raiz de CNPJ: matriz e filial, NAO fundir"],
+            forca: -1,
+          });
+          continue;
+        }
+
+        if (nomeAntigo && nomeAntigo === nomeNovo) {
+          motivos.push("mesmo nome; so pontuacao ou sufixo difere");
+          forca += 100;
+        }
+        if (apelidoNovo && nomeAntigo === apelidoNovo) {
+          motivos.push("cadastro antigo tem o apelido do DATASYSTEM: " + apelidoDele);
+          forca += 90;
+        }
+        if (telefoneNovo && telefoneNovo === telefoneComparavel(antigo.telefone)) {
+          motivos.push("mesmo telefone");
+          forca += 60;
+        }
+        if (!motivos.length && inicioNovo.length >= 6 && nomeAntigo.startsWith(inicioNovo)) {
+          motivos.push("comeca igual: " + inicioNovo);
+          forca += 25;
+          const cidadeNova = (novo.cidade ?? "").trim().toUpperCase();
+          const cidadeAntiga = (antigo.cidade ?? "").trim().toUpperCase();
+          if (cidadeNova && cidadeNova === cidadeAntiga) {
+            motivos.push("mesma cidade");
+            forca += 15;
+          }
+        }
+
+        if (motivos.length) pares.push({ novo, antigo, motivos, forca });
+      }
+    }
+
+    pares.sort((a, b) => b.forca - a.forca || b.novo.totalMigrado - a.novo.totalMigrado);
+
+    const aspas = (texto: string) => '"' + (texto ?? "").replace(/"/g, '""') + '"';
+    const dinheiroBr = (valor: number) => valor.toFixed(2).replace(".", ",");
+    const confianca = (forca: number) =>
+      forca < 0
+        ? "FILIAL"
+        : forca >= 90
+          ? "PROVAVEL"
+          : forca >= 60
+            ? "POSSIVEL"
+            : "FRACO";
+
+    const linhas = pares.map((par) =>
+      [
+        confianca(par.forca),
+        par.novo.id,
+        aspas(par.novo.nome),
+        par.novo.documento,
+        par.novo.titulosMigrados,
+        dinheiroBr(par.novo.totalMigrado),
+        par.antigo.id,
+        aspas(par.antigo.nome),
+        par.antigo.documento,
+        par.antigo.temOs ? "SIM" : "",
+        par.antigo.temVenda ? "SIM" : "",
+        aspas(par.motivos.join("; ")),
+      ].join(";"),
+    );
+
+    const pasta = path.join(projectRoot, "docs", "migracao_demir");
+    fs.writeFileSync(
+      path.join(pasta, "duplicados-clientes.csv"),
+      [
+        "Confianca;NovoId;NovoNome;NovoDocumento;TitulosMigrados;TotalEmAberto;" +
+          "AntigoId;AntigoNome;AntigoDocumento;AntigoTemOS;AntigoTemVenda;Motivos",
+        ...linhas,
+      ].join("\n"),
+      "latin1",
+    );
+
+    const provaveis = pares.filter((par) => par.forca >= 90).length;
+    const possiveis = pares.filter((par) => par.forca >= 60 && par.forca < 90).length;
+    const filiais = pares.filter((par) => par.forca < 0).length;
+    const fracos = pares.length - provaveis - possiveis - filiais;
+    const emRisco = [...new Set(pares.filter((par) => par.forca >= 60).map((par) => par.novo))]
+      .reduce((total, cadastro) => total + cadastro.totalMigrado, 0);
+
+    console.log(`Cadastros que nasceram da carga: ${daCarga.length}`);
+    console.log(`Pares candidatos: ${pares.length}`);
+    console.log(`  PROVAVEL: ${provaveis}`);
+    console.log(`  POSSIVEL: ${possiveis}`);
+    console.log(`  FRACO:    ${fracos}`);
+    console.log(`  FILIAL:   ${filiais} (mesma raiz de CNPJ; nao sao duplicata)`);
+    console.log(
+      `Divida em aberto nos candidatos PROVAVEL/POSSIVEL: R$ ${emRisco.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`,
+    );
+    console.log("\nRelacao gravada em docs/migracao_demir/duplicados-clientes.csv");
+    console.log("Nada foi alterado no banco: este modo so le.");
+  } finally {
+    await client.end().catch(() => undefined);
+  }
+}
+
 async function main() {
   if (flags.has("--de-para")) {
     lerReceber();
@@ -773,6 +1018,11 @@ async function main() {
 
   if (flags.has("--relacao")) {
     await gerarRelacoes();
+    return;
+  }
+
+  if (flags.has("--duplicados")) {
+    await gerarDuplicados();
     return;
   }
 

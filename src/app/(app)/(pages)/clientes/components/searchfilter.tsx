@@ -1,8 +1,9 @@
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, X } from "lucide-react";
+import { AlertCircle, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Status } from "../types";
+import { cn } from "@/lib/utils";
 
 interface SearchFilterProps {
     search: string
@@ -11,9 +12,12 @@ interface SearchFilterProps {
     onClear: () => void
     setStatus: (value: Status) => void
     status: Status
+    /** Mostra só quem tem título vencido em aberto. */
+    devedores: boolean
+    setDevedores: (value: boolean) => void
 
 }
-export default function SearchFilter ({search, setSearch, onSearch, onClear, setStatus, status}: SearchFilterProps) {
+export default function SearchFilter ({search, setSearch, onSearch, onClear, setStatus, status, devedores, setDevedores}: SearchFilterProps) {
     return(
           <div className="flex gap-6 flex-col md:flex-row bg-card p-4 rounded-2xl shadow-sm border border-primary/30">
             <div className="relative w-full">
@@ -88,6 +92,22 @@ export default function SearchFilter ({search, setSearch, onSearch, onClear, set
                 </SelectItem>
               </SelectContent>
             </Select>
+            {/*
+              Devedor é quem tem título VENCIDO em aberto — não quem apenas tem
+              parcela a vencer, que está em dia e não deveria aparecer numa lista
+              de cobrança.
+            */}
+            <Button
+              type="button"
+              variant={devedores ? "default" : "outline"}
+              onClick={() => setDevedores(!devedores)}
+              aria-pressed={devedores}
+              title="Mostrar só clientes com título vencido em aberto"
+              className={cn("w-full md:w-auto shrink-0 gap-2")}
+            >
+              <AlertCircle className="h-4 w-4" />
+              Devedores
+            </Button>
           </div>
         
     )

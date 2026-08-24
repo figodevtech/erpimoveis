@@ -24,10 +24,12 @@ import {
 } from "lucide-react";
 
 import { Select, SelectValue, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
-import { Customer, Pagination, Status } from "../types";
+import { Customer, DividaCliente, Pagination, Status } from "../types";
+import { cn } from "@/lib/utils";
 import formatarTelefone from "@/utils/formatarTelefone";
 import Link from "next/link";
 import { getStatusBadge } from "../utils";
+import formatarEmReal from "@/utils/formatarEmReal";
 import { CustomerDialog } from "./customerDialogRegister/customerDialog";
 import DeleteAlert from "./deleteAlert";
 import { useState } from "react";
@@ -55,6 +57,46 @@ interface CustomerDataTableProps {
 
   isAlertOpen: boolean;
   setIsAlertOpen: (value: boolean) => void;
+}
+
+/**
+ * Quanto o cliente deve, na linha da listagem.
+ *
+ * Mostra o total em aberto e, quando ha atraso, destaca o vencido — que e o
+ * numero que decide cobranca. Quem nao deve fica com um traco, para a coluna
+ * nao virar uma parede de "R$ 0,00".
+ *
+ * O aviso de migrado importa: divida herdada de outro sistema pode estar num
+ * cadastro que duplica um cliente antigo, e quem olha a lista precisa saber
+ * disso antes de cobrar.
+ */
+function DividaCell({ divida }: { divida?: DividaCliente | null }) {
+  if (!divida || divida.totalEmAberto <= 0) {
+    return <span className="text-muted-foreground">—</span>;
+  }
+
+  const vencido = divida.totalVencido > 0;
+
+  return (
+    <div className="flex flex-col items-end gap-0.5">
+      <span
+        className={cn(
+          "font-medium tabular-nums",
+          vencido && "text-red-600 dark:text-red-400",
+        )}
+      >
+        {formatarEmReal(divida.totalEmAberto)}
+      </span>
+      <span className="text-xs text-muted-foreground">
+        {vencido
+          ? `${formatarEmReal(divida.totalVencido)} vencido${
+              divida.quantidadeVencida === 1 ? "" : "s"
+            }`
+          : `${divida.quantidadeEmAberto} a vencer`}
+        {divida.temMigrado ? " · migrado" : ""}
+      </span>
+    </div>
+  );
 }
 
 export default function CustomersDataTable({
@@ -169,6 +211,7 @@ export default function CustomersDataTable({
               <TableHead>Contato</TableHead>
               <TableHead>CPF/CNPJ</TableHead>
               <TableHead>Cidade/UF</TableHead>
+              <TableHead className="text-right">Em aberto</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="w-[50px]">Ações</TableHead>
             </TableRow>
@@ -236,6 +279,10 @@ export default function CustomersDataTable({
 
                 <TableCell className="text-sm">
                   {[customer.cidade, customer.estado].filter(Boolean).join("/") || "-"}
+                </TableCell>
+
+                <TableCell className="text-right text-sm">
+                  <DividaCell divida={customer.divida} />
                 </TableCell>
 
                 <TableCell>{getStatusBadge(customer.status)}</TableCell>

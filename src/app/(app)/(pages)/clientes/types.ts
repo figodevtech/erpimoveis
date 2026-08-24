@@ -48,6 +48,21 @@ export interface Customer {
   veiculos: Veiculo[]
   ordens: Ordem[]
   rank?: Cliente_rank | null
+  /**
+   * Dívida em aberto, quando a origem dos dados a calcula — hoje só a listagem
+   * (`GET /api/customers`). Opcional porque `Customer` também serve o
+   * `customerSelect` e os diálogos, que não pedem esse resumo.
+   */
+  divida?: DividaCliente | null
+}
+
+export interface DividaCliente {
+  totalEmAberto: number
+  totalVencido: number
+  quantidadeEmAberto: number
+  quantidadeVencida: number
+  /** Parte da dívida veio de carga de outro sistema, não foi gerada aqui. */
+  temMigrado: boolean
 }
 
 export interface Pagination {

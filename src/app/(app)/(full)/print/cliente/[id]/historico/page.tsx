@@ -1088,7 +1088,9 @@ export default async function ClienteHistoricoPrintPage({ params }: PageProps) {
                             ? `OS #${titulo.ordemServicoId}`
                             : titulo.vendaId
                               ? `Venda #${titulo.vendaId}`
-                              : EMPTY}
+                              : titulo.migrado
+                                ? "Outro sistema"
+                                : "Avulso"}
                         </td>
                         <td className="nowrap">{fmtDate(titulo.vencimentoEm)}</td>
                         <td className="nowrap">{fmtDate(titulo.pagoEm)}</td>

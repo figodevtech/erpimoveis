@@ -43,6 +43,56 @@ function isValidEmail(v?: string | null) {
   return /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(s);
 }
 
+/** O que a listagem mostra de divida em aberto por cliente. */
+type DividaCliente = {
+  totalEmAberto: number;
+  totalVencido: number;
+  quantidadeEmAberto: number;
+  quantidadeVencida: number;
+  temMigrado: boolean;
+};
+
+/**
+ * Divida em aberto dos clientes informados, pela RPC `clientes_divida`.
+ *
+ * A soma sai do banco, sobre a mesma view que alimenta a aba Financeiro do
+ * cadastro — as duas telas nao podem discordar sobre quanto um cliente deve.
+ * Uma chamada por pagina, com os ids que ja estao em maos; nada de uma consulta
+ * por linha.
+ */
+async function carregarDividas(clienteIds: number[]) {
+  const resumo = new Map<number, DividaCliente>();
+  if (clienteIds.length === 0) return resumo;
+
+  const { data, error } = await supabaseAdmin.rpc("clientes_divida", {
+    p_cliente_ids: clienteIds,
+    p_somente_devedores: false,
+  });
+  if (error) throw error;
+
+  for (const linha of (data ?? []) as any[]) {
+    resumo.set(Number(linha.cliente_id), {
+      totalEmAberto: Number(linha.total_em_aberto) || 0,
+      totalVencido: Number(linha.total_vencido) || 0,
+      quantidadeEmAberto: Number(linha.quantidade_em_aberto) || 0,
+      quantidadeVencida: Number(linha.quantidade_vencida) || 0,
+      temMigrado: Boolean(linha.tem_migrado),
+    });
+  }
+
+  return resumo;
+}
+
+/** Ids de quem tem titulo vencido em aberto. Usado pelo filtro de devedores. */
+async function idsDevedores() {
+  const { data, error } = await supabaseAdmin.rpc("clientes_divida", {
+    p_cliente_ids: null,
+    p_somente_devedores: true,
+  });
+  if (error) throw error;
+  return ((data ?? []) as any[]).map((linha) => Number(linha.cliente_id));
+}
+
 /* ============================
    GET /api/clientes  (listar)
    ============================ */
@@ -66,6 +116,10 @@ export async function GET(req: Request) {
     const statusFilter = STATUS_SET.has(statusParam as Status)
       ? (statusParam as Status)
       : null;
+
+    const soDevedores = ["1", "true", "sim"].includes(
+      (searchParams.get("devedores") ?? "").toLowerCase(),
+    );
 
     const from = (page - 1) * limit;
     const to = from + limit - 1;
@@ -94,10 +148,38 @@ export async function GET(req: Request) {
       query = query.eq("status", statusFilter);
     }
 
+    /*
+     * O filtro de devedores entra ANTES da paginacao, senao a contagem e o
+     * numero de paginas sairiam do universo inteiro e o rodape mentiria.
+     *
+     * A lista de ids vem de uma agregacao no banco. Na escala destes bancos sao
+     * centenas de devedores, que cabem no `in`. Se um dia passar do que a URL do
+     * PostgREST aguenta, o caminho e `chunkValues` de `@/lib/supabase-pagination`.
+     */
+    if (soDevedores) {
+      const devedores = await idsDevedores();
+      if (devedores.length === 0) {
+        return NextResponse.json({
+          data: [],
+          pagination: {
+            total: 0, page, limit, totalPages: 1, pageCount: 0,
+            hasPrevPage: false, hasNextPage: false,
+          },
+          filters: { search: q, status: statusFilter ?? "TODOS", devedores: true },
+        });
+      }
+      query = query.in("id", devedores);
+    }
+
     const { data, error, count } = await query;
     if (error) throw error;
 
     const items = data ?? [];
+    const dividas = await carregarDividas(items.map((item: any) => Number(item.id)));
+    const itemsComDivida = items.map((item: any) => ({
+      ...item,
+      divida: dividas.get(Number(item.id)) ?? null,
+    }));
     const total = count ?? 0;
     const totalPages = Math.max(1, Math.ceil(total / limit));
 
@@ -106,7 +188,7 @@ export async function GET(req: Request) {
     const hasNextPage = page * limit < total;
 
     return NextResponse.json({
-      data: items,
+      data: itemsComDivida,
       pagination: {
         total,
         page,
@@ -116,7 +198,7 @@ export async function GET(req: Request) {
         hasPrevPage,
         hasNextPage,
       },
-      filters: { search: q, status: statusFilter ?? "TODOS" },
+      filters: { search: q, status: statusFilter ?? "TODOS", devedores: soDevedores },
     });
   } catch (e: any) {
     return NextResponse.json(
