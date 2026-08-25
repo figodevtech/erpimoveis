@@ -879,7 +879,7 @@ export async function DELETE(_: Request, ctx: Params) {
 
     const { data: transaction, error: transactionError } = await supabaseAdmin
       .from("transacao")
-      .select("id, tipo, pendente, ordemservicoid, vendaid, evento_financeiro_id, adiantamento_id, eh_adiantamento, transferencia_id")
+      .select("id, tipo, pendente, ordemservicoid, vendaid, evento_financeiro_id, lancamento_id, adiantamento_id, eh_adiantamento, transferencia_id")
       .eq("id", id)
       .maybeSingle();
     if (transactionError) throw transactionError;
@@ -924,6 +924,53 @@ export async function DELETE(_: Request, ctx: Params) {
       }
 
       return new NextResponse(null, { status: 204 });
+    }
+
+    /*
+     * Boleto de despesas da OS: excluir uma parcela desfaz o lançamento inteiro.
+     *
+     * O boleto do terceirizado é um compromisso só. Tirar uma parcela dele
+     * deixaria as despesas de serviço quitadas por um valor que ninguém mais
+     * deve — e, se fosse a última, deixaria despesas marcadas como lançadas sem
+     * lançamento nenhum atrás delas.
+     *
+     * Vem antes da trava de "liquidada" de propósito. Aquela trava é por linha, e
+     * aqui a regra é do grupo: com uma parcela paga, nem as pendentes saem. Quem
+     * responde isso é `excluir_lancamento_de_eventos`, que também recusa quando a
+     * OS já foi finalizada.
+     */
+    if (transaction.lancamento_id != null) {
+      const { data: parcelas } = await supabaseAdmin
+        .from("transacao")
+        .select("id")
+        .eq("lancamento_id", transaction.lancamento_id);
+
+      const ids = (parcelas ?? []).map((p: { id: number }) => Number(p.id));
+      const attachmentPaths = await attachmentPathsForTransactions(
+        ids.length > 0 ? ids : [id],
+      );
+
+      const session = await auth().catch(() => null);
+      const deletedBy = (session?.user as { id?: string } | undefined)?.id ?? null;
+
+      const { data: resumo, error: lancamentoError } = await supabaseAdmin.rpc(
+        "excluir_lancamento_de_eventos",
+        { p_id: transaction.lancamento_id, p_deleted_by: deletedBy },
+      );
+
+      if (lancamentoError) {
+        const status =
+          lancamentoError.code === "P0001" ? 409 : lancamentoError.code === "P0002" ? 404 : 500;
+        return NextResponse.json({ error: lancamentoError.message }, { status });
+      }
+
+      try {
+        await removeAttachmentObjects(attachmentPaths);
+      } catch (storageError) {
+        console.warn("Falha ao limpar anexos do lançamento excluído", storageError);
+      }
+
+      return NextResponse.json({ data: resumo });
     }
 
     /*

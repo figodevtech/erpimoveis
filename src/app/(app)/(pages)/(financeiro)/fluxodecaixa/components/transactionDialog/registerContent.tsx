@@ -75,6 +75,7 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
+import type { ContextoLancamentoDeEventos } from "@/app/(app)/(pages)/(financeiro)/components/lancamento-de-eventos";
 import {
   categoriaDoPagamentoMultiplo,
   clienteUnicoDoPagamento,
@@ -175,6 +176,7 @@ interface RegisterContentProps {
   osId?: number | undefined;
   vendaId?: number | undefined;
   pagamentoMultiplo?: ContextoPagamentoMultiplo;
+  lancamentoDeEventos?: ContextoLancamentoDeEventos;
   setSelectedTransactionId?: (value: number | undefined) => void;
   newTransaction: NewTransaction;
   setNewTransaction: Dispatch<SetStateAction<NewTransaction>>;
@@ -198,6 +200,7 @@ export default function RegisterContent({
   osId,
   vendaId,
   pagamentoMultiplo,
+  lancamentoDeEventos,
   setSelectedCustomer,
   handleGetTransactions,
   setOpen,
@@ -780,6 +783,49 @@ export default function RegisterContent({
 
           handleGetTransactions?.();
           pagamentoMultiplo.onConcluido?.();
+          setOpen?.(false);
+          setNewTransaction({});
+          setSelectedCustomer?.(undefined);
+          setParcelasDetalhadas([]);
+          setParcelasIguais(false);
+          setRelacionarDocumento(false);
+          setTaxaAjustada(false);
+        }
+        return;
+      }
+
+      // Boleto de despesas da OS: mesmo formulário, outro alvo. Daqui vai a
+      // seleção e a divisão em parcelas; o valor total quem decide é o servidor,
+      // que relê as despesas na fonte — uma tela aberta há dez minutos lançaria
+      // um total que já não corresponde a elas.
+      if (lancamentoDeEventos) {
+        const resposta = await axios.post("/api/lancamento-de-eventos", {
+          ordemServicoId: lancamentoDeEventos.ordemServicoId,
+          eventosIds: lancamentoDeEventos.eventosIds,
+          descricao: newTransaction.descricao ?? null,
+          data: newTransaction.data ?? new Date(),
+          pendente: newTransaction.pendente !== false,
+          metodoPagamento: newTransaction.metodopagamento ?? null,
+          categoria: newTransaction.categoria ?? null,
+          categoriaId: newTransaction.categoria_id ?? null,
+          planoDeContaId: newTransaction.plano_de_conta_id ?? null,
+          centroCustoId: newTransaction.centro_custo_id ?? null,
+          fornecedorId: newTransaction.fornecedor_id ?? null,
+          bancoId: newTransaction.banco_id ?? null,
+          nomePagador: newTransaction.nomepagador ?? null,
+          cpfCnpjPagador: newTransaction.cpfcnpjpagador ?? null,
+          parcelas: parcelasPayload ?? [],
+        });
+
+        if (resposta.status === 201) {
+          const criado = resposta.data?.data;
+          toast.success("Lançamento registrado!", {
+            description: `${criado?.parcelas ?? 1} parcela(s) para ${criado?.despesas ?? 0} despesa(s).`,
+            duration: 3000,
+          });
+
+          handleGetTransactions?.();
+          lancamentoDeEventos.onConcluido?.();
           setOpen?.(false);
           setNewTransaction({});
           setSelectedCustomer?.(undefined);

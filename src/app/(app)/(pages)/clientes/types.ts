@@ -22,6 +22,14 @@ export enum Cliente_rank{
 }
 
 
+/** Contato adicional do cliente. O principal segue em `Customer.telefone`. */
+export interface TelefoneCliente {
+  id: number
+  telefone: string
+  contato: string | null
+  observacao: string | null
+}
+
 export interface Customer {
   id: number
   tipopessoa: TipoPessoa
@@ -29,6 +37,8 @@ export interface Customer {
   nomerazaosocial: string
   email: string | null
   telefone: string | null
+  /** Telefones secundários; só o cadastro do cliente os carrega. */
+  telefones?: TelefoneCliente[]
   endereco: string | null
   endereconumero: string | null
   enderecocomplemento: string | null

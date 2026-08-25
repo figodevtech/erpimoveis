@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireOSAccess } from "@/app/api/_authz/perms";
-import { descontoPorItem, parcelaDoDescontoNaNota } from "@/lib/nfe/descontoOrigem";
+import { descontoPorItem, particionarDescontoDaOs } from "@/lib/nfe/descontoOrigem";
 import { inferirDescontoGeralOs } from "@/lib/ordens/totais";
 import { mapPaymentMethodToNFe } from "@/lib/nfe/originFiscalDefaults";
 import { valorDeFace } from "@/lib/financeiro/transacao";
@@ -286,18 +286,11 @@ export async function GET(req: Request) {
       pesosDosServicos,
     );
     // O que a tela mostra no campo de desconto geral é só a fatia dos produtos:
-    // numa OS com serviços, o resto do desconto da ordem sai na NFS-e.
-    const descontoGeralDaNota = parcelaDoDescontoNaNota(
-      descontoGeral,
-      liquidoPorItem,
-      pesosDosServicos,
-    );
-    // Bases do rateio, para a tela conseguir explicar de onde saiu a proporção —
-    // sem elas o desconto da nota parece menor que o da OS sem motivo aparente.
-    const somar = (valores: number[]) =>
-      Number(valores.reduce((soma, valor) => soma + valor, 0).toFixed(2));
-    const baseProdutos = somar(liquidoPorItem);
-    const baseServicos = somar(pesosDosServicos);
+    // numa OS com serviços, o resto do desconto da ordem sai na NFS-e. A mesma
+    // partição alimenta o GET de serviços da NFS-e, para as duas telas mostrarem
+    // o mesmo número.
+    const particao = particionarDescontoDaOs(descontoGeral, liquidoPorItem, pesosDosServicos);
+    const descontoGeralDaNota = particao.produtos;
 
     const resposta: ProdutoParaNfeDTO[] = rows.map((i, index) => {
       const p = normalizarProduto(i.produto);
@@ -399,15 +392,7 @@ export async function GET(req: Request) {
       // texto livre da nota.
       alvo: await carregarAlvoDaOs(os),
       desconto_geral: descontoGeralDaNota,
-      desconto_origem: {
-        total: descontoGeral,
-        produtos: descontoGeralDaNota,
-        // A sobra do rateio, e não uma segunda conta: garante que produtos +
-        // serviços fechem exatamente o desconto da OS, sem centavo perdido.
-        servicos: Number((descontoGeral - descontoGeralDaNota).toFixed(2)),
-        baseProdutos,
-        baseServicos,
-      },
+      desconto_origem: particao,
       cliente: cliente
         ? {
             ...cliente,

@@ -39,6 +39,7 @@ import {
   LIMITE_INFORMACOES_COMPLEMENTARES,
   type ClienteResumo,
   type CodigosFiscaisForm,
+  type DescontoOrigemNfse,
   type ModeloEmissao,
   type ServicoOS,
   type ServicosOSResponse,
@@ -190,6 +191,7 @@ export function EmissaoNfseDialog({ open, onOpenChange, osId, onAfterGenerate }:
   const [padraoFiscal, setPadraoFiscal] = useState<Partial<CodigosFiscaisForm> | null>(null);
   const [observacoesFiscaisOs, setObservacoesFiscaisOs] = useState("");
   const [alvo, setAlvo] = useState<AlvoFiscal | null>(null);
+  const [descontoOrigem, setDescontoOrigem] = useState<DescontoOrigemNfse | null>(null);
   const [cliente, setCliente] = useState<ClienteResumo | null>(null);
   const [editandoCliente, setEditandoCliente] = useState(false);
   const [selecionados, setSelecionados] = useState<number[]>([]);
@@ -222,6 +224,7 @@ export function EmissaoNfseDialog({ open, onOpenChange, osId, onAfterGenerate }:
         (payload.observacoesFiscais ?? "").trim().slice(0, LIMITE_INFORMACOES_COMPLEMENTARES),
       );
       setAlvo(payload.alvo ?? null);
+      setDescontoOrigem(payload.descontoOrigem ?? null);
       setCliente(payload.cliente ?? null);
       setSelecionados((current) => current.filter((id) => nextServices.some((item) => item.servicoid === id)));
     } catch {
@@ -241,6 +244,7 @@ export function EmissaoNfseDialog({ open, onOpenChange, osId, onAfterGenerate }:
     setPadraoFiscal(null);
     setObservacoesFiscaisOs("");
     setAlvo(null);
+    setDescontoOrigem(null);
     setCliente(null);
     setEditandoCliente(false);
     setSelecionados([]);
@@ -450,6 +454,7 @@ export function EmissaoNfseDialog({ open, onOpenChange, osId, onAfterGenerate }:
                     Boolean(observacoesFiscaisOs)
                     && codigosFiscais.informacoesComplementares === observacoesFiscaisOs
                   }
+                  descontoOrigem={descontoOrigem}
                   blocosDoTextoLivre={blocosDoTextoLivre}
                   onAdicionarBloco={adicionarBloco}
                   onChange={atualizarCodigo}

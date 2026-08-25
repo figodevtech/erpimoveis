@@ -44,8 +44,8 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { StatusCliente, TipoPessoa, ESTADOS_BRASIL } from "./types";
-import { formatCep, formatCpfCnpj, formatTelefone, getRankEmoji } from "./utils";
+import { StatusCliente, TelefoneSecundario, TipoPessoa, ESTADOS_BRASIL } from "./types";
+import { formatCep, formatCpfCnpj, formatTelefone, getRankEmoji, toTelefonesSecundarios } from "./utils";
 import { Cliente_rank, Customer } from "../../types";
 import axios, { isAxiosError } from "axios";
 import { useGetCidades } from "@/app/(app)/hooks/useGetCidades";
@@ -71,6 +71,7 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import CustomerRelationshipTabs from "./customerRelationshipTabs";
+import SecondaryPhonesCard from "./secondaryPhonesCard";
 
 interface EditContentProps {
   customerId: number;
@@ -170,6 +171,9 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
   const [veiculoTransferId, setVeiculoTransferId] = useState<number | undefined>(undefined);
   const [transferindo, setTransferindo] = useState(false);
   const [expandedOrdemId, setExpandedOrdemId] = useState<number | null>(null);
+  // Os secundários vivem em tabela própria; ficam fora de `selectedCustomer`
+  // para o PUT do cliente continuar exatamente o que era.
+  const [telefonesSecundarios, setTelefonesSecundarios] = useState<TelefoneSecundario[]>([]);
 
   function validarEmailDigitado(email: string): boolean {
     const valor = email.trim();
@@ -197,6 +201,7 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
         // console.log(response)
         const { data } = response;
         setselectedCustomer(data.data);
+        setTelefonesSecundarios(toTelefonesSecundarios(data.data?.telefones));
         if (notifyUpdate) onUpdate?.(data.data);
       }
     } catch (error) {
@@ -291,9 +296,28 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
     }
   };
 
+  // Linha totalmente em branco é descartada: o + adiciona antes de digitar.
+  const telefonesPreenchidos = () =>
+    telefonesSecundarios.filter(
+      (item) =>
+        item.telefone.trim() !== "" ||
+        item.contato.trim() !== "" ||
+        item.observacao.trim() !== "",
+    );
+
+  const handleSalvarTelefonesSecundarios = async (clienteId: number) => {
+    await axios.put("/api/customers/" + clienteId + "/telefones", {
+      telefones: telefonesPreenchidos(),
+    });
+  };
+
   const handleUpdateCustomer = async () => {
     if (!validarEmailDigitado(selectedCustomer?.email || "")) {
       toast.warning("Insira um email válido");
+      return;
+    }
+    if (telefonesPreenchidos().some((item) => !/^\d{10,11}$/.test(item.telefone.replace(/\D/g, "")))) {
+      toast.warning("Informe DDD e número em todos os telefones secundários.");
       return;
     }
     if (
@@ -314,11 +338,27 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
         const { data } = response;
         setselectedCustomer(data.data);
         console.log("Cliente atualizado:", data.data);
-        toast.success("Cliente Atualizado");
+        // O cadastro já foi salvo; a falha aqui é só dos telefones extras.
+        try {
+          await handleSalvarTelefonesSecundarios(data.data.id);
+          toast.success("Cliente Atualizado");
+        } catch (telefonesError) {
+          console.log("Erro ao salvar telefones do cliente:", telefonesError);
+          toast.warning("Cliente salvo, mas os telefones secundários não foram gravados.", {
+            description: isAxiosError(telefonesError)
+              ? telefonesError.response?.data?.error
+              : undefined,
+          });
+        }
         await handleGetCustomer(data.data.id, true);
       }
     } catch (error) {
       console.log("Erro ao atualizar cliente:", error);
+      if (isAxiosError(error)) {
+        toast.error("Erro ao salvar cliente", {
+          description: error.response?.data?.error,
+        });
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -730,7 +770,7 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                   <div className="space-y-2">
                     <Label htmlFor="telefone" className="flex items-center gap-2 text-sm">
                       <Phone className="h-3 w-3 sm:h-4 sm:w-4" />
-                      Telefone
+                      Telefone (principal)
                     </Label>
                     <Input
                       id="telefone"
@@ -997,6 +1037,12 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                   </div>
                 </div>
                 </div>
+
+                <SecondaryPhonesCard
+                  telefones={telefonesSecundarios}
+                  setTelefones={setTelefonesSecundarios}
+                  disabled={isSubmitting}
+                />
 
                 {/* Dados fiscais - Apenas para Pessoa Jurídica */}
                 {selectedCustomer.tipopessoa === "JURIDICA" && (

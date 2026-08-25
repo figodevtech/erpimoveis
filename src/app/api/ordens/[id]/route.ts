@@ -554,7 +554,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
     const trans_res = await supabase
       .from("transacao")
-      .select("id, descricao, valor, valorLiquido, valor_acrescimos, valor_descontos, data, tipo, pendente, metodopagamento, categoria, plano_de_conta, plano_de_conta_id, banco_id, evento_financeiro_id")
+      .select("id, descricao, valor, valorLiquido, valor_acrescimos, valor_descontos, data, tipo, pendente, metodopagamento, categoria, plano_de_conta, plano_de_conta_id, banco_id, evento_financeiro_id, lancamento_id")
       .eq("ordemservicoid", osId)
       .eq("is_deleted", false)
       .order("data", { ascending: false });
@@ -570,7 +570,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
     const despesas_servico_res = await supabase
       .from("eventos_financeiros")
-      .select("id, servicoid, descricao, detalhe, valor, status, transacaoid")
+      .select("id, servicoid, descricao, detalhe, valor, status, transacaoid, lancamento_id")
       .eq("ordemservicoid", osId)
       .eq("origem", "SERVICO")
       .eq("natureza", "DESPESA")
@@ -600,6 +600,17 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     const transacoesPorId = new Map(
       transacoes.map((transacao: any) => [Number(transacao.id), transacao]),
     );
+    // As parcelas de um boleto de despesas. A despesa lançada em grupo não tem
+    // `transacaoid` — com cinco parcelas não existe UMA transação para nomear —,
+    // então quem responde "isso já foi pago?" é o conjunto.
+    const parcelasPorLancamento = new Map<number, any[]>();
+    for (const transacao of transacoes as any[]) {
+      if (transacao.lancamento_id == null) continue;
+      const chave = Number(transacao.lancamento_id);
+      const atual = parcelasPorLancamento.get(chave);
+      if (atual) atual.push(transacao);
+      else parcelasPorLancamento.set(chave, [transacao]);
+    }
     const despesasByServico = new Map<
       number,
       Array<{
@@ -608,14 +619,22 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         detalhe: string | null;
         valor: number;
         status: "ATIVO" | "CONVERTIDO";
-        situacao: "PREVISTA" | "A_PAGAR" | "PAGA" | "LANCADA";
+        situacao: "PREVISTA" | "A_PAGAR" | "PARCIAL" | "PAGA" | "LANCADA";
         transacaoid: number | null;
+        lancamentoid: number | null;
+        parcelas: number;
+        parcelasPagas: number;
       }>
     >();
     for (const evento of despesas_servico_res.data ?? []) {
       const servicoid = Number(evento.servicoid);
       const transacaoid = evento.transacaoid == null ? null : Number(evento.transacaoid);
       const transacao = transacaoid ? transacoesPorId.get(transacaoid) : null;
+      const lancamentoid = evento.lancamento_id == null ? null : Number(evento.lancamento_id);
+      const parcelas: any[] = lancamentoid
+        ? (parcelasPorLancamento.get(lancamentoid) ?? [])
+        : [];
+      const parcelasPagas = parcelas.filter((p: any) => p.pendente === false).length;
       const status = evento.status === "CONVERTIDO" ? "CONVERTIDO" : "ATIVO";
       const despesasServico = despesasByServico.get(servicoid) ?? [];
       despesasServico.push({
@@ -624,15 +643,28 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         detalhe: evento.detalhe ? String(evento.detalhe) : null,
         valor: toNum(evento.valor),
         status,
+        // Vínculo direto: a resposta é o `pendente` daquela transação. Boleto em
+        // grupo: é o conjunto das parcelas — todas em aberto é a pagar, todas
+        // baixadas é paga, e o meio do caminho tem nome próprio, senão um boleto
+        // de 5x com 4 pagas apareceria igual a um sem nenhuma.
         situacao:
           status === "ATIVO"
             ? "PREVISTA"
-            : transacao?.pendente === true
-              ? "A_PAGAR"
-              : transacao?.pendente === false
-                ? "PAGA"
-                : "LANCADA",
+            : parcelas.length > 0
+              ? parcelasPagas === 0
+                ? "A_PAGAR"
+                : parcelasPagas === parcelas.length
+                  ? "PAGA"
+                  : "PARCIAL"
+              : transacao?.pendente === true
+                ? "A_PAGAR"
+                : transacao?.pendente === false
+                  ? "PAGA"
+                  : "LANCADA",
         transacaoid,
+        lancamentoid,
+        parcelas: parcelas.length,
+        parcelasPagas,
       });
       despesasByServico.set(servicoid, despesasServico);
     }

@@ -4,6 +4,7 @@ import { atualizarRegistroNFSe } from "@/lib/services/fiscais/nfse-registro";
 import {
   NFSeService,
   NFSeValidationError,
+  descricaoComplementarDoItem,
   identificarModeloEmissao as resolverModeloEmissao,
   normalizarStatusNFSe,
   validarDadosObrigatoriosNFSe,
@@ -27,6 +28,8 @@ type ItemServicoBanco = {
   servicoid: number;
   quantidade: number | string | null;
   precounitario: number | string | null;
+  /** Texto livre da linha da OS, que entra na discriminação abaixo do item. */
+  descricao?: string | null;
   servico?: {
     descricao?: string | null;
   } | null;
@@ -97,6 +100,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         servicoid: Number(item.servicoid),
         quantidade: Number(item.quantidade),
         valor: requisitado.valor,
+        descricaoItem: item.descricao,
         servico: item.servico,
       });
     }
@@ -182,9 +186,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
 
     const valorTotal = Math.round(itensSelecionados.reduce((total, item) => total + item.valor, 0) * 100) / 100;
+    // O snapshot guarda as duas: o nome do cadastro e o texto da linha da OS,
+    // que é o que a discriminação levou de fato.
     const snapshotItens = itensSelecionados.map((item) => ({
       servicoid: item.servicoid,
       descricao: String(item.servico?.descricao ?? "").trim(),
+      descricaoItem: descricaoComplementarDoItem(item.descricaoItem, item.servico?.descricao),
       quantidade: item.quantidade,
       valor: item.valor,
     }));

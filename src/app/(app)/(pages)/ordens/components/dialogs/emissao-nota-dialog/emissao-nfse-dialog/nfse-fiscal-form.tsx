@@ -18,9 +18,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { descricaoComplementarDoItem } from "@/lib/services/fiscais/nfse-service";
 import type { BlocoDeObservacao } from "@/lib/fiscal/blocosDeObservacao";
 import type {
   CodigosFiscaisForm,
+  DescontoOrigemNfse,
   ModeloEmissao,
   ServicoOS,
   ValoresServicosForm,
@@ -50,6 +52,7 @@ export function NfseFiscalForm({
   codigos,
   validationError,
   loading,
+  descontoOrigem,
   herdouObservacoesDaOs,
   blocosDoTextoLivre = [],
   onAdicionarBloco,
@@ -65,6 +68,8 @@ export function NfseFiscalForm({
   codigos: CodigosFiscaisForm;
   validationError?: string | null;
   loading: boolean;
+  /** Como o desconto da OS foi dividido entre a NF-e e esta NFS-e. */
+  descontoOrigem?: DescontoOrigemNfse | null;
   /** Texto livre veio das observações fiscais da OS, e não foi digitado aqui. */
   herdouObservacoesDaOs?: boolean;
   /** Blocos que os botões acrescentam ao texto livre. */
@@ -150,13 +155,58 @@ export function NfseFiscalForm({
               </AlertDescription>
             </Alert>
 
+            {/* A NF-e de produto mostra a mesma divisão, com a linha "Serviços:
+                - R$ X na NFS-e". Sem este painel, aquele número não reaparecia em
+                lugar nenhum e quem emitia não sabia quanto do desconto era daqui. */}
+            {descontoOrigem && descontoOrigem.servicos > 0 ? (
+              <div className="min-w-0 space-y-1.5 border border-dashed p-2.5">
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  A OS deu <b className="text-foreground">{BRL_FORMATTER.format(descontoOrigem.total)}</b>{" "}
+                  de desconto sobre {BRL_FORMATTER.format(descontoOrigem.baseProdutos + descontoOrigem.baseServicos)}{" "}
+                  em produtos e serviços. O desconto é rateado proporcionalmente, e esta NFS-e fica
+                  com a parte dos serviços:
+                </p>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+                  <span>
+                    Produtos ({BRL_FORMATTER.format(descontoOrigem.baseProdutos)}):{" "}
+                    <b className="text-foreground">- {BRL_FORMATTER.format(descontoOrigem.produtos)}</b> na NF-e
+                  </span>
+                  <span>
+                    Serviços ({BRL_FORMATTER.format(descontoOrigem.baseServicos)}):{" "}
+                    <b className="text-foreground">- {BRL_FORMATTER.format(descontoOrigem.servicos)}</b> nesta NFS-e
+                  </span>
+                </div>
+                <p className="text-[11px] leading-relaxed text-amber-600 dark:text-amber-400">
+                  Os valores abaixo abrem pelo preço de tabela: este desconto <b>não</b> foi abatido.
+                  Para emitir pelo líquido, digite o valor sugerido em cada serviço.
+                </p>
+              </div>
+            ) : null}
+
             <div className="space-y-3">
-              {servicos.map((servico, index) => (
+              {servicos.map((servico, index) => {
+                // A mesma linha que a discriminação leva abaixo do item.
+                const descricaoDoItem = descricaoComplementarDoItem(servico.descricao, servico.servico?.descricao);
+                const descontoDoServico = Number(
+                  (Math.max(0, Number(servico.descontoItem ?? 0))
+                    + Math.max(0, Number(servico.descontoRateado ?? 0))).toFixed(2),
+                );
+                return (
                 <div key={servico.servicoid} className="grid gap-3 border bg-muted/20 p-3 sm:grid-cols-[1fr_180px] sm:items-end">
                   <div className="min-w-0">
                     <p className="text-xs font-medium text-muted-foreground">Item {index + 1} · Serviço #{servico.servicoid}</p>
                     <p className="mt-1 truncate text-sm font-semibold">{servico.servico?.descricao || "Descrição não cadastrada"}</p>
+                    {descricaoDoItem && (
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{descricaoDoItem}</p>
+                    )}
                     <p className="mt-1 text-xs text-muted-foreground">Quantidade registrada: {Number(servico.quantidade)}</p>
+                    {descontoDoServico > 0 && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Desconto da OS: <b className="text-foreground">- {BRL_FORMATTER.format(descontoDoServico)}</b>
+                        {" · valor líquido "}
+                        <b className="text-foreground">{BRL_FORMATTER.format(Number(servico.valorLiquidoSugerido ?? 0))}</b>
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor={`nfse-valor-${servico.servicoid}`}>Valor na NFS-e <RequiredMark /></Label>
@@ -172,7 +222,8 @@ export function NfseFiscalForm({
                     />
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="flex items-center justify-between border-t pt-4">

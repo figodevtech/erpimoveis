@@ -2,6 +2,7 @@
 
 import { ReactNode, useCallback, useState } from "react";
 
+import type { ContextoLancamentoDeEventos } from "@/app/(app)/(pages)/(financeiro)/components/lancamento-de-eventos";
 import type { ContextoPagamentoMultiplo } from "@/app/(app)/(pages)/(financeiro)/components/pagamento-multiplo";
 import {
   categoriaDoPagamentoMultiplo,
@@ -44,6 +45,13 @@ interface TransactionDialogProps {
    * formulário — só o alvo do envio muda.
    */
   pagamentoMultiplo?: ContextoPagamentoMultiplo;
+  /**
+   * Quando presente, o diálogo deixa de criar uma transação avulsa e passa a
+   * registrar um lançamento de despesas de serviço da OS — o boleto do
+   * terceirizado, que pode cobrir várias despesas e ser parcelado. Mesmo
+   * formulário, outro alvo.
+   */
+  lancamentoDeEventos?: ContextoLancamentoDeEventos;
 }
 
 type SementeProps = Pick<
@@ -130,6 +138,7 @@ export default function TransactionDialog({
   lockValue = false,
   editable = false,
   pagamentoMultiplo,
+  lancamentoDeEventos,
   maximumAmount,
 }: TransactionDialogProps) {
   const semente: SementeProps = {
@@ -226,6 +235,7 @@ export default function TransactionDialog({
       internalCompanyExpense={internalCompanyExpense}
       lockValue={lockValue}
       pagamentoMultiplo={pagamentoMultiplo}
+      lancamentoDeEventos={lancamentoDeEventos}
       maximumAmount={maximumAmount}
     />
   );

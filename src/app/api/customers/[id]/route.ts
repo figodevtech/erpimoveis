@@ -16,6 +16,10 @@ const CLIENTE_FIELDS = `
   createdat, updatedat, endereconumero, enderecocomplemento, status, rank, foto_url
 `;
 
+const TELEFONE_FIELDS = `
+  id, telefone, contato, observacao
+`;
+
 const VEICULO_FIELDS = `
   id, clienteid, placa, placa_formatada, modelo, marca, ano, cor, kmatual, tipo, createdat, updatedat
 `;
@@ -139,6 +143,7 @@ export async function GET(_: Request, ctx: Params) {
       .select(
         `
         ${CLIENTE_FIELDS},
+        telefones:cliente_telefone ( ${TELEFONE_FIELDS} ),
         veiculos:veiculo ( ${VEICULO_FIELDS} ),
         ordens: ordemservico ( ${ORDEM_FIELDS} )
         `
@@ -158,6 +163,8 @@ export async function GET(_: Request, ctx: Params) {
 
     const resposta = {
       ...data,
+      // O principal continua em `telefone`; aqui vêm só os contatos extras.
+      telefones: [...((data as any).telefones ?? [])].sort((a: any, b: any) => a.id - b.id),
       ordens: (data.ordens ?? []).map((ordem: any) => ({
         ...ordem,
         migracaoReferencia: ordem.migracao_referencia ?? null,

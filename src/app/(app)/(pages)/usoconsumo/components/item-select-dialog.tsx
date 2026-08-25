@@ -12,6 +12,7 @@ import { toast } from "@/lib/toast";
 export type UsoConsumoItemOption = {
   id: number;
   titulo: string;
+  descricao?: string | null;
   referencia?: string | null;
   fabricante?: string | null;
   codigobarras?: string | null;
@@ -19,6 +20,30 @@ export type UsoConsumoItemOption = {
   estoque?: number;
   precocompra?: number;
   ultimovalordecompra?: number | null;
+  /**
+   * Bloco fiscal do cadastro. Opcional porque nem todo consumidor do dialog
+   * precisa dele; a NF-e avulsa usa para montar o item da nota sem redigitação.
+   * Note que `cfop_entrada` não vem: é CFOP de entrada e não serve para saída.
+   */
+  ncm?: string | null;
+  cest?: string | null;
+  origem_mercadoria?: string | null;
+  csosn?: string | null;
+  cst?: string | null;
+  aliquotaicms?: number | null;
+  cst_pis?: string | null;
+  aliquota_pis?: number | null;
+  modo_pis?: string | null;
+  aliquota_por_unidade_pis?: number | null;
+  cst_cofins?: string | null;
+  aliquota_cofins?: number | null;
+  modo_cofins?: string | null;
+  aliquota_por_unidade_cofins?: number | null;
+  cst_ibscbs?: string | null;
+  cclass_trib?: string | null;
+  aliquota_ibs_uf?: number | null;
+  aliquota_ibs_municipio?: number | null;
+  aliquota_cbs?: number | null;
 };
 
 type Props = {

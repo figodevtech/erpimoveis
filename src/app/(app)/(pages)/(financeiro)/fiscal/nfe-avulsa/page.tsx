@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import axios, { isAxiosError } from "axios";
+import { useSession } from "next-auth/react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -56,6 +57,11 @@ import { Textarea } from "@/components/ui/textarea";
 import formatarEmReal from "@/utils/formatarEmReal";
 import CustomerSelect from "@/app/(app)/components/customerSelect";
 import ProductSelect from "@/app/(app)/components/productSelect";
+import {
+  ItemSelectDialog,
+  type UsoConsumoItemOption,
+} from "@/app/(app)/(pages)/usoconsumo/components/item-select-dialog";
+import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import type { Customer } from "@/app/(app)/(pages)/clientes/types";
 import type { Produto } from "@/app/(app)/(pages)/estoque/types";
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
@@ -167,6 +173,14 @@ type SetupResponse = {
 
 type DraftItem = {
   produtoId: number | null;
+  /**
+   * De onde o item veio, quando não é um produto de venda. Hoje só
+   * `usoconsumo:{id}`: `nfe_item.produtoid` tem FK para `produto(id)` e não
+   * comporta o id de um item de uso/consumo — os dois estoques são tabelas
+   * separadas e os ids colidem. O rastro fica aqui e é gravado dentro de
+   * `tributacao_snapshot`.
+   */
+  sourceItemId: string | null;
   codigo: string;
   descricao: string;
   ncm: string;
@@ -445,6 +459,7 @@ function getPisCofinsModeOptions(cst: string) {
 
 const emptyItem: DraftItem = {
   produtoId: null,
+  sourceItemId: null,
   codigo: "",
   descricao: "",
   ncm: "",
@@ -785,7 +800,13 @@ function mapServerDraftToPayload(value: any): { draft: DraftPayload; document: N
         ? itens.map((item: any) => ({
             ...emptyItem,
             produtoId: item.produtoid == null ? null : Number(item.produtoid),
-            codigo: stringifyNumber(item.produtoid ?? item.n_item),
+            sourceItemId: item.tributacao_snapshot?.sourceItemId ?? null,
+            // Sem produto, o código do item vive no snapshot: é ele que virou o
+            // cProd do XML, e reabrir o rascunho não pode trocá-lo pelo número
+            // da linha.
+            codigo: stringifyNumber(
+              item.produtoid ?? item.tributacao_snapshot?.codigoProduto ?? item.n_item,
+            ),
             descricao: String(item.descricao ?? ""),
             ncm: String(item.ncm ?? ""),
             cfop: String(item.cfop ?? ""),
@@ -850,6 +871,7 @@ function mapServerDraftToPayload(value: any): { draft: DraftPayload; document: N
 export default function NFeAvulsaPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { data: session } = useSession();
   const draftIdParam = searchParams.get("id");
   const [setup, setSetup] = React.useState<SetupResponse | null>(null);
   const [draft, setDraft] = React.useState<DraftPayload>(initialDraft);
@@ -899,6 +921,13 @@ export default function NFeAvulsaPage() {
   const [dirty, setDirty] = React.useState(false);
   const [openCustomerSelect, setOpenCustomerSelect] = React.useState(false);
   const [openProductSelect, setOpenProductSelect] = React.useState(false);
+  const [openUsoConsumoSelect, setOpenUsoConsumoSelect] = React.useState(false);
+  // A busca de itens de uso/consumo exige a permissão do módulo; sem ela a rota
+  // recusaria e o botão só levaria a um erro. `estoque:visualizar` já a implica.
+  const podeVerUsoConsumo = permissionSetHas(
+    (session?.user as any)?.permissoes,
+    PERMS.USOCONSUMO,
+  );
   const [paymentMethodsOpen, setPaymentMethodsOpen] = React.useState(false);
   const [confirmAuthorizeOpen, setConfirmAuthorizeOpen] = React.useState(false);
   const [buscandoCnpj, setBuscandoCnpj] = React.useState(false);
@@ -1311,6 +1340,81 @@ export default function NFeAvulsaPage() {
       ],
     }));
     toast.success("Produto adicionado à NF-e");
+  }
+
+  function addItemFromUsoConsumo(item: UsoConsumoItemOption) {
+    // Item do estoque de uso/consumo. O bloco tributário do cadastro passa pela
+    // mesma resolução do produto de venda — o que ele deixou em branco recebe o
+    // padrão de saída da empresa —, mas três coisas mudam:
+    //
+    // 1. `produtoId` fica nulo: `nfe_item.produtoid` aponta para `produto(id)` e
+    //    os ids dos dois estoques colidem. A origem vai em `sourceItemId`.
+    // 2. O cadastro só tem `cfop_entrada` (1556/2556), que não serve para saída.
+    //    Por isso ele não é oferecido como fonte: o CFOP sai do padrão da
+    //    empresa, com o mesmo fallback 5102 do produto.
+    // 3. Não existe preço de venda, só custo. O item entra zerado para que o
+    //    valor da nota seja uma decisão de quem emite, não o custo por descuido.
+    const { campos } = resolverPadraoFiscalItem({
+      fontes: [{ origem: "USOCONSUMO", valores: item }],
+      padrao: setup?.padraoFiscalItem ?? null,
+      crt: setup?.crt ?? (Number(crtEmitente) || null),
+    });
+    const texto = (valor: string | number | null | undefined) =>
+      valor == null ? "" : String(valor);
+    const modoPis = campos.modo_pis || inferPisCofinsMode(campos.cst_pis, campos.aliquota_pis);
+    const modoCofins =
+      campos.modo_cofins || inferPisCofinsMode(campos.cst_cofins, campos.aliquota_cofins);
+
+    updateDraft((current) => ({
+      ...current,
+      itens: [
+        ...current.itens,
+        {
+          ...emptyItem,
+          produtoId: null,
+          sourceItemId: `usoconsumo:${item.id}`,
+          // Vira o cProd do XML. Referência em branco cairia no número da linha
+          // lá no serviço, e aí a nota não diria mais de qual item ela saiu.
+          codigo:
+            String(item.referencia ?? "").trim() ||
+            String(item.codigobarras ?? "").trim() ||
+            `UC-${item.id}`,
+          descricao: item.titulo || item.descricao || `UC-${item.id}`,
+          ncm: onlyDigits(item.ncm ?? ""),
+          cfop: normalizeCfopForOperation(
+            campos.cfop || "5102",
+            current.operacao.tipoOperacao,
+            setup?.empresa?.uf,
+            current.destinatario.estado,
+          ),
+          unidade: item.unidade || "UN",
+          orig: texto(campos.origem_mercadoria),
+          csosn: texto(campos.csosn),
+          cst: texto(campos.cst),
+          aliquotaIcms: texto(campos.aliquotaicms),
+          cstPis: texto(campos.cst_pis),
+          aliquotaPis: texto(campos.aliquota_pis),
+          modoPis,
+          quantidadePis: modoPis === "QUANTIDADE" ? "1" : "",
+          aliquotaPorUnidadePis: texto(campos.aliquota_por_unidade_pis),
+          cstCofins: texto(campos.cst_cofins),
+          aliquotaCofins: texto(campos.aliquota_cofins),
+          modoCofins,
+          quantidadeCofins: modoCofins === "QUANTIDADE" ? "1" : "",
+          aliquotaPorUnidadeCofins: texto(campos.aliquota_por_unidade_cofins),
+          cest: item.cest || "",
+          rtcHabilitado: campos.rtc_habilitado,
+          cstIbsCbs: texto(campos.cst_ibscbs),
+          cClassTrib: texto(campos.cclass_trib),
+          aliquotaIbsUf: texto(campos.aliquota_ibs_uf),
+          aliquotaIbsMunicipio: texto(campos.aliquota_ibs_municipio),
+          aliquotaCbs: texto(campos.aliquota_cbs),
+        },
+      ],
+    }));
+    toast.success("Item de uso/consumo adicionado à NF-e", {
+      description: "Informe o valor unitário: o cadastro de uso/consumo não tem preço de venda.",
+    });
   }
 
   function removeItem(index: number) {
@@ -2352,6 +2456,18 @@ export default function NFeAvulsaPage() {
                       Produto cadastrado
                     </Button>
                   </ProductSelect>
+                  {podeVerUsoConsumo ? (
+                    <ItemSelectDialog
+                      open={openUsoConsumoSelect}
+                      setOpen={setOpenUsoConsumoSelect}
+                      onSelect={addItemFromUsoConsumo}
+                    >
+                      <Button type="button" variant="secondary">
+                        <Plus className="h-4 w-4" />
+                        Item de uso/consumo
+                      </Button>
+                    </ItemSelectDialog>
+                  ) : null}
                   <Button type="button" variant="outline" onClick={addItemAvulso}>
                     <Plus className="h-4 w-4" />
                     Produto avulso
@@ -2401,7 +2517,14 @@ export default function NFeAvulsaPage() {
                     <Card key={index} className="border-dashed">
                       <CardContent className="grid gap-3 pt-4 md:grid-cols-12">
                         <div className="md:col-span-5">
-                          <Label className="inline-flex items-center gap-1">Descrição <RequiredMark /></Label>
+                          <Label className="inline-flex items-center gap-1">
+                            Descrição <RequiredMark />
+                            {/* Item de uso/consumo entra sem produtoId e com valor
+                                zerado — sem o rótulo ele fica igual a um avulso. */}
+                            {item.sourceItemId?.startsWith("usoconsumo:") ? (
+                              <Badge variant="secondary" className="ml-1 font-normal">Uso/consumo</Badge>
+                            ) : null}
+                          </Label>
                           <Input value={item.descricao} onChange={(event) => updateItem(index, { descricao: event.target.value })} />
                         </div>
                         <div className="md:col-span-2">
