@@ -16,22 +16,17 @@ import {
 import { OrdensTabela } from "./ordens-tabela";
 import { Button } from "@/components/ui/button";
 import { useRealtimeTabelas } from "@/hooks/use-realtime-tabelas";
+import { STATUS_OS_VALIDOS, type StatusOSValido } from "@/lib/ordens/destaque";
 
 /** Módulo, não literal: um array novo a cada render reiniciaria a inscrição. */
 const TABELAS_REALTIME = ["ordemservico"];
 
-/** Status que existem no banco */
-export type StatusOS =
-  | "AGUARDANDO_CHECKLIST"
-  | "ORCAMENTO"
-  | "ORCAMENTO_RECUSADO"
-  | "APROVACAO_ORCAMENTO"
-  | "ORCAMENTO_APROVADO"
-  | "EM_ANDAMENTO"
-  | "PAGAMENTO"
-  | "SEM_COBRANCA"
-  | "CONCLUIDO"
-  | "CANCELADO";
+/**
+ * Status que existem no banco. A lista mora em @/lib/ordens/destaque porque a
+ * API de config tambem precisa dela para validar os destaques por status, e uma
+ * route nao pode importar deste arquivo, que e "use client".
+ */
+export type StatusOS = StatusOSValido;
 
 /** Chaves das abas da UI */
 type TabKey =
@@ -43,18 +38,7 @@ type TabKey =
   | "FINALIZADAS";
 
 /** Lista completa (sem duplicar e sem faltar) */
-const ALL_STATUSES: StatusOS[] = [
-  "AGUARDANDO_CHECKLIST",
-  "ORCAMENTO",
-  "ORCAMENTO_RECUSADO",
-  "APROVACAO_ORCAMENTO",
-  "ORCAMENTO_APROVADO",
-  "EM_ANDAMENTO",
-  "PAGAMENTO",
-  "SEM_COBRANCA",
-  "CONCLUIDO",
-  "CANCELADO",
-];
+const ALL_STATUSES: StatusOS[] = [...STATUS_OS_VALIDOS];
 
 /** Default com zeros (pra nÃ£o depender do backend mandar chave com 0) */
 type OrdemStats = Record<StatusOS, number>;

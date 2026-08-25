@@ -1,8 +1,9 @@
 // app/api/entradas/nf/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { XMLParser } from "fast-xml-parser";
 import { PERMS, requireAny } from "@/app/api/_authz/perms";
 import { extrairCobranca } from "@/lib/nfe/duplicatas";
+import { lerNFeDoXml, lerItensDaNota, lerTotaisDaNota } from "@/lib/nfe/totais-nfe";
+import { componentesDoItem, componentesNaoAlocados } from "@/lib/nfe/valor-fiscal-entrada";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -96,40 +97,43 @@ export async function POST(req: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const xml = Buffer.from(arrayBuffer).toString("utf-8");
 
-    // Converte XML → JS Object
-    const parser = new XMLParser({
-      ignoreAttributes: false,
-      attributeNamePrefix: "@_",
-    });
+    // Converte XML → JS Object e acha o infNFe (nfeProc, NFe avulso ou recorte).
+    const { documento, infNFe: raizNFe } = lerNFeDoXml(xml);
+    const json = documento as any;
 
-    const json = parser.parse(xml);
-
-    // A NF-e geralmente vem como NFe ou nfeProc
-    // Estruturas mais comuns:
-    // - json.nfeProc.NFe.infNFe
-    // - json.NFe.infNFe
-    let infNFe: any;
-
-    if (json.nfeProc?.NFe?.infNFe) {
-      infNFe = json.nfeProc.NFe.infNFe;
-    } else if (json.NFe?.infNFe) {
-      infNFe = json.NFe.infNFe;
-    } else {
+    if (!raizNFe) {
       return NextResponse.json(
         { error: "Estrutura de NF-e não reconhecida" },
         { status: 400 }
       );
     }
 
+    const infNFe = raizNFe as any;
+
     // Agora extraímos as principais variáveis/“campos”
     const ide = infNFe.ide || {};
     const emit = infNFe.emit || {};
     const dest = infNFe.dest || {};
-    const total = infNFe.total?.ICMSTot || {};
-    const items = Array.isArray(infNFe.det) ? infNFe.det : [infNFe.det];
     // A cobrança é o parcelamento que o fornecedor já emitiu. Sem ela, a tela de
     // entrada pedia para digitar de novo o que estava no XML.
     const cobranca = extrairCobranca(infNFe);
+    /*
+     * A leitura fiscal: o que compõe o `vNF` e o que é só informativo.
+     *
+     * `vNF` continua sendo o valor da nota — a composição serve para saber de
+     * quais acréscimos ele é feito e para acusar divergência, nunca para
+     * substituir o número que o emitente declarou.
+     */
+    const composicao = lerTotaisDaNota(infNFe);
+    const itensFiscais = lerItensDaNota(infNFe);
+    /*
+     * Os componentes fiscais viajam com o item, já classificados.
+     *
+     * A tela precisa saber que o ICMS-Só do item 2 compõe o `vNF` e a qual item
+     * pertence. Recalcular isso do outro lado, com uma segunda lista de campos,
+     * era como as duas metades do sistema divergiam.
+     */
+    const naoAlocados = componentesNaoAlocados(composicao);
 
     const result = {
       // Chave de acesso
@@ -177,46 +181,60 @@ export async function POST(req: NextRequest) {
         },
       },
 
-      // Totais
+      // Totais. As seis chaves antigas continuam onde estavam; `composicao` é a
+      // leitura fiscal inteira, com reconciliação contra o `vNF`.
       totais: {
-        valorProdutos: total.vProd || null,
-        valorNota: total.vNF || null,
-        valorFrete: total.vFrete || null,
-        valorDesconto: total.vDesc || null,
-        valorICMS: total.vICMS || null,
-        valorIPI: total.vIPI || null,
+        valorProdutos: composicao.produtos,
+        valorNota: composicao.totalNota,
+        valorFrete: composicao.acrescimos.frete,
+        valorDesconto: composicao.reducoes.desconto,
+        valorICMS: composicao.informativos.icms,
+        valorIPI: composicao.acrescimos.ipi,
+        composicao,
       },
 
       // Cobrança (grupo `cobr`): fatura e duplicatas, quando a nota é a prazo.
       fatura: cobranca.fatura,
       duplicatas: cobranca.duplicatas,
 
-      // Itens da nota
-      itens: items
-        .filter(Boolean)
-        .map((item: any) => {
-          const prod = item.prod || {};
-          const imposto = item.imposto || {};
+      // Itens da nota. Os valores por item existem para conferir a composição e
+      // para o custo da linha — nunca para somar de novo o que já veio no total.
+      itens: itensFiscais.map((item) => ({
+        numeroItem: item.numeroItem,
+        codigo: item.codigo,
+        ean: item.ean,
+        descricao: item.descricao,
+        ncm: item.ncm,
+        cest: item.cest,
+        cfop: item.cfop,
+        unidade: item.unidade,
+        quantidade: item.quantidade,
+        valorUnitario: item.valorUnitario,
+        valorTotal: item.valorProdutos,
+        compoeTotal: item.compoeTotal,
+        valorDesconto: item.valorDesconto,
+        valorFrete: item.valorFrete,
+        valorSeguro: item.valorSeguro,
+        outrasDespesas: item.outrasDespesas,
+        valorIpi: item.valorIpi,
+        valorIpiDevolvido: item.valorIpiDevolvido,
+        valorIcmsST: item.valorIcmsST,
+        valorFcpST: item.valorFcpST,
+        valorIcmsMonoReten: item.valorIcmsMonoReten,
+        valorII: item.valorII,
+        valorIcmsDesonerado: item.valorIcmsDesonerado,
+        deduzIcmsDesonerado: item.deduzIcmsDesonerado,
+        pisST: item.pisST,
+        cofinsST: item.cofinsST,
+        valorTotalTributos: item.informativos.totalTributos,
+        componentesFiscais: componentesDoItem(item, composicao),
+        icms: item.icms,
+      })),
 
-          return {
-            numeroItem: item["@_nItem"] || null,
-            codigo: prod.cProd || null,
-            ean: prod.cEAN || null,
-            descricao: prod.xProd || null,
-            ncm: prod.NCM || null,
-            cfop: prod.CFOP || null,
-            unidade: prod.uCom || null,
-            quantidade: prod.qCom || null,
-            valorUnitario: prod.vUnCom || null,
-            valorTotal: prod.vProd || null,
-            valorDesconto: prod.vDesc || 0,
-            valorFrete: prod.vFrete || 0,
-            valorSeguro: prod.vSeg || 0,
-            outrasDespesas: prod.vOutro || 0,
-            valorIpi: imposto.IPI?.IPITrib?.vIPI || imposto.IPI?.IPINT?.vIPI || 0,
-            icms: imposto.ICMS || null,
-          };
-        }),
+      // Componentes que o total declara e nenhum <det> informou. Continuam
+      // fazendo parte do valor fiscal da nota: são rateados na entrada, não
+      // descartados.
+      componentesNaoAlocados: naoAlocados,
     };
 
     const documentoFiscalRecebidoId = await salvarXmlRecebidoManual(xml, result, json);

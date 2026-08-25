@@ -64,6 +64,8 @@ import { ChecklistEditDialog } from "./dialogs/checklist-edit-dialog";
 import { RegistrarSaidaDialog } from "./dialogs/registrar-saida-dialog";
 import { RealizadoresOSDialog } from "./dialogs/realizadores-os-dialog";
 import { statusClasses, prioClasses, fmtDate, fmtDuration, useNowTick, safeStatus } from "./ordens-utils";
+import { estiloDestaque } from "@/lib/ordens/destaque";
+import { useConfig } from "../../config-context";
 import { RowActions } from "./row-actions";
 import OsFinancialDialog from "../../(financeiro)/pagamentodeordens/components/osFinancialDialog/osFinancialDialog";
 import OsStonePaymentDialog from "../../(financeiro)/pagamentodeordens/components/osStonePaymentDialog/osStonePaymentDialog";
@@ -178,6 +180,10 @@ export function OrdensTabela({
   const [rows, setRows] = useState<OrdemComDatas[]>([]);
   const [destaqueTooltipId, setDestaqueTooltipId] = useState<number | null>(null);
   const [usarPopoverDestaque, setUsarPopoverDestaque] = useState(false);
+
+  // Regras de "destacar OS por status" vindas de Configurações Gerais.
+  const config = useConfig();
+  const regrasDestaque = config?.destaque_os_por_status ?? {};
   const canCreate = permissionSetHas((session?.user as any)?.permissoes, PERMS.ORDENS_CRIAR);
 
   const [page, setPage] = useState(1);
@@ -1226,7 +1232,19 @@ export function OrdensTabela({
                   const dataEntradaFmt = fmtDate((r as any).dataEntrada ?? (r as any).dataentrada);
                   const dataSaidaRaw = (r as any).dataSaida ?? (r as any).datasaida;
                   const isSaidaConcluida = ["PAGAMENTO", "CONCLUIDO", "SEM_COBRANCA"].includes(String(r.status ?? "").toUpperCase());
-                  const isDestaqueAmarelo = r.destaque_cor === "amarelo";
+                  // O destaque manual é a palavra final: quem marcou a OS à mão
+                  // sabe de algo que a regra do status não sabe.
+                  const regraDestaque = regrasDestaque[st];
+                  const destaqueManual = Boolean(r.destacada);
+                  const temDestaque = destaqueManual || Boolean(regraDestaque);
+                  const destaqueTexto = destaqueManual
+                    ? r.destaque_motivo || null
+                    : regraDestaque?.texto ?? null;
+                  // Uma regra só-cor não ganha ícone: um alerta "motivo não
+                  // informado" em toda OS do status seria puro ruído.
+                  const mostrarIconeDestaque = destaqueManual || Boolean(destaqueTexto);
+                  const destaqueTitulo = destaqueManual ? "OS destacada" : "Destaque por status";
+                  const estilo = estiloDestaque(destaqueManual ? r.destaque_cor : regraDestaque?.cor);
 
                   return (
                     <div
@@ -1236,10 +1254,8 @@ export function OrdensTabela({
                         setDetailsOpen(true);
                       }}
                       className={`group relative flex h-full flex-col justify-between rounded-sm border p-4 sm:p-5 transition-colors shadow-sm hover:shadow-md cursor-pointer select-none ${
-                        r.destacada
-                          ? isDestaqueAmarelo
-                            ? "border-l-4 border-l-amber-500 border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/15 dark:bg-amber-950/30"
-                            : "border-l-4 border-l-red-500 border-red-500/50 bg-red-500/10 hover:bg-red-500/15 dark:bg-red-950/30"
+                        temDestaque
+                          ? estilo.card
                           : "bg-card border-slate-300 dark:border-slate-700/80 hover:border-primary/60 dark:hover:border-primary/50"
                       }`}
                     >
@@ -1261,7 +1277,7 @@ export function OrdensTabela({
                             <Badge className={`${statusClasses[st] ?? ""} text-[11px] px-2 py-0.5`}>
                               {st.replaceAll("_", " ")}
                             </Badge>
-                            {r.destacada ? (
+                            {mostrarIconeDestaque ? (
                               usarPopoverDestaque ? (
                                 <Popover
                                   open={destaqueTooltipId === r.id}
@@ -1274,20 +1290,16 @@ export function OrdensTabela({
                                   <PopoverTrigger asChild>
                                     <button
                                       type="button"
-                                      className={`inline-flex size-7 touch-manipulation items-center justify-center rounded-sm outline-none ${
-                                        isDestaqueAmarelo
-                                          ? "text-amber-600 hover:bg-amber-500/10 focus-visible:ring-2 focus-visible:ring-amber-500 dark:text-amber-400"
-                                          : "text-red-600 hover:bg-red-500/10 focus-visible:ring-2 focus-visible:ring-red-500 dark:text-red-400"
-                                      }`}
-                                      aria-label={`OS destacada: ${r.destaque_motivo || "motivo não informado"}`}
+                                      className={`inline-flex size-7 touch-manipulation items-center justify-center rounded-sm outline-none ${estilo.icone}`}
+                                      aria-label={`${destaqueTitulo}: ${destaqueTexto || "motivo não informado"}`}
                                     >
-                                      <AlertTriangle className={`h-4 w-4 ${isDestaqueAmarelo ? "fill-amber-500/15" : "fill-red-500/15"}`} />
+                                      <AlertTriangle className={`h-4 w-4 ${estilo.iconeFill}`} />
                                     </button>
                                   </PopoverTrigger>
                                   <PopoverContent align="end" side="bottom" className="w-64">
-                                    <p className="font-semibold text-xs">OS destacada</p>
+                                    <p className="font-semibold text-xs">{destaqueTitulo}</p>
                                     <p className="mt-1 whitespace-pre-wrap break-words text-xs text-muted-foreground">
-                                      {r.destaque_motivo || "Motivo não informado."}
+                                      {destaqueTexto || "Motivo não informado."}
                                     </p>
                                   </PopoverContent>
                                 </Popover>
@@ -1296,20 +1308,16 @@ export function OrdensTabela({
                                   <TooltipTrigger asChild>
                                     <button
                                       type="button"
-                                      className={`inline-flex size-7 items-center justify-center rounded-md outline-none ${
-                                        isDestaqueAmarelo
-                                          ? "text-amber-600 hover:bg-amber-500/10 focus-visible:ring-2 focus-visible:ring-amber-500 dark:text-amber-400"
-                                          : "text-red-600 hover:bg-red-500/10 focus-visible:ring-2 focus-visible:ring-red-500 dark:text-red-400"
-                                      }`}
-                                      aria-label={`OS destacada: ${r.destaque_motivo || "motivo não informado"}`}
+                                      className={`inline-flex size-7 items-center justify-center rounded-md outline-none ${estilo.icone}`}
+                                      aria-label={`${destaqueTitulo}: ${destaqueTexto || "motivo não informado"}`}
                                     >
-                                      <AlertTriangle className={`h-4 w-4 ${isDestaqueAmarelo ? "fill-amber-500/15" : "fill-red-500/15"}`} />
+                                      <AlertTriangle className={`h-4 w-4 ${estilo.iconeFill}`} />
                                     </button>
                                   </TooltipTrigger>
                                   <TooltipContent className="max-w-xs">
-                                    <p className="font-semibold text-xs">OS destacada</p>
+                                    <p className="font-semibold text-xs">{destaqueTitulo}</p>
                                     <p className="mt-1 whitespace-pre-wrap break-words text-xs">
-                                      {r.destaque_motivo || "Motivo não informado."}
+                                      {destaqueTexto || "Motivo não informado."}
                                     </p>
                                   </TooltipContent>
                                 </Tooltip>
@@ -1546,7 +1554,16 @@ export function OrdensTabela({
 
                     const descFull = r.descricao || "-";
                     const policy = buildPolicy(st);
-                    const isDestaqueAmarelo = r.destaque_cor === "amarelo";
+                    // Mesma precedência da visão de cards: manual sobrepõe a regra.
+                    const regraDestaque = regrasDestaque[st];
+                    const destaqueManual = Boolean(r.destacada);
+                    const temDestaque = destaqueManual || Boolean(regraDestaque);
+                    const destaqueTexto = destaqueManual
+                      ? r.destaque_motivo || null
+                      : regraDestaque?.texto ?? null;
+                    const mostrarIconeDestaque = destaqueManual || Boolean(destaqueTexto);
+                    const destaqueTitulo = destaqueManual ? "OS destacada" : "Destaque por status";
+                    const estilo = estiloDestaque(destaqueManual ? r.destaque_cor : regraDestaque?.cor);
 
                     return (
                       <TableRow
@@ -1555,18 +1572,12 @@ export function OrdensTabela({
                           setDetailsId(r.id);
                           setDetailsOpen(true);
                         }}
-                        className={`cursor-pointer select-none ${
-                          r.destacada
-                            ? isDestaqueAmarelo
-                              ? "border-l-4 border-l-amber-500 bg-amber-500/10 hover:bg-amber-500/15 dark:bg-amber-950/25 dark:hover:bg-amber-950/35"
-                              : "border-l-4 border-l-red-500 bg-red-500/10 hover:bg-red-500/15 dark:bg-red-950/25 dark:hover:bg-red-950/35"
-                            : ""
-                        }`}
+                        className={`cursor-pointer select-none ${temDestaque ? estilo.linha : ""}`}
                       >
                         <TableCell className="font-mono">
                           <div className="flex items-center gap-1.5">
                             <span>{r.id}</span>
-                            {r.destacada ? (
+                            {mostrarIconeDestaque ? (
                               usarPopoverDestaque ? (
                                 <Popover
                                   open={destaqueTooltipId === r.id}
@@ -1579,20 +1590,16 @@ export function OrdensTabela({
                                   <PopoverTrigger asChild>
                                     <button
                                       type="button"
-                                      className={`inline-flex size-7 touch-manipulation items-center justify-center rounded-md outline-none ${
-                                        isDestaqueAmarelo
-                                          ? "text-amber-600 hover:bg-amber-500/10 focus-visible:ring-2 focus-visible:ring-amber-500 dark:text-amber-400"
-                                          : "text-red-600 hover:bg-red-500/10 focus-visible:ring-2 focus-visible:ring-red-500 dark:text-red-400"
-                                      }`}
-                                      aria-label={`OS destacada: ${r.destaque_motivo || "motivo não informado"}`}
+                                      className={`inline-flex size-7 touch-manipulation items-center justify-center rounded-md outline-none ${estilo.icone}`}
+                                      aria-label={`${destaqueTitulo}: ${destaqueTexto || "motivo não informado"}`}
                                     >
-                                      <AlertTriangle className={`h-4 w-4 ${isDestaqueAmarelo ? "fill-amber-500/15" : "fill-red-500/15"}`} />
+                                      <AlertTriangle className={`h-4 w-4 ${estilo.iconeFill}`} />
                                     </button>
                                   </PopoverTrigger>
                                   <PopoverContent align="start" side="bottom" className="w-64">
-                                    <p className="font-semibold">OS destacada</p>
+                                    <p className="font-semibold">{destaqueTitulo}</p>
                                     <p className="mt-1 whitespace-pre-wrap break-words text-sm">
-                                      {r.destaque_motivo || "Motivo não informado."}
+                                      {destaqueTexto || "Motivo não informado."}
                                     </p>
                                   </PopoverContent>
                                 </Popover>
@@ -1601,20 +1608,16 @@ export function OrdensTabela({
                                   <TooltipTrigger asChild>
                                     <button
                                       type="button"
-                                      className={`inline-flex size-7 items-center justify-center rounded-md outline-none ${
-                                        isDestaqueAmarelo
-                                          ? "text-amber-600 hover:bg-amber-500/10 focus-visible:ring-2 focus-visible:ring-amber-500 dark:text-amber-400"
-                                          : "text-red-600 hover:bg-red-500/10 focus-visible:ring-2 focus-visible:ring-red-500 dark:text-red-400"
-                                      }`}
-                                      aria-label={`OS destacada: ${r.destaque_motivo || "motivo não informado"}`}
+                                      className={`inline-flex size-7 items-center justify-center rounded-md outline-none ${estilo.icone}`}
+                                      aria-label={`${destaqueTitulo}: ${destaqueTexto || "motivo não informado"}`}
                                     >
-                                      <AlertTriangle className={`h-4 w-4 ${isDestaqueAmarelo ? "fill-amber-500/15" : "fill-red-500/15"}`} />
+                                      <AlertTriangle className={`h-4 w-4 ${estilo.iconeFill}`} />
                                     </button>
                                   </TooltipTrigger>
                                   <TooltipContent className="max-w-xs">
-                                    <p className="font-semibold">OS destacada</p>
+                                    <p className="font-semibold">{destaqueTitulo}</p>
                                     <p className="mt-1 whitespace-pre-wrap break-words">
-                                      {r.destaque_motivo || "Motivo não informado."}
+                                      {destaqueTexto || "Motivo não informado."}
                                     </p>
                                   </TooltipContent>
                                 </Tooltip>

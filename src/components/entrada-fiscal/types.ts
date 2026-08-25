@@ -1,5 +1,6 @@
 import type { NF } from "@/app/(app)/(pages)/estoque/components/dialog-entrada/types";
 import type { UsoConsumoItemOption } from "@/app/(app)/(pages)/usoconsumo/components/item-select-dialog";
+import { paraCentavos, paraReais } from "@/lib/financeiro/rateio";
 
 /** Para onde o item da NF-e vai. A escolha é obrigatória por item. */
 export type DestinoEntrada = "ESTOQUE" | "USOCONSUMO";
@@ -24,14 +25,25 @@ export type NotaFiscalParseada = Omit<NF, "itens"> & { itens: LinhaFiscal[] };
 
 export type Parcela = { id: number; dataVencimento?: string; valor: number };
 
+/**
+ * Custo de entrada da linha: o que veio NA linha, e só.
+ *
+ * ICMS-ST, imposto de importação e IPI devolvido são lidos do XML mas ficam de
+ * fora daqui de propósito — como o frete que o emitente não repartiu, são dívida
+ * com o fornecedor, não preço de mercadoria. Aparecem na linha de acréscimos da
+ * nota e entram no que se paga, nunca no custo do produto.
+ *
+ * Em centavos porque em float `0.1 + 0.2 !== 0.3` e um centavo de diferença
+ * derruba a conferência das parcelas.
+ */
 export function totalDaLinha(item: LinhaFiscal) {
-  return (
-    Number(item.quantidade) * Number(item.valorUnitario)
-    - Number(item.valorDesconto ?? 0)
-    + Number(item.valorFrete ?? 0)
-    + Number(item.valorSeguro ?? 0)
-    + Number(item.outrasDespesas ?? 0)
-    + Number(item.valorIpi ?? 0)
+  return paraReais(
+    paraCentavos(Number(item.quantidade) * Number(item.valorUnitario))
+    - paraCentavos(item.valorDesconto ?? 0)
+    + paraCentavos(item.valorFrete ?? 0)
+    + paraCentavos(item.valorSeguro ?? 0)
+    + paraCentavos(item.outrasDespesas ?? 0)
+    + paraCentavos(item.valorIpi ?? 0),
   );
 }
 

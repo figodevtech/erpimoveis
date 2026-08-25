@@ -36,6 +36,7 @@ const DEFAULT_CONFIG: Config = {
   habilitar_edicao_transacoes: false,
   permitir_produto_avulso_os: false,
   setor_padrao_os_id: null,
+  destaque_os_por_status: {},
   created_at: "",
 };
 

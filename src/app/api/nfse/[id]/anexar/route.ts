@@ -7,7 +7,8 @@ import { auth } from "@/lib/auth";
 import { downloadNfsePdf } from "@/lib/nfse-pdf-download";
 import { syncNfseWithFocus } from "@/lib/services/fiscais/nfse-sync";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { nfseEntregaPdf, nfseMotivoSemPdf } from "@/lib/nfse-modelos";
+import { carregarDadosDanfse } from "@/lib/nfse/danfseDados";
+import { gerarDanfsePdf } from "@/lib/nfse/danfsePdf";
 
 type Params = { id: string };
 
@@ -41,7 +42,9 @@ export async function POST(_req: Request, context: { params: Promise<Params> }) 
 
     const { data: nfse, error } = await supabaseAdmin
       .from("nfse")
-      .select("id, ordemservicoid, numero, referencia, status, url_consulta, url_pdf, modelo_emissao, empresaid, protocolo")
+      // url_xml entra porque a sincronização reescreve a coluna: sem o valor
+      // atual em mãos, uma consulta sem XML apagaria o que já estava gravado.
+      .select("id, ordemservicoid, numero, referencia, status, url_consulta, url_pdf, url_xml, modelo_emissao, empresaid, protocolo")
       .eq("id", nfseId)
       .maybeSingle();
 
@@ -64,13 +67,7 @@ export async function POST(_req: Request, context: { params: Promise<Params> }) 
       );
     }
 
-    if (!nfseEntregaPdf(nfse.modelo_emissao)) {
-      return NextResponse.json(
-        { ok: false, message: nfseMotivoSemPdf(nfse.modelo_emissao) },
-        { status: 409 },
-      );
-    }
-
+    // Traz número, código de verificação e o endereço do PDF publicado.
     const sync = await syncNfseWithFocus(nfse);
     if (sync.ok && !STATUS_AUTORIZADOS.has(String(sync.status ?? "").toUpperCase())) {
       return NextResponse.json(
@@ -79,21 +76,17 @@ export async function POST(_req: Request, context: { params: Promise<Params> }) 
       );
     }
 
-    const url = String((sync.ok ? sync.pdfUrl : nfse.url_pdf) ?? "").trim();
-    if (!url) {
-      return NextResponse.json(
-        {
-          ok: false,
-          message: sync.ok
-            ? "A Focus autorizou a NFS-e, mas o PDF ainda está sendo preparado. Tente novamente em alguns instantes."
-            : sync.message,
-        },
-        { status: 409 },
-      );
-    }
-
+    const urlPdfOficial = String((sync.ok ? sync.pdfUrl : nfse.url_pdf) ?? "").trim();
     const osId = Number(nfse.ordemservicoid);
-    const nomeArquivo = `nfse-${String(nfse.numero || nfse.referencia || nfse.id)}.pdf`;
+    // Relido depois da sincronização: é nela que o número da prefeitura chega,
+    // e o nome do arquivo é o que evita anexar a mesma nota duas vezes.
+    const { data: atualizado } = await supabaseAdmin
+      .from("nfse")
+      .select("numero")
+      .eq("id", nfseId)
+      .maybeSingle();
+    const numeroNota = atualizado?.numero || nfse.numero;
+    const nomeArquivo = `nfse-${String(numeroNota || nfse.referencia || nfse.id)}.pdf`;
 
     const { data: existente, error: erroExistente } = await supabaseAdmin
       .from("osanexo")
@@ -123,19 +116,48 @@ export async function POST(_req: Request, context: { params: Promise<Params> }) 
       );
     }
 
-    const download = await downloadNfsePdf(url);
-    if (!download.ok) {
-      console.warn("[NFS-e anexo] PDF indisponível", {
-        nfseId: nfse.id,
-        diagnostics: download.diagnostics,
-      });
-      return NextResponse.json({ ok: false, message: download.message }, { status: 502 });
+    /**
+     * O documento da prefeitura é sempre a primeira escolha, e quem decide se
+     * ele existe é o `url_pdf` da nota — não o município. Foi essa suposição por
+     * modelo que escondia o anexo em Cabedelo, que publica DANFSe normalmente.
+     *
+     * O DANFSe montado aqui é a rede de segurança para os dois casos em que não
+     * vem PDF: nota cujo `url_pdf` guarda o espelho de consulta (registros
+     * gravados antes de a sincronização separar os dois campos) e prefeitura que
+     * realmente só publica link. O download já distingue um do outro pela
+     * assinatura `%PDF-`.
+     */
+    let arquivo: Buffer | null = null;
+    let motivoDoFallback: string | null = null;
+
+    if (urlPdfOficial) {
+      const download = await downloadNfsePdf(urlPdfOficial);
+      if (download.ok) {
+        arquivo = download.buffer;
+      } else {
+        motivoDoFallback = download.message;
+        console.warn("[NFS-e anexo] PDF da prefeitura indisponível, gerando DANFSe", {
+          nfseId: nfse.id,
+          diagnostics: download.diagnostics,
+        });
+      }
+    } else {
+      motivoDoFallback = "A prefeitura não publicou o PDF desta NFS-e.";
+    }
+
+    const documento = arquivo ? "OFICIAL" : "GERADO";
+    if (!arquivo) {
+      const dados = await carregarDadosDanfse(nfseId);
+      if (!dados) {
+        return NextResponse.json({ ok: false, message: "NFS-e não encontrada." }, { status: 404 });
+      }
+      arquivo = Buffer.from(await gerarDanfsePdf(dados));
     }
 
     const path = `os/${osId}/anexos/${randomUUID()}.pdf`;
     await ensureBucket();
 
-    const { error: erroUpload } = await supabaseAdmin.storage.from(BUCKET).upload(path, download.buffer, {
+    const { error: erroUpload } = await supabaseAdmin.storage.from(BUCKET).upload(path, arquivo, {
       contentType: "application/pdf",
       upsert: false,
     });
@@ -159,10 +181,12 @@ export async function POST(_req: Request, context: { params: Promise<Params> }) 
         ordemservicoid: osId,
         nome: nomeArquivo,
         tipo: "application/pdf",
-        tamanho: download.buffer.length,
+        tamanho: arquivo.length,
         url: urlPublica,
         path,
-        descricao: `NFS-e ${nfse.numero || nfse.referencia || nfse.id}`,
+        descricao: documento === "OFICIAL"
+          ? `NFS-e ${numeroNota || nfse.referencia || nfse.id}`
+          : `DANFSe da NFS-e ${numeroNota || nfse.referencia || nfse.id}`,
         categoria: "NOTA_FISCAL",
       })
       .select("id, url")
@@ -174,7 +198,16 @@ export async function POST(_req: Request, context: { params: Promise<Params> }) 
     }
 
     return NextResponse.json(
-      { ok: true, jaExistia: false, anexoId: salvo.id, url: salvo.url },
+      {
+        ok: true,
+        jaExistia: false,
+        anexoId: salvo.id,
+        url: salvo.url,
+        // Qual documento foi parar na OS. O operador precisa saber quando levou
+        // o DANFSe do sistema no lugar do papel da prefeitura.
+        documento,
+        motivo: motivoDoFallback,
+      },
       { status: 201 },
     );
   } catch (error: any) {

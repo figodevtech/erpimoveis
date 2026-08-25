@@ -28,7 +28,6 @@ import { CancelarNfeButton } from "./cancelarNfeButton";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ExcluirRascunhoNfeButton } from "./excluirRascunhoNfeButton";
 import { CancelarNotaDialog } from "./cancelar-nota-dialog";
-import { nfseEntregaPdf } from "@/lib/nfse-modelos";
 import { MODELO_NFCE } from "@/lib/nfe/modeloDocumento";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 
@@ -61,7 +60,7 @@ type NfeResumo = {
   url_pdf?: string;
   url_consulta?: string;
   codigo_verificacao?: string;
-  /** Só em NFS-e: define se a prefeitura entrega o PDF ou apenas link de consulta. */
+  /** Só em NFS-e: qual estratégia da Focus emitiu a nota (município ou nacional). */
   modelo_emissao?: string | null;
 };
 
@@ -407,12 +406,13 @@ export function EmissaoNotaDialog({
   };
 
   /**
-   * Baixa o PDF da NFS-e no portal da prefeitura e grava como anexo na OS.
+   * Grava a NFS-e como anexo da OS: o PDF da prefeitura quando ela publica um,
+   * e o DANFSe montado pelo sistema quando não.
    */
   const anexarNfse = async (nfe: NfeResumo) => {
     if (anexandoDanfeId === nfe.id) return;
 
-    const toastId = toast.loading("Baixando NFS-e e anexando na OS...");
+    const toastId = toast.loading("Anexando a NFS-e na OS...");
     setAnexandoDanfeId(nfe.id);
 
     try {
@@ -423,9 +423,19 @@ export function EmissaoNotaDialog({
         throw new Error(json?.message || "Não foi possível anexar a NFS-e.");
       }
 
-      toast.success(json.jaExistia ? "A NFS-e já estava anexada nesta OS." : "NFS-e anexada na OS.", {
-        id: toastId,
-      });
+      if (json.jaExistia) {
+        toast.success("A NFS-e já estava anexada nesta OS.", { id: toastId });
+      } else if (json.documento === "GERADO") {
+        // Levou o documento do sistema: dizer por quê evita a leitura de que o
+        // PDF da prefeitura foi anexado.
+        toast.success("DANFSe anexado na OS.", {
+          id: toastId,
+          description: `${json.motivo ?? "O PDF da prefeitura não estava disponível."} Foi anexado o documento auxiliar gerado pelo sistema, com o código de verificação.`,
+          duration: 8000,
+        });
+      } else {
+        toast.success("NFS-e anexada na OS.", { id: toastId });
+      }
     } catch (error: any) {
       toast.error("Não foi possível anexar a NFS-e.", {
         id: toastId,
@@ -1094,9 +1104,12 @@ export function EmissaoNotaDialog({
                                     </Button>
                                   )}
 
-                                  {/* Modelo sem PDF (Cabedelo, Nacional) não tem o que anexar:
-                                      o botão simplesmente não aparece. */}
-                                  {isAutorizada && nfe.ordemservicoid && nfseEntregaPdf(nfe.modelo_emissao) && (
+                                  {/* Vale para toda NFS-e autorizada: o servidor busca o
+                                      PDF da prefeitura e, se ela não publicar nenhum,
+                                      anexa o DANFSe gerado pelo sistema. Antes o botão
+                                      sumia por município, e Cabedelo ficava de fora
+                                      mesmo publicando o PDF normalmente. */}
+                                  {isAutorizada && nfe.ordemservicoid && (
                                     <Button
                                       variant="outline"
                                       size="sm"
@@ -1105,7 +1118,7 @@ export function EmissaoNotaDialog({
                                       title={
                                         nfe.url_pdf
                                           ? undefined
-                                          : "O sistema consultará a Focus e tentará obter o PDF antes de anexar."
+                                          : "O sistema consultará a Focus e, se não houver PDF publicado, anexará o DANFSe gerado com o código de verificação."
                                       }
                                       onClick={() => void anexarNfse(nfe)}
                                     >

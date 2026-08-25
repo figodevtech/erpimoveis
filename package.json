@@ -14,6 +14,7 @@
     "test:nfe": "tsx --test src/lib/nfe/*.test.ts src/lib/nfe/nfce/*.test.ts",
     "test:financeiro": "tsx --test src/lib/financeiro/*.test.ts src/app/api/transaction/_lib/*.test.ts",
     "test:telegram": "tsx --test src/lib/ordens/telegram-notifications.test.ts src/lib/financeiro/telegram-daily-summary.test.ts src/lib/estoque/telegram-stock-notifications.test.ts",
+    "test:ordens": "tsx --test src/lib/ordens/*.test.ts",
     "localidades:gerar": "node scripts/localidades/gerar-municipios.mjs",
     "db:status": "tsx scripts/db/status.ts",
     "db:validar:os-finalizado": "tsx scripts/db/validar-os-finalizado-em.ts",
