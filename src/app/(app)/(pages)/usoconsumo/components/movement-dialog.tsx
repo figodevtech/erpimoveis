@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
 import type { UsoConsumoItem } from "@/types/usoconsumo";
+import { rotuloDeEscopo, type UsoConsumoEscopo } from "@/lib/usoconsumo/escopo";
 import DialogEntrada from "../../estoque/components/dialog-entrada/dialog-entrada-unica";
 import DialogSaida from "../../estoque/components/dialog-saida/dialog-saida-unica";
 
@@ -18,13 +19,14 @@ type Props = {
   type: "entrada" | "saida" | "inventario" | null;
   onClose: () => void;
   onSaved: () => Promise<void>;
+  escopo?: UsoConsumoEscopo;
 };
 
 function errorText(error: unknown) {
   return isAxiosError(error) ? error.response?.data?.error ?? error.message : "Erro inesperado.";
 }
 
-export function MovementDialog({ item, type, onClose, onSaved }: Props) {
+export function MovementDialog({ item, type, onClose, onSaved, escopo = "USOCONSUMO" }: Props) {
   const [newBalance, setNewBalance] = useState(0);
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
@@ -40,6 +42,7 @@ export function MovementDialog({ item, type, onClose, onSaved }: Props) {
     return (
       <DialogEntrada
         inventory="usoconsumo"
+        escopo={escopo}
         isOpen
         setIsOpen={(open) => { if (!open) onClose(); }}
         productId={item.id}
@@ -54,6 +57,7 @@ export function MovementDialog({ item, type, onClose, onSaved }: Props) {
     return (
       <DialogSaida
         inventory="usoconsumo"
+        escopo={escopo}
         isOpen
         setIsOpen={(open) => { if (!open) onClose(); }}
         productId={item.id}
@@ -85,7 +89,7 @@ export function MovementDialog({ item, type, onClose, onSaved }: Props) {
     <Dialog open={Boolean(item && type === "inventario")} onOpenChange={(open) => !saving && !open && onClose()}>
       <DialogContent className="sm:max-w-[520px]">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><ClipboardCheck className="h-5 w-5" />Ajuste de inventário</DialogTitle>
+          <DialogTitle className="flex items-center gap-2"><ClipboardCheck className="h-5 w-5" />Ajuste de inventário · {rotuloDeEscopo(escopo).nome}</DialogTitle>
           <DialogDescription>{item?.titulo} · saldo atual {item?.estoque} {item?.unidade}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">

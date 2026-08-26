@@ -34,6 +34,7 @@ são isolados fisicamente por instalação e não usam `empresa_id`.
 - histórico paginado por cursor estável (`created_at + id`), 30 itens por página;
 - atualização otimista, conciliação e reenvio manual idempotente;
 - contador global e por conversa de mensagens não lidas;
+- toast interno em tempo real para novas mensagens recebidas, com remetente, setor e prévia;
 - leitura por cursor do participante, registrada somente quando o fim alcançado está visível;
 - eventos privados do Supabase Realtime para invalidar mensagem, conversa e leitura;
 - Supabase Realtime Presence com suporte a múltiplas abas/dispositivos;
@@ -54,14 +55,16 @@ Grupos, anexos, imagens, vídeos, documentos, áudio/voz, reações, respostas c
 encaminhamento, fixação, silenciamento, confirmação de entrega/leitura visual, cards de entidades do
 ERP e uma página exclusiva de chat não existem.
 
-Também não existem push, Notification API do navegador, toasts de nova mensagem, sons, e-mails,
-Telegram ou integração/infraestrutura genérica com um futuro módulo de notificações. A **única
-sinalização global** é o contador de mensagens não lidas no ícone de chat do header.
+Também não existem push, Notification API do navegador, sons, e-mails, Telegram ou
+integração/infraestrutura genérica com um futuro módulo de notificações. As sinalizações globais do
+chat são somente o contador de mensagens não lidas no ícone do header e o toast interno de mensagem
+recebida descrito neste documento.
 
 ### Limitações conhecidas
 
 - `usuario` não possui avatar nem `last_seen_at`; por isso `avatarUrl` e `lastSeenAt` são `null`, e a
-  UI usa iniciais e presença online/offline efêmera.
+  UI, inclusive o toast, usa iniciais e presença online/offline efêmera. Se uma URL pública de avatar
+  passar a integrar o contrato, o toast já está preparado para renderizá-la.
 - falhas otimistas permanecem na memória da aba, mas não são persistidas após recarregar a página;
 - mensagens muito grandes podem fazer o auto-scroll optar por mostrar “Novas mensagens” se o usuário
   já não estiver próximo do final;
@@ -121,6 +124,8 @@ Os eventos não carregam conteúdo de mensagem nem dados administrativos.
   não lidas, paginação ao chegar ao topo e preservação do scroll.
 - [`chat-message-bubble.tsx`](../../src/components/chat/chat-message-bubble.tsx): texto seguro,
   alinhamento, hora e estado `sending/sent/failed`.
+- [`chat-message-toast.tsx`](../../src/components/chat/chat-message-toast.tsx): valida eventos
+  notificáveis, limita a prévia e renderiza/dispara o toast azul de mensagem recebida.
 - [`chat-composer.tsx`](../../src/components/chat/chat-composer.tsx): `Textarea`, limite, Enter para
   enviar, Shift+Enter para linha nova e safe area inferior.
 - [`chat-presence-indicator.tsx`](../../src/components/chat/chat-presence-indicator.tsx): indicador
@@ -131,7 +136,8 @@ Os eventos não carregam conteúdo de mensagem nem dados administrativos.
 ### Estado, hooks e serviços
 
 - [`chat-provider.tsx`](../../src/components/chat/chat-provider.tsx): contexto global do chat,
-  contador independente do painel, conversas, visualização, presença, canais e estado de conexão.
+  contador independente do painel, conversas, visualização, presença, canais, estado de conexão e
+  revalidação autorizada usada pelo toast de mensagem recebida.
 - [`chat-api.ts`](../../src/components/chat/chat-api.ts): cliente `fetch`, erros temporários/definitivos
   e contratos de todas as rotas.
 - [`chat-actions.ts`](../../src/components/chat/chat-actions.ts): sequência testável para
@@ -340,6 +346,45 @@ para Presence no tópico global. O cliente chama `realtime.setAuth(token)` e cri
 Triggers de mensagem e leitura enviam payload mínimo. Ao receber, o frontend reconsulta contador,
 resumo e, quando aplicável, a página recente da conversa. Assim o WebSocket não é fonte de verdade.
 
+## Toast de nova mensagem
+
+**Implementado.** Um evento `chat_changed` produz toast somente quando `kind = message`, possui
+`messageId`/`senderId` e o remetente é diferente do usuário autenticado. O toast também aparece se o
+Sheet ou a conversa estiverem abertos; sua apresentação não altera contadores nem marca leitura.
+Eventos de conversa/leitura e o Broadcast provocado pelo próprio envio são ignorados.
+
+O provider reconsulta, em paralelo, `GET /api/chat/conversations` e a primeira página de
+`GET /api/chat/conversations/:id/messages`. O resumo fornece somente nome, setor e avatar do
+participante; a página localiza a mensagem exata pelo `messageId`. Se qualquer dado não for encontrado
+ou a consulta autorizada falhar, nada é exibido. O ID é removido do controle em caso de falha para
+permitir nova tentativa caso o evento seja repetido.
+
+O componente [`chat-message-toast.tsx`](../../src/components/chat/chat-message-toast.tsx) usa o
+Sonner global montado por
+[`route-aware-toaster.tsx`](../../src/components/route-aware-toaster.tsx), força posição
+`bottom-right`, permanece por 9 segundos e permite fechamento. A superfície é azul, responsiva até
+390 px e exibe avatar ou iniciais, nome, setor (`Sem setor` quando ausente) e até 600 caracteres em no
+máximo seis linhas. React continua escapando o conteúdo; HTML da mensagem nunca é interpretado.
+
+Uma coleção limitada aos 200 IDs mais recentes impede que reconexão/evento duplicado exiba a mesma
+mensagem novamente durante a sessão da conta. Trocar de usuário ou desmontar o provider cancela as
+consultas pendentes, fecha os toasts do chat e limpa essa memória. Não existe som, push, permissão do
+navegador, Notification API nem persistência de notificações.
+
+**Decisão:** manter conteúdo e dados do remetente fora do Broadcast e montar o toast após reconsulta
+HTTP autorizada.
+
+**Motivo:** o tópico Realtime continua funcionando apenas como invalidação mínima, sem transformar o
+WebSocket em uma nova fonte de dados ou ampliar a exposição de conteúdo.
+
+**Alternativas consideradas:** incluir texto/nome/setor diretamente no payload Realtime ou usar
+somente a última mensagem do resumo. A primeira ampliaria dados no canal; a segunda poderia mostrar a
+mensagem errada quando várias chegassem rapidamente.
+
+**Impactos e limitações:** cada mensagem recebida gera até duas leituras HTTP adicionais. O toast
+depende da mensagem ainda estar entre as 30 mais recentes, condição normal no instante do evento. O
+avatar atual é representado por iniciais porque o modelo de usuário ainda não fornece foto.
+
 ### Queda e retorno da conexão
 
 `CHANNEL_ERROR`, `TIMED_OUT` ou `CLOSED` mostra aviso sem apagar cache, mensagens ou falhas otimistas.
@@ -392,7 +437,7 @@ ou mudar de valor e não pulsa continuamente.
 `AnimatePresence` e deslocamento de 12–16 px: avanço entra da direita e retorno à inbox entra da
 esquerda. A duração normal é de 200 ms. O trigger, itens e botões têm somente feedback curto de
 hover/press. O banner de Realtime desconectado entra e sai por opacity/deslocamento e simplesmente
-desaparece na reconexão; não existe toast ou sinalização de sucesso.
+desaparece na reconexão; não existe toast ou sinalização de sucesso da reconexão.
 
 Na timeline, mensagens próprias usam gradiente violeta discreto e mensagens recebidas usam card/muted.
 Divisores de data/não lidas, início do histórico, carregamento anterior, falha/reenvio e o botão
@@ -580,3 +625,6 @@ Toda implementação futura no chat deve:
 - **2026-08-25 — Refinamento visual:** nova identidade visual do painel, inbox, seleção de usuário,
   timeline, composer e mensagens; microinterações e transições com Motion; suporte a
   `prefers-reduced-motion`; sem alterações de banco, APIs, Realtime ou regras funcionais.
+- **2026-08-26 — Toast de mensagem recebida:** toast interno azul no canto inferior direito com
+  remetente, setor, avatar/iniciais e prévia ampla; deduplicação por `messageId` e reconsulta HTTP
+  autorizada, sem conteúdo adicional no Broadcast, som, push ou alteração de leitura.

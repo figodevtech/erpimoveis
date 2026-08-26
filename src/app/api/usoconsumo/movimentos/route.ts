@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUsoConsumoAccess } from "@/app/api/_authz/perms";
 import { entradasComXmlCompleto } from "@/lib/fiscal/xml-disponibilidade";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { usoConsumoError } from "@/lib/usoconsumo/api";
+import { escopoDaBusca, escoposDoCabecalho, usoConsumoError } from "@/lib/usoconsumo/api";
 
 /**
  * Historico de uso e consumo: entradas e saidas na mesma linha do tempo.
@@ -87,6 +87,7 @@ export async function GET(req: NextRequest) {
     let query = supabaseAdmin
       .from("usoconsumo_movimento_financeiro_historico")
       .select("*", { count: "exact" })
+      .in("escopo", escoposDoCabecalho(escopoDaBusca(params)))
       .order("created_at", { ascending: false })
       .order("id", { ascending: false });
 

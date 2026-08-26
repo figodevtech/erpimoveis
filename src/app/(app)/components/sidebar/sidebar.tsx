@@ -25,6 +25,7 @@ import {
   Headset,
   History,
   Handbag,
+  Boxes,
   Lock,
   Car,
   Wrench,
@@ -135,6 +136,12 @@ const data = {
           title: "Uso/Consumo",
           url: "/estoque/uso-consumo",
           icon: Handbag,
+          perm: PERMS.USOCONSUMO,
+        },
+        {
+          title: "Geral/Avulso",
+          url: "/estoque/geral",
+          icon: Boxes,
           perm: PERMS.USOCONSUMO,
         },
         {

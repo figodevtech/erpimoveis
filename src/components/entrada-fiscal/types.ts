@@ -1,14 +1,29 @@
 import type { NF } from "@/app/(app)/(pages)/estoque/components/dialog-entrada/types";
 import type { UsoConsumoItemOption } from "@/app/(app)/(pages)/usoconsumo/components/item-select-dialog";
 import { paraCentavos, paraReais } from "@/lib/financeiro/rateio";
+import { rotuloDeEscopo, type UsoConsumoEscopo } from "@/lib/usoconsumo/escopo";
 
-/** Para onde o item da NF-e vai. A escolha é obrigatória por item. */
-export type DestinoEntrada = "ESTOQUE" | "USOCONSUMO";
+/**
+ * Para onde o item da NF-e vai. A escolha e obrigatoria por item, e os TRES
+ * estoques estao sempre disponiveis: uma nota de fornecedor mistura o que quiser.
+ *
+ * Aqui o destino e o ESTOQUE, nao a tabela. Os dois estoques simples dividem
+ * `usoconsumo_item`, entao as linhas deles vao para a mesma entrada — que nasce
+ * com escopo MISTO quando ha os dois. Ver a migracao
+ * 20260827120000_entrada_fiscal_tres_destinos.sql para o porque de ser uma so.
+ */
+export type DestinoEntrada = "ESTOQUE" | UsoConsumoEscopo;
 
 export const DESTINO_LABEL: Record<DestinoEntrada, string> = {
   ESTOQUE: "Estoque de revenda",
-  USOCONSUMO: "Uso e consumo",
+  USOCONSUMO: rotuloDeEscopo("USOCONSUMO").nome,
+  GERAL: rotuloDeEscopo("GERAL").nome,
 };
+
+/** Os destinos que vao para `usoconsumo_item`, ou seja: tudo menos revenda. */
+export function ehEstoqueSimples(destino: DestinoEntrada | undefined): destino is UsoConsumoEscopo {
+  return destino === "USOCONSUMO" || destino === "GERAL";
+}
 
 /**
  * Linha da NF-e no fluxo compartilhado. Cada linha carrega o destino escolhido e o

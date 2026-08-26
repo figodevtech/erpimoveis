@@ -6,7 +6,12 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 
 import type { ChatRealtimeEvent, ConversationSummary } from "@/lib/chat/contracts";
 import { supabaseBrowser } from "@/lib/supabase-browser";
-import { fetchConversations, fetchRealtimeToken, fetchUnreadCount } from "./chat-api";
+import { fetchConversations, fetchMessages, fetchRealtimeToken, fetchUnreadCount } from "./chat-api";
+import {
+  dismissIncomingChatMessageToast,
+  isIncomingMessageNotification,
+  showIncomingChatMessageToast,
+} from "./chat-message-toast";
 import { applyConversationReadCounts } from "./chat-utils";
 
 export type ChatView =
@@ -61,10 +66,19 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const sequenceRef = React.useRef(0);
   const conversationsLoadedRef = React.useRef(false);
   const openRef = React.useRef(false);
+  const notifiedMessageIdsRef = React.useRef(new Set<string>());
 
   React.useEffect(() => {
     openRef.current = open;
   }, [open]);
+
+  React.useEffect(() => {
+    const notifiedIds = notifiedMessageIdsRef.current;
+    return () => {
+      notifiedIds.forEach(dismissIncomingChatMessageToast);
+      notifiedIds.clear();
+    };
+  }, [currentUserId]);
 
   const refreshUnread = React.useCallback(async () => {
     if (!currentUserId) return;
@@ -94,6 +108,36 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     void refreshUnread().catch(() => undefined);
     if (openRef.current) void refreshConversations();
   }, [refreshConversations, refreshUnread]);
+
+  const notifyIncomingMessage = React.useCallback(async (
+    event: ChatRealtimeEvent,
+    signal?: AbortSignal,
+  ) => {
+    if (!isIncomingMessageNotification(event, currentUserId) || !event.messageId) return;
+
+    const notifiedIds = notifiedMessageIdsRef.current;
+    if (notifiedIds.has(event.messageId)) return;
+    notifiedIds.add(event.messageId);
+    if (notifiedIds.size > 200) {
+      const oldestId = notifiedIds.values().next().value;
+      if (oldestId) notifiedIds.delete(oldestId);
+    }
+
+    try {
+      const [conversationResult, messagePage] = await Promise.all([
+        fetchConversations(signal),
+        fetchMessages(event.conversationId, null, signal),
+      ]);
+      const conversation = conversationResult.conversations.find(
+        (item) => item.id === event.conversationId,
+      );
+      const message = messagePage.messages.find((item) => item.id === event.messageId);
+      if (!conversation || !message || message.senderId !== event.senderId) return;
+      showIncomingChatMessageToast(conversation, message);
+    } catch {
+      notifiedIds.delete(event.messageId);
+    }
+  }, [currentUserId]);
 
   React.useEffect(() => {
     if (sessionStatus !== "authenticated" || !currentUserId) return;
@@ -126,6 +170,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     let userChannel: RealtimeChannel | null = null;
     let presenceChannel: RealtimeChannel | null = null;
     let refreshTimer: number | null = null;
+    const notificationController = new AbortController();
 
     const updatePresence = () => {
       if (!presenceChannel || disposed) return;
@@ -165,6 +210,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             if (!event?.conversationId || !event?.kind) return;
             sequenceRef.current += 1;
             setLastRealtimeEvent({ sequence: sequenceRef.current, event });
+            void notifyIncomingMessage(event, notificationController.signal);
             void refreshUnread().catch(() => undefined);
             if (openRef.current) void refreshConversations();
           })
@@ -194,13 +240,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       disposed = true;
+      notificationController.abort();
       if (refreshTimer) window.clearTimeout(refreshTimer);
       setOnlineIds(new Set());
       if (presenceChannel) void presenceChannel.untrack().catch(() => undefined);
       if (userChannel) void supabaseBrowser.removeChannel(userChannel);
       if (presenceChannel) void supabaseBrowser.removeChannel(presenceChannel);
     };
-  }, [currentUserId, refreshConversations, refreshUnread, revalidate, sessionStatus]);
+  }, [currentUserId, notifyIncomingMessage, refreshConversations, refreshUnread, revalidate, sessionStatus]);
 
   const setOpen = React.useCallback((next: boolean) => {
     setOpenState(next);

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Building2, CalendarClock, ClipboardList, PackageMinus, UserRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import formatarEmReal from "@/utils/formatarEmReal";
+import { parseEscopo, rotuloDeEscopo, type UsoConsumoEscopo } from "@/lib/usoconsumo/escopo";
 import { BalanceTrail, Field, Metric, MovementDialogShell, Section } from "./movement-dialog-shell";
 
 type Inventory = "produto" | "usoconsumo";
@@ -27,6 +28,8 @@ type ExitDetails = {
   status?: string | null;
   setor?: string | null;
   funcionario?: string | null;
+  /** Só vem nas saídas dos estoques simples. */
+  escopo?: UsoConsumoEscopo | null;
   created_at?: string;
   cancelada_at?: string | null;
   motivo_cancelamento?: string | null;
@@ -140,7 +143,11 @@ export function ExitDetailsDialog({ exitId, inventory, open, onOpenChange }: Pro
       open={open}
       onOpenChange={onOpenChange}
       tone="saida"
-      kicker={inventory === "produto" ? "Saída de estoque" : "Saída de uso e consumo"}
+      kicker={
+        inventory === "produto"
+          ? "Saída de estoque"
+          : `Saída de ${rotuloDeEscopo(parseEscopo(exit?.escopo)).nome.toLocaleLowerCase("pt-BR")}`
+      }
       movementId={exitId}
       loading={loading}
       loadingLabel="Carregando saída..."

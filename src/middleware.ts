@@ -104,6 +104,8 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
   { prefix: "/print/produto", perm: PERMS.ESTOQUE },
   { prefix: "/agendamentos", perm: PERMS.AGENDAMENTOS },
   { prefix: "/estoque/uso-consumo", perm: PERMS.USOCONSUMO },
+  // Os dois estoques simples usam as mesmas permissoes usoconsumo:*.
+  { prefix: "/estoque/geral", perm: PERMS.USOCONSUMO },
   { prefix: "/estoque/movimentacao", perm: PERMS.USOCONSUMO },
   { prefix: "/estoque/historico", perm: PERMS.USOCONSUMO },
   { prefix: "/estoque", perm: PERMS.ESTOQUE },

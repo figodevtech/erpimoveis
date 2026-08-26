@@ -25,6 +25,7 @@ import { ItemImagesTab } from "./item-images-tab";
 import { useItemImages } from "./use-item-images";
 import { ItemMovementsTab, type UsoConsumoEntradaMovimento, type UsoConsumoSaidaMovimento } from "./item-movements-tab";
 import { crossInventoryLabelMessage, lookupInventoryLabel } from "@/lib/inventory-labels";
+import { rotuloDeEscopo, type UsoConsumoEscopo } from "@/lib/usoconsumo/escopo";
 
 type Detail = UsoConsumoItem & {
   entradas?: UsoConsumoEntradaMovimento[];
@@ -40,6 +41,8 @@ type Props = {
   onGroupsChanged: () => Promise<void>;
   initialValues?: Partial<Form>;
   onSelectedItemId?: (id: number) => void;
+  /** Estoque simples em que o item e cadastrado. Item existente manda no proprio. */
+  escopo?: UsoConsumoEscopo;
 };
 
 type Form = Record<string, string | number | null> & {
@@ -100,7 +103,7 @@ function statusBadge(status: UsoConsumoItem["status_estoque"] | "SEM_ESTOQUE") {
   return <Badge variant="outline">OK</Badge>;
 }
 
-function ItemDialogContent({ item, grupos, onOpenChange, onSaved, onGroupsChanged, initialValues, onSelectedItemId, isDesktop }: Omit<Props, "open"> & { isDesktop: boolean }) {
+function ItemDialogContent({ item, grupos, onOpenChange, onSaved, onGroupsChanged, initialValues, onSelectedItemId, escopo = "USOCONSUMO", isDesktop }: Omit<Props, "open"> & { isDesktop: boolean }) {
   const [form, setForm] = useState<Form>({ ...EMPTY });
   const [detail, setDetail] = useState<Detail | null>(null);
   const [loading, setLoading] = useState(Boolean(item));
@@ -173,7 +176,8 @@ function ItemDialogContent({ item, grupos, onOpenChange, onSaved, onGroupsChange
     if (etiqueta) {
       try {
         const lookup = await lookupInventoryLabel(etiqueta);
-        const conflict = crossInventoryLabelMessage("USOCONSUMO", lookup);
+        // Item ja cadastrado manda no proprio escopo: editar nao troca de estoque.
+        const conflict = crossInventoryLabelMessage(item?.escopo ?? escopo, lookup);
         if (conflict) {
           setCurrentTab("Etiquetas");
           toast.error("Etiqueta já utilizada", { description: conflict });
@@ -204,7 +208,7 @@ function ItemDialogContent({ item, grupos, onOpenChange, onSaved, onGroupsChange
         return;
       }
 
-      const { data } = await axios.post("/api/usoconsumo/itens", payload);
+      const { data } = await axios.post("/api/usoconsumo/itens", { ...payload, escopo });
       const createdId = Number(data.data.id);
       await imageHook.upload(createdId);
       onSelectedItemId?.(createdId);
@@ -263,7 +267,7 @@ function ItemDialogContent({ item, grupos, onOpenChange, onSaved, onGroupsChange
     <ProductDialogLayout
       isDesktop={isDesktop}
       title={<>{item ? `Item #${item.id}` : "Item"}<span className="ml-1 text-xs font-light text-muted-foreground sm:text-sm">| {item ? "Edição" : "Novo"}</span></>}
-      description={item ? "Preencha dados para editar um item" : "Preencha dados para registrar um novo item"}
+      description={`${item ? "Preencha dados para editar um item" : "Preencha dados para registrar um novo item"} · ${rotuloDeEscopo(item?.escopo ?? escopo).nome}`}
       defaultTab="Geral"
       currentTab={currentTab}
       loading={loading}
@@ -402,15 +406,15 @@ function ItemDialogContent({ item, grupos, onOpenChange, onSaved, onGroupsChange
   );
 }
 
-export function ItemDialog({ open, item, grupos, onOpenChange, onSaved, onGroupsChanged, initialValues, onSelectedItemId }: Props) {
+export function ItemDialog({ open, item, grupos, onOpenChange, onSaved, onGroupsChanged, initialValues, onSelectedItemId, escopo = "USOCONSUMO" }: Props) {
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const config = useConfig();
   const desktopShell = isDesktop || !config?.habilitar_drawers;
   const key = `${item?.id ?? "new"}-${open ? "open" : "closed"}`;
 
   if (desktopShell) {
-    return <Dialog open={open} onOpenChange={onOpenChange}>{open ? <ItemDialogContent key={key} item={item} grupos={grupos} onOpenChange={onOpenChange} onSaved={onSaved} onGroupsChanged={onGroupsChanged} initialValues={initialValues} onSelectedItemId={onSelectedItemId} isDesktop /> : null}</Dialog>;
+    return <Dialog open={open} onOpenChange={onOpenChange}>{open ? <ItemDialogContent key={key} item={item} grupos={grupos} onOpenChange={onOpenChange} onSaved={onSaved} onGroupsChanged={onGroupsChanged} initialValues={initialValues} onSelectedItemId={onSelectedItemId} escopo={escopo} isDesktop /> : null}</Dialog>;
   }
 
-  return <Drawer open={open} onOpenChange={onOpenChange}>{open ? <ItemDialogContent key={key} item={item} grupos={grupos} onOpenChange={onOpenChange} onSaved={onSaved} onGroupsChanged={onGroupsChanged} initialValues={initialValues} onSelectedItemId={onSelectedItemId} isDesktop={false} /> : null}</Drawer>;
+  return <Drawer open={open} onOpenChange={onOpenChange}>{open ? <ItemDialogContent key={key} item={item} grupos={grupos} onOpenChange={onOpenChange} onSaved={onSaved} onGroupsChanged={onGroupsChanged} initialValues={initialValues} onSelectedItemId={onSelectedItemId} escopo={escopo} isDesktop={false} /> : null}</Drawer>;
 }

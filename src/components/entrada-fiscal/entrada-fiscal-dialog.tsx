@@ -1,6 +1,7 @@
 "use client";
 
 import axios, { isAxiosError } from "axios";
+import { escopoDeEntradaDe, type UsoConsumoEscopo } from "@/lib/usoconsumo/escopo";
 import { addMonths, format } from "date-fns";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -79,13 +80,14 @@ import type { UsoConsumoGrupo, UsoConsumoItem } from "@/types/usoconsumo";
 import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
 
 import {
-  DESTINO_LABEL,
   apenasDigitos,
   linhaVinculada,
   rotuloVinculo,
   totalDaLinha,
   unidadeNormalizada,
   type DestinoEntrada,
+  DESTINO_LABEL,
+  ehEstoqueSimples,
   type LinhaFiscal,
   type NotaFiscalParseada,
   type Parcela,
@@ -129,12 +131,18 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   /** Pré-carrega uma NF-e já recebida (usado pela tela de notas fiscais recebidas). */
   notaFiscalRecebidaId?: number;
+  /**
+   * Estoque simples usado como padrao quando a linha ainda nao tem destino — por
+   * exemplo, ao cadastrar um item novo antes de escolher. NAO restringe: os tres
+   * destinos ficam sempre disponiveis, venha o dialogo de onde vier.
+   */
+  escopo?: UsoConsumoEscopo;
   /** Restringe os destinos oferecidos. Padrão: os dois. */
   destinosPermitidos?: DestinoEntrada[];
   onSaved?: () => void | Promise<void>;
 };
 
-const TODOS_DESTINOS: DestinoEntrada[] = ["ESTOQUE", "USOCONSUMO"];
+const TODOS_DESTINOS: DestinoEntrada[] = ["ESTOQUE", "USOCONSUMO", "GERAL"];
 
 /**
  * "2026-09-10" → "10/09/2026".
@@ -161,6 +169,7 @@ export function EntradaFiscalDialog({
   onOpenChange,
   notaFiscalRecebidaId,
   destinosPermitidos = TODOS_DESTINOS,
+  escopo = "USOCONSUMO",
   onSaved,
 }: Props) {
   const [parsed, setParsed] = useState<NotaFiscalParseada | null>(null);
@@ -239,10 +248,26 @@ export function EntradaFiscalDialog({
     () => linhasDisponiveis.filter((linha) => linha.destino === "ESTOQUE"),
     [linhasDisponiveis],
   );
+  // As duas metades simples vao para a MESMA entrada: elas dividem a tabela, e uma
+  // NF-e nao pode virar duas entradas (a chave e unica globalmente).
   const linhasUsoConsumo = useMemo(
-    () => linhasDisponiveis.filter((linha) => linha.destino === "USOCONSUMO"),
+    () => linhasDisponiveis.filter((linha) => ehEstoqueSimples(linha.destino)),
     [linhasDisponiveis],
   );
+  /** Escopo do cabecalho da entrada: um so estoque, ou MISTO quando ha os dois. */
+  const escopoDaEntrada = useMemo(
+    () => escopoDeEntradaDe(linhasUsoConsumo.map((linha) => linha.destino as UsoConsumoEscopo)),
+    [linhasUsoConsumo],
+  );
+
+  /**
+   * O cadastro de item aberto pela linha nasce no estoque daquela linha. `escopo`
+   * so entra quando a linha ainda nao tem destino escolhido.
+   */
+  const escopoDoItemEmEdicao = useMemo(() => {
+    const destino = itemDialogIndex === null ? undefined : parsed?.itens[itemDialogIndex]?.destino;
+    return ehEstoqueSimples(destino) ? destino : escopo;
+  }, [escopo, itemDialogIndex, parsed?.itens]);
   /*
    * A leitura fiscal da nota: produtos, descontos, acréscimos e a conferência
    * contra o `vNF`. Ausente em resposta antiga que ficou em cache — daí o
@@ -607,6 +632,8 @@ export function EntradaFiscalDialog({
     let cancelado = false;
     void axios
       .get("/api/usoconsumo/entradas/duplicidades", {
+        // `usoconsumo_entrada_chave_uk` e unico por chave globalmente: duplicidade
+        // e duplicidade em qualquer estoque.
         params: { chaveNfe: chave },
       })
       .then((resposta) => {
@@ -692,6 +719,7 @@ export function EntradaFiscalDialog({
               : String(linha.codigo || linha.descricao || "");
           const { data } = await axios.get("/api/usoconsumo/itens/select", {
             params: {
+              escopo: destino,
               search: busca,
               fornecedorId,
               codigoFornecedor: linha.codigo,
@@ -927,6 +955,7 @@ export function EntradaFiscalDialog({
           ...comum,
           ...financeiro,
           itensProduto: itensEstoquePayload(),
+          escopo: escopoDaEntrada,
           itensUsoConsumo: itensUsoConsumoPayload(),
         });
       } else if (linhasEstoque.length) {
@@ -938,6 +967,7 @@ export function EntradaFiscalDialog({
         });
       } else {
         await axios.post("/api/usoconsumo/entradas/fiscal", {
+          escopo: escopoDaEntrada,
           fornecedor_id: parsed.fornecedorReferenteId,
           chave_nfe: parsed.chaveAcesso,
           numero_nota: String(parsed.numeroNota ?? ""),
@@ -1651,9 +1681,10 @@ export function EntradaFiscalDialog({
                               </>
                             ) : null}
 
-                            {linha.destino === "USOCONSUMO" && !bloqueado ? (
+                            {ehEstoqueSimples(linha.destino) && !bloqueado ? (
                               <>
                                 <ItemSelectDialog
+                                  escopo={linha.destino}
                                   open={itemSelectIndex === indice}
                                   setOpen={(aberto) =>
                                     setItemSelectIndex(aberto ? indice : null)
@@ -2088,6 +2119,7 @@ export function EntradaFiscalDialog({
       </Dialog>
 
       <ItemDialog
+        escopo={escopoDoItemEmEdicao}
         open={itemDialogIndex !== null}
         item={itemEmEdicao}
         grupos={grupos}

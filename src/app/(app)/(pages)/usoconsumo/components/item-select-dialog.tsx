@@ -8,9 +8,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/lib/toast";
+import { ESCOPOS_USOCONSUMO, rotuloDeEscopo, type UsoConsumoEscopo } from "@/lib/usoconsumo/escopo";
 
 export type UsoConsumoItemOption = {
   id: number;
+  /** De qual dos dois estoques simples o item veio. */
+  escopo?: UsoConsumoEscopo;
   titulo: string;
   descricao?: string | null;
   referencia?: string | null;
@@ -51,9 +54,18 @@ type Props = {
   setOpen: (open: boolean) => void;
   onSelect: (item: UsoConsumoItemOption) => void;
   children: ReactNode;
+  /** Estoque em que a busca comeca. */
+  escopo?: UsoConsumoEscopo;
+  /**
+   * Mostra os chips para alternar de estoque sem fechar o dialog. A NF-e avulsa
+   * liga isso: la o operador escolhe item de qualquer um dos dois, e um seletor
+   * so evita duplicar o botao na barra de acoes.
+   */
+  permitirTrocaDeEscopo?: boolean;
 };
 
-export function ItemSelectDialog({ open, setOpen, onSelect, children }: Props) {
+export function ItemSelectDialog({ open, setOpen, onSelect, children, escopo = "USOCONSUMO", permitirTrocaDeEscopo = false }: Props) {
+  const [escopoAtivo, setEscopoAtivo] = useState<UsoConsumoEscopo>(escopo);
   const [items, setItems] = useState<UsoConsumoItemOption[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
@@ -62,13 +74,14 @@ export function ItemSelectDialog({ open, setOpen, onSelect, children }: Props) {
   useEffect(() => {
     if (!open) {
       setSearch("");
+      setEscopoAtivo(escopo);
       return;
     }
     const id = ++request.current;
     const timer = window.setTimeout(async () => {
       setLoading(true);
       try {
-        const { data } = await axios.get("/api/usoconsumo/itens/select", { params: { search: search.trim() || undefined } });
+        const { data } = await axios.get("/api/usoconsumo/itens/select", { params: { search: search.trim() || undefined, escopo: escopoAtivo } });
         if (id === request.current) setItems(data.data ?? []);
       } catch (error) {
         if (id === request.current) toast.error("Não foi possível buscar os itens.", { description: isAxiosError(error) ? error.response?.data?.error ?? error.message : undefined });
@@ -77,14 +90,30 @@ export function ItemSelectDialog({ open, setOpen, onSelect, children }: Props) {
       }
     }, search ? 350 : 0);
     return () => window.clearTimeout(timer);
-  }, [open, search]);
+  }, [open, search, escopo, escopoAtivo]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent className="flex h-[min(80dvh,620px)] w-[calc(100vw-2rem)] max-w-2xl flex-col overflow-hidden p-0">
-        <DialogHeader className="border-b px-6 py-4"><DialogTitle>Selecione um item de uso/consumo</DialogTitle><DialogDescription>Pesquise por título, referência, fabricante ou código.</DialogDescription></DialogHeader>
+        <DialogHeader className="border-b px-6 py-4"><DialogTitle>Selecione um item de {rotuloDeEscopo(escopoAtivo).nome.toLocaleLowerCase("pt-BR")}</DialogTitle><DialogDescription>Pesquise por título, referência, fabricante ou código.</DialogDescription></DialogHeader>
         <div className="min-h-0 flex-1 overflow-auto px-6 py-5">
+          {permitirTrocaDeEscopo ? (
+            <div className="mb-4 flex flex-wrap gap-2">
+              {ESCOPOS_USOCONSUMO.map((opcao) => (
+                <Button
+                  key={opcao}
+                  type="button"
+                  size="sm"
+                  variant={opcao === escopoAtivo ? "default" : "outline"}
+                  aria-pressed={opcao === escopoAtivo}
+                  onClick={() => setEscopoAtivo(opcao)}
+                >
+                  {rotuloDeEscopo(opcao).nome}
+                </Button>
+              ))}
+            </div>
+          ) : null}
           <div className="relative mb-4"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Pesquisar item..." /></div>
           {loading ? <div className="flex h-32 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Buscando itens...</div> : (
             <Table><TableHeader><TableRow><TableHead>ID</TableHead><TableHead>Item</TableHead><TableHead>Fabricante</TableHead><TableHead className="text-right">Estoque</TableHead></TableRow></TableHeader><TableBody>

@@ -61,6 +61,11 @@ import {
   ItemSelectDialog,
   type UsoConsumoItemOption,
 } from "@/app/(app)/(pages)/usoconsumo/components/item-select-dialog";
+import {
+  escopoDaOrigemNfe as escopoDaOrigem,
+  PREFIXO_ORIGEM_NFE as PREFIXO_ORIGEM,
+  rotuloDeEscopo,
+} from "@/lib/usoconsumo/escopo";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import type { Customer } from "@/app/(app)/(pages)/clientes/types";
 import type { Produto } from "@/app/(app)/(pages)/estoque/types";
@@ -174,11 +179,13 @@ type SetupResponse = {
 type DraftItem = {
   produtoId: number | null;
   /**
-   * De onde o item veio, quando não é um produto de venda. Hoje só
-   * `usoconsumo:{id}`: `nfe_item.produtoid` tem FK para `produto(id)` e não
-   * comporta o id de um item de uso/consumo — os dois estoques são tabelas
-   * separadas e os ids colidem. O rastro fica aqui e é gravado dentro de
-   * `tributacao_snapshot`.
+   * De onde o item veio, quando não é um produto de venda: `usoconsumo:{id}` ou
+   * `geral:{id}`. `nfe_item.produtoid` tem FK para `produto(id)` e não comporta o
+   * id de um item de estoque simples — são tabelas separadas e os ids colidem. O
+   * rastro fica aqui e é gravado dentro de `tributacao_snapshot`.
+   *
+   * O prefixo `usoconsumo:` é o histórico e continua valendo: notas gravadas
+   * antes do estoque geral são todas de uso e consumo.
    */
   sourceItemId: string | null;
   codigo: string;
@@ -1372,7 +1379,7 @@ export default function NFeAvulsaPage() {
         {
           ...emptyItem,
           produtoId: null,
-          sourceItemId: `usoconsumo:${item.id}`,
+          sourceItemId: `${PREFIXO_ORIGEM[item.escopo ?? "USOCONSUMO"]}:${item.id}`,
           // Vira o cProd do XML. Referência em branco cairia no número da linha
           // lá no serviço, e aí a nota não diria mais de qual item ela saiu.
           codigo:
@@ -2461,10 +2468,11 @@ export default function NFeAvulsaPage() {
                       open={openUsoConsumoSelect}
                       setOpen={setOpenUsoConsumoSelect}
                       onSelect={addItemFromUsoConsumo}
+                      permitirTrocaDeEscopo
                     >
                       <Button type="button" variant="secondary">
                         <Plus className="h-4 w-4" />
-                        Item de uso/consumo
+                        Item de uso/consumo ou geral
                       </Button>
                     </ItemSelectDialog>
                   ) : null}
@@ -2519,10 +2527,12 @@ export default function NFeAvulsaPage() {
                         <div className="md:col-span-5">
                           <Label className="inline-flex items-center gap-1">
                             Descrição <RequiredMark />
-                            {/* Item de uso/consumo entra sem produtoId e com valor
-                                zerado — sem o rótulo ele fica igual a um avulso. */}
-                            {item.sourceItemId?.startsWith("usoconsumo:") ? (
-                              <Badge variant="secondary" className="ml-1 font-normal">Uso/consumo</Badge>
+                            {/* Item de estoque simples entra sem produtoId e com
+                                valor zerado — sem o rótulo ele fica igual a um avulso. */}
+                            {escopoDaOrigem(item.sourceItemId) ? (
+                              <Badge variant="secondary" className="ml-1 font-normal">
+                                {rotuloDeEscopo(escopoDaOrigem(item.sourceItemId)!).curto}
+                              </Badge>
                             ) : null}
                           </Label>
                           <Input value={item.descricao} onChange={(event) => updateItem(index, { descricao: event.target.value })} />

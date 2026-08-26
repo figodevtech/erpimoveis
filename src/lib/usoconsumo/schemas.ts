@@ -1,4 +1,17 @@
 import { z } from "zod";
+import { ESCOPOS_USOCONSUMO, ESCOPO_MISTO, ESCOPO_PADRAO } from "./escopo";
+
+// Qual dos dois estoques simples a requisicao endereca. O default preserva todo
+// cliente anterior ao estoque geral: sem o parametro, a rota continua em uso e
+// consumo. Trocar o escopo de um item ja cadastrado nao e oferecido de proposito
+// -- mudaria de estoque um saldo que ja tem historico --, entao ele fica fora do patch.
+export const escopoSchema = z.enum(ESCOPOS_USOCONSUMO).default(ESCOPO_PADRAO);
+
+// So o cabecalho de ENTRADA aceita MISTO: uma NF-e mistura os dois estoques e nao
+// pode virar duas entradas. Item e saida seguem com escopo unico.
+export const escopoDeEntradaSchema = z
+  .enum([...ESCOPOS_USOCONSUMO, ESCOPO_MISTO])
+  .default(ESCOPO_PADRAO);
 
 const emptyToUndefined = (value: unknown) => value === "" || value === null ? undefined : value;
 const emptyToNull = (value: unknown) => value === "" || value === null ? null : value;
@@ -24,6 +37,7 @@ const fiscalCreate = {
 };
 
 export const usoConsumoItemCreateSchema = z.object({
+  escopo: escopoSchema,
   titulo: z.string().trim().min(1, "Informe o título.").max(200),
   descricao: createText, referencia: createText, fabricante: createText,
   grupo_id: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().optional()),
@@ -86,6 +100,7 @@ export const transacaoUsoConsumoSchema = z.object({
 }).strict();
 
 export const entradaUsoConsumoSchema = z.object({
+  escopo: escopoDeEntradaSchema,
   fornecedor_id: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().optional()),
   fiscal: z.boolean().default(false), chave_nfe: createText, numero_nota: createText, serie_nota: createText,
   data_emissao: createText,
@@ -117,6 +132,7 @@ export const entradaUsoConsumoSchema = z.object({
 // antes de chamar a RPC.
 const saidaMotivo = z.string().trim().min(1, "Selecione o motivo da saída.").transform((value) => value.toUpperCase());
 export const saidaUsoConsumoSchema = z.object({
+  escopo: escopoSchema,
   motivo: saidaMotivo, observacao: createText, setor: createText, funcionario: createText,
   centro_custo_id: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().optional()),
   itens: z.array(z.object({ item_id: z.coerce.number().int().positive(), quantidade: z.coerce.number().int().positive() }).strict()).min(1),

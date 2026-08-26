@@ -59,6 +59,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "@/lib/toast";
+import { rotuloDeEscopo, type UsoConsumoEscopo } from "@/lib/usoconsumo/escopo";
 import type {
   UsoConsumoGrupo,
   UsoConsumoItem,
@@ -160,7 +161,16 @@ function StatusCards({ counts, loading }: { counts: Counts; loading: boolean }) 
   );
 }
 
-export default function UsoConsumoClient() {
+type UsoConsumoClientProps = {
+  /**
+   * Qual dos dois estoques simples a tela opera. A pagina de uso e consumo e a
+   * do geral/avulso sao a MESMA tela: o que muda e o escopo e os rotulos.
+   */
+  escopo?: UsoConsumoEscopo;
+};
+
+export default function UsoConsumoClient({ escopo = "USOCONSUMO" }: UsoConsumoClientProps = {}) {
+  const rotulo = rotuloDeEscopo(escopo);
   const { data: session } = useSession();
   const permissions = (session?.user as { permissoes?: unknown })?.permissoes;
   const canCreate = permissionSetHas(permissions, PERMS.USOCONSUMO_CRIAR);
@@ -204,18 +214,19 @@ export default function UsoConsumoClient() {
   const loadCounts = useCallback(async () => {
     setLoadingCounts(true);
     try {
-      const { data } = await axios.get("/api/usoconsumo/itens/status-counter");
+      const { data } = await axios.get("/api/usoconsumo/itens/status-counter", { params: { escopo } });
       setCounts(data.data);
     } finally {
       setLoadingCounts(false);
     }
-  }, []);
+  }, [escopo]);
 
   const load = useCallback(async (page = 1, limit = pagination.limit) => {
     setLoading(true);
     try {
       const { data } = await axios.get("/api/usoconsumo/itens", {
         params: {
+          escopo,
           page,
           limit,
           search: search || undefined,
@@ -230,7 +241,7 @@ export default function UsoConsumoClient() {
     } finally {
       setLoading(false);
     }
-  }, [groupId, pagination.limit, search, status]);
+  }, [escopo, groupId, pagination.limit, search, status]);
 
   const refresh = useCallback(async (page = pagination.page) => {
     await Promise.all([load(page), loadCounts()]);
@@ -286,6 +297,7 @@ export default function UsoConsumoClient() {
 
   function exportItems() {
     const params = new URLSearchParams();
+    params.set("escopo", escopo);
     if (search) params.set("search", search);
     if (status !== "TODOS") params.set("status", status);
     if (groupId !== "all") params.set("grupoId", groupId);
@@ -352,7 +364,7 @@ export default function UsoConsumoClient() {
         <CardHeader className="border-b-2 pb-4">
           <div className="flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center">
             <div>
-              <CardTitle>Lista de Itens</CardTitle>
+              <CardTitle>Lista de Itens · {rotulo.nome}</CardTitle>
               <CardDescription>
                 <button onClick={() => void refresh()} className="inline-flex cursor-pointer items-center gap-1 text-foreground/50 hover:text-foreground/70">
                   <span>Recarregar</span>
@@ -465,6 +477,7 @@ export default function UsoConsumoClient() {
       </Card>
 
       <ItemDialog
+        escopo={escopo}
         open={itemOpen}
         item={editing}
         grupos={groups}
@@ -473,13 +486,14 @@ export default function UsoConsumoClient() {
         onGroupsChanged={loadGroups}
       />
       <MovementDialog
+        escopo={escopo}
         item={movement?.item ?? null}
         type={movement?.type ?? null}
         onClose={() => setMovement(null)}
         onSaved={refresh}
       />
-      <ManualEntryDialog open={manualOpen} onOpenChange={setManualOpen} fornecedores={options.fornecedores} onSaved={refresh} />
-      <EntradaFiscalDialog open={fiscalOpen} onOpenChange={setFiscalOpen} onSaved={refresh} />
+      <ManualEntryDialog escopo={escopo} open={manualOpen} onOpenChange={setManualOpen} fornecedores={options.fornecedores} onSaved={refresh} />
+      <EntradaFiscalDialog escopo={escopo} open={fiscalOpen} onOpenChange={setFiscalOpen} onSaved={refresh} />
 
       <AlertDialog open={Boolean(deleteItem)} onOpenChange={(open) => { if (!open && !deleting) setDeleteItem(null); }}>
         <AlertDialogContent>

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/lib/toast";
 import formatarEmReal from "@/utils/formatarEmReal";
+import { parseEscopo, rotuloDeEscopo, type UsoConsumoEscopo } from "@/lib/usoconsumo/escopo";
 import { BalanceTrail, Field, Metric, MovementDialogShell, Section } from "./movement-dialog-shell";
 
 type Inventory = "produto" | "usoconsumo";
@@ -58,6 +59,8 @@ type EntryDetails = Record<string, unknown> & {
   data_emissao?: string | null;
   valor_total?: number;
   created_at?: string;
+  /** Só vem nas entradas dos estoques simples. */
+  escopo?: UsoConsumoEscopo | null;
   cancelada_at?: string | null;
   motivo_cancelamento?: string | null;
   criador?: { id: string; nome: string | null } | null;
@@ -184,6 +187,10 @@ export function EntryDetailsDialog({ entryId, inventory, open, onOpenChange }: P
     return () => controller.abort();
   }, [entryId, inventory, open]);
 
+  // O escopo vem da propria entrada carregada: as duas metades da mesma tabela
+  // usam o mesmo endpoint, e so a linha diz de qual estoque simples ela e.
+  const escopoDaEntrada = parseEscopo(entry?.escopo);
+
   const router = useRouter();
   const [downloadingXml, setDownloadingXml] = useState(false);
   const [downloadingDanfe, setDownloadingDanfe] = useState(false);
@@ -281,7 +288,11 @@ export function EntryDetailsDialog({ entryId, inventory, open, onOpenChange }: P
       open={open}
       onOpenChange={onOpenChange}
       tone="entrada"
-      kicker={inventory === "produto" ? "Entrada de estoque" : "Entrada de uso e consumo"}
+      kicker={
+        inventory === "produto"
+          ? "Entrada de estoque"
+          : `Entrada de ${rotuloDeEscopo(escopoDaEntrada).nome.toLocaleLowerCase("pt-BR")}`
+      }
       movementId={entryId}
       loading={loading}
       loadingLabel="Carregando entrada..."

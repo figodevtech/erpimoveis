@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { dataDoCalendario } from "@/lib/data-calendario";
 import { entradaUsoConsumoSchema, zodMessage } from "@/lib/usoconsumo/schemas";
+import { parseEscopoDeEntrada } from "@/lib/usoconsumo/escopo";
 import { normalizarUnidadeMedidaEntrada } from "./entradaService";
 
 function positiveInt(value: unknown, field: string) {
@@ -102,6 +103,9 @@ export async function registrarEntradaFiscalMista(body: any, createdBy?: string 
     data_emissao: text(body?.dataEmissao) ?? undefined,
     tipo: "COMPRA_FORNECEDOR",
     origem: "NFE_TERCEIRO",
+    // A metade nao-produto pode cobrir os dois estoques simples: neste caso o
+    // cabecalho vem MISTO e o escopo de cada item e o do proprio item.
+    escopo: parseEscopoDeEntrada(body?.escopo),
     documento_fiscal_recebido_id: documentoId ?? undefined,
     itens: itensUsoRaw,
     transacoes: [],

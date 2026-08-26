@@ -1,18 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUsoConsumoAccess } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { normalizeSearch, usoConsumoError } from "@/lib/usoconsumo/api";
+import { escopoDaBusca, normalizeSearch, usoConsumoError } from "@/lib/usoconsumo/api";
 import { USOCONSUMO_ITEM_SELECT_FIELDS } from "@/lib/usoconsumo/fields";
 
 export async function GET(req: NextRequest) {
   try {
     await requireUsoConsumoAccess();
+    const escopo = escopoDaBusca(req.nextUrl.searchParams);
     const search = normalizeSearch(req.nextUrl.searchParams.get("search"));
     const fornecedorId = Number(req.nextUrl.searchParams.get("fornecedorId"));
     const codigoFornecedor = normalizeSearch(req.nextUrl.searchParams.get("codigoFornecedor"));
     let query = supabaseAdmin.from("usoconsumo_item")
       .select(USOCONSUMO_ITEM_SELECT_FIELDS)
-      .eq("ativo", true).order("titulo").limit(50);
+      .eq("ativo", true).eq("escopo", escopo).order("titulo").limit(50);
     if (search) query = query.or([
       `titulo.ilike.%${search}%`,`referencia.ilike.%${search}%`,`fabricante.ilike.%${search}%`,
       `codigobarras.ilike.%${search}%`,`etiqueta.ilike.%${search}%`,

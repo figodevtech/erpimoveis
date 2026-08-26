@@ -18,7 +18,26 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "@/lib/toast";
-import { lookupInventoryLabel, type InventoryLabelLookup, type InventoryLabelMatch } from "@/lib/inventory-labels";
+import { rotuloDeEscopo } from "@/lib/usoconsumo/escopo";
+import {
+  crossInventoryLabelMessage,
+  inventoryTargetLabel,
+  inventoryTargetOf,
+  lookupInventoryLabel,
+  type InventoryLabelLookup,
+  type InventoryLabelMatch,
+  type InventoryTarget,
+} from "@/lib/inventory-labels";
+
+/**
+ * `?origem=` diz de qual estoque o operador saiu, e e contra ele que a etiqueta
+ * repetida e comparada. Sem o parametro, so o conflito ambiguo e avisado.
+ */
+const ORIGEM_DA_URL: Record<string, InventoryTarget | undefined> = {
+  produto: "PRODUTO",
+  usoconsumo: "USOCONSUMO",
+  geral: "GERAL",
+};
 import type { UsoConsumoGrupo, UsoConsumoItem } from "@/types/usoconsumo";
 
 function errorText(error: unknown) {
@@ -39,7 +58,7 @@ function ItemCard({
   onBaixa: () => void;
 }) {
   const item = match.item;
-  const title = match.kind === "PRODUTO" ? "Produto" : "Uso/consumo";
+  const title = inventoryTargetLabel(inventoryTargetOf(match));
   if (match.restricted || !item) {
     return (
       <Card><CardHeader><CardTitle className="flex items-center gap-2 text-base"><AlertTriangle className="h-4 w-4" />Etiqueta já utilizada</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground">Esta etiqueta pertence ao módulo {title}, ao qual seu perfil não possui acesso.</CardContent></Card>
@@ -47,7 +66,7 @@ function ItemCard({
   }
   return (
     <InventoryItemFoundCard
-      kind={match.kind}
+      estoque={inventoryTargetOf(match)}
       item={item}
       matchBy={match.matchBy}
       subtitle="Resultado da consulta de etiqueta"
@@ -81,7 +100,7 @@ function RegistrarEtiquetaContent() {
   const [productEditId, setProductEditId] = useState<number | null>(null);
   const [useEditItem, setUseEditItem] = useState<UsoConsumoItem | null>(null);
   const [baixaTarget, setBaixaTarget] = useState<{
-    kind: "PRODUTO" | "USOCONSUMO";
+    alvo: InventoryTarget;
     id: number;
     nome: string;
     estoque: number;
@@ -106,10 +125,11 @@ function RegistrarEtiquetaContent() {
       setSelectedProduct(null);
       setSelectedUse(null);
       if (notify) {
-        const hasProductLabel = result.matches.some((match) => match.kind === "PRODUTO" && match.matchBy !== "CODIGOBARRAS");
-        const hasUseLabel = result.matches.some((match) => match.kind === "USOCONSUMO" && match.matchBy !== "CODIGOBARRAS");
-        if (origin === "produto" && hasUseLabel) toast.error("Etiqueta já utilizada", { description: "Já existe um item de uso e consumo com esta etiqueta." });
-        else if (origin === "usoconsumo" && hasProductLabel) toast.error("Etiqueta já utilizada", { description: "Já existe um produto com esta etiqueta." });
+        // De qual estoque a consulta veio, quando a URL diz. Sem `origem`, so o
+        // conflito ambiguo e avisado: nao ha alvo contra o qual comparar.
+        const alvo = ORIGEM_DA_URL[origin ?? ""];
+        const conflito = alvo ? crossInventoryLabelMessage(alvo, result) : null;
+        if (conflito) toast.error("Etiqueta já utilizada", { description: conflito });
         else if (result.status === "CONFLICT") toast.error("Etiqueta ambígua", { description: "O código está vinculado a mais de um item. Corrija o conflito antes de continuar." });
       }
       return result;
@@ -146,7 +166,7 @@ function RegistrarEtiquetaContent() {
       const { data } = await axios.get(`/api/usoconsumo/itens/${selectedUse.id}`);
       const current = data.data as UsoConsumoItem;
       await axios.patch(`/api/usoconsumo/itens/${selectedUse.id}`, { etiqueta: lookup.code, expectedUpdatedAt: current.updated_at });
-      toast.success("Etiqueta vinculada ao item de uso/consumo.");
+      toast.success(`Etiqueta vinculada ao item de ${rotuloDeEscopo(current.escopo).nome.toLocaleLowerCase("pt-BR")}.`);
       await runLookup(false);
     } catch (error) { toast.error("Não foi possível vincular a etiqueta.", { description: errorText(error) }); }
     finally { setSaving(false); }
@@ -179,7 +199,7 @@ function RegistrarEtiquetaContent() {
       {lookup?.status === "CONFLICT" ? <Alert variant="destructive"><AlertTriangle className="h-4 w-4" /><AlertTitle>Conflito de identificação</AlertTitle><AlertDescription>Este código corresponde a mais de um registro. Nenhuma alteração será permitida até que as etiquetas duplicadas sejam corrigidas.</AlertDescription></Alert> : null}
       {found.map((match, index) => (
         <ItemCard
-          key={`${match.kind}-${match.item?.id ?? "restricted"}-${index}`}
+          key={`${inventoryTargetOf(match)}-${match.item?.id ?? "restricted"}-${index}`}
           match={match}
           canEdit={match.kind === "PRODUTO" ? canEditProduct : canEditUse}
           onEdit={() => (match.kind === "PRODUTO" ? setProductEditId(match.item?.id ?? null) : setUseEditItem(match.item as UsoConsumoItem))}
@@ -187,9 +207,9 @@ function RegistrarEtiquetaContent() {
           onBaixa={() => {
             if (!match.item) return;
             setBaixaTarget({
-              kind: match.kind,
+              alvo: inventoryTargetOf(match),
               id: match.item.id,
-              nome: match.item.titulo || (match.kind === "PRODUTO" ? "Produto" : "Item de uso/consumo"),
+              nome: match.item.titulo || inventoryTargetLabel(inventoryTargetOf(match)),
               estoque: Number(match.item.estoque ?? 0),
             });
           }}
@@ -202,7 +222,7 @@ function RegistrarEtiquetaContent() {
           <CardContent className="space-y-4">
             {!canChooseAny ? <p className="text-sm text-muted-foreground">Seu perfil pode consultar, mas não possui permissão para vincular etiquetas.</p> : null}
             {canEditProduct ? <div className="flex flex-col gap-2 sm:flex-row"><ProductSelect open={productSelectOpen} setOpen={setProductSelectOpen} OnSelect={(item) => setSelectedProduct(item)}><Button type="button" variant="outline" className="flex-1 justify-start"><PackageSearch className="mr-2 h-4 w-4" />{selectedProduct?.titulo || "Selecionar produto"}</Button></ProductSelect><Button type="button" disabled={!selectedProduct || saving} onClick={bindProduct}><LinkIcon className="mr-2 h-4 w-4" />Vincular ao produto</Button></div> : null}
-            {canEditUse ? <div className="flex flex-col gap-2 sm:flex-row"><ItemSelectDialog open={useSelectOpen} setOpen={setUseSelectOpen} onSelect={setSelectedUse}><Button type="button" variant="outline" className="flex-1 justify-start"><PackageSearch className="mr-2 h-4 w-4" />{selectedUse?.titulo || "Selecionar item de uso/consumo"}</Button></ItemSelectDialog><Button type="button" disabled={!selectedUse || saving} onClick={bindUse}><LinkIcon className="mr-2 h-4 w-4" />Vincular ao uso/consumo</Button></div> : null}
+            {canEditUse ? <div className="flex flex-col gap-2 sm:flex-row"><ItemSelectDialog open={useSelectOpen} setOpen={setUseSelectOpen} onSelect={setSelectedUse} permitirTrocaDeEscopo><Button type="button" variant="outline" className="flex-1 justify-start"><PackageSearch className="mr-2 h-4 w-4" />{selectedUse?.titulo || "Selecionar item de uso/consumo ou geral"}</Button></ItemSelectDialog><Button type="button" disabled={!selectedUse || saving} onClick={bindUse}><LinkIcon className="mr-2 h-4 w-4" />Vincular ao item</Button></div> : null}
           </CardContent>
         </Card>
       ) : null}
@@ -213,7 +233,8 @@ function RegistrarEtiquetaContent() {
         <DialogSaida
           isOpen
           setIsOpen={(open) => !open && setBaixaTarget(null)}
-          inventory={baixaTarget.kind === "PRODUTO" ? "produto" : "usoconsumo"}
+          inventory={baixaTarget.alvo === "PRODUTO" ? "produto" : "usoconsumo"}
+          escopo={baixaTarget.alvo === "GERAL" ? "GERAL" : "USOCONSUMO"}
           productId={baixaTarget.id}
           productDescription={baixaTarget.nome}
           currentQuantity={baixaTarget.estoque}

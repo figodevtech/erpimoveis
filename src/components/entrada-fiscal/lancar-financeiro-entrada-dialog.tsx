@@ -35,6 +35,7 @@ import { useCentrosCusto } from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/h
 import { PlanoContaCombobox } from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/components/plano-conta-combobox";
 import { SearchCombobox } from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/components/search-combobox";
 import ValueInput from "@/components/ui/value-input";
+import { rotuloDeEscopo, type UsoConsumoEscopo } from "@/lib/usoconsumo/escopo";
 
 type Parcela = { id: number; dataVencimento?: string; valor: number };
 
@@ -43,6 +44,8 @@ interface LancarFinanceiroEntradaDialogProps {
   onOpenChange: (open: boolean) => void;
   entryId: number | null;
   inventory?: "produto" | "usoconsumo";
+  /** Qual estoque simples, quando `inventory` e "usoconsumo". */
+  escopo?: UsoConsumoEscopo;
   onSuccess?: () => void | Promise<void>;
 }
 
@@ -51,6 +54,7 @@ export function LancarFinanceiroEntradaDialog({
   onOpenChange,
   entryId,
   inventory = "produto",
+  escopo = "USOCONSUMO",
   onSuccess,
 }: LancarFinanceiroEntradaDialogProps) {
   const [loading, setLoading] = useState(false);
@@ -272,7 +276,7 @@ export function LancarFinanceiroEntradaDialog({
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <Badge variant="outline" className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-[10px] uppercase font-bold tracking-wide">
-                      {isUsoConsumo ? "Uso & Consumo" : "Estoque de Produtos"}
+                      {isUsoConsumo ? rotuloDeEscopo(escopo).nome : "Estoque de Produtos"}
                     </Badge>
                     {entradaMista ? (
                       <Badge variant="outline" className="text-[10px] uppercase font-bold tracking-wide">
