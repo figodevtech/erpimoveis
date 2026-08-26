@@ -5,6 +5,7 @@ import { ChatConversation } from "./chat-conversation";
 import { ChatInbox } from "./chat-inbox";
 import { ChatProvider, useChat } from "./chat-provider";
 import { ChatTrigger } from "./chat-trigger";
+import { ChatViewTransition } from "./chat-view-transition";
 import { NewConversation } from "./new-conversation";
 
 function ChatPanel() {
@@ -15,7 +16,7 @@ function ChatPanel() {
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent
           side="right"
-          className="h-[100dvh] max-h-[100dvh] w-full gap-0 overflow-hidden p-0 sm:max-w-[430px]"
+          className="chat-panel h-[100dvh] max-h-[100dvh] w-full gap-0 overflow-hidden border-l border-border/60 p-0 sm:max-w-[430px]"
           onOpenAutoFocus={(event) => {
             if (view.type === "inbox") event.preventDefault();
           }}
@@ -24,9 +25,11 @@ function ChatPanel() {
           <SheetDescription className="sr-only">
             Converse por texto com outros usuários ativos do ERP Oficina.
           </SheetDescription>
-          {view.type === "inbox" ? <ChatInbox /> : null}
-          {view.type === "new-conversation" ? <NewConversation /> : null}
-          {view.type === "conversation" ? <ChatConversation /> : null}
+          <ChatViewTransition view={view}>
+            {view.type === "inbox" ? <ChatInbox /> : null}
+            {view.type === "new-conversation" ? <NewConversation /> : null}
+            {view.type === "conversation" ? <ChatConversation /> : null}
+          </ChatViewTransition>
         </SheetContent>
       </Sheet>
     </>
@@ -40,4 +43,3 @@ export function ChatCenter() {
     </ChatProvider>
   );
 }
-

@@ -13,6 +13,8 @@ Este documento descreve o estado real do módulo. Os termos usados nas seções 
 - **Limitação conhecida:** comportamento implementado de forma parcial por uma restrição registrada.
 
 A especificação de origem da fase 1 está em [`docs/chat_update/fase1.md`](../chat_update/fase1.md).
+O refinamento visual vigente está especificado em
+[`docs/chat_update/frontend.md`](../chat_update/frontend.md).
 Em caso de divergência futura, este documento deve ser atualizado para representar o código e as
 migrações efetivamente vigentes.
 
@@ -37,7 +39,8 @@ são isolados fisicamente por instalação e não usam `empresa_id`.
 - Supabase Realtime Presence com suporte a múltiplas abas/dispositivos;
 - revalidação após foco, visibilidade, retorno da rede ou reconexão do canal;
 - painel responsivo, acessível e adequado a desktop, celular e PWA;
-- suporte a tema claro/escuro;
+- identidade visual violeta integrada ao ERP, tema claro/escuro, transições e microinterações com
+  redução de movimento;
 - acesso por qualquer usuário autenticado e ativo, inclusive “somente execução de OS”.
 
 ### Planejado
@@ -99,6 +102,10 @@ Os eventos não carregam conteúdo de mensagem nem dados administrativos.
 
 - [`chat-center.tsx`](../../src/components/chat/chat-center.tsx): único `Sheet` e roteamento das três
   visualizações (`inbox`, `new-conversation`, `conversation`).
+- [`chat-view-transition.tsx`](../../src/components/chat/chat-view-transition.tsx): transição visual
+  direcional entre as três visualizações, sem criar outro estado funcional de navegação.
+- [`chat-visuals.tsx`](../../src/components/chat/chat-visuals.tsx): campo de busca, empty state e
+  banner de conexão puramente visuais e reutilizados pelas telas.
 - [`chat-trigger.tsx`](../../src/components/chat/chat-trigger.tsx): botão acessível do header, tooltip e
   badge global.
 - [`chat-trigger-button.tsx`](../../src/components/chat/chat-trigger-button.tsx): parte apresentacional
@@ -130,7 +137,8 @@ Os eventos não carregam conteúdo de mensagem nem dados administrativos.
 - [`chat-actions.ts`](../../src/components/chat/chat-actions.ts): sequência testável para
   criar/recuperar, atualizar a lista e selecionar uma conversa direta.
 - [`chat-utils.ts`](../../src/components/chat/chat-utils.ts): filtro normalizado, formatação e
-  conciliação por `id`/`clientMessageId`, atualização de contadores e cálculo de preservação do scroll.
+  conciliação por `id`/`clientMessageId`, atualização de contadores, cálculo de preservação do scroll
+  e classificação visual de mensagens realmente acrescentadas ao fim.
 - [`contracts.ts`](../../src/lib/chat/contracts.ts): tipos compartilhados e schemas Zod.
 - [`cursor.ts`](../../src/lib/chat/cursor.ts): codificação/validação do cursor opaco.
 - [`repository.ts`](../../src/app/api/chat/_lib/repository.ts): consultas mínimas, RPCs e mapeamento das
@@ -364,6 +372,63 @@ O Sheet possui título/descrição para leitor de tela e devolve foco ao trigger
 `aria-label`; loading/error/read usam rótulos ou regiões apropriadas; presença tem texto acessível;
 mensagens podem ser selecionadas e preservam linhas. O conteúdo usa tokens de tema shadcn.
 
+## Identidade visual e animações
+
+**Implementado.** O `Sheet` continua único, com largura máxima de 430 px no desktop e largura total
+em telas menores. As classes específicas `chat-panel`, `chat-header-surface`,
+`chat-timeline-surface`, `chat-composer-dock` e `chat-composer-surface`, definidas em
+[`globals.css`](../../src/app/globals.css), aplicam profundidade, superfícies e um radial violeta
+discreto usando exclusivamente os tokens do tema. Header e composer usam blur leve; a timeline tem
+canvas próprio. No modo escuro, as superfícies são separadas sem preto puro. A safe area superior é
+considerada no header/fechamento e `env(safe-area-inset-bottom)` permanece no composer.
+
+A inbox e a seleção de usuário usam itens arredondados, sem divisores linha a linha. Conversas não
+lidas recebem fundo violeta sutil e maior peso tipográfico. Avatares sem imagem usam iniciais sobre
+`primary/10`. A presença online tem um único pulso visual suave; offline é estático. Loading, vazio,
+busca sem resultado e erro compartilham a mesma linguagem compacta. O badge anima somente ao aparecer
+ou mudar de valor e não pulsa continuamente.
+
+[`chat-view-transition.tsx`](../../src/components/chat/chat-view-transition.tsx) usa
+`AnimatePresence` e deslocamento de 12–16 px: avanço entra da direita e retorno à inbox entra da
+esquerda. A duração normal é de 200 ms. O trigger, itens e botões têm somente feedback curto de
+hover/press. O banner de Realtime desconectado entra e sai por opacity/deslocamento e simplesmente
+desaparece na reconexão; não existe toast ou sinalização de sucesso.
+
+Na timeline, mensagens próprias usam gradiente violeta discreto e mensagens recebidas usam card/muted.
+Divisores de data/não lidas, início do histórico, carregamento anterior, falha/reenvio e o botão
+“Novas mensagens” têm apresentação própria. O composer é um dock com textarea e envio na mesma
+superfície; a mudança vazio/válido anima apenas opacity/scale do botão, e Send/Loader faz transição
+curta. O contador continua em 5.000 caracteres e ganha cor de atenção nos últimos 10%.
+
+### Entrada de mensagens e proteção do scroll
+
+A animação de bolha usa somente `opacity`, `translateY` e `scale`, sem `layout animation`. A função
+`appendedMessageKeys` compara o snapshot anterior com a lista atual e anima apenas chaves novas após
+a última mensagem conhecida. Assim, a carga inicial e páginas antigas inseridas no topo não animam.
+O React key visual é `senderId + clientMessageId`, mantido entre mensagem otimista e persistida; a
+conciliação não desmonta a bolha e não repete a entrada. A lógica de 80/140 px, o debounce de leitura,
+o cursor, os 30 itens por página e `preservedScrollTop` não foram alterados.
+
+### Movimento reduzido
+
+Os componentes Motion consultam `useReducedMotion`; nesse modo os deslocamentos e escalas são
+removidos, as transições ficam praticamente instantâneas e o scroll programático usa `auto`. As
+microinterações CSS usam variantes `motion-reduce`; o slide/overlay do Sheet é encurtado, spinners
+ficam estáticos e o pulso de presença é ocultado. Funcionalidade, rótulos de loading, foco, leitura,
+paginação e envio permanecem disponíveis.
+
+**Decisão:** animar por chave estável de idempotência, sem animação global de layout.
+
+**Motivo:** mensagens novas precisam de feedback visual uma única vez sem fazer o histórico piscar,
+reanimar durante a reconciliação ou deslocar o scroll ao carregar páginas antigas.
+
+**Alternativas consideradas:** animar todos os itens com `AnimatePresence`, usar `message.id` como
+chave ou aplicar `layout` na lista. Essas opções reanimariam o lote inicial ou a troca do ID otimista.
+
+**Impactos e limitações:** somente inserções ao final recebem entrada; mensagens antigas adicionadas
+no topo aparecem imediatamente, de propósito. Não há animação de saída porque a fase não exclui
+mensagens.
+
 ## Decisões técnicas relevantes
 
 ### Decisão: APIs como única fonte de dados
@@ -512,3 +577,6 @@ Toda implementação futura no chat deve:
 - **2026-08-25 — Recuperação de deploy:** migração inicial tornou-se reconciliável com schema vazio
   sem histórico, ganhou runner que remove/verifica envelopes para impedir persistência acidental, foi
   aplicada na Demonstração e validada com dois usuários temporários em canais privados.
+- **2026-08-25 — Refinamento visual:** nova identidade visual do painel, inbox, seleção de usuário,
+  timeline, composer e mensagens; microinterações e transições com Motion; suporte a
+  `prefers-reduced-motion`; sem alterações de banco, APIs, Realtime ou regras funcionais.

@@ -2,6 +2,7 @@
 
 import type { ConversationSummary } from "@/lib/chat/contracts";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { cn } from "@/lib/utils";
 import { ChatPresenceIndicator } from "./chat-presence-indicator";
 import { UnreadBadge } from "./unread-badge";
 import { chatListTime, userInitials } from "./chat-utils";
@@ -24,12 +25,15 @@ export function ChatConversationItem({
     <button
       type="button"
       onClick={onSelect}
-      className="flex min-h-20 w-full items-center gap-3 border-b px-4 py-3 text-left transition-colors hover:bg-accent/60 focus-visible:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      className={cn(
+        "group flex min-h-20 w-full items-center gap-3 rounded-2xl border border-transparent px-3 py-3 text-left transition-[background-color,border-color,box-shadow,transform] duration-200 hover:-translate-y-px hover:border-primary/10 hover:bg-card/80 hover:shadow-sm focus-visible:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.99] motion-reduce:transform-none",
+        conversation.unreadCount > 0 && "bg-primary/[0.075] hover:bg-primary/[0.1] dark:bg-primary/[0.11]",
+      )}
     >
       <div className="relative shrink-0">
-        <Avatar className="size-11">
+        <Avatar className="size-11 ring-1 ring-border/70 ring-offset-2 ring-offset-transparent transition-transform duration-200 group-hover:scale-[1.03] motion-reduce:transform-none">
           {participant.avatarUrl ? <AvatarImage src={participant.avatarUrl} alt="" /> : null}
-          <AvatarFallback className="text-sm font-semibold">{userInitials(participant.nome)}</AvatarFallback>
+          <AvatarFallback className="bg-primary/10 text-sm font-semibold text-primary">{userInitials(participant.nome)}</AvatarFallback>
         </Avatar>
         <ChatPresenceIndicator
           online={online}
@@ -39,7 +43,7 @@ export function ChatConversationItem({
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold">{participant.nome}</span>
+          <span className={cn("min-w-0 flex-1 truncate text-sm", conversation.unreadCount > 0 ? "font-bold text-foreground" : "font-semibold")}>{participant.nome}</span>
           <time className="shrink-0 text-[11px] text-muted-foreground">
             {chatListTime(conversation.lastMessageAt)}
           </time>
@@ -48,7 +52,7 @@ export function ChatConversationItem({
           <p className="truncate text-xs text-muted-foreground">{participant.setor.nome}</p>
         ) : null}
         <div className="mt-1 flex items-center gap-2">
-          <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+          <p className={cn("min-w-0 flex-1 truncate text-xs", conversation.unreadCount > 0 ? "font-medium text-foreground/80" : "text-muted-foreground")}>
             {conversation.lastMessage ? (
               <>{ownLastMessage ? <span className="font-medium">Você: </span> : null}{conversation.lastMessage.content}</>
             ) : (
@@ -61,4 +65,3 @@ export function ChatConversationItem({
     </button>
   );
 }
-

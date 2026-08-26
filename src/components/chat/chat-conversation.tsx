@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowLeft, RefreshCw } from "lucide-react";
+import { AlertCircle, ArrowLeft, RefreshCw } from "lucide-react";
 
 import type { ChatMessage } from "@/lib/chat/contracts";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -12,6 +12,7 @@ import { ChatPresenceIndicator } from "./chat-presence-indicator";
 import { useChat } from "./chat-provider";
 import { ChatTimeline } from "./chat-timeline";
 import { createOptimisticMessage, mergeChatMessages, userInitials } from "./chat-utils";
+import { ChatStatusBanner } from "./chat-visuals";
 
 export function ChatConversation() {
   const {
@@ -171,37 +172,37 @@ export function ChatConversation() {
 
   if (!selectedConversation) return null;
   const participant = selectedConversation.participant;
+  const participantOnline = isOnline(participant.id);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex min-h-16 shrink-0 items-center gap-2 border-b px-3 py-2 pr-12">
-        <Button type="button" variant="ghost" size="icon" aria-label="Voltar para conversas" onClick={showInbox}>
+      <div className="chat-header-surface flex min-h-16 shrink-0 items-center gap-2 border-b border-border/60 px-3 pb-2 pr-12">
+        <Button type="button" variant="ghost" size="icon" className="rounded-xl transition-transform active:scale-90 motion-reduce:transform-none" aria-label="Voltar para conversas" onClick={showInbox}>
           <ArrowLeft aria-hidden="true" />
         </Button>
-        <Avatar className="size-10">
+        <Avatar className="size-10 ring-1 ring-border/70 ring-offset-2 ring-offset-transparent">
           {participant.avatarUrl ? <AvatarImage src={participant.avatarUrl} alt="" /> : null}
-          <AvatarFallback>{userInitials(participant.nome)}</AvatarFallback>
+          <AvatarFallback className="bg-primary/10 font-semibold text-primary">{userInitials(participant.nome)}</AvatarFallback>
         </Avatar>
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-sm font-semibold">{participant.nome}</h2>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <ChatPresenceIndicator online={isOnline(participant.id)} />
-            <span aria-hidden="true">{isOnline(participant.id) ? "Online" : "Offline"}</span>
+          <h2 className="truncate text-sm font-semibold tracking-tight">{participant.nome}</h2>
+          <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+            <ChatPresenceIndicator online={participantOnline} />
+            <span aria-hidden="true">{participantOnline ? "Online" : "Offline"}</span>
             {participant.setor ? <><span aria-hidden="true">·</span><span className="truncate">{participant.setor.nome}</span></> : null}
           </div>
         </div>
       </div>
 
-      {realtimeStatus === "disconnected" || realtimeStatus === "unavailable" ? (
-        <p role="status" className="shrink-0 bg-amber-50 px-3 py-1.5 text-center text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-          Conexão em tempo real interrompida. As mensagens carregadas foram preservadas.
-        </p>
-      ) : null}
+      <ChatStatusBanner visible={realtimeStatus === "disconnected" || realtimeStatus === "unavailable"}>
+        Conexão em tempo real interrompida. As mensagens carregadas foram preservadas.
+      </ChatStatusBanner>
 
       {loadError && messages.length === 0 ? (
-        <div role="alert" className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-          <p className="text-sm text-muted-foreground">{loadError}</p>
-          <Button type="button" variant="outline" size="sm" onClick={() => void loadInitial()}>
+        <div role="alert" className="chat-timeline-surface flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+          <div className="flex size-11 items-center justify-center rounded-2xl bg-destructive/10 text-destructive"><AlertCircle className="size-5" aria-hidden="true" /></div>
+          <p className="max-w-64 text-sm text-muted-foreground">{loadError}</p>
+          <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={() => void loadInitial()}>
             <RefreshCw aria-hidden="true" /> Tentar novamente
           </Button>
         </div>
@@ -214,13 +215,14 @@ export function ChatConversation() {
           hasMore={hasMore}
           firstUnreadMessageId={firstUnreadMessageId}
           initialUnreadCount={initialUnreadCount}
+          participantName={participant.nome}
           onLoadOlder={loadOlder}
           onReachedLatest={reachedLatest}
           onRetry={(message) => void sendExisting(message)}
         />
       )}
 
-      {readError ? <p role="alert" className="shrink-0 px-3 py-1 text-center text-[11px] text-destructive">{readError}</p> : null}
+      {readError ? <p role="alert" className="shrink-0 border-t border-destructive/10 bg-destructive/[0.06] px-3 py-1.5 text-center text-[11px] text-destructive">{readError}</p> : null}
       <ChatComposer onSend={send} sending={sendingCount > 0} />
     </div>
   );

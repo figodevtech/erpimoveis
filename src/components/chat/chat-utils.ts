@@ -43,6 +43,25 @@ export function mergeChatMessages(current: ChatMessage[], incoming: ChatMessage[
   });
 }
 
+export function chatMessageStableKey(message: Pick<ChatMessage, "senderId" | "clientMessageId">) {
+  return `${message.senderId}:${message.clientMessageId}`;
+}
+
+export function appendedMessageKeys(
+  previousKeys: string[],
+  currentKeys: string[],
+  animationReady: boolean,
+) {
+  if (!animationReady) return new Set<string>();
+  if (previousKeys.length === 0) return new Set(currentKeys);
+
+  const previousLastIndex = currentKeys.indexOf(previousKeys.at(-1) ?? "");
+  if (previousLastIndex < 0) return new Set<string>();
+
+  const previous = new Set(previousKeys);
+  return new Set(currentKeys.slice(previousLastIndex + 1).filter((key) => !previous.has(key)));
+}
+
 export function createOptimisticMessage({
   conversationId,
   senderId,

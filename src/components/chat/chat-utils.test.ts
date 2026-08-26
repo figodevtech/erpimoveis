@@ -3,6 +3,8 @@ import test from "node:test";
 
 import type { ChatMessage, ConversationSummary } from "@/lib/chat/contracts";
 import {
+  appendedMessageKeys,
+  chatMessageStableKey,
   filterConversations,
   isTemporaryMessageError,
   mergeChatMessages,
@@ -68,3 +70,23 @@ test("nova tentativa diferencia falha temporaria de erro definitivo", () => {
   assert.equal(isTemporaryMessageError(403), false);
 });
 
+test("animacao de entrada ignora historico inicial e pagina anterior", () => {
+  assert.deepEqual([...appendedMessageKeys([], ["m2", "m3"], false)], []);
+  assert.deepEqual([...appendedMessageKeys(["m2", "m3"], ["m1", "m2", "m3"], true)], []);
+  assert.deepEqual([...appendedMessageKeys(["m2", "m3"], ["m2", "m3", "m4"], true)], ["m4"]);
+});
+
+test("chave visual permanece estavel na conciliacao da mensagem otimista", () => {
+  const optimistic: ChatMessage = {
+    id: "optimistic:client-visual",
+    conversationId: conversation.id,
+    senderId: "10000000-0000-4000-8000-000000000001",
+    content: "Teste visual",
+    clientMessageId: "30000000-0000-4000-8000-000000000099",
+    createdAt: "2026-08-25T18:00:00.000Z",
+    sendStatus: "sending",
+  };
+  const persisted = { ...optimistic, id: "40000000-0000-4000-8000-000000000099", sendStatus: "sent" as const };
+
+  assert.equal(chatMessageStableKey(optimistic), chatMessageStableKey(persisted));
+});
