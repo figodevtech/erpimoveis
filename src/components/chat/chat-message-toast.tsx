@@ -13,8 +13,10 @@ const CHAT_TOAST_PREVIEW_LENGTH = 600;
 export function isIncomingMessageNotification(
   event: ChatRealtimeEvent,
   currentUserId: string,
+  chatOpen = false,
 ) {
-  return event.kind === "message"
+  return !chatOpen
+    && event.kind === "message"
     && Boolean(event.messageId)
     && Boolean(event.senderId)
     && event.senderId !== currentUserId;
@@ -61,9 +63,11 @@ export function ChatIncomingMessageToast({
             Nova mensagem
           </div>
           <p className="mt-1 truncate text-sm font-bold leading-tight">{participant.nome}</p>
-          <p className="mt-0.5 truncate text-[11px] font-medium text-sky-100/80">
-            {participant.setor?.nome ?? "Sem setor"}
-          </p>
+          {participant.setor ? (
+            <p className="mt-0.5 truncate text-[11px] font-medium text-sky-100/80">
+              {participant.setor.nome}
+            </p>
+          ) : null}
           <p className="mt-2 line-clamp-6 whitespace-pre-wrap break-words text-[13px] leading-relaxed text-white/95 [overflow-wrap:anywhere]">
             {chatToastPreview(message.content)}
           </p>

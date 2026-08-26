@@ -50,6 +50,7 @@ test("notificacao aceita somente mensagem recebida de outro usuario", () => {
   assert.equal(isIncomingMessageNotification(incoming, currentUserId), true);
   assert.equal(isIncomingMessageNotification({ ...incoming, senderId: currentUserId }, currentUserId), false);
   assert.equal(isIncomingMessageNotification({ ...incoming, kind: "read" }, currentUserId), false);
+  assert.equal(isIncomingMessageNotification(incoming, currentUserId, true), false);
 });
 
 test("toast exibe nome, setor, iniciais e previa da mensagem", () => {
@@ -66,6 +67,20 @@ test("toast exibe nome, setor, iniciais e previa da mensagem", () => {
   assert.match(html, /MS/);
   assert.match(html, /O veículo já está pronto para retirada/);
   assert.match(html, /Fechar notificação/);
+});
+
+test("toast omite a linha de setor quando o remetente nao possui setor", () => {
+  const html = renderToStaticMarkup(
+    <ChatIncomingMessageToast
+      conversation={{
+        ...conversation,
+        participant: { ...conversation.participant, setor: null },
+      }}
+      message={message}
+      onDismiss={() => undefined}
+    />,
+  );
+  assert.doesNotMatch(html, /Sem setor/);
 });
 
 test("previa preserva o maximo util sem deixar o toast crescer indefinidamente", () => {

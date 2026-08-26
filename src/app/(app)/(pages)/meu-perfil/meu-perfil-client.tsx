@@ -7,7 +7,8 @@ import { useSession } from "next-auth/react";
 import { MotionConfig, motion } from "motion/react";
 import { Tabs } from "@/components/ui/tabs";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
-import { buscarPerfil, buscarResumo } from "./lib/api";
+import { toast } from "@/lib/toast";
+import { buscarPerfil, buscarResumo, enviarFotoPerfil } from "./lib/api";
 import { periodoPadrao } from "./lib/format";
 import { MOLA_SUAVE, containerEscalonado, itemQueSobe } from "./lib/motion";
 import { ABAS, ListaDeAbas, PainelDeAba } from "./components/abas-central";
@@ -42,6 +43,7 @@ export function MeuPerfilClient() {
     PERMS.USUARIOS,
   );
   const [usuarios, setUsuarios] = useState<Array<{ id: string; nome: string; email: string }>>([]);
+  const [perfilEnviandoFoto, setPerfilEnviandoFoto] = useState<string | null>(null);
 
   // Identidade estavel: as tabelas usam `periodo` como dependencia de busca.
   const periodo = useMemo<Periodo>(() => ({ de, ate }), [de, ate]);
@@ -119,6 +121,31 @@ export function MeuPerfilClient() {
     return () => controller.abort();
   }, [chaveResumo, periodo, usuarioId]);
 
+  const alterarFoto = useCallback(
+    async (file: File) => {
+      const chaveAlvo = chavePerfil;
+      const toastId = toast.loading("Salvando foto do perfil...");
+      setPerfilEnviandoFoto(chaveAlvo);
+
+      try {
+        const { fotoUrl } = await enviarFotoPerfil(file, usuarioId);
+        setEstadoPerfil((atual) =>
+          atual.chave === chaveAlvo && atual.dados
+            ? { ...atual, dados: { ...atual.dados, fotoUrl } }
+            : atual,
+        );
+        toast.success("Foto do perfil atualizada.", { id: toastId });
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Não foi possível salvar a foto do perfil.", {
+          id: toastId,
+        });
+      } finally {
+        setPerfilEnviandoFoto((atual) => (atual === chaveAlvo ? null : atual));
+      }
+    },
+    [chavePerfil, usuarioId],
+  );
+
   return (
     // `reducedMotion="user"` respeita a preferencia do sistema em toda a arvore:
     // quem pede menos movimento recebe so as transicoes de opacidade.
@@ -132,6 +159,8 @@ export function MeuPerfilClient() {
         <PerfilHeader
           perfil={perfil}
           carregando={carregandoPerfil}
+          enviandoFoto={perfilEnviandoFoto === chavePerfil}
+          onFotoSelecionada={perfil ? alterarFoto : undefined}
           seletorUsuario={podeVerUsuarios ? (
             <UsuarioCombobox
               usuarios={usuarios}

@@ -52,6 +52,24 @@ export function buscarPerfil(usuarioId?: string, signal?: AbortSignal): Promise<
   return buscarJson<MeuPerfil>(`/api/me/perfil?${params.toString()}`, signal);
 }
 
+export async function enviarFotoPerfil(file: File, usuarioId?: string): Promise<{ fotoUrl: string }> {
+  const params = comUsuario(new URLSearchParams(), usuarioId);
+  const formData = new FormData();
+  formData.set("file", file);
+
+  const resposta = await fetch(`/api/me/perfil/foto?${params.toString()}`, {
+    method: "POST",
+    body: formData,
+  });
+  const corpo = (await resposta.json().catch(() => ({}))) as { fotoUrl?: string; error?: string };
+
+  if (!resposta.ok || !corpo.fotoUrl) {
+    throw new Error(corpo.error || "Não foi possível salvar a foto do perfil.");
+  }
+
+  return { fotoUrl: corpo.fotoUrl };
+}
+
 export function buscarResumo({ de, ate }: Periodo, usuarioId?: string, signal?: AbortSignal): Promise<MeuResumo> {
   const params = new URLSearchParams();
   if (de) params.set("de", de);

@@ -62,9 +62,10 @@ recebida descrito neste documento.
 
 ### Limitações conhecidas
 
-- `usuario` não possui avatar nem `last_seen_at`; por isso `avatarUrl` e `lastSeenAt` são `null`, e a
-  UI, inclusive o toast, usa iniciais e presença online/offline efêmera. Se uma URL pública de avatar
-  passar a integrar o contrato, o toast já está preparado para renderizá-la.
+- `usuario` possui `foto_url` após a migração
+  [`20260827130000_usuario_foto_perfil.sql`](../../supabase/migrations/20260827130000_usuario_foto_perfil.sql);
+  quando preenchida, a UI e o toast usam a foto, mantendo iniciais como fallback. `lastSeenAt` continua
+  `null` e a presença online/offline permanece efêmera.
 - falhas otimistas permanecem na memória da aba, mas não são persistidas após recarregar a página;
 - mensagens muito grandes podem fazer o auto-scroll optar por mostrar “Novas mensagens” se o usuário
   já não estiver próximo do final;
@@ -176,6 +177,8 @@ composer mantém apenas o rascunho atual. Mensagens otimistas são mescladas com
 
 A migração da fase é
 [`20260825190000_chat_interno_fase_1.sql`](../../supabase/migrations/20260825190000_chat_interno_fase_1.sql).
+O avatar exibido pelo chat vem de `usuario.foto_url`, criado pela migração transversal
+[`20260827130000_usuario_foto_perfil.sql`](../../supabase/migrations/20260827130000_usuario_foto_perfil.sql).
 
 ### `chat_conversa`
 
@@ -348,10 +351,12 @@ resumo e, quando aplicável, a página recente da conversa. Assim o WebSocket n�
 
 ## Toast de nova mensagem
 
-**Implementado.** Um evento `chat_changed` produz toast somente quando `kind = message`, possui
-`messageId`/`senderId` e o remetente é diferente do usuário autenticado. O toast também aparece se o
-Sheet ou a conversa estiverem abertos; sua apresentação não altera contadores nem marca leitura.
-Eventos de conversa/leitura e o Broadcast provocado pelo próprio envio são ignorados.
+**Implementado.** Um evento `chat_changed` produz toast somente quando o Sheet do chat está fechado,
+`kind = message`, possui `messageId`/`senderId` e o remetente é diferente do usuário autenticado. Com
+o chat aberto — inbox, nova conversa ou timeline — o evento continua revalidando os dados, mas não
+faz a consulta adicional do toast nem o exibe. A abertura do chat enquanto a consulta está em curso
+também cancela a apresentação. O toast não altera contadores nem marca leitura. Eventos de
+conversa/leitura e o Broadcast provocado pelo próprio envio são ignorados.
 
 O provider reconsulta, em paralelo, `GET /api/chat/conversations` e a primeira página de
 `GET /api/chat/conversations/:id/messages`. O resumo fornece somente nome, setor e avatar do
@@ -363,8 +368,9 @@ O componente [`chat-message-toast.tsx`](../../src/components/chat/chat-message-t
 Sonner global montado por
 [`route-aware-toaster.tsx`](../../src/components/route-aware-toaster.tsx), força posição
 `bottom-right`, permanece por 9 segundos e permite fechamento. A superfície é azul, responsiva até
-390 px e exibe avatar ou iniciais, nome, setor (`Sem setor` quando ausente) e até 600 caracteres em no
-máximo seis linhas. React continua escapando o conteúdo; HTML da mensagem nunca é interpretado.
+390 px e exibe avatar ou iniciais, nome, setor quando disponível e até 600 caracteres em no máximo
+seis linhas. A linha de setor é omitida quando não há vínculo. React continua escapando o conteúdo;
+HTML da mensagem nunca é interpretado.
 
 Uma coleção limitada aos 200 IDs mais recentes impede que reconexão/evento duplicado exiba a mesma
 mensagem novamente durante a sessão da conta. Trocar de usuário ou desmontar o provider cancela as
@@ -382,8 +388,8 @@ somente a última mensagem do resumo. A primeira ampliaria dados no canal; a seg
 mensagem errada quando várias chegassem rapidamente.
 
 **Impactos e limitações:** cada mensagem recebida gera até duas leituras HTTP adicionais. O toast
-depende da mensagem ainda estar entre as 30 mais recentes, condição normal no instante do evento. O
-avatar atual é representado por iniciais porque o modelo de usuário ainda não fornece foto.
+depende da mensagem ainda estar entre as 30 mais recentes, condição normal no instante do evento. A
+foto depende de `usuario.foto_url`; sem foto cadastrada ou se a imagem falhar, são exibidas iniciais.
 
 ### Queda e retorno da conexão
 
@@ -627,4 +633,7 @@ Toda implementação futura no chat deve:
   `prefers-reduced-motion`; sem alterações de banco, APIs, Realtime ou regras funcionais.
 - **2026-08-26 — Toast de mensagem recebida:** toast interno azul no canto inferior direito com
   remetente, setor, avatar/iniciais e prévia ampla; deduplicação por `messageId` e reconsulta HTTP
-  autorizada, sem conteúdo adicional no Broadcast, som, push ou alteração de leitura.
+  autorizada somente com o chat fechado, sem conteúdo adicional no Broadcast, som, push ou alteração
+  de leitura.
+- **2026-08-26 — Fotos de usuário:** listas, conversas e toasts passaram a consumir a foto pública
+  cadastrada em `usuario.foto_url`, mantendo iniciais como fallback.

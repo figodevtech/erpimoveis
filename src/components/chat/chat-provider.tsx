@@ -113,7 +113,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     event: ChatRealtimeEvent,
     signal?: AbortSignal,
   ) => {
-    if (!isIncomingMessageNotification(event, currentUserId) || !event.messageId) return;
+    if (
+      !isIncomingMessageNotification(event, currentUserId, openRef.current)
+      || !event.messageId
+    ) return;
 
     const notifiedIds = notifiedMessageIdsRef.current;
     if (notifiedIds.has(event.messageId)) return;
@@ -132,7 +135,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         (item) => item.id === event.conversationId,
       );
       const message = messagePage.messages.find((item) => item.id === event.messageId);
-      if (!conversation || !message || message.senderId !== event.senderId) return;
+      if (
+        openRef.current
+        || !conversation
+        || !message
+        || message.senderId !== event.senderId
+      ) return;
       showIncomingChatMessageToast(conversation, message);
     } catch {
       notifiedIds.delete(event.messageId);

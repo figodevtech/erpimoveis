@@ -6,6 +6,7 @@ export type MeuPerfil = {
   id: string;
   nome: string | null;
   email: string | null;
+  fotoUrl: string | null;
   ativo: boolean;
   dataAdmissao: string | null;
   perfil: RelacaoNomeada | null;

@@ -17,7 +17,7 @@ function normalizeSearch(value: string) {
 export async function listChatUsers(userId: string, search: string): Promise<ChatUser[]> {
   const { data, error } = await supabaseAdmin
     .from("usuario")
-    .select("id, nome, username, setor:setorid(id,nome)")
+    .select("id, nome, username, foto_url, setor:setorid(id,nome)")
     .eq("ativo", true)
     .neq("id", userId)
     .order("nome", { ascending: true });
@@ -33,7 +33,7 @@ export async function listChatUsers(userId: string, search: string): Promise<Cha
         nome: String(row.nome),
         username: row.username ? String(row.username) : null,
         setor: setor ? { id: Number(setor.id), nome: String(setor.nome) } : null,
-        avatarUrl: null,
+        avatarUrl: row.foto_url ? String(row.foto_url) : null,
         online: false,
         lastSeenAt: null,
       };
@@ -52,7 +52,24 @@ export async function listConversations(userId: string): Promise<ConversationSum
   });
   if (error) throw error;
 
-  return (data ?? []).map((row: any): ConversationSummary => ({
+  const rows = data ?? [];
+  const participanteIds = Array.from(
+    new Set(rows.map((row: any) => String(row.participante_id)).filter(Boolean)),
+  );
+  const fotosPorUsuario = new Map<string, string>();
+
+  if (participanteIds.length) {
+    const { data: usuarios, error: fotosError } = await supabaseAdmin
+      .from("usuario")
+      .select("id, foto_url")
+      .in("id", participanteIds);
+    if (fotosError) throw fotosError;
+    for (const usuario of usuarios ?? []) {
+      if (usuario.foto_url) fotosPorUsuario.set(String(usuario.id), String(usuario.foto_url));
+    }
+  }
+
+  return rows.map((row: any): ConversationSummary => ({
     id: String(row.conversa_id),
     participant: {
       id: String(row.participante_id),
@@ -61,7 +78,7 @@ export async function listConversations(userId: string): Promise<ConversationSum
       setor: row.participante_setor_id
         ? { id: Number(row.participante_setor_id), nome: String(row.participante_setor_nome) }
         : null,
-      avatarUrl: null,
+      avatarUrl: fotosPorUsuario.get(String(row.participante_id)) ?? null,
       online: false,
       lastSeenAt: null,
     },
