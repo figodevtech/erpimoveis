@@ -16,6 +16,7 @@ import DateTimeBadge from "../components/date-time-badge";
 import { HeaderRadioPlayer } from "../components/header-radio-player";
 import { useUserPreferences } from "../components/user-preferences-provider";
 import { useConfig } from "./config-context";
+import { ChatCenter } from "@/components/chat/chat-center";
 
 const routeTitles: Record<string, string> = {
   "/execucao": "Execução de Ordens",
@@ -236,6 +237,7 @@ export default function ClientAppShell({
 
             {radio.effective ? <HeaderRadioPlayer /> : null}
             <DateTimeBadge />
+            <ChatCenter />
             <ModeToggle />
           </header>
         ) : (

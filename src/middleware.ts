@@ -380,6 +380,9 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
       pathname === "/execucao" ||
       pathname.startsWith("/execucao/") ||
       pathname.startsWith("/api/execucao") ||
+      // O chat e uma funcionalidade global para todo usuario autenticado e
+      // ativo, inclusive quem possui apenas acesso a execucao de OS.
+      pathname.startsWith("/api/chat") ||
       pathname.startsWith("/api/tipos/setores") ||
       pathname.startsWith("/api/auth") ||
       pathname.startsWith("/api/config") ||

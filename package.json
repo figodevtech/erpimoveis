@@ -17,6 +17,8 @@
     "test:ordens": "tsx --test src/lib/ordens/*.test.ts",
     "localidades:gerar": "node scripts/localidades/gerar-municipios.mjs",
     "db:status": "tsx scripts/db/status.ts",
+    "db:test:chat-migration": "tsx scripts/db/test-chat-migration.ts",
+    "db:test:chat-realtime": "tsx scripts/db/test-chat-realtime.ts",
     "db:validar:os-finalizado": "tsx scripts/db/validar-os-finalizado-em.ts",
     "db:test:sql": "tsx scripts/db/test-sql.ts",
     "db:deploy": "tsx scripts/db/deploy.ts",
@@ -40,7 +42,8 @@
     "radios:importar:joao-pessoa": "tsx scripts/radios/import-joao-pessoa.ts",
     "radios:importar:tematicos": "tsx scripts/radios/import-thematic-channels.ts",
     "radios:sincronizar:todos-bancos": "tsx scripts/radios/sync-catalog-all-databases.ts",
-    "test:radios": "tsx --test src/lib/radio/*.test.ts"
+    "test:radios": "tsx --test src/lib/radio/*.test.ts",
+    "test:chat": "tsx --test src/lib/chat/*.test.ts src/components/chat/*.test.ts src/components/chat/*.test.tsx"
   },
   "overrides": {
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"

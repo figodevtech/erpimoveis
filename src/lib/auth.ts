@@ -87,6 +87,33 @@ async function atualizarTokenComUsuarioAtual(token: any) {
   return token;
 }
 
+async function renovarSessaoSupabaseSeNecessario(token: any) {
+  const expiresAt = Number(token.supabaseAccessTokenExpiresAt ?? 0);
+  if (token.supabaseAccessToken && expiresAt > Date.now() + 60_000) return token;
+  if (!token.supabaseRefreshToken) return token;
+
+  try {
+    const passwordAuth = createSupabasePasswordAuthClient();
+    const { data, error } = await passwordAuth.auth.refreshSession({
+      refresh_token: String(token.supabaseRefreshToken),
+    });
+    if (error || !data.session) throw error ?? new Error("Sessao Supabase ausente");
+
+    token.supabaseAccessToken = data.session.access_token;
+    token.supabaseRefreshToken = data.session.refresh_token;
+    token.supabaseAccessTokenExpiresAt = (data.session.expires_at ?? 0) * 1_000;
+  } catch (error) {
+    // A sessao principal continua valida. Somente o Realtime fica indisponivel
+    // ate um novo login, sem ampliar a falha para as demais funcoes do ERP.
+    console.warn("[auth] nao foi possivel renovar a sessao Supabase do Realtime:", error);
+    token.supabaseAccessToken = null;
+    token.supabaseRefreshToken = null;
+    token.supabaseAccessTokenExpiresAt = null;
+  }
+
+  return token;
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   providers: [
@@ -169,6 +196,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             setorId: usuarioAplicacao.setorId,
             ativo: true,
             permissoes: usuarioAplicacao.permissoes,
+            supabaseAccessToken: data.session?.access_token ?? null,
+            supabaseRefreshToken: data.session?.refresh_token ?? null,
+            supabaseAccessTokenExpiresAt: (data.session?.expires_at ?? 0) * 1_000 || null,
           } as any;
         } catch (e: any) {
           if (
@@ -207,20 +237,23 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         (token as any).ativo = (user as any).ativo ?? true;
         (token as any).permissoes = Array.isArray((user as any).permissoes) ? (user as any).permissoes : [];
         (token as any).permissoesRefreshedAt = Date.now();
+        (token as any).supabaseAccessToken = (user as any).supabaseAccessToken ?? null;
+        (token as any).supabaseRefreshToken = (user as any).supabaseRefreshToken ?? null;
+        (token as any).supabaseAccessTokenExpiresAt = (user as any).supabaseAccessTokenExpiresAt ?? null;
 
         return token;
       }
 
       if (trigger === "update") {
         try {
-          return await atualizarTokenComUsuarioAtual(token);
+          return await renovarSessaoSupabaseSeNecessario(await atualizarTokenComUsuarioAtual(token));
         } catch (error) {
           console.error("[auth] erro ao atualizar permissoes da sessao:", error);
           (token as any).permissoesRefreshedAt = Date.now();
         }
       }
 
-      return token;
+      return renovarSessaoSupabaseSeNecessario(token);
     },
 
     async session({ session, token }) {
@@ -233,6 +266,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         (session.user as any).ativo = (token as any).ativo ?? true;
         (session.user as any).permissoes = (token as any).permissoes ?? [];
         (session.user as any).permissoesRefreshedAt = (token as any).permissoesRefreshedAt ?? null;
+        (session.user as any).supabaseAccessToken = (token as any).supabaseAccessToken ?? null;
+        (session.user as any).supabaseAccessTokenExpiresAt = (token as any).supabaseAccessTokenExpiresAt ?? null;
       }
 
       return session;
