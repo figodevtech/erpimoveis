@@ -336,8 +336,12 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
       if (response.status === 200) {
         // console.log(response)
         const { data } = response;
-        setselectedCustomer(data.data);
-        console.log("Cliente atualizado:", data.data);
+        // O PUT devolve so as colunas do cliente; veiculos/ordens/telefones
+        // ficam de fora. Substituir o objeto inteiro apagaria as listas que a
+        // tela ja tem em maos e quebraria a aba aberta ate o refetch chegar.
+        setselectedCustomer((prev) =>
+          prev ? { ...prev, ...data.data } : data.data,
+        );
         // O cadastro já foi salvo; a falha aqui é só dos telefones extras.
         try {
           await handleSalvarTelefonesSecundarios(data.data.id);
@@ -1181,8 +1185,8 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {selectedCustomer.veiculos.length > 0 ? (
-                      selectedCustomer.veiculos.map((vehicle) => (
+                    {(selectedCustomer.veiculos?.length ?? 0) > 0 ? (
+                      (selectedCustomer.veiculos ?? []).map((vehicle) => (
                         <TableRow key={vehicle.id} className="hover:cursor-pointer text-center">
                           <TableCell>{vehicle.id}</TableCell>
                           <TableCell>

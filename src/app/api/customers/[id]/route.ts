@@ -230,16 +230,12 @@ export async function PATCH(req: Request, ctx: Params) {
 /* ========================= PUT ========================= */
 
 export async function PUT(req: Request, ctx: Params) {
-  console.log(req, ctx)
-  console.log("teste")
   try {
     await requireClientesEdit();
     const id = await parseId(ctx);
     const body = await req.json().catch(() => ({}));
     const payload = sanitizePayload(body, { strict: true });
 
-    console.log(payload)
-    console.log("teste")
     const { data, error } = await supabaseAdmin
       .from("cliente")
       .update(payload)
