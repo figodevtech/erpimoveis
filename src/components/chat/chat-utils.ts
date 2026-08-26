@@ -135,3 +135,27 @@ export function chatListTime(value: string | null) {
   }
   return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" }).format(date);
 }
+
+export type ChatRealtimeStatus = "connecting" | "connected" | "disconnected" | "unavailable";
+
+const RECONEXAO_BASE_MS = 1_000;
+const RECONEXAO_TETO_MS = 30_000;
+
+/**
+ * Espera antes da proxima tentativa de reconexao: 1s, 2s, 4s, 8s, 16s e 30s
+ * dai em diante. O teto evita que uma queda longa deixe o chat parado por
+ * minutos depois que a rede volta.
+ */
+export function nextReconnectDelay(attempt: number) {
+  const expoente = Math.max(0, Math.trunc(attempt));
+  if (expoente >= 31) return RECONEXAO_TETO_MS;
+  return Math.min(RECONEXAO_TETO_MS, RECONEXAO_BASE_MS * 2 ** expoente);
+}
+
+/**
+ * O aviso reflete apenas o canal de mensagens. A presenca e cosmetica: perde-la
+ * deixa as bolinhas em offline, mas nao significa que mensagens pararam.
+ */
+export function shouldShowRealtimeBanner(status: ChatRealtimeStatus) {
+  return status === "disconnected" || status === "unavailable";
+}

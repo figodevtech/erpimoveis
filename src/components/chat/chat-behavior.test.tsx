@@ -11,7 +11,9 @@ import {
   applyConversationReadCounts,
   createOptimisticMessage,
   mergeChatMessages,
+  nextReconnectDelay,
   preservedScrollTop,
+  shouldShowRealtimeBanner,
 } from "./chat-utils";
 
 const conversation: ConversationSummary = {
@@ -103,4 +105,23 @@ test("leitura atualiza somente a conversa alvo e permite atualizar o badge globa
 
 test("carregar mensagens anteriores preserva a posicao visual", () => {
   assert.equal(preservedScrollTop(35, 600, 980), 415);
+});
+
+test("reconexao espera cada vez mais, com teto de 30 segundos", () => {
+  assert.deepEqual(
+    [0, 1, 2, 3, 4].map(nextReconnectDelay),
+    [1_000, 2_000, 4_000, 8_000, 16_000],
+  );
+  // Uma queda longa nao pode deixar o chat parado por minutos apos a rede voltar.
+  assert.equal(nextReconnectDelay(5), 30_000);
+  assert.equal(nextReconnectDelay(40), 30_000);
+  assert.equal(nextReconnectDelay(-1), 1_000);
+});
+
+test("aviso de conexao reflete somente o canal de mensagens", () => {
+  assert.equal(shouldShowRealtimeBanner("connected"), false);
+  // A primeira conexao nao avisa nada: a tela ainda esta montando.
+  assert.equal(shouldShowRealtimeBanner("connecting"), false);
+  assert.equal(shouldShowRealtimeBanner("disconnected"), true);
+  assert.equal(shouldShowRealtimeBanner("unavailable"), true);
 });

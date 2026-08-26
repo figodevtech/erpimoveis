@@ -24,6 +24,9 @@ export function ChatConversation() {
     refreshConversations,
     handleConversationRead,
     realtimeStatus,
+    realtimeBannerVisible,
+    reconnectRealtime,
+    degradedPollTick,
   } = useChat();
   const conversationId = selectedConversation?.id ?? "";
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
@@ -72,8 +75,11 @@ export function ChatConversation() {
     return () => controller.abort();
   }, [loadInitial]);
 
-  React.useEffect(() => {
-    if (!lastRealtimeEvent || lastRealtimeEvent.event.conversationId !== conversationId) return;
+  // Rele a pagina recente e concilia com o que ja esta na tela, preservando
+  // mensagens otimistas e falhas. Serve ao evento Realtime e tambem ao modo
+  // degradado, quando nao chega evento nenhum.
+  const syncLatest = React.useCallback(() => {
+    if (!conversationId) return undefined;
     let active = true;
     void fetchMessages(conversationId).then((page) => {
       if (!active) return;
@@ -81,7 +87,20 @@ export function ChatConversation() {
       setUnreadRemaining(page.unreadCount);
     }).catch(() => undefined);
     return () => { active = false; };
-  }, [conversationId, lastRealtimeEvent]);
+  }, [conversationId]);
+
+  React.useEffect(() => {
+    if (!lastRealtimeEvent || lastRealtimeEvent.event.conversationId !== conversationId) return;
+    return syncLatest();
+  }, [conversationId, lastRealtimeEvent, syncLatest]);
+
+  const lastPollTickRef = React.useRef(degradedPollTick);
+
+  React.useEffect(() => {
+    if (degradedPollTick === lastPollTickRef.current) return;
+    lastPollTickRef.current = degradedPollTick;
+    return syncLatest();
+  }, [degradedPollTick, syncLatest]);
 
   React.useEffect(() => () => {
     if (readTimerRef.current) window.clearTimeout(readTimerRef.current);
@@ -194,7 +213,20 @@ export function ChatConversation() {
         </div>
       </div>
 
-      <ChatStatusBanner visible={realtimeStatus === "disconnected" || realtimeStatus === "unavailable"}>
+      <ChatStatusBanner
+        visible={realtimeBannerVisible}
+        action={realtimeStatus === "disconnected" ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 rounded-lg px-2 text-[11px] font-semibold text-amber-900 hover:bg-amber-500/15 dark:text-amber-100"
+            onClick={reconnectRealtime}
+          >
+            <RefreshCw aria-hidden="true" className="size-3.5" /> Tentar reconectar
+          </Button>
+        ) : null}
+      >
         Conexão em tempo real interrompida. As mensagens carregadas foram preservadas.
       </ChatStatusBanner>
 

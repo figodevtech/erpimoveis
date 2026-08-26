@@ -343,8 +343,9 @@ Tópicos:
 
 Policies `chat_realtime_receive` e `chat_realtime_presence_track` em `realtime.messages` chamam
 `chat_realtime_topic_allowed`. Broadcast não pode ser enviado pelo browser; insert é permitido apenas
-para Presence no tópico global. O cliente chama `realtime.setAuth(token)` e cria canais com
-`private: true`.
+para Presence no tópico global. O cliente cria os canais com `private: true` e mantém o token válido
+pelo `realtime.accessToken` descrito em [Token do Realtime](#token-do-realtime) — `setAuth(token)` no
+início da conexão sozinho não basta.
 
 Triggers de mensagem e leitura enviam payload mínimo. Ao receber, o frontend reconsulta contador,
 resumo e, quando aplicável, a página recente da conversa. Assim o WebSocket não é fonte de verdade.
@@ -393,10 +394,47 @@ foto depende de `usuario.foto_url`; sem foto cadastrada ou se a imagem falhar, s
 
 ### Queda e retorno da conexão
 
-`CHANNEL_ERROR`, `TIMED_OUT` ou `CLOSED` mostra aviso sem apagar cache, mensagens ou falhas otimistas.
-O Supabase reconecta o socket; em `SUBSCRIBED`, foco, aba visível ou evento `online`, o provider
-revalida contador/conversas e a conversa aberta concilia a página recente. Não há polling agressivo.
-Todos os timers, listeners, `untrack` e canais são limpos no unmount.
+`CHANNEL_ERROR`, `TIMED_OUT` ou `CLOSED` no canal de mensagens marca `disconnected` sem apagar cache,
+mensagens ou falhas otimistas, e agenda uma reconexão própria com espera crescente — 1s, 2s, 4s, 8s,
+16s e teto de 30s ([`nextReconnectDelay`](../../src/components/chat/chat-utils.ts)). Cada tentativa
+**destrói e recria os dois canais**: o `subscribe()` do realtime-js só age sobre canal fechado, então
+reassinar um canal em erro não recupera nada. Foco, aba visível e evento `online` continuam revalidando
+por HTTP e, quando o status é `disconnected`, também encurtam o backoff pedindo tentativa imediata — o
+mesmo que faz o botão “Tentar reconectar” do aviso. `unavailable` (segredo ausente no servidor) não
+retenta, porque nenhuma tentativa passaria. Todos os timers, listeners, `untrack` e canais são limpos
+no unmount.
+
+O status é escrito **somente** pelo canal `chat:user:<id>`. A presença tem falha independente: quando
+ela cai, as bolinhas voltam para offline e a reconexão é agendada, mas o aviso não aparece — perder
+presença não significa que mensagens pararam de chegar. Antes, um `handleStatus` compartilhado deixava
+o último canal a falar decidir, o que tanto exibia o aviso com as mensagens fluindo quanto o escondia
+com o canal de mensagens morto.
+
+O aviso só aparece depois de ~2,5s ininterruptos sem conexão, para que uma oscilação curta não o faça
+piscar, e some no mesmo instante em que o canal volta a `SUBSCRIBED`.
+
+#### Token do Realtime
+
+Os dois canais são `private: true` e o servidor valida a cada join o JWT de
+[`/api/chat/realtime-token`](../../src/app/api/chat/realtime-token/route.ts). Esse token **não pode**
+ser entregue só uma vez com `realtime.setAuth(token)`: o `subscribe()` do realtime-js chama
+`socket.setAuth()` sem argumento em todo join bem-sucedido, e o `SupabaseClient` responde a essa
+chamada com o anon key quando não há sessão do Supabase Auth — substituindo o token do chat no payload
+de rejoin de todos os canais. O efeito era silencioso e fatal: tudo funcionava até a primeira oscilação
+de rede, e a partir daí todo rejoin era recusado, em laço, até o reload da página.
+
+Por isso o cliente é criado com [`chatRealtimeAccessToken`](../../src/lib/chat/realtime-token.ts) em
+`realtime.accessToken` ([`supabase-browser.ts`](../../src/lib/supabase-browser.ts)) — é esse módulo que
+responde àquela chamada interna, devolvendo o token em cache e renovando quando falta menos de 60s para
+expirar. Fica dentro de `realtime` de propósito: na raiz das opções trocaria também o token de
+REST/Storage e transformaria `supabase.auth` em um Proxy que lança.
+
+#### Modo degradado
+
+Com o chat aberto, o status em `disconnected` e a aba visível, o provider relê contador e conversas a
+cada 15 segundos e a conversa aberta reconcilia a página recente pelo mesmo caminho do evento Realtime
+(`fetchMessages` + `mergeChatMessages`, preservando otimistas e falhas). O intervalo para sozinho ao
+reconectar, ao fechar o painel ou ao esconder a aba — fora dessas três condições não há polling.
 
 ## Presença online
 
@@ -637,3 +675,7 @@ Toda implementação futura no chat deve:
   de leitura.
 - **2026-08-26 — Fotos de usuário:** listas, conversas e toasts passaram a consumir a foto pública
   cadastrada em `usuario.foto_url`, mantendo iniciais como fallback.
+- **2026-08-26 — Reconexão do Realtime:** o token do chat deixou de ser sobrescrito pelo anon key nos
+  rejoins, o provider ganhou reconexão própria com backoff, o aviso passou a refletir apenas o canal de
+  mensagens (com carência de 2,5s e botão “Tentar reconectar”) e o chat aberto passa a reler por HTTP a
+  cada 15s enquanto estiver sem Realtime.

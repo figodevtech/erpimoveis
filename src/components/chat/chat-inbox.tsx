@@ -37,6 +37,8 @@ export function ChatInbox() {
     showNewConversation,
     isOnline,
     realtimeStatus,
+    realtimeBannerVisible,
+    reconnectRealtime,
   } = useChat();
   const [search, setSearch] = React.useState("");
   const filtered = React.useMemo(() => filterConversations(conversations, search), [conversations, search]);
@@ -61,7 +63,20 @@ export function ChatInbox() {
         </div>
       </div>
 
-      <ChatStatusBanner visible={realtimeStatus === "disconnected" || realtimeStatus === "unavailable"}>
+      <ChatStatusBanner
+        visible={realtimeBannerVisible}
+        action={realtimeStatus === "disconnected" ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 rounded-lg px-2 text-[11px] font-semibold text-amber-900 hover:bg-amber-500/15 dark:text-amber-100"
+            onClick={reconnectRealtime}
+          >
+            <RefreshCw aria-hidden="true" className="size-3.5" /> Tentar reconectar
+          </Button>
+        ) : null}
+      >
         Tempo real indisponível. Os dados serão conferidos ao retomar a conexão.
       </ChatStatusBanner>
 

@@ -61,7 +61,16 @@ export function ChatEmptyState({
   );
 }
 
-export function ChatStatusBanner({ visible, children }: { visible: boolean; children: React.ReactNode }) {
+export function ChatStatusBanner({
+  visible,
+  action,
+  children,
+}: {
+  visible: boolean;
+  /** Acao opcional a direita do texto, como "Tentar reconectar". */
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   const reduceMotion = useReducedMotion();
   return (
     <AnimatePresence initial={false}>
@@ -75,7 +84,8 @@ export function ChatStatusBanner({ visible, children }: { visible: boolean; chil
           className="flex items-start gap-2 border-y border-amber-500/15 bg-amber-500/[0.08] px-4 py-2 text-[11px] leading-relaxed text-amber-800 dark:text-amber-200"
         >
           <WifiOff aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
-          <span>{children}</span>
+          <span className="min-w-0 flex-1">{children}</span>
+          {action ? <div className="-my-1 shrink-0">{action}</div> : null}
         </motion.div>
       ) : null}
     </AnimatePresence>
