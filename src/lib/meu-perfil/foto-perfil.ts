@@ -2,13 +2,16 @@ export const FOTO_PERFIL_MAX_BYTES = 8 * 1024 * 1024;
 export const FOTO_PERFIL_OUTPUT_SIZE = 512;
 export const FOTO_PERFIL_BUCKET = "usuario-avatar";
 
+// HEIC/HEIF ficam de fora de proposito: o libvips distribuido com o sharp traz
+// libheif apenas com o codec AV1, entao AVIF decodifica e HEIC (HEVC) falha com
+// "compression format has not been built in". Recusar aqui devolve uma mensagem
+// util em vez do erro generico de processamento; alem disso, com o `accept` sem
+// HEIC o iOS converte a foto para JPEG durante o upload.
 const TIPOS_ACEITOS = new Set([
   "image/jpeg",
   "image/png",
   "image/webp",
   "image/avif",
-  "image/heic",
-  "image/heif",
 ]);
 
 export type ErroValidacaoFoto = {
@@ -26,7 +29,7 @@ export function validarFotoSelecionada(file: File): ErroValidacaoFoto | null {
   if (!TIPOS_ACEITOS.has(file.type.toLowerCase())) {
     return {
       status: 400,
-      mensagem: "Use uma imagem JPG, PNG, WebP, AVIF ou HEIC.",
+      mensagem: "Use uma imagem JPG, PNG, WebP ou AVIF.",
     };
   }
   return null;

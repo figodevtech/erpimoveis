@@ -12,7 +12,7 @@ function arquivo(tipo: string, tamanho = 3): File {
 }
 
 test("aceita os formatos de imagem suportados", () => {
-  for (const tipo of ["image/jpeg", "image/png", "image/webp", "image/avif", "image/heic", "image/heif"]) {
+  for (const tipo of ["image/jpeg", "image/png", "image/webp", "image/avif"]) {
     assert.equal(validarFotoSelecionada(arquivo(tipo)), null);
   }
 });
@@ -24,6 +24,9 @@ test("recusa arquivo vazio, grande ou de formato nao suportado", () => {
     /8 MB/,
   );
   assert.match(validarFotoSelecionada(arquivo("image/svg+xml"))?.mensagem ?? "", /JPG/);
+  // HEIC nao decodifica no libvips distribuido com o sharp; recusar cedo evita
+  // que o usuario receba o erro generico de processamento.
+  assert.match(validarFotoSelecionada(arquivo("image/heic"))?.mensagem ?? "", /JPG/);
 });
 
 test("gera caminho isolado por usuario e so reconhece arquivos do proprio diretorio", () => {

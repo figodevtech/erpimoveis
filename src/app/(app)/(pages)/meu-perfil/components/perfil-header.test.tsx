@@ -27,7 +27,8 @@ test("card renderiza o controle que abre o seletor nativo", () => {
 
   assert.match(html, /type="file"/);
   assert.match(html, /Alterar foto de Maria Santos/);
-  assert.match(html, /image\/heic/);
+  assert.match(html, /image\/avif/);
+  assert.doesNotMatch(html, /image\/heic/);
 });
 
 test("card mantem iniciais como fallback e bloqueia o lapis durante o envio", () => {

@@ -67,9 +67,16 @@ substituição segura. O bucket público `usuario-avatar` aceita somente WebP de
 significa que a leitura pela URL do avatar não exige token. Inserção, atualização e exclusão não têm
 policy para `anon` ou `authenticated` e ocorrem somente na API com `service_role`.
 
-Entradas JPG, PNG, WebP, AVIF, HEIC e HEIF de até 8 MiB são aceitas. O servidor usa Sharp, aplica a
-orientação EXIF, recorta centralmente por atenção para 512 × 512, converte para WebP com qualidade 84 e
-remove metadados do original. Arquivos inválidos ou que não possam ser decodificados retornam `400`.
+Entradas JPG, PNG, WebP e AVIF de até 8 MiB são aceitas. O servidor usa Sharp, aplica a orientação
+EXIF, recorta centralmente por atenção para 512 × 512, converte para WebP com qualidade 84 e remove
+metadados do original. Arquivos inválidos ou que não possam ser decodificados retornam `400`.
+
+**HEIC/HEIF são recusados na validação.** O libvips distribuído com o Sharp traz libheif compilado
+somente com o codec AV1: AVIF decodifica, mas HEIC (HEVC) falha com “compression format has not been
+built in”. Recusar o tipo antes do processamento devolve uma mensagem útil em vez do erro genérico —
+e, com o `accept` do input sem HEIC, o iOS converte a foto para JPEG durante o próprio upload.
+Suportar HEIC exigiria um libvips personalizado com decodificador HEVC, o que está **fora do escopo
+atual**.
 
 Cada versão usa path aleatório dentro do diretório do usuário, evitando cache antigo. A API grava o
 novo objeto, atualiza o banco e só então remove o anterior. Se banco falhar, remove o novo objeto. Uma
@@ -109,3 +116,5 @@ Consulte [`chat.md`](./chat.md).
 - **2026-08-26:** upload imediato de foto no card, suporte à administração de perfis autorizados,
   normalização WebP no servidor, substituição do arquivo anterior, persistência em `usuario` e consumo
   da imagem pelo chat interno.
+- **2026-08-26 — Formatos aceitos:** HEIC e HEIF saíram da validação e do `accept`, porque o libvips
+  do Sharp não decodifica HEVC; JPG, PNG, WebP e AVIF continuam aceitos.

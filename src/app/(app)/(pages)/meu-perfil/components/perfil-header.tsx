@@ -105,7 +105,7 @@ export function PerfilHeader({
                 <input
                   ref={inputFotoRef}
                   type="file"
-                  accept="image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif"
+                  accept="image/jpeg,image/png,image/webp,image/avif"
                   className="sr-only"
                   tabIndex={-1}
                   onChange={(event) => void selecionarFoto(event)}
