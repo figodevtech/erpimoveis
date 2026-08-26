@@ -4,14 +4,30 @@ import * as React from "react";
 import { useSession } from "next-auth/react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
-import type { ChatRealtimeEvent, ConversationSummary } from "@/lib/chat/contracts";
+import type { ChatPushStatus, ChatRealtimeEvent, ConversationSummary } from "@/lib/chat/contracts";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import {
   clearChatRealtimeToken,
   setChatRealtimeTokenSource,
   storeChatRealtimeToken,
 } from "@/lib/chat/realtime-token";
-import { fetchConversations, fetchMessages, fetchRealtimeToken, fetchUnreadCount } from "./chat-api";
+import type { ChatPushSupport } from "@/lib/chat/push-client";
+import {
+  currentNotificationPermission,
+  currentPushSubscription,
+  detectChatPushSupport,
+  removeChatPushSubscription,
+  requestChatPushSubscription,
+} from "@/lib/chat/push-client";
+import {
+  deletePushSubscription,
+  fetchConversations,
+  fetchMessages,
+  fetchPushStatus,
+  fetchRealtimeToken,
+  fetchUnreadCount,
+  postPushSubscription,
+} from "./chat-api";
 import {
   dismissIncomingChatMessageToast,
   isIncomingMessageNotification,
@@ -61,7 +77,28 @@ type ChatContextValue = {
   degradedPollTick: number;
   lastRealtimeEvent: { sequence: number; event: ChatRealtimeEvent } | null;
   handleConversationRead: (conversationId: string, conversationUnread: number, globalUnread: number) => void;
+  /** Conversa e mensagem sugeridas por um deep link de notificacao. */
+  pendingMessageFocus: PendingMessageFocus;
+  consumePendingMessageFocus: () => void;
+  push: ChatPushState;
 };
+
+type PendingMessageFocus = { conversationId: string; messageId: string | null } | null;
+
+export type ChatPushState = {
+  support: ChatPushSupport;
+  permission: NotificationPermission | "unsupported";
+  /** `null` enquanto o status do servidor ainda nao foi lido. */
+  status: ChatPushStatus | null;
+  enabledOnThisDevice: boolean;
+  busy: boolean;
+  error: string | null;
+  enable: () => Promise<void>;
+  disable: () => Promise<void>;
+};
+
+/** Duas tentativas bastam: um deep link para conversa alheia nunca aparece. */
+const MAX_TENTATIVAS_DEEP_LINK = 2;
 
 const ChatContext = React.createContext<ChatContextValue | null>(null);
 
@@ -94,6 +131,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   // retorno de foco pedem uma tentativa imediata sem recriar a conexao.
   const reconnectNowRef = React.useRef<(() => void) | null>(null);
   const notifiedMessageIdsRef = React.useRef(new Set<string>());
+  const [pendingMessageFocus, setPendingMessageFocus] = React.useState<PendingMessageFocus>(null);
+  const tentativasDeepLinkRef = React.useRef(0);
+  const [pushSupport, setPushSupport] = React.useState<ChatPushSupport>({ state: "supported" });
+  const [pushPermission, setPushPermission] = React.useState<NotificationPermission | "unsupported">("default");
+  const [pushStatus, setPushStatus] = React.useState<ChatPushStatus | null>(null);
+  const [pushEnabledHere, setPushEnabledHere] = React.useState(false);
+  const [pushBusy, setPushBusy] = React.useState(false);
+  const [pushError, setPushError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     openRef.current = open;
@@ -409,6 +454,171 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setView({ type: "conversation", conversationId: conversation.id });
   }, []);
 
+  const consumePendingMessageFocus = React.useCallback(() => {
+    setPendingMessageFocus(null);
+    tentativasDeepLinkRef.current = 0;
+  }, []);
+
+  const solicitarFoco = React.useCallback((conversationId: string, messageId: string | null) => {
+    if (!conversationId) return;
+    tentativasDeepLinkRef.current = 0;
+    setPendingMessageFocus({ conversationId, messageId });
+    setOpenState(true);
+  }, []);
+
+  React.useEffect(() => {
+    // Deep link do push em partida fria: os parametros apenas orientam a
+    // interface e sao removidos logo em seguida para nao reabrir sem parar.
+    if (typeof window === "undefined" || sessionStatus !== "authenticated") return;
+    const url = new URL(window.location.href);
+    const conversationId = url.searchParams.get("chat");
+    if (!conversationId) return;
+    const messageId = url.searchParams.get("message");
+
+    url.searchParams.delete("chat");
+    url.searchParams.delete("message");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    solicitarFoco(conversationId, messageId);
+  }, [sessionStatus, solicitarFoco]);
+
+  React.useEffect(() => {
+    // Clique na notificacao com o ERP ja aberto: o service worker avisa a aba.
+    if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
+    const handler = (event: MessageEvent) => {
+      const data = event.data as { type?: string; conversationId?: string; messageId?: string } | null;
+      if (data?.type !== "chat-open-conversation" || !data.conversationId) return;
+      solicitarFoco(data.conversationId, data.messageId ?? null);
+    };
+    navigator.serviceWorker.addEventListener("message", handler);
+    return () => navigator.serviceWorker.removeEventListener("message", handler);
+  }, [solicitarFoco]);
+
+  React.useEffect(() => {
+    if (!pendingMessageFocus) return;
+    const conversation = conversations.find((item) => item.id === pendingMessageFocus.conversationId);
+
+    if (conversation) {
+      showConversation(conversation);
+      // Sem mensagem alvo o pedido termina aqui; com ela, a conversa consome.
+      if (!pendingMessageFocus.messageId) consumePendingMessageFocus();
+      return;
+    }
+
+    // A autorizacao continua sendo da API: se a conversa nao for do usuario,
+    // ela simplesmente nunca aparece e o pedido e descartado.
+    if (tentativasDeepLinkRef.current >= MAX_TENTATIVAS_DEEP_LINK) {
+      consumePendingMessageFocus();
+      return;
+    }
+    tentativasDeepLinkRef.current += 1;
+    void refreshConversations();
+  }, [
+    consumePendingMessageFocus,
+    conversations,
+    pendingMessageFocus,
+    refreshConversations,
+    showConversation,
+  ]);
+
+  React.useEffect(() => {
+    if (sessionStatus !== "authenticated" || !currentUserId) return;
+    let ativo = true;
+
+    const carregar = async () => {
+      const support = detectChatPushSupport();
+      if (!ativo) return;
+      setPushSupport(support);
+      setPushPermission(currentNotificationPermission());
+
+      try {
+        const status = await fetchPushStatus();
+        if (!ativo) return;
+        setPushStatus(status);
+      } catch {
+        if (ativo) setPushStatus(null);
+      }
+
+      if (support.state !== "supported") return;
+      try {
+        const subscription = await currentPushSubscription();
+        if (ativo) setPushEnabledHere(Boolean(subscription));
+      } catch {
+        if (ativo) setPushEnabledHere(false);
+      }
+    };
+
+    void carregar();
+    return () => { ativo = false; };
+  }, [currentUserId, sessionStatus]);
+
+  const enablePush = React.useCallback(async () => {
+    setPushBusy(true);
+    setPushError(null);
+    try {
+      const support = detectChatPushSupport();
+      setPushSupport(support);
+      if (support.state !== "supported") {
+        setPushError(support.reason);
+        return;
+      }
+
+      const status = await fetchPushStatus();
+      setPushStatus(status);
+      if (!status.supported || !status.vapidPublicKey) {
+        setPushError("O servidor ainda não está configurado para enviar notificações.");
+        return;
+      }
+
+      const resultado = await requestChatPushSubscription(status.vapidPublicKey);
+      setPushPermission(resultado.permission);
+
+      if (resultado.permission === "denied") {
+        setPushError(
+          "As notificações estão bloqueadas. Libere o ERP nas configurações do navegador ou do sistema e ative novamente.",
+        );
+        return;
+      }
+      if (!resultado.subscription) {
+        setPushError("A permissão não foi concedida. Nenhuma notificação será enviada.");
+        return;
+      }
+
+      setPushStatus(await postPushSubscription(resultado.subscription));
+      setPushEnabledHere(true);
+    } catch {
+      setPushError("Não foi possível ativar as notificações agora.");
+    } finally {
+      setPushBusy(false);
+    }
+  }, []);
+
+  const disablePush = React.useCallback(async () => {
+    setPushBusy(true);
+    setPushError(null);
+    try {
+      const removida = await removeChatPushSubscription();
+      // Somente este dispositivo sai; celular, tablet e outros navegadores do
+      // mesmo usuario continuam recebendo.
+      if (removida) setPushStatus(await deletePushSubscription(removida.endpoint));
+      setPushEnabledHere(false);
+    } catch {
+      setPushError("Não foi possível desativar as notificações agora.");
+    } finally {
+      setPushBusy(false);
+    }
+  }, []);
+
+  const push = React.useMemo<ChatPushState>(() => ({
+    support: pushSupport,
+    permission: pushPermission,
+    status: pushStatus,
+    enabledOnThisDevice: pushEnabledHere,
+    busy: pushBusy,
+    error: pushError,
+    enable: enablePush,
+    disable: disablePush,
+  }), [disablePush, enablePush, pushBusy, pushEnabledHere, pushError, pushPermission, pushStatus, pushSupport]);
+
   const reconnectRealtime = React.useCallback(() => {
     reconnectNowRef.current?.();
   }, []);
@@ -448,6 +658,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         degradedPollTick,
         lastRealtimeEvent,
         handleConversationRead,
+        pendingMessageFocus,
+        consumePendingMessageFocus,
+        push,
       }}
     >
       {children}

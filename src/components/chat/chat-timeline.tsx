@@ -12,7 +12,9 @@ import {
   chatDateLabel,
   chatMessageStableKey,
   preservedScrollTop,
+  shouldRevealChatMessageControls,
 } from "./chat-utils";
+import type { ChatMessageBubbleActions } from "./chat-message-bubble";
 import { ChatMessageBubble } from "./chat-message-bubble";
 
 export function ChatTimeline({
@@ -27,6 +29,8 @@ export function ChatTimeline({
   onLoadOlder,
   onReachedLatest,
   onRetry,
+  actions,
+  highlightedMessageId,
 }: {
   messages: ChatMessage[];
   currentUserId: string;
@@ -39,13 +43,23 @@ export function ChatTimeline({
   onLoadOlder: () => Promise<void>;
   onReachedLatest: (lastMessageId: string) => void;
   onRetry: (message: ChatMessage) => void;
+  actions?: ChatMessageBubbleActions;
+  /** Mensagem alcancada por uma citacao; recebe destaque temporario. */
+  highlightedMessageId?: string | null;
 }) {
   const viewportRef = React.useRef<HTMLDivElement>(null);
   const reduceMotion = useReducedMotion();
   const initializedRef = React.useRef(false);
   const previousLastIdRef = React.useRef<string | null>(null);
   const nearBottomRef = React.useRef(true);
+  const pointerStartRef = React.useRef<{
+    pointerType: string;
+    messageKey: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const [newBelow, setNewBelow] = React.useState(false);
+  const [selectedMessageKey, setSelectedMessageKey] = React.useState<string | null>(null);
   const [animationSnapshot, setAnimationSnapshot] = React.useState<{
     keys: string[];
     ready: boolean;
@@ -107,9 +121,85 @@ export function ChatTimeline({
     });
   }, [currentMessageKeys, loadingInitial]);
 
+  React.useEffect(() => {
+    setSelectedMessageKey((current) => (
+      current && currentMessageKeys.includes(current) ? current : null
+    ));
+  }, [currentMessageKeys]);
+
+  React.useEffect(() => {
+    const dismissOutside = (event: PointerEvent) => {
+      if (event.pointerType === "mouse" || !selectedMessageKey) return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (viewportRef.current?.contains(target)) return;
+      if (target.closest(
+        "[data-slot='dropdown-menu-content'], [data-slot='popover-content'], [data-slot='alert-dialog-content']",
+      )) return;
+      setSelectedMessageKey(null);
+    };
+    document.addEventListener("pointerdown", dismissOutside, true);
+    return () => document.removeEventListener("pointerdown", dismissOutside, true);
+  }, [selectedMessageKey]);
+
+  const messageElementFrom = (target: EventTarget | null) => (
+    target instanceof Element
+      ? target.closest<HTMLElement>("[data-chat-message-key]")
+      : null
+  );
+
+  const isInteractiveMessageTarget = (target: EventTarget | null) => Boolean(
+    target instanceof Element
+    && target.closest(
+      "button, a, input, textarea, select, [role='button'], [data-chat-message-control='true']",
+    ),
+  );
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === "mouse") return;
+    const messageElement = messageElementFrom(event.target);
+    if (!messageElement) {
+      pointerStartRef.current = null;
+      setSelectedMessageKey(null);
+      return;
+    }
+    if (isInteractiveMessageTarget(event.target)) {
+      pointerStartRef.current = null;
+      return;
+    }
+    const messageKey = messageElement.dataset.chatMessageKey;
+    if (!messageKey) return;
+    pointerStartRef.current = {
+      pointerType: event.pointerType,
+      messageKey,
+      x: event.clientX,
+      y: event.clientY,
+    };
+  };
+
+  const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    const start = pointerStartRef.current;
+    pointerStartRef.current = null;
+    if (!start) return;
+    const endMessageKey = messageElementFrom(event.target)?.dataset.chatMessageKey ?? null;
+    if (shouldRevealChatMessageControls({
+      pointerType: start.pointerType,
+      startMessageKey: start.messageKey,
+      endMessageKey,
+      deltaX: event.clientX - start.x,
+      deltaY: event.clientY - start.y,
+      interactive: isInteractiveMessageTarget(event.target),
+    })) {
+      setSelectedMessageKey(start.messageKey);
+    }
+  };
+
   const handleScroll = () => {
     const viewport = viewportRef.current;
     if (!viewport) return;
+
+    pointerStartRef.current = null;
+    setSelectedMessageKey(null);
 
     if (viewport.scrollTop < 80 && hasMore && !loadingOlder) {
       const previousHeight = viewport.scrollHeight;
@@ -142,6 +232,16 @@ export function ChatTimeline({
     return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, [reportLatestIfReached]);
 
+  // Clicar na citacao rola ate a mensagem original assim que ela existir na
+  // lista; quem carrega as paginas anteriores e a conversa.
+  React.useEffect(() => {
+    if (!highlightedMessageId) return;
+    const viewport = viewportRef.current;
+    const alvo = viewport?.querySelector<HTMLElement>(`[data-message-id="${highlightedMessageId}"]`);
+    if (!alvo) return;
+    alvo.scrollIntoView({ block: "center", behavior: reduceMotion ? "auto" : "smooth" });
+  }, [highlightedMessageId, messages, reduceMotion]);
+
   const jumpToLatest = () => {
     const viewport = viewportRef.current;
     if (!viewport) return;
@@ -166,9 +266,13 @@ export function ChatTimeline({
       <div
         ref={viewportRef}
         onScroll={handleScroll}
+        onPointerDownCapture={handlePointerDown}
+        onPointerUpCapture={handlePointerUp}
+        onPointerCancel={() => { pointerStartRef.current = null; }}
         className="absolute inset-0 overflow-y-auto overscroll-contain px-3 py-4"
         aria-live="polite"
         aria-label="Histórico da conversa"
+        data-chat-touch-dismiss-surface="true"
       >
         {loadingOlder ? (
           <div className="flex justify-center pb-3"><span className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-card/75 px-3 py-1.5 text-[11px] text-muted-foreground shadow-sm backdrop-blur-sm"><Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> Carregando anteriores</span></div>
@@ -212,7 +316,20 @@ export function ChatTimeline({
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
                 >
-                  <ChatMessageBubble message={message} own={message.senderId === currentUserId} onRetry={onRetry} />
+                  <ChatMessageBubble
+                    message={message}
+                    own={message.senderId === currentUserId}
+                    currentUserId={currentUserId}
+                    onRetry={onRetry}
+                    actions={actions}
+                    highlighted={highlightedMessageId === message.id}
+                    selected={selectedMessageKey === stableKey}
+                    onInteractionOpenChange={(open) => {
+                      setSelectedMessageKey((current) => (
+                        open ? stableKey : current === stableKey ? null : current
+                      ));
+                    }}
+                  />
                 </motion.div>
               </React.Fragment>
             );

@@ -46,8 +46,24 @@ function postgresStatus(error: { code?: string; message?: string }) {
   const message = error.message ?? "";
   if (message.includes("CHAT_FORBIDDEN") || error.code === "42501") return 403;
   if (message.includes("INACTIVE_USER")) return 403;
-  if (message.includes("CHAT_RECIPIENT_UNAVAILABLE")) return 409;
-  if (message.includes("CHAT_EMPTY_MESSAGE") || message.includes("CHAT_MESSAGE_TOO_LONG")) return 400;
+  if (message.includes("CHAT_PUSH_NOT_CONFIGURED")) return 503;
+  if (message.includes("CHAT_MESSAGE_NOT_FOUND")) return 404;
+  if (message.includes("CHAT_AUDIO_UNAVAILABLE")) return 404;
+  if (message.includes("CHAT_AUDIO_TOO_LARGE")) return 413;
+  // Recusas definitivas de estado: a interface nao deve oferecer "tentar
+  // novamente" para prazo vencido nem para mensagem ja excluida.
+  if (
+    message.includes("CHAT_RECIPIENT_UNAVAILABLE")
+    || message.includes("CHAT_EDIT_WINDOW_EXPIRED")
+    || message.includes("CHAT_DELETE_WINDOW_EXPIRED")
+    || message.includes("CHAT_MESSAGE_NOT_EDITABLE")
+    || message.includes("CHAT_MESSAGE_UNAVAILABLE")
+  ) return 409;
+  if (
+    message.includes("CHAT_EMPTY_MESSAGE")
+    || message.includes("CHAT_MESSAGE_TOO_LONG")
+    || message.includes("CHAT_AUDIO_TOO_LONG")
+  ) return 400;
   if (message.includes("CHAT_INVALID_")) return 400;
   return 500;
 }

@@ -5,7 +5,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { ChatPresenceIndicator } from "./chat-presence-indicator";
 import { UnreadBadge } from "./unread-badge";
-import { chatListTime, userInitials } from "./chat-utils";
+import { chatListTime, chatMessageSummaryText, userInitials } from "./chat-utils";
 
 export function ChatConversationItem({
   conversation,
@@ -54,7 +54,16 @@ export function ChatConversationItem({
         <div className="mt-1 flex items-center gap-2">
           <p className={cn("min-w-0 flex-1 truncate text-xs", conversation.unreadCount > 0 ? "font-medium text-foreground/80" : "text-muted-foreground")}>
             {conversation.lastMessage ? (
-              <>{ownLastMessage ? <span className="font-medium">Você: </span> : null}{conversation.lastMessage.content}</>
+              <>
+                {ownLastMessage ? <span className="font-medium">Você: </span> : null}
+                <span className={cn(conversation.lastMessage.deleted && "italic")}>
+                  {chatMessageSummaryText({
+                    type: conversation.lastMessage.type,
+                    content: conversation.lastMessage.content,
+                    deleted: conversation.lastMessage.deleted,
+                  })}
+                </span>
+              </>
             ) : (
               "Conversa iniciada"
             )}

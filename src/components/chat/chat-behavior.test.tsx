@@ -89,7 +89,7 @@ test("falha temporaria oferece tentar novamente", () => {
     sendStatus: "failed",
     error: "Não foi possível enviar.",
   };
-  const html = renderToStaticMarkup(<ChatMessageBubble message={failed} own onRetry={() => undefined} />);
+  const html = renderToStaticMarkup(<ChatMessageBubble message={failed} own currentUserId="10000000-0000-4000-8000-000000000001" onRetry={() => undefined} />);
   assert.match(html, /role="alert"/);
   assert.match(html, /Tentar novamente/);
 });

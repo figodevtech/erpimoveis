@@ -6,6 +6,7 @@ import { AlertCircle, MessageCirclePlus, MessagesSquare, RefreshCw, SearchX } fr
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChatConversationItem } from "./chat-conversation-item";
+import { ChatPushSettings } from "./chat-push-settings";
 import { useChat } from "./chat-provider";
 import { filterConversations } from "./chat-utils";
 import { ChatEmptyState, ChatSearchField, ChatStatusBanner } from "./chat-visuals";
@@ -79,6 +80,8 @@ export function ChatInbox() {
       >
         Tempo real indisponível. Os dados serão conferidos ao retomar a conexão.
       </ChatStatusBanner>
+
+      <ChatPushSettings />
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1.5 py-1.5">
         {conversationsLoading && conversations.length === 0 ? <InboxSkeleton /> : null}

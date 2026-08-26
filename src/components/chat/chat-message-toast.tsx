@@ -5,6 +5,7 @@ import { MessageCircle, X } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { ChatMessage, ChatRealtimeEvent, ConversationSummary } from "@/lib/chat/contracts";
+import { chatMessagePreviewLabel } from "@/lib/chat/contracts";
 import { toast } from "@/lib/toast";
 import { userInitials } from "./chat-utils";
 
@@ -26,6 +27,17 @@ export function chatToastPreview(content: string) {
   const normalized = content.trim().replace(/\s+/g, " ");
   if (normalized.length <= CHAT_TOAST_PREVIEW_LENGTH) return normalized;
   return `${normalized.slice(0, CHAT_TOAST_PREVIEW_LENGTH - 1).trimEnd()}…`;
+}
+
+/** Mensagem de voz e mensagem excluida nao tem texto para mostrar no toast. */
+export function chatToastMessageText(message: Pick<ChatMessage, "type" | "content" | "deletedForEveryoneAt">) {
+  return chatToastPreview(
+    chatMessagePreviewLabel({
+      type: message.type,
+      content: message.content,
+      deleted: Boolean(message.deletedForEveryoneAt),
+    }),
+  );
 }
 
 export function ChatIncomingMessageToast({
@@ -69,7 +81,7 @@ export function ChatIncomingMessageToast({
             </p>
           ) : null}
           <p className="mt-2 line-clamp-6 whitespace-pre-wrap break-words text-[13px] leading-relaxed text-white/95 [overflow-wrap:anywhere]">
-            {chatToastPreview(message.content)}
+            {chatToastMessageText(message)}
           </p>
         </div>
       </div>

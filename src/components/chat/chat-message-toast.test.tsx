@@ -34,9 +34,15 @@ const message: ChatMessage = {
   id: "30000000-0000-4000-8000-000000000001",
   conversationId: conversation.id,
   senderId,
+  type: "TEXT",
   content: "O veículo já está pronto para retirada.",
   clientMessageId: "40000000-0000-4000-8000-000000000001",
   createdAt: "2026-08-26T12:00:00.000Z",
+  editedAt: null,
+  deletedForEveryoneAt: null,
+  reply: null,
+  audio: null,
+  reactions: [],
   sendStatus: "sent",
 };
 
@@ -81,6 +87,22 @@ test("toast omite a linha de setor quando o remetente nao possui setor", () => {
     />,
   );
   assert.doesNotMatch(html, /Sem setor/);
+});
+
+test("toast de mensagem de voz mostra rotulo em vez de conteudo vazio", () => {
+  const html = renderToStaticMarkup(
+    <ChatIncomingMessageToast
+      conversation={conversation}
+      message={{
+        ...message,
+        type: "VOICE",
+        content: "",
+        audio: { mimeType: "audio/webm", sizeBytes: 2048, durationMs: 4_000 },
+      }}
+      onDismiss={() => undefined}
+    />,
+  );
+  assert.match(html, /Mensagem de voz/);
 });
 
 test("previa preserva o maximo util sem deixar o toast crescer indefinidamente", () => {

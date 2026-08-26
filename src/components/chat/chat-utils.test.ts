@@ -45,9 +45,15 @@ test("resposta e evento realtime conciliam a mensagem otimista sem duplicar", ()
     id: "optimistic:client-1",
     conversationId: conversation.id,
     senderId: "10000000-0000-4000-8000-000000000001",
+    type: "TEXT",
     content: "Teste",
     clientMessageId: "30000000-0000-4000-8000-000000000001",
     createdAt: "2026-08-25T18:00:00.000Z",
+    editedAt: null,
+    deletedForEveryoneAt: null,
+    reply: null,
+    audio: null,
+    reactions: [],
     sendStatus: "sending",
   };
   const persisted: ChatMessage = {
@@ -81,9 +87,15 @@ test("chave visual permanece estavel na conciliacao da mensagem otimista", () =>
     id: "optimistic:client-visual",
     conversationId: conversation.id,
     senderId: "10000000-0000-4000-8000-000000000001",
+    type: "TEXT",
     content: "Teste visual",
     clientMessageId: "30000000-0000-4000-8000-000000000099",
     createdAt: "2026-08-25T18:00:00.000Z",
+    editedAt: null,
+    deletedForEveryoneAt: null,
+    reply: null,
+    audio: null,
+    reactions: [],
     sendStatus: "sending",
   };
   const persisted = { ...optimistic, id: "40000000-0000-4000-8000-000000000099", sendStatus: "sent" as const };

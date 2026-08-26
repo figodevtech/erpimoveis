@@ -18,6 +18,7 @@
     "localidades:gerar": "node scripts/localidades/gerar-municipios.mjs",
     "db:status": "tsx scripts/db/status.ts",
     "db:test:chat-migration": "tsx scripts/db/test-chat-migration.ts",
+    "db:test:chat-fase2": "tsx scripts/db/test-chat-fase2-migration.ts",
     "db:test:chat-realtime": "tsx scripts/db/test-chat-realtime.ts",
     "db:validar:os-finalizado": "tsx scripts/db/validar-os-finalizado-em.ts",
     "db:test:sql": "tsx scripts/db/test-sql.ts",
@@ -108,6 +109,7 @@
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.3.1",
     "vaul": "^1.1.2",
+    "web-push": "^3.6.7",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "xml-crypto": "^6.1.2",
     "zod": "^3.25.76"
@@ -123,6 +125,7 @@
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/web-push": "^3.6.4",
     "eslint": "^9",
     "eslint-config-next": "^16.0.8",
     "pg": "^8.22.0",
