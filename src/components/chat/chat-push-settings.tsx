@@ -47,7 +47,7 @@ export function ChatPushSettings() {
     <section
       data-chat-push-state={visualState}
       className={cn(
-        "mx-3 mt-2 overflow-hidden rounded-2xl border px-3 py-3 text-[11px] leading-relaxed shadow-xs transition-[background-color,border-color,box-shadow] duration-200",
+        "mx-4 mt-2 overflow-hidden rounded-2xl border px-3 py-3 text-[11px] leading-relaxed shadow-xs transition-[background-color,border-color,box-shadow] duration-200",
         visualState === "active" && "border-primary/25 bg-primary/[0.07] shadow-primary/5",
         visualState === "busy" && "border-primary/20 bg-accent/60",
         visualState === "denied" && "border-destructive/20 bg-destructive/[0.05]",

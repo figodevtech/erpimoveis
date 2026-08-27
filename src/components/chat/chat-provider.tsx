@@ -39,6 +39,7 @@ import { applyConversationReadCounts, nextReconnectDelay } from "./chat-utils";
 export type ChatView =
   | { type: "inbox" }
   | { type: "new-conversation" }
+  | { type: "settings" }
   | { type: "conversation"; conversationId: string };
 
 type RealtimeStatus = ChatRealtimeStatus;
@@ -62,6 +63,7 @@ type ChatContextValue = {
   view: ChatView;
   showInbox: () => void;
   showNewConversation: () => void;
+  showSettings: () => void;
   showConversation: (conversation: ConversationSummary) => void;
   selectedConversation: ConversationSummary | null;
   conversations: ConversationSummary[];
@@ -643,6 +645,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           setSelectedConversation(null);
         },
         showNewConversation: () => setView({ type: "new-conversation" }),
+        showSettings: () => setView({ type: "settings" }),
         showConversation,
         selectedConversation,
         conversations,

@@ -263,14 +263,20 @@ export function ChatComposer({
               >
                 <AnimatePresence initial={false} mode="wait">
                   <motion.span
-                    key={ocupado ? "ocupado" : editing ? "salvar" : "enviar"}
+                    key={editSaving ? "salvando" : editing ? "salvar" : "enviar"}
                     initial={{ opacity: 0, scale: reduceMotion ? 1 : 0.8 }}
                     animate={{ opacity: 1, scale: 1 }}
                     exit={{ opacity: 0, scale: reduceMotion ? 1 : 0.8 }}
                     transition={{ duration: reduceMotion ? 0.06 : 0.14 }}
                     className="inline-flex"
                   >
-                    {ocupado ? (
+                    {/*
+                      O spinner ficou só na edição, que espera a confirmação do
+                      servidor antes de trocar o conteúdo. O envio de texto é
+                      otimista: a mensagem já está na timeline com o tique
+                      único, então girar aqui seria uma segunda espera na tela.
+                    */}
+                    {editSaving ? (
                       <Loader2 className="size-4 animate-spin" aria-hidden="true" />
                     ) : editing ? (
                       <Check className="size-4" aria-hidden="true" />

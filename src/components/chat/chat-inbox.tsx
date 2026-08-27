@@ -1,12 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { AlertCircle, MessageCirclePlus, MessagesSquare, RefreshCw, SearchX } from "lucide-react";
+import { AlertCircle, MessageCirclePlus, MessagesSquare, RefreshCw, SearchX, Settings } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChatConversationItem } from "./chat-conversation-item";
-import { ChatPushSettings } from "./chat-push-settings";
 import { useChat } from "./chat-provider";
 import { filterConversations } from "./chat-utils";
 import { ChatEmptyState, ChatSearchField, ChatStatusBanner } from "./chat-visuals";
@@ -36,6 +35,7 @@ export function ChatInbox() {
     refreshConversations,
     showConversation,
     showNewConversation,
+    showSettings,
     isOnline,
     realtimeStatus,
     realtimeBannerVisible,
@@ -52,11 +52,23 @@ export function ChatInbox() {
             <h2 className="text-lg font-semibold tracking-tight">Conversas</h2>
             <p className="mt-0.5 text-xs text-muted-foreground">Mensagens internas da equipe</p>
           </div>
-          <Button type="button" size="sm" onClick={showNewConversation} className="rounded-xl shadow-sm shadow-primary/15 transition-transform active:scale-[0.97] motion-reduce:transform-none">
-            <MessageCirclePlus aria-hidden="true" />
-            <span className="hidden min-[360px]:inline">Nova conversa</span>
-            <span className="min-[360px]:hidden">Nova</span>
-          </Button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Button type="button" size="sm" onClick={showNewConversation} className="rounded-xl shadow-sm shadow-primary/15 transition-transform active:scale-[0.97] motion-reduce:transform-none">
+              <MessageCirclePlus aria-hidden="true" />
+              <span className="hidden min-[360px]:inline">Nova conversa</span>
+              <span className="min-[360px]:hidden">Nova</span>
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-9 rounded-xl text-muted-foreground transition-transform hover:text-foreground active:scale-90 motion-reduce:transform-none"
+              aria-label="Configurações do chat"
+              onClick={showSettings}
+            >
+              <Settings aria-hidden="true" />
+            </Button>
+          </div>
         </div>
 
         <div className="mt-3">
@@ -80,8 +92,6 @@ export function ChatInbox() {
       >
         Tempo real indisponível. Os dados serão conferidos ao retomar a conexão.
       </ChatStatusBanner>
-
-      <ChatPushSettings />
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1.5 py-1.5">
         {conversationsLoading && conversations.length === 0 ? <InboxSkeleton /> : null}

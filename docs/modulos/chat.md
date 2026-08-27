@@ -137,10 +137,10 @@ Os eventos não carregam conteúdo de mensagem nem dados administrativos.
 
 ### Componentes
 
-- [`chat-center.tsx`](../../src/components/chat/chat-center.tsx): único `Sheet` e roteamento das três
-  visualizações (`inbox`, `new-conversation`, `conversation`).
+- [`chat-center.tsx`](../../src/components/chat/chat-center.tsx): único `Sheet` e roteamento das quatro
+  visualizações (`inbox`, `new-conversation`, `settings`, `conversation`).
 - [`chat-view-transition.tsx`](../../src/components/chat/chat-view-transition.tsx): transição visual
-  direcional entre as três visualizações, sem criar outro estado funcional de navegação.
+  direcional entre as quatro visualizações, sem criar outro estado funcional de navegação.
 - [`chat-visuals.tsx`](../../src/components/chat/chat-visuals.tsx): campo de busca, empty state e
   banner de conexão puramente visuais e reutilizados pelas telas.
 - [`chat-trigger.tsx`](../../src/components/chat/chat-trigger.tsx): botão acessível do header, tooltip e
@@ -158,7 +158,7 @@ Os eventos não carregam conteúdo de mensagem nem dados administrativos.
   não lidas, paginação ao chegar ao topo, preservação do scroll e seleção contextual por toque curto,
   distinguindo controles internos e gesto de rolagem.
 - [`chat-message-bubble.tsx`](../../src/components/chat/chat-message-bubble.tsx): texto seguro,
-  alinhamento, hora, estado `sending/sent/failed`, citação, marca “editada”, aviso de mensagem
+  alinhamento, hora, confirmação de envio por tiques, citação, marca “editada”, aviso de mensagem
   excluída, reações agrupadas, controles contextuais e player de voz.
 - [`chat-message-actions.tsx`](../../src/components/chat/chat-message-actions.tsx): menu por mensagem
   com gatilho interno ao balão e somente Responder, Editar, Excluir para mim e Excluir para todos;
@@ -170,9 +170,12 @@ Os eventos não carregam conteúdo de mensagem nem dados administrativos.
 - [`chat-voice-recorder.tsx`](../../src/components/chat/chat-voice-recorder.tsx): modo de gravação do
   composer, com detecção de suporte, escolha de formato, contagem, prévia, descarte e estados textuais
   de preparação, gravação, revisão, envio e falha.
+- [`chat-settings.tsx`](../../src/components/chat/chat-settings.tsx): painel de configurações do chat,
+  alcançado pelo ícone de engrenagem ao lado de “Nova conversa”. Organiza os ajustes em seções; nesta
+  fase existe somente a seção “Notificações”.
 - [`chat-push-settings.tsx`](../../src/components/chat/chat-push-settings.tsx): consentimento
-  explícito do Web Push dentro da inbox, com superfícies próprias para disponível, ativando, ativo,
-  permissão negada, indisponível e erro, além de desativação por dispositivo.
+  explícito do Web Push dentro do painel de configurações, com superfícies próprias para disponível,
+  ativando, ativo, permissão negada, indisponível e erro, além de desativação por dispositivo.
 - [`chat-message-toast.tsx`](../../src/components/chat/chat-message-toast.tsx): valida eventos
   notificáveis, limita a prévia e renderiza/dispara o toast azul de mensagem recebida.
 - [`chat-composer.tsx`](../../src/components/chat/chat-composer.tsx): `Textarea`, limite, Enter para
@@ -226,6 +229,7 @@ conversa carrega somente a página mais recente. O estado interno de navegação
 type ChatView =
   | { type: "inbox" }
   | { type: "new-conversation" }
+  | { type: "settings" }
   | { type: "conversation"; conversationId: string }
 ```
 
@@ -866,6 +870,12 @@ reservado no conteúdo para não cobrir texto, citação, horário ou player. No
 visualmente oculto no repouso e aparece em `hover`, `focus-within` ou enquanto o menu está aberto; a
 opacidade não o remove da árvore de acessibilidade, então o foco por teclado também o revela.
 
+O chevron só é renderizado depois que a mensagem foi persistida — não faz sentido oferecer editar ou
+excluir algo que ainda não existe no servidor —, mas **a faixa dele é reservada desde a mensagem
+otimista**. Sem essa reserva o balão nasceria estreito com o tique único e alargaria sozinho ao ganhar
+o segundo, deslocando texto e horário na frente de quem acabou de escrever. Os dois ícones de tique
+têm a mesma caixa, então eles não influenciam a largura.
+
 O dropdown contém somente ações textuais/contextuais e separa as exclusões das ações de composição.
 O botão de reação é outro controle, fora do balão, descrito em [Reações](#reações). A disponibilidade
 permanece derivada das mesmas regras do servidor:
@@ -941,8 +951,8 @@ mesma mensagem: nada duplica.
 
 O balão de voz não usa o `<audio>` padrão: traz botão reproduzir/pausar com rótulo acessível, uma
 barra de progresso tematizada e operável por teclado (`input[type=range]` com `aria-valuetext`), tempo
-restante, horário, carregamento, erro com retentativa, estado `sending/sent/failed` e área de toque de
-40 px. O balão reserva o canto superior do menu sem cobrir o player. Um registro em módulo garante que
+restante, horário, carregamento, erro com retentativa, os mesmos tiques de confirmação das mensagens
+de texto e área de toque de 40 px. O balão reserva o canto superior do menu sem cobrir o player. Um registro em módulo garante que
 **apenas um áudio toca por vez** — iniciar outro pausa o anterior — e o elemento é parado e liberado ao
 desmontar. Enquanto o envio não é confirmado, a reprodução usa o blob local; depois, a URL assinada.
 
@@ -952,10 +962,12 @@ desmontar. Enquanto o envio não é confirmado, a reprodução usa o blob local;
 
 ### Consentimento
 
-A permissão **nunca** é pedida no carregamento do ERP. A inbox mostra um painel “Ativar notificações
-do chat” que explica antes de perguntar: para que serve, que os avisos chegam com o ERP fechado, que
-mostram o nome do remetente e uma prévia curta, que valem só para aquele dispositivo e que podem ser
-desativados ali mesmo. Só o clique chama `Notification.requestPermission()`.
+A permissão **nunca** é pedida no carregamento do ERP. O acesso é pelo ícone de engrenagem ao lado de
+“Nova conversa”, que abre o painel de configurações do chat; a seção “Notificações” mostra o cartão
+“Ativar notificações do chat”, que explica antes de perguntar: para que serve, que os avisos chegam
+com o ERP fechado, que mostram o nome do remetente e uma prévia curta, que valem só para aquele
+dispositivo e que podem ser desativados ali mesmo. Só o clique chama
+`Notification.requestPermission()`.
 
 Os quatro estados são tratados: `default` (oferece ativar), `granted` (mostra ativo e permite
 desativar), `denied` (explica que a autorização precisa ser alterada nas configurações do navegador ou
@@ -1093,6 +1105,34 @@ presença continuar ativa. Offline não impede envio.
 
 ## Atualização otimista e nova tentativa
 
+### Confirmação de envio por tiques
+
+**Implementado.** As mensagens próprias exibem confirmação no estilo WhatsApp, ao lado do horário:
+
+| Estado | Indicador | Significado |
+|---|---|---|
+| `sending` | ✓ um tique, levemente esmaecido | mensagem otimista, ainda sem resposta do servidor |
+| `sent` | ✓✓ dois tiques | persistida no servidor |
+| `failed` | nenhum tique | o aviso de falha e o “Tentar novamente” assumem o lugar |
+
+Mensagens recebidas nunca mostram tiques, e mensagens excluídas para todos também não.
+
+**Decisão:** substituir o spinner do balão pelos dois tiques, e manter o spinner do botão de envio
+apenas ao salvar uma edição.
+
+**Motivo:** o envio de texto é otimista — a mensagem já está na timeline no instante do Enter. Um
+spinner girando ali comunica espera e gera ansiedade justamente quando não há nada a esperar; o tique
+único já diz “saiu daqui” e o segundo confirma a persistência sem chamar atenção. A edição é o único
+caminho que realmente bloqueia até o servidor responder, então lá o spinner continua correto.
+
+**Alternativas consideradas:** manter o spinner só nos primeiros milissegundos (continuaria piscando a
+cada mensagem) ou não exibir estado algum até a confirmação (perderia o sinal de que a mensagem saiu).
+
+**Impactos e limitações:** os dois tiques significam **persistida no servidor**, não entregue ao
+aparelho do destinatário nem lida. O módulo não tem recibo de entrega nem de leitura, então **não
+existe tique azul** e os rótulos acessíveis são “Enviando” e “Enviada” — deliberadamente, para não
+prometer uma confirmação que o sistema não possui.
+
 O composer insere imediatamente uma mensagem `sending` com ID local. Sucesso ou evento Realtime a
 concilia por `clientMessageId`. Falha mantém texto e horário na timeline. Erros temporários mostram
 “Tentar novamente” e reutilizam o UUID; não há loop automático. Erros definitivos exibem recusa sem
@@ -1180,8 +1220,10 @@ desaparece na reconexão; não existe toast ou sinalização de sucesso da recon
 Na timeline, mensagens próprias usam gradiente violeta discreto e mensagens recebidas usam card/muted.
 Divisores de data/não lidas, início do histórico, carregamento anterior, falha/reenvio e o botão
 “Novas mensagens” têm apresentação própria. O composer é um dock com textarea e envio na mesma
-superfície; a mudança vazio/válido anima apenas opacity/scale do botão, e Send/Loader faz transição
-curta. O contador continua em 5.000 caracteres e ganha cor de atenção nos últimos 10%.
+superfície; a mudança vazio/válido anima apenas opacity/scale do botão. O contador continua em 5.000
+caracteres e ganha cor de atenção nos últimos 10%. O botão de envio só troca para spinner ao salvar
+uma edição, que espera o servidor; o envio de texto é otimista e a confirmação aparece no próprio
+balão, pelos tiques.
 
 O refinamento visual da fase 2 mantém essa identidade e limpa a timeline: o chevron de ações usa uma
 pequena superfície coerente com a cor do próprio balão e aparece por opacity/scale sem deslocar o
@@ -1390,9 +1432,10 @@ Validação manual da fase 2, com dois usuários e, quando possível, dois dispo
 5. **Voz:** A concede o microfone, grava, para, ouve a prévia e envia; B recebe em tempo real e
    reproduz; iniciar outro áudio pausa o anterior; simular falha de rede e tentar novamente não
    duplica.
-6. **Push:** B ativa por ação explícita e fecha o PWA; A envia texto e B recebe; clicar abre a
-   conversa correta; A envia voz e o corpo mostra “Enviou uma mensagem de voz”; edição e reação não
-   geram push; repetir no desktop, no Android/PWA e no iPhone/iPad instalado na Tela de Início.
+6. **Push:** B abre a engrenagem ao lado de “Nova conversa”, ativa por ação explícita e fecha o PWA;
+   A envia texto e B recebe; clicar abre a conversa correta; A envia voz e o corpo mostra “Enviou uma
+   mensagem de voz”; edição e reação não geram push; repetir no desktop, no Android/PWA e no
+   iPhone/iPad instalado na Tela de Início.
 
 **Plataformas efetivamente testadas nesta entrega:** nenhuma. As validações automatizadas rodaram
 (testes TypeScript, migração e testes SQL contra a Demonstração em transação revertida, lint e build),

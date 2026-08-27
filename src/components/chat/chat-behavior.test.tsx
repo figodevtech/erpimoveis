@@ -77,6 +77,71 @@ test("envio otimista entra imediatamente com o mesmo client_message_id", () => {
   assert.equal(visible[0].clientMessageId, optimistic.clientMessageId);
 });
 
+test("confirmacao de envio usa tique unico e depois duplo, sem spinner", () => {
+  const otimista = createOptimisticMessage({
+    conversationId: conversation.id,
+    senderId: "10000000-0000-4000-8000-000000000001",
+    content: "Mensagem otimista",
+    clientMessageId: "30000000-0000-4000-8000-000000000003",
+    createdAt: "2026-08-25T18:00:00.000Z",
+  });
+
+  const enviando = renderToStaticMarkup(
+    <ChatMessageBubble
+      message={otimista}
+      own
+      currentUserId="10000000-0000-4000-8000-000000000001"
+      onRetry={() => undefined}
+    />,
+  );
+  assert.match(enviando, /aria-label="Enviando"/);
+  assert.doesNotMatch(enviando, /aria-label="Enviada"/);
+  // O spinner saiu de proposito: ele transmitia espera onde ja ha confirmacao.
+  assert.doesNotMatch(enviando, /animate-spin/);
+
+  const confirmada = renderToStaticMarkup(
+    <ChatMessageBubble
+      message={{ ...otimista, id: "40000000-0000-4000-8000-000000000003", sendStatus: "sent" }}
+      own
+      currentUserId="10000000-0000-4000-8000-000000000001"
+      onRetry={() => undefined}
+    />,
+  );
+  assert.match(confirmada, /aria-label="Enviada"/);
+  assert.doesNotMatch(confirmada, /animate-spin/);
+});
+
+test("mensagem recebida e mensagem com falha nao exibem tique", () => {
+  const base = createOptimisticMessage({
+    conversationId: conversation.id,
+    senderId: "10000000-0000-4000-8000-000000000002",
+    content: "Recebida",
+    clientMessageId: "30000000-0000-4000-8000-000000000004",
+    createdAt: "2026-08-25T18:00:00.000Z",
+  });
+
+  const recebida = renderToStaticMarkup(
+    <ChatMessageBubble
+      message={{ ...base, sendStatus: "sent" }}
+      own={false}
+      currentUserId="10000000-0000-4000-8000-000000000001"
+      onRetry={() => undefined}
+    />,
+  );
+  assert.doesNotMatch(recebida, /aria-label="Envia/);
+
+  const comFalha = renderToStaticMarkup(
+    <ChatMessageBubble
+      message={{ ...base, senderId: "10000000-0000-4000-8000-000000000001", sendStatus: "failed" }}
+      own
+      currentUserId="10000000-0000-4000-8000-000000000001"
+      onRetry={() => undefined}
+    />,
+  );
+  assert.doesNotMatch(comFalha, /aria-label="Envia/);
+  assert.match(comFalha, /Tentar novamente/);
+});
+
 test("falha temporaria oferece tentar novamente", () => {
   const failed: ChatMessage = {
     ...createOptimisticMessage({

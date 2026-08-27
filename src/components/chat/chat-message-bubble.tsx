@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AlertCircle, Ban, Loader2, Mic } from "lucide-react";
+import { AlertCircle, Ban, Check, CheckCheck, Mic } from "lucide-react";
 
 import type { ChatMessage, ChatReaction } from "@/lib/chat/contracts";
 import { CHAT_REACTION_LABELS } from "@/lib/chat/contracts";
@@ -68,6 +68,41 @@ function ReplyQuote({
   );
 }
 
+/**
+ * Confirmação de envio no estilo WhatsApp, só nas mensagens próprias.
+ *
+ * Um tique aparece imediatamente, junto da mensagem otimista, e vira dois
+ * quando o servidor confirma a persistência. A escolha é deliberada: um spinner
+ * girando enquanto a rede responde transmite espera e ansiedade, enquanto o
+ * tique único já comunica "saiu daqui".
+ *
+ * Os dois tiques significam **persistida no servidor**, não entregue ao
+ * aparelho nem lida — o módulo não possui recibo de entrega nem de leitura, e
+ * por isso os rótulos são "Enviando" e "Enviada" e nunca há tique azul.
+ */
+function ChatMessageTicks({
+  message,
+  own,
+  excluida,
+}: {
+  message: ChatMessage;
+  own: boolean;
+  excluida: boolean;
+}) {
+  if (!own || excluida || message.sendStatus === "failed") return null;
+
+  const enviando = message.sendStatus === "sending";
+  const Icone = enviando ? Check : CheckCheck;
+
+  return (
+    <Icone
+      role="img"
+      aria-label={enviando ? "Enviando" : "Enviada"}
+      className={cn("size-3.5 shrink-0", enviando && "opacity-70")}
+    />
+  );
+}
+
 export function ChatMessageBubble({
   message,
   own,
@@ -94,6 +129,13 @@ export function ChatMessageBubble({
   const podeEditar = canEditChatMessage(message, currentUserId);
   const podeExcluirParaTodos = canDeleteChatMessageForEveryone(message, currentUserId);
   const hasActions = Boolean(actions && persistida);
+  /**
+   * O gatilho de ações só aparece depois de a mensagem ser persistida, mas a
+   * faixa dele é reservada desde o envio otimista. Sem isso o balão nasce
+   * estreito com um tique e alarga sozinho ao ganhar o segundo, deslocando
+   * texto e horário na frente de quem acabou de escrever.
+   */
+  const reservaAcoes = Boolean(actions);
 
   const changeMenuOpen = (open: boolean) => {
     setMenuOpen(open);
@@ -129,7 +171,7 @@ export function ChatMessageBubble({
               excluida && own && "border border-border/60",
               message.sendStatus === "failed" && "border border-destructive/35 bg-none bg-destructive/[0.07] text-foreground dark:bg-destructive/10",
               highlighted && "ring-2 ring-primary/60 ring-offset-2 ring-offset-transparent shadow-[0_0_0_6px_color-mix(in_srgb,var(--primary)_12%,transparent),0_8px_24px_-16px_var(--primary)]",
-              hasActions && "pr-10",
+              reservaAcoes && "pr-10",
               message.type === "VOICE" && !excluida && "w-[min(16rem,72vw)]",
               "motion-reduce:transition-none",
             )}
@@ -187,7 +229,7 @@ export function ChatMessageBubble({
             >
               {message.editedAt && !excluida ? <span>editada</span> : null}
               <time>{new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" }).format(new Date(message.createdAt))}</time>
-              {message.sendStatus === "sending" ? <Loader2 className="size-3 animate-spin" aria-label="Enviando" /> : null}
+              <ChatMessageTicks message={message} own={own} excluida={excluida} />
             </div>
           </div>
 

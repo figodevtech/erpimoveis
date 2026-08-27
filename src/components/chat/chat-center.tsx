@@ -4,6 +4,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/
 import { ChatConversation } from "./chat-conversation";
 import { ChatInbox } from "./chat-inbox";
 import { ChatProvider, useChat } from "./chat-provider";
+import { ChatSettings } from "./chat-settings";
 import { ChatTrigger } from "./chat-trigger";
 import { ChatViewTransition } from "./chat-view-transition";
 import { NewConversation } from "./new-conversation";
@@ -28,6 +29,7 @@ function ChatPanel() {
           <ChatViewTransition view={view}>
             {view.type === "inbox" ? <ChatInbox /> : null}
             {view.type === "new-conversation" ? <NewConversation /> : null}
+            {view.type === "settings" ? <ChatSettings /> : null}
             {view.type === "conversation" ? <ChatConversation /> : null}
           </ChatViewTransition>
         </SheetContent>

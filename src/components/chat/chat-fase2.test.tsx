@@ -109,6 +109,30 @@ test("acao fica dentro do balao e reacao fica separada no lado interno", () => {
   assert.match(recebida, /data-chat-reaction-placement="after-bubble"/);
 });
 
+test("balao nao muda de largura entre o tique unico e o duplo", () => {
+  const renderizar = (sendStatus: "sending" | "sent") => renderToStaticMarkup(
+    <ChatMessageBubble
+      message={mensagem({ sendStatus })}
+      own
+      currentUserId={autor}
+      onRetry={() => undefined}
+      actions={bubbleActions}
+    />,
+  );
+
+  const enviando = renderizar("sending");
+  const enviada = renderizar("sent");
+
+  // O gatilho so aparece depois de persistir, mas a faixa dele e reservada
+  // desde o envio otimista: sem isso o balao alarga ao ganhar o segundo tique.
+  assert.match(enviando, /data-chat-message-bubble="true"[^>]*pr-10/);
+  assert.match(enviada, /data-chat-message-bubble="true"[^>]*pr-10/);
+  assert.match(enviando, /aria-label="Enviando"/);
+  assert.doesNotMatch(enviando, /aria-label="Ações da mensagem"/);
+  assert.match(enviada, /aria-label="Enviada"/);
+  assert.match(enviada, /aria-label="Ações da mensagem"/);
+});
+
 test("seletor separado permanece limitado as quatro reacoes", () => {
   assert.deepEqual(CHAT_REACTIONS, ["CORACAO", "LEGAL", "FELIZ", "TRISTE"]);
 });
