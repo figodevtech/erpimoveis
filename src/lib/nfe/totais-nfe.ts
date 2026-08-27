@@ -255,8 +255,10 @@ export function lerNFeDoXml(xml: string): {
     removeNSPrefix: true,
     // Sem isto, "07965809004275" vira o número 7965809004275 e o zero à
     // esquerda some — CNPJ, CEP, NCM, IE e código de município são texto, não
-    // dinheiro nem quantidade, e nunca deveriam virar `Number`.
-    numberParseOptions: { skipLike: /^0\d+/ },
+    // dinheiro nem quantidade, e nunca deveriam virar `Number`. `leadingZeros:
+    // false` faz o `strnum` manter como texto qualquer valor com zero à
+    // esquerda que não seja "0,xx"; decimal e "0" sozinho continuam número.
+    numberParseOptions: { hex: true, leadingZeros: false },
   });
 
   const documento = (parser.parse(xml) ?? {}) as Record<string, unknown>;

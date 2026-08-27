@@ -9,7 +9,7 @@ const parser = new XMLParser({
   // esquerda some — CNPJ, NCM, CEST, CFOP e código de município são texto e
   // nunca deveriam virar `Number`. `onlyDigits`/`codigoFiscal` não recuperam o
   // zero perdido aqui: nesse ponto ele já sumiu.
-  numberParseOptions: { skipLike: /^0\d+/ },
+  numberParseOptions: { hex: true, leadingZeros: false },
 });
 
 type ParsedDfe = {
