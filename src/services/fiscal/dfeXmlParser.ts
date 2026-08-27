@@ -5,6 +5,11 @@ const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: "@_",
   textNodeName: "#text",
+  // Sem isto, "07965809004275" vira o número 7965809004275 e o zero à
+  // esquerda some — CNPJ, NCM, CEST, CFOP e código de município são texto e
+  // nunca deveriam virar `Number`. `onlyDigits`/`codigoFiscal` não recuperam o
+  // zero perdido aqui: nesse ponto ele já sumiu.
+  numberParseOptions: { skipLike: /^0\d+/ },
 });
 
 type ParsedDfe = {

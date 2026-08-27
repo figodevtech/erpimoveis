@@ -20,6 +20,7 @@
     "db:test:chat-migration": "tsx scripts/db/test-chat-migration.ts",
     "db:test:chat-fase2": "tsx scripts/db/test-chat-fase2-migration.ts",
     "db:test:chat-realtime": "tsx scripts/db/test-chat-realtime.ts",
+    "db:test:central-operacional": "tsx scripts/db/test-central-operacional-migration.ts",
     "db:validar:os-finalizado": "tsx scripts/db/validar-os-finalizado-em.ts",
     "db:test:sql": "tsx scripts/db/test-sql.ts",
     "db:deploy": "tsx scripts/db/deploy.ts",
@@ -46,7 +47,8 @@
     "radios:importar:tematicos": "tsx scripts/radios/import-thematic-channels.ts",
     "radios:sincronizar:todos-bancos": "tsx scripts/radios/sync-catalog-all-databases.ts",
     "test:radios": "tsx --test src/lib/radio/*.test.ts",
-    "test:chat": "tsx --test src/lib/chat/*.test.ts src/components/chat/*.test.ts src/components/chat/*.test.tsx"
+    "test:chat": "tsx --test src/lib/chat/*.test.ts src/components/chat/*.test.ts src/components/chat/*.test.tsx",
+    "test:central-operacional": "tsx --test src/lib/central-operacional/*.test.ts \"src/app/(app)/(full)/central-operacional/components/*.test.ts\""
   },
   "overrides": {
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"

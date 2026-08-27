@@ -17,12 +17,7 @@
 import { comoLista, paraDia, paraNumero, paraTexto, registro } from "./xml-valores";
 
 export interface DuplicataDaNota {
-  /**
-   * `nDup`, só para exibir. Texto porque o XML admite qualquer rótulo ("001",
-   * "A/1"), mas sem promessa de fidelidade: o `fast-xml-parser` da rota converte
-   * "012345" em número e o zero à esquerda se perde no caminho. Nada depende
-   * deste campo — a parcela é vencimento e valor.
-   */
+  /** `nDup`, só para exibir — o XML admite qualquer rótulo ("001", "A/1"). */
   numero: string | null;
   /** `dVenc` normalizado em AAAA-MM-DD, ou `null` quando o XML não trouxe. */
   vencimento: string | null;

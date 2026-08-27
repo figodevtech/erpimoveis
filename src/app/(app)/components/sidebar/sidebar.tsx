@@ -41,6 +41,7 @@ import {
   Send,
   FileText,
   Building2,
+  RadioTower,
 } from "lucide-react";
 
 import { NavMain } from "./components/nav-main";
@@ -250,6 +251,12 @@ const data = {
       title: "Acompanhamento",
       url: "/acompanhamento",
       icon: Tv,
+      perm: PERMS.ACOMPANHAMENTO,
+    },
+    {
+      title: "Central Operacional",
+      url: "/central-operacional",
+      icon: RadioTower,
       perm: PERMS.ACOMPANHAMENTO,
     },
     {

@@ -69,6 +69,7 @@ function isPublicApi(pathname: string) {
  * Regras por prefixo -> permissÃ£o necessÃ¡ria
  */
 const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
+  { prefix: "/api/central-operacional", perm: PERMS.ACOMPANHAMENTO },
   { prefix: "/api/execucao", perm: PERMS.EXECUCAO_OS },
   { prefix: "/api/dashboard", perm: PERMS.DASHBOARD },
   { prefix: "/api/customers", perm: PERMS.CLIENTES },
@@ -116,6 +117,7 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
   { prefix: "/configuracoes", perm: PERMS.CONFIG },
   { prefix: "/usuarios", perm: PERMS.USUARIOS },
   { prefix: "/acompanhamento", perm: PERMS.ACOMPANHAMENTO },
+  { prefix: "/central-operacional", perm: PERMS.ACOMPANHAMENTO },
 
   { prefix: "/dre", perm: PERMS.FINANCEIRO },
   { prefix: "/fluxodecaixa", perm: PERMS.FINANCEIRO },

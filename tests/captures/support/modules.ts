@@ -30,6 +30,7 @@ export const CAPTURE_MODULES: CaptureModule[] = [
   { name: "Acompanhamento Financeiro", path: "/acompanhamento-financeiro", slug: "acompanhamento-financeiro" },
   { name: "DRE", path: "/dre", slug: "dre" },
   { name: "Acompanhamento", path: "/acompanhamento", slug: "acompanhamento" },
+  { name: "Central Operacional", path: "/central-operacional", slug: "central-operacional" },
   { name: "Relatórios", path: "/relatorios", slug: "relatorios" },
   { name: "Plano", path: "/plano", slug: "plano" },
   { name: "Configurações Gerais", path: "/configuracoes/geral", slug: "configuracoes-geral" },

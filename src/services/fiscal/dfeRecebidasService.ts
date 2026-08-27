@@ -56,6 +56,9 @@ const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: "@_",
   textNodeName: "#text",
+  // Mesmo cuidado de dfeXmlParser.ts: campo de código com zero à esquerda não
+  // pode virar `Number`.
+  numberParseOptions: { skipLike: /^0\d+/ },
 });
 
 const UF_CODES: Record<string, string> = {

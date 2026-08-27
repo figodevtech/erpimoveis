@@ -37,12 +37,15 @@ import {
   ChevronRightIcon,
   ChevronsLeft,
   ChevronsRight,
+  FileText,
   Loader,
   Loader2,
   MoreHorizontal,
   Eye,
+  Package,
   Plus,
   Pencil,
+  ShoppingCart,
   Trash2Icon,
   Undo2,
 } from "lucide-react";
@@ -81,12 +84,16 @@ import {
   antecipadoComLancamento,
   ehBaixaParcial,
   ehTransferencia,
+  origemDaTransacao,
   saldoEmAberto,
   valorLiquidoEfetivo,
 } from "@/lib/financeiro/transacao";
 import { getCategoryIcon, getTypeColor } from "../utils";
 import { ExportTransactionsButton } from "./ExportTransactionsButton";
 import { TransferenciaDialog } from "./transferencia-dialog";
+import { VendaDetailsDialog } from "../../../(vendas)/historicovendas/components/venda-detail-dialog";
+import { OSDetalhesDialog } from "../../../ordens/components/dialogs/detalhes-os-dialog";
+import { DialogEntradaGeral } from "../../../estoque/components/dialog-entrada-geral/dialog-entrada-geral";
 import ConcluidoAlert from "./concluidoAlert";
 import SearchFilter from "./searchFilter";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
@@ -320,6 +327,31 @@ export default function FinancialTable({
   );
   const [isPagoDialogOpen, setIsPagoDialogOpen] = useState(false);
   const [transferenciaAberta, setTransferenciaAberta] = useState(false);
+
+  /**
+   * Dialogs de detalhes do documento de origem (venda/OS/entrada de estoque),
+   * abertos a partir do ícone de categoria ou do menu de ações de cada linha.
+   * Um par id+open por tipo, renderizado uma única vez fora do .map.
+   */
+  const [vendaDetalhesId, setVendaDetalhesId] = useState<number | null>(null);
+  const [vendaDetalhesAberta, setVendaDetalhesAberta] = useState(false);
+  const [osDetalhesId, setOsDetalhesId] = useState<number | null>(null);
+  const [osDetalhesAberta, setOsDetalhesAberta] = useState(false);
+  const [entradaDetalhesId, setEntradaDetalhesId] = useState<number | null>(null);
+  const [entradaDetalhesAberta, setEntradaDetalhesAberta] = useState(false);
+
+  const abrirVenda = useCallback((id: number) => {
+    setVendaDetalhesId(id);
+    setVendaDetalhesAberta(true);
+  }, []);
+  const abrirOs = useCallback((id: number) => {
+    setOsDetalhesId(id);
+    setOsDetalhesAberta(true);
+  }, []);
+  const abrirEntrada = useCallback((id: number) => {
+    setEntradaDetalhesId(id);
+    setEntradaDetalhesAberta(true);
+  }, []);
   const [, setIsDeleting] = useState(false);
   const canCreate = permissionSetHas(
     (session?.user as any)?.permissoes,
@@ -709,6 +741,19 @@ export default function FinancialTable({
               const triggerId = `row-${t.id}-menu-btn`;
               const menuId = `row-${t.id}-menu`;
 
+              // Origem do documento que gerou esta transação. USOCONSUMO fica
+              // de fora de propósito: não há dialog de detalhes conhecido
+              // para essa origem — mesmo comportamento de hoje (sem ação).
+              const origem = origemDaTransacao(t);
+              const detalhesOrigem =
+                origem === "VENDA"
+                  ? { id: Number(t.vendaid), label: `Ver venda #${t.vendaid}`, Icon: ShoppingCart, abrir: abrirVenda }
+                  : origem === "OS"
+                    ? { id: Number(t.ordemservicoid), label: `Ver OS #${t.ordemservicoid}`, Icon: FileText, abrir: abrirOs }
+                    : origem === "ENTRADA"
+                      ? { id: Number(t.entrada_id), label: `Ver entrada #${t.entrada_id}`, Icon: Package, abrir: abrirEntrada }
+                      : null;
+
               return (
                 <TableRow
                   key={t.id}
@@ -736,6 +781,27 @@ export default function FinancialTable({
                           className="hover:cursor-pointer"
                         />
                       </div>
+                    ) : detalhesOrigem ? (
+                      // Atalho para o mesmo dialog que o item "Ver venda/OS/
+                      // entrada" abre no menu de ações — o anel avisa que o
+                      // círculo é clicável, sem mudar o fundo nem virar badge.
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          detalhesOrigem.abrir(detalhesOrigem.id);
+                        }}
+                        // dblclick nativo borbulha até a TableRow mesmo com
+                        // stopPropagation no click (são eventos distintos) —
+                        // sem isto, um duplo clique no ícone também abriria a
+                        // edição da transação por baixo.
+                        onDoubleClick={(e) => e.stopPropagation()}
+                        title={detalhesOrigem.label}
+                        aria-label={detalhesOrigem.label}
+                        className="shrink-0 rounded-full p-2 bg-primary/50 ring-2 ring-primary/40 ring-offset-2 ring-offset-background transition-shadow hover:cursor-pointer hover:ring-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      >
+                        {getCategoryIcon(t.categoria, t.categoria_dados?.icone)}
+                      </button>
                     ) : (
                       <div className="shrink-0 rounded-full p-2 bg-primary/50">
                         {getCategoryIcon(t.categoria, t.categoria_dados?.icone)}
@@ -1041,6 +1107,13 @@ export default function FinancialTable({
                           </DropdownMenuItem>
                         )}
 
+                        {detalhesOrigem && (
+                          <DropdownMenuItem onClick={() => detalhesOrigem.abrir(detalhesOrigem.id)}>
+                            <detalhesOrigem.Icon className="mr-2 h-4 w-4" />
+                            {detalhesOrigem.label}
+                          </DropdownMenuItem>
+                        )}
+
                         {canEdit && t.pendente && (
                           <DropdownMenuItem
                             onClick={() => {
@@ -1247,6 +1320,45 @@ export default function FinancialTable({
           }}
         />
       ) : null}
+
+      <VendaDetailsDialog
+        vendaId={vendaDetalhesId}
+        open={vendaDetalhesAberta}
+        onOpenChange={(open) => {
+          setVendaDetalhesAberta(open);
+          setVendaDetalhesId(open ? vendaDetalhesId : null);
+          if (!open) {
+            handleGetTransactions(pagination.page, pagination.limit);
+            revalidarIndicadores();
+          }
+        }}
+      />
+
+      <OSDetalhesDialog
+        open={osDetalhesAberta}
+        osId={osDetalhesId}
+        onOpenChange={(open) => {
+          setOsDetalhesAberta(open);
+          if (!open) {
+            setOsDetalhesId(null);
+            handleGetTransactions(pagination.page, pagination.limit);
+            revalidarIndicadores();
+          }
+        }}
+      />
+
+      <DialogEntradaGeral
+        selectedEntradaId={entradaDetalhesId ?? undefined}
+        open={entradaDetalhesAberta}
+        onOpenChange={(open) => {
+          setEntradaDetalhesAberta(open);
+          if (!open) {
+            setEntradaDetalhesId(null);
+            handleGetTransactions(pagination.page, pagination.limit);
+            revalidarIndicadores();
+          }
+        }}
+      />
 
       {modoBaixaMultipla ? (
         <>
