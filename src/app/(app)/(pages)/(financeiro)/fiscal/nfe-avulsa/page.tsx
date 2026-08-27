@@ -56,6 +56,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import formatarEmReal from "@/utils/formatarEmReal";
 import CustomerSelect from "@/app/(app)/components/customerSelect";
+import FornecedorSelect from "@/app/(app)/components/fornecedorSelect";
 import ProductSelect from "@/app/(app)/components/productSelect";
 import {
   ItemSelectDialog,
@@ -68,7 +69,7 @@ import {
 } from "@/lib/usoconsumo/escopo";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import type { Customer } from "@/app/(app)/(pages)/clientes/types";
-import type { Produto } from "@/app/(app)/(pages)/estoque/types";
+import type { Fornecedor, Produto } from "@/app/(app)/(pages)/estoque/types";
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
 import { isValidCnpj } from "@/lib/nfe/recipientNormalization";
 import { NFE_XNOME_MAX_LENGTH, sanitizeString } from "@/lib/nfe/xmlUtils";
@@ -272,6 +273,27 @@ type DraftTransporte = {
   };
 };
 
+/**
+ * Local de entrega/retirada, quando diferente do endereço do destinatário.
+ * A pessoa indicada aqui é quem recebe ou retira a mercadoria fisicamente —
+ * nunca substitui o destinatário fiscal (grupo `<dest>`), que continua vindo
+ * de `DraftPayload["destinatario"]`.
+ */
+type DraftEntrega = {
+  habilitado: boolean;
+  tipoPessoa: "FISICA" | "JURIDICA";
+  cpfCnpj: string;
+  nome: string;
+  endereco: string;
+  numero: string;
+  complemento: string;
+  bairro: string;
+  cidade: string;
+  estado: string;
+  cep: string;
+  codigoMunicipio: string;
+};
+
 type DraftPayload = {
   nfeId: number | null;
   currentStep: number;
@@ -293,6 +315,7 @@ type DraftPayload = {
    */
   descontoGeral: string;
   transporte: DraftTransporte;
+  entrega: DraftEntrega;
   /**
    * NF-e citadas no grupo <NFref> do <ide>. Devolução (finNFe=4) exige pelo
    * menos uma: sem ela a SEFAZ devolve rejeição 321. Guardamos a chave como
@@ -301,6 +324,7 @@ type DraftPayload = {
   documentosReferenciados: { chaveAcesso: string }[];
   destinatario: {
     clienteId: number | null;
+    fornecedorId: number | null;
     tipoPessoa: "FISICA" | "JURIDICA" | "ESTRANGEIRO";
     cpfCnpj: string;
     nomeRazaoSocial: string;
@@ -358,7 +382,7 @@ const steps = [
   "Emitente",
   "Destinatário",
   "Produtos e tributação",
-  "Transporte",
+  "Transporte / Entrega",
   "Pagamento",
   "Informações",
   "Revisão",
@@ -371,6 +395,7 @@ const validationStepIndexes: Record<string, number> = {
   recipient: 2,
   products: 3,
   transport: 4,
+  delivery: 4,
   payment: 5,
   information: 6,
   review: 7,
@@ -568,9 +593,24 @@ const initialDraft: DraftPayload = {
       pesoBruto: "",
     },
   },
+  entrega: {
+    habilitado: false,
+    tipoPessoa: "FISICA",
+    cpfCnpj: "",
+    nome: "",
+    endereco: "",
+    numero: "",
+    complemento: "",
+    bairro: "",
+    cidade: "",
+    estado: "",
+    cep: "",
+    codigoMunicipio: "",
+  },
   documentosReferenciados: [],
   destinatario: {
     clienteId: null,
+    fornecedorId: null,
     tipoPessoa: "JURIDICA",
     cpfCnpj: "",
     nomeRazaoSocial: "",
@@ -710,6 +750,22 @@ function normalizeTransporte(value: unknown): DraftTransporte {
   };
 }
 
+function normalizeEntrega(value: unknown): DraftEntrega {
+  const entrega = value && typeof value === "object" ? (value as Partial<DraftEntrega>) : {};
+  const tipoPessoa = entrega.tipoPessoa === "JURIDICA" ? "JURIDICA" : "FISICA";
+
+  return {
+    ...initialDraft.entrega,
+    ...entrega,
+    habilitado: Boolean(entrega.habilitado),
+    tipoPessoa,
+    cpfCnpj: onlyDigits(String(entrega.cpfCnpj ?? "")),
+    estado: String(entrega.estado ?? "").toUpperCase().slice(0, 2),
+    cep: onlyDigits(String(entrega.cep ?? "")),
+    codigoMunicipio: onlyDigits(String(entrega.codigoMunicipio ?? "")),
+  };
+}
+
 /** Aceita tanto a lista de objetos quanto uma lista de chaves soltas. */
 function normalizeReferencias(value: unknown): { chaveAcesso: string }[] {
   if (!Array.isArray(value)) return [];
@@ -739,6 +795,7 @@ function normalizePersistedDraft(value: unknown): DraftPayload | null {
     pagamento: pagamentos[0],
     pagamentos,
     transporte: normalizeTransporte(draft.transporte),
+    entrega: normalizeEntrega(draft.entrega),
     documentosReferenciados: normalizeReferencias(draft.documentosReferenciados),
     destinatario: {
       ...initialDraft.destinatario,
@@ -762,6 +819,7 @@ function mapServerDraftToPayload(value: any): { draft: DraftPayload; document: N
   const pagamentoOriginal = dadosAvulsos.pagamento ?? {};
   const pagamentosOriginais = normalizePagamentos(dadosAvulsos.pagamentos, pagamentoOriginal);
   const transporteOriginal = dadosAvulsos.transporte ?? {};
+  const entregaOriginal = dadosAvulsos.entrega ?? {};
   const itens = Array.isArray(value?.itens) ? value.itens : [];
 
   return {
@@ -783,11 +841,13 @@ function mapServerDraftToPayload(value: any): { draft: DraftPayload; document: N
         "0",
       ),
       transporte: normalizeTransporte(transporteOriginal),
+      entrega: normalizeEntrega(entregaOriginal),
       documentosReferenciados: normalizeReferencias(dadosAvulsos.documentosReferenciados),
       destinatario: {
         ...initialDraft.destinatario,
         ...destinatarioOriginal,
         clienteId: dadosAvulsos.clienteSelecionadoId ?? destinatarioOriginal.clienteId ?? null,
+        fornecedorId: dadosAvulsos.fornecedorSelecionadoId ?? destinatarioOriginal.fornecedorId ?? null,
         cpfCnpj: destinatarioOriginal.cpfCnpj ?? snapshot.cnpj ?? snapshot.cpf ?? "",
         nomeRazaoSocial: destinatarioOriginal.nomeRazaoSocial ?? snapshot.razaoSocial ?? "",
         indicadorIe: destinatarioOriginal.indicadorIe ?? snapshot.indIEDest ?? "9",
@@ -927,6 +987,7 @@ export default function NFeAvulsaPage() {
   const [authorizing, setAuthorizing] = React.useState(false);
   const [dirty, setDirty] = React.useState(false);
   const [openCustomerSelect, setOpenCustomerSelect] = React.useState(false);
+  const [openFornecedorSelect, setOpenFornecedorSelect] = React.useState(false);
   const [openProductSelect, setOpenProductSelect] = React.useState(false);
   const [openUsoConsumoSelect, setOpenUsoConsumoSelect] = React.useState(false);
   // A busca de itens de uso/consumo exige a permissão do módulo; sem ela a rota
@@ -1007,7 +1068,10 @@ export default function NFeAvulsaPage() {
   }
 
   const selectedClienteLabel = draft.destinatario.clienteId
-    ? `${draft.destinatario.nomeRazaoSocial || "Cliente selecionado"} - ${formatCpfCnpj(draft.destinatario.cpfCnpj)}`
+    ? `Cliente: ${draft.destinatario.nomeRazaoSocial || "Cliente selecionado"} - ${formatCpfCnpj(draft.destinatario.cpfCnpj)}`
+    : null;
+  const selectedFornecedorLabel = draft.destinatario.fornecedorId
+    ? `Fornecedor: ${draft.destinatario.nomeRazaoSocial || "Fornecedor selecionado"} - ${formatCpfCnpj(draft.destinatario.cpfCnpj)}`
     : null;
   const ambienteLabel = formatAmbiente(setup?.empresa?.ambiente || setup?.config?.ambiente);
   const isHomologacao = Boolean(setup) && (setup?.empresa?.ambiente || setup?.config?.ambiente) !== "PRODUCAO";
@@ -1446,6 +1510,7 @@ export default function NFeAvulsaPage() {
       destinatario: {
         ...current.destinatario,
         clienteId: cliente.id,
+        fornecedorId: null,
         tipoPessoa: cliente.tipopessoa === "FISICA" ? "FISICA" : "JURIDICA",
         cpfCnpj: cliente.cpfcnpj ?? "",
         nomeRazaoSocial: isHomologacao ? NFE_HOMOLOGACAO_DESTINATARIO_NOME : cliente.nomerazaosocial ?? "",
@@ -1468,6 +1533,54 @@ export default function NFeAvulsaPage() {
         estado: cliente.estado ?? "",
         cep: cliente.cep ?? "",
         codigoMunicipio: cliente.codigomunicipio ?? "",
+        codigoPais: "1058",
+        nomePais: "BRASIL",
+      },
+    }));
+  }
+
+  /**
+   * Preenche o destinatário a partir de um fornecedor do cadastro.
+   *
+   * O cadastro de fornecedor não guarda tipo de pessoa nem inscrição
+   * estadual — diferente do cliente. O tipo é deduzido do tamanho do
+   * documento e o indicador de IE abre em "não contribuinte", igual à
+   * sugestão para cliente ainda não classificado: o usuário confirma antes
+   * de emitir.
+   */
+  function preencherDestinatarioComFornecedor(fornecedor: Fornecedor) {
+    const documento = onlyDigits(fornecedor.cpfcnpj ?? "");
+    updateDraft((current) => ({
+      ...current,
+      itens: current.itens.map((item) => ({
+        ...item,
+        cfop: normalizeCfopForOperation(
+          item.cfop,
+          current.operacao.tipoOperacao,
+          setup?.empresa?.uf,
+          fornecedor.estado,
+        ),
+      })),
+      destinatario: {
+        ...current.destinatario,
+        clienteId: null,
+        fornecedorId: fornecedor.id,
+        tipoPessoa: documento.length === 11 ? "FISICA" : "JURIDICA",
+        cpfCnpj: documento,
+        nomeRazaoSocial: isHomologacao ? NFE_HOMOLOGACAO_DESTINATARIO_NOME : fornecedor.nomerazaosocial ?? "",
+        indicadorIe: String(sugerirIndIEDest(null)),
+        inscricaoEstadual: "",
+        inscricaoMunicipal: "",
+        email: "",
+        telefone: "",
+        endereco: fornecedor.endereco ?? "",
+        numero: fornecedor.endereconumero ?? "",
+        complemento: fornecedor.enderecocomplemento ?? "",
+        bairro: fornecedor.bairro ?? "",
+        cidade: fornecedor.cidade ?? "",
+        estado: fornecedor.estado ?? "",
+        cep: fornecedor.cep ?? "",
+        codigoMunicipio: fornecedor.codigomunicipio ?? "",
         codigoPais: "1058",
         nomePais: "BRASIL",
       },
@@ -1545,6 +1658,7 @@ export default function NFeAvulsaPage() {
           ...current.destinatario,
           // A consulta traz um destinatário avulso: nada aqui vira cadastro.
           clienteId: null,
+          fornecedorId: null,
           tipoPessoa: "JURIDICA",
           cpfCnpj: cnpj,
           nomeRazaoSocial: String(empresaConsultada.razao_social ?? "").trim(),
@@ -1592,6 +1706,7 @@ export default function NFeAvulsaPage() {
       destinatario: {
         ...current.destinatario,
         clienteId: null,
+        fornecedorId: null,
       },
     }));
   }
@@ -2162,20 +2277,28 @@ export default function NFeAvulsaPage() {
                   setOpen={setOpenCustomerSelect}
                   OnSelect={preencherDestinatarioComCliente}
                 />
+                <FornecedorSelect
+                  open={openFornecedorSelect}
+                  setOpen={setOpenFornecedorSelect}
+                  OnSelect={preencherDestinatarioComFornecedor}
+                />
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <Button className="w-min" type="button" variant="outline" onClick={() => setOpenCustomerSelect(true)}>
                     + Selecionar cliente
                   </Button>
-                  {selectedClienteLabel ? (
+                  <Button className="w-min" type="button" variant="outline" onClick={() => setOpenFornecedorSelect(true)}>
+                    + Selecionar fornecedor
+                  </Button>
+                  {selectedClienteLabel || selectedFornecedorLabel ? (
                     <Badge variant="secondary" className="w-fit">
-                      {selectedClienteLabel}
+                      {selectedClienteLabel ?? selectedFornecedorLabel}
                     </Badge>
                   ) : (
                     <Badge variant="outline" className="w-fit">
                       Destinatário avulso
                     </Badge>
                   )}
-                  {draft.destinatario.clienteId && (
+                  {(draft.destinatario.clienteId || draft.destinatario.fornecedorId) && (
                     <Button type="button" variant="ghost" onClick={tornarDestinatarioAvulso}>
                       Usar como avulso
                     </Button>
@@ -2803,13 +2926,17 @@ export default function NFeAvulsaPage() {
             )}
 
             {currentStep === 4 && (
-              <TransporteStep
-                draft={draft}
-                updateDraft={updateDraft}
-                isSemTransporte={isSemTransporte}
-                isFreteContratado={isFreteContratado}
-                isTransporteProprio={isTransporteProprio}
-              />
+              <>
+                <TransporteStep
+                  draft={draft}
+                  updateDraft={updateDraft}
+                  isSemTransporte={isSemTransporte}
+                  isFreteContratado={isFreteContratado}
+                  isTransporteProprio={isTransporteProprio}
+                />
+                <Separator />
+                <EntregaStep draft={draft} updateDraft={updateDraft} />
+              </>
             )}
             {false && (
               <ReadOnlyStep
@@ -3053,6 +3180,10 @@ export default function NFeAvulsaPage() {
                   <Info label="Total" value={formatarEmReal(totalNota)} />
                   <Info label="Pagamento" value={paymentSummary} />
                   <Info label="Frete" value={`${draft.transporte.modFrete} - ${getFreightLabel(draft.transporte.modFrete)}`} />
+                  <Info
+                    label="Entrega/Retirada"
+                    value={draft.entrega.habilitado ? draft.entrega.nome || "Local diferente informado" : "Mesmo do destinatário"}
+                  />
                 </div>
                 <Table>
                   <TableHeader>
@@ -3488,6 +3619,17 @@ function NFeAutorizadaView({
         pesoBruto: parseNumberInput(draft.transporte.volume.pesoBruto),
       }] : [],
     },
+    entrega: draft.entrega.habilitado ? {
+      nome: draft.entrega.nome,
+      documento: draft.entrega.cpfCnpj,
+      logradouro: draft.entrega.endereco,
+      numero: draft.entrega.numero,
+      complemento: draft.entrega.complemento,
+      bairro: draft.entrega.bairro,
+      municipio: draft.entrega.cidade,
+      uf: draft.entrega.estado,
+      cep: draft.entrega.cep,
+    } : null,
     fatura: null,
     duplicatas: [],
     pagamentos: pagamentosAtuais.map((pagamento) => ({
@@ -3697,7 +3839,7 @@ function TransporteStep({
             </AlertTitle>
             <AlertDescription>
               {isFreteContratado
-                ? "Informe a transportadora responsavel pelo frete. CPF/CNPJ, nome e UF sao validados antes de emitir."
+                ? "A transportadora e opcional nessa modalidade. Se preencher algum dado dela, CPF/CNPJ, nome e UF passam a ser obrigatorios juntos."
                 : "No transporte proprio, o XML usa os dados do responsavel pela modalidade selecionada e aceita veiculo e volumes quando informados."}
             </AlertDescription>
           </Alert>
@@ -3706,14 +3848,14 @@ function TransporteStep({
             <div className="space-y-3">
               <p className="text-sm font-medium">Transportadora</p>
               <div className="grid gap-4 md:grid-cols-3">
-                <Field label="CPF/CNPJ" required>
+                <Field label="CPF/CNPJ">
                   <Input
                     value={draft.transporte.transportadora.documento}
                     onChange={(event) => updateTransportadora({ documento: onlyDigits(event.target.value) })}
                     maxLength={14}
                   />
                 </Field>
-                <Field label="Nome/Razao social" required>
+                <Field label="Nome/Razao social">
                   <Input
                     value={draft.transporte.transportadora.nome}
                     onChange={(event) => updateTransportadora({ nome: event.target.value })}
@@ -3737,7 +3879,7 @@ function TransporteStep({
                     onChange={(event) => updateTransportadora({ municipio: event.target.value })}
                   />
                 </Field>
-                <Field label="UF" required>
+                <Field label="UF">
                   <Input
                     value={draft.transporte.transportadora.uf}
                     onChange={(event) => updateTransportadora({ uf: event.target.value.toUpperCase().slice(0, 2) })}
@@ -3832,6 +3974,166 @@ function TransporteStep({
             </div>
           </div>
         </>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Entrega/retirada em local diferente do destinatário (grupo `<entrega>`).
+ * Independente do transporte: a pessoa indicada aqui é quem recebe ou retira
+ * a mercadoria, e nunca substitui o destinatário fiscal do `<dest>`.
+ */
+function EntregaStep({
+  draft,
+  updateDraft,
+}: {
+  draft: DraftPayload;
+  updateDraft: (updater: (current: DraftPayload) => DraftPayload) => void;
+}) {
+  const updateEntrega = (patch: Partial<DraftEntrega>) => {
+    updateDraft((current) => ({
+      ...current,
+      entrega: {
+        ...current.entrega,
+        ...patch,
+      },
+    }));
+  };
+
+  const usarEnderecoDestinatario = () => {
+    updateEntrega({
+      nome: draft.destinatario.nomeRazaoSocial,
+      tipoPessoa: draft.destinatario.tipoPessoa === "FISICA" ? "FISICA" : "JURIDICA",
+      cpfCnpj: draft.destinatario.cpfCnpj,
+      endereco: draft.destinatario.endereco,
+      numero: draft.destinatario.numero,
+      complemento: draft.destinatario.complemento,
+      bairro: draft.destinatario.bairro,
+      cidade: draft.destinatario.cidade,
+      estado: draft.destinatario.estado,
+      cep: draft.destinatario.cep,
+      codigoMunicipio: draft.destinatario.codigoMunicipio,
+    });
+  };
+
+  return (
+    <section className="space-y-4">
+      <div>
+        <p className="text-sm font-medium">Entrega / Retirada</p>
+        <p className="text-xs text-muted-foreground">
+          Use quando a mercadoria for entregue ou retirada em local diferente do endereço do
+          destinatário — a nota continua emitida para o mesmo destinatário fiscal.
+        </p>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id="entrega-habilitada"
+          checked={draft.entrega.habilitado}
+          onCheckedChange={(checked) => updateEntrega({ habilitado: checked === true })}
+        />
+        <Label htmlFor="entrega-habilitada" className="cursor-pointer font-normal">
+          Informar local de entrega/retirada diferente do destinatário
+        </Label>
+      </div>
+
+      {draft.entrega.habilitado && (
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <Button type="button" variant="outline" size="sm" onClick={usarEnderecoDestinatario}>
+              Usar endereço do destinatário
+            </Button>
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-sm font-medium">Pessoa indicada para entrega/retirada</p>
+            <div className="grid gap-4 md:grid-cols-3">
+              <Field label="Tipo de pessoa" required>
+                <Select
+                  value={draft.entrega.tipoPessoa}
+                  onValueChange={(value) => updateEntrega({ tipoPessoa: value as DraftEntrega["tipoPessoa"] })}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="FISICA">CPF</SelectItem>
+                    <SelectItem value="JURIDICA">CNPJ</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label={draft.entrega.tipoPessoa === "FISICA" ? "CPF" : "CNPJ"} required>
+                <Input
+                  value={draft.entrega.cpfCnpj}
+                  onChange={(event) => updateEntrega({ cpfCnpj: onlyDigits(event.target.value) })}
+                  maxLength={14}
+                />
+              </Field>
+              <Field label="Nome" required>
+                <Input
+                  value={draft.entrega.nome}
+                  onChange={(event) => updateEntrega({ nome: event.target.value })}
+                />
+              </Field>
+            </div>
+          </div>
+
+          <Separator />
+
+          <div className="space-y-3">
+            <p className="text-sm font-medium">Endereço de entrega/retirada</p>
+            <div className="grid gap-4 md:grid-cols-3">
+              <Field label="Logradouro" required>
+                <Input
+                  value={draft.entrega.endereco}
+                  onChange={(event) => updateEntrega({ endereco: event.target.value })}
+                />
+              </Field>
+              <Field label="Número" required>
+                <Input
+                  value={draft.entrega.numero}
+                  onChange={(event) => updateEntrega({ numero: event.target.value })}
+                />
+              </Field>
+              <Field label="Complemento">
+                <Input
+                  value={draft.entrega.complemento}
+                  onChange={(event) => updateEntrega({ complemento: event.target.value })}
+                />
+              </Field>
+              <Field label="Bairro" required>
+                <Input
+                  value={draft.entrega.bairro}
+                  onChange={(event) => updateEntrega({ bairro: event.target.value })}
+                />
+              </Field>
+              <Field label="Cidade" required>
+                <Input
+                  value={draft.entrega.cidade}
+                  onChange={(event) => updateEntrega({ cidade: event.target.value })}
+                />
+              </Field>
+              <Field label="UF" required>
+                <Input
+                  value={draft.entrega.estado}
+                  maxLength={2}
+                  onChange={(event) => updateEntrega({ estado: event.target.value.toUpperCase() })}
+                />
+              </Field>
+              <Field label="CEP">
+                <Input
+                  value={draft.entrega.cep}
+                  onChange={(event) => updateEntrega({ cep: onlyDigits(event.target.value) })}
+                />
+              </Field>
+              <Field label="Código IBGE do município" required>
+                <Input
+                  value={draft.entrega.codigoMunicipio}
+                  onChange={(event) => updateEntrega({ codigoMunicipio: onlyDigits(event.target.value) })}
+                />
+              </Field>
+            </div>
+          </div>
+        </div>
       )}
     </section>
   );

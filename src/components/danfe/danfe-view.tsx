@@ -19,6 +19,7 @@ import {
   PRINT_FONT_SCALE_STORAGE_KEY,
 } from "@/lib/print/fontScale";
 import type {
+  DanfeEntrega,
   DanfeItem,
   DanfeTaxTotals,
   DanfeTransport,
@@ -64,6 +65,7 @@ export type DanfeViewData = {
   itensDisplay: DanfeItemDisplay[];
   totais: DanfeTaxTotals;
   transporte: DanfeTransport;
+  entrega?: DanfeEntrega | null;
   fatura: ParsedDanfeNFe["fatura"];
   duplicatas: ParsedDanfeNFe["duplicatas"];
   pagamentos: ParsedDanfeNFe["pagamentos"];
@@ -329,6 +331,13 @@ function FirstPageDetails({ data }: { data: DanfeViewData }) {
       <Cell label="Endereço">{data.destinatarioEndereco}</Cell><Cell label="Município / UF">{data.destinatarioCidadeUf || "-"}</Cell><Cell label="CEP">{data.destinatarioCep || "-"}</Cell>
       <Cell label="Inscrição estadual">{data.destinatarioIe || "-"}</Cell><Cell label="Data de saída / entrada">{fmtDate(data.dataSaidaEntrada)}</Cell>
     </div>
+    {data.entrega && <>
+      <div className="block-title outside-title">Local de entrega / retirada</div>
+      <div className="recipient-grid box">
+        <Cell label="Nome / Razão social">{data.entrega.nome || "-"}</Cell><Cell label="CNPJ / CPF">{fmtDoc(data.entrega.documento)}</Cell><Cell label="Município / UF">{[data.entrega.municipio, data.entrega.uf].filter(Boolean).join("/") || "-"}</Cell>
+        <Cell label="Endereço">{[data.entrega.logradouro, data.entrega.numero].filter(Boolean).join(", ") || "-"}</Cell><Cell label="Bairro / Complemento">{[data.entrega.bairro, data.entrega.complemento].filter(Boolean).join(" - ") || "-"}</Cell><Cell label="CEP">{data.entrega.cep || "-"}</Cell>
+      </div>
+    </>}
     <div className="block-title outside-title">Cálculo do imposto</div>
     <div className="totals-grid box">
       <Cell label="Base de cálculo do ICMS">{fmtMoney(totals.vBC)}</Cell><Cell label="Valor do ICMS">{fmtMoney(totals.vICMS)}</Cell><Cell label="Valor ICMS desonerado">{fmtMoney(totals.vICMSDeson)}</Cell><Cell label="Valor do FCP">{fmtMoney(totals.vFCP)}</Cell><Cell label="BC ICMS ST">{fmtMoney(totals.vBCST)}</Cell><Cell label="Valor ICMS ST">{fmtMoney(totals.vST)}</Cell><Cell label="Total dos produtos">{fmtMoney(totals.vProd)}</Cell>

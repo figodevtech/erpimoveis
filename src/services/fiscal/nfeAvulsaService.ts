@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   buildNFePreviewXml,
+  type NFeEntregaOptions,
   type NFePagamentoOptions,
   type NFeTransporteOptions,
 } from "@/lib/nfe/buildNFe";
@@ -185,8 +186,28 @@ export type NFeAvulsaDraftInput = {
       pesoBruto?: string | number | null;
     } | null;
   } | null;
+  /**
+   * Local de entrega/retirada, quando diferente do endereço do destinatário
+   * (grupo `<entrega>`). A pessoa indicada aqui é quem recebe ou retira a
+   * mercadoria fisicamente — nunca substitui o destinatário fiscal.
+   */
+  entrega?: {
+    habilitado?: boolean;
+    tipoPessoa?: "FISICA" | "JURIDICA" | string;
+    cpfCnpj?: string | null;
+    nome?: string | null;
+    endereco?: string | null;
+    numero?: string | null;
+    complemento?: string | null;
+    bairro?: string | null;
+    cidade?: string | null;
+    estado?: string | null;
+    cep?: string | null;
+    codigoMunicipio?: string | null;
+  } | null;
   destinatario: {
     clienteId: number | null;
+    fornecedorId?: number | null;
     tipoPessoa?: "FISICA" | "JURIDICA" | "ESTRANGEIRO";
     cpfCnpj?: string | null;
     nomeRazaoSocial?: string | null;
@@ -529,6 +550,34 @@ function getTransporteFiscal(input: NFeAvulsaDraftInput): NFeTransporteOptions {
 
 function getTransporteDadosAvulsos(input: NFeAvulsaDraftInput) {
   return getTransporteFiscal(input);
+}
+
+/**
+ * Local de entrega/retirada no formato do XML. `null` quando a opção não foi
+ * habilitada — nesse caso o grupo `<entrega>` simplesmente não existe, e o
+ * endereço do destinatário vale para tudo, como sempre valeu.
+ */
+function getEntregaFiscal(input: NFeAvulsaDraftInput): NFeEntregaOptions | null {
+  if (!input.entrega?.habilitado) return null;
+
+  return {
+    documento: onlyDigits(input.entrega.cpfCnpj),
+    nome: cleanText(input.entrega.nome),
+    endereco: {
+      logradouro: cleanText(input.entrega.endereco),
+      numero: cleanText(input.entrega.numero),
+      complemento: cleanText(input.entrega.complemento),
+      bairro: cleanText(input.entrega.bairro),
+      codigoMunicipio: cleanText(input.entrega.codigoMunicipio),
+      nomeMunicipio: cleanText(input.entrega.cidade),
+      uf: cleanText(input.entrega.estado).toUpperCase().slice(0, 2),
+      cep: onlyDigits(input.entrega.cep),
+    },
+  };
+}
+
+function getEntregaDadosAvulsos(input: NFeAvulsaDraftInput) {
+  return input.entrega ?? null;
 }
 
 function validarEmpresa(
@@ -892,27 +941,39 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
     });
   }
 
-  if (["0", "1", "2"].includes(transporteFiscal.modFrete)) {
+  // A transportadora é opcional em qualquer modFrete — o grupo <transporta>
+  // não é obrigatório no layout da NF-e. Mas se o usuário começou a
+  // preencher algum campo dela, exigimos que fique completa: um grupo pela
+  // metade é pior que não mandar nada.
+  const transportadoraInformada = Boolean(
+    cleanText(transporteFiscal.transportadora?.nome) ||
+      onlyDigits(transporteFiscal.transportadora?.documento) ||
+      cleanText(transporteFiscal.transportadora?.uf) ||
+      onlyDigits(transporteFiscal.transportadora?.inscricaoEstadual) ||
+      cleanText(transporteFiscal.transportadora?.endereco) ||
+      cleanText(transporteFiscal.transportadora?.municipio),
+  );
+  if (transportadoraInformada) {
     const docTransportadora = onlyDigits(transporteFiscal.transportadora?.documento);
     if (!cleanText(transporteFiscal.transportadora?.nome)) {
       errors.push({
         step: "transport",
         field: "transportadora.nome",
-        message: "Nome da transportadora Ã© obrigatÃ³rio quando o frete Ã© contratado.",
+        message: "Nome da transportadora é obrigatório quando outros dados dela são informados.",
       });
     }
     if (docTransportadora.length !== 11 && docTransportadora.length !== 14) {
       errors.push({
         step: "transport",
         field: "transportadora.documento",
-        message: "CPF ou CNPJ da transportadora deve ser vÃ¡lido quando o frete Ã© contratado.",
+        message: "CPF ou CNPJ da transportadora deve ser válido quando outros dados dela são informados.",
       });
     }
     if (cleanText(transporteFiscal.transportadora?.uf).length !== 2) {
       errors.push({
         step: "transport",
         field: "transportadora.uf",
-        message: "UF da transportadora Ã© obrigatÃ³ria quando o frete Ã© contratado.",
+        message: "UF da transportadora é obrigatória quando outros dados dela são informados.",
       });
     }
   }
@@ -924,6 +985,78 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
       field: "veiculo.placa",
       message: "Placa do veÃ­culo deve ter 7 caracteres.",
     });
+  }
+
+  if (input.entrega?.habilitado) {
+    const docEntrega = onlyDigits(input.entrega.cpfCnpj);
+    const tipoPessoaEntrega =
+      input.entrega.tipoPessoa === "JURIDICA" || docEntrega.length === 14 ? "JURIDICA" : "FISICA";
+    const documentoValidoEntrega =
+      tipoPessoaEntrega === "JURIDICA" ? isValidCnpj(docEntrega) : isValidCpf(docEntrega);
+    if (!documentoValidoEntrega) {
+      errors.push({
+        step: "delivery",
+        field: "entrega.cpfCnpj",
+        message: "CPF ou CNPJ da pessoa indicada para entrega/retirada é inválido.",
+      });
+    }
+    if (!cleanText(input.entrega.nome)) {
+      errors.push({
+        step: "delivery",
+        field: "entrega.nome",
+        message: "Nome da pessoa indicada para entrega/retirada é obrigatório.",
+      });
+    }
+    if (!cleanText(input.entrega.endereco)) {
+      errors.push({
+        step: "delivery",
+        field: "entrega.endereco",
+        message: "Endereço de entrega/retirada é obrigatório.",
+      });
+    }
+    if (!cleanText(input.entrega.numero)) {
+      errors.push({
+        step: "delivery",
+        field: "entrega.numero",
+        message: "Número do endereço de entrega/retirada é obrigatório.",
+      });
+    }
+    if (!cleanText(input.entrega.bairro)) {
+      errors.push({
+        step: "delivery",
+        field: "entrega.bairro",
+        message: "Bairro de entrega/retirada é obrigatório.",
+      });
+    }
+    if (!cleanText(input.entrega.cidade)) {
+      errors.push({
+        step: "delivery",
+        field: "entrega.cidade",
+        message: "Município de entrega/retirada é obrigatório.",
+      });
+    }
+    if (!cleanText(input.entrega.estado)) {
+      errors.push({
+        step: "delivery",
+        field: "entrega.estado",
+        message: "UF de entrega/retirada é obrigatória.",
+      });
+    }
+    if (onlyDigits(input.entrega.codigoMunicipio).length !== 7) {
+      errors.push({
+        step: "delivery",
+        field: "entrega.codigoMunicipio",
+        message: "Código IBGE do município de entrega/retirada deve ter 7 dígitos.",
+      });
+    }
+    const cepEntrega = onlyDigits(input.entrega.cep);
+    if (cepEntrega && cepEntrega.length !== 8) {
+      errors.push({
+        step: "delivery",
+        field: "entrega.cep",
+        message: "CEP de entrega/retirada deve ter 8 dígitos.",
+      });
+    }
   }
 
   return errors;
@@ -1227,6 +1360,26 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
     }
   }
 
+  // Mesma barreira do destinatário: o <xMun> do grupo <entrega> tem de bater
+  // com o código IBGE informado, senão a SEFAZ rejeita a nota.
+  if (input.entrega?.habilitado) {
+    try {
+      input.entrega.cidade = await resolverNomeMunicipioIbge(
+        input.entrega.codigoMunicipio ?? "",
+        input.entrega.estado,
+      );
+    } catch (error: any) {
+      return {
+        ok: false as const,
+        errors: [{
+          step: "delivery",
+          field: "entrega.codigoMunicipio",
+          message: error?.message || "Não foi possível validar o município de entrega/retirada no IBGE.",
+        }],
+      };
+    }
+  }
+
   const { config, empresa } = await getConfigAndEmpresa(modelo);
   const empresaUf = cleanText(empresa.uf).toUpperCase();
   const destinatarioUf = cleanText(input.destinatario.estado).toUpperCase();
@@ -1351,6 +1504,8 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
   const pagamentosDadosAvulsos = getPagamentosDadosAvulsos(input);
   const transporte = getTransporteFiscal(input);
   const transporteDadosAvulsos = getTransporteDadosAvulsos(input);
+  const entrega = getEntregaFiscal(input);
+  const entregaDadosAvulsos = getEntregaDadosAvulsos(input);
   // A tela manda a chave como o usuário digitou (com pontos, espaço colado da
   // consulta pública). O XML e o snapshot guardam só os 44 dígitos.
   const documentosReferenciados = (input.documentosReferenciados ?? [])
@@ -1421,7 +1576,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
   // recuperado do que já está gravado no branch de atualização, senão salvar
   // uma nota de OS/venda por lá a transformaria numa nota solta.
   let origem = input.origem ?? null;
-  let fornecedorId = origem?.fornecedorId ?? null;
+  let fornecedorId = input.destinatario.fornecedorId ?? origem?.fornecedorId ?? null;
   let clienteId = fornecedorId
     ? null
     : input.destinatario.clienteId ?? origem?.clienteId ?? null;
@@ -1455,6 +1610,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
       pagamento,
       pagamentos,
       transporte,
+      entrega,
       documentosReferenciados,
     }));
 
@@ -1498,6 +1654,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
           pagamento: pagamentoDadosAvulsos,
           pagamentos: pagamentosDadosAvulsos,
           transporte: transporteDadosAvulsos,
+          entrega: entregaDadosAvulsos,
           destinatario: input.destinatario,
           descontoGeral: descontoGeralInformado,
           clienteSelecionadoId: input.destinatario.clienteId ?? null,
@@ -1574,7 +1731,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
         clienteId: nfe.clienteid ?? origemGravada?.clienteId ?? null,
         fornecedorId: nfe.fornecedorid ?? origemGravada?.fornecedorId ?? null,
       };
-      fornecedorId = origem.fornecedorId ?? null;
+      fornecedorId = input.destinatario.fornecedorId ?? origem.fornecedorId ?? null;
       clienteId = fornecedorId
         ? null
         : input.destinatario.clienteId ?? origem.clienteId ?? null;
@@ -1598,6 +1755,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
       pagamento,
       pagamentos,
       transporte,
+      entrega,
       documentosReferenciados,
     }));
 
@@ -1618,6 +1776,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
           pagamento: pagamentoDadosAvulsos,
           pagamentos: pagamentosDadosAvulsos,
           transporte: transporteDadosAvulsos,
+          entrega: entregaDadosAvulsos,
           destinatario: input.destinatario,
           descontoGeral: descontoGeralInformado,
           clienteSelecionadoId: input.destinatario.clienteId ?? null,

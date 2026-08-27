@@ -87,6 +87,12 @@ export interface IdeOptions {
   pagamento?: NFePagamentoOptions | null;
   pagamentos?: NFePagamentoOptions[] | null;
   transporte?: NFeTransporteOptions | null;
+  /**
+   * Local de entrega/retirada, quando diferente do endereço do destinatário
+   * (grupo `<entrega>`). A pessoa indicada para receber ou retirar a
+   * mercadoria não substitui o destinatário fiscal — ver `buildEntregaXml`.
+   */
+  entrega?: NFeEntregaOptions | null;
   documentosReferenciados?: NFeDocumentoReferenciado[] | null;
 }
 
@@ -122,6 +128,22 @@ export type NFeTransporteOptions = {
     numeracao?: string | null;
     pesoLiquido?: string | number | null;
     pesoBruto?: string | number | null;
+  } | null;
+};
+
+export type NFeEntregaOptions = {
+  /** CPF (11 dígitos) ou CNPJ (14 dígitos) da pessoa indicada para entrega/retirada. */
+  documento?: string | null;
+  nome?: string | null;
+  endereco?: {
+    logradouro?: string | null;
+    numero?: string | null;
+    complemento?: string | null;
+    bairro?: string | null;
+    codigoMunicipio?: string | null;
+    nomeMunicipio?: string | null;
+    uf?: string | null;
+    cep?: string | null;
   } | null;
 };
 
@@ -258,6 +280,46 @@ function buildTranspXml(params: {
     buildVeicTranspXml(params.transporte?.veiculo) +
     buildVolXml(params.transporte?.volume) +
     "</transp>"
+  );
+}
+
+/**
+ * Monta o grupo `<entrega>` — local de entrega/retirada diferente do
+ * endereço do destinatário, com a pessoa indicada para recebê-la. Só sai no
+ * XML quando documento e endereço estão completos: um grupo pela metade é
+ * pior que não mandar, porque a SEFAZ valida cada campo presente.
+ */
+function buildEntregaXml(entrega?: NFeEntregaOptions | null): string {
+  const documento = onlyDigits(entrega?.documento);
+  const nome = truncateNfeXNome(cleanText(entrega?.nome));
+  const logradouro = cleanText(entrega?.endereco?.logradouro);
+  const numero = cleanText(entrega?.endereco?.numero);
+  const complemento = cleanText(entrega?.endereco?.complemento);
+  const bairro = cleanText(entrega?.endereco?.bairro);
+  const codigoMunicipio = cleanText(entrega?.endereco?.codigoMunicipio);
+  const nomeMunicipio = cleanText(entrega?.endereco?.nomeMunicipio);
+  const uf = cleanText(entrega?.endereco?.uf).toUpperCase();
+  const cep = onlyDigits(entrega?.endereco?.cep);
+
+  const documentoValido = documento.length === 11 || documento.length === 14;
+  const enderecoCompleto = Boolean(
+    logradouro && numero && bairro && codigoMunicipio && nomeMunicipio && uf.length === 2,
+  );
+  if (!documentoValido || !enderecoCompleto) return "";
+
+  return (
+    "<entrega>" +
+    (documento.length === 14 ? `<CNPJ>${documento}</CNPJ>` : `<CPF>${documento}</CPF>`) +
+    (nome ? `<xNome>${escapeXml(nome)}</xNome>` : "") +
+    `<xLgr>${escapeXml(logradouro)}</xLgr>` +
+    `<nro>${escapeXml(numero)}</nro>` +
+    (complemento ? `<xCpl>${escapeXml(complemento)}</xCpl>` : "") +
+    `<xBairro>${escapeXml(bairro)}</xBairro>` +
+    `<cMun>${codigoMunicipio}</cMun>` +
+    `<xMun>${escapeXml(nomeMunicipio)}</xMun>` +
+    `<UF>${uf}</UF>` +
+    (cep.length === 8 ? `<CEP>${cep}</CEP>` : "") +
+    "</entrega>"
   );
 }
 
@@ -552,6 +614,8 @@ export function buildNFePreviewXml(
   // Consumidor não identificado: sem grupo <dest>. Só a NFC-e chega aqui sem
   // destinatário — na NF-e o placeholder acima garante que sempre existe um.
   const destXml = dest ? buildDestXml(dest) : '';
+  // Venda ao consumidor é balcão: sem local de entrega/retirada diferente.
+  const entregaXml = nfce ? '' : buildEntregaXml(options?.entrega);
   const detXml = itens
     .map((item) => buildDetXml(item, crt))
     .join('');
@@ -695,6 +759,7 @@ export function buildNFePreviewXml(
     ideXml +
     emitXml +
     destXml +
+    entregaXml +
     detXml +
     totalXml +
     transpXml +

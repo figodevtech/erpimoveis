@@ -385,6 +385,24 @@ function destinatario(ctx: Ctx, data: DanfeViewData) {
   ], larguras);
 }
 
+function localDeEntrega(ctx: Ctx, data: DanfeViewData) {
+  const entrega = data.entrega;
+  if (!entrega) return;
+
+  tituloBloco(ctx, "Local de entrega / retirada");
+  const larguras = colunas(CONTENT_W, [2.2, 1, 1]);
+  linhaDeCampos(ctx, [
+    { label: "Nome / Razao social", valor: entrega.nome || "-" },
+    { label: "CNPJ / CPF", valor: fmtDoc(entrega.documento) },
+    { label: "Municipio / UF", valor: [entrega.municipio, entrega.uf].filter(Boolean).join("/") || "-" },
+  ], larguras);
+  linhaDeCampos(ctx, [
+    { label: "Endereco", valor: [entrega.logradouro, entrega.numero].filter(Boolean).join(", ") || "-" },
+    { label: "Bairro / Complemento", valor: [entrega.bairro, entrega.complemento].filter(Boolean).join(" - ") || "-" },
+    { label: "CEP", valor: entrega.cep || "-" },
+  ], larguras);
+}
+
 function calculoDoImposto(ctx: Ctx, data: DanfeViewData) {
   const t = data.totais;
   tituloBloco(ctx, "Calculo do imposto");
@@ -758,6 +776,7 @@ async function montar(data: DanfeViewData, totalDeclarado: number, fontScale: Da
   canhoto(ctx, data);
   cabecalho(ctx, data, 1, totalDeclarado);
   destinatario(ctx, data);
+  localDeEntrega(ctx, data);
   calculoDoImposto(ctx, data);
   transportador(ctx, data);
 

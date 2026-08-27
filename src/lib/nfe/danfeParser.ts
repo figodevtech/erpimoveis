@@ -117,6 +117,19 @@ export type DanfeTransport = {
   }>;
 };
 
+/** Local de entrega/retirada (grupo `<entrega>`), quando diferente do destinatário. */
+export type DanfeEntrega = {
+  nome: string;
+  documento: string;
+  logradouro: string;
+  numero: string;
+  complemento: string;
+  bairro: string;
+  municipio: string;
+  uf: string;
+  cep: string;
+};
+
 export type ParsedDanfeNFe = {
   chave: string;
   ide: {
@@ -142,6 +155,7 @@ export type ParsedDanfeNFe = {
   totais: DanfeTaxTotals;
   itens: DanfeItem[];
   transporte: DanfeTransport;
+  entrega: DanfeEntrega | null;
   fatura: { numero: string; valorOriginal: number; desconto: number; valorLiquido: number } | null;
   duplicatas: Array<{ numero: string; vencimento: string; valor: number }>;
   pagamentos: Array<{
@@ -314,6 +328,7 @@ export function parseDanfeNFeXml(xml: string): ParsedDanfeNFe {
   const transp = child(infNFe, "transp");
   const transporta = child(transp, "transporta");
   const veiculo = child(transp, "veicTransp");
+  const entregaNode = child(infNFe, "entrega");
   const cobr = child(infNFe, "cobr");
   const fat = child(cobr, "fat");
   const pag = child(infNFe, "pag");
@@ -393,6 +408,17 @@ export function parseDanfeNFeXml(xml: string): ParsedDanfeNFe {
         pesoBruto: numberValue(vol, "pesoB"),
       })),
     },
+    entrega: entregaNode ? {
+      nome: value(entregaNode, "xNome"),
+      documento: value(entregaNode, "CNPJ") || value(entregaNode, "CPF"),
+      logradouro: value(entregaNode, "xLgr"),
+      numero: value(entregaNode, "nro"),
+      complemento: value(entregaNode, "xCpl"),
+      bairro: value(entregaNode, "xBairro"),
+      municipio: value(entregaNode, "xMun"),
+      uf: value(entregaNode, "UF"),
+      cep: value(entregaNode, "CEP"),
+    } : null,
     fatura: fat ? {
       numero: value(fat, "nFat"),
       valorOriginal: numberValue(fat, "vOrig"),

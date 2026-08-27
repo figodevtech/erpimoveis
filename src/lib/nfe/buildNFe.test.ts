@@ -535,3 +535,68 @@ describe("normalização de rascunho legado", () => {
     assert.equal(normalizarNiveisDeReferencia(soCabecalho), soCabecalho);
   });
 });
+
+describe("grupo <entrega> (local de entrega/retirada)", () => {
+  it("não gera <entrega> quando a opção não foi informada", () => {
+    const { xml } = buildNFePreviewXml(empresa, 20, 1, [item], destinatario("SP"), {
+      nomeMunicipioEmitente: "SAO PAULO",
+    });
+
+    assert.doesNotMatch(xml, /<entrega>/);
+  });
+
+  it("gera <entrega> com a pessoa indicada, sem alterar o <dest>", () => {
+    const { xml } = buildNFePreviewXml(empresa, 21, 1, [item], destinatario("MT"), {
+      nomeMunicipioEmitente: "SAO PAULO",
+      entrega: {
+        documento: "49354549896",
+        nome: "Gustavo Guarnieri Guarnieri",
+        endereco: {
+          logradouro: "AVENIDA RIO DE JANEIRO",
+          numero: "SN",
+          complemento: "RETIRADA EM AEROPORTO",
+          bairro: "PARQUE JOAO BRAZ - CIDADE INDUSTRIAL",
+          codigoMunicipio: "5208707",
+          nomeMunicipio: "GOIANIA",
+          uf: "GO",
+          cep: "74483500",
+        },
+      },
+    });
+
+    assert.match(xml, /<entrega><CPF>49354549896<\/CPF><xNome>Gustavo Guarnieri Guarnieri<\/xNome>/);
+    assert.match(xml, /<xCpl>RETIRADA EM AEROPORTO<\/xCpl>/);
+    assert.match(xml, /<cMun>5208707<\/cMun><xMun>GOIANIA<\/xMun><UF>GO<\/UF><CEP>74483500<\/CEP><\/entrega>/);
+    // O destinatário fiscal continua sendo o da operação, não a pessoa indicada.
+    assert.match(xml, /<dest><CPF>12345678909<\/CPF>/);
+  });
+
+  it("não gera <entrega> pela metade quando falta documento ou endereço", () => {
+    const { xml } = buildNFePreviewXml(empresa, 22, 1, [item], destinatario("SP"), {
+      nomeMunicipioEmitente: "SAO PAULO",
+      entrega: {
+        documento: "49354549896",
+        nome: "Gustavo Guarnieri Guarnieri",
+        // Endereço incompleto: sem cMun/UF a SEFAZ rejeita, então o grupo some.
+        endereco: { logradouro: "AVENIDA RIO DE JANEIRO" },
+      },
+    });
+
+    assert.doesNotMatch(xml, /<entrega>/);
+  });
+});
+
+describe("grupo <transp> (modalidade de frete)", () => {
+  it("gera <transp> só com modFrete quando nenhuma transportadora foi informada", () => {
+    // Caso real: nota de garantia autorizada pela SEFAZ com modFrete=0 e
+    // nenhum dado de transportadora — <transporta> é opcional no layout da
+    // NF-e independente do modFrete escolhido.
+    const { xml } = buildNFePreviewXml(empresa, 23, 1, [item], destinatario("SP"), {
+      nomeMunicipioEmitente: "SAO PAULO",
+      transporte: { modFrete: "0" },
+    });
+
+    assert.match(xml, /<transp><modFrete>0<\/modFrete><\/transp>/);
+    assert.doesNotMatch(xml, /<transporta>/);
+  });
+});
