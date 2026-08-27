@@ -23,6 +23,7 @@ import { distribuirPorPesos, paraCentavos, paraReais } from "@/lib/financeiro/ra
 import {
   classificarNoCusto,
   type ContextoDeCusto,
+  type DestinoContabil,
   type TratamentoNoCusto,
 } from "./tratamento-custo";
 import { alocacaoPorItem, componentesDoTotal } from "./totais-nfe";
@@ -95,6 +96,8 @@ export interface ComponenteFiscal {
   /** +1 acréscimo, −1 redutor, 0 informativo. */
   sinalFiscal: 1 | -1 | 0;
   tratamentoCusto: TratamentoNoCusto;
+  /** Onde o valor é reconhecido: estoque, resultado, ou ainda indefinido. */
+  destinoContabil: DestinoContabil;
   motivoDoTratamento: string;
 }
 
@@ -173,7 +176,7 @@ function montarComponente(
     contexto: ContextoDeCusto;
   },
 ): ComponenteFiscal {
-  const { tratamento, motivo } = classificarNoCusto(tipo, opcoes.contexto);
+  const { tratamento, destinoContabil, motivo } = classificarNoCusto(tipo, opcoes.contexto);
   const sinalFiscal: 1 | -1 | 0 = !opcoes.compoeValorNFe
     ? 0
     : REDUTORES.has(tipo)
@@ -193,6 +196,7 @@ function montarComponente(
     compoeValorNFe: opcoes.compoeValorNFe,
     sinalFiscal,
     tratamentoCusto: foraDaComposicao ? "INFORMATIVO" : tratamento,
+    destinoContabil: foraDaComposicao ? "NENHUM" : destinoContabil,
     motivoDoTratamento:
       foraDaComposicao && POSSIVEL_COMPONENTE.has(tipo)
         ? "a regra desta nota não soma este valor no total"

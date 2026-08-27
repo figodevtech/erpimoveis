@@ -2,7 +2,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { dataDoCalendario } from "@/lib/data-calendario";
 import { entradaUsoConsumoSchema, zodMessage } from "@/lib/usoconsumo/schemas";
 import { parseEscopoDeEntrada } from "@/lib/usoconsumo/escopo";
-import { normalizarUnidadeMedidaEntrada } from "./entradaService";
+import { normalizarUnidadeMedidaEntrada, tributosDaEntrada } from "./entradaService";
 
 function positiveInt(value: unknown, field: string) {
   const number = Number(value);
@@ -90,6 +90,10 @@ export async function registrarEntradaFiscalMista(body: any, createdBy?: string 
       body?.valorTotalDocumento === null || body?.valorTotalDocumento === undefined
         ? null
         : nonNegative(body.valorTotalDocumento, "Total do documento"),
+    // Cada metade lanca os tributos dos SEUS itens. Os valores que a nota declara
+    // sem `<det>` vao numa metade so — a tela os manda com o lado do estoque —,
+    // senao o mesmo imposto entraria duas vezes na DRE.
+    tributos: tributosDaEntrada(body?.tributosProduto),
   };
 
   // A metade de uso e consumo passa pelo mesmo schema da entrada avulsa, para herdar
@@ -109,6 +113,7 @@ export async function registrarEntradaFiscalMista(body: any, createdBy?: string 
     documento_fiscal_recebido_id: documentoId ?? undefined,
     itens: itensUsoRaw,
     transacoes: [],
+    tributos: tributosDaEntrada(body?.tributosUsoConsumo),
   });
   if (!parsedUso.success) throw Object.assign(new Error(zodMessage(parsedUso.error)), { statusCode: 400 });
   // As transacoes sao descartadas aqui de proposito: o pagamento e unico e a RPC mista

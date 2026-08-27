@@ -99,6 +99,24 @@ export const transacaoUsoConsumoSchema = z.object({
   centro_custo_id: z.number().int().positive().optional().nullable(), centro_custo: z.string().optional().nullable(),
 }).strict();
 
+/**
+ * O que a nota cobrou e nao vira custo do item: ICMS-ST, FCP-ST, imposto de
+ * importacao e afins. Vai para a DRE na competencia da nota, porque nunca vira
+ * mercadoria e portanto nao tem baixa futura para esperar.
+ */
+export const tributoDreEntradaSchema = z.object({
+  tipo: z.string().trim().min(1).max(40),
+  natureza: z.enum(["DESPESA", "RECEITA"]),
+  // Sempre positivo: o sinal mora na linha da DRE, nunca no lancamento.
+  valor: z.coerce.number().positive(),
+  descricao: z.string().trim().min(1).max(500),
+  detalhe: z.string().trim().max(500).optional().nullable(),
+  itens: z.array(z.object({
+    numeroItem: z.number().int().positive().nullable(),
+    valor: z.coerce.number(),
+  }).strict()).default([]),
+}).strict();
+
 export const entradaUsoConsumoSchema = z.object({
   escopo: escopoDeEntradaSchema,
   fornecedor_id: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().optional()),
@@ -115,6 +133,7 @@ export const entradaUsoConsumoSchema = z.object({
   valor_total_documento: z.preprocess(emptyToUndefined, z.coerce.number().nonnegative().optional()),
   itens: z.array(entradaItemSchema).min(1),
   transacoes: z.array(transacaoUsoConsumoSchema).default([]),
+  tributos: z.array(tributoDreEntradaSchema).optional(),
 }).strict().superRefine((value, ctx) => {
   if (!value.fiscal) return;
   if (!/^\d{44}$/.test(String(value.chave_nfe ?? "").replace(/\D/g,""))) {

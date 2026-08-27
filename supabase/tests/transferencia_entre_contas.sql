@@ -127,6 +127,25 @@ BEGIN
       v_outra.tipo, v_outra.banco_id, v_outra.valor, v_outra.pendente;
   END IF;
 
+  /* ---------------- 3b. cada perna aponta para a outra conta ------------ */
+  --
+  -- `nomepagador` e `cpfcnpjpagador` sao NOT NULL: a RPC ja nasceu sem os dois e
+  -- por isso NENHUMA transferencia era gravada. Aqui a contraparte tem que ser o
+  -- titulo da OUTRA conta — e o que a conciliacao le no extrato.
+
+  IF v_tx.nomepagador = 'TESTE CONTA DESTINO'
+     AND v_outra.nomepagador = 'TESTE CONTA ORIGEM'
+     AND v_tx.cpfcnpjpagador IS NOT NULL
+     AND v_outra.cpfcnpjpagador IS NOT NULL THEN
+    v_ok := v_ok + 1;
+    RAISE NOTICE 'OK 3b: a contraparte de cada perna e o titulo da outra conta';
+  ELSE
+    v_falhou := v_falhou + 1;
+    RAISE NOTICE 'FALHOU 3b: saida pagador=% doc=% / entrada pagador=% doc=%',
+      v_tx.nomepagador, v_tx.cpfcnpjpagador,
+      v_outra.nomepagador, v_outra.cpfcnpjpagador;
+  END IF;
+
   /* ---------------- 4. o dinheiro mudou de lugar, nao de tamanho --------- */
 
   v_sai := pg_temp.saldo_do_teste(v_origem);

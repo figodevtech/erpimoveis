@@ -670,7 +670,11 @@ describe("valor fiscal e custo de estoque sao respostas diferentes", () => {
     assert.equal(desconto?.sinalFiscal, -1);
   });
 
-  it("29. sem configuracao de credito o tratamento e pendente, nao um 'nao' calado", () => {
+  it("29. o que fica fora do custo diz para onde vai, e nao e um 'nao' calado", () => {
+    // O ICMS-ST era `PENDENTE_DE_CLASSIFICACAO` enquanto ninguém tinha decidido
+    // onde reconhecê-lo. A decisão saiu: pago na compra, nunca vira mercadoria,
+    // logo não tem baixa futura para esperar e entra no resultado do período. O
+    // estado pendente continua existindo para o que ainda não foi decidido.
     const entrada = destinarTudo(notaComST());
     const fora = componentesForaDoCusto(entrada);
 
@@ -680,8 +684,22 @@ describe("valor fiscal e custo de estoque sao respostas diferentes", () => {
     assert.equal(fora[0].origem, "ITEM");
     assert.equal(fora[0].numeroItem, 1);
     assert.equal(fora[0].compoeValorNFe, true);
-    assert.equal(fora[0].tratamentoCusto, "PENDENTE_DE_CLASSIFICACAO");
-    assert.match(fora[0].motivoDoTratamento, /crédito/);
+    assert.equal(fora[0].tratamentoCusto, "NAO_INTEGRA_CUSTO");
+    assert.equal(fora[0].destinoContabil, "RESULTADO");
+    assert.match(fora[0].motivoDoTratamento, /não integra o estoque/);
+  });
+
+  it("29b. o servico da nota continua pendente: nao entrou no custo nem no resultado", () => {
+    const entrada = destinarTudo(
+      montarXml({
+        icmsTot: { vProd: "100.00", vNF: "150.00" },
+        issqnTot: { vServ: "50.00" },
+      }),
+    );
+    const servico = entrada.naoAlocados.find((parte) => parte.tipo === "SERVICOS");
+
+    assert.equal(servico?.tratamentoCusto, "PENDENTE_DE_CLASSIFICACAO");
+    assert.equal(servico?.destinoContabil, "PENDENTE");
   });
 
   it("o que fica fora do custo explica exatamente a distancia entre os dois", () => {

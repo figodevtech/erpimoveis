@@ -1,17 +1,21 @@
 /**
- * O que cada componente fiscal faz com o CUSTO do produto no estoque.
+ * O que cada componente fiscal faz com o CUSTO do produto — e, quando não é
+ * custo, para onde ele vai.
  *
  * É deliberadamente um módulo separado do que compõe o `vNF`. Compor o valor da
- * nota e integrar o custo de estoque são perguntas diferentes: o ICMS-ST compõe
- * o `vNF` sempre, mas só vira custo quando a empresa não tem direito a crédito
- * naquela operação — e isso depende de regime, CST, CFOP e da finalidade do item.
+ * nota, integrar o custo de estoque e virar resultado no mês são três perguntas
+ * diferentes.
  *
- * O ERP ainda não guarda essa configuração de recuperabilidade. Por isso o
- * default aqui NÃO afirma "não entra no custo": afirma `PENDENTE_DE_CLASSIFICACAO`
- * com o motivo, que é a verdade. Falta de configuração não é o mesmo que o valor
- * não pertencer ao produto, e a tela precisa dizer qual dos dois é o caso.
+ * A regra da casa é que comprar não é despesa: a mercadoria vira estoque e só
+ * chega à DRE como CMV quando sai por venda ou por OS. Ela vale para a
+ * mercadoria e não vale para o imposto que a mercadoria não carrega — ICMS-ST,
+ * FCP-ST, imposto de importação e afins são pagos na compra, nunca viram
+ * estoque, e portanto não têm saída futura para esperar. Esses entram no
+ * resultado na competência da nota.
  *
- * Quando a configuração fiscal existir, é esta tabela que muda — num lugar só.
+ * `PENDENTE_DE_CLASSIFICACAO` continua existindo para o que ainda não tem
+ * política. Falta de configuração não é o mesmo que o valor não pertencer a
+ * lugar nenhum, e a tela precisa dizer qual dos dois é o caso.
  */
 
 import type { DestinoDaEntrada } from "./valor-fiscal-entrada";
@@ -28,8 +32,18 @@ export type TratamentoNoCusto =
   /** Não é dinheiro cobrado: base de cálculo, estimativa, retenção, partilha. */
   | "INFORMATIVO";
 
+/**
+ * Onde o valor é reconhecido.
+ *
+ * `CUSTO_DE_ESTOQUE` fica esperando a baixa do item — é o caminho que já
+ * existia. `RESULTADO` entra na DRE na competência da nota. `PENDENTE` é o
+ * terceiro estado honesto: pertence à nota, ainda não se sabe onde reconhecer.
+ */
+export type DestinoContabil = "CUSTO_DE_ESTOQUE" | "RESULTADO" | "PENDENTE" | "NENHUM";
+
 export interface ClassificacaoDeCusto {
   tratamento: TratamentoNoCusto;
+  destinoContabil: DestinoContabil;
   /** Por que, em uma linha, para a tela poder explicar em vez de decretar. */
   motivo: string;
 }
@@ -45,30 +59,44 @@ export interface ContextoDeCusto {
 
 const INTEGRA = (motivo: string): ClassificacaoDeCusto => ({
   tratamento: "INTEGRA_CUSTO",
+  destinoContabil: "CUSTO_DE_ESTOQUE",
   motivo,
 });
 const REDUZ = (motivo: string): ClassificacaoDeCusto => ({
   tratamento: "REDUZ_CUSTO",
+  destinoContabil: "CUSTO_DE_ESTOQUE",
+  motivo,
+});
+const RESULTADO = (motivo: string): ClassificacaoDeCusto => ({
+  tratamento: "NAO_INTEGRA_CUSTO",
+  destinoContabil: "RESULTADO",
   motivo,
 });
 const PENDENTE = (motivo: string): ClassificacaoDeCusto => ({
   tratamento: "PENDENTE_DE_CLASSIFICACAO",
+  destinoContabil: "PENDENTE",
   motivo,
 });
 const INFORMATIVO = (motivo: string): ClassificacaoDeCusto => ({
   tratamento: "INFORMATIVO",
+  destinoContabil: "NENHUM",
   motivo,
 });
 
-const CREDITO_NAO_CONFIGURADO =
-  "depende de a empresa ter direito a crédito nesta operação; o ERP ainda não guarda essa configuração";
+const NAO_VIRA_MERCADORIA =
+  "pago na compra e não integra o estoque, então entra no resultado na competência da nota";
 
 /**
  * A política vigente, por tipo de componente.
  *
- * Os cinco primeiros são exatamente o que a entrada já somava no custo da linha
- * — a fórmula antiga passou a sair daqui em vez de estar escrita à mão, para não
- * existirem duas versões da mesma regra.
+ * Os seis primeiros são exatamente o que a entrada já somava no custo da linha —
+ * a fórmula antiga passou a sair daqui em vez de estar escrita à mão, para não
+ * existirem duas versões da mesma regra. Eles seguem esperando a baixa do item.
+ *
+ * Os tributos abaixo já foram `PENDENTE_DE_CLASSIFICACAO`: eram lidos, exibidos
+ * e não reconhecidos em lugar nenhum — saíam do caixa e não chegavam à DRE.
+ * A decisão de reconhecê-los como custo do período é do dono do negócio; o que
+ * o código faz é registrá-la num lugar só.
  */
 const POLITICA: Record<string, ClassificacaoDeCusto> = {
   PRODUTO: INTEGRA("valor da mercadoria"),
@@ -78,16 +106,17 @@ const POLITICA: Record<string, ClassificacaoDeCusto> = {
   OUTRAS_DESPESAS: INTEGRA("despesa acessória de aquisição, informada na linha"),
   IPI: INTEGRA("não recuperável para quem não é contribuinte de IPI"),
 
-  ICMS_ST: PENDENTE(`ICMS-ST ${CREDITO_NAO_CONFIGURADO}`),
-  FCP_ST: PENDENTE(`FCP-ST ${CREDITO_NAO_CONFIGURADO}`),
-  ICMS_MONO_RETEN: PENDENTE(`ICMS monofásico retido ${CREDITO_NAO_CONFIGURADO}`),
-  IMPOSTO_IMPORTACAO: PENDENTE(`imposto de importação ${CREDITO_NAO_CONFIGURADO}`),
-  IPI_DEVOLVIDO: PENDENTE(`IPI devolvido ${CREDITO_NAO_CONFIGURADO}`),
-  PIS_ST: PENDENTE(`PIS-ST ${CREDITO_NAO_CONFIGURADO}`),
-  COFINS_ST: PENDENTE(`COFINS-ST ${CREDITO_NAO_CONFIGURADO}`),
-  ICMS_DESONERADO: PENDENTE(
-    "a desoneração pode ou não abater o custo, conforme o motivo e o indicador de dedução",
+  ICMS_ST: RESULTADO(`ICMS-ST retido pelo fornecedor: ${NAO_VIRA_MERCADORIA}`),
+  FCP_ST: RESULTADO(`FCP-ST retido pelo fornecedor: ${NAO_VIRA_MERCADORIA}`),
+  ICMS_MONO_RETEN: RESULTADO(`ICMS monofásico retido: ${NAO_VIRA_MERCADORIA}`),
+  IMPOSTO_IMPORTACAO: RESULTADO(`imposto de importação: ${NAO_VIRA_MERCADORIA}`),
+  IPI_DEVOLVIDO: RESULTADO(`IPI devolvido: ${NAO_VIRA_MERCADORIA}`),
+  PIS_ST: RESULTADO(`PIS-ST: ${NAO_VIRA_MERCADORIA}`),
+  COFINS_ST: RESULTADO(`COFINS-ST: ${NAO_VIRA_MERCADORIA}`),
+  ICMS_DESONERADO: RESULTADO(
+    "desoneração concedida na compra: reduz o custo do período, não o preço do item no estoque",
   ),
+
   SERVICOS: PENDENTE("serviço da nota não é mercadoria; a apropriação depende da operação"),
 };
 
@@ -109,12 +138,12 @@ const MOTIVO_INFORMATIVO: Record<string, string> = {
 };
 
 /**
- * Como este componente afeta o custo do produto.
+ * Como este componente afeta o custo do produto, e onde ele é reconhecido.
  *
  * O contexto entra na assinatura porque a decisão depende dele. Hoje ele só
  * qualifica o motivo da pendência: nenhuma regra decide por regime ou CST ainda,
- * e é exatamente por isso que os tributos possivelmente recuperáveis saem como
- * `PENDENTE_DE_CLASSIFICACAO` em vez de um "não" silencioso.
+ * e é exatamente por isso que o que sobra sai como `PENDENTE_DE_CLASSIFICACAO`
+ * em vez de um "não" silencioso.
  */
 export function classificarNoCusto(
   tipo: string,
@@ -126,7 +155,7 @@ export function classificarNoCusto(
     return INFORMATIVO(motivo ?? "valor informativo do XML");
   }
 
-  // O direito a crédito muda com o destino da mercadoria, então o motivo diz
+  // O destino da mercadoria muda o que ainda falta decidir, então o motivo diz
   // para qual destino a classificação está pendente — é a informação que falta
   // para alguém resolver a pendência.
   if (politica.tratamento === "PENDENTE_DE_CLASSIFICACAO" && contexto.destino) {

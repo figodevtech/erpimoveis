@@ -14,6 +14,7 @@ import {
   Pencil,
   Plus,
   ReceiptText,
+  Scale,
   Search,
   TriangleAlert,
   Truck,
@@ -56,6 +57,12 @@ import { totalDasDuplicatas } from "@/lib/nfe/duplicatas";
 import { componentesDoTotal } from "@/lib/nfe/totais-nfe";
 import { ROTULO_DO_TRATAMENTO } from "@/lib/nfe/tratamento-custo";
 import { apropriarValorFiscal } from "@/lib/nfe/valor-fiscal-entrada";
+import {
+  conferirIdentidade,
+  lancamentosDreDaEntrada,
+  payloadDosLancamentos,
+  type FonteDosLancamentos,
+} from "@/lib/nfe/lancamento-dre-entrada";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { formatDate } from "@/utils/formatDate";
 
@@ -329,6 +336,77 @@ export function EntradaFiscalDialog({
         componente.tratamentoCusto !== "REDUZ_CUSTO",
     );
   }, [linhasDisponiveis, naoAlocados]);
+
+  /*
+   * O que desta nota entra na DRE agora — e o que continua esperando a baixa.
+   *
+   * A mercadoria não passa por aqui: ela vira estoque e chega ao resultado como
+   * CMV quando o item sair por venda ou por OS. O que entra é o imposto que a
+   * nota cobrou e que nunca vira mercadoria, então não tem saída futura para
+   * esperar: ICMS-ST, FCP-ST, imposto de importação, IPI devolvido, PIS-ST e
+   * COFINS-ST. Antes disto esse dinheiro saía do caixa e não chegava a
+   * relatório nenhum.
+   *
+   * A tela só destina itens inteiros, daí `proporcao: 1` em toda linha.
+   */
+  const fonteDosLancamentos: FonteDosLancamentos = useMemo(
+    () => ({
+      linhas: linhasDisponiveis.map((linha, indice) => ({
+        numeroItem: Number(linha.numeroItem) || null,
+        proporcao: 1,
+        componentes: linha.componentesFiscais ?? [],
+        valorFiscalDoItem:
+          (apropriacao.valorFiscalPorLinha[indice] ?? 0) - (apropriacao.cotas[indice] ?? 0),
+        custoEstoque: totalDaLinha(linha),
+      })),
+      naoAlocados,
+    }),
+    [apropriacao, linhasDisponiveis, naoAlocados],
+  );
+  const lancamentosDre = useMemo(
+    () => lancamentosDreDaEntrada(fonteDosLancamentos),
+    [fonteDosLancamentos],
+  );
+  /*
+   * Na NF-e mista os itens viram DUAS entradas, e cada uma lança os tributos dos
+   * seus próprios itens. Os valores que a nota declara sem `<det>` vão com o lado
+   * do estoque e só com ele: mandados nos dois, o mesmo imposto entraria duas
+   * vezes na DRE.
+   */
+  const tributosDoEstoque = useMemo(
+    () =>
+      payloadDosLancamentos(
+        lancamentosDreDaEntrada(fonteDosLancamentos, {
+          numerosDeItem: linhasEstoque.map((linha) => Number(linha.numeroItem) || null),
+        }),
+      ),
+    [fonteDosLancamentos, linhasEstoque],
+  );
+  const tributosDoUsoConsumo = useMemo(
+    () =>
+      payloadDosLancamentos(
+        lancamentosDreDaEntrada(fonteDosLancamentos, {
+          numerosDeItem: linhasUsoConsumo.map((linha) => Number(linha.numeroItem) || null),
+          incluirNaoAlocados: false,
+        }),
+      ),
+    [fonteDosLancamentos, linhasUsoConsumo],
+  );
+
+  /*
+   * A prova de que nada sumiu: custo + despesas − recuperações + pendentes tem de
+   * dar o valor fiscal. `pendentes` é o que a política ainda não classifica —
+   * aparece na tela em vez de ser disfarçado de zero.
+   */
+  const conferencia = useMemo(
+    () =>
+      conferirIdentidade({
+        ...fonteDosLancamentos,
+        custoEstoqueDestinado: custoDestinado,
+        valorFiscalDestinado,
+      }),
+    [custoDestinado, fonteDosLancamentos, valorFiscalDestinado],
+  );
 
   /*
    * A decomposição do `vNF`, para o cabeçalho da nota: só o que a nota realmente
@@ -957,6 +1035,8 @@ export function EntradaFiscalDialog({
           itensProduto: itensEstoquePayload(),
           escopo: escopoDaEntrada,
           itensUsoConsumo: itensUsoConsumoPayload(),
+          tributosProduto: tributosDoEstoque,
+          tributosUsoConsumo: tributosDoUsoConsumo,
         });
       } else if (linhasEstoque.length) {
         await axios.post("/api/entradas/fiscal", {
@@ -964,6 +1044,7 @@ export function EntradaFiscalDialog({
           ...financeiro,
           fiscal: true,
           itens: itensEstoquePayload(),
+          tributos: payloadDosLancamentos(lancamentosDre),
         });
       } else {
         await axios.post("/api/usoconsumo/entradas/fiscal", {
@@ -976,6 +1057,7 @@ export function EntradaFiscalDialog({
           documento_fiscal_recebido_id: parsed.documentoFiscalRecebidoId,
           valor_total_documento: totalAPagar,
           itens: itensUsoConsumoPayload(),
+          tributos: payloadDosLancamentos(lancamentosDre),
           transacoes: pagamentoFuturo
             ? montarTransacoesUsoConsumo(financeiro)
             : [],
@@ -1410,10 +1492,64 @@ export function EntradaFiscalDialog({
                           </div>
                           <p>
                             O valor fiscal é o que se paga ao fornecedor; o custo é
-                            o que entra no preço de compra do produto. Componentes
-                            com classificação pendente continuam no valor fiscal e
-                            aguardam a configuração de crédito da empresa.
+                            o que entra no preço de compra do produto e só chega à
+                            DRE quando o item sair por venda ou por OS.
                           </p>
+                        </div>
+                      </div>
+                    ) : null}
+                    {lancamentosDre.length > 0 ? (
+                      <div className="flex items-start gap-2 rounded-md border border-violet-300 bg-violet-50 p-3 text-xs text-violet-900 dark:bg-violet-950/20 dark:text-violet-300">
+                        <Scale className="mt-0.5 h-4 w-4 shrink-0" />
+                        <div className="space-y-2">
+                          <p className="font-semibold">
+                            O que vai para a DRE agora
+                          </p>
+                          <div className="space-y-0.5">
+                            {lancamentosDre.map((lancamento) => (
+                              <p key={lancamento.tipo}>
+                                {lancamento.natureza === "RECEITA" ? "−" : "+"}{" "}
+                                {lancamento.rotulo}{" "}
+                                <span className="font-semibold">
+                                  {formatarEmReal(lancamento.valor)}
+                                </span>
+                                {" · "}
+                                {lancamento.natureza === "RECEITA"
+                                  ? "reduz o custo do período"
+                                  : "custo do período"}
+                              </p>
+                            ))}
+                          </div>
+                          <p>
+                            Estes valores foram cobrados na nota e não viram
+                            mercadoria, então não têm baixa futura para esperar:
+                            entram no resultado na competência da NF-e
+                            {parsed?.dataEmissao
+                              ? ` (${new Date(parsed.dataEmissao).toLocaleDateString("pt-BR")})`
+                              : ""}
+                            . Os{" "}
+                            <span className="font-semibold">
+                              {formatarEmReal(conferencia.custoEstoque)}
+                            </span>{" "}
+                            de mercadoria ficam no estoque e só chegam à DRE como
+                            custo quando o item sair.
+                          </p>
+                          {conferencia.pendentes !== 0 ? (
+                            <p className="font-semibold">
+                              {formatarEmReal(Math.abs(conferencia.pendentes))} da
+                              nota ainda estão sem classificação: pertencem ao
+                              valor fiscal, não entraram no custo e não foram
+                              lançados na DRE.
+                            </p>
+                          ) : null}
+                          {!conferencia.fecha ? (
+                            <p className="font-semibold">
+                              Conferência: sobram{" "}
+                              {formatarEmReal(Math.abs(conferencia.diferenca))} sem
+                              destino. Nenhum valor foi alterado — revise antes de
+                              gravar.
+                            </p>
+                          ) : null}
                         </div>
                       </div>
                     ) : null}
