@@ -285,6 +285,7 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
           )
         : 0;
   const termoAceite = getTermoAceiteVenda(venda.status);
+  const observacoesImpressao = String(venda.observacoes ?? "").trim();
 
   return (
     <div className="os-print-root">
@@ -501,7 +502,7 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
         <div className="flex flex-row flex-wrap items-center gap-1">
           <PrintDisplayOptionsMenu
             options={[
-              ...(venda.observacoes
+              ...(observacoesImpressao
                 ? [{ attribute: "data-os-observacoes", label: "Observações internas" }]
                 : []),
               { attribute: "data-print-ocultar-valores", label: "Ocultar valores" },
@@ -665,13 +666,13 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
           <div data-print-final-block>
             <div className="rodape">
             <div>
-              {venda.observacoes ? (
+              {observacoesImpressao ? (
                 <div className="observacoes-box venda-observacoes">
                   <div className="obs-titulo">
                     <FileText className="w-4 h-4 inline mr-1" aria-hidden="true" />
                     Observações
                   </div>
-                  <div className="obs-texto">{venda.observacoes}</div>
+                  <div className="obs-texto">{observacoesImpressao}</div>
                 </div>
               ) : null}
 
