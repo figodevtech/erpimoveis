@@ -12,13 +12,27 @@ import type {
   OperationalNodeModule,
   OperationalSnapshot,
 } from "@/lib/central-operacional/contracts";
-import { OPERATIONAL_EVENT_MODULES } from "@/lib/central-operacional/contracts";
+import {
+  OPERATIONAL_EVENT_MODULES,
+  OPERATIONAL_NODE_MODULES,
+} from "@/lib/central-operacional/contracts";
 import { EventFeed } from "./event-feed";
 import { OperationalAlert } from "./operational-alert";
-import { NODE_POSITIONS, OperationalConnections } from "./operational-connections";
+import {
+  CORE_POSITION,
+  NODE_POSITIONS,
+  operationalConnectionPath,
+  OperationalConnections,
+} from "./operational-connections";
 import { OperationalCore } from "./operational-core";
 import { OperationalHeader } from "./operational-header";
+import { OperationalMap } from "./operational-map";
+import {
+  nextOperationalFloatLeg,
+  OPERATIONAL_NODE_FLOAT_PROFILES,
+} from "../hooks/use-operational-float";
 import { OperationalNode } from "./operational-node";
+import { OperationalNodeWindow } from "./operational-node-window";
 import { OperationalTicker } from "./operational-ticker";
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
@@ -100,15 +114,22 @@ const WEEKLY_SNAPSHOT: OperationalSnapshot = {
   atencoes: [],
 };
 
+const FEED_BASE = {
+  eventCount: 18,
+  counterLabel: "SEMANA",
+  now: Date.parse("2026-08-27T12:01:00.000Z"),
+  hideValues: true,
+  paused: true,
+  expandedEventId: null,
+  onExpand: () => undefined,
+  onClose: () => undefined,
+};
+
 test("o feed identifica as seis categorias, mantém severidade secundária e oculta valores", () => {
   const events = OPERATIONAL_EVENT_MODULES.map(eventFor);
   const html = renderToStaticMarkup(React.createElement(EventFeed, {
+    ...FEED_BASE,
     events,
-    eventCount: 18,
-    counterLabel: "SEMANA",
-    now: Date.parse("2026-08-27T12:01:00.000Z"),
-    hideValues: true,
-    paused: true,
   }));
 
   for (const operationalModule of OPERATIONAL_EVENT_MODULES) {
@@ -120,6 +141,42 @@ test("o feed identifica as seis categorias, mantém severidade secundária e ocu
   assert.match(html, /data-module="FISCAL" data-priority="CRITICO"/);
   assert.match(html, /R\$ ••••••/);
   assert.doesNotMatch(html, /125,50/);
+});
+
+test("cada card do feed anuncia que abre um detalhe e responde ao teclado", () => {
+  const html = renderToStaticMarkup(React.createElement(EventFeed, {
+    ...FEED_BASE,
+    events: [eventFor("ORDENS", 0)],
+  }));
+
+  assert.match(html, /role="button"/);
+  assert.match(html, /tabindex="0"/);
+  assert.match(html, /aria-expanded="false"/);
+  assert.match(html, /aria-haspopup="dialog"/);
+  assert.match(html, /aria-label="Abrir detalhes de Evento ORDENS"/);
+});
+
+test("o card aberto vira painel de detalhe sem tirar a lista de baixo", () => {
+  const evento = eventFor("ORDENS", 0);
+  const html = renderToStaticMarkup(React.createElement(EventFeed, {
+    ...FEED_BASE,
+    events: [evento],
+    expandedEventId: evento.id,
+  }));
+
+  // O painel mora no viewport, fora da lista rolável, e a lista continua ali.
+  const viewport = html.indexOf('class="operational-feed-viewport"');
+  const lista = html.indexOf('class="operational-feed-list"');
+  const painel = html.indexOf('class="operational-detail-panel"');
+  assert.ok(viewport >= 0 && lista > viewport);
+  assert.ok(painel > lista, "o painel deve vir depois da lista, sobrepondo-a");
+
+  assert.match(html, /role="dialog"/);
+  assert.doesNotMatch(html, /aria-modal=/);
+  assert.match(html, /aria-expanded="true"/);
+  assert.match(html, /aria-label="Fechar detalhes de Evento ORDENS"/);
+  // Sem dado carregado ainda, nenhum valor é inventado na tela.
+  assert.match(html, /Consultando o registro de origem/);
 });
 
 test("o cabeçalho exibe o resultado semanal e oferece a próxima alternância mensal", () => {
@@ -163,6 +220,8 @@ test("nó, conexão e núcleo expõem estados ativo, alerta, restrito e pausado"
     transientState: "RECEBENDO",
     hideValues: true,
     position: { x: 500, y: 76 },
+    selected: false,
+    onSelect: () => undefined,
   }));
   const coreHtml = renderToStaticMarkup(React.createElement(OperationalCore, {
     activeModule: "ORDENS",
@@ -175,14 +234,110 @@ test("nó, conexão e núcleo expõem estados ativo, alerta, restrito e pausado"
   }));
 
   assert.match(nodeHtml, /class="operational-node has-alert is-restricted"/);
-  assert.match(nodeHtml, /data-active="true" data-paused="true"/);
+  assert.match(nodeHtml, /data-active="true" data-feeding="true" data-floating="false" data-selected="false" data-paused="true"/);
   assert.match(coreHtml, /data-module="ORDENS" data-priority="ATENCAO" data-active="true" data-paused="true"/);
   assert.match(connectionsHtml, /data-module="ORDENS" data-priority="INFO" data-active="true"/);
+  assert.match(connectionsHtml, /operational-origin-pulse/);
+  assert.match(connectionsHtml, /operational-particle-halo/);
   assert.match(connectionsHtml, /operational-particle/);
   assert.match(connectionsHtml, /operational-destination-ripple/);
+  assert.deepEqual(operationalConnectionPath("ORDENS"), {
+    from: CORE_POSITION,
+    to: NODE_POSITIONS.ORDENS,
+  });
   assert.deepEqual(NODE_POSITIONS.FINANCEIRO, { x: 230, y: 480 });
   assert.deepEqual(NODE_POSITIONS.CONTAS_RECEBER, { x: 810, y: 190 });
   assert.equal("ESTOQUE" in NODE_POSITIONS, false);
+});
+
+test("os seis nós possuem flutuação leve, lenta e desencontrada", () => {
+  const delays = new Set<number>();
+
+  for (const operationalModule of OPERATIONAL_NODE_MODULES) {
+    const profile = OPERATIONAL_NODE_FLOAT_PROFILES[operationalModule];
+    const [minDuration, maxDuration] = profile.durationRange;
+    // Duração de um trecho; a ida e volta leva o dobro.
+    assert.ok(minDuration >= 2);
+    // Faixa larga, não valor fixo: um trecho pode durar o dobro do anterior, e
+    // é essa variação que impede o ritmo de se repetir.
+    assert.ok(maxDuration >= minDuration * 2);
+    assert.ok(profile.amplitudeX <= 3);
+    assert.ok(profile.amplitudeY <= 5.5);
+    // Deriva vertical dominante — flutuar é sobretudo subir e descer.
+    assert.ok(profile.amplitudeY > profile.amplitudeX);
+    delays.add(profile.delay);
+  }
+
+  assert.equal(delays.size, OPERATIONAL_NODE_MODULES.length);
+});
+
+test("cada trecho da deriva troca de lado, mantém curso mínimo e varia a duração", () => {
+  const profile = OPERATIONAL_NODE_FLOAT_PROFILES.VENDAS;
+  const range = profile.durationRange;
+
+  // Sorteio nos extremos: garante o contrato em toda a faixa possível.
+  for (const roll of [0, 0.5, 0.999]) {
+    const random = () => roll;
+    const subindo = nextOperationalFloatLeg(3, profile.amplitudeY, range, random);
+    const descendo = nextOperationalFloatLeg(-3, profile.amplitudeY, range, random);
+
+    // Sempre cruza para a metade oposta: nunca fica parado perto de onde está.
+    assert.ok(subindo.target < 0);
+    assert.ok(descendo.target > 0);
+    // Curso mínimo de 35% da amplitude, para não existir trecho quase imóvel.
+    assert.ok(Math.abs(subindo.target) >= profile.amplitudeY * 0.35);
+    assert.ok(Math.abs(subindo.target) <= profile.amplitudeY);
+    assert.ok(subindo.duration >= range[0] && subindo.duration <= range[1]);
+  }
+
+  // Sorteios distintos produzem trechos distintos — é o que quebra o ritmo.
+  const curto = nextOperationalFloatLeg(0, profile.amplitudeY, range, () => 0);
+  const longo = nextOperationalFloatLeg(0, profile.amplitudeY, range, () => 0.999);
+  assert.notEqual(curto.target, longo.target);
+  assert.notEqual(curto.duration, longo.duration);
+});
+
+test("a janela expandida mantém categoria, privacidade e informações básicas do nó", () => {
+  const html = renderToStaticMarkup(React.createElement(OperationalNodeWindow, {
+    node: WEEKLY_SNAPSHOT.modulos.ORDENS,
+    period: "SEMANAL",
+    updatedAt: WEEKLY_SNAPSHOT.meta.atualizadoEm,
+    lastEvent: eventFor("ORDENS", 1),
+    hideValues: true,
+    paused: true,
+    onClose: () => undefined,
+  }));
+
+  assert.match(html, /role="dialog"/);
+  assert.doesNotMatch(html, /aria-modal=/);
+  assert.match(html, /data-module="ORDENS" data-priority="INFO"/);
+  assert.match(html, /aria-label="Fechar detalhes de ORDENS DE SERVIÇO"/);
+  assert.match(html, /R\$ \u2022{6}/);
+  assert.match(html, />SEMANAL</);
+  assert.match(html, />AUTORIZADO</);
+  assert.match(html, /Evento ORDENS/);
+  assert.match(html, /SNAPSHOT \+ REALTIME/);
+  assert.doesNotMatch(html, /1\.250,00/);
+});
+
+test("a expansão fica contida no mapa operacional, acima dos nós e do núcleo", () => {
+  const html = renderToStaticMarkup(React.createElement(OperationalMap, {
+    snapshot: WEEKLY_SNAPSHOT,
+    activeEvent: null,
+    paused: true,
+    hideValues: false,
+    selectedModule: "VENDAS",
+    onNodeSelect: () => undefined,
+    onNodeClose: () => undefined,
+  }));
+  const mapStart = html.indexOf('class="operational-map-panel"');
+  const windowPosition = html.indexOf('class="operational-node-window-layer"');
+  const mapEnd = html.lastIndexOf("</section>");
+
+  assert.ok(mapStart >= 0);
+  assert.ok(windowPosition > mapStart);
+  assert.ok(windowPosition < mapEnd);
+  assert.match(html, /operational-map-scroll/);
 });
 
 test("alerta e ticker preservam módulo e exibem o acento crítico", () => {
@@ -233,6 +388,19 @@ test("o CSS mantém a paleta, os estados visuais e a redução de movimento", ()
   }
   assert.match(css, /operational-node\.has-alert::after/);
   assert.match(css, /operational-node\.is-restricted/);
+  assert.match(css, /operational-node-feed-wash/);
+  assert.match(css, /operational-node-icon-charge/);
+  assert.match(css, /operational-node-ambient/);
+  assert.match(css, /operational-node-hover-glow/);
+  assert.match(css, /operational-node-window-layer/);
+  assert.match(css, /operational-node-window-grid/);
+  assert.match(css, /\.operational-node-window\s*\{[\s\S]*?overflow-x:\s*hidden/);
+  assert.match(css, /\.operational-node-window-aura[^\n]+right:\s*0/);
+  const windowLayerRule = css.match(/\.operational-node-window-layer\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+  assert.match(windowLayerRule, /position:\s*absolute/);
+  assert.match(windowLayerRule, /background:\s*transparent/);
+  assert.doesNotMatch(windowLayerRule, /backdrop-filter/);
+  assert.match(css, /operational-connection-flow/);
   assert.match(css, /data-paused="true"/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
 });

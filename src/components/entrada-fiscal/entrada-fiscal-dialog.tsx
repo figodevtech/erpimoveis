@@ -21,6 +21,16 @@ import {
   UserRoundPlus,
   X,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -210,6 +220,7 @@ export function EntradaFiscalDialog({
   const [grupos, setGrupos] = useState<UsoConsumoGrupo[]>([]);
 
   const [pagamentoFuturo, setPagamentoFuturo] = useState(true);
+  const [confirmarVencidaAberto, setConfirmarVencidaAberto] = useState(false);
   const [parcelas, setParcelas] = useState<Parcela[]>([]);
   const [usarDuplicatas, setUsarDuplicatas] = useState(false);
   /** O que o usuário tinha digitado antes de aceitar as duplicatas. */
@@ -224,6 +235,22 @@ export function EntradaFiscalDialog({
   const { categorias } = useCategoriasTransacao();
   const { gruposPlanosDeConta, loadingPlanos } = usePlanosDeConta();
   const { centrosCusto, loadingCentrosCusto } = useCentrosCusto();
+
+  // Emitentes de NF-e podem ser pessoa jurídica (CNPJ) ou física (CPF). Os
+  // fallbacks mantêm compatibilidade com respostas produzidas antes de
+  // `documento` existir no contrato da rota.
+  const documentoEmitente = apenasDigitos(
+    parsed?.emitente?.documento ??
+      parsed?.emitente?.cnpj ??
+      parsed?.emitente?.cpf,
+  );
+  const tipoDocumentoEmitente =
+    parsed?.emitente?.tipoDocumento ??
+    (documentoEmitente.length === 11
+      ? "CPF"
+      : documentoEmitente.length === 14
+        ? "CNPJ"
+        : "CPF/CNPJ");
 
   /** Chave da nota cujas duplicatas já foram oferecidas, para não reoferecer. */
   const duplicatasAplicadasRef = useRef<string | null>(null);
@@ -594,12 +621,11 @@ export function EntradaFiscalDialog({
   }, [open, notaFiscalRecebidaId, receberNota, onOpenChange]);
 
   const buscarFornecedor = useCallback(async () => {
-    const cnpj = apenasDigitos(parsed?.emitente?.cnpj);
-    if (!cnpj) return;
+    if (!documentoEmitente) return;
     setBuscandoFornecedor(true);
     try {
       const { data } = await axios.get(
-        `/api/tipos/fornecedores/${cnpj}?by=cpfcnpj`,
+        `/api/tipos/fornecedores/${documentoEmitente}?by=cpfcnpj`,
       );
       setParsed((atual) =>
         atual
@@ -628,19 +654,19 @@ export function EntradaFiscalDialog({
     } finally {
       setBuscandoFornecedor(false);
     }
-  }, [parsed?.emitente?.cnpj]);
+  }, [documentoEmitente]);
 
   useEffect(() => {
-    if (parsed?.emitente?.cnpj && !parsed.fornecedorReferenteId)
+    if (documentoEmitente && !parsed?.fornecedorReferenteId)
       void buscarFornecedor();
-  }, [buscarFornecedor, parsed?.emitente?.cnpj, parsed?.fornecedorReferenteId]);
+  }, [buscarFornecedor, documentoEmitente, parsed?.fornecedorReferenteId]);
 
   function selecionarFornecedor(fornecedor: Fornecedor) {
     if (
       apenasDigitos(fornecedor.cpfcnpj) !==
-      apenasDigitos(parsed?.emitente?.cnpj)
+      documentoEmitente
     ) {
-      toast.error("O fornecedor selecionado não corresponde ao CNPJ da NF-e.");
+      toast.error("O fornecedor selecionado não corresponde ao CPF/CNPJ da NF-e.");
       return;
     }
     setParsed((atual) =>
@@ -916,7 +942,7 @@ export function EntradaFiscalDialog({
       centroCustoId: centroCustoId ? Number(centroCustoId) : null,
       nomePagador: fornecedor?.nomerazaosocial ?? parsed?.emitente?.nome ?? "",
       cpfCnpjPagador: String(
-        fornecedor?.cpfcnpj ?? parsed?.emitente?.cnpj ?? "",
+        fornecedor?.cpfcnpj ?? documentoEmitente,
       ),
       descricaoTransacao:
         parsed?.numeroNota != null
@@ -966,7 +992,7 @@ export function EntradaFiscalDialog({
     }));
   }
 
-  async function registrar() {
+  async function registrar(opts?: { ignorarVencida?: boolean }) {
     if (!parsed) return toast.error("Nenhuma nota fiscal processada.");
     if (!parsed.fornecedorReferenteId)
       return toast.error(
@@ -1010,6 +1036,18 @@ export function EntradaFiscalDialog({
             : `A soma das parcelas deve ser ${formatarEmReal(totalAPagar)} — o valor fiscal desta entrada.`,
         );
       }
+    }
+
+    // Vencimento no passado é permitido — só se confirma antes de enviar, não
+    // se bloqueia a digitação da parcela.
+    const hoje = format(new Date(), "yyyy-MM-dd");
+    const parcelaVencida =
+      pagamentoFuturo &&
+      parcelas.some((parcela) => parcela.dataVencimento && parcela.dataVencimento < hoje);
+
+    if (parcelaVencida && !opts?.ignorarVencida) {
+      setConfirmarVencidaAberto(true);
+      return;
     }
 
     const financeiro = montarFinanceiro();
@@ -1230,8 +1268,8 @@ export function EntradaFiscalDialog({
                         </span>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                           <span>
-                            CNPJ:{" "}
-                            {String(parsed.emitente.cnpj || "Não informado")}
+                            {tipoDocumentoEmitente}:{" "}
+                            {documentoEmitente || "Não informado"}
                           </span>
                           {parsed.emitente.ie ? (
                             <span>IE: {parsed.emitente.ie}</span>
@@ -1273,7 +1311,7 @@ export function EntradaFiscalDialog({
                               setDialogOpen={setFornecedorDialogOpen}
                               handleGetFornecedor={buscarFornecedor}
                               dadosNovoFornecedor={{
-                                cpfcnpj: String(parsed.emitente.cnpj ?? ""),
+                                cpfcnpj: documentoEmitente,
                                 nomerazaosocial: String(
                                   parsed.emitente.nome ?? "",
                                 ),
@@ -2253,6 +2291,30 @@ export function EntradaFiscalDialog({
           </div>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={confirmarVencidaAberto} onOpenChange={setConfirmarVencidaAberto}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Parcela com vencimento vencido</AlertDialogTitle>
+            <AlertDialogDescription>
+              Uma ou mais parcelas têm vencimento no passado. A entrada será
+              registrada mesmo assim, com o(s) título(s) já vencido(s). Deseja
+              continuar?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmarVencidaAberto(false);
+                void registrar({ ignorarVencida: true });
+              }}
+            >
+              Registrar mesmo assim
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <ItemDialog
         escopo={escopoDoItemEmEdicao}

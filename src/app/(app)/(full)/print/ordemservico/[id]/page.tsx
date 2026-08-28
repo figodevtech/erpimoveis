@@ -7,8 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { formatCep } from "@/app/(app)/(pages)/clientes/components/customerDialogRegister/utils";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { ObservacoesToggle } from "../../../components/ObservacoesToggle";
-import { PrintFilterToggles } from "../../../components/PrintFilterToggles";
+import { PrintDisplayOptionsMenu } from "../../../components/PrintDisplayOptionsMenu";
 import { PrintShareMenu } from "../../../components/PrintShareMenu";
 import { PrintA4Paginator } from "../../../components/PrintA4Paginator";
 import { PrintFontSizeControl } from "../../../components/PrintFontSizeControl";
@@ -821,35 +820,32 @@ export default async function OSFullPage({ params }: PageProps) {
 
   .col-num{ width:38px; font-weight:700; font-variant-numeric:tabular-nums; text-align:center; }
   .col-tipo{ width:70px; font-weight:800; font-size:calc(8px * var(--print-font-scale, 1)); text-transform:uppercase; letter-spacing:.08em; }
-  .tipo-servico{ 
-    color: white;
-    background: var(--brand-secondary);
+  .tipo-servico,
+  .tipo-peca,
+  .tipo-peca-zerado,
+  .tipo-peca-avulso{
     padding: 3px 8px;
     border-radius: 6px;
     display: inline-block;
+    white-space: nowrap;
+  }
+  .tipo-servico{
+    color: white;
+    background: var(--brand-secondary);
   }
   .tipo-peca{
     color: white;
     background: var(--brand-accent);
-    padding: 3px 8px;
-    border-radius: 6px;
-    display: inline-block;
   }
   /* Alertas de separação, só antes da execução: vermelho = sem saldo,
      amarelo = peça avulsa, que não existe no estoque para ser conferida. */
   .tipo-peca-zerado{
     color: white;
     background: #dc2626;
-    padding: 3px 8px;
-    border-radius: 6px;
-    display: inline-block;
   }
   .tipo-peca-avulso{
     color: #1f2937;
     background: #facc15;
-    padding: 3px 8px;
-    border-radius: 6px;
-    display: inline-block;
   }
 
   .item-codigo{
@@ -906,6 +902,9 @@ export default async function OSFullPage({ params }: PageProps) {
 
   .os-observacoes { display: none; }
   html[data-os-observacoes="1"] .os-observacoes { display: block; }
+
+  .os-garantia { display: none; }
+  html[data-os-garantia="1"] .os-garantia { display: block; }
 
   /* ✅ Ocultar valores: colunas monetárias da tabela + caixa de totais */
   html[data-print-ocultar-valores] .col-unit,
@@ -1071,8 +1070,14 @@ export default async function OSFullPage({ params }: PageProps) {
       </div>
       <div className="toolbar no-print">
         <div className="flex flex-row flex-wrap items-center gap-1">
-          <ObservacoesToggle />
-          <PrintFilterToggles />
+          <PrintDisplayOptionsMenu
+            options={[
+              { attribute: "data-os-observacoes", label: "Observações internas" },
+              { attribute: "data-os-garantia", label: "Garantia" },
+              { attribute: "data-print-ocultar-valores", label: "Ocultar valores" },
+              { attribute: "data-print-ocultar-cliente", label: "Ocultar dados do cliente" },
+            ]}
+          />
         </div>
       </div>
 
@@ -1338,7 +1343,7 @@ export default async function OSFullPage({ params }: PageProps) {
                   </div>
                 )}
                 {os.garantia && (
-                  <div className="observacoes-box os-observacoes">
+                  <div className="observacoes-box os-garantia">
                     <div className="obs-titulo">Garantia:</div>
                     <div className="obs-texto font-bold clamp-3">
                       {os.garantia}

@@ -128,11 +128,11 @@ transação de domínio confiável. Isso evita inventar um evento sem fonte real
 
 ### Direção visual
 
-OS, Vendas, Fluxo de Caixa, Contas a Pagar e Fiscal enviam partículas **para** o
-núcleo. Contas a Receber é uma projeção do snapshot e não introduz um novo tipo de
-evento nesta fase. Movimentações de Estoque permanecem no feed, sem conexão ou
-partícula no mapa. O mapa completo tipo → módulo → estado temporário → direção →
-prioridade fica em
+Para todo evento associado a um nó visível, o núcleo envia uma partícula **para o
+nó**, sempre na cor do módulo. Contas a Receber é uma projeção do snapshot e não
+introduz um novo tipo de evento nesta fase. Movimentações de Estoque permanecem no
+feed, sem conexão ou partícula no mapa. O mapa completo tipo → módulo → estado
+temporário → direção → prioridade fica em
 [`event-mapping.ts`](../../src/lib/central-operacional/event-mapping.ts).
 
 ## Snapshot
@@ -214,6 +214,54 @@ O cliente reconcilia:
 Consultas simultâneas são coalescidas: uma invalidação ocorrida durante uma busca
 agenda somente uma nova busca ao final. Em erro, o último snapshot permanece na tela.
 
+## Detalhe de evento sob demanda
+
+`GET /api/central-operacional/evento/<uuid>` devolve o detalhe do registro por trás
+de um evento do feed. O parâmetro é o **UUID do evento**, nunca o id da entidade:
+é isso que permite ao servidor reler `modulo` da linha confiável do log em vez de
+aceitar do navegador — um módulo vindo do cliente anularia a re-checagem de
+permissão.
+
+A consulta acontece somente quando alguém abre um card. O snapshot de 45 segundos
+não engorda: carregar o detalhe dos 40 eventos a cada ciclo, para todos os
+usuários, sairia caro e quase sempre para nada.
+
+`acompanhamento:visualizar` abre a rota, mas **não é chave-mestra**: o módulo do
+evento passa pela mesma matriz de `allowedOperationalModules` que filtra o
+snapshot. Um perfil só de acompanhamento abre eventos de Ordens e nenhum outro.
+Evento inexistente, de outro tenant ou de módulo não permitido recebem o mesmo
+`404 EVENTO_NAO_ENCONTRADO` — um `403` no último caso confirmaria a existência de
+um evento que o feed nunca mostra a esse perfil.
+
+Entidade apagada responde `200` com `estado: "ENTIDADE_INDISPONIVEL"`, montado a
+partir do que o próprio evento guardou. O log retém 90 dias e as linhas de negócio
+são apagadas por marcação, então um evento antigo apontando para o vazio é caso
+previsto, não erro.
+
+O contrato é um envelope genérico — `indicadores`, `secoes`, `campos`, `vinculos`
+e `restricoes` —, e não uma união por tipo de entidade. Um único componente
+renderiza os seis tipos, e um campo que o usuário não pode ver simplesmente não
+existe no array: omissão é o padrão, em vez de um nulo que a interface ainda
+rotularia. Valores saem **crus**, nunca formatados, porque só o navegador conhece
+a preferência local de ocultar dinheiro.
+
+| Entidade | Conteúdo | Gates além do módulo |
+|---|---|---|
+| `ORDEM_SERVICO` | execução, duração, composição, veículo com placa, garantia | recebido/saldo exigem `financeiro:visualizar` |
+| `VENDA` | canal, vendedor, itens, entrega, pagamento | recebido/saldo exigem `financeiro:visualizar` |
+| `TRANSACAO` | valor, líquido, em aberto, método, conta, vencimento, natureza | vínculo de venda exige `vendas:visualizar` |
+| `PRODUTO` | saldo, mínimo, situação, movimento posterior ao evento | custo exige `financeiro:visualizar` |
+| `NFE` | modelo, série, chave, protocolo e o motivo da rejeição | — |
+| `NFSE` | número, protocolo, valor e a primeira mensagem de erro | — |
+
+Ficam deliberadamente fora do payload: `nfse.payload_enviado`, `retorno_bruto` e
+`erros` crus — o primeiro carrega documento e endereço completos do tomador —, e
+`nfse.url_pdf` / `url_consulta` / `url_xml`, que são URLs de terceiro sem
+autenticação e, num card, viram um bypass compartilhável de todas as permissões
+desta rota. A rota `/api/transaction/[id]/contexto` **não** é reaproveitada: além
+de ter outro guard, ela seleciona CPF/CNPJ, telefone, e-mail e endereço do cliente
+e do fornecedor.
+
 ## Realtime privado, autenticação e tenant
 
 `GET /api/central-operacional/realtime-token` devolve uma credencial curta e o tópico
@@ -266,6 +314,19 @@ dessa guarda, o snapshot aplica a matriz abaixo:
 `estoque:visualizar` autoriza os eventos de Estoque no feed, sem criar um nó no
 mapa.
 
+A mesma matriz é reaplicada ao abrir o detalhe de um evento, e duas permissões
+externas entram nessa tela:
+
+| Dado no detalhe | Permissão |
+|---|---|
+| Nome do cliente | `clientes:visualizar` |
+| Vínculo completo de uma venda dentro de evento financeiro | `vendas:visualizar` |
+
+O nome do cliente é o **único** relaxamento da regra de privacidade do feed, e
+vale só para o detalhe expandido. Sem `clientes:visualizar` a coluna nem entra na
+consulta: a seção some e `restricoes` explica a lacuna. CPF/CNPJ, telefone,
+e-mail e endereço continuam fora em qualquer perfil.
+
 As implicações globais continuam válidas. Por exemplo,
 `financeiro:notas_fiscais` implica `financeiro:visualizar`; por isso um perfil fiscal
 também recebe Fluxo de Caixa, Contas a Receber e Contas a Pagar. A filtragem
@@ -281,8 +342,24 @@ atualizar, ocultar valores, pausar animações, entrar em tela cheia e sair.
 
 O mapa é SVG e acompanha o redimensionamento. Os seis cards mantêm um estado estável
 do snapshot; durante um evento, somente o nó relacionado recebe um estado temporário
-e uma partícula percorre a conexão. Depois de 1,05 segundo, o nó volta ao estado
-estável.
+depois que uma partícula percorre a conexão do núcleo até ele. A janela visual dura
+2,05 segundos: o trajeto ocupa 1,25 segundo e a reação de alimentação do card é
+disparada pela chegada real da partícula, combinando glow, varredura luminosa e um
+deslocamento curto antes de voltar ao estado estável.
+
+Em repouso, os nós flutuam continuamente com amplitudes pequenas e ciclos
+desencontrados de 6,4 a 7,4 segundos, implementados com Framer Motion. Hover e foco
+reforçam o glow na cor do módulo. A flutuação cede temporariamente à animação de
+alimentação, para que os dois movimentos não disputem o mesmo `transform`.
+
+Cada nó pode ser aberto por clique, `Enter` ou espaço. A expansão aparece centralizada
+somente dentro da área do mapa, acima dos nós e do núcleo, com resultado do período,
+situação, acesso, atualização e último evento relacionado. Não existe backdrop ou
+desfoque global: cabeçalho, feed e ticker permanecem visíveis e utilizáveis enquanto o
+card está aberto. Nesta etapa a janela é somente visualização e não dispara consultas
+ou ações novas: usa apenas o snapshot e os eventos que já estão carregados. Valores
+continuam respeitando o modo de privacidade. Clique na área livre do mapa, botão de
+fechar e `Escape` encerram a janela; o foco retorna ao nó de origem.
 
 Uma fila FIFO evita vinte animações simultâneas. Ela retém no máximo 16 eventos e
 processa um por vez. O primeiro snapshot apenas hidrata o feed; não reproduz como
@@ -296,9 +373,28 @@ navegável e coloca o feed abaixo.
 
 Valores monetários começam ocultos como `R$ ••••••`; a escolha fica em
 `localStorage` sob `central-operacional:hide-values`. Contagens operacionais continuam
-visíveis. O feed não inclui nome, CPF/CNPJ ou contato de cliente. A única exibição de
-nome permitida nesta fase é na Atenção de conta vencida explicitamente relacionada
-por `transacao.cliente_id`; nenhum documento ou contato acompanha o nome.
+visíveis. A lista do feed não inclui nome, CPF/CNPJ ou contato de cliente. Nome de
+cliente aparece em exatamente dois lugares, sempre sem documento nem contato: na
+Atenção de conta vencida relacionada por `transacao.cliente_id`, e no detalhe
+expandido de um evento, aí sim exigindo `clientes:visualizar`.
+
+### Expansão de um evento
+
+Clicar num card do feed — ou acioná-lo por `Enter`/espaço — o expande num painel
+que **cobre a altura da lista**, com o conteúdo rolando por dentro. Cobrir a lista
+é o que permite o feed continuar recebendo eventos normalmente enquanto alguém lê:
+o que chega entra atrás do painel, invisível, e ao fechar o feed já está em dia —
+sem congelar a recepção nem deslocar o bloco que está sendo lido.
+
+A expansão anima **só a altura**: o painel nasce na posição e no tamanho do card
+clicado e cresce até preencher a lista, com a mola macia de
+[`motion-timing.ts`](../../src/lib/central-operacional/motion-timing.ts) e saída
+mais rápida que a entrada. Não há `scaleY`, que distorceria o texto no caminho.
+
+Fecham o painel: o `X` no cabeçalho, `Escape`, um clique em qualquer canto da
+Central fora dele, e o próprio card aberto. O evento em leitura continua
+renderizado mesmo que saia dos 12 visíveis. `prefers-reduced-motion` e a pausa
+eliminam o movimento sem tirar a funcionalidade.
 
 ### Sistema visual por categoria
 
@@ -327,11 +423,12 @@ novo item entra de cima, com deslocamento de 8 px e glow de até 560 ms; os iten
 anteriores apenas se reposicionam. O cabeçalho mostra `eventosPeriodo` com o rótulo
 da janela selecionada e continuam visíveis no máximo 12 eventos.
 
-Em repouso, cada nó mantém borda, ícone e glow discretos. Um evento reforça o glow,
-pulsa somente o nó relacionado, colore sua conexão e termina com um ripple no
-destino. O núcleo reage temporariamente ao módulo ativo. `has-alert` usa o acento de
-severidade sem apagar a categoria, enquanto módulos sem acesso ficam dessaturados e
-sem glow externo.
+Em repouso, cada nó mantém borda, ícone, glow discreto e flutuação leve. Hover ou foco
+produzem um glow pulsante na cor da categoria. Um evento colore o núcleo e a conexão,
+emite um pulso de origem e conduz halo/partícula até o nó. No contato, um ripple inicia
+a alimentação: o card ganha glow, recebe uma varredura tonal, desloca-se levemente
+para fora e intensifica ícone e valor antes de estabilizar. `has-alert` usa o acento
+de severidade sem apagar a categoria, enquanto módulos sem acesso ficam dessaturados.
 
 Pausa e `prefers-reduced-motion` interrompem ou eliminam movimento não essencial.
 Texto não recebe blur; os efeitos contínuos ficam restritos principalmente a
@@ -344,13 +441,19 @@ Texto não recebe blur; os efeitos contínuos ficam restritos principalmente a
 - [`central-operacional.css`](<../../src/app/(app)/(full)/central-operacional/central-operacional.css>):
   layout, tema, responsividade e redução de movimento.
 - [`components`](<../../src/app/(app)/(full)/central-operacional/components>): cabeçalho,
-  mapa, núcleo, nós, conexões, alerta, feed e ticker.
+  mapa, núcleo, nós, janela expandida, conexões, alerta, feed e ticker.
 - [`use-operational-state.ts`](<../../src/app/(app)/(full)/central-operacional/hooks/use-operational-state.ts>):
   snapshots, coalescência, deduplicação e fila visual.
 - [`use-operational-realtime.ts`](<../../src/app/(app)/(full)/central-operacional/hooks/use-operational-realtime.ts>):
   canais privados, presença, estados de conexão e backoff.
 - [`contracts.ts`](../../src/lib/central-operacional/contracts.ts): tipos e schemas Zod.
 - [`snapshot.ts`](../../src/lib/central-operacional/snapshot.ts): agregações server-only.
+- [`tenant.ts`](../../src/lib/central-operacional/tenant.ts): resolução única da
+  empresa da instalação, compartilhada por snapshot e detalhe.
+- [`event-detail.ts`](../../src/lib/central-operacional/event-detail.ts): leitura
+  server-only da entidade por trás do evento.
+- [`event-detail-view.ts`](../../src/lib/central-operacional/event-detail-view.ts):
+  montagem pura e testável do detalhe, onde vive o contrato de privacidade.
 - [`permissions.ts`](../../src/lib/central-operacional/permissions.ts): matriz módulo/RBAC.
 - [`formatters.ts`](../../src/lib/central-operacional/formatters.ts): moeda, quantidade e
   tempo relativo.
@@ -358,11 +461,15 @@ Texto não recebe blur; os efeitos contínuos ficam restritos principalmente a
   períodos diário, semanal e mensal.
 - [`aggregates.ts`](../../src/lib/central-operacional/aggregates.ts): somatórios puros
   de OS concluídas e fluxo de caixa.
+- [`motion-timing.ts`](../../src/lib/central-operacional/motion-timing.ts): tempos
+  compartilhados do percurso, contato, alimentação e fila visual.
 - [`presentation.ts`](../../src/lib/central-operacional/presentation.ts): rótulos,
   ícones e tons compartilhados das categorias e dos nós.
 - [`attention-rules.ts`](../../src/lib/central-operacional/attention-rules.ts): exclusões
   explícitas da barra global “Atenção”.
 - [`snapshot/route.ts`](../../src/app/api/central-operacional/snapshot/route.ts): API do snapshot.
+- [`evento/[id]/route.ts`](<../../src/app/api/central-operacional/evento/[id]/route.ts>):
+  API do detalhe sob demanda.
 - [`realtime-token/route.ts`](../../src/app/api/central-operacional/realtime-token/route.ts):
   credencial curta e tópico privado.
 - [`central_operacional.sql`](../../supabase/tests/central_operacional.sql): teste SQL
@@ -402,15 +509,24 @@ Validação manual mínima depois de aplicar a migração:
 9. rejeitar um documento fiscal, conferir nó/feed e confirmar que não entra no ticker;
 10. desligar a rede, conferir `OFFLINE` com dados preservados e depois a reconexão;
 11. recarregar a página e conferir o feed persistido;
-12. testar ocultação, pausa, tela cheia, celular e redução de movimento.
+12. testar flutuação, glow no hover, abertura da janela por mouse/teclado e fechamento
+    por botão, área externa e `Escape`;
+13. testar ocultação, pausa, tela cheia, celular e redução de movimento;
+14. abrir um evento de cada tipo de entidade no feed e conferir o conteúdo, o
+    fechamento pelo `X`, `Escape`, clique fora e clique no próprio card;
+15. repetir com perfil só de `acompanhamento:visualizar` — eventos de outros
+    módulos nem chegam ao feed — e com perfil sem `clientes:visualizar`,
+    conferindo que a seção de cliente é substituída pela restrição;
+16. abrir um evento cujo registro de origem foi apagado e conferir o estado
+    "indisponível" em vez de erro.
 
 ## Limitações conhecidas e Fase 2
 
 - O histórico começa após a aplicação da migração; não há backfill de operações
   anteriores.
-- Eventos ainda não são clicáveis. As telas atuais abrem detalhes por diálogos e não
-  expõem uma rota canônica estável por entidade; criar links genéricos poderia levar
-  o usuário à tela errada ou violar permissão.
+- O detalhe de um evento é somente leitura e não abre a tela transacional: as telas
+  atuais expõem detalhes por diálogo e não têm rota canônica por entidade. Os
+  vínculos apontam para as rotas de impressão, que são estáveis e endereçáveis.
 - Movimentações dos estoques simples (`usoconsumo_*`) não alimentam o nó nesta fase;
   o gatilho acompanha `produto.estoque`.
 - `CONTA_VENCIDA` é derivada em cada snapshot e não persiste no event log.
@@ -439,6 +555,15 @@ e tratamento em caso de fonte indisponível.
 
 ## Histórico resumido
 
+- **2026-08-28 — Eventos clicáveis:** expansão de um card do feed para um painel
+  que cobre a lista e rola por dentro, alimentado por um endpoint de detalhe sob
+  demanda com re-checagem de módulo, nome de cliente atrás de `clientes:visualizar`
+  e estado próprio para registro de origem apagado.
+- **2026-08-28 — Nós interativos:** flutuação leve e desencontrada com Framer Motion,
+  glow no hover/foco e expansão centralizada com dados básicos já disponíveis no
+  snapshot e no feed.
+- **2026-08-28 — Fluxo núcleo → nó:** percurso invertido e desacelerado, emissão na
+  cor do card e reação de alimentação sincronizada ao contato com o nó.
 - **2026-08-27 — Períodos e indicadores financeiros:** seletor diário/semanal/mensal,
   OS concluídas por `execucao_fim_em` nos status `PAGAMENTO`/`CONCLUIDO`, Fluxo de
   Caixa no lugar de Estoque e novo nó de Contas a Receber.

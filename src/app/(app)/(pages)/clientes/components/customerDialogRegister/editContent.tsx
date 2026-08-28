@@ -233,7 +233,7 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
             telefone: `${juridica.estabelecimento.ddd1}${juridica.estabelecimento.telefone1}`,
             estado: juridica.estabelecimento.estado.sigla,
             cidade: juridica.estabelecimento.cidade.nome,
-            codigomunicipio: String(juridica.estabelecimento.cidade.codigo_ibge),
+            codigomunicipio: String(juridica.estabelecimento.cidade.ibge_id),
             endereco: juridica.estabelecimento.logradouro,
             enderecocomplemento: juridica.estabelecimento.complemento,
             bairro: juridica.estabelecimento.bairro,

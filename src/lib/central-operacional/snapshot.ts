@@ -27,8 +27,8 @@ import {
   type OperationalSnapshot,
 } from "./contracts";
 import { operationalPeriodWindow, type OperationalPeriodWindow } from "./period";
+import { resolveOperationalTenant } from "./tenant";
 
-type TenantRow = { id: number; nomefantasia: string | null; razaosocial: string };
 type EventRow = {
   id: string;
   tipo: string;
@@ -339,14 +339,7 @@ export async function createOperationalSnapshot(
   permittedModules: OperationalModule[],
   period: OperationalPeriod = "DIARIO",
 ): Promise<OperationalSnapshot> {
-  const tenantResult = await supabaseAdmin
-    .from("empresa")
-    .select("id, nomefantasia, razaosocial")
-    .order("id", { ascending: true })
-    .limit(1)
-    .single();
-  if (tenantResult.error || !tenantResult.data) throw tenantResult.error ?? new Error("Empresa não configurada");
-  const tenant = tenantResult.data as TenantRow;
+  const tenant = await resolveOperationalTenant();
   const allowed = new Set(permittedModules);
   const window = operationalPeriodWindow(period);
   const nowIso = new Date().toISOString();

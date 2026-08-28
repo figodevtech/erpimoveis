@@ -14,8 +14,10 @@ test("cada evento conhecido possui modulo, estado, direcao e prioridade", () => 
   }
 });
 
-test("eventos de estoque saem do nucleo e rejeicoes fiscais sao criticas", () => {
-  assert.equal(operationalVisualFor("ESTOQUE_SAIDA").direcao, "DO_NUCLEO");
+test("todos os eventos visuais partem do núcleo e rejeições fiscais são críticas", () => {
+  for (const type of OPERATIONAL_EVENT_TYPES) {
+    assert.equal(operationalVisualFor(type).direcao, "DO_NUCLEO");
+  }
   assert.equal(operationalVisualFor("NFE_REJEITADA").prioridade, "CRITICO");
   assert.equal(operationalVisualFor("NFSE_REJEITADA").modulo, "FISCAL");
 });

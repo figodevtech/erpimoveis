@@ -1,4 +1,14 @@
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   DialogClose,
   DialogContent,
   DialogDescription,
@@ -213,6 +223,7 @@ export default function RegisterContent({
   const [isFornecedorSelectOpen, setIsFornecedorSelectOpen] = useState(false);
   const [selectedFornecedor, setSelectedFornecedor] = useState<TransactionFornecedor | undefined>(undefined);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [confirmarVencidaAberto, setConfirmarVencidaAberto] = useState(false);
   const [isLoadingBanks, setIsLoadingBanks] = useState(false);
   const [banks, setBanks] = useState<Banco[]>([]);
   const [isChecked, setIsChecked] = useState(false);
@@ -656,7 +667,7 @@ export default function RegisterContent({
     setSelectedCustomer,
   ]);
 
-  const handleCreateTransaction = async () => {
+  const handleCreateTransaction = async (opts?: { ignorarVencida?: boolean }) => {
     setIsSubmitting(true);
     try {
       if (
@@ -745,6 +756,25 @@ export default function RegisterContent({
           data: parcela.dataVencimento!,
           valor: parcela.valor,
         }));
+      }
+
+      // Título vencido em aberto é estado legítimo — não se bloqueia a data,
+      // só se confirma antes de enviar. `canManageParcelas` já implica
+      // `pendente`, então checar as parcelas cobre esse caso; fora dele, o
+      // único vencimento é o campo "Data" único.
+      const dataVencida = (data?: Date) =>
+        Boolean(data) &&
+        toDateOnly(data!).getTime() < toDateOnly(new Date()).getTime();
+
+      const lancamentoVencido =
+        Boolean(newTransaction.pendente) &&
+        (canManageParcelas
+          ? parcelasDetalhadas.some((parcela) => dataVencida(parcela.dataVencimento))
+          : dataVencida(newTransaction.data));
+
+      if (lancamentoVencido && !opts?.ignorarVencida) {
+        setConfirmarVencidaAberto(true);
+        return;
       }
 
       // Pagamento múltiplo: mesmo formulário, outro alvo. O rateio não vai daqui
@@ -1065,6 +1095,7 @@ export default function RegisterContent({
   const Close = isDesktop ? DialogClose : DrawerClose;
 
   return (
+    <>
     <Content className={classesDoConteudo(Boolean(isDesktop))}>
       <div className={COLUNA_CHEIA}>
         <Header className={CABECALHO_FIXO}>
@@ -1473,7 +1504,9 @@ export default function RegisterContent({
                 )}
                 {!canManageParcelas && (
                   <div className="space-y-2 w-full">
-                    <Label htmlFor="data">Data</Label>
+                    <Label htmlFor="data">
+                      {newTransaction.pendente ? "Data de vencimento" : "Data do pagamento"}
+                    </Label>
                     <DatePickerField
                       value={newTransaction.data}
                       onChange={(selecionada) => {
@@ -1497,16 +1530,9 @@ export default function RegisterContent({
                           return;
                         }
 
-                        if (
-                          newTransaction.pendente &&
-                          selecionada.getTime() < agora.getTime()
-                        ) {
-                          toast.warning(
-                            "Desative o pagamento futuro para selecionar uma data passada.",
-                          );
-                          return;
-                        }
-
+                        // Vencimento no passado é permitido: título vencido em
+                        // aberto é estado legítimo. O aviso fica para o clique em
+                        // "Registrar", não para a seleção da data.
                         setNewTransaction({
                           ...newTransaction,
                           data: selecionada,
@@ -2292,7 +2318,7 @@ export default function RegisterContent({
               form="register-form"
               disabled={isSubmitting || excedeSaldoDisponivel}
               className="h-11 w-full rounded-none hover:cursor-pointer sm:h-10 sm:w-auto"
-              onClick={handleCreateTransaction}
+              onClick={() => void handleCreateTransaction()}
             >
               {isSubmitting ? (
                 <>
@@ -2310,5 +2336,31 @@ export default function RegisterContent({
         </Footer>
       </div>
     </Content>
+
+    <AlertDialog open={confirmarVencidaAberto} onOpenChange={setConfirmarVencidaAberto}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Lançamento com vencimento vencido</AlertDialogTitle>
+          <AlertDialogDescription>
+            {canManageParcelas
+              ? "Uma ou mais parcelas têm vencimento no passado. O lançamento será registrado como pendente, já vencido."
+              : "A data informada já passou. O lançamento será registrado como pendente, já vencido."}{" "}
+            Deseja continuar?
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => {
+              setConfirmarVencidaAberto(false);
+              void handleCreateTransaction({ ignorarVencida: true });
+            }}
+          >
+            Registrar mesmo assim
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

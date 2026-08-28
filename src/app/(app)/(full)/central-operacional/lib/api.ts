@@ -1,6 +1,8 @@
 import {
+  operationalEventDetailSchema,
   operationalRealtimeCredentialsSchema,
   operationalSnapshotSchema,
+  type OperationalEventDetail,
   type OperationalRealtimeCredentials,
   type OperationalPeriod,
   type OperationalSnapshot,
@@ -32,6 +34,17 @@ export function fetchOperationalSnapshot(
   return operationalFetch(
     `/api/central-operacional/snapshot?periodo=${period}`,
     (value) => operationalSnapshotSchema.parse(value),
+    signal,
+  );
+}
+
+export function fetchOperationalEventDetail(
+  eventId: string,
+  signal?: AbortSignal,
+): Promise<OperationalEventDetail> {
+  return operationalFetch(
+    `/api/central-operacional/evento/${encodeURIComponent(eventId)}`,
+    (value) => operationalEventDetailSchema.parse(value),
     signal,
   );
 }

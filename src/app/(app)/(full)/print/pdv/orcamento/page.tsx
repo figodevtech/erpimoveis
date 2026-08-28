@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PrintButton } from "../../../components/PrintButton";
-import { PrintFilterToggles } from "../../../components/PrintFilterToggles";
+import { PrintDisplayOptionsMenu } from "../../../components/PrintDisplayOptionsMenu";
 import { PrintA4Paginator } from "../../../components/PrintA4Paginator";
 import { FileText, Power, ShoppingCart, User } from "lucide-react";
 import {
@@ -545,7 +545,12 @@ function PrintPdvOrcamentoContent() {
 
       <div className="toolbar no-print">
         <div className="flex flex-row flex-wrap items-center gap-1">
-          <PrintFilterToggles />
+          <PrintDisplayOptionsMenu
+            options={[
+              { attribute: "data-print-ocultar-valores", label: "Ocultar valores" },
+              { attribute: "data-print-ocultar-cliente", label: "Ocultar dados do cliente" },
+            ]}
+          />
         </div>
       </div>
 

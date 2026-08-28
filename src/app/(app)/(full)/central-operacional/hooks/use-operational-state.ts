@@ -7,11 +7,11 @@ import type {
   OperationalPeriod,
   OperationalSnapshot,
 } from "@/lib/central-operacional/contracts";
+import { OPERATIONAL_VISUAL_EVENT_DURATION_MS } from "@/lib/central-operacional/motion-timing";
 import { fetchOperationalSnapshot } from "../lib/api";
 import { useOperationalRealtime } from "./use-operational-realtime";
 
 const SNAPSHOT_INTERVAL_MS = 45_000;
-const VISUAL_EVENT_DURATION_MS = 1_050;
 
 export function unseenOperationalEvents(
   knownIds: ReadonlySet<string>,
@@ -147,7 +147,10 @@ export function useOperationalState() {
 
   React.useEffect(() => {
     if (!activeEvent) return;
-    const timer = window.setTimeout(() => setActiveEvent(null), VISUAL_EVENT_DURATION_MS);
+    const timer = window.setTimeout(
+      () => setActiveEvent(null),
+      OPERATIONAL_VISUAL_EVENT_DURATION_MS,
+    );
     return () => window.clearTimeout(timer);
   }, [activeEvent]);
 

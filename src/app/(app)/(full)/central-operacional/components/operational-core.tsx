@@ -1,9 +1,10 @@
 "use client";
 
-import { motion, useReducedMotion } from "motion/react";
+import { motion } from "motion/react";
 import { Activity } from "lucide-react";
 
 import type { OperationalModule, OperationalPriority } from "@/lib/central-operacional/contracts";
+import { useOperationalReducedMotion } from "../hooks/use-operational-reduced-motion";
 
 export function OperationalCore({
   activeModule,
@@ -14,7 +15,7 @@ export function OperationalCore({
   activePriority: OperationalPriority;
   paused: boolean;
 }) {
-  const reducedMotion = useReducedMotion();
+  const reducedMotion = useOperationalReducedMotion();
   const animate = !paused && !reducedMotion;
 
   return (

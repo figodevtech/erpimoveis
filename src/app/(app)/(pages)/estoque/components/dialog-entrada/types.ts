@@ -26,7 +26,11 @@ export interface NF {
 }
 
 export interface Emitente {
-  cnpj: number;
+  cnpj: string | number | null;
+  cpf: string | number | null;
+  /** CPF ou CNPJ, sem pontuação. */
+  documento: string | null;
+  tipoDocumento: "CNPJ" | "CPF" | null;
   nome: string;
   nomeFantasia: string;
   ie: number;

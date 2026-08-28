@@ -8,6 +8,8 @@ import { fetchAllSupabaseRows } from "@/lib/supabase-pagination";
 
 const FORTALEZA_OFFSET = "-03:00";
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const ENTRY_TYPES = new Set(["RECEITA", "DEPOSITO"]);
+const EXIT_TYPES = new Set(["DESPESA", "SAQUE"]);
 
 function todayLocalYYYYMMDD() {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -232,8 +234,8 @@ export async function GET(req: Request) {
       const valor = valorLiquidoEfetivo(transacao);
       const pendente = transacao.pendente === true;
       const categoria = String(transacao.categoria ?? "Não informado");
-      const entrada = tipo === "RECEITA";
-      const saida = tipo === "DESPESA";
+      const entrada = ENTRY_TYPES.has(tipo);
+      const saida = EXIT_TYPES.has(tipo);
 
       if (pendente) {
         if (entrada && transacao.adiantamento_id == null) {

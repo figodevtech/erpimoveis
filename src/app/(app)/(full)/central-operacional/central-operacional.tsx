@@ -3,12 +3,13 @@
 import * as React from "react";
 import { AlertTriangle, RotateCcw } from "lucide-react";
 
+import type { OperationalNodeModule } from "@/lib/central-operacional/contracts";
+import { OPERATIONAL_PERIOD_LABELS } from "@/lib/central-operacional/period";
 import { EventFeed } from "./components/event-feed";
 import { OperationalHeader } from "./components/operational-header";
 import { OperationalMap } from "./components/operational-map";
 import { OperationalTicker } from "./components/operational-ticker";
 import { useOperationalState } from "./hooks/use-operational-state";
-import { OPERATIONAL_PERIOD_LABELS } from "@/lib/central-operacional/period";
 
 const HIDE_VALUES_KEY = "central-operacional:hide-values";
 
@@ -17,7 +18,12 @@ export function CentralOperacional() {
   const [now, setNow] = React.useState(() => Date.now());
   const [hideValues, setHideValues] = React.useState(true);
   const [fullscreen, setFullscreen] = React.useState(false);
+  const [selectedModule, setSelectedModule] = React.useState<OperationalNodeModule | null>(null);
+  const [expandedEventId, setExpandedEventId] = React.useState<string | null>(null);
   const state = useOperationalState();
+  const closeNodeWindow = React.useCallback(() => setSelectedModule(null), []);
+  const closeEventDetail = React.useCallback(() => setExpandedEventId(null), []);
+  const expandEvent = React.useCallback((eventId: string) => setExpandedEventId(eventId), []);
 
   React.useEffect(() => {
     setHideValues(window.localStorage.getItem(HIDE_VALUES_KEY) !== "false");
@@ -29,6 +35,17 @@ export function CentralOperacional() {
       document.removeEventListener("fullscreenchange", syncFullscreen);
     };
   }, []);
+
+  /**
+   * Clique em qualquer canto da Central fora do painel o fecha. O painel e os
+   * cards do feed param a propagação, então só sobra o "resto da tela" aqui.
+   */
+  React.useEffect(() => {
+    if (!expandedEventId) return;
+    const handlePointerDown = () => setExpandedEventId(null);
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [expandedEventId]);
 
   const toggleValues = () => {
     setHideValues((current) => {
@@ -93,6 +110,9 @@ export function CentralOperacional() {
           activeEvent={state.activeEvent}
           paused={state.paused}
           hideValues={hideValues}
+          selectedModule={selectedModule}
+          onNodeSelect={setSelectedModule}
+          onNodeClose={closeNodeWindow}
         />
         <EventFeed
           events={state.snapshot.eventosRecentes}
@@ -101,6 +121,9 @@ export function CentralOperacional() {
           now={now}
           hideValues={hideValues}
           paused={state.paused}
+          expandedEventId={expandedEventId}
+          onExpand={expandEvent}
+          onClose={closeEventDetail}
         />
       </div>
 

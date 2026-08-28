@@ -2,8 +2,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { ObservacoesToggle } from "../../../../components/ObservacoesToggle";
-import { PrintFilterToggles } from "../../../../components/PrintFilterToggles";
+import { PrintDisplayOptionsMenu } from "../../../../components/PrintDisplayOptionsMenu";
 import { PrintShareMenu } from "../../../../components/PrintShareMenu";
 import { PrintA4Paginator } from "../../../../components/PrintA4Paginator";
 import { PrintFontSizeControl } from "../../../../components/PrintFontSizeControl";
@@ -500,8 +499,15 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
 
       <div className="toolbar no-print">
         <div className="flex flex-row flex-wrap items-center gap-1">
-          {Boolean(venda.observacoes) && <ObservacoesToggle label="Incluir observações internas" />}
-          <PrintFilterToggles />
+          <PrintDisplayOptionsMenu
+            options={[
+              ...(venda.observacoes
+                ? [{ attribute: "data-os-observacoes", label: "Observações internas" }]
+                : []),
+              { attribute: "data-print-ocultar-valores", label: "Ocultar valores" },
+              { attribute: "data-print-ocultar-cliente", label: "Ocultar dados do cliente" },
+            ]}
+          />
         </div>
       </div>
 

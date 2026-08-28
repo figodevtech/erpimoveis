@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PERMS, requireAny } from "@/app/api/_authz/perms";
 import { extrairCobranca } from "@/lib/nfe/duplicatas";
+import { identificarEmitente } from "@/lib/nfe/identificacao-emitente";
 import { lerNFeDoXml, lerItensDaNota, lerTotaisDaNota } from "@/lib/nfe/totais-nfe";
 import { componentesDoItem, componentesNaoAlocados } from "@/lib/nfe/valor-fiscal-entrada";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -39,7 +40,15 @@ async function salvarXmlRecebidoManual(xml: string, parsed: any, raw: any) {
     chave_acesso: chave,
     data_emissao: parsed.dataEmissao,
     emitente_nome: parsed.emitente?.nome,
-    emitente_cnpj: String(parsed.emitente?.cnpj ?? "").replace(/\D/g, "") || null,
+    // A coluna conserva o nome histórico, mas nas consultas ela representa o
+    // documento fiscal do emitente e também precisa guardar CPF.
+    emitente_cnpj:
+      String(
+        parsed.emitente?.documento ??
+          parsed.emitente?.cnpj ??
+          parsed.emitente?.cpf ??
+          "",
+      ).replace(/\D/g, "") || null,
     valor_total: parsed.totais?.valorNota,
     status: protocolo.cStat ? String(protocolo.cStat) : null,
     xml,
@@ -114,6 +123,7 @@ export async function POST(req: NextRequest) {
     const ide = infNFe.ide || {};
     const emit = infNFe.emit || {};
     const dest = infNFe.dest || {};
+    const identificacaoEmitente = identificarEmitente(emit);
     // A cobrança é o parcelamento que o fornecedor já emitiu. Sem ela, a tela de
     // entrada pedia para digitar de novo o que estava no XML.
     const cobranca = extrairCobranca(infNFe);
@@ -150,7 +160,7 @@ export async function POST(req: NextRequest) {
 
       // Emitente
       emitente: {
-        cnpj: emit.CNPJ || null,
+        ...identificacaoEmitente,
         nome: emit.xNome || null,
         nomeFantasia: emit.xFant || null,
         ie: emit.IE || null,
