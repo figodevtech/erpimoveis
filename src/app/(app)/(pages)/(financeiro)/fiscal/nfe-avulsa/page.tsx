@@ -2282,24 +2282,28 @@ export default function NFeAvulsaPage() {
                   setOpen={setOpenFornecedorSelect}
                   OnSelect={preencherDestinatarioComFornecedor}
                 />
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <Button className="w-min" type="button" variant="outline" onClick={() => setOpenCustomerSelect(true)}>
+                <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+                  <Button className="w-min shrink-0" type="button" variant="outline" onClick={() => setOpenCustomerSelect(true)}>
                     + Selecionar cliente
                   </Button>
-                  <Button className="w-min" type="button" variant="outline" onClick={() => setOpenFornecedorSelect(true)}>
+                  <Button className="w-min shrink-0" type="button" variant="outline" onClick={() => setOpenFornecedorSelect(true)}>
                     + Selecionar fornecedor
                   </Button>
                   {selectedClienteLabel || selectedFornecedorLabel ? (
-                    <Badge variant="secondary" className="w-fit">
+                    <Badge
+                      variant="secondary"
+                      className="min-w-0 max-w-full truncate"
+                      title={selectedClienteLabel ?? selectedFornecedorLabel ?? undefined}
+                    >
                       {selectedClienteLabel ?? selectedFornecedorLabel}
                     </Badge>
                   ) : (
-                    <Badge variant="outline" className="w-fit">
+                    <Badge variant="outline" className="w-fit shrink-0">
                       Destinatário avulso
                     </Badge>
                   )}
                   {(draft.destinatario.clienteId || draft.destinatario.fornecedorId) && (
-                    <Button type="button" variant="ghost" onClick={tornarDestinatarioAvulso}>
+                    <Button className="shrink-0" type="button" variant="ghost" onClick={tornarDestinatarioAvulso}>
                       Usar como avulso
                     </Button>
                   )}
