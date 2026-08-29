@@ -3,8 +3,6 @@
 import type { UseFormRegister, UseFormSetValue, UseFormWatch } from "react-hook-form";
 import type { FormValues } from "../types";
 import { Card, CardContent } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { Info } from "lucide-react";
 
 import { PadraoNFSeFields } from "./padrao-nfse-fields";
@@ -18,8 +16,6 @@ export function NFSeTab({
   setValue: UseFormSetValue<FormValues>;
   watch: UseFormWatch<FormValues>;
 }) {
-  const incluirGarantiaOs = watch("nfse.incluirGarantiaOs") ?? false;
-
   return (
     <Card className="border-primary/10 bg-card/80 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/60">
       <CardContent className="p-5 sm:p-6 space-y-6">
@@ -65,31 +61,6 @@ export function NFSeTab({
         </div> */}
 
         <section className="space-y-4">
-          <div>
-            <h3 className="text-sm font-semibold">Informações de garantia</h3>
-            <p className="text-muted-foreground mt-1 text-xs">
-              Carrega a garantia da ordem de serviço nas informações complementares da NFS-e.
-              O texto continua editável antes do envio.
-            </p>
-          </div>
-          <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/20 p-4">
-            <div>
-              <Label htmlFor="garantia-os-nfse" className="leading-relaxed">
-                Carregar informações de garantia para NFS-e
-              </Label>
-              <p className="text-muted-foreground mt-1 text-xs">Emissão a partir de OS.</p>
-            </div>
-            <Switch
-              id="garantia-os-nfse"
-              checked={incluirGarantiaOs}
-              onCheckedChange={(checked) =>
-                setValue("nfse.incluirGarantiaOs", checked, { shouldDirty: true })
-              }
-            />
-          </div>
-        </section>
-
-        <section className="space-y-4 border-t pt-6">
           <div>
             <h3 className="text-sm font-semibold">Padrão fiscal dos serviços</h3>
             <p className="text-muted-foreground mt-1 text-xs">

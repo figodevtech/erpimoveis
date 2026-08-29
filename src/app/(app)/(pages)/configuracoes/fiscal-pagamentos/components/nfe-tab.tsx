@@ -6,7 +6,6 @@ import type { FormValues, ModeloPadraoFiscal, OperacaoPadraoFiscal } from "../ty
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { Info, ShieldAlert } from "lucide-react";
 import type { CRT } from "@/lib/nfe/types";
 
@@ -81,10 +80,6 @@ export function NFeTab({
   watch?: UseFormWatch<FormValues>;
 }) {
   const nfceConfigurada = watch?.("nfe.nfceConfigurada") ?? false;
-  const incluirGarantiaVendaNFe = watch?.("nfe.incluirGarantiaVendaNFe") ?? false;
-  const incluirGarantiaVendaNFCe = watch?.("nfe.incluirGarantiaVendaNFCe") ?? false;
-  const incluirGarantiaOsNFe = watch?.("nfe.incluirGarantiaOsNFe") ?? false;
-  const incluirGarantiaOsNFCe = watch?.("nfe.incluirGarantiaOsNFCe") ?? false;
   /** Só a versão 2 do QR Code depende de CSC. */
   const usaCsc = String(watch?.("nfe.qrCodeVersao") ?? "3") === "2";
 
@@ -202,92 +197,6 @@ export function NFeTab({
                 placeholder="Ex.: 000001"
                 inputMode="numeric"
               />
-            </div>
-          </div>
-        </section>
-
-        <section className="space-y-4 border-t pt-6">
-          <div>
-            <h3 className="text-sm font-semibold">Informações de garantia</h3>
-            <p className="text-muted-foreground mt-1 text-xs">
-              Carrega a garantia registrada na origem para o texto livre da nota. O texto continua
-              editável antes da emissão.
-            </p>
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="space-y-4 rounded-lg border bg-muted/20 p-4">
-              <div>
-                <p className="text-sm font-medium">Emissão a partir de Venda</p>
-                <p className="text-muted-foreground mt-1 text-xs">
-                  Usa a garantia informada no fechamento da venda.
-                </p>
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <Label htmlFor="garantia-venda-nfe" className="leading-relaxed">
-                  Incluir informações de garantia na emissão de NF-e
-                </Label>
-                <Switch
-                  id="garantia-venda-nfe"
-                  checked={incluirGarantiaVendaNFe}
-                  onCheckedChange={(checked) =>
-                    setValue("nfe.incluirGarantiaVendaNFe", checked, { shouldDirty: true })
-                  }
-                />
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <Label
-                  htmlFor="garantia-venda-nfce"
-                  className={!nfceConfigurada ? "leading-relaxed opacity-60" : "leading-relaxed"}
-                >
-                  Incluir informações de garantia na emissão de NFC-e
-                </Label>
-                <Switch
-                  id="garantia-venda-nfce"
-                  checked={incluirGarantiaVendaNFCe}
-                  disabled={!nfceConfigurada}
-                  onCheckedChange={(checked) =>
-                    setValue("nfe.incluirGarantiaVendaNFCe", checked, { shouldDirty: true })
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="space-y-4 rounded-lg border bg-muted/20 p-4">
-              <div>
-                <p className="text-sm font-medium">Emissão a partir de OS</p>
-                <p className="text-muted-foreground mt-1 text-xs">
-                  Usa a garantia registrada ao enviar a ordem de serviço ao financeiro.
-                </p>
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <Label htmlFor="garantia-os-nfe" className="leading-relaxed">
-                  Incluir informações de garantia na emissão de NF-e
-                </Label>
-                <Switch
-                  id="garantia-os-nfe"
-                  checked={incluirGarantiaOsNFe}
-                  onCheckedChange={(checked) =>
-                    setValue("nfe.incluirGarantiaOsNFe", checked, { shouldDirty: true })
-                  }
-                />
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <Label
-                  htmlFor="garantia-os-nfce"
-                  className={!nfceConfigurada ? "leading-relaxed opacity-60" : "leading-relaxed"}
-                >
-                  Incluir informações de garantia na emissão de NFC-e
-                </Label>
-                <Switch
-                  id="garantia-os-nfce"
-                  checked={incluirGarantiaOsNFCe}
-                  disabled={!nfceConfigurada}
-                  onCheckedChange={(checked) =>
-                    setValue("nfe.incluirGarantiaOsNFCe", checked, { shouldDirty: true })
-                  }
-                />
-              </div>
             </div>
           </div>
         </section>

@@ -110,39 +110,51 @@ export async function PUT(req: NextRequest) {
 
     const empresa = await buscarEmpresaAtual();
     const empresaId = empresa?.id ?? 1;
-    const padroesEmissao = normalizarPadroesEmissao(nfse.padroesEmissao);
     const garantiaRecebida = prepararPatchGarantiaNfse(nfse);
     const atual = await supabase
       .from("nfse_config")
-      .select("incluir_garantia_os")
+      .select("empresa_id")
       .eq("empresa_id", empresaId)
       .maybeSingle();
     if (atual.error) throw atual.error;
-    const incluirGarantiaOs = "incluir_garantia_os" in garantiaRecebida
-      ? garantiaRecebida.incluir_garantia_os
-      : Boolean(atual.data?.incluir_garantia_os);
 
-    const up = await supabase
-      .from("nfse_config")
-      .upsert(
-        {
-          empresa_id: empresaId,
-          provedor: nfse.provedor ?? null,
-          incluir_garantia_os: incluirGarantiaOs,
-          inscricao_municipal: nfse.inscricaoMunicipal ?? null,
-          serie_rps: nfse.serieRPS ?? null,
-          usuario: nfse.usuario ?? null,
-          senha: nfse.senha ?? null,
-          token: nfse.token ?? null,
-          certificado_a1_base64: nfse.certificadoA1Base64 ?? null,
-          senha_certificado: nfse.senhaCertificado ?? null,
-          padroes_emissao: padroesEmissao,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "empresa_id" },
-      )
-      .select("*")
-      .maybeSingle();
+    const informou = (campo: string) => Object.prototype.hasOwnProperty.call(nfse, campo);
+    // Configurações Gerais envia somente o switch de garantia. Campos omitidos
+    // não podem apagar credenciais nem os padrões fiscais salvos nesta tabela.
+    const patch = {
+      ...garantiaRecebida,
+      ...(informou("provedor") ? { provedor: nfse.provedor ?? null } : {}),
+      ...(informou("inscricaoMunicipal")
+        ? { inscricao_municipal: nfse.inscricaoMunicipal ?? null }
+        : {}),
+      ...(informou("serieRPS") ? { serie_rps: nfse.serieRPS ?? null } : {}),
+      ...(informou("usuario") ? { usuario: nfse.usuario ?? null } : {}),
+      ...(informou("senha") ? { senha: nfse.senha ?? null } : {}),
+      ...(informou("token") ? { token: nfse.token ?? null } : {}),
+      ...(informou("certificadoA1Base64")
+        ? { certificado_a1_base64: nfse.certificadoA1Base64 ?? null }
+        : {}),
+      ...(informou("senhaCertificado")
+        ? { senha_certificado: nfse.senhaCertificado ?? null }
+        : {}),
+      ...(informou("padroesEmissao")
+        ? { padroes_emissao: normalizarPadroesEmissao(nfse.padroesEmissao) }
+        : {}),
+      updated_at: new Date().toISOString(),
+    };
+
+    const up = atual.data
+      ? await supabase
+          .from("nfse_config")
+          .update(patch)
+          .eq("empresa_id", empresaId)
+          .select("*")
+          .maybeSingle()
+      : await supabase
+          .from("nfse_config")
+          .upsert({ empresa_id: empresaId, ...patch }, { onConflict: "empresa_id" })
+          .select("*")
+          .maybeSingle();
     if (up.error) throw up.error;
 
     return NextResponse.json({
