@@ -1,9 +1,11 @@
 // src/app/(app)/(pages)/meu-perfil/components/perfil-header.tsx
 "use client";
 
-import { Building2, Mail, ShieldCheck } from "lucide-react";
+import { Building2, LoaderCircle, Mail, Pencil, ShieldCheck } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import type { ReactNode } from "react";
+import React, { useRef, type ChangeEvent, type ReactNode } from "react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MOLA, MOLA_SUAVE, SAIDA, containerEscalonado, itemQueSobe } from "../lib/motion";
@@ -26,11 +28,29 @@ export function PerfilHeader({
   perfil,
   carregando,
   seletorUsuario,
+  enviandoFoto = false,
+  onFotoSelecionada,
 }: {
   perfil: MeuPerfil | null;
   carregando: boolean;
   seletorUsuario?: ReactNode;
+  enviandoFoto?: boolean;
+  onFotoSelecionada?: (file: File) => Promise<void>;
 }) {
+  const inputFotoRef = useRef<HTMLInputElement>(null);
+
+  async function selecionarFoto(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file || !onFotoSelecionada) return;
+
+    try {
+      await onFotoSelecionada(file);
+    } finally {
+      // Permite selecionar novamente o mesmo arquivo depois de uma falha.
+      event.target.value = "";
+    }
+  }
+
   return (
     <AnimatePresence mode="wait" initial={false}>
       {carregando && !perfil ? (
@@ -62,13 +82,52 @@ export function PerfilHeader({
           />
 
           <motion.div
-            aria-hidden
             initial={{ scale: 0.6, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={MOLA}
-            className="relative flex size-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-base font-semibold text-primary ring-1 ring-primary/20 sm:size-14 sm:text-lg"
+            className="relative size-12 shrink-0 sm:size-14"
           >
-            {iniciais(perfil?.nome ?? null)}
+            <Avatar className="size-full bg-primary/10 text-base font-semibold text-primary ring-1 ring-primary/20 sm:text-lg">
+              {perfil?.fotoUrl ? (
+                <AvatarImage
+                  src={perfil.fotoUrl}
+                  alt={`Foto de ${perfil.nome ?? "usuário"}`}
+                  className="object-cover"
+                />
+              ) : null}
+              <AvatarFallback className="bg-primary/10 text-primary">
+                {iniciais(perfil?.nome ?? null)}
+              </AvatarFallback>
+            </Avatar>
+
+            {perfil && onFotoSelecionada ? (
+              <>
+                <input
+                  ref={inputFotoRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/avif"
+                  className="sr-only"
+                  tabIndex={-1}
+                  onChange={(event) => void selecionarFoto(event)}
+                />
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="default"
+                  className="absolute -right-1 -bottom-1 size-6 rounded-full border-2 border-card shadow-sm sm:size-7"
+                  aria-label={`Alterar foto de ${perfil.nome ?? "usuário"}`}
+                  title="Alterar foto"
+                  disabled={enviandoFoto}
+                  onClick={() => inputFotoRef.current?.click()}
+                >
+                  {enviandoFoto ? (
+                    <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+                  ) : (
+                    <Pencil className="size-3.5" aria-hidden />
+                  )}
+                </Button>
+              </>
+            ) : null}
           </motion.div>
 
           <div className="relative min-w-0 flex-1">

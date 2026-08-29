@@ -1,3 +1,7 @@
+import type { UsoConsumoEscopo } from "@/lib/usoconsumo/escopo";
+
+export type { UsoConsumoEscopo };
+
 export type UsoConsumoStatus = "OK" | "BAIXO" | "CRITICO" | "SEM_ESTOQUE";
 export type UsoConsumoUnidade = "UN" | "JGO" | "KIT" | "PAR" | "CX" | "PCT";
 export type UsoConsumoConservacao = "NOVO" | "USADO" | "RECONDICIONADO";
@@ -11,6 +15,8 @@ export interface UsoConsumoGrupo {
 
 export interface UsoConsumoItem {
   id: number;
+  /** Estoque simples ao qual o item pertence. Ver src/lib/usoconsumo/escopo.ts. */
+  escopo: UsoConsumoEscopo;
   titulo: string;
   descricao: string | null;
   referencia: string | null;

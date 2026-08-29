@@ -12,6 +12,8 @@ export async function GET(req: NextRequest) {
     const { data, error } = await supabaseAdmin
       .from("usoconsumo_entrada")
       .select("id,created_at,itens:usoconsumo_entrada_item(item_id,numero_item_fiscal,quantidade)")
+      // Sem filtro de escopo de proposito: `usoconsumo_entrada_chave_uk` e unico por
+      // chave GLOBALMENTE, entao chave repetida e duplicidade em qualquer estoque.
       .eq("chave_nfe", chaveNfe)
       .eq("status", "CONFIRMADA")
       .order("created_at", { ascending: false });

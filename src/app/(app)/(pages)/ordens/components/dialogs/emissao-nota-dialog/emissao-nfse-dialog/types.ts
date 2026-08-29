@@ -54,12 +54,37 @@ export type ClienteResumo = {
   inscricaomunicipal?: string | null;
 };
 
+/**
+ * Como o desconto geral da OS foi dividido entre a NF-e de produto e esta
+ * NFS-e. Mesmos campos que a rota `produtos-para-nfe` devolve, de propósito.
+ */
+export type DescontoOrigemNfse = {
+  total: number;
+  produtos: number;
+  servicos: number;
+  baseProdutos: number;
+  baseServicos: number;
+};
+
 export type ServicoOS = {
   servicoid: number;
   quantidade: number | null;
   precounitario: number | null;
+  /**
+   * Texto livre da linha da OS (`osservico.descricao`) — o que foi feito no
+   * serviço. Não confundir com `servico.descricao`, o nome do cadastro.
+   */
+  descricao?: string | null;
   servico?: ServicoCadastro | null;
   pendenciasCadastro?: PendenciaCadastro[];
+  /**
+   * Desconto que cabe a este serviço — o da própria linha da OS, a fatia do
+   * desconto geral e o líquido resultante. Informativos: a emissão continua
+   * mandando o valor digitado no campo, sem abater nada sozinha.
+   */
+  descontoItem?: number | null;
+  descontoRateado?: number | null;
+  valorLiquidoSugerido?: number | null;
   notaFiscalStatus?: string | null;
   notaFiscalId?: number | null;
   notaFiscalErros?: unknown;
@@ -79,6 +104,8 @@ export type ServicosOSResponse = {
   observacoesFiscais?: string | null;
   /** Alvo do reparo, para o botão que injeta os dados dele no texto livre. */
   alvo?: AlvoFiscal | null;
+  /** Divisão do desconto da OS. Null quando a ordem não tem desconto geral. */
+  descontoOrigem?: DescontoOrigemNfse | null;
 };
 
 /** Limite das informações complementares nos três modelos de NFS-e. */

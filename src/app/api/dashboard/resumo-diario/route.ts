@@ -97,6 +97,7 @@ export async function GET(req: Request) {
             "id, status, descricao, orcamentototal, dataentrada, datasaida, cliente:clienteid ( nomerazaosocial ), veiculo:veiculoid ( placa, modelo )",
           )
           .eq("is_deleted", false)
+          .is("migracao_referencia", null)
           .gte("dataentrada", startIso)
           .lt("dataentrada", endIso)
           .order("dataentrada", { ascending: false })
@@ -107,6 +108,7 @@ export async function GET(req: Request) {
           .from("ordemservico")
           .select("id, status, descricao, orcamentototal, dataentrada, datasaida")
           .eq("is_deleted", false)
+          .is("migracao_referencia", null)
           .eq("status", "CONCLUIDO")
           .gte("datasaida", startIso)
           .lt("datasaida", endIso)

@@ -6,6 +6,7 @@ import { ObservacoesToggle } from "../../../../components/ObservacoesToggle";
 import { PrintFilterToggles } from "../../../../components/PrintFilterToggles";
 import { PrintShareMenu } from "../../../../components/PrintShareMenu";
 import { PrintA4Paginator } from "../../../../components/PrintA4Paginator";
+import { PrintFontSizeControl } from "../../../../components/PrintFontSizeControl";
 import {
   PRINT_DOCUMENT_HEADER_CSS,
   PrintDocumentHeader,
@@ -410,24 +411,24 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
           }
         }
         .meta-grid{ display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; }
-        .meta-badge{ background:var(--soft-bg); border:1px solid var(--border); border-radius:8px; padding:8px; text-align:center; }
-        .meta-badge .label{ font-size:8px; text-transform:uppercase; letter-spacing:.14em; color:var(--muted); font-weight:700; margin-bottom:4px; }
-        .meta-badge .valor{ font-size:10px; font-weight:700; font-variant-numeric:tabular-nums; }
+        .meta-badge{ min-width:0; background:var(--soft-bg); border:1px solid var(--border); border-radius:8px; padding:8px; text-align:center; overflow-wrap:anywhere; }
+        .meta-badge .label{ font-size:calc(8px * var(--print-font-scale, 1)); text-transform:uppercase; letter-spacing:.14em; color:var(--muted); font-weight:700; margin-bottom:4px; }
+        .meta-badge .valor{ font-size:calc(10px * var(--print-font-scale, 1)); font-weight:700; font-variant-numeric:tabular-nums; }
         .grid-info{ display:grid; grid-template-columns:1fr; gap:10px; }
         .grid-info-com-detalhes{ grid-template-columns:1.4fr 1fr; }
-        .cartao{ border:1px solid var(--border); border-radius:var(--radius); background:#fff; padding:10px; }
+        .cartao{ min-width:0; border:1px solid var(--border); border-radius:var(--radius); background:#fff; padding:10px; }
         .cartao-destaque{ background:linear-gradient(135deg, var(--primary-soft), var(--secondary-soft)); }
-        .titulo-secao{ display:flex; align-items:center; gap:8px; padding-bottom:6px; margin-bottom:8px; border-bottom:2px solid var(--border); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--brand-primary); }
-        .kv{ display:grid; grid-template-columns:85px 1fr; gap:6px; font-size:10px; line-height:1.35; margin-bottom:4px; }
+        .titulo-secao{ display:flex; align-items:center; gap:8px; padding-bottom:6px; margin-bottom:8px; border-bottom:2px solid var(--border); font-size:calc(10px * var(--print-font-scale, 1)); font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--brand-primary); }
+        .kv{ display:grid; grid-template-columns:85px 1fr; gap:6px; font-size:calc(10px * var(--print-font-scale, 1)); line-height:1.35; margin-bottom:4px; }
         .kv .k{ color:var(--muted); font-weight:700; }
         .kv .v{ font-weight:600; overflow-wrap:anywhere; white-space:normal; }
         .tabela-container{ border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; background:#fff; }
         table{ width:100%; border-collapse:collapse; }
-        thead th{ font-size:9px; text-transform:uppercase; letter-spacing:.12em; font-weight:900; color:white; padding:8px; background:linear-gradient(135deg, var(--brand-primary), var(--brand-primary)); text-align:left; }
-        tbody td{ font-size:10px; padding:7px 8px; border-bottom:1px solid #f1f5f9; vertical-align:middle; }
+        thead th{ font-size:calc(9px * var(--print-font-scale, 1)); text-transform:uppercase; letter-spacing:.12em; font-weight:900; color:white; padding:8px; background:linear-gradient(135deg, var(--brand-primary), var(--brand-primary)); text-align:left; white-space:normal; overflow-wrap:anywhere; }
+        tbody td{ font-size:calc(10px * var(--print-font-scale, 1)); padding:7px 8px; border-bottom:1px solid #f1f5f9; vertical-align:middle; overflow-wrap:anywhere; }
         tbody tr:last-child td{ border-bottom:none; }
         .col-num{ width:38px; text-align:center; font-weight:700; font-variant-numeric:tabular-nums; }
-        .item-codigo{ display:inline-flex; align-items:center; gap:5px; margin-left:6px; font-size:8px; font-weight:600; letter-spacing:.04em; color:color-mix(in srgb, var(--muted) 70%, #fff); white-space:nowrap; vertical-align:baseline; }
+        .item-codigo{ display:inline-flex; align-items:center; flex-wrap:wrap; gap:5px; max-width:100%; margin-left:6px; font-size:calc(8px * var(--print-font-scale, 1)); font-weight:600; letter-spacing:.04em; color:color-mix(in srgb, var(--muted) 70%, #fff); white-space:normal; overflow-wrap:anywhere; vertical-align:baseline; }
         .item-etiqueta{ display:inline-flex; align-items:center; gap:2px; }
         .item-etiqueta-icone{ width:8px; height:8px; flex-shrink:0; display:block; }
         .col-qtd{ width:52px; text-align:center; font-weight:700; font-variant-numeric:tabular-nums; }
@@ -435,9 +436,9 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
         .rodape{ margin-top:auto; display:grid; grid-template-columns:1fr 320px; gap:10px; padding-top:8px; }
         .observacoes-box{ border:1px solid var(--border); background:var(--soft-bg); border-radius:var(--radius); padding:10px; }
         .pagamentos-resumo{ margin-top:8px; padding-top:8px; border-top:1px solid var(--brand-primary); }
-        .pagamentos-titulo{ font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; color:var(--brand-primary); margin-bottom:5px; }
+        .pagamentos-titulo{ font-size:calc(9px * var(--print-font-scale, 1)); font-weight:800; text-transform:uppercase; letter-spacing:.08em; color:var(--brand-primary); margin-bottom:5px; }
         .pagamentos-lista{ display:grid; gap:4px; }
-        .pagamento-linha{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; font-size:10px; line-height:1.35; }
+        .pagamento-linha{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; font-size:calc(10px * var(--print-font-scale, 1)); line-height:1.35; }
         .pagamento-metodo{ font-weight:700; }
         .pagamento-valor{ color:var(--brand-primary); font-weight:800; font-variant-numeric:tabular-nums; white-space:nowrap; }
         .venda-observacoes{ display:none; }
@@ -450,21 +451,24 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
         html[data-print-ocultar-cliente] .bloco-cliente{ display:none !important; }
         html[data-print-ocultar-cliente] .grid-info{ grid-template-columns:1fr !important; }
         html[data-print-ocultar-cliente][data-print-ocultar-valores] .grid-info{ display:grid !important; }
-        .obs-titulo{ font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; color:var(--brand-primary); margin-bottom:6px; }
-        .obs-texto{ font-size:10px; line-height:1.45; color:var(--muted); }
+        .obs-titulo{ font-size:calc(10px * var(--print-font-scale, 1)); font-weight:800; text-transform:uppercase; letter-spacing:.08em; color:var(--brand-primary); margin-bottom:6px; }
+        .obs-texto{ font-size:calc(10px * var(--print-font-scale, 1)); line-height:1.45; color:var(--muted); }
         .totais-box{ border:1px solid var(--brand-primary); background:linear-gradient(135deg, var(--primary-soft), #fff); border-radius:var(--radius); padding:12px; }
-        .linha-total{ display:flex; justify-content:space-between; font-size:11px; font-variant-numeric:tabular-nums; padding:4px 0; color:var(--muted); }
+        .linha-total{ display:flex; justify-content:space-between; font-size:calc(11px * var(--print-font-scale, 1)); font-variant-numeric:tabular-nums; padding:4px 0; color:var(--muted); }
         .linha-total-final{ margin-top:8px; padding-top:8px; border-top:1px solid var(--brand-primary); display:flex; justify-content:space-between; align-items:center; }
-        .total-label{ font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; color:var(--brand-primary); }
-        .total-valor{ font-size:16px; font-weight:800; font-variant-numeric:tabular-nums; color:var(--brand-primary); }
+        .total-label{ font-size:calc(12px * var(--print-font-scale, 1)); font-weight:800; text-transform:uppercase; letter-spacing:.08em; color:var(--brand-primary); }
+        .total-valor{ font-size:calc(16px * var(--print-font-scale, 1)); font-weight:800; font-variant-numeric:tabular-nums; color:var(--brand-primary); }
         .assinaturas{ margin-top:35px; display:grid; grid-template-columns:1fr 1fr; gap:12px; }
         .assinatura{ border-top:2px solid var(--border); padding-top:8px; text-align:center; }
-        .assin-label{ font-size:9px; text-transform:uppercase; letter-spacing:.12em; color:var(--muted); font-weight:700; }
+        .assin-label{ font-size:calc(9px * var(--print-font-scale, 1)); text-transform:uppercase; letter-spacing:.12em; color:var(--muted); font-weight:700; }
         .aceite-box{ margin-top:10px; border:1px solid var(--border); background:var(--soft-bg); border-radius:var(--radius); padding:8px 10px; }
-        .aceite-titulo{ font-size:8px; font-weight:800; text-transform:uppercase; letter-spacing:.12em; color:var(--brand-primary); margin-bottom:4px; }
-        .aceite-intro{ font-size:8px; font-weight:700; line-height:1.4; color:var(--ink); margin-bottom:4px; }
-        .aceite-item{ font-size:8px; line-height:1.4; text-align:justify; color:var(--ink); margin-bottom:3px; }
+        .aceite-titulo{ font-size:calc(8px * var(--print-font-scale, 1)); font-weight:800; text-transform:uppercase; letter-spacing:.12em; color:var(--brand-primary); margin-bottom:4px; }
+        .aceite-intro{ font-size:calc(8px * var(--print-font-scale, 1)); font-weight:700; line-height:1.4; color:var(--ink); margin-bottom:4px; }
+        .aceite-item{ font-size:calc(8px * var(--print-font-scale, 1)); line-height:1.4; text-align:justify; color:var(--ink); margin-bottom:3px; }
         .aceite-item:last-child{ margin-bottom:0; }
+        .nome-cliente{ font-size:calc(14px * var(--print-font-scale, 1)); overflow-wrap:anywhere; }
+        .cliente-endereco{ font-size:calc(10px * var(--print-font-scale, 1)); overflow-wrap:anywhere; }
+        .descricao-venda{ font-size:calc(9px * var(--print-font-scale, 1)); overflow-wrap:anywhere; }
       `}</style>
 
       <div className="toolbar no-print">
@@ -486,6 +490,7 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
               Sair
             </Link>
           </Button>
+          <PrintFontSizeControl />
           <PrintShareMenu
             documentId={venda.id}
             filenamePrefix="orcamento-venda"
@@ -567,7 +572,7 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
                 <User className="w-4 h-4" aria-hidden="true" />
                 Cliente
               </div>
-              <div className="text-sm font-semibold">
+              <div className="nome-cliente font-semibold">
                 {cliente?.nomerazaosocial || "Consumidor não informado"}
               </div>
               <div style={{ marginTop: 8 }}>
@@ -585,7 +590,7 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
                 </div>
               </div>
               {(clienteEndereco || clienteLocal) && (
-                <div className="text-[10px] text-slate-500 mt-2">
+                <div className="cliente-endereco text-slate-500 mt-2">
                   {clienteEndereco && <div>{clienteEndereco}</div>}
                   {clienteLocal && <div>{clienteLocal}</div>}
                 </div>
@@ -599,7 +604,7 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
                   Detalhes
                 </div>
                 <div style={{ marginTop: 8 }}>
-                  <div className="flex flex-col gap-2 text-[9px]">
+                  <div className="descricao-venda flex flex-col gap-2">
                     <span className="whitespace-pre-wrap text-slate-500">
                       {String(venda.descricao).toUpperCase()}
                     </span>

@@ -663,6 +663,10 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
           titulo,
           detalhe: [
             `${textoStatus(valor(anterior, "status"))} → ${textoStatus(valor(novo, "status"))}`,
+            ["CONCLUIDO", "SEM_COBRANCA", "CANCELADO"].includes(statusNovo) &&
+            dataHoraAuditoria(valor(novo, "finalizado_em"))
+              ? `Finalizada em ${dataHoraAuditoria(valor(novo, "finalizado_em"))}`
+              : null,
             statusNovo === "CONCLUIDO" && dataHoraAuditoria(valor(novo, "pagamento_concluido_em"))
               ? `Pagamento concluído em ${dataHoraAuditoria(valor(novo, "pagamento_concluido_em"))}`
               : null,
@@ -916,6 +920,16 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
         // A gravação de datasaida é parte técnica do registro detalhado em os_saida.
         // Evita duplicar a atividade como um vago "Atualizou os dados da OS".
         if (evento.campos_alterados?.includes("datasaida")) continue;
+        if (evento.campos_alterados?.includes("finalizado_em")) {
+          adicionar(evento, {
+            tipo: "status",
+            titulo: "Registrou a finalização da OS",
+            detalhe:
+              dataHoraAuditoria(valor(novo, "finalizado_em")) ??
+              "Data de finalização removida",
+          });
+          continue;
+        }
         if (evento.campos_alterados?.includes("pagamento_concluido_em")) {
           adicionar(evento, {
             tipo: "status",

@@ -1,3 +1,5 @@
+import type { RegrasDestaqueStatus } from "@/lib/ordens/destaque";
+
 export interface Config {
     id: number;
     aviso_pagamento: boolean;
@@ -22,5 +24,7 @@ export interface Config {
     habilitar_edicao_transacoes: boolean;
     permitir_produto_avulso_os: boolean;
     setor_padrao_os_id: number | null;
+    /** Cor (e texto opcional) aplicados a toda OS num dado status na listagem. */
+    destaque_os_por_status: RegrasDestaqueStatus;
     created_at: string;
 }

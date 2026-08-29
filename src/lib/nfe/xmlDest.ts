@@ -1,7 +1,7 @@
 // src/lib/nfe/xmlDest.ts
 import { deveEnviarIeDoDestinatario } from './indIEDest';
 import type { NFeDestinatario } from './types';
-import { escapeXml } from './xmlUtils';
+import { escapeXml, truncateNfeXNome } from './xmlUtils';
 
 export function buildDestXml(dest: NFeDestinatario): string {
   const p: string[] = [];
@@ -13,7 +13,7 @@ export function buildDestXml(dest: NFeDestinatario): string {
     p.push(`<CPF>${dest.cpf}</CPF>`);
   }
 
-  p.push(`<xNome>${escapeXml(dest.razaoSocial)}</xNome>`);
+  p.push(`<xNome>${escapeXml(truncateNfeXNome(dest.razaoSocial))}</xNome>`);
 
   p.push('<enderDest>');
   p.push(`<xLgr>${escapeXml(dest.endereco.logradouro)}</xLgr>`);

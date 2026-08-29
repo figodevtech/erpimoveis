@@ -46,6 +46,11 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/lib/toast";
+import {
+  rotuloDeEscopo,
+  type EscopoDeEntrada,
+  type UsoConsumoEscopo,
+} from "@/lib/usoconsumo/escopo";
 import { CancelMovementDialog, type CancelTarget } from "../components/cancel-movement-dialog";
 import { CancelarEntradaDialog } from "@/components/entrada-fiscal/cancelar-entrada-dialog";
 import { EntryDetailsDialog } from "../components/entry-details-dialog";
@@ -66,7 +71,21 @@ import { LancarFinanceiroEntradaDialog } from "@/components/entrada-fiscal/lanca
  * painel de filtros, onde motivo, autor e lancamento viram igualdade no banco.
  */
 
-type InventoryKind = "produtos" | "uso-consumo";
+type InventoryKind = "produtos" | "uso-consumo" | "geral";
+
+/**
+ * As duas abas nao-produto sao a MESMA fonte: `usoconsumo_movimento_*` filtrado
+ * por escopo. Por isso o corte em toda a tela e "produtos ou nao", e o escopo
+ * so entra como parametro da consulta.
+ */
+const INVENTORY_ESCOPO: Record<Exclude<InventoryKind, "produtos">, UsoConsumoEscopo> = {
+  "uso-consumo": "USOCONSUMO",
+  geral: "GERAL",
+};
+
+function escopoDoInventory(inventory: InventoryKind) {
+  return inventory === "produtos" ? null : INVENTORY_ESCOPO[inventory];
+}
 type Direction = "entrada" | "saida";
 type DirectionFilter = "todos" | Direction;
 type StatusFilter = "todos" | "CONFIRMADA" | "CANCELADA";
@@ -144,6 +163,8 @@ type RawUsoConsumoMovement = {
   xml_disponivel: boolean;
   itens_resumo: string | null;
   criador_nome: string | null;
+  /** `MISTO` quando a entrada tem item dos dois estoques simples. */
+  escopo: EscopoDeEntrada | null;
 };
 
 type Movement = {
@@ -168,6 +189,8 @@ type Movement = {
   documentKind?: Direction | null;
   documentId?: number | null;
   reconstruido?: boolean;
+  /** Entrada com item dos dois estoques simples: aparece nas duas abas. */
+  mista?: boolean;
 };
 
 type Pagination = { page?: number; limit?: number; total?: number; totalPages?: number };
@@ -301,7 +324,7 @@ function normalizeLedgerMovement(raw: RawLedgerMovement): Movement {
   };
 }
 
-function normalizeUsoConsumoMovement(raw: RawUsoConsumoMovement): Movement {
+function normalizeUsoConsumoMovement(raw: RawUsoConsumoMovement, aba: InventoryKind): Movement {
   const padrao = raw.sentido === "entrada" ? "Entrada no estoque" : "Saída do estoque";
   // Entrada guarda o motivo em `tipo`; saida, em `motivo`. Sem nota fiscal, e o
   // motivo que descreve a linha.
@@ -312,7 +335,11 @@ function normalizeUsoConsumoMovement(raw: RawUsoConsumoMovement): Movement {
   return {
     key: `uso-${raw.sentido}-${raw.id}`,
     id: raw.id,
-    inventory: "uso-consumo",
+    // A linha diz de qual estoque simples ela e. Uma entrada MISTO tem item dos
+    // dois e aparece nas duas abas, entao quem decide o rotulo dela e a aba.
+    inventory:
+      raw.escopo === "MISTO" ? aba : raw.escopo === "GERAL" ? "geral" : "uso-consumo",
+    mista: raw.escopo === "MISTO",
     direction: raw.sentido,
     createdAt: raw.created_at,
     description: raw.numero_nota ? `Nota fiscal nº ${raw.numero_nota}` : motivo ?? padrao,
@@ -360,7 +387,7 @@ function MovementRow({
     movement.documentKind === "entrada";
   const isEntradaFiscal = isEntradaConfirmada && Boolean(movement.fiscal);
   const canDownloadFiscal = isEntradaFiscal && movement.xmlDisponivel === true;
-  // Só a saída de produto emite NF-e. Uso e consumo não tem motor fiscal de
+  // Só a saída de produto emite NF-e. Os estoques simples não têm motor fiscal de
   // saída, e saída cancelada ou estornada não documenta operação nenhuma.
   const canEmitirNfeSaida =
     movement.inventory === "produtos" &&
@@ -405,6 +432,16 @@ function MovementRow({
                   title={isEntrada ? "Motivo da entrada" : "Motivo da saída"}
                 >
                   {movement.motivo}
+                </Badge>
+              ) : null}
+              {/* Sem isto a mesma nota aparece nas duas abas sem explicacao. */}
+              {movement.mista ? (
+                <Badge
+                  variant="outline"
+                  className="shrink-0 px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
+                  title="Esta nota tem itens de uso e consumo e do estoque geral, por isso aparece nas duas abas"
+                >
+                  Mista
                 </Badge>
               ) : null}
               {isEntrada && movement.fiscal ? (
@@ -570,11 +607,13 @@ function useOpcoesDeFiltro(inventory: InventoryKind, enabled: boolean) {
   useEffect(() => {
     if (!enabled || carregado.current === inventory) return;
     let ativo = true;
-    const escopo = inventory === "uso-consumo" ? "USOCONSUMO" : "PRODUTO";
-    const autoresUrl =
-      inventory === "uso-consumo"
-        ? "/api/usoconsumo/movimentos/autores"
-        : "/api/estoque/movimentos/autores";
+    const escopoDoEstoque = escopoDoInventory(inventory);
+    // Tipos de entrada e motivos de saida sao cadastro compartilhado pelos dois
+    // estoques simples: aqui o escopo consultado e o da tabela, nao o do estoque.
+    const escopo = escopoDoEstoque ? "USOCONSUMO" : "PRODUTO";
+    const autoresUrl = escopoDoEstoque
+      ? `/api/usoconsumo/movimentos/autores?escopo=${escopoDoEstoque}`
+      : "/api/estoque/movimentos/autores";
 
     // O setState fica na cadeia de promise, e nao no corpo do efeito, pela mesma
     // regra que o resto do modulo segue (react-hooks/set-state-in-effect).
@@ -683,7 +722,7 @@ function MovementTable({
     Number(Boolean(filtros.dataFinal));
 
   function changeInventory(value: string) {
-    if (value !== "produtos" && value !== "uso-consumo") return;
+    if (value !== "produtos" && value !== "uso-consumo" && value !== "geral") return;
     onFiltrosChange({ inventory: value });
   }
 
@@ -765,7 +804,7 @@ function MovementTable({
           <div className="min-w-0 lg:max-w-xs">
             <CardTitle>Histórico de estoque</CardTitle>
             <CardDescription className="flex flex-col items-start gap-1">
-              <span>Todas as entradas e saídas, separadas entre produtos e itens de uso/consumo.</span>
+              <span>Todas as entradas e saídas, separadas entre produtos, uso/consumo e geral/avulso.</span>
               <button
                 type="button"
                 onClick={onReload}
@@ -792,7 +831,14 @@ function MovementTable({
                   className="h-8 rounded-xl px-3 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:bg-primary dark:data-[state=active]:text-primary-foreground"
                 >
                   <Boxes className="size-3.5" />
-                  Uso e consumo
+                  {rotuloDeEscopo("USOCONSUMO").nome}
+                </TabsTrigger>
+                <TabsTrigger
+                  value="geral"
+                  className="h-8 rounded-xl px-3 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:bg-primary dark:data-[state=active]:text-primary-foreground"
+                >
+                  <Boxes className="size-3.5" />
+                  {rotuloDeEscopo("GERAL").nome}
                 </TabsTrigger>
               </TabsList>
             </Tabs>
@@ -1211,6 +1257,7 @@ export default function HistoricoEstoquePage() {
   const [lancarFinanceiroEntrada, setLancarFinanceiroEntrada] = useState<{
     id: number;
     inventory: "produto" | "usoconsumo";
+    escopo: UsoConsumoEscopo;
   } | null>(null);
   /** Saída cujas notas estão abertas. É de lá que sai a emissão. */
   const [notasDaSaida, setNotasDaSaida] = useState<number | null>(null);
@@ -1225,7 +1272,7 @@ export default function HistoricoEstoquePage() {
       // explicita de pagina mantem onde estava.
       if (patch.page === undefined) proximo.page = 1;
       // Origem e acao so existem no razao de produtos.
-      if (proximo.inventory === "uso-consumo") {
+      if (proximo.inventory !== "produtos") {
         proximo.origem = "todas";
         proximo.acao = "todas";
       }
@@ -1282,6 +1329,8 @@ export default function HistoricoEstoquePage() {
       if (filtros.dataFinal) params.ate = new Date(`${filtros.dataFinal}T23:59:59.999`).toISOString();
 
       const produtos = filtros.inventory === "produtos";
+      const escopoDoEstoque = escopoDoInventory(filtros.inventory);
+      if (escopoDoEstoque) params.escopo = escopoDoEstoque;
       if (produtos && filtros.origem !== "todas") params.origem = filtros.origem;
       if (produtos && filtros.acao !== "todas") params.acao = filtros.acao;
 
@@ -1295,7 +1344,9 @@ export default function HistoricoEstoquePage() {
       setMovements(
         produtos
           ? (linhas as RawLedgerMovement[]).map(normalizeLedgerMovement)
-          : (linhas as RawUsoConsumoMovement[]).map(normalizeUsoConsumoMovement),
+          : (linhas as RawUsoConsumoMovement[]).map((linha) =>
+              normalizeUsoConsumoMovement(linha, filtros.inventory),
+            ),
       );
 
       const paginacao = (data.pagination ?? {}) as Pagination;
@@ -1340,7 +1391,7 @@ export default function HistoricoEstoquePage() {
 
   function podeCancelar(movement: Movement) {
     if (movement.status !== "CONFIRMADA") return false;
-    if (movement.inventory === "uso-consumo") return canCancelUse;
+    if (movement.inventory !== "produtos") return canCancelUse;
     if (!movement.documentKind || !movement.documentId) return false;
     if (movement.acao === "ESTORNO") return false;
     return canCancelProducts;
@@ -1356,7 +1407,7 @@ export default function HistoricoEstoquePage() {
       const documentId = movement.documentId ?? movement.id;
       const path = kind === "entrada" ? "entradas" : "saidas";
       const endpoint =
-        movement.inventory === "uso-consumo"
+        movement.inventory !== "produtos"
           ? `/api/usoconsumo/${path}/${movement.id}/cancelar`
           : kind === "entrada"
             ? `/api/entradas/${documentId}/cancelar`
@@ -1374,7 +1425,7 @@ export default function HistoricoEstoquePage() {
 
   async function handleBaixarNfe(movement: Movement) {
     const docId = movement.documentId ?? movement.id;
-    const inventory = movement.inventory === "uso-consumo" ? "usoconsumo" : "produto";
+    const inventory = movement.inventory !== "produtos" ? "usoconsumo" : "produto";
     const toastId = toast.loading("Baixando XML da NF-e...");
 
     try {
@@ -1409,7 +1460,7 @@ export default function HistoricoEstoquePage() {
 
   async function handleBaixarDanfe(movement: Movement) {
     const docId = movement.documentId ?? movement.id;
-    const inventory = movement.inventory === "uso-consumo" ? "usoconsumo" : "produto";
+    const inventory = movement.inventory !== "produtos" ? "usoconsumo" : "produto";
     const toastId = toast.loading("Gerando PDF do DANFE...");
 
     try {
@@ -1458,7 +1509,7 @@ export default function HistoricoEstoquePage() {
           if (!movement.documentKind || !movement.documentId) return;
           setDetalhesMovimento({
             id: movement.documentId,
-            inventory: movement.inventory === "uso-consumo" ? "usoconsumo" : "produto",
+            inventory: movement.inventory !== "produtos" ? "usoconsumo" : "produto",
             kind: movement.documentKind,
           });
         }}
@@ -1466,7 +1517,8 @@ export default function HistoricoEstoquePage() {
           const docId = movement.documentId ?? movement.id;
           setLancarFinanceiroEntrada({
             id: docId,
-            inventory: movement.inventory === "uso-consumo" ? "usoconsumo" : "produto",
+            inventory: movement.inventory !== "produtos" ? "usoconsumo" : "produto",
+            escopo: escopoDoInventory(movement.inventory) ?? "USOCONSUMO",
           });
         }}
         onBaixarNfe={handleBaixarNfe}
@@ -1483,7 +1535,7 @@ export default function HistoricoEstoquePage() {
           if (kind === "entrada") {
             setEntradaCancelamento({
               id: documentId,
-              origem: movement.inventory === "uso-consumo" ? "USOCONSUMO" : "ESTOQUE",
+              origem: movement.inventory !== "produtos" ? "USOCONSUMO" : "ESTOQUE",
             });
             return;
           }
@@ -1492,7 +1544,7 @@ export default function HistoricoEstoquePage() {
             target: {
               id: documentId,
               kind,
-              inventory: movement.inventory === "uso-consumo" ? "usoconsumo" : "produto",
+              inventory: movement.inventory !== "produtos" ? "usoconsumo" : "produto",
             },
           });
         }}
@@ -1532,6 +1584,7 @@ export default function HistoricoEstoquePage() {
         onOpenChange={(open) => !open && setLancarFinanceiroEntrada(null)}
         entryId={lancarFinanceiroEntrada?.id ?? null}
         inventory={lancarFinanceiroEntrada?.inventory ?? "produto"}
+        escopo={lancarFinanceiroEntrada?.escopo ?? "USOCONSUMO"}
         onSuccess={() => void carregar()}
       />
 

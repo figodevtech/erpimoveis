@@ -5,6 +5,7 @@ import {
   descontoPorItem,
   distribuirDinheiro,
   parcelaDoDescontoNaNota,
+  particionarDescontoDaOs,
   ratearDescontoGeral,
 } from "./descontoOrigem";
 
@@ -91,6 +92,54 @@ describe("desconto geral editado na emissão", () => {
     assert.equal(parcelaDoDescontoNaNota(40, [100], [300]), 10);
     // Sem serviços, o desconto inteiro cabe aos produtos.
     assert.equal(parcelaDoDescontoNaNota(40, [100, 300]), 40);
+  });
+});
+
+describe("divisão do desconto entre a NF-e e a NFS-e da mesma OS", () => {
+  it("dá aos serviços a sobra da conta dos produtos", () => {
+    // Mesmo caso do teste de `parcelaDoDescontoNaNota`: R$ 100 de peça e R$ 300
+    // de serviço dividem R$ 40 na proporção 1/4 e 3/4.
+    const particao = particionarDescontoDaOs(40, [100], [300]);
+
+    assert.deepEqual(particao, {
+      total: 40,
+      produtos: 10,
+      servicos: 30,
+      baseProdutos: 100,
+      baseServicos: 300,
+    });
+  });
+
+  it("fecha o desconto da ordem mesmo quando a proporção não é redonda", () => {
+    const particao = particionarDescontoDaOs(10, [100], [100, 100]);
+
+    assert.equal(
+      Number((particao.produtos + particao.servicos).toFixed(2)),
+      particao.total,
+    );
+  });
+
+  it("entrega tudo aos produtos quando a OS não tem serviços", () => {
+    const particao = particionarDescontoDaOs(40, [100, 300], []);
+
+    assert.equal(particao.produtos, 40);
+    assert.equal(particao.servicos, 0);
+    assert.equal(particao.baseServicos, 0);
+  });
+
+  it("entrega tudo aos serviços numa OS só de mão de obra", () => {
+    const particao = particionarDescontoDaOs(40, [], [400]);
+
+    assert.equal(particao.produtos, 0);
+    assert.equal(particao.servicos, 40);
+  });
+
+  it("não inventa desconto quando a OS não deu nenhum", () => {
+    const particao = particionarDescontoDaOs(0, [100], [300]);
+
+    assert.equal(particao.total, 0);
+    assert.equal(particao.produtos, 0);
+    assert.equal(particao.servicos, 0);
   });
 });
 

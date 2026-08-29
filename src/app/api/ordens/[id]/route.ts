@@ -3,6 +3,10 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { NextRequest, NextResponse } from "next/server";
+import {
+  resolveOrdemVehicle,
+  type OrdemVehicleSnapshot,
+} from "@/lib/ordens/vehicle-snapshot";
 import { carregarFatiasRateadas, fatiaComoTransacao } from "@/lib/financeiro/rateio-documentos";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
@@ -48,6 +52,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
           "dataentrada",
           "datasaida",
           "pagamento_concluido_em",
+          "finalizado_em",
           "destacada",
           "destaque_motivo",
           "destaque_cor",
@@ -81,7 +86,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
           "equipamento_horimetro",
           "motivo_cancelamento",
           "execucao_inicio_em",
-          "execucao_fim_em"
+          "execucao_fim_em",
+          "migracao_referencia",
+          "veiculo_snapshot"
         ].join(",")
       )
       .eq("id", osId)
@@ -103,6 +110,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       dataentrada: string | null;
       datasaida: string | null;
       pagamento_concluido_em: string | null;
+      finalizado_em: string | null;
       destacada: boolean;
       destaque_motivo: string | null;
       destaque_cor?: string | null;
@@ -138,6 +146,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       equipamento_horimetro: number | null;
       motivo_cancelamento?: string | null;
       motivo_sem_cobranca?: string | null;
+      migracao_referencia?: string | null;
+      veiculo_snapshot?: OrdemVehicleSnapshot | null;
     };
 
     const osRow = os_res.data as OrdemRow | null;
@@ -232,7 +242,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     // Veículo
     let veiculo:
       | {
-          id: number;
+          id: number | null;
           placa: string | null;
           modelo: string | null;
           marca: string | null;
@@ -240,6 +250,11 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
           cor: string | null;
           kmatual: number | null;
           chassi: string | null;
+          ano_modelo?: number | null;
+          renavam?: string | null;
+          combustivel?: string | null;
+          descricao_veiculo?: string | null;
+          historico?: boolean;
         }
       | null = null;
 
@@ -259,6 +274,24 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         };
       }
     }
+    const veiculoResolvido = resolveOrdemVehicle(veiculo, osRow.veiculo_snapshot);
+    veiculo = veiculoResolvido
+      ? {
+          id: veiculoResolvido.id ?? null,
+          placa: veiculoResolvido.placa ?? null,
+          modelo: veiculoResolvido.modelo ?? null,
+          marca: veiculoResolvido.marca ?? null,
+          ano: veiculoResolvido.ano ?? null,
+          cor: veiculoResolvido.cor ?? null,
+          kmatual: veiculoResolvido.kmatual ?? null,
+          chassi: veiculoResolvido.chassi ?? null,
+          ano_modelo: veiculoResolvido.ano_modelo ?? null,
+          renavam: veiculoResolvido.renavam ?? null,
+          combustivel: veiculoResolvido.combustivel ?? null,
+          descricao_veiculo: veiculoResolvido.descricao_veiculo ?? null,
+          historico: veiculoResolvido.historico === true,
+        }
+      : null;
 
     // Peça (opcional)
     let peca: { id: number; titulo: string; descricao: string | null; lacre?: string | null } | null = null;
@@ -521,7 +554,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
     const trans_res = await supabase
       .from("transacao")
-      .select("id, descricao, valor, valorLiquido, valor_acrescimos, valor_descontos, data, tipo, pendente, metodopagamento, categoria, plano_de_conta, plano_de_conta_id, banco_id, evento_financeiro_id")
+      .select("id, descricao, valor, valorLiquido, valor_acrescimos, valor_descontos, data, tipo, pendente, metodopagamento, categoria, plano_de_conta, plano_de_conta_id, banco_id, evento_financeiro_id, lancamento_id")
       .eq("ordemservicoid", osId)
       .eq("is_deleted", false)
       .order("data", { ascending: false });
@@ -537,7 +570,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
     const despesas_servico_res = await supabase
       .from("eventos_financeiros")
-      .select("id, servicoid, descricao, detalhe, valor, status, transacaoid")
+      .select("id, servicoid, descricao, detalhe, valor, status, transacaoid, lancamento_id")
       .eq("ordemservicoid", osId)
       .eq("origem", "SERVICO")
       .eq("natureza", "DESPESA")
@@ -567,6 +600,17 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     const transacoesPorId = new Map(
       transacoes.map((transacao: any) => [Number(transacao.id), transacao]),
     );
+    // As parcelas de um boleto de despesas. A despesa lançada em grupo não tem
+    // `transacaoid` — com cinco parcelas não existe UMA transação para nomear —,
+    // então quem responde "isso já foi pago?" é o conjunto.
+    const parcelasPorLancamento = new Map<number, any[]>();
+    for (const transacao of transacoes as any[]) {
+      if (transacao.lancamento_id == null) continue;
+      const chave = Number(transacao.lancamento_id);
+      const atual = parcelasPorLancamento.get(chave);
+      if (atual) atual.push(transacao);
+      else parcelasPorLancamento.set(chave, [transacao]);
+    }
     const despesasByServico = new Map<
       number,
       Array<{
@@ -575,14 +619,22 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         detalhe: string | null;
         valor: number;
         status: "ATIVO" | "CONVERTIDO";
-        situacao: "PREVISTA" | "A_PAGAR" | "PAGA" | "LANCADA";
+        situacao: "PREVISTA" | "A_PAGAR" | "PARCIAL" | "PAGA" | "LANCADA";
         transacaoid: number | null;
+        lancamentoid: number | null;
+        parcelas: number;
+        parcelasPagas: number;
       }>
     >();
     for (const evento of despesas_servico_res.data ?? []) {
       const servicoid = Number(evento.servicoid);
       const transacaoid = evento.transacaoid == null ? null : Number(evento.transacaoid);
       const transacao = transacaoid ? transacoesPorId.get(transacaoid) : null;
+      const lancamentoid = evento.lancamento_id == null ? null : Number(evento.lancamento_id);
+      const parcelas: any[] = lancamentoid
+        ? (parcelasPorLancamento.get(lancamentoid) ?? [])
+        : [];
+      const parcelasPagas = parcelas.filter((p: any) => p.pendente === false).length;
       const status = evento.status === "CONVERTIDO" ? "CONVERTIDO" : "ATIVO";
       const despesasServico = despesasByServico.get(servicoid) ?? [];
       despesasServico.push({
@@ -591,15 +643,28 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         detalhe: evento.detalhe ? String(evento.detalhe) : null,
         valor: toNum(evento.valor),
         status,
+        // Vínculo direto: a resposta é o `pendente` daquela transação. Boleto em
+        // grupo: é o conjunto das parcelas — todas em aberto é a pagar, todas
+        // baixadas é paga, e o meio do caminho tem nome próprio, senão um boleto
+        // de 5x com 4 pagas apareceria igual a um sem nenhuma.
         situacao:
           status === "ATIVO"
             ? "PREVISTA"
-            : transacao?.pendente === true
-              ? "A_PAGAR"
-              : transacao?.pendente === false
-                ? "PAGA"
-                : "LANCADA",
+            : parcelas.length > 0
+              ? parcelasPagas === 0
+                ? "A_PAGAR"
+                : parcelasPagas === parcelas.length
+                  ? "PAGA"
+                  : "PARCIAL"
+              : transacao?.pendente === true
+                ? "A_PAGAR"
+                : transacao?.pendente === false
+                  ? "PAGA"
+                  : "LANCADA",
         transacaoid,
+        lancamentoid,
+        parcelas: parcelas.length,
+        parcelasPagas,
       });
       despesasByServico.set(servicoid, despesasServico);
     }
@@ -761,6 +826,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       dataentrada: osRow.dataentrada ?? null,
       datasaida: osRow.datasaida ?? null,
       pagamento_concluido_em: osRow.pagamento_concluido_em ?? null,
+      finalizado_em: osRow.finalizado_em ?? null,
       destacada: osRow.destacada === true,
       destaque_motivo: osRow.destaque_motivo ?? null,
       destaque_cor: osRow.destaque_cor ?? "vermelho",
@@ -770,6 +836,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       setor: setor ? { id: setor.id, nome: setor.nome } : null,
       cliente,
       veiculo,
+      migracaoReferencia: osRow.migracao_referencia ?? null,
+      veiculo_snapshot: osRow.veiculo_snapshot ?? null,
       peca,
       equipamento,
     };
@@ -832,6 +900,19 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string 
     const { id } = await ctx.params;
     const osId = Number(id);
     if (!osId) return NextResponse.json({ error: "ID inválido" }, { status: 400 });
+
+    const { data: ordemProtegida, error: ordemProtegidaError } = await supabase
+      .from("ordemservico")
+      .select("migracao_referencia")
+      .eq("id", osId)
+      .maybeSingle();
+    if (ordemProtegidaError) throw ordemProtegidaError;
+    if (ordemProtegida?.migracao_referencia) {
+      return NextResponse.json(
+        { error: "Esta OS foi migrada como histórico e é somente leitura." },
+        { status: 409 },
+      );
+    }
 
     const body: any = await req.json().catch(() => ({}));
 

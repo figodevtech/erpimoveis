@@ -446,6 +446,19 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 NODE_ENV=development
 
 # ============================================
+# OPTIONAL - Web Push do chat interno
+# ============================================
+# Sem estas tres variáveis o chat funciona normalmente e apenas o Web Push
+# fica desligado. Gere o par uma vez por instalação com:
+#   npx web-push generate-vapid-keys
+# Detalhes em webpush.env.example e docs/modulos/chat.md.
+
+# NEXT_PUBLIC_WEB_PUSH_VAPID_PUBLIC_KEY=BEl...
+# ⚠️ SEGREDO - nunca prefixar com NEXT_PUBLIC_
+# WEB_PUSH_VAPID_PRIVATE_KEY=...
+# WEB_PUSH_SUBJECT=mailto:suporte@exemplo.com.br
+
+# ============================================
 # OPTIONAL - Email Service (se usar)
 # ============================================
 

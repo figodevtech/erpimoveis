@@ -1,6 +1,17 @@
 import { Frown, Meh, Smile, SmilePlus } from "lucide-react";
-import { Cliente_rank } from "../../types";
-import { TipoPessoa } from "./types";
+import { Cliente_rank, TelefoneCliente } from "../../types";
+import { TelefoneSecundario, TipoPessoa } from "./types";
+
+/** Converte os telefones vindos da API nas linhas editáveis do formulário. */
+export const toTelefonesSecundarios = (
+  telefones?: TelefoneCliente[] | null,
+): TelefoneSecundario[] =>
+  (telefones ?? []).map((item) => ({
+    id: item.id,
+    telefone: item.telefone ?? "",
+    contato: item.contato ?? "",
+    observacao: item.observacao ?? "",
+  }));
 
  
 

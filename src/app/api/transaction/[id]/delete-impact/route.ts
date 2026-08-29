@@ -19,7 +19,7 @@ export async function GET(_: Request, { params }: Params) {
 
     const { data: transaction, error } = await supabaseAdmin
       .from("transacao")
-      .select("id, valor, valor_base, valor_acrescimos, tipo, pendente, ordemservicoid, vendaid, evento_financeiro_id, adiantamento_id, eh_adiantamento, pagamento_multiplo_id")
+      .select("id, valor, valor_base, valor_acrescimos, tipo, pendente, ordemservicoid, vendaid, evento_financeiro_id, lancamento_id, adiantamento_id, eh_adiantamento, pagamento_multiplo_id, transferencia_id")
       .eq("id", id)
       .eq("is_deleted", false)
       .maybeSingle();
@@ -174,6 +174,104 @@ export async function GET(_: Request, { params }: Params) {
       }
     }
 
+    /*
+     * Transferência entre contas: a linha é uma das duas pernas, e nenhuma sai
+     * sozinha — sobraria uma conta com o dinheiro saído e nenhuma com ele
+     * entrado.
+     *
+     * Aqui, ao contrário do adiantamento, não há nada a recusar: excluir é
+     * legítimo, só não é o que a pessoa imagina. Ela clicou numa linha e vão
+     * embora duas. É a única coisa que este aviso precisa dizer.
+     */
+    let transferencia:
+      | {
+          id: number;
+          valor: number;
+          origem: string | null;
+          destino: string | null;
+          motivo: string;
+        }
+      | null = null;
+
+    if (transaction.transferencia_id != null) {
+      const { data: operacao } = await supabaseAdmin
+        .from("transacao_transferencia")
+        .select(
+          "id, valor, " +
+            "origem:bancoconta!transacao_transferencia_banco_origem_id_fkey ( titulo ), " +
+            "destino:bancoconta!transacao_transferencia_banco_destino_id_fkey ( titulo )",
+        )
+        .eq("id", transaction.transferencia_id)
+        .maybeSingle();
+
+      // O tipo gerado do Supabase ainda não conhece `transacao_transferencia`;
+      // até ele ser regerado, a leitura passa por `any` como nos demais embeds.
+      const op = operacao as any;
+      if (op) {
+        const origem = op.origem?.titulo ?? null;
+        const destino = op.destino?.titulo ?? null;
+        const valor = Number(op.valor ?? 0);
+        transferencia = {
+          id: Number(op.id),
+          valor,
+          origem,
+          destino,
+          motivo:
+            `Esta transação é uma das pernas da transferência de ${valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}` +
+            (origem && destino ? ` de ${origem} para ${destino}` : "") +
+            `. Excluir apaga as duas: o dinheiro volta a estar onde estava antes.`,
+        };
+      }
+    }
+
+    /*
+     * Boleto de despesas da OS: a pessoa clicou numa parcela e vão embora todas,
+     * e as despesas de serviço voltam a previstas. Sem este aviso a exclusão é
+     * uma surpresa — a tela mostra uma linha, o efeito são N.
+     *
+     * O aviso descreve; quem recusa é `excluir_lancamento_de_eventos`, com as
+     * guardas de parcela paga e de OS finalizada.
+     */
+    let lancamentoDeEventos:
+      | {
+          id: number;
+          parcelas: number;
+          parcelasBaixadas: number;
+          despesas: number;
+          motivo: string;
+        }
+      | null = null;
+
+    if (transaction.lancamento_id != null) {
+      const lancamentoId = Number(transaction.lancamento_id);
+      const [{ data: parcelas }, { data: despesas }] = await Promise.all([
+        supabaseAdmin
+          .from("transacao")
+          .select("id, pendente")
+          .eq("lancamento_id", lancamentoId)
+          .eq("is_deleted", false),
+        supabaseAdmin
+          .from("eventos_financeiros")
+          .select("id")
+          .eq("lancamento_id", lancamentoId),
+      ]);
+
+      const total = (parcelas ?? []).length;
+      const baixadas = (parcelas ?? []).filter((p: any) => p.pendente === false).length;
+      const quantasDespesas = (despesas ?? []).length;
+
+      lancamentoDeEventos = {
+        id: lancamentoId,
+        parcelas: total,
+        parcelasBaixadas: baixadas,
+        despesas: quantasDespesas,
+        motivo:
+          baixadas > 0
+            ? `Este lançamento tem ${baixadas} de ${total} parcela(s) já paga(s). Enquanto houver parcela paga, nem as pendentes podem ser excluídas: tire a baixa do fluxo de caixa primeiro.`
+            : `Esta é uma das ${total} parcela(s) de um lançamento de ${quantasDespesas} despesa(s) da OS. Excluir desfaz o lançamento inteiro: as ${total} parcela(s) somem e as despesas voltam a previstas.`,
+      };
+    }
+
     const targets: Array<{ tipo: "OS" | "VENDA"; id: number }> = [];
     const isPagamento = String(transaction.tipo).toUpperCase() === "RECEITA" && transaction.evento_financeiro_id == null;
 
@@ -205,16 +303,23 @@ export async function GET(_: Request, { params }: Params) {
 
     /*
      * Título liquidado não sai: excluí-lo apagaria a dívida junto com o
-     * pagamento. Vem por último de propósito — antecipação e pagamento múltiplo
-     * também são liquidados, e a recusa deles é mais específica, dizendo qual
-     * operação desfaz aquele conjunto. Só sobra este aviso quando a baixa é
-     * desta transação sozinha, que é o caso em que estornar resolve.
+     * pagamento. Vem por último de propósito — antecipação, pagamento múltiplo e
+     * boleto de despesas da OS também são liquidados, e a recusa deles é mais
+     * específica, dizendo qual operação desfaz aquele conjunto. Só sobra este
+     * aviso quando a baixa é desta transação sozinha, que é o caso em que
+     * estornar resolve.
+     *
+     * A transferência também fica de fora: as duas pernas nascem liquidadas, mas
+     * não há baixa a estornar nelas — mandar tirar do fluxo primeiro seria um
+     * conselho que não leva a lugar nenhum.
      */
     const liquidado =
       transaction.pendente === false &&
       !transaction.eh_adiantamento &&
       transaction.adiantamento_id == null &&
-      transaction.pagamento_multiplo_id == null
+      transaction.pagamento_multiplo_id == null &&
+      transaction.transferencia_id == null &&
+      transaction.lancamento_id == null
         ? {
             bloqueado: true as const,
             estornavel: true as const,
@@ -237,6 +342,8 @@ export async function GET(_: Request, { params }: Params) {
       targets,
       adiantamento,
       pagamentoMultiplo,
+      transferencia,
+      lancamentoDeEventos,
       liquidado,
     });
   } catch (error: any) {

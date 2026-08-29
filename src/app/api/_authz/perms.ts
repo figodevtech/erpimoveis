@@ -12,7 +12,7 @@ import { expandPermissions, PERMS, permissionSetHas, type Permission } from "./p
  * Lê as permissões do usuário logado (por perfil) e retorna como Set em caixa alta.
  * Faz fallback por email se necessário.
  */
-async function getUserPerms(): Promise<Set<string>> {
+export async function getUserPermissionSet(): Promise<Set<string>> {
   const session = await auth();
   if (!session?.user) throw new Error("Não autenticado");
 
@@ -60,7 +60,7 @@ export async function requireAuthenticated() {
 }
 
 export async function hasPerm(perm: Permission): Promise<boolean> {
-  const perms = await getUserPerms();
+  const perms = await getUserPermissionSet();
   return permissionSetHas(Array.from(perms), perm);
 }
 
@@ -74,7 +74,7 @@ export async function requirePerm(perm: Permission) {
 }
 
 export async function hasAny(permsToCheck: Permission[]): Promise<boolean> {
-  const perms = await getUserPerms();
+  const perms = await getUserPermissionSet();
   return permsToCheck.some((p) => permissionSetHas(Array.from(perms), p));
 }
 
@@ -88,7 +88,7 @@ export async function requireAny(permsToCheck: Permission[]) {
 }
 
 export async function hasAll(permsToCheck: Permission[]): Promise<boolean> {
-  const perms = await getUserPerms();
+  const perms = await getUserPermissionSet();
   return permsToCheck.every((p) => permissionSetHas(Array.from(perms), p));
 }
 

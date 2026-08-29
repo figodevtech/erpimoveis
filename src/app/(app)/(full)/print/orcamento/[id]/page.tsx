@@ -19,6 +19,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { Button } from "@/components/ui/button";
 import { PrintShareMenu } from "../../../components/PrintShareMenu";
 import { PrintA4Paginator } from "../../../components/PrintA4Paginator";
+import { PrintFontSizeControl } from "../../../components/PrintFontSizeControl";
 import {
   PRINT_DOCUMENT_HEADER_CSS,
   PrintDocumentHeader,
@@ -335,15 +336,18 @@ export default async function OrcamentoPrintPage({ params }: PageProps) {
           gap:8px;
         }
         .meta-badge{
+          min-width:0;
           border:1px solid var(--border);
           border-radius:8px;
           padding:6px 9px;
           background:var(--soft-bg);
+          overflow-wrap:anywhere;
         }
-        .meta-badge .label{ font-size:8px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
-        .meta-badge .valor{ font-size:11px; font-weight:600; }
+        .meta-badge .label{ font-size:calc(8px * var(--print-font-scale, 1)); text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
+        .meta-badge .valor{ font-size:calc(11px * var(--print-font-scale, 1)); font-weight:600; }
 
         .cartao{
+          min-width:0;
           border:1px solid var(--border);
           border-radius:var(--radius);
           padding:10px 12px;
@@ -352,27 +356,28 @@ export default async function OrcamentoPrintPage({ params }: PageProps) {
         .cartao-destaque{ background:var(--primary-soft); border-color:color-mix(in srgb, var(--brand-primary) 30%, var(--border)); }
         .titulo-secao{
           display:flex; align-items:center; gap:6px;
-          font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
+          font-size:calc(9px * var(--print-font-scale, 1)); font-weight:700; text-transform:uppercase; letter-spacing:.06em;
           color:var(--brand-primary); margin-bottom:6px;
         }
-        .nome-cliente{ font-size:14px; font-weight:700; line-height:1.2; }
-        .linha-dado{ font-size:10px; color:var(--muted); }
+        .nome-cliente{ font-size:calc(14px * var(--print-font-scale, 1)); font-weight:700; line-height:1.2; overflow-wrap:anywhere; }
+        .linha-dado{ font-size:calc(10px * var(--print-font-scale, 1)); color:var(--muted); overflow-wrap:anywhere; }
         .linha-dado strong{ color:var(--ink); font-weight:600; }
 
         .blocos-topo{ display:grid; grid-template-columns:1fr 1fr; gap:10px; align-items:stretch; }
         .blocos-topo.sem-alvo{ grid-template-columns:1fr; }
-        .nome-alvo{ font-size:13px; font-weight:700; line-height:1.2; margin-bottom:4px; }
-        .kv{ display:flex; justify-content:space-between; gap:8px; font-size:10px; padding:1px 0; }
+        .nome-alvo{ font-size:calc(13px * var(--print-font-scale, 1)); font-weight:700; line-height:1.2; margin-bottom:4px; overflow-wrap:anywhere; }
+        .kv{ display:flex; justify-content:space-between; gap:8px; font-size:calc(10px * var(--print-font-scale, 1)); padding:1px 0; }
         .kv .k{ color:var(--muted); }
-        .kv .v{ font-weight:600; }
+        .kv .v{ min-width:0; font-weight:600; text-align:right; overflow-wrap:anywhere; }
 
         .tabela-container{ flex:1; min-height:0; overflow:hidden; border:1px solid var(--border); border-radius:var(--radius); }
-        table{ width:100%; border-collapse:collapse; font-size:10px; }
+        table{ width:100%; border-collapse:collapse; font-size:calc(10px * var(--print-font-scale, 1)); }
         thead th{
           background:var(--brand-primary); color:#fff;
-          text-align:left; padding:6px 8px; font-size:9px;
+          text-align:left; padding:6px 8px; font-size:calc(9px * var(--print-font-scale, 1));
           text-transform:uppercase; letter-spacing:.04em; font-weight:600;
         }
+        th, tbody td{ white-space:normal; overflow-wrap:anywhere; }
         tbody td{ padding:5px 8px; border-bottom:1px solid #e2e8f0; vertical-align:top; }
         tbody tr:nth-child(even){ background:var(--soft-bg); }
         .col-num{ width:26px; text-align:center; color:var(--muted); }
@@ -382,40 +387,40 @@ export default async function OrcamentoPrintPage({ params }: PageProps) {
         .col-desconto{ width:76px; text-align:right; }
         .tipo-peca, .tipo-servico{
           display:inline-block; padding:1px 6px; border-radius:999px;
-          font-size:8px; font-weight:700; letter-spacing:.04em;
+          font-size:calc(8px * var(--print-font-scale, 1)); font-weight:700; letter-spacing:.04em;
         }
         .tipo-peca{ background:color-mix(in srgb, var(--brand-secondary) 18%, transparent); color:var(--brand-secondary); }
         .tipo-servico{ background:color-mix(in srgb, var(--brand-primary) 15%, transparent); color:var(--brand-primary); }
-        .item-identificador{ margin-left:6px; font-size:8px; color:var(--muted); }
-        .item-subdescricao{ margin-top:2px; font-size:8px; color:var(--muted); line-height:1.35; }
-        .desconto-percentual{ font-size:8px; color:var(--muted); }
+        .item-identificador{ margin-left:6px; font-size:calc(8px * var(--print-font-scale, 1)); color:var(--muted); }
+        .item-subdescricao{ margin-top:2px; font-size:calc(8px * var(--print-font-scale, 1)); color:var(--muted); line-height:1.35; }
+        .desconto-percentual{ font-size:calc(8px * var(--print-font-scale, 1)); color:var(--muted); }
 
         .rodape{ display:grid; grid-template-columns:1fr 250px; gap:14px; align-items:end; }
         .observacoes-box{
           border:1px solid var(--border); border-radius:8px;
           padding:8px 10px; background:var(--soft-bg); margin-bottom:8px;
         }
-        .obs-titulo{ font-size:8px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:2px; }
-        .obs-texto{ font-size:10px; line-height:1.4; white-space:pre-wrap; }
+        .obs-titulo{ font-size:calc(8px * var(--print-font-scale, 1)); text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:2px; }
+        .obs-texto{ font-size:calc(10px * var(--print-font-scale, 1)); line-height:1.4; white-space:pre-wrap; }
 
         .totais-box{ border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; }
         .linha-total{
           display:flex; justify-content:space-between; gap:10px;
-          padding:5px 10px; font-size:10px; border-bottom:1px solid #e2e8f0;
+          padding:5px 10px; font-size:calc(10px * var(--print-font-scale, 1)); border-bottom:1px solid #e2e8f0;
         }
         .linha-total .label{ color:var(--muted); }
         .linha-total .valor{ font-weight:600; font-variant-numeric:tabular-nums; }
         .linha-total-final{
           background:var(--brand-primary); color:#fff;
           padding:8px 10px; display:flex; justify-content:space-between;
-          font-size:13px; font-weight:700; border-bottom:none;
+          font-size:calc(13px * var(--print-font-scale, 1)); font-weight:700; border-bottom:none;
         }
 
         .assinatura{ margin-top:14px; border-top:1px solid var(--ink); padding-top:4px; width:230px; }
-        .assin-label{ font-size:9px; color:var(--muted); }
+        .assin-label{ font-size:calc(9px * var(--print-font-scale, 1)); color:var(--muted); }
 
         .aviso-validade{
-          font-size:8.5px; color:var(--muted); line-height:1.4;
+          font-size:calc(8.5px * var(--print-font-scale, 1)); color:var(--muted); line-height:1.4;
           border-top:1px dashed var(--border); padding-top:6px; margin-top:2px;
         }
 
@@ -434,6 +439,7 @@ export default async function OrcamentoPrintPage({ params }: PageProps) {
             Voltar
           </Button>
         </Link>
+        <PrintFontSizeControl />
         <PrintShareMenu documentId={String(orcamento.id)} filenamePrefix="orcamento" />
       </div>
 

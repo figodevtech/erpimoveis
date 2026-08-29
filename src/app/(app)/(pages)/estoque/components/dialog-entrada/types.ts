@@ -1,4 +1,6 @@
 import type { DuplicataDaNota, FaturaDaNota } from "@/lib/nfe/duplicatas";
+import type { TotaisDaNota } from "@/lib/nfe/totais-nfe";
+import type { ComponenteFiscal } from "@/lib/nfe/valor-fiscal-entrada";
 
 import { Fornecedor, Produto } from "../../types";
 
@@ -19,6 +21,8 @@ export interface NF {
   duplicatas?: DuplicataDaNota[];
   fornecedorReferenteId?: number;
   fornecedorReferente?: Fornecedor;
+  /** Componentes do `vNF` que nenhum item informou. Rateados, não descartados. */
+  componentesNaoAlocados?: ComponenteFiscal[];
 }
 
 export interface Emitente {
@@ -54,24 +58,55 @@ export interface Totais {
   valorDesconto: number | null;
   valorICMS: number | null;
   valorIPI: number | null;
+  /**
+   * A leitura fiscal completa, com a reconciliação contra o `vNF`. Opcional
+   * porque resposta antiga em cache não a tem.
+   */
+  composicao?: TotaisDaNota;
 }
 
 export interface ItemNF {
-  numeroItem: string;
+  numeroItem: string | number | null;
   codigo: string;
-  ean: number;
+  ean: string | number | null;
   descricao: string;
-  ncm: number;
-  cfop: number;
+  ncm: string | number | null;
+  cest?: string | number | null;
+  cfop: string | number | null;
   unidade: string;
   quantidade: number;
   valorUnitario: number;
   valorTotal: number;
+  /** `indTot`: item com 0 não entra no total da nota. */
+  compoeTotal?: boolean;
   valorDesconto?: number;
   valorFrete?: number;
   valorSeguro?: number;
   outrasDespesas?: number;
   valorIpi?: number;
+  /*
+   * Tributos do item, lidos de `det/imposto` e `det/impostoDevol` — não de
+   * `det/prod`. Servem para reconciliar com `ICMSTot` e para saber a qual item
+   * cada valor pertence. Se integram ou não o custo é decisão da regra fiscal da
+   * compra, não da estrutura do XML.
+   */
+  valorIpiDevolvido?: number;
+  valorIcmsST?: number;
+  valorFcpST?: number;
+  valorIcmsMonoReten?: number;
+  valorII?: number;
+  valorIcmsDesonerado?: number;
+  /** `indDeduzDeson`; `null` quando o XML não informou. */
+  deduzIcmsDesonerado?: boolean | null;
+  pisST?: { valor: number; compoeTotal: boolean };
+  cofinsST?: { valor: number; compoeTotal: boolean };
+  valorTotalTributos?: number;
+  /**
+   * Os componentes fiscais do item, já classificados pelo parser: o que compõe o
+   * `vNF`, de qual `<det>` veio e como a política de custo o trata. Ausente em
+   * resposta antiga em cache.
+   */
+  componentesFiscais?: ComponenteFiscal[];
   icms: Icms;
   produtoReferenciaId?: number;
   produtoReferencia?: Produto;

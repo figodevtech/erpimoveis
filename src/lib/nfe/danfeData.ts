@@ -322,6 +322,7 @@ export async function carregarDadosDanfe(
     itensDisplay: items,
     totais: totals,
     transporte: parsed?.transporte ?? EMPTY_TRANSPORT,
+    entrega: parsed?.entrega ?? null,
     fatura: parsed?.fatura ?? null,
     duplicatas: parsed?.duplicatas ?? [],
     pagamentos: parsed?.pagamentos ?? [],

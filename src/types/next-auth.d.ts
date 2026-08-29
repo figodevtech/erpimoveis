@@ -11,6 +11,8 @@ declare module "next-auth" {
       ativo?: boolean;
       permissoes?: string[];
       permissoesRefreshedAt?: number | null;
+      supabaseAccessToken?: string | null;
+      supabaseAccessTokenExpiresAt?: number | null;
     };
   }
 
@@ -23,6 +25,9 @@ declare module "next-auth" {
     setorId?: number | null;
     ativo?: boolean;
     permissoes?: string[];
+    supabaseAccessToken?: string | null;
+    supabaseRefreshToken?: string | null;
+    supabaseAccessTokenExpiresAt?: number | null;
   }
 }
 
@@ -36,5 +41,8 @@ declare module "next-auth/jwt" {
     ativo?: boolean;
     permissoes?: string[];
     permissoesRefreshedAt?: number | null;
+    supabaseAccessToken?: string | null;
+    supabaseRefreshToken?: string | null;
+    supabaseAccessTokenExpiresAt?: number | null;
   }
 }

@@ -69,6 +69,7 @@ function isPublicApi(pathname: string) {
  * Regras por prefixo -> permissÃ£o necessÃ¡ria
  */
 const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
+  { prefix: "/api/central-operacional", perm: PERMS.ACOMPANHAMENTO },
   { prefix: "/api/execucao", perm: PERMS.EXECUCAO_OS },
   { prefix: "/api/dashboard", perm: PERMS.DASHBOARD },
   { prefix: "/api/customers", perm: PERMS.CLIENTES },
@@ -104,6 +105,8 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
   { prefix: "/print/produto", perm: PERMS.ESTOQUE },
   { prefix: "/agendamentos", perm: PERMS.AGENDAMENTOS },
   { prefix: "/estoque/uso-consumo", perm: PERMS.USOCONSUMO },
+  // Os dois estoques simples usam as mesmas permissoes usoconsumo:*.
+  { prefix: "/estoque/geral", perm: PERMS.USOCONSUMO },
   { prefix: "/estoque/movimentacao", perm: PERMS.USOCONSUMO },
   { prefix: "/estoque/historico", perm: PERMS.USOCONSUMO },
   { prefix: "/estoque", perm: PERMS.ESTOQUE },
@@ -114,6 +117,7 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
   { prefix: "/configuracoes", perm: PERMS.CONFIG },
   { prefix: "/usuarios", perm: PERMS.USUARIOS },
   { prefix: "/acompanhamento", perm: PERMS.ACOMPANHAMENTO },
+  { prefix: "/central-operacional", perm: PERMS.ACOMPANHAMENTO },
 
   { prefix: "/dre", perm: PERMS.FINANCEIRO },
   { prefix: "/fluxodecaixa", perm: PERMS.FINANCEIRO },
@@ -380,6 +384,9 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
       pathname === "/execucao" ||
       pathname.startsWith("/execucao/") ||
       pathname.startsWith("/api/execucao") ||
+      // O chat e uma funcionalidade global para todo usuario autenticado e
+      // ativo, inclusive quem possui apenas acesso a execucao de OS.
+      pathname.startsWith("/api/chat") ||
       pathname.startsWith("/api/tipos/setores") ||
       pathname.startsWith("/api/auth") ||
       pathname.startsWith("/api/config") ||

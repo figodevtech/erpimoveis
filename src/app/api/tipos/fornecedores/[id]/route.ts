@@ -3,6 +3,10 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuthenticated } from "@/app/api/_authz/perms";
+import {
+  hasValidCpfCnpjLength,
+  onlyFiscalDigits,
+} from "@/lib/nfe/recipientNormalization";
 import { parsePostgresIntegerId } from "@/lib/postgres-id";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -58,6 +62,15 @@ export async function PUT(
       ativo?: boolean;
     } = body ?? {};
 
+    const documento = onlyFiscalDigits(cpfcnpj);
+
+    if (!hasValidCpfCnpjLength(documento)) {
+      return NextResponse.json(
+        { error: "Digite um CPF ou CNPJ válido." },
+        { status: 400 }
+      );
+    }
+
     if (!nomerazaosocial?.trim()) {
       return NextResponse.json(
         { error: "Razão Social ou Nome é obrigatória." },
@@ -68,7 +81,7 @@ export async function PUT(
     const now = new Date().toISOString();
 
     const payload: Record<string, any> = {
-      cpfcnpj: cpfcnpj?.trim(),
+      cpfcnpj: documento,
       nomerazaosocial: nomerazaosocial.trim(),
       nomefantasia: nomefantasia?.trim() || null,
       endereco: endereco?.trim() || null,

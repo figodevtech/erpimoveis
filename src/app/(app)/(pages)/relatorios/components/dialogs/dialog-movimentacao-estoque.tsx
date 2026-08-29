@@ -12,8 +12,9 @@ import { toast } from "@/lib/toast";
 import type { Produto } from "../../../estoque/types";
 import { ReportFiltersPanel, ReportPeriod, ReportTrigger, isInvalidPeriod } from "../report-ui";
 import { SpreadsheetPdfButton } from "../spreadsheet-pdf-button";
+import { escopoDoSlug, rotuloDeEscopo, slugDoEscopo } from "@/lib/usoconsumo/escopo";
 
-type Inventario = "produtos" | "uso-consumo";
+type Inventario = "produtos" | "uso-consumo" | "geral";
 
 const ORIGENS = [
   ["TODAS", "Todas as origens"],
@@ -45,7 +46,7 @@ export default function DialogMovimentacaoEstoque() {
   function trocarInventario(value: string) {
     const proximo = value as Inventario;
     setInventario(proximo);
-    if (proximo === "uso-consumo") {
+    if (proximo !== "produtos") {
       setOrigem("TODAS");
       setAcao("TODAS");
       setProduto(undefined);
@@ -63,7 +64,9 @@ export default function DialogMovimentacaoEstoque() {
   if (produtos && produto?.id) params.set("produtoId", String(produto.id));
 
   const endpoint = `/api/reports/estoque/movimentos/export?${params.toString()}`;
-  const title = produtos ? "Movimentação de estoque" : "Movimentação de uso e consumo";
+  const title = produtos
+    ? "Movimentação de estoque"
+    : `Movimentação de ${rotuloDeEscopo(escopoDoSlug(inventario)).nome.toLocaleLowerCase("pt-BR")}`;
 
   async function exportExcel() {
     if (exporting || invalid) return;
@@ -78,7 +81,9 @@ export default function DialogMovimentacaoEstoque() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = produtos ? "movimentacao_estoque.xlsx" : "movimentacao_uso_consumo.xlsx";
+      link.download = produtos
+        ? "movimentacao_estoque.xlsx"
+        : `movimentacao_${slugDoEscopo(escopoDoSlug(inventario)).replace("-", "_")}.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -115,7 +120,8 @@ export default function DialogMovimentacaoEstoque() {
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="produtos">Produtos</SelectItem>
-                <SelectItem value="uso-consumo">Uso e consumo</SelectItem>
+                <SelectItem value="uso-consumo">{rotuloDeEscopo("USOCONSUMO").nome}</SelectItem>
+                <SelectItem value="geral">{rotuloDeEscopo("GERAL").nome}</SelectItem>
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">

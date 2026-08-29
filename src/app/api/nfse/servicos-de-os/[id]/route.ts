@@ -7,8 +7,15 @@ import {
 } from "@/lib/services/fiscais/nfse-service";
 import type { CodigosFiscaisForm } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/emissao-nfse-dialog/types";
 import { CAMPOS_ALVO_OS, carregarAlvoDaOs } from "@/services/fiscal/alvoDaOs";
+import { distribuirDinheiro, particionarDescontoDaOs } from "@/lib/nfe/descontoOrigem";
+import { inferirDescontoGeralOs } from "@/lib/ordens/totais";
 
 export const runtime = "nodejs";
+
+function toNumber(value: unknown) {
+  const numero = Number(value);
+  return Number.isFinite(numero) ? numero : 0;
+}
 
 type RouteParams = {
   params: Promise<{ id: string }>;
@@ -32,8 +39,12 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       .select(`
         id,
         observacoes_fiscais,
+        subtotal,
+        orcamentototal,
+        valor_frete,
         ${CAMPOS_ALVO_OS},
         cliente (*),
+        osproduto (quantidade, precounitario, subtotal),
         osservico (
           *,
           servico (*)
@@ -81,8 +92,38 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     >;
     const padraoFiscal = modeloEmissao ? padroesEmissao[modeloEmissao] ?? null : null;
 
+    // O desconto geral da OS é rateado entre peças e mão de obra: a NF-e leva a
+    // fatia dos produtos, esta NFS-e leva a dos serviços. Mesma partição e mesmos
+    // pesos da rota `produtos-para-nfe`, para os dois diálogos mostrarem o mesmo
+    // número. Aqui é só informativo: o valor enviado continua sendo o digitado.
+    const itensServico = (Array.isArray(os.osservico) ? os.osservico : []) as any[];
+    const brutoPorServico = itensServico.map(
+      (item) => toNumber(item.quantidade) * toNumber(item.precounitario),
+    );
+    const liquidoPorServico = itensServico.map((item, index) => {
+      const liquido = toNumber(item.subtotal);
+      return liquido > 0 ? Math.min(liquido, brutoPorServico[index]) : brutoPorServico[index];
+    });
+    const itensProduto = (Array.isArray(os.osproduto) ? os.osproduto : []) as any[];
+    const liquidoPorProduto = itensProduto.map((item) => {
+      const bruto = toNumber(item.quantidade) * toNumber(item.precounitario);
+      const liquido = toNumber(item.subtotal);
+      return liquido > 0 ? Math.min(liquido, bruto) : bruto;
+    });
+    // Peso do serviço é o subtotal gravado, cru — o mesmo que a rota de produtos
+    // usa do outro lado da conta.
+    const pesosDosServicos = itensServico.map((item) => toNumber(item.subtotal));
+    const descontoGeral = inferirDescontoGeralOs({
+      subtotal: os.subtotal,
+      orcamentoTotal: os.orcamentototal,
+      valorFrete: os.valor_frete,
+    });
+    const particao = particionarDescontoDaOs(descontoGeral, liquidoPorProduto, pesosDosServicos);
+    // Fecha exatamente com `particao.servicos`: a sobra de centavos vai no último.
+    const rateioPorServico = distribuirDinheiro(particao.servicos, pesosDosServicos);
+
     // Mescla os dados
-    const servicosMapeados = os.osservico.map((item: any) => {
+    const servicosMapeados = itensServico.map((item: any, index: number) => {
       const notaGerada = notas?.find((nota: any) => (
         Array.isArray(nota.servico_ids)
         && nota.servico_ids.map(Number).includes(Number(item.servicoid))
@@ -91,8 +132,18 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         ? notaGerada.itens.find((snapshot: any) => Number(snapshot?.servicoid) === Number(item.servicoid))
         : null;
 
+      const descontoItem = Number(
+        Math.max(0, brutoPorServico[index] - liquidoPorServico[index]).toFixed(2),
+      );
+      const descontoRateado = rateioPorServico[index] ?? 0;
+
       return {
         ...item,
+        descontoItem,
+        descontoRateado,
+        valorLiquidoSugerido: Number(
+          Math.max(0, liquidoPorServico[index] - descontoRateado).toFixed(2),
+        ),
         pendenciasCadastro: modeloEmissao
           ? listarPendenciasNFSe(os, empresa, item, modeloEmissao)
           : [{ origem: "EMPRESA" as const, mensagem: "município da empresa sem modelo de NFS-e configurado" }],
@@ -121,6 +172,8 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       observacoesFiscais: os.observacoes_fiscais ?? null,
       // Alvo do reparo, para o botão que injeta os dados dele no texto livre.
       alvo: await carregarAlvoDaOs(os),
+      // Null quando a OS não tem desconto geral: a tela não ganha painel nenhum.
+      descontoOrigem: particao.total > 0 ? particao : null,
       cliente: clienteOS
         ? {
             id: Number(clienteOS.id),

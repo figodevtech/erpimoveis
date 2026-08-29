@@ -11,6 +11,7 @@ import { ObservacoesToggle } from "../../../components/ObservacoesToggle";
 import { PrintFilterToggles } from "../../../components/PrintFilterToggles";
 import { PrintShareMenu } from "../../../components/PrintShareMenu";
 import { PrintA4Paginator } from "../../../components/PrintA4Paginator";
+import { PrintFontSizeControl } from "../../../components/PrintFontSizeControl";
 import {
   PRINT_DOCUMENT_HEADER_CSS,
   PrintDocumentHeader,
@@ -19,6 +20,7 @@ import { fetchLogoEmpresaDataUrl } from "@/lib/empresa-logo";
 import { fetchPrintColors } from "@/lib/print-config";
 import { getTermoAceiteOS, type AceiteAlvo } from "@/lib/print-aceite";
 import { loadPrintPaymentSummary } from "@/lib/print-payment-display-server";
+import { resolveOrdemVehicle } from "@/lib/ordens/vehicle-snapshot";
 
 export const runtime = "nodejs";
 
@@ -299,15 +301,16 @@ export default async function OSFullPage({ params }: PageProps) {
     " • "
   );
 
-  const veiculoNome = joinParts([os.veiculo?.marca, os.veiculo?.modelo], " ");
+  const veiculoExibicao = resolveOrdemVehicle(os.veiculo, os.veiculo_snapshot);
+  const veiculoNome = joinParts([veiculoExibicao?.marca, veiculoExibicao?.modelo], " ");
   // A placa impressa e a cadastrada — e a que esta no carro e no CRLV.
   // `placa_formatada` e uma coluna gerada que converte placa antiga para o
   // equivalente Mercosul, entao so entra como referencia secundaria e apenas
   // quando difere da original (em placa ja no padrao novo as duas sao iguais).
-  const veiculoPlaca = os.veiculo?.placa || os.veiculo?.placa_formatada;
+  const veiculoPlaca = veiculoExibicao?.placa || veiculoExibicao?.placa_formatada;
   const veiculoPlacaMercosul =
-    os.veiculo?.placa_formatada && os.veiculo.placa_formatada !== os.veiculo.placa
-      ? os.veiculo.placa_formatada
+    veiculoExibicao?.placa_formatada && veiculoExibicao.placa_formatada !== veiculoExibicao.placa
+      ? veiculoExibicao.placa_formatada
       : null;
   const alvoTipo =
     os.alvo_tipo === "PECA"
@@ -412,13 +415,14 @@ export default async function OSFullPage({ params }: PageProps) {
     {
       k: "Status",
       v: (
-        <Badge className="text-[9px] font-bold text-black" variant={"outline"}>
+        <Badge className="meta-status font-bold text-black" variant={"outline"}>
           {fmtEnum(os.status)}
         </Badge>
       ),
     },
     { k: "Impressão", v: fmtDateTime(new Date()) },
     { k: "Entrada", v: fmtDate(os.dataentrada) },
+    { k: "Finalização", v: fmtDate(os.finalizado_em) },
     { k: "Saída", v: fmtDate(os.datasaida) },
     { k: "Alvo", v: alvoTipo },
     { k: "Criado por", v: fmtText(criadorNome) },
@@ -677,16 +681,17 @@ export default async function OSFullPage({ params }: PageProps) {
     body{ zoom: 1 !important; }
   }
 
-  .t-micro{ font-size:9px; line-height:1.2; }
-  .t-xs{ font-size:10px; line-height:1.3; }
-  .t-sm{ font-size:11px; line-height:1.3; }
+  .t-micro{ font-size:calc(9px * var(--print-font-scale, 1)); line-height:1.2; }
+  .t-xs{ font-size:calc(10px * var(--print-font-scale, 1)); line-height:1.3; }
+  .t-sm{ font-size:calc(11px * var(--print-font-scale, 1)); line-height:1.3; }
 
-  .h1{ font-size:20px; line-height:1.1; font-weight:600; letter-spacing:-.01em; }
-  .h2{ font-size:12px; line-height:1.1; font-weight:500; }
+  .h1{ font-size:calc(20px * var(--print-font-scale, 1)); line-height:1.1; font-weight:600; letter-spacing:-.01em; }
+  .h2{ font-size:calc(12px * var(--print-font-scale, 1)); line-height:1.1; font-weight:500; }
 
   .muted{ color: var(--muted); }
 
   .cartao{
+    min-width:0;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: #fff;
@@ -705,7 +710,7 @@ export default async function OSFullPage({ params }: PageProps) {
     padding-bottom: 6px;
     margin-bottom: 8px;
     border-bottom: 2px solid var(--border);
-    font-size: 10px;
+    font-size: calc(10px * var(--print-font-scale, 1));
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: .08em;
@@ -722,7 +727,7 @@ export default async function OSFullPage({ params }: PageProps) {
     display:grid;
     grid-template-columns: 85px 1fr;
     gap: 6px;
-    font-size: 10px;
+    font-size: calc(10px * var(--print-font-scale, 1));
     line-height:1.3;
     margin-bottom: 4px;
   }
@@ -739,7 +744,7 @@ export default async function OSFullPage({ params }: PageProps) {
   /* Equivalente Mercosul: referencia secundaria, nunca compete com a placa real. */
   .placa-equivalente{
     display:block;
-    font-size:8px;
+    font-size:calc(8px * var(--print-font-scale, 1));
     font-weight:600;
     letter-spacing:.04em;
     color: var(--muted);
@@ -754,14 +759,16 @@ export default async function OSFullPage({ params }: PageProps) {
   }
 
   .meta-badge{
+    min-width:0;
     background: var(--soft-bg);
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 6px 8px;
     text-align: center;
+    overflow-wrap:anywhere;
   }
   .meta-badge .label{ 
-    font-size: 8px; 
+    font-size: calc(8px * var(--print-font-scale, 1));
     text-transform: uppercase; 
     letter-spacing: .14em; 
     color: var(--muted); 
@@ -769,7 +776,7 @@ export default async function OSFullPage({ params }: PageProps) {
     margin-bottom: 3px;
   }
   .meta-badge .valor{ 
-    font-size: 10px; 
+    font-size: calc(10px * var(--print-font-scale, 1));
     font-weight:700; 
     font-variant-numeric:tabular-nums;
     color: var(--ink);
@@ -788,7 +795,7 @@ export default async function OSFullPage({ params }: PageProps) {
   }
   
   thead th{
-    font-size: 9px;
+    font-size: calc(9px * var(--print-font-scale, 1));
     text-transform: uppercase;
     letter-spacing: .12em;
     font-weight: 900;
@@ -796,13 +803,16 @@ export default async function OSFullPage({ params }: PageProps) {
     padding: 8px 8px;
     background: linear-gradient(135deg, var(--brand-primary), var(--brand-primary));
     text-align: left;
+    white-space:normal;
+    overflow-wrap:anywhere;
   }
   
   tbody td{
-    font-size: 10px;
+    font-size: calc(10px * var(--print-font-scale, 1));
     padding: 7px 8px;
     border-bottom: 1px solid #f1f5f9;
     vertical-align:middle;
+    overflow-wrap:anywhere;
   }
   
   tbody tr:last-child td{
@@ -810,7 +820,7 @@ export default async function OSFullPage({ params }: PageProps) {
   }
 
   .col-num{ width:38px; font-weight:700; font-variant-numeric:tabular-nums; text-align:center; }
-  .col-tipo{ width:70px; font-weight:800; font-size:8px; text-transform:uppercase; letter-spacing:.08em; }
+  .col-tipo{ width:70px; font-weight:800; font-size:calc(8px * var(--print-font-scale, 1)); text-transform:uppercase; letter-spacing:.08em; }
   .tipo-servico{ 
     color: white;
     background: var(--brand-secondary);
@@ -845,13 +855,16 @@ export default async function OSFullPage({ params }: PageProps) {
   .item-codigo{
     display:inline-flex;
     align-items:center;
+    flex-wrap:wrap;
     gap:5px;
     margin-left:6px;
-    font-size:8px;
+    font-size:calc(8px * var(--print-font-scale, 1));
     font-weight:600;
     letter-spacing:.04em;
     color: color-mix(in srgb, var(--muted) 70%, #fff);
-    white-space: nowrap;
+    max-width:100%;
+    white-space:normal;
+    overflow-wrap:anywhere;
     vertical-align: baseline;
   }
 
@@ -871,7 +884,7 @@ export default async function OSFullPage({ params }: PageProps) {
   .col-qtd{ width:50px; text-align:center; font-weight:700; font-variant-numeric:tabular-nums; }
   .col-unit{ width:90px; text-align:right; font-weight:600; font-variant-numeric:tabular-nums; }
   .col-desconto{ width:100px; text-align:right; font-weight:600; font-variant-numeric:tabular-nums; }
-  .desconto-percentual{ color: var(--muted); font-size:8px; margin-top:2px; }
+  .desconto-percentual{ color: var(--muted); font-size:calc(8px * var(--print-font-scale, 1)); margin-top:2px; }
   .col-sub{ width:100px; text-align:right; font-weight:700; font-variant-numeric:tabular-nums; color: var(--brand-primary); }
 
   .rodape{
@@ -885,9 +898,9 @@ export default async function OSFullPage({ params }: PageProps) {
   .observacoes-box{ border: 1px solid var(--border); background: var(--soft-bg); border-radius: var(--radius); padding: 10px; }
 
   .pagamentos-resumo{ margin-top:8px; padding-top:8px; border-top:1px solid var(--brand-primary); }
-  .pagamentos-titulo{ font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; color:var(--brand-primary); margin-bottom:5px; }
+  .pagamentos-titulo{ font-size:calc(9px * var(--print-font-scale, 1)); font-weight:800; text-transform:uppercase; letter-spacing:.08em; color:var(--brand-primary); margin-bottom:5px; }
   .pagamentos-lista{ display:grid; gap:4px; }
-  .pagamento-linha{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; font-size:10px; line-height:1.35; }
+  .pagamento-linha{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; font-size:calc(10px * var(--print-font-scale, 1)); line-height:1.35; }
   .pagamento-metodo{ font-weight:700; }
   .pagamento-valor{ color:var(--brand-primary); font-weight:800; font-variant-numeric:tabular-nums; white-space:nowrap; }
 
@@ -907,7 +920,7 @@ export default async function OSFullPage({ params }: PageProps) {
   html[data-print-ocultar-cliente] .grid-info{ grid-template-columns: repeat(4, 1fr) !important; }
 
 
-  .obs-titulo{ font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--brand-primary); margin-bottom: 6px; } .obs-texto{ font-size: 10px; line-height: 1.4; color: var(--muted); max-height: 60px; overflow: hidden; }
+  .obs-titulo{ font-size: calc(10px * var(--print-font-scale, 1)); font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--brand-primary); margin-bottom: 6px; } .obs-texto{ font-size: calc(10px * var(--print-font-scale, 1)); line-height: 1.4; color: var(--muted); max-height: 60px; overflow: hidden; }
   .totais-box{
     border: 1px solid var(--brand-primary);
     background: linear-gradient(135deg, var(--primary-soft), white);
@@ -918,7 +931,7 @@ export default async function OSFullPage({ params }: PageProps) {
   .linha-total{
     display:flex;
     justify-content:space-between;
-    font-size: 11px;
+    font-size: calc(11px * var(--print-font-scale, 1));
     font-variant-numeric:tabular-nums;
     padding: 4px 0;
     color: var(--muted);
@@ -934,7 +947,7 @@ export default async function OSFullPage({ params }: PageProps) {
   }
 
   .total-label{
-    font-size: 12px;
+    font-size: calc(12px * var(--print-font-scale, 1));
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: .08em;
@@ -942,7 +955,7 @@ export default async function OSFullPage({ params }: PageProps) {
   }
 
   .total-valor{
-    font-size: 16px;
+    font-size: calc(16px * var(--print-font-scale, 1));
     font-weight: 700;
     font-variant-numeric:tabular-nums;
     color: var(--brand-primary);
@@ -963,7 +976,7 @@ export default async function OSFullPage({ params }: PageProps) {
   }
 
   .assin-label{
-    font-size: 9px;
+    font-size: calc(9px * var(--print-font-scale, 1));
     text-transform: uppercase;
     letter-spacing:.12em;
     color: var(--muted);
@@ -979,7 +992,7 @@ export default async function OSFullPage({ params }: PageProps) {
   }
 
   .aceite-titulo{
-    font-size: 8px;
+    font-size: calc(8px * var(--print-font-scale, 1));
     font-weight: 800;
     text-transform: uppercase;
     letter-spacing: .12em;
@@ -988,7 +1001,7 @@ export default async function OSFullPage({ params }: PageProps) {
   }
 
   .aceite-intro{
-    font-size: 8px;
+    font-size: calc(8px * var(--print-font-scale, 1));
     font-weight: 700;
     line-height: 1.4;
     color: var(--ink);
@@ -996,7 +1009,7 @@ export default async function OSFullPage({ params }: PageProps) {
   }
 
   .aceite-item{
-    font-size: 8px;
+    font-size: calc(8px * var(--print-font-scale, 1));
     line-height: 1.4;
     text-align: justify;
     color: var(--ink);
@@ -1004,6 +1017,12 @@ export default async function OSFullPage({ params }: PageProps) {
   }
 
   .aceite-item:last-child{ margin-bottom: 0; }
+
+  .meta-status,
+  .descricao-os,
+  .item-subdescricao{
+    font-size:calc(9px * var(--print-font-scale, 1));
+  }
 
   .clamp-3{
     display:-webkit-box;
@@ -1043,6 +1062,7 @@ export default async function OSFullPage({ params }: PageProps) {
             </Link>
           </Button>
 
+          <PrintFontSizeControl />
           <PrintShareMenu
             documentId={os.id}
             filenamePrefix="ordem-servico"
@@ -1128,7 +1148,7 @@ export default async function OSFullPage({ params }: PageProps) {
                   </div>
                 )}
                   </>
-                ): <span className="text-xs font-mono text-gray-700">CLIENTE AVULSO</span>}
+                ): <span className="t-xs font-mono text-gray-700">CLIENTE AVULSO</span>}
                 
               </div>
 
@@ -1187,7 +1207,7 @@ export default async function OSFullPage({ params }: PageProps) {
                   </div>
                 ) : (
                   <>
-                  {os.veiculo ? (
+                  {veiculoExibicao ? (
                     <>
                     <div className="h2">{fmtText(veiculoNome)}</div>
                     <div style={{ marginTop: 8 }}>
@@ -1204,20 +1224,20 @@ export default async function OSFullPage({ params }: PageProps) {
                       </div>
                       <div className="kv">
                         <span className="k">Cor</span>
-                        <span className="v">{fmtText(os.veiculo?.cor)}</span>
+                        <span className="v">{fmtText(veiculoExibicao?.cor)}</span>
                       </div>
                       <div className="kv">
                         <span className="k">Ano</span>
-                        <span className="v">{fmtText(os.veiculo?.ano)}</span>
+                        <span className="v">{fmtText(veiculoExibicao?.ano)}</span>
                       </div>
                       <div className="kv">
                         <span className="k">KM</span>
-                        <span className="v">{fmtKm(os.veiculo?.kmatual)}</span>
+                        <span className="v">{fmtKm(veiculoExibicao?.kmatual)}</span>
                       </div>
                     </div></>
                   ):
                   
-                  (<span className="text-xs font-mono text-gray-700">NÃO DEFINIDO</span>)}
+                  (<span className="t-xs font-mono text-gray-700">NÃO DEFINIDO</span>)}
                     
                   </>
                 )}
@@ -1229,7 +1249,7 @@ export default async function OSFullPage({ params }: PageProps) {
                   Detalhes
                 </div>
                 <div style={{ marginTop: 8 }}>
-                  <div className="flex flex-col gap-2 text-[9px]">
+                  <div className="descricao-os flex flex-col gap-2">
                     <span className="whitespace-pre-wrap muted">
                       {String(os.descricao ?? "").toUpperCase()}
                     </span>
@@ -1276,7 +1296,7 @@ export default async function OSFullPage({ params }: PageProps) {
                             />
                           </div>
                           {item.subdescricao ? (
-                            <div className="mt-1 text-[9px] leading-snug text-slate-500">
+                            <div className="item-subdescricao mt-1 leading-snug text-slate-500">
                               {item.subdescricao}
                             </div>
                           ) : null}
@@ -1312,7 +1332,7 @@ export default async function OSFullPage({ params }: PageProps) {
                   <div className="observacoes-box os-observacoes">
                     {" "}
                     <div className="obs-titulo">Observações:</div>{" "}
-                    <div className="obs-texto text-sm font-bold clamp-3">
+                    <div className="obs-texto font-bold clamp-3">
                       {os.observacoes || os.defeitorelatado || EMPTY}
                     </div>{" "}
                   </div>
@@ -1320,7 +1340,7 @@ export default async function OSFullPage({ params }: PageProps) {
                 {os.garantia && (
                   <div className="observacoes-box os-observacoes">
                     <div className="obs-titulo">Garantia:</div>
-                    <div className="obs-texto text-sm font-bold clamp-3">
+                    <div className="obs-texto font-bold clamp-3">
                       {os.garantia}
                     </div>
                   </div>

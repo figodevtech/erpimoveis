@@ -2,6 +2,14 @@
 export type TipoPessoa = "FISICA" | "JURIDICA";
 export type StatusCliente = "ATIVO" | "INATIVO" | "PENDENTE";
 
+/** Linha do card de telefones secundários. Sem `id` quando ainda não foi salva. */
+export interface TelefoneSecundario {
+  id?: number;
+  telefone: string;
+  contato: string;
+  observacao: string;
+}
+
 export interface NewCustomer {
   tipopessoa: TipoPessoa;
   cpfcnpj: string;

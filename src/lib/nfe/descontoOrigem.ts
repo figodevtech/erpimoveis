@@ -59,6 +59,45 @@ export function parcelaDoDescontoNaNota(
   return Number(partes.reduce((soma, parte) => soma + parte, 0).toFixed(2));
 }
 
+export type ParticaoDoDesconto = {
+  /** Desconto geral da OS, inteiro. */
+  total: number;
+  /** Fatia que sai na NF-e de produto. */
+  produtos: number;
+  /** Fatia que sai na NFS-e de serviço. */
+  servicos: number;
+  baseProdutos: number;
+  baseServicos: number;
+};
+
+function somar(valores: number[]) {
+  return Number(valores.reduce((soma, valor) => soma + valor, 0).toFixed(2));
+}
+
+/**
+ * Divide o desconto geral da OS entre a NF-e de produto e a NFS-e de serviço.
+ *
+ * As duas telas de emissão chamam isto com os mesmos pesos, então mostram o
+ * mesmo número — e a parte dos serviços é a sobra da conta dos produtos, não uma
+ * segunda conta, para os dois lados fecharem o desconto da ordem sem centavo
+ * perdido no meio.
+ */
+export function particionarDescontoDaOs(
+  descontoGeral: number,
+  pesosDosProdutos: number[],
+  pesosDosServicos: number[],
+): ParticaoDoDesconto {
+  const total = Number(Math.max(0, descontoGeral).toFixed(2));
+  const produtos = parcelaDoDescontoNaNota(total, pesosDosProdutos, pesosDosServicos);
+  return {
+    total,
+    produtos,
+    servicos: Number((total - produtos).toFixed(2)),
+    baseProdutos: somar(pesosDosProdutos),
+    baseServicos: somar(pesosDosServicos),
+  };
+}
+
 export type LinhaComDesconto = {
   /** Quantidade × preço de tabela, antes de qualquer desconto. */
   bruto: number;

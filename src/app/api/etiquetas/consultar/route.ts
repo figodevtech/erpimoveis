@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { hasPerm, PERMS, requireAny } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { InventoryLabelItem, InventoryLabelKind, InventoryLabelMatch } from "@/lib/inventory-labels";
+import { parseEscopo } from "@/lib/usoconsumo/escopo";
 
 const PRODUCT_FIELDS = "id,titulo,descricao,referencia,fabricante,codigobarras,etiqueta,local,unidade,estoque,estoqueminimo,status_estoque,precocompra,ultimovalordecompra,imgUrl,updatedat";
-const USE_FIELDS = "id,titulo,descricao,referencia,fabricante,codigobarras,etiqueta,local,unidade,estoque,estoqueminimo,status_estoque,precocompra,ultimovalordecompra,img_url,updated_at";
+const USE_FIELDS = "id,escopo,titulo,descricao,referencia,fabricante,codigobarras,etiqueta,local,unidade,estoque,estoqueminimo,status_estoque,precocompra,ultimovalordecompra,img_url,updated_at";
 
 function normalize(value: unknown) {
   return String(value ?? "").trim().toLocaleUpperCase("pt-BR");
@@ -28,6 +29,9 @@ function mergeMatches(kind: InventoryLabelKind, rows: InventoryLabelItem[], code
     const byBarcode = normalize(item.codigobarras) === code;
     return {
       kind,
+      // Os dois estoques simples dividem a tabela: sem o escopo a UI nao sabe se a
+      // etiqueta caiu em uso e consumo ou no geral/avulso.
+      escopo: kind === "USOCONSUMO" ? parseEscopo(item.escopo) : null,
       matchBy: byLabel && byBarcode ? "AMBOS" : byLabel ? "ETIQUETA" : "CODIGOBARRAS",
       restricted: !canSee,
       item: canSee ? item : null,

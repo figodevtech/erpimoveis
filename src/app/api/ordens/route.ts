@@ -7,6 +7,7 @@ import { auth } from "@/lib/auth";
 import { StatusOS } from "@/app/(app)/(pages)/ordens/types";
 import { requireOSAccess } from "@/app/api/_authz/perms";
 import { carregarAutores } from "@/lib/movement-authors";
+import { resolveOrdemVehicle } from "@/lib/ordens/vehicle-snapshot";
 
 type Prioridade = "ALTA" | "NORMAL" | "BAIXA" | null;
 type AlvoTipo = "VEICULO" | "PECA" | "EQUIPAMENTO" | null;
@@ -20,13 +21,13 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * Campos de data que o intervalo pode olhar.
  *
  * O intervalo sempre mediu a entrada, o que nao serve para fechar mes: uma OS
- * que entrou em marco e foi paga em abril pertence aos dois recortes, e cada
+ * que entrou em marco e foi finalizada em abril pertence aos dois recortes, e cada
  * pergunta quer um deles.
  */
 const CAMPOS_DATA: Record<string, string> = {
   entrada: "dataentrada",
   saida: "datasaida",
-  concluido: "pagamento_concluido_em",
+  concluido: "finalizado_em",
 };
 
 /**
@@ -63,7 +64,7 @@ const ORDENACOES: Record<string, { coluna: string; inverter?: boolean }> = {
   prioridade: { coluna: "prioridade" },
   setor: { coluna: COLUNA_SETOR_POR_NOME },
   tempo: { coluna: "dataentrada", inverter: true },
-  concluido: { coluna: "pagamento_concluido_em" },
+  concluido: { coluna: "finalizado_em" },
 };
 
 function parseStatuses(param?: string | null): StatusOS[] {
@@ -313,6 +314,7 @@ export async function GET(req: Request) {
           dataentrada,
           datasaida,
           pagamento_concluido_em,
+          finalizado_em,
           destacada,
           destaque_motivo,
           destaque_cor,
@@ -323,6 +325,8 @@ export async function GET(req: Request) {
           equipamento_patrimonio,
           equipamento_ano,
           equipamento_horimetro,
+          migracao_referencia,
+          veiculo_snapshot,
 
           cliente:clienteid (
             id,
@@ -460,6 +464,9 @@ export async function GET(req: Request) {
           `descricao.ilike.${like}`,
           `equipamento_nome.ilike.${like}`,
           `equipamento_patrimonio.ilike.${like}`,
+          `veiculo_snapshot->>placa.ilike.${like}`,
+          `veiculo_snapshot->>modelo.ilike.${like}`,
+          `veiculo_snapshot->>marca.ilike.${like}`,
           `cFilter.not.is.null`,
           `vFilter.not.is.null`,
           `pFilter.not.is.null`,
@@ -483,7 +490,7 @@ export async function GET(req: Request) {
         const ascendente = ordenacao.inverter ? dir !== "asc" : dir === "asc";
         query = query.order(coluna, { ascending: ascendente, nullsFirst: false });
       } else if (status === "CONCLUIDO" || statuses.includes("CONCLUIDO")) {
-        query = query.order("pagamento_concluido_em", { ascending: false, nullsFirst: false });
+        query = query.order("finalizado_em", { ascending: false, nullsFirst: false });
       } else {
         query = query.order("dataentrada", { ascending: false });
       }
@@ -512,12 +519,15 @@ export async function GET(req: Request) {
       acrescimo_financeiro_valor: r.acrescimo_financeiro_valor as number | null,
       dataSaida: r.datasaida as string | null,
       pagamentoConcluidoEm: r.pagamento_concluido_em as string | null,
+      finalizadoEm: r.finalizado_em as string | null,
       destacada: Boolean(r.destacada),
       destaque_motivo: (r.destaque_motivo as string | null) ?? null,
       destaque_cor: (r.destaque_cor as string | null) ?? "vermelho",
       destacada_por: (r.destacada_por as string | null) ?? null,
       destacada_em: (r.destacada_em as string | null) ?? null,
       notaNumero: null as number | null,
+      migracaoReferencia: (r.migracao_referencia as string | null) ?? null,
+      veiculo_snapshot: r.veiculo_snapshot ?? null,
 
       alvo_tipo: (r.alvo_tipo as AlvoTipo) ?? null,
 
@@ -537,14 +547,7 @@ export async function GET(req: Request) {
           }
         : null,
 
-      veiculo: r.veiculo
-        ? {
-            id: r.veiculo.id as number,
-            placa: r.veiculo.placa as string,
-            modelo: r.veiculo.modelo as string,
-            marca: r.veiculo.marca as string,
-          }
-        : null,
+      veiculo: resolveOrdemVehicle(r.veiculo, r.veiculo_snapshot),
 
       peca: r.peca
         ? {

@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { requireConfigEdit } from "@/app/api/_authz/perms";
+import { normalizarRegrasDestaque } from "@/lib/ordens/destaque";
 
 // Evita cache no App Router
 export const revalidate = 0;
@@ -31,7 +32,8 @@ const CONFIG_SELECT_COMPLETO_SEM_NCM_OBRIGATORIO = `${CONFIG_SELECT_BASE_SEM_NCM
 const CONFIG_SELECT_COMPLETO_SEM_SETOR_PADRAO = `${CONFIG_SELECT_BASE_SEM_SETOR_PADRAO}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
 const CONFIG_SELECT_COMPLETO_LEGADO = `${CONFIG_SELECT_BASE_LEGADO}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
 const CONFIG_SELECT_SEM_MODO_BAIXA = `${CONFIG_SELECT_BASE_SEM_MODO_BAIXA}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
-const CONFIG_SELECT_COMPLETO = `${CONFIG_SELECT_BASE}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
+const CONFIG_SELECT_SEM_DESTAQUE_STATUS = `${CONFIG_SELECT_BASE}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
+const CONFIG_SELECT_COMPLETO = `${CONFIG_SELECT_SEM_DESTAQUE_STATUS}, destaque_os_por_status`;
 
 function colunaNaoExiste(error: any) {
   return error?.code === "42703";
@@ -97,6 +99,7 @@ function comPadroesAgendamento(config: any) {
       && Number(config.setor_padrao_os_id) > 0
       ? Number(config.setor_padrao_os_id)
       : null,
+    destaque_os_por_status: normalizarRegrasDestaque(config.destaque_os_por_status),
   };
 }
 
@@ -111,6 +114,16 @@ async function buscarConfigAtual() {
 
   if (!error) return comPadroesAgendamento(data);
   if (!colunaNaoExiste(error)) throw error;
+
+  const semDestaqueStatus = await supabase
+    .from("config_geral")
+    .select(CONFIG_SELECT_SEM_DESTAQUE_STATUS)
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!semDestaqueStatus.error) return comPadroesAgendamento(semDestaqueStatus.data);
+  if (!colunaNaoExiste(semDestaqueStatus.error)) throw semDestaqueStatus.error;
 
   const semCorTexto = await supabase
     .from("config_geral")
@@ -195,6 +208,16 @@ async function criarConfigPadraoSeNaoExistir() {
 
   if (!error) return comPadroesAgendamento(data);
   if (!colunaNaoExiste(error)) throw error;
+
+  const semDestaqueStatus = await supabase
+    .from("config_geral")
+    .select(CONFIG_SELECT_SEM_DESTAQUE_STATUS)
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!semDestaqueStatus.error) return comPadroesAgendamento(semDestaqueStatus.data);
+  if (!colunaNaoExiste(semDestaqueStatus.error)) throw semDestaqueStatus.error;
 
   const semCorTexto = await supabase
     .from("config_geral")
@@ -383,6 +406,26 @@ export async function PUT(request: Request) {
         }
         patch.setor_padrao_os_id = setorId;
       }
+    }
+
+    if (body.destaque_os_por_status !== undefined) {
+      const bruto = body.destaque_os_por_status;
+      if (!bruto || typeof bruto !== "object" || Array.isArray(bruto)) {
+        return respostaJSON({ error: "Destaques por status devem vir como um objeto." }, 400);
+      }
+
+      // A normalizacao descarta status desconhecido e cor fora da paleta. Na
+      // leitura isso e bom (config velha nao derruba a lista), mas no PUT nao:
+      // salvar em silencio menos regras do que o usuario cadastrou e pior do
+      // que recusar e dizer o motivo.
+      const regras = normalizarRegrasDestaque(bruto);
+      if (Object.keys(regras).length !== Object.keys(bruto).length) {
+        return respostaJSON(
+          { error: "Há destaque por status com status ou cor inválidos." },
+          400,
+        );
+      }
+      patch.destaque_os_por_status = regras;
     }
 
     if (Object.keys(patch).length === 0) {

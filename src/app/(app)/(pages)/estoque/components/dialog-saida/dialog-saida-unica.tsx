@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import axios, { isAxiosError } from "axios";
 import { Loader2, Minus, PackageMinus, Plus, X } from "lucide-react";
 import { toast } from "@/lib/toast";
+import { rotuloDeEscopo, type UsoConsumoEscopo } from "@/lib/usoconsumo/escopo";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -29,6 +30,12 @@ interface DialogSaidaProps {
   currentQuantity: number;
   onSuccess?: () => void | Promise<void>;
   inventory?: "produto" | "usoconsumo";
+  /**
+   * Qual dos dois estoques simples, quando `inventory` e "usoconsumo". Fica ao
+   * lado de `inventory` em vez de virar um terceiro valor dele porque os dois
+   * dividem a mesma tabela e o mesmo endpoint — muda so a linha endereçada.
+   */
+  escopo?: UsoConsumoEscopo;
 }
 
 export default function DialogSaida({
@@ -39,6 +46,7 @@ export default function DialogSaida({
   currentQuantity,
   onSuccess,
   inventory = "produto",
+  escopo = "USOCONSUMO",
 }: DialogSaidaProps) {
   const [quantidade, setQuantidade] = useState(0);
   const [motivo, setMotivo] = useState("");
@@ -59,9 +67,11 @@ export default function DialogSaida({
     if (!isOpen) return;
     let ativo = true;
     setLoadingMotivos(true);
-    const escopo = inventory === "usoconsumo" ? "USOCONSUMO" : "PRODUTO";
+    // O cadastro de motivos e compartilhado pelos dois estoques simples: o escopo
+    // consultado aqui e o da TABELA, nao o do estoque.
+    const escopoDosMotivos = inventory === "usoconsumo" ? "USOCONSUMO" : "PRODUTO";
     axios
-      .get(`/api/tipos/motivos-saida?ativo=true&escopo=${escopo}`)
+      .get(`/api/tipos/motivos-saida?ativo=true&escopo=${escopoDosMotivos}`)
       .then(({ data }) => {
         if (!ativo) return;
         setMotivos((data?.items ?? []).map((item: any) => ({ codigo: String(item.codigo), nome: String(item.nome) })));
@@ -97,7 +107,7 @@ export default function DialogSaida({
     setIsSubmitting(true);
     try {
       await axios.post(inventory === "usoconsumo" ? "/api/usoconsumo/saidas" : "/api/estoque/saidas", inventory === "usoconsumo"
-        ? { motivo, observacao: observacao.trim() || undefined, itens: [{ item_id: productId, quantidade }] }
+        ? { escopo, motivo, observacao: observacao.trim() || undefined, itens: [{ item_id: productId, quantidade }] }
         : { produtoId: productId, quantidade, motivo, descricao: observacao.trim() || null });
       toast.success("Saída registrada e estoque atualizado.");
       setIsOpen(false);
@@ -137,7 +147,7 @@ export default function DialogSaida({
         <DialogHeader className="shrink-0 border-b bg-background px-4 pb-4 pr-16 pt-[max(1rem,env(safe-area-inset-top))] text-left sm:px-6 sm:py-4 sm:pr-14">
           <DialogTitle className="flex items-center gap-2">
             <PackageMinus className="h-5 w-5 text-red-600" aria-hidden="true" />
-            Saída de {inventory === "usoconsumo" ? "uso/consumo" : "estoque"}
+            Saída de {inventory === "usoconsumo" ? rotuloDeEscopo(escopo).curto.toLocaleLowerCase("pt-BR") : "estoque"}
           </DialogTitle>
           <DialogDescription className="line-clamp-2 text-left" title={productDescription}>
             {productDescription}

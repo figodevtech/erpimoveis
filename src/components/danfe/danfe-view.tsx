@@ -1,12 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from "react";
 import { Download, Loader2, Printer } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { encodeCode128C } from "@/lib/nfe/code128";
+import {
+  aumentarFonteDanfe,
+  DANFE_DEFAULT_FONT_SCALE,
+  DANFE_MAX_FONT_SCALE,
+  diminuirFonteDanfe,
+  percentualFonteDanfe,
+  type DanfeFontScale,
+} from "@/lib/nfe/danfeFontScale";
+import {
+  lerEscalaFonteImpressao,
+  PRINT_FONT_SCALE_STORAGE_KEY,
+} from "@/lib/print/fontScale";
 import type {
+  DanfeEntrega,
   DanfeItem,
   DanfeTaxTotals,
   DanfeTransport,
@@ -52,6 +65,7 @@ export type DanfeViewData = {
   itensDisplay: DanfeItemDisplay[];
   totais: DanfeTaxTotals;
   transporte: DanfeTransport;
+  entrega?: DanfeEntrega | null;
   fatura: ParsedDanfeNFe["fatura"];
   duplicatas: ParsedDanfeNFe["duplicatas"];
   pagamentos: ParsedDanfeNFe["pagamentos"];
@@ -135,84 +149,6 @@ function downloadBlob(blob: Blob, filename: string) {
   }, 15_000);
 }
 
-function dataUrlToBytes(dataUrl: string) {
-  const base64 = dataUrl.split(",")[1];
-  if (!base64) throw new Error("Imagem do DANFE inválida.");
-  const binary = window.atob(base64);
-  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
-}
-
-type PdfImage = { bytes: Uint8Array; width: number; height: number };
-
-function buildImagePdf(images: PdfImage[]) {
-  const encoder = new TextEncoder();
-  const chunks: Uint8Array[] = [];
-  const offsets: number[] = [0];
-  let offset = 0;
-  const pushString = (value: string) => {
-    const bytes = encoder.encode(value);
-    chunks.push(bytes);
-    offset += bytes.length;
-  };
-  const pushBytes = (bytes: Uint8Array) => {
-    chunks.push(bytes);
-    offset += bytes.length;
-  };
-  const addObject = (number: number, parts: Array<string | Uint8Array>) => {
-    offsets[number] = offset;
-    pushString(`${number} 0 obj\n`);
-    parts.forEach((part) => (typeof part === "string" ? pushString(part) : pushBytes(part)));
-    pushString("\nendobj\n");
-  };
-
-  const pageWidth = 595.28;
-  const pageHeight = 841.89;
-  const pageObjects = images.map((_, index) => 3 + index * 3);
-  pushString("%PDF-1.4\n");
-  addObject(1, ["<< /Type /Catalog /Pages 2 0 R >>"]);
-  addObject(2, [`<< /Type /Pages /Kids [${pageObjects.map((number) => `${number} 0 R`).join(" ")}] /Count ${images.length} >>`]);
-
-  images.forEach((image, index) => {
-    const pageObject = pageObjects[index];
-    const contentObject = pageObject + 1;
-    const imageObject = pageObject + 2;
-    const imageName = `Im${index}`;
-    const content = `q\n${pageWidth} 0 0 ${pageHeight} 0 0 cm\n/${imageName} Do\nQ`;
-    addObject(pageObject, [`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /XObject << /${imageName} ${imageObject} 0 R >> >> /Contents ${contentObject} 0 R >>`]);
-    addObject(contentObject, [`<< /Length ${encoder.encode(content).length} >>\nstream\n${content}\nendstream`]);
-    addObject(imageObject, [
-      `<< /Type /XObject /Subtype /Image /Width ${image.width} /Height ${image.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${image.bytes.length} >>\nstream\n`,
-      image.bytes,
-      "\nendstream",
-    ]);
-  });
-
-  const objectCount = 2 + images.length * 3;
-  const xrefOffset = offset;
-  pushString(`xref\n0 ${objectCount + 1}\n0000000000 65535 f \n`);
-  for (let number = 1; number <= objectCount; number += 1) {
-    pushString(`${String(offsets[number]).padStart(10, "0")} 00000 n \n`);
-  }
-  pushString(`trailer\n<< /Size ${objectCount + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`);
-
-  const pdfBytes = new Uint8Array(offset);
-  let cursor = 0;
-  chunks.forEach((chunk) => {
-    pdfBytes.set(chunk, cursor);
-    cursor += chunk.length;
-  });
-  return new Blob([pdfBytes.buffer], { type: "application/pdf" });
-}
-
-function readImageSize(dataUrl: string) {
-  return new Promise<{ width: number; height: number }>((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
-    image.onerror = () => reject(new Error("Não foi possível ler a imagem do DANFE."));
-    image.src = dataUrl;
-  });
-}
-
 function Code128Barcode({ value }: { value: string }) {
   const encoded = encodeCode128C(value);
   if (!encoded || encoded.digits.length !== 44) {
@@ -251,23 +187,29 @@ export function paginateDanfeItems(items: DanfeItemDisplay[]) {
   return pages;
 }
 
-function DefaultActions({ exitHref, filename }: { exitHref: string; filename: string }) {
+function DefaultActions({
+  data,
+  exitHref,
+  filename,
+  fontScale,
+  onFontScaleChange,
+}: {
+  data: DanfeViewData;
+  exitHref: string;
+  filename: string;
+  fontScale: DanfeFontScale;
+  onFontScaleChange: Dispatch<SetStateAction<DanfeFontScale>>;
+}) {
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   async function handleDownloadPdf() {
     if (isGeneratingPdf) return;
-    const sheets = Array.from(document.querySelectorAll<HTMLElement>(".danfe-sheet"));
-    if (!sheets.length) return toast.error("Não foi possível localizar o DANFE para baixar.");
     setIsGeneratingPdf(true);
     try {
-      await document.fonts?.ready;
-      const { toJpeg } = await import("html-to-image");
-      const images: PdfImage[] = [];
-      for (const sheet of sheets) {
-        const dataUrl = await toJpeg(sheet, { backgroundColor: "#fff", cacheBust: true, pixelRatio: 2, quality: 0.98 });
-        const size = await readImageSize(dataUrl);
-        images.push({ bytes: dataUrlToBytes(dataUrl), ...size });
-      }
-      downloadBlob(buildImagePdf(images), filename);
+      const { gerarDanfePdf } = await import("@/lib/nfe/danfePdf");
+      const pdf = await gerarDanfePdf(data, { fontScale });
+      const bytes = new Uint8Array(pdf.byteLength);
+      bytes.set(pdf);
+      downloadBlob(new Blob([bytes.buffer], { type: "application/pdf" }), filename);
     } catch (error) {
       console.error("Erro ao gerar PDF do DANFE:", error);
       toast.error("Não foi possível baixar o DANFE em PDF.");
@@ -277,6 +219,31 @@ function DefaultActions({ exitHref, filename }: { exitHref: string; filename: st
   }
   return <>
     <Link href={exitHref} className="exit-link">Sair</Link>
+    <div aria-label="Tamanho do texto do DANFE" className="font-size-control" role="group">
+      <Button
+        aria-label="Diminuir texto do DANFE"
+        disabled={fontScale === DANFE_DEFAULT_FONT_SCALE}
+        onClick={() => onFontScaleChange((current) => diminuirFonteDanfe(current))}
+        size="sm"
+        title="Diminuir texto"
+        type="button"
+        variant="outline"
+      >
+        <span aria-hidden="true" className="font-size-symbol">A−</span>
+      </Button>
+      <span aria-live="polite" className="font-size-value">Texto {percentualFonteDanfe(fontScale)}%</span>
+      <Button
+        aria-label="Aumentar texto do DANFE"
+        disabled={fontScale === DANFE_MAX_FONT_SCALE}
+        onClick={() => onFontScaleChange((current) => aumentarFonteDanfe(current))}
+        size="sm"
+        title={fontScale === DANFE_MAX_FONT_SCALE ? "Tamanho máximo atingido" : "Aumentar texto"}
+        type="button"
+        variant="outline"
+      >
+        <span aria-hidden="true" className="font-size-symbol">A+</span>
+      </Button>
+    </div>
     <Button type="button" variant="outline" size="sm" onClick={() => void handleDownloadPdf()} disabled={isGeneratingPdf}>
       {isGeneratingPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
       {isGeneratingPdf ? "Gerando PDF..." : "Baixar PDF"}
@@ -312,7 +279,7 @@ function Header({ data, page, totalPages }: { data: DanfeViewData; page: number;
         <span>Documento Auxiliar da Nota Fiscal Eletrônica</span>
         <span><strong>{data.tipoOperacao === "ENTRADA" ? "0 - ENTRADA" : "1 - SAÍDA"}</strong></span>
         <span>Nº <strong>{String(data.nfe.numero).padStart(9, "0")}</strong> · SÉRIE <strong>{String(data.nfe.serie).padStart(3, "0")}</strong></span>
-        <span>FOLHA <strong>{page}/{totalPages}</strong></span>
+        <span>FOLHA <strong data-danfe-page-current>{page}</strong>/<strong data-danfe-page-total>{totalPages}</strong></span>
       </div>
       <div className="access-key">
         <Code128Barcode value={data.chaveAcesso} />
@@ -332,13 +299,13 @@ function Header({ data, page, totalPages }: { data: DanfeViewData; page: number;
 }
 
 function ItemsTable({ items, showRtc }: { items: DanfeItemDisplay[]; showRtc: boolean }) {
-  return <div className="box items-block">
+  return <div className="box items-block" data-danfe-items-block>
     <div className="block-title section-title">Dados dos produtos / serviços</div>
-    <table className="items-table">
+    <table className="items-table" data-danfe-main-table>
       <thead><tr>
         <th>Cód.</th><th className="description">Descrição</th><th>NCM/SH</th><th>CST</th><th>CFOP</th><th>UN</th><th>Qtd.</th><th>V. unit.</th><th>V. total</th><th>BC ICMS</th><th>V. ICMS</th><th>V. IPI</th><th>% ICMS</th><th>% IPI</th>
       </tr></thead>
-      <tbody>{items.length ? items.map((item) => <tr key={item.id}>
+      <tbody>{items.length ? items.map((item, index) => <tr data-danfe-item-index={index} key={item.id}>
         <td>{item.produtoid || "-"}</td>
         <td className="description"><strong>{item.descricao}</strong><span className="tax-detail">PIS {item.cst_pis || "-"} ({fmtDecimal(item.aliquota_pis, 2)}%): {fmtMoney(item.valor_pis)} · COFINS {item.cst_cofins || "-"} ({fmtDecimal(item.aliquota_cofins, 2)}%): {fmtMoney(item.valor_cofins)}{item.cest ? ` · CEST ${item.cest}` : ""}</span></td>
         <td>{item.ncm || "-"}</td><td>{`${item.origem || ""}${item.csosn || ""}` || "-"}</td><td>{item.cfop}</td><td>{item.unidade}</td>
@@ -347,9 +314,9 @@ function ItemsTable({ items, showRtc }: { items: DanfeItemDisplay[]; showRtc: bo
         <td className="number">{fmtDecimal(item.aliquotaicms, 2)}</td><td className="number">{fmtDecimal(item.aliquota_ipi, 2)}</td>
       </tr>) : <tr><td colSpan={14}>Nenhum item localizado.</td></tr>}</tbody>
     </table>
-    {showRtc && <table className="items-table rtc-table">
+    {showRtc && <table className="items-table rtc-table" data-danfe-rtc-table>
       <thead><tr><th>Item</th><th>CST IBS/CBS</th><th>Classificação tributária</th><th>BC IBS/CBS</th><th>% IBS UF</th><th>V. IBS UF</th><th>% IBS Mun.</th><th>V. IBS Mun.</th><th>V. IBS</th><th>% CBS</th><th>V. CBS</th><th>CST IS</th><th>V. IS</th></tr></thead>
-      <tbody>{items.map((item) => <tr key={`rtc-${item.id}`}><td>{item.n_item}</td><td>{item.cst_ibs_cbs || "-"}</td><td>{item.classificacao_tributaria || "-"}</td><td className="number">{fmtMoney(item.base_ibs_cbs)}</td><td>{fmtDecimal(item.aliquota_ibs_uf, 2)}</td><td>{fmtMoney(item.valor_ibs_uf)}</td><td>{fmtDecimal(item.aliquota_ibs_municipio, 2)}</td><td>{fmtMoney(item.valor_ibs_municipio)}</td><td>{fmtMoney(item.valor_ibs)}</td><td>{fmtDecimal(item.aliquota_cbs, 2)}</td><td>{fmtMoney(item.valor_cbs)}</td><td>{item.cst_is || "-"}</td><td>{fmtMoney(item.valor_is)}</td></tr>)}</tbody>
+      <tbody>{items.map((item, index) => <tr data-danfe-item-index={index} key={`rtc-${item.id}`}><td>{item.n_item}</td><td>{item.cst_ibs_cbs || "-"}</td><td>{item.classificacao_tributaria || "-"}</td><td className="number">{fmtMoney(item.base_ibs_cbs)}</td><td>{fmtDecimal(item.aliquota_ibs_uf, 2)}</td><td>{fmtMoney(item.valor_ibs_uf)}</td><td>{fmtDecimal(item.aliquota_ibs_municipio, 2)}</td><td>{fmtMoney(item.valor_ibs_municipio)}</td><td>{fmtMoney(item.valor_ibs)}</td><td>{fmtDecimal(item.aliquota_cbs, 2)}</td><td>{fmtMoney(item.valor_cbs)}</td><td>{item.cst_is || "-"}</td><td>{fmtMoney(item.valor_is)}</td></tr>)}</tbody>
     </table>}
   </div>;
 }
@@ -364,6 +331,13 @@ function FirstPageDetails({ data }: { data: DanfeViewData }) {
       <Cell label="Endereço">{data.destinatarioEndereco}</Cell><Cell label="Município / UF">{data.destinatarioCidadeUf || "-"}</Cell><Cell label="CEP">{data.destinatarioCep || "-"}</Cell>
       <Cell label="Inscrição estadual">{data.destinatarioIe || "-"}</Cell><Cell label="Data de saída / entrada">{fmtDate(data.dataSaidaEntrada)}</Cell>
     </div>
+    {data.entrega && <>
+      <div className="block-title outside-title">Local de entrega / retirada</div>
+      <div className="recipient-grid box">
+        <Cell label="Nome / Razão social">{data.entrega.nome || "-"}</Cell><Cell label="CNPJ / CPF">{fmtDoc(data.entrega.documento)}</Cell><Cell label="Município / UF">{[data.entrega.municipio, data.entrega.uf].filter(Boolean).join("/") || "-"}</Cell>
+        <Cell label="Endereço">{[data.entrega.logradouro, data.entrega.numero].filter(Boolean).join(", ") || "-"}</Cell><Cell label="Bairro / Complemento">{[data.entrega.bairro, data.entrega.complemento].filter(Boolean).join(" - ") || "-"}</Cell><Cell label="CEP">{data.entrega.cep || "-"}</Cell>
+      </div>
+    </>}
     <div className="block-title outside-title">Cálculo do imposto</div>
     <div className="totals-grid box">
       <Cell label="Base de cálculo do ICMS">{fmtMoney(totals.vBC)}</Cell><Cell label="Valor do ICMS">{fmtMoney(totals.vICMS)}</Cell><Cell label="Valor ICMS desonerado">{fmtMoney(totals.vICMSDeson)}</Cell><Cell label="Valor do FCP">{fmtMoney(totals.vFCP)}</Cell><Cell label="BC ICMS ST">{fmtMoney(totals.vBCST)}</Cell><Cell label="Valor ICMS ST">{fmtMoney(totals.vST)}</Cell><Cell label="Total dos produtos">{fmtMoney(totals.vProd)}</Cell>
@@ -384,36 +358,265 @@ function FirstPageDetails({ data }: { data: DanfeViewData }) {
 function FooterDetails({ data }: { data: DanfeViewData }) {
   const hasIssqn = data.totais.vServ !== 0 || data.totais.vBCISS !== 0 || data.totais.vISS !== 0;
   const hasBilling = data.fatura || data.duplicatas.length > 0;
-  return <>
-    {hasBilling && <><div className="block-title outside-title">Fatura / duplicatas</div><div className="billing box">
+  return <div className="footer-details" data-danfe-footer>
+    {hasBilling && <div className="footer-segment" data-danfe-footer-segment><div className="block-title outside-title">Fatura / duplicatas</div><div className="billing box">
       {data.fatura && <Cell label={`Fatura ${data.fatura.numero || ""}`}>Original {fmtMoney(data.fatura.valorOriginal)} · Desconto {fmtMoney(data.fatura.desconto)} · Líquido {fmtMoney(data.fatura.valorLiquido)}</Cell>}
       {data.duplicatas.map((dup, index) => <Cell key={`${dup.numero}-${index}`} label={`Duplicata ${dup.numero || index + 1}`}>{fmtDateOnly(dup.vencimento)} · {fmtMoney(dup.valor)}</Cell>)}
-    </div></>}
-    {data.pagamentos.length > 0 && <><div className="block-title outside-title">Pagamento</div><div className="payments box">{data.pagamentos.map((payment, index) => <Cell key={`${payment.tipo}-${index}`} label={payment.descricao || PAGAMENTO_LABEL[payment.tipo] || `Meio ${payment.tipo}`}>{fmtMoney(payment.valor)}{payment.bandeira ? ` · Bandeira ${payment.bandeira}` : ""}{payment.cnpjCredenciadora ? ` · Credenciadora ${fmtDoc(payment.cnpjCredenciadora)}` : ""}{payment.autorizacao ? ` · Aut. ${payment.autorizacao}` : ""}</Cell>)}</div></>}
-    {hasIssqn && <><div className="block-title outside-title">Cálculo do ISSQN</div><div className="issqn box"><Cell label="Inscrição municipal">{data.emitenteIm || "-"}</Cell><Cell label="Valor total dos serviços">{fmtMoney(data.totais.vServ)}</Cell><Cell label="Base de cálculo do ISSQN">{fmtMoney(data.totais.vBCISS)}</Cell><Cell label="Valor do ISSQN">{fmtMoney(data.totais.vISS)}</Cell></div></>}
-    <div className="footer-grid">
+    </div></div>}
+    {data.pagamentos.length > 0 && <div className="footer-segment" data-danfe-footer-segment><div className="block-title outside-title">Pagamento</div><div className="payments box">{data.pagamentos.map((payment, index) => <Cell key={`${payment.tipo}-${index}`} label={payment.descricao || PAGAMENTO_LABEL[payment.tipo] || `Meio ${payment.tipo}`}>{fmtMoney(payment.valor)}{payment.bandeira ? ` · Bandeira ${payment.bandeira}` : ""}{payment.cnpjCredenciadora ? ` · Credenciadora ${fmtDoc(payment.cnpjCredenciadora)}` : ""}{payment.autorizacao ? ` · Aut. ${payment.autorizacao}` : ""}</Cell>)}</div></div>}
+    {hasIssqn && <div className="footer-segment" data-danfe-footer-segment><div className="block-title outside-title">Cálculo do ISSQN</div><div className="issqn box"><Cell label="Inscrição municipal">{data.emitenteIm || "-"}</Cell><Cell label="Valor total dos serviços">{fmtMoney(data.totais.vServ)}</Cell><Cell label="Base de cálculo do ISSQN">{fmtMoney(data.totais.vBCISS)}</Cell><Cell label="Valor do ISSQN">{fmtMoney(data.totais.vISS)}</Cell></div></div>}
+    <div className="footer-grid footer-segment" data-danfe-footer-segment>
       <div className="box footer-box"><div className="block-title">Informações complementares</div><div>{data.infCpl || "-"}</div>{data.xmlError && <div className="fallback-warning">Falha ao ler o XML: visualização complementada com dados do banco.</div>}{!data.xmlBaseAvailable && <div className="fallback-warning">XML não armazenado: esta visualização não substitui um DANFE originado do XML autorizado.</div>}</div>
       <div className="box footer-box"><div className="block-title">Reservado ao fisco</div><div>{data.infAdFisco || ""}</div></div>
     </div>
-  </>;
+  </div>;
+}
+
+function useMeasuredDanfePagination({
+  generatedRef,
+  rootRef,
+  sourceRef,
+  version,
+}: {
+  generatedRef: RefObject<HTMLDivElement | null>;
+  rootRef: RefObject<HTMLDivElement | null>;
+  sourceRef: RefObject<HTMLElement | null>;
+  version: unknown;
+}) {
+  useEffect(() => {
+    const generated = generatedRef.current;
+    const root = rootRef.current;
+    const source = sourceRef.current;
+    if (!generated || !root || !source) return;
+
+    let disposed = false;
+    let frame = 0;
+
+    type MeasuredPage = {
+      itemCount: number;
+      itemsBlock: HTMLElement | null;
+      mainBody: HTMLTableSectionElement | null;
+      rtcBody: HTMLTableSectionElement | null;
+      sheet: HTMLElement;
+    };
+
+    const paginate = () => {
+      if (disposed) return;
+
+      root.removeAttribute("data-danfe-pagination-ready");
+      generated.replaceChildren();
+      generated.classList.add("is-measuring");
+
+      const receipt = source.querySelector<HTMLElement>("[data-danfe-receipt]");
+      const header = source.querySelector<HTMLElement>("[data-danfe-header]");
+      const firstDetails = source.querySelector<HTMLElement>("[data-danfe-first-details]");
+      const itemsTemplate = source.querySelector<HTMLElement>("[data-danfe-items-block]");
+      const footer = source.querySelector<HTMLElement>("[data-danfe-footer]");
+      if (!header || !firstDetails || !itemsTemplate || !footer) {
+        generated.classList.remove("is-measuring");
+        return;
+      }
+
+      const sourceMainBody = itemsTemplate.querySelector<HTMLTableSectionElement>(
+        "[data-danfe-main-table] tbody",
+      );
+      const sourceMainRows = sourceMainBody
+        ? Array.from(sourceMainBody.querySelectorAll<HTMLTableRowElement>("tr[data-danfe-item-index]"))
+        : [];
+      const emptyItemRow = sourceMainRows.length === 0
+        ? sourceMainBody?.querySelector<HTMLTableRowElement>("tr") ?? null
+        : null;
+      const sourceRtcRows = new Map(
+        Array.from(
+          itemsTemplate.querySelectorAll<HTMLTableRowElement>(
+            "[data-danfe-rtc-table] tbody tr[data-danfe-item-index]",
+          ),
+        ).map((row) => [row.dataset.danfeItemIndex ?? "", row]),
+      );
+      const footerSegments = Array.from(
+        footer.querySelectorAll<HTMLElement>(":scope > [data-danfe-footer-segment]"),
+      );
+
+      const pages: MeasuredPage[] = [];
+
+      const createPage = (firstPage: boolean, withItems: boolean) => {
+        const sheet = source.cloneNode(false) as HTMLElement;
+        sheet.removeAttribute("aria-hidden");
+        sheet.removeAttribute("data-danfe-measure-source");
+        sheet.classList.remove("danfe-measure-source");
+
+        if (firstPage && receipt) sheet.appendChild(receipt.cloneNode(true));
+        sheet.appendChild(header.cloneNode(true));
+        if (firstPage) sheet.appendChild(firstDetails.cloneNode(true));
+
+        let itemsBlock: HTMLElement | null = null;
+        let mainBody: HTMLTableSectionElement | null = null;
+        let rtcBody: HTMLTableSectionElement | null = null;
+        if (withItems) {
+          itemsBlock = itemsTemplate.cloneNode(true) as HTMLElement;
+          mainBody = itemsBlock.querySelector<HTMLTableSectionElement>("[data-danfe-main-table] tbody");
+          rtcBody = itemsBlock.querySelector<HTMLTableSectionElement>("[data-danfe-rtc-table] tbody");
+          mainBody?.replaceChildren();
+          rtcBody?.replaceChildren();
+          sheet.appendChild(itemsBlock);
+        }
+
+        generated.appendChild(sheet);
+        const page = { itemCount: 0, itemsBlock, mainBody, rtcBody, sheet };
+        pages.push(page);
+        return page;
+      };
+
+      const fits = (page: MeasuredPage) => page.sheet.scrollHeight <= page.sheet.clientHeight + 1;
+
+      const appendItem = (page: MeasuredPage, row: HTMLTableRowElement) => {
+        const mainClone = row.cloneNode(true) as HTMLTableRowElement;
+        const rtcSource = sourceRtcRows.get(row.dataset.danfeItemIndex ?? "");
+        const rtcClone = rtcSource?.cloneNode(true) as HTMLTableRowElement | undefined;
+        page.mainBody?.appendChild(mainClone);
+        if (rtcClone) page.rtcBody?.appendChild(rtcClone);
+        page.itemCount += 1;
+        return () => {
+          mainClone.remove();
+          rtcClone?.remove();
+          page.itemCount -= 1;
+        };
+      };
+
+      let current = createPage(true, true);
+
+      if (sourceMainRows.length === 0 && emptyItemRow) {
+        current.mainBody?.appendChild(emptyItemRow.cloneNode(true));
+      }
+
+      sourceMainRows.forEach((row) => {
+        const undo = appendItem(current, row);
+        if (!fits(current) && current.itemCount > 1) {
+          undo();
+          current = createPage(false, true);
+          appendItem(current, row);
+        } else if (!fits(current) && current.itemCount === 1 && pages.length === 1) {
+          undo();
+          current.itemsBlock?.remove();
+          current.itemsBlock = null;
+          current.mainBody = null;
+          current.rtcBody = null;
+          current = createPage(false, true);
+          appendItem(current, row);
+        }
+
+        if (!fits(current)) current.sheet.classList.add("danfe-sheet-oversize");
+      });
+
+      footerSegments.forEach((segment) => {
+        let clone = segment.cloneNode(true) as HTMLElement;
+        current.sheet.appendChild(clone);
+        if (!fits(current)) {
+          clone.remove();
+          current = createPage(false, false);
+          clone = segment.cloneNode(true) as HTMLElement;
+          current.sheet.appendChild(clone);
+        }
+        if (!fits(current)) current.sheet.classList.add("danfe-sheet-oversize");
+      });
+
+      const totalPages = pages.length;
+      pages.forEach((page, index) => {
+        page.sheet
+          .querySelectorAll<HTMLElement>("[data-danfe-page-current]")
+          .forEach((element) => { element.textContent = String(index + 1); });
+        page.sheet
+          .querySelectorAll<HTMLElement>("[data-danfe-page-total]")
+          .forEach((element) => { element.textContent = String(totalPages); });
+      });
+
+      generated.classList.remove("is-measuring");
+      root.setAttribute("data-danfe-pagination-ready", "");
+    };
+
+    const schedulePagination = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(paginate);
+    };
+    const prepare = async () => {
+      await document.fonts?.ready;
+      schedulePagination();
+    };
+    const beforePrint = () => paginate();
+
+    window.addEventListener("beforeprint", beforePrint);
+    window.addEventListener("resize", schedulePagination, { passive: true });
+    void prepare();
+
+    return () => {
+      disposed = true;
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("beforeprint", beforePrint);
+      window.removeEventListener("resize", schedulePagination);
+      root.removeAttribute("data-danfe-pagination-ready");
+      generated.replaceChildren();
+    };
+  }, [generatedRef, rootRef, sourceRef, version]);
 }
 
 export function DanfeView({ data, exitHref = "/fiscal", actions, showActions = true }: { data: DanfeViewData; exitHref?: string; actions?: ReactNode; showActions?: boolean }) {
-  const pages = paginateDanfeItems(data.itensDisplay);
+  const fallbackPages = paginateDanfeItems(data.itensDisplay);
   const showRtc = data.itensDisplay.some((item) => item.cst_ibs_cbs || item.cst_is);
   const filename = `danfe-nfe-${String(data.nfe.numero).padStart(9, "0")}.pdf`;
+  const [fontScale, setFontScale] = useState<DanfeFontScale>(DANFE_DEFAULT_FONT_SCALE);
+  const [fontPreferenceLoaded, setFontPreferenceLoaded] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const sourceRef = useRef<HTMLElement>(null);
+  const generatedRef = useRef<HTMLDivElement>(null);
+  useMeasuredDanfePagination({ generatedRef, rootRef, sourceRef, version: { data, fontScale } });
+
+  useEffect(() => {
+    try {
+      const savedScale = lerEscalaFonteImpressao(
+        window.localStorage.getItem(PRINT_FONT_SCALE_STORAGE_KEY),
+      );
+      if (savedScale !== null) setFontScale(savedScale);
+    } catch {
+      // O DANFE continua no tamanho padrão quando o navegador bloqueia o armazenamento.
+    } finally {
+      setFontPreferenceLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!fontPreferenceLoaded) return;
+
+    try {
+      window.localStorage.setItem(PRINT_FONT_SCALE_STORAGE_KEY, String(fontScale));
+    } catch {
+      // O tamanho continua aplicado nesta tela mesmo sem persistência.
+    }
+  }, [fontPreferenceLoaded, fontScale]);
+
+  const receipt = <div className="receipt box" data-danfe-receipt><div><b>RECEBEMOS DE {data.emitenteNome} OS PRODUTOS/SERVIÇOS CONSTANTES DA NF-e INDICADA AO LADO</b><div>DATA DE RECEBIMENTO: ____________________ &nbsp; IDENTIFICAÇÃO E ASSINATURA: __________________________________________</div></div><div>NF-e<br /><b>Nº {String(data.nfe.numero).padStart(9, "0")}</b><br />SÉRIE {String(data.nfe.serie).padStart(3, "0")}</div></div>;
+
   return <>
     <style>{DANFE_STYLES}</style>
-    <div className="danfe-page"><div className="danfe-scroll">
-      {showActions && <div className="actions">{actions ?? <DefaultActions exitHref={exitHref} filename={filename} />}</div>}
-      <div className="danfe-wrapper">
-        {pages.map((items, index) => <section className="danfe-sheet" key={index}>
-          {index === 0 && <div className="receipt box"><div><b>RECEBEMOS DE {data.emitenteNome} OS PRODUTOS/SERVIÇOS CONSTANTES DA NF-e INDICADA AO LADO</b><div>DATA DE RECEBIMENTO: ____________________ &nbsp; IDENTIFICAÇÃO E ASSINATURA: __________________________________________</div></div><div>NF-e<br /><b>Nº {String(data.nfe.numero).padStart(9, "0")}</b><br />SÉRIE {String(data.nfe.serie).padStart(3, "0")}</div></div>}
-          <Header data={data} page={index + 1} totalPages={pages.length} />
+    <div className="danfe-page" style={{ "--danfe-font-scale": fontScale } as CSSProperties}><div className="danfe-scroll">
+      {showActions && <div className="actions">{actions ?? <DefaultActions data={data} exitHref={exitHref} filename={filename} fontScale={fontScale} onFontScaleChange={setFontScale} />}</div>}
+      <div className="danfe-render-root" ref={rootRef}>
+        <div className="danfe-wrapper danfe-fallback">
+        {fallbackPages.map((items, index) => <section className="danfe-sheet" key={index}>
+          {index === 0 && receipt}
+          <Header data={data} page={index + 1} totalPages={fallbackPages.length} />
           {index === 0 && <FirstPageDetails data={data} />}
           <ItemsTable items={items} showRtc={showRtc} />
-          {index === pages.length - 1 && <FooterDetails data={data} />}
+          {index === fallbackPages.length - 1 && <FooterDetails data={data} />}
         </section>)}
+        </div>
+        <section aria-hidden="true" className="danfe-sheet danfe-measure-source" data-danfe-measure-source ref={sourceRef}>
+          {receipt}
+          <div className="danfe-contents-group" data-danfe-header><Header data={data} page={1} totalPages={1} /></div>
+          <div className="danfe-contents-group" data-danfe-first-details><FirstPageDetails data={data} /></div>
+          <ItemsTable items={data.itensDisplay} showRtc={showRtc} />
+          <FooterDetails data={data} />
+        </section>
+        <div className="danfe-wrapper danfe-generated" ref={generatedRef} />
       </div>
     </div></div>
   </>;
@@ -421,33 +624,43 @@ export function DanfeView({ data, exitHref = "/fiscal", actions, showActions = t
 
 const DANFE_STYLES = `
   @page { size: A4; margin: 0; }
-  .danfe-page { font-family: Arial, Helvetica, sans-serif; font-size: 7px; color:#000; background:#f3f4f6; min-height:100vh; padding:16px 0; overflow:auto; }
+  .danfe-page { --danfe-font-scale:1; font-family:Arial,Helvetica,sans-serif; font-size:calc(7px * var(--danfe-font-scale)); color:#000; background:#f3f4f6; min-height:100vh; padding:16px 0; overflow:auto; }
   .danfe-scroll { width:max-content; min-width:210mm; margin:0 auto; }
   .danfe-wrapper { display:flex; flex-direction:column; gap:12px; }
-  .danfe-sheet { position:relative; width:210mm; min-width:210mm; min-height:297mm; padding:5mm; box-sizing:border-box; background:#fff; border:1px solid #aaa; break-after:page; page-break-after:always; }
+  .danfe-sheet { position:relative; width:210mm; min-width:210mm; height:297mm; min-height:297mm; max-height:297mm; padding:5mm; box-sizing:border-box; background:#fff; border:1px solid #aaa; break-after:page; page-break-after:always; }
   .danfe-sheet:last-child { break-after:auto; page-break-after:auto; }
-  .actions { display:flex; gap:8px; justify-content:flex-end; align-items:center; width:210mm; margin-bottom:8px; }
+  .danfe-contents-group,.footer-details { display:contents; }
+  .danfe-measure-source { position:absolute; left:-100000px; top:0; visibility:hidden; pointer-events:none; }
+  .danfe-generated { display:none; }
+  .danfe-generated.is-measuring { position:absolute; left:-100000px; top:0; display:flex; visibility:hidden; pointer-events:none; }
+  .danfe-render-root[data-danfe-pagination-ready]>.danfe-fallback { display:none; }
+  .danfe-render-root[data-danfe-pagination-ready]>.danfe-generated { display:flex; }
+  .actions { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; align-items:center; width:210mm; margin-bottom:8px; }
   .exit-link { display:inline-flex; height:32px; align-items:center; padding:0 12px; border:1px solid #ddd; border-radius:6px; background:#fff; color:#111827; font:500 14px system-ui; text-decoration:none; }
-  .box { border:1px solid #000; box-sizing:border-box; }
+  .font-size-control { display:flex; align-items:center; gap:4px; }
+  .font-size-control button { min-width:38px; }
+  .font-size-symbol { font:700 14px/1 system-ui; }
+  .font-size-value { min-width:72px; color:#111827; font:600 12px/1 system-ui; text-align:center; }
+  .box { min-width:0; border:1px solid #000; box-sizing:border-box; }
   .receipt { display:grid; grid-template-columns:1fr 30mm; margin-bottom:2mm; min-height:17mm; }
-  .receipt>div { padding:2mm; }
-  .receipt>div+div { border-left:1px solid #000; text-align:center; font-size:9px; }
+  .receipt>div { min-width:0; padding:2mm; overflow-wrap:anywhere; }
+  .receipt>div+div { border-left:1px solid #000; text-align:center; font-size:calc(9px * var(--danfe-font-scale)); }
   .header-grid { display:grid; grid-template-columns:67mm 34mm 1fr; min-height:40mm; }
-  .header-grid>div { padding:1.5mm; }
+  .header-grid>div { min-width:0; padding:1.5mm; overflow-wrap:anywhere; }
   .header-grid>div+div { border-left:1px solid #000; }
-  .issuer { font-size:8px; line-height:1.35; }
-  .issuer>strong { display:block; font-size:11px; margin:2mm 0 1mm; text-align:center; }
-  .danfe-title { display:flex; flex-direction:column; align-items:center; text-align:center; gap:1mm; }
-  .danfe-title>b { font-size:18px; }
-  .danfe-title>span:first-of-type { font-size:8px; font-weight:700; }
+  .issuer { min-width:0; font-size:calc(8px * var(--danfe-font-scale)); line-height:1.35; overflow-wrap:anywhere; }
+  .issuer>strong { display:block; font-size:calc(11px * var(--danfe-font-scale)); margin:2mm 0 1mm; text-align:center; }
+  .danfe-title { min-width:0; display:flex; flex-direction:column; align-items:center; text-align:center; gap:1mm; overflow-wrap:anywhere; }
+  .danfe-title>b { font-size:calc(18px * var(--danfe-font-scale)); }
+  .danfe-title>span:first-of-type { font-size:calc(8px * var(--danfe-font-scale)); font-weight:700; }
   .access-key { overflow:hidden; }
   .barcode { display:block; width:100%; height:13mm; margin-bottom:1mm; }
   .barcode-error { height:13mm; display:flex; align-items:center; justify-content:center; border:1px dashed #000; font-weight:700; }
-  .key { font:700 8px 'Courier New', monospace; letter-spacing:.4px; white-space:nowrap; }
-  .tiny { font-size:6px; line-height:1.2; margin-top:1mm; }
+  .key { font-weight:700; font-size:calc(8px * var(--danfe-font-scale)); font-family:'Courier New',monospace; letter-spacing:.4px; overflow-wrap:anywhere; }
+  .tiny { font-size:calc(6px * var(--danfe-font-scale)); line-height:1.2; margin-top:1mm; }
   .center { text-align:center; }
-  .field-label,.block-title { font-size:6px; font-weight:700; text-transform:uppercase; }
-  .field-value { margin-top:.7mm; font-size:7px; min-height:3mm; overflow-wrap:anywhere; }
+  .field-label,.block-title { font-size:calc(6px * var(--danfe-font-scale)); font-weight:700; text-transform:uppercase; }
+  .field-value { margin-top:.7mm; font-size:calc(7px * var(--danfe-font-scale)); min-height:3mm; overflow-wrap:anywhere; }
   .cell { min-width:0; padding:1mm; }
   .ide-grid { display:grid; grid-template-columns:2fr 2fr 1fr 1.25fr 1.35fr; margin-top:1mm; }
   .ide-grid>.cell+.cell,.recipient-grid>.cell:not(:nth-child(3n+1)),.totals-grid>.cell:not(:nth-child(7n+1)),.other-totals>.cell+.cell,.rtc-totals>.cell+.cell,.transport-grid>.cell:not(:nth-child(6n+1)),.issqn>.cell+.cell { border-left:1px solid #000; }
@@ -462,22 +675,23 @@ const DANFE_STYLES = `
   .transport-grid>.cell:nth-child(n+7) { border-top:1px solid #000; }
   .items-block { margin-top:1.5mm; }
   .section-title { padding:1mm; border-bottom:1px solid #000; }
-  .items-table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:5.8px; }
+  .items-table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:calc(5.8px * var(--danfe-font-scale)); }
   .items-table th,.items-table td { border-right:1px solid #000; border-bottom:1px solid #000; padding:.7mm .5mm; vertical-align:top; overflow-wrap:anywhere; }
   .items-table th:last-child,.items-table td:last-child { border-right:0; }
   .items-table tr:last-child td { border-bottom:0; }
-  .items-table th { text-transform:uppercase; font-size:5.2px; }
+  .items-table th { text-transform:uppercase; font-size:calc(5.2px * var(--danfe-font-scale)); }
   .items-table .description { width:25%; text-align:left; }
-  .items-table .number { text-align:right; white-space:nowrap; }
-  .tax-detail { display:block; font-size:5px; margin-top:.5mm; font-weight:400; }
-  .rtc-table { border-top:1px solid #000; font-size:5.2px; }
-  .billing,.payments { display:flex; flex-wrap:wrap; }
+  .items-table .number { text-align:right; white-space:normal; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
+  .tax-detail { display:block; font-size:calc(5px * var(--danfe-font-scale)); margin-top:.5mm; font-weight:400; }
+  .rtc-table { border-top:1px solid #000; font-size:calc(5.2px * var(--danfe-font-scale)); }
+  .billing,.payments { display:flex; min-width:0; flex-wrap:wrap; }
   .billing>.cell,.payments>.cell { flex:1 1 35mm; border-right:1px solid #000; }
   .issqn { display:grid; grid-template-columns:repeat(4,1fr); }
-  .footer-grid { display:grid; grid-template-columns:2fr 1fr; gap:1mm; margin-top:1.5mm; }
+  .footer-segment { min-width:0; break-inside:avoid; page-break-inside:avoid; }
+  .footer-grid { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:1mm; margin-top:1.5mm; }
   .footer-box { min-height:22mm; padding:1.5mm; white-space:pre-wrap; overflow-wrap:anywhere; }
   .fallback-warning { margin-top:1mm; font-weight:700; }
-  .fiscal-warning { border:2px solid #000; padding:1mm; margin-bottom:1mm; text-align:center; font-size:9px; font-weight:800; }
+  .fiscal-warning { border:2px solid #000; padding:1mm; margin-bottom:1mm; text-align:center; font-size:calc(9px * var(--danfe-font-scale)); font-weight:800; }
   @media(max-width:767px){ .danfe-scroll{margin:0;padding:0 12px}.actions{position:sticky;left:12px;z-index:3;width:calc(100vw - 24px);justify-content:flex-start}.danfe-page{padding:12px 0} }
-  @media print { .danfe-page{background:#fff;padding:0;overflow:visible}.danfe-scroll{width:auto;min-width:0;margin:0}.actions{display:none}.danfe-wrapper{display:block;gap:0}.danfe-sheet{border:0;margin:0;width:210mm;min-width:210mm;height:297mm;min-height:297mm} }
+  @media print { .danfe-page{background:#fff;padding:0;overflow:visible}.danfe-scroll{width:auto;min-width:0;margin:0}.actions{display:none}.danfe-wrapper{display:block;gap:0}.danfe-measure-source{display:none}.danfe-sheet{border:0;margin:0;width:210mm;min-width:210mm;height:297mm;min-height:297mm;max-height:297mm} }
 `;

@@ -68,6 +68,7 @@ import { normalizarIndIEDest, sugerirIndIEDest } from "@/lib/nfe/indIEDest";
 import { MODELO_NFE, MODELO_NFCE, rotuloModelo } from "@/lib/nfe/modeloDocumento";
 import { PB_NFCE_PISO_IDENTIFICACAO } from "@/lib/nfe/fiscalRules";
 import type { ModeloDocumentoFiscal } from "@/lib/nfe/types";
+import { NFE_XNOME_MAX_LENGTH, sanitizeString } from "@/lib/nfe/xmlUtils";
 import { ConfirmarIndicadorIe } from "@/components/fiscal/confirmar-indicador-ie";
 
 import {
@@ -802,6 +803,11 @@ export function GerarNotaDeOsDialog({
     if (isNfce) return validarConsumidorNfce(consumidorDoc, selectedTotal, setup?.empresa?.uf);
     return validateFiscalCustomer(source?.cliente);
   }, [origin, source?.cliente, isNfce, consumidorDoc, selectedTotal, setup?.empresa?.uf]);
+  const customerNameWillTruncate =
+    !isNfce &&
+    (origin === "OS" || origin === "VENDA") &&
+    sanitizeString(source?.cliente?.nomerazaosocial ?? source?.cliente?.nome).length >
+      NFE_XNOME_MAX_LENGTH;
   const transportErrors = useMemo(() => {
     // NFC-e sai sempre sem ocorrência de transporte.
     if (isNfce) return [];
@@ -1537,6 +1543,11 @@ export function GerarNotaDeOsDialog({
                           )}
                         </div>
                         <p className="break-words text-sm">{source.cliente.nomerazaosocial || source.cliente.nome}</p>
+                        {customerNameWillTruncate ? (
+                          <p className="text-xs text-amber-600 dark:text-amber-400">
+                            O nome será reduzido para {NFE_XNOME_MAX_LENGTH} caracteres no XML da NF-e.
+                          </p>
+                        ) : null}
                         <p className="text-xs text-muted-foreground">
                           {source.cliente.endereco
                             ? `${source.cliente.endereco}, ${source.cliente.endereconumero || "S/N"} · ${source.cliente.cidade || "Cidade pendente"}/${source.cliente.estado || "UF"}`

@@ -198,6 +198,12 @@ export interface Transaction {
   valor_baixado?: number | null;
   /** Nesta linha o dinheiro de uma baixa parcial daquele título. */
   baixa_de_transacao_id?: number | null;
+  /**
+   * Transferência entre contas próprias de que esta linha é uma das pernas. As
+   * duas carregam o mesmo número; a de DESPESA está na origem e a de RECEITA no
+   * destino.
+   */
+  transferencia_id?: number | null;
   /** Nas parcelas de uma antecipação, aponta para o adiantamento. */
   adiantamento_id?: number | null;
   /** `true` no lançamento que representa o movimento único da antecipação. */

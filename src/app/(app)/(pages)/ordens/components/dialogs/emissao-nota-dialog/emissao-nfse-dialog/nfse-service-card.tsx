@@ -10,6 +10,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { descricaoComplementarDoItem } from "@/lib/services/fiscais/nfse-service";
 import { cn } from "@/lib/utils";
 import type { ServicoOS } from "./types";
 
@@ -107,6 +108,14 @@ export function NfseServiceCard({
   const isAuthorized = status.label === "Autorizada";
   const canSelect = !loading && !isProcessing && !isAuthorized && !hasPendingData;
   const rejectionMessage = status.label === "Rejeitada" ? getMensagemErro(servico.notaFiscalErros) : null;
+  // O texto escrito na linha da OS, que a nota leva abaixo do nome do serviço.
+  const descricaoDoItem = descricaoComplementarDoItem(servico.descricao, servico.servico?.descricao);
+  // Desconto que a OS reservou para este serviço. Não é abatido sozinho — quem
+  // emite decide se digita o líquido no campo de valor da revisão.
+  const descontoDoServico = Number(
+    (Math.max(0, Number(servico.descontoItem ?? 0)) + Math.max(0, Number(servico.descontoRateado ?? 0))).toFixed(2),
+  );
+  const valorLiquido = Number(servico.valorLiquidoSugerido ?? 0);
   const checkboxId = `nfse-servico-${servico.servicoid}`;
 
   return (
@@ -136,6 +145,11 @@ export function NfseServiceCard({
             <h3 className="truncate text-sm font-semibold text-foreground">
               {servico.servico?.descricao?.trim() || "Descrição não cadastrada"}
             </h3>
+            {descricaoDoItem && (
+              <p className="mt-1 line-clamp-2 max-w-[72ch] text-xs leading-relaxed text-muted-foreground">
+                {descricaoDoItem}
+              </p>
+            )}
             <p className="mt-1 text-xs text-muted-foreground">
               Serviço #{servico.servicoid}
               {hasValidValue ? ` · ${quantidade} × ${BRL_FORMATTER.format(precoUnitario)}` : " · valor original pendente"}
@@ -174,6 +188,13 @@ export function NfseServiceCard({
             <p className={cn("mt-1 text-base font-bold tabular-nums", total === null && "text-muted-foreground")}>
               {total === null ? "Definir na revisão" : BRL_FORMATTER.format(total)}
             </p>
+            {descontoDoServico > 0 && (
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                Desconto da OS: <b className="text-foreground">- {BRL_FORMATTER.format(descontoDoServico)}</b>
+                {" · líquido "}
+                {BRL_FORMATTER.format(valorLiquido)}
+              </p>
+            )}
           </div>
 
           <div className="flex min-h-11 items-center gap-3 border px-3">

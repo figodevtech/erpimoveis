@@ -7,7 +7,7 @@ import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { formatCpfCnpj } from "@/lib/nfe/recipientNormalization";
 import formatarTelefone from "@/utils/formatarTelefone";
 import { cn } from "@/lib/utils";
-import { ExternalLink, FileText, Mail, MapPin, Phone, User2 } from "lucide-react";
+import { ExternalLink, FileText, Mail, MapPin, Phone, Send, User2 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import type { ComponentType, ReactNode } from "react";
 
@@ -174,7 +174,7 @@ export function ClienteResumoCard({
             {nome}
           </p>
 
-          {tipoPessoa || status || rank ? (
+          {tipoPessoa || status || rank || telefoneBruto ? (
             <div className="mt-1.5 flex flex-wrap items-center gap-1">
               {tipoPessoa ? (
                 <Badge variant="secondary" className="text-[10px]">
@@ -183,6 +183,19 @@ export function ClienteResumoCard({
               ) : null}
               {status ? (
                 <Badge className={cn("text-[10px]", statusClasses[status] ?? "")}>{status}</Badge>
+              ) : null}
+              {telefoneBruto ? (
+                <a
+                  href={`https://wa.me/55${telefoneBruto.replace(/\D/g, "")}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="Conversar no WhatsApp"
+                  onClick={(event) => event.stopPropagation()}
+                  className="flex w-max items-center gap-1 rounded-md bg-primary px-2 py-0.5 text-[10px] text-primary-foreground hover:bg-primary/90"
+                >
+                  WhatsApp
+                  <Send className="h-2.5 w-2.5" />
+                </a>
               ) : null}
               {rank ? (
                 <Badge variant="outline" className={cn("text-[10px]", rankClasses[rank] ?? "")}>

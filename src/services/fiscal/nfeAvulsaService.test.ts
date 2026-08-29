@@ -196,17 +196,27 @@ describe("emissão avulsa: destinatário e transporte", () => {
     assert.deepEqual(validarDraftAvulso(draft), []);
   });
 
-  it("cobra os dados da transportadora quando o frete é contratado", () => {
+  it("aceita frete por conta do remetente sem transportadora informada", () => {
+    // Caso real: nota de garantia autorizada pela SEFAZ com modFrete=0 e
+    // nenhum dado de transportadora — o grupo <transporta> é opcional no
+    // layout da NF-e independente do modFrete.
     const draft = draftBase({ transporte: { modFrete: "0" } });
+
+    assert.deepEqual(
+      validarDraftAvulso(draft).filter((erro) => erro.step === "transport"),
+      [],
+    );
+  });
+
+  it("cobra os dados da transportadora quando algum campo dela é preenchido pela metade", () => {
+    const draft = draftBase({
+      transporte: { modFrete: "0", transportadora: { nome: "TRANSPORTES TESTE LTDA" } },
+    });
     const campos = validarDraftAvulso(draft)
       .filter((erro) => erro.step === "transport")
       .map((erro) => erro.field);
 
-    assert.deepEqual(campos.sort(), [
-      "transportadora.documento",
-      "transportadora.nome",
-      "transportadora.uf",
-    ]);
+    assert.deepEqual(campos.sort(), ["transportadora.documento", "transportadora.uf"]);
   });
 
   it("aceita frete contratado com a transportadora completa", () => {
@@ -238,6 +248,107 @@ describe("emissão avulsa: destinatário e transporte", () => {
     });
 
     assert.equal(erros(draft, "consumidorFinal").length, 1);
+  });
+});
+
+describe("emissão avulsa: entrega/retirada", () => {
+  function entregaCompleta(overrides: Partial<NonNullable<Draft["entrega"]>> = {}) {
+    return {
+      habilitado: true,
+      tipoPessoa: "FISICA" as const,
+      cpfCnpj: "12345678909",
+      nome: "Gustavo Guarnieri Guarnieri",
+      endereco: "AVENIDA RIO DE JANEIRO",
+      numero: "SN",
+      complemento: "RETIRADA EM AEROPORTO",
+      bairro: "PARQUE JOAO BRAZ",
+      cidade: "GOIANIA",
+      estado: "GO",
+      cep: "74483500",
+      codigoMunicipio: "5208707",
+      ...overrides,
+    };
+  }
+
+  it("não acusa pendência quando a entrega não foi habilitada", () => {
+    assert.deepEqual(validarDraftAvulso(draftBase()), []);
+  });
+
+  it("aceita entrega/retirada com todos os dados preenchidos", () => {
+    const draft = draftBase({ entrega: entregaCompleta() });
+    assert.deepEqual(
+      validarDraftAvulso(draft).filter((erro) => erro.step === "delivery"),
+      [],
+    );
+  });
+
+  it("cobra os dados obrigatórios quando a entrega é habilitada vazia", () => {
+    const draft = draftBase({ entrega: { habilitado: true } });
+    const campos = validarDraftAvulso(draft)
+      .filter((erro) => erro.step === "delivery")
+      .map((erro) => erro.field);
+
+    assert.deepEqual(campos.sort(), [
+      "entrega.bairro",
+      "entrega.cidade",
+      "entrega.codigoMunicipio",
+      "entrega.cpfCnpj",
+      "entrega.endereco",
+      "entrega.estado",
+      "entrega.nome",
+      "entrega.numero",
+    ]);
+  });
+
+  it("recusa CPF inválido da pessoa indicada", () => {
+    const draft = draftBase({ entrega: entregaCompleta({ cpfCnpj: "11111111111" }) });
+    const campos = validarDraftAvulso(draft)
+      .filter((erro) => erro.step === "delivery")
+      .map((erro) => erro.field);
+
+    assert.deepEqual(campos, ["entrega.cpfCnpj"]);
+  });
+
+  it("recusa código IBGE do município fora do padrão", () => {
+    const draft = draftBase({ entrega: entregaCompleta({ codigoMunicipio: "123" }) });
+    const campos = validarDraftAvulso(draft)
+      .filter((erro) => erro.step === "delivery")
+      .map((erro) => erro.field);
+
+    assert.deepEqual(campos, ["entrega.codigoMunicipio"]);
+  });
+
+  it("aceita CEP vazio, mas recusa CEP incompleto", () => {
+    const semCep = draftBase({ entrega: entregaCompleta({ cep: "" }) });
+    assert.deepEqual(
+      validarDraftAvulso(semCep).filter((erro) => erro.field === "entrega.cep"),
+      [],
+    );
+
+    const cepIncompleto = draftBase({ entrega: entregaCompleta({ cep: "1234" }) });
+    assert.equal(
+      validarDraftAvulso(cepIncompleto).filter((erro) => erro.field === "entrega.cep").length,
+      1,
+    );
+  });
+
+  it("aceita entrega em UF diferente do destinatário sem transportadora — nota de garantia da Demir", () => {
+    // Destinatário fiscal em MT, retirada física em GO por terceiro, frete
+    // por conta do remetente (modFrete=0) sem transportadora contratada.
+    const draft = draftBase({
+      destinatario: {
+        ...draftBase().destinatario,
+        cpfCnpj: "39838572000180",
+        nomeRazaoSocial: "DIESEL TEC LTDA",
+        cidade: "CONFRESA",
+        estado: "MT",
+        codigoMunicipio: "5103353",
+      },
+      transporte: { modFrete: "0" },
+      entrega: entregaCompleta(),
+    });
+
+    assert.deepEqual(validarDraftAvulso(draft), []);
   });
 });
 

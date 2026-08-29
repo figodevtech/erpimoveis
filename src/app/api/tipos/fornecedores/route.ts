@@ -3,6 +3,10 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { requireAuthenticated } from "@/app/api/_authz/perms";
+import {
+  hasValidCpfCnpjLength,
+  onlyFiscalDigits,
+} from "@/lib/nfe/recipientNormalization";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 
@@ -200,17 +204,26 @@ export async function POST(req: Request) {
       contato?: string | null;
     } = body ?? {};
 
-      if (!nomerazaosocial?.trim()) {
-        return NextResponse.json(
-          { error: "Razão Social ou Nome é obrigatória." },
-          { status: 400 }
-        );
-      }
+    const documento = onlyFiscalDigits(cpfcnpj);
+
+    if (!hasValidCpfCnpjLength(documento)) {
+      return NextResponse.json(
+        { error: "Digite um CPF ou CNPJ válido." },
+        { status: 400 }
+      );
+    }
+
+    if (!nomerazaosocial?.trim()) {
+      return NextResponse.json(
+        { error: "Razão Social ou Nome é obrigatória." },
+        { status: 400 }
+      );
+    }
 
     const now = new Date().toISOString();
 
     const payload = {
-      cpfcnpj: cpfcnpj?.trim(),
+      cpfcnpj: documento,
       nomerazaosocial: nomerazaosocial.trim(),
       nomefantasia: nomefantasia?.trim() || null,
       endereco: endereco?.trim() || null,

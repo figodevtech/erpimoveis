@@ -1,5 +1,6 @@
 import { Transaction } from "../(financeiro)/fluxodecaixa/types";
 import type { PlannedPayment } from "@/lib/payment-methods";
+import type { OrdemVehicleSnapshot } from "@/lib/ordens/vehicle-snapshot";
 
 export type ID = number | string;
 
@@ -38,12 +39,13 @@ export type Cliente = {
 };
 
 export type Veiculo = {
-  id: number;
+  id: number | null;
   placa: string;
   modelo: string;
   marca?: string;
   ano?: number | null;
   clienteid?: number;
+  historico?: boolean;
 };
 
 export type Peca = {
@@ -80,6 +82,8 @@ export type Ordem = {
   garantia?: string | null;
   cliente?: Cliente | null;
   veiculo?: Veiculo | null;
+  veiculo_snapshot?: OrdemVehicleSnapshot | null;
+  migracaoReferencia?: string | null;
   peca?: Peca | null
   equipamento?: Equipamento | null;
   checklistTemplateId?: string | null;
@@ -95,6 +99,8 @@ export type Ordem = {
   destaque_cor?: "vermelho" | "amarelo" | string | null;
   destacada_por?: string | null;
   destacada_em?: string | null;
+  pagamentoConcluidoEm?: string | null;
+  finalizadoEm?: string | null;
   transacoes: Transaction[] | null
   is_deleted?: boolean
   created_at?: Date

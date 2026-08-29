@@ -102,34 +102,6 @@ function BlocoDeValores({
   const bruto = Number(form.valor ?? 0);
   const temLiquido = tipoTemValorLiquido(form.tipo);
 
-  if (!temLiquido) {
-    return (
-      <div className="space-y-2 sm:col-span-3 sm:max-w-xs">
-        <Label htmlFor="valor-bruto" className="flex items-center gap-1.5">
-          Valor
-          <Lock className="h-3 w-3 text-muted-foreground" aria-hidden />
-        </Label>
-        <ValueInput id="valor-bruto" disabled value={bruto} />
-        <p className="text-xs text-muted-foreground">
-          {form.tipo === Tipo_transacao.DESPESA
-            ? "Lançamentos de despesa não têm taxa de recebimento."
-            : "Este tipo de lançamento não tem valor líquido."}
-        </p>
-      </div>
-    );
-  }
-
-  // Com o líquido travado o número vem dos descontos, não do que está guardado:
-  // digitar um bruto novo muda o líquido junto, e o guardado ainda é o do bruto
-  // anterior. É o mesmo número que o gatilho vai gravar.
-  const liquido = valorLiquidoEmEdicao(form, liquidoTravado);
-  // Havendo linha lançada, o número vem dela — é exato e diz o que era. A
-  // subtração continua valendo para o que foi criado antes de existirem linhas.
-  const descontosLancados = Number(form.valor_descontos ?? 0);
-  const temDescontoLancado = Number.isFinite(descontosLancados) && descontosLancados > 0;
-  const taxa = temDescontoLancado ? descontosLancados : Math.max(0, bruto - liquido);
-  const excedeBruto = paraCentavos(liquido) > paraCentavos(bruto);
-
   /*
    * Com acréscimo lançado, "valor bruto" fica ambíguo — e a ambiguidade estraga
    * o lançamento em silêncio.
@@ -147,7 +119,74 @@ function BlocoDeValores({
   const acrescimosLancados = Number(form.valor_acrescimos ?? 0);
   const brutoTravadoPorAcrescimo =
     Number.isFinite(acrescimosLancados) && acrescimosLancados > 0;
-  const brutoEditavel = permiteEditarValor && !brutoTravadoPorAcrescimo;
+  /*
+   * `permiteRateio` não basta para saber se há documento por trás.
+   *
+   * Ele nasce de `contexto.relacionadas.origem`, que só conhece OS, VENDA e
+   * PARCELAMENTO — entrada de estoque e uso e consumo saem de lá como "NENHUM".
+   * Como as duas geram DESPESA, e despesa nunca chegava ao campo editável, a
+   * diferença não aparecia. Perguntar à `origemDaTransacao`, que é a mesma
+   * pergunta que o salvamento faz para decidir se manda o bruto, fecha isso:
+   * mudar o valor de uma compra que virou estoque descolaria a transação da nota
+   * e do custo, e o campo aberto nem salvaria — `use-transacao-edicao` descarta o
+   * bruto de transação com origem.
+   */
+  const brutoTemDocumento = permiteRateio || origemDaTransacao(form) != null;
+  /*
+   * Vale para os quatro tipos, e é por isso que fica antes do desvio abaixo.
+   *
+   * Despesa e depósito caíam no `return` de campo único com `disabled` literal,
+   * sem consultar `permiteEditarValor`: uma conta a pagar avulsa — sem OS, venda
+   * ou entrada a preservar — não tinha nenhum caminho de correção pela tela, e o
+   * texto de ajuda falava de taxa de recebimento, como se o cadeado fosse outro
+   * assunto. O servidor sempre aceitou esse ajuste (`/ajustar-valores` só exige
+   * a soma constante quando há documento); a trava era só daqui.
+   */
+  const brutoEditavel =
+    permiteEditarValor && !brutoTravadoPorAcrescimo && !brutoTemDocumento;
+
+  if (!temLiquido) {
+    return (
+      <div className="space-y-2 sm:col-span-3 sm:max-w-xs">
+        <Label htmlFor="valor-bruto" className="flex items-center gap-1.5">
+          Valor
+          {brutoEditavel ? null : (
+            <Lock className="h-3 w-3 text-muted-foreground" aria-hidden />
+          )}
+        </Label>
+        <ValueInput
+          id="valor-bruto"
+          disabled={!brutoEditavel}
+          value={bruto}
+          onValueChange={
+            brutoEditavel ? (valor) => setCampo("valor", valor) : undefined
+          }
+        />
+        <p className="text-xs text-muted-foreground">
+          {brutoTravadoPorAcrescimo
+            ? `Inclui ${formatarEmReal(acrescimosLancados)} de acréscimo. Para mudar o valor, ajuste a linha na aba Acréscimos e descontos.`
+            : permiteRateio
+              ? "É o que abate o documento de origem. Para redividir entre as parcelas, use a aba Parcelas."
+              : origemDaTransacao(form) != null
+                ? `Vem da ${rotuloDaOrigem(origemDaTransacao(form)!)} e acompanha ela. Corrija o valor no documento.`
+                : form.tipo === Tipo_transacao.DESPESA
+                  ? "Lançamentos de despesa não têm taxa de recebimento."
+                  : "Este tipo de lançamento não tem valor líquido."}
+        </p>
+      </div>
+    );
+  }
+
+  // Com o líquido travado o número vem dos descontos, não do que está guardado:
+  // digitar um bruto novo muda o líquido junto, e o guardado ainda é o do bruto
+  // anterior. É o mesmo número que o gatilho vai gravar.
+  const liquido = valorLiquidoEmEdicao(form, liquidoTravado);
+  // Havendo linha lançada, o número vem dela — é exato e diz o que era. A
+  // subtração continua valendo para o que foi criado antes de existirem linhas.
+  const descontosLancados = Number(form.valor_descontos ?? 0);
+  const temDescontoLancado = Number.isFinite(descontosLancados) && descontosLancados > 0;
+  const taxa = temDescontoLancado ? descontosLancados : Math.max(0, bruto - liquido);
+  const excedeBruto = paraCentavos(liquido) > paraCentavos(bruto);
 
   return (
     <div className="grid gap-3 sm:col-span-3 sm:grid-cols-3">

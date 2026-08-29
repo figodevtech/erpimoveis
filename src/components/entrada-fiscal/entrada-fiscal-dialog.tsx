@@ -1,6 +1,7 @@
 "use client";
 
 import axios, { isAxiosError } from "axios";
+import { escopoDeEntradaDe, type UsoConsumoEscopo } from "@/lib/usoconsumo/escopo";
 import { addMonths, format } from "date-fns";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -13,6 +14,7 @@ import {
   Pencil,
   Plus,
   ReceiptText,
+  Scale,
   Search,
   TriangleAlert,
   Truck,
@@ -50,7 +52,17 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/lib/toast";
+import { paraCentavos } from "@/lib/financeiro/rateio";
 import { totalDasDuplicatas } from "@/lib/nfe/duplicatas";
+import { componentesDoTotal } from "@/lib/nfe/totais-nfe";
+import { ROTULO_DO_TRATAMENTO } from "@/lib/nfe/tratamento-custo";
+import { apropriarValorFiscal } from "@/lib/nfe/valor-fiscal-entrada";
+import {
+  conferirIdentidade,
+  lancamentosDreDaEntrada,
+  payloadDosLancamentos,
+  type FonteDosLancamentos,
+} from "@/lib/nfe/lancamento-dre-entrada";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { formatDate } from "@/utils/formatDate";
 
@@ -75,17 +87,41 @@ import type { UsoConsumoGrupo, UsoConsumoItem } from "@/types/usoconsumo";
 import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
 
 import {
-  DESTINO_LABEL,
   apenasDigitos,
   linhaVinculada,
   rotuloVinculo,
   totalDaLinha,
   unidadeNormalizada,
   type DestinoEntrada,
+  DESTINO_LABEL,
+  ehEstoqueSimples,
   type LinhaFiscal,
   type NotaFiscalParseada,
   type Parcela,
 } from "./types";
+
+/*
+ * A decomposição do `vNF` no cabeçalho, na ordem em que se lê uma nota. Os
+ * informativos (ICMS próprio, PIS, COFINS, `vTotTrib`) ficam de fora de
+ * propósito: mostrá-los ao lado dos acréscimos convida a somá-los.
+ */
+const ROTULO_DA_COMPOSICAO = {
+  produtos: "Produtos",
+  desconto: "Desconto",
+  icmsDesonerado: "ICMS desonerado",
+  frete: "Frete",
+  seguro: "Seguro",
+  outrasDespesas: "Outras despesas",
+  icmsST: "ICMS-ST",
+  fcpST: "FCP-ST",
+  icmsMonoReten: "ICMS mono. retido",
+  impostoImportacao: "Imp. importação",
+  ipi: "IPI",
+  ipiDevolvido: "IPI devolvido",
+  servicos: "Serviços",
+  pisST: "PIS-ST",
+  cofinsST: "COFINS-ST",
+} as const;
 
 type DuplicidadeUsoConsumo = {
   id: number;
@@ -102,12 +138,18 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   /** Pré-carrega uma NF-e já recebida (usado pela tela de notas fiscais recebidas). */
   notaFiscalRecebidaId?: number;
+  /**
+   * Estoque simples usado como padrao quando a linha ainda nao tem destino — por
+   * exemplo, ao cadastrar um item novo antes de escolher. NAO restringe: os tres
+   * destinos ficam sempre disponiveis, venha o dialogo de onde vier.
+   */
+  escopo?: UsoConsumoEscopo;
   /** Restringe os destinos oferecidos. Padrão: os dois. */
   destinosPermitidos?: DestinoEntrada[];
   onSaved?: () => void | Promise<void>;
 };
 
-const TODOS_DESTINOS: DestinoEntrada[] = ["ESTOQUE", "USOCONSUMO"];
+const TODOS_DESTINOS: DestinoEntrada[] = ["ESTOQUE", "USOCONSUMO", "GERAL"];
 
 /**
  * "2026-09-10" → "10/09/2026".
@@ -134,6 +176,7 @@ export function EntradaFiscalDialog({
   onOpenChange,
   notaFiscalRecebidaId,
   destinosPermitidos = TODOS_DESTINOS,
+  escopo = "USOCONSUMO",
   onSaved,
 }: Props) {
   const [parsed, setParsed] = useState<NotaFiscalParseada | null>(null);
@@ -194,7 +237,12 @@ export function EntradaFiscalDialog({
     () => parsed?.itens.filter((linha) => !linha.destinoApropriado) ?? [],
     [parsed],
   );
-  const totalDestinado = useMemo(
+  /*
+   * Custo de estoque das linhas: a regra do ERP, que soma o que veio NA linha.
+   * É o que vai para `entradaitens` e para o preço de compra do produto — e NÃO
+   * é o valor fiscal da nota.
+   */
+  const custoDestinado = useMemo(
     () =>
       Number(
         linhasDisponiveis
@@ -207,51 +255,195 @@ export function EntradaFiscalDialog({
     () => linhasDisponiveis.filter((linha) => linha.destino === "ESTOQUE"),
     [linhasDisponiveis],
   );
+  // As duas metades simples vao para a MESMA entrada: elas dividem a tabela, e uma
+  // NF-e nao pode virar duas entradas (a chave e unica globalmente).
   const linhasUsoConsumo = useMemo(
-    () => linhasDisponiveis.filter((linha) => linha.destino === "USOCONSUMO"),
+    () => linhasDisponiveis.filter((linha) => ehEstoqueSimples(linha.destino)),
     [linhasDisponiveis],
   );
-  /*
-   * Frete que o emitente não repartiu entre os itens.
-   *
-   * O custo de entrada de cada linha soma o `vFrete` DELA (`totalDaLinha`), e é
-   * assim que o frete chega ao preço de compra do produto. Quando a nota declara
-   * frete só em `ICMSTot/vFrete` — comum em CIF —, esse valor não pertence a item
-   * nenhum: fica de fora do custo, mas continua dentro do `vNF` e das duplicatas.
-   *
-   * A comparação é sobre a nota toda, não sobre o que está sendo destinado agora:
-   * o frete do cabeçalho é da nota, e reparti-lo entre entradas parciais seria
-   * justamente o rateio que se decidiu não fazer.
-   */
-  const freteDaNota = Number(parsed?.totais?.valorFrete ?? 0);
-  const freteNosItensEmCentavos = useMemo(
-    () =>
-      (parsed?.itens ?? []).reduce(
-        (soma, linha) => soma + Math.round(Number(linha.valorFrete ?? 0) * 100),
-        0,
-      ),
-    [parsed?.itens],
+  /** Escopo do cabecalho da entrada: um so estoque, ou MISTO quando ha os dois. */
+  const escopoDaEntrada = useMemo(
+    () => escopoDeEntradaDe(linhasUsoConsumo.map((linha) => linha.destino as UsoConsumoEscopo)),
+    [linhasUsoConsumo],
   );
-  const freteNaoDistribuidoEmCentavos = Math.max(
-    0,
-    Math.round(freteDaNota * 100) - freteNosItensEmCentavos,
+
+  /**
+   * O cadastro de item aberto pela linha nasce no estoque daquela linha. `escopo`
+   * so entra quando a linha ainda nao tem destino escolhido.
+   */
+  const escopoDoItemEmEdicao = useMemo(() => {
+    const destino = itemDialogIndex === null ? undefined : parsed?.itens[itemDialogIndex]?.destino;
+    return ehEstoqueSimples(destino) ? destino : escopo;
+  }, [escopo, itemDialogIndex, parsed?.itens]);
+  /*
+   * A leitura fiscal da nota: produtos, descontos, acréscimos e a conferência
+   * contra o `vNF`. Ausente em resposta antiga que ficou em cache — daí o
+   * fallback para o punhado de campos que a rota sempre devolveu.
+   */
+  const composicao = parsed?.totais?.composicao;
+
+  /*
+   * O valor fiscal desta entrada — a parcela do `vNF` que ela está apropriando.
+   *
+   * Cada linha traz do parser os seus próprios componentes já classificados, com
+   * a origem (`<det>` ou só o total) e se compõem o `vNF`. Somar aqui é somar o
+   * que a nota diz, não reaplicar uma fórmula paralela: era a fórmula paralela
+   * (`qtd × unitário − desconto + frete + seguro + outras + IPI`) que deixava
+   * ICMS-ST, II, PIS-ST e companhia de fora e fazia a tela concluir que a
+   * diferença não pertencia aos itens.
+   *
+   * Os componentes que o total declara sem `<det>` são rateados nas linhas em vez
+   * de sumir — rateio para RECONCILIAR O VALOR FISCAL, que não decide nada sobre
+   * custo. Com a nota inteira, o resultado é exatamente o `vNF`.
+   */
+  const naoAlocados = useMemo(
+    () => parsed?.componentesNaoAlocados ?? [],
+    [parsed?.componentesNaoAlocados],
+  );
+  const apropriacao = useMemo(
+    () =>
+      apropriarValorFiscal(
+        linhasDisponiveis.map((linha) => ({ componentes: linha.componentesFiscais ?? [] })),
+        naoAlocados,
+      ),
+    [linhasDisponiveis, naoAlocados],
+  );
+  /*
+   * Sem `componentesFiscais` (resposta antiga em cache) a apropriação daria zero.
+   * Aí vale o custo das linhas, que era o comportamento anterior.
+   */
+  const temComponentes = linhasDisponiveis.some(
+    (linha) => (linha.componentesFiscais?.length ?? 0) > 0,
+  );
+  const valorFiscalDestinado = temComponentes
+    ? apropriacao.valorFiscalTotal
+    : custoDestinado;
+
+  /*
+   * Os componentes que compõem o `vNF` mas a política de custo não incorpora ao
+   * preço de compra. Cada um sabe de qual item veio e por qual regra ficou de
+   * fora — inclusive quando a regra é "ainda falta configuração para decidir".
+   */
+  const foraDoCusto = useMemo(() => {
+    const relevantes = [
+      ...linhasDisponiveis.flatMap((linha) => linha.componentesFiscais ?? []),
+      ...naoAlocados,
+    ];
+    return relevantes.filter(
+      (componente) =>
+        componente.compoeValorNFe &&
+        componente.tratamentoCusto !== "INTEGRA_CUSTO" &&
+        componente.tratamentoCusto !== "REDUZ_CUSTO",
+    );
+  }, [linhasDisponiveis, naoAlocados]);
+
+  /*
+   * O que desta nota entra na DRE agora — e o que continua esperando a baixa.
+   *
+   * A mercadoria não passa por aqui: ela vira estoque e chega ao resultado como
+   * CMV quando o item sair por venda ou por OS. O que entra é o imposto que a
+   * nota cobrou e que nunca vira mercadoria, então não tem saída futura para
+   * esperar: ICMS-ST, FCP-ST, imposto de importação, IPI devolvido, PIS-ST e
+   * COFINS-ST. Antes disto esse dinheiro saía do caixa e não chegava a
+   * relatório nenhum.
+   *
+   * A tela só destina itens inteiros, daí `proporcao: 1` em toda linha.
+   */
+  const fonteDosLancamentos: FonteDosLancamentos = useMemo(
+    () => ({
+      linhas: linhasDisponiveis.map((linha, indice) => ({
+        numeroItem: Number(linha.numeroItem) || null,
+        proporcao: 1,
+        componentes: linha.componentesFiscais ?? [],
+        valorFiscalDoItem:
+          (apropriacao.valorFiscalPorLinha[indice] ?? 0) - (apropriacao.cotas[indice] ?? 0),
+        custoEstoque: totalDaLinha(linha),
+      })),
+      naoAlocados,
+    }),
+    [apropriacao, linhasDisponiveis, naoAlocados],
+  );
+  const lancamentosDre = useMemo(
+    () => lancamentosDreDaEntrada(fonteDosLancamentos),
+    [fonteDosLancamentos],
+  );
+  /*
+   * Na NF-e mista os itens viram DUAS entradas, e cada uma lança os tributos dos
+   * seus próprios itens. Os valores que a nota declara sem `<det>` vão com o lado
+   * do estoque e só com ele: mandados nos dois, o mesmo imposto entraria duas
+   * vezes na DRE.
+   */
+  const tributosDoEstoque = useMemo(
+    () =>
+      payloadDosLancamentos(
+        lancamentosDreDaEntrada(fonteDosLancamentos, {
+          numerosDeItem: linhasEstoque.map((linha) => Number(linha.numeroItem) || null),
+        }),
+      ),
+    [fonteDosLancamentos, linhasEstoque],
+  );
+  const tributosDoUsoConsumo = useMemo(
+    () =>
+      payloadDosLancamentos(
+        lancamentosDreDaEntrada(fonteDosLancamentos, {
+          numerosDeItem: linhasUsoConsumo.map((linha) => Number(linha.numeroItem) || null),
+          incluirNaoAlocados: false,
+        }),
+      ),
+    [fonteDosLancamentos, linhasUsoConsumo],
   );
 
   /*
-   * O valor a pagar ao fornecedor é o da NOTA, não o custo dos itens.
+   * A prova de que nada sumiu: custo + despesas − recuperações + pendentes tem de
+   * dar o valor fiscal. `pendentes` é o que a política ainda não classifica —
+   * aparece na tela em vez de ser disfarçado de zero.
+   */
+  const conferencia = useMemo(
+    () =>
+      conferirIdentidade({
+        ...fonteDosLancamentos,
+        custoEstoqueDestinado: custoDestinado,
+        valorFiscalDestinado,
+      }),
+    [custoDestinado, fonteDosLancamentos, valorFiscalDestinado],
+  );
+
+  /*
+   * A decomposição do `vNF`, para o cabeçalho da nota: só o que a nota realmente
+   * traz. Os informativos (ICMS próprio, PIS, COFINS, `vTotTrib`) ficam de fora
+   * de propósito — mostrá-los ao lado dos acréscimos convida a somá-los.
+   */
+  const componentesDaNota = useMemo(() => {
+    if (!composicao) return [];
+    const componentes = componentesDoTotal(composicao);
+    return (Object.keys(ROTULO_DA_COMPOSICAO) as Array<keyof typeof ROTULO_DA_COMPOSICAO>)
+      .map((chave) => ({
+        rotulo: ROTULO_DA_COMPOSICAO[chave],
+        valor: componentes[chave],
+        redutor: chave === "desconto" || chave === "icmsDesonerado",
+      }))
+      .filter((linha) => linha.valor > 0);
+  }, [composicao]);
+
+  /*
+   * O valor a pagar ao fornecedor é o VALOR FISCAL apropriado, nunca o custo.
    *
-   * O frete de cabeçalho não pertence a item nenhum, mas está no `vNF` e nas
-   * duplicatas: é dívida, e as parcelas precisam cobri-la. Só entra quando esta
-   * entrada cobre a nota inteira — com parte já destinada em outra entrada, não
-   * há como saber a qual delas o frete pertence, e somá-lo nas duas o pagaria
-   * duas vezes.
+   * Com a nota inteira, isso é o `vNF` — o mesmo número das duplicatas. Com parte
+   * já destinada em outra entrada, é o valor fiscal das linhas desta entrada, e a
+   * outra parte fica com a entrada que a apropriou: nada é pago duas vezes.
+   *
+   * A regra de custo de estoque não mexe neste número. São obrigações diferentes.
    */
   const notaInteira =
     Boolean(parsed) && linhasDisponiveis.length === (parsed?.itens.length ?? 0);
-  const freteAPagarEmCentavos = notaInteira ? freteNaoDistribuidoEmCentavos : 0;
-  const totalAPagar = Number(
-    (totalDestinado + freteAPagarEmCentavos / 100).toFixed(2),
-  );
+  const valorDaNota = Number(composicao?.totalNota ?? parsed?.totais?.valorNota ?? 0);
+  // XML sem `vNF` legível não existe na prática, mas um zero aqui pediria
+  // parcelas de R$ 0,00 — nesse caso o valor apropriado é o palpite honesto.
+  const totalAPagar =
+    notaInteira && valorDaNota > 0 ? valorDaNota : valorFiscalDestinado;
+  /** O valor fiscal e o custo de estoque divergem: a tela precisa mostrar os dois. */
+  const custoDifereDoFiscal =
+    paraCentavos(valorFiscalDestinado) !== paraCentavos(custoDestinado);
 
   /*
    * A cobrança do XML: o parcelamento que o fornecedor já emitiu.
@@ -518,6 +710,8 @@ export function EntradaFiscalDialog({
     let cancelado = false;
     void axios
       .get("/api/usoconsumo/entradas/duplicidades", {
+        // `usoconsumo_entrada_chave_uk` e unico por chave globalmente: duplicidade
+        // e duplicidade em qualquer estoque.
         params: { chaveNfe: chave },
       })
       .then((resposta) => {
@@ -603,6 +797,7 @@ export function EntradaFiscalDialog({
               : String(linha.codigo || linha.descricao || "");
           const { data } = await axios.get("/api/usoconsumo/itens/select", {
             params: {
+              escopo: destino,
               search: busca,
               fornecedorId,
               codigoFornecedor: linha.codigo,
@@ -805,14 +1000,14 @@ export function EntradaFiscalDialog({
         (total, parcela) => total + parcela.valor,
         0,
       );
-      // O alvo é o que se paga ao fornecedor: os itens desta entrada mais o
-      // frete que a nota trouxe sem repartir. É o mesmo número que as RPCs
-      // conferem do outro lado, via `valorTotalDocumento`.
+      // O alvo é o valor fiscal apropriado: com a nota inteira, o `vNF`; com
+      // parte já destinada em outra entrada, o valor fiscal das linhas desta. É
+      // o mesmo número que as RPCs conferem via `valorTotalDocumento`.
       if (Math.abs(soma - totalAPagar) > 0.01) {
         return toast.error(
-          freteAPagarEmCentavos > 0
-            ? `A soma das parcelas deve ser ${formatarEmReal(totalAPagar)} — itens mais o frete da nota.`
-            : "A soma das parcelas deve ser igual ao valor destinado.",
+          notaInteira
+            ? `A soma das parcelas deve ser ${formatarEmReal(totalAPagar)} — o valor da NF-e.`
+            : `A soma das parcelas deve ser ${formatarEmReal(totalAPagar)} — o valor fiscal desta entrada.`,
         );
       }
     }
@@ -838,7 +1033,10 @@ export function EntradaFiscalDialog({
           ...comum,
           ...financeiro,
           itensProduto: itensEstoquePayload(),
+          escopo: escopoDaEntrada,
           itensUsoConsumo: itensUsoConsumoPayload(),
+          tributosProduto: tributosDoEstoque,
+          tributosUsoConsumo: tributosDoUsoConsumo,
         });
       } else if (linhasEstoque.length) {
         await axios.post("/api/entradas/fiscal", {
@@ -846,9 +1044,11 @@ export function EntradaFiscalDialog({
           ...financeiro,
           fiscal: true,
           itens: itensEstoquePayload(),
+          tributos: payloadDosLancamentos(lancamentosDre),
         });
       } else {
         await axios.post("/api/usoconsumo/entradas/fiscal", {
+          escopo: escopoDaEntrada,
           fornecedor_id: parsed.fornecedorReferenteId,
           chave_nfe: parsed.chaveAcesso,
           numero_nota: String(parsed.numeroNota ?? ""),
@@ -857,6 +1057,7 @@ export function EntradaFiscalDialog({
           documento_fiscal_recebido_id: parsed.documentoFiscalRecebidoId,
           valor_total_documento: totalAPagar,
           itens: itensUsoConsumoPayload(),
+          tributos: payloadDosLancamentos(lancamentosDre),
           transacoes: pagamentoFuturo
             ? montarTransacoesUsoConsumo(financeiro)
             : [],
@@ -1137,18 +1338,18 @@ export function EntradaFiscalDialog({
                           </span>
                         </p>
                         <p>
-                          A destinar:{" "}
+                          Valor fiscal a destinar:{" "}
                           <span className="font-semibold">
-                            {formatarEmReal(totalDestinado)}
+                            {formatarEmReal(valorFiscalDestinado)}
                           </span>
                         </p>
-                        {freteAPagarEmCentavos > 0 ? (
-                          // Só aparece quando os dois números divergem: repetir
-                          // "a pagar" igual ao "a destinar" seria ruído.
+                        {custoDifereDoFiscal ? (
+                          // Só aparece quando os dois divergem: repetir o mesmo
+                          // número com dois rótulos seria ruído.
                           <p>
-                            A pagar:{" "}
+                            Custo de estoque:{" "}
                             <span className="font-semibold">
-                              {formatarEmReal(totalAPagar)}
+                              {formatarEmReal(custoDestinado)}
                             </span>
                           </p>
                         ) : null}
@@ -1174,14 +1375,15 @@ export function EntradaFiscalDialog({
                           </span>
                         </span>
                       ) : null}
-                      {freteDaNota > 0 ? (
-                        <span>
-                          Frete:{" "}
+                      {componentesDaNota.map((componente) => (
+                        <span key={componente.rotulo}>
+                          {componente.rotulo}:{" "}
                           <span className="font-semibold">
-                            {formatarEmReal(freteDaNota)}
+                            {componente.redutor ? "−" : ""}
+                            {formatarEmReal(componente.valor)}
                           </span>
                         </span>
-                      ) : null}
+                      ))}
                       {linhasEstoque.length ? (
                         <span>
                           Revenda:{" "}
@@ -1205,33 +1407,149 @@ export function EntradaFiscalDialog({
                         Escolha o destino de cada item para liberar o registro.
                       </div>
                     ) : null}
-                    {freteNaoDistribuidoEmCentavos > 0 ? (
+                    {composicao && !composicao.composicaoValida ? (
                       <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
-                        <Truck className="mt-0.5 h-4 w-4 shrink-0" />
-                        <div>
+                        <ReceiptText className="mt-0.5 h-4 w-4 shrink-0" />
+                        <div className="space-y-1">
                           <p className="font-semibold">
-                            Frete não distribuído nos itens
+                            A composição da nota não fecha com o valor declarado
                           </p>
                           <p>
-                            A nota traz{" "}
-                            {formatarEmReal(freteNaoDistribuidoEmCentavos / 100)}{" "}
-                            de frete que o emitente não repartiu entre os itens.
-                            Ele não entra no custo de cada produto —{" "}
-                            {notaInteira ? (
-                              <>
-                                mas entra no que se paga ao fornecedor, então as
-                                parcelas somam {formatarEmReal(totalAPagar)}.
-                              </>
-                            ) : (
-                              <>
-                                e, como parte desta nota já foi destinada em
-                                outra entrada, ele fica de fora daqui: não há
-                                como saber a qual das entradas pertence, e somá-lo
-                                nas duas o pagaria duas vezes. Lance esse frete à
-                                parte.
-                              </>
-                            )}
+                            Produtos menos descontos mais os acréscimos dão{" "}
+                            {formatarEmReal(composicao.totalCalculado)}, e a NF-e
+                            declara {formatarEmReal(composicao.totalNota)} —
+                            diferença de{" "}
+                            {formatarEmReal(Math.abs(composicao.diferenca))}.
                           </p>
+                          <p>
+                            {composicao.divergenciaPrevista
+                              ? "Nesta operação a própria validação da SEFAZ prevê exceção ao somatório, então a diferença pode ser legítima."
+                              : "Vale o valor declarado pelo emitente: nada foi alterado aqui."}{" "}
+                            O que se paga continua sendo{" "}
+                            {formatarEmReal(composicao.totalNota)}.
+                          </p>
+                        </div>
+                      </div>
+                    ) : null}
+                    {naoAlocados.length > 0 ? (
+                      <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+                        <Truck className="mt-0.5 h-4 w-4 shrink-0" />
+                        <div className="space-y-1">
+                          <p className="font-semibold">
+                            Valores da NF-e sem alocação por item
+                          </p>
+                          <p>
+                            {naoAlocados
+                              .map(
+                                (parte) =>
+                                  `${parte.rotulo} ${formatarEmReal(parte.valor)}`,
+                              )
+                              .join(", ")}
+                            .
+                          </p>
+                          <p>
+                            Aparecem nos totais da NF-e sem `&lt;det&gt;` correspondente.
+                            Continuam fazendo parte do valor fiscal e foram
+                            apropriados proporcionalmente entre os itens desta
+                            entrada — não somem do que se paga.
+                          </p>
+                        </div>
+                      </div>
+                    ) : null}
+                    {custoDifereDoFiscal ? (
+                      <div className="flex items-start gap-2 rounded-md border border-sky-300 bg-sky-50 p-3 text-xs text-sky-900 dark:bg-sky-950/20 dark:text-sky-300">
+                        <ReceiptText className="mt-0.5 h-4 w-4 shrink-0" />
+                        <div className="space-y-2">
+                          <p className="font-semibold">
+                            Composição do custo de estoque
+                          </p>
+                          <div className="space-y-0.5">
+                            <p>
+                              Valor fiscal desta entrada:{" "}
+                              <span className="font-semibold">
+                                {formatarEmReal(valorFiscalDestinado)}
+                              </span>
+                            </p>
+                            {foraDoCusto.map((parte, indice) => (
+                              <p key={`${parte.tipo}-${parte.numeroItem}-${indice}`}>
+                                {parte.sinalFiscal === -1 ? "+" : "−"}{" "}
+                                {parte.rotulo} {formatarEmReal(parte.valor)}
+                                {" · "}
+                                {parte.origem === "ITEM"
+                                  ? `item ${parte.numeroItem}`
+                                  : "só no total da NF-e"}
+                                {" · "}
+                                {ROTULO_DO_TRATAMENTO[parte.tratamentoCusto]}:{" "}
+                                {parte.motivoDoTratamento}
+                              </p>
+                            ))}
+                            <p>
+                              Custo de estoque:{" "}
+                              <span className="font-semibold">
+                                {formatarEmReal(custoDestinado)}
+                              </span>
+                            </p>
+                          </div>
+                          <p>
+                            O valor fiscal é o que se paga ao fornecedor; o custo é
+                            o que entra no preço de compra do produto e só chega à
+                            DRE quando o item sair por venda ou por OS.
+                          </p>
+                        </div>
+                      </div>
+                    ) : null}
+                    {lancamentosDre.length > 0 ? (
+                      <div className="flex items-start gap-2 rounded-md border border-violet-300 bg-violet-50 p-3 text-xs text-violet-900 dark:bg-violet-950/20 dark:text-violet-300">
+                        <Scale className="mt-0.5 h-4 w-4 shrink-0" />
+                        <div className="space-y-2">
+                          <p className="font-semibold">
+                            O que vai para a DRE agora
+                          </p>
+                          <div className="space-y-0.5">
+                            {lancamentosDre.map((lancamento) => (
+                              <p key={lancamento.tipo}>
+                                {lancamento.natureza === "RECEITA" ? "−" : "+"}{" "}
+                                {lancamento.rotulo}{" "}
+                                <span className="font-semibold">
+                                  {formatarEmReal(lancamento.valor)}
+                                </span>
+                                {" · "}
+                                {lancamento.natureza === "RECEITA"
+                                  ? "reduz o custo do período"
+                                  : "custo do período"}
+                              </p>
+                            ))}
+                          </div>
+                          <p>
+                            Estes valores foram cobrados na nota e não viram
+                            mercadoria, então não têm baixa futura para esperar:
+                            entram no resultado na competência da NF-e
+                            {parsed?.dataEmissao
+                              ? ` (${new Date(parsed.dataEmissao).toLocaleDateString("pt-BR")})`
+                              : ""}
+                            . Os{" "}
+                            <span className="font-semibold">
+                              {formatarEmReal(conferencia.custoEstoque)}
+                            </span>{" "}
+                            de mercadoria ficam no estoque e só chegam à DRE como
+                            custo quando o item sair.
+                          </p>
+                          {conferencia.pendentes !== 0 ? (
+                            <p className="font-semibold">
+                              {formatarEmReal(Math.abs(conferencia.pendentes))} da
+                              nota ainda estão sem classificação: pertencem ao
+                              valor fiscal, não entraram no custo e não foram
+                              lançados na DRE.
+                            </p>
+                          ) : null}
+                          {!conferencia.fecha ? (
+                            <p className="font-semibold">
+                              Conferência: sobram{" "}
+                              {formatarEmReal(Math.abs(conferencia.diferenca))} sem
+                              destino. Nenhum valor foi alterado — revise antes de
+                              gravar.
+                            </p>
+                          ) : null}
                         </div>
                       </div>
                     ) : null}
@@ -1499,9 +1817,10 @@ export function EntradaFiscalDialog({
                               </>
                             ) : null}
 
-                            {linha.destino === "USOCONSUMO" && !bloqueado ? (
+                            {ehEstoqueSimples(linha.destino) && !bloqueado ? (
                               <>
                                 <ItemSelectDialog
+                                  escopo={linha.destino}
                                   open={itemSelectIndex === indice}
                                   setOpen={(aberto) =>
                                     setItemSelectIndex(aberto ? indice : null)
@@ -1895,7 +2214,7 @@ export function EntradaFiscalDialog({
                 {parsed ? (
                   <div className="flex items-center justify-between gap-3 text-sm sm:block">
                     <span className="text-muted-foreground">
-                      {freteAPagarEmCentavos > 0 ? "A pagar:" : "A destinar:"}
+                      {notaInteira ? "A pagar:" : "Valor fiscal:"}
                     </span>{" "}
                     <span className="font-semibold tabular-nums">
                       {formatarEmReal(totalAPagar)}
@@ -1936,6 +2255,7 @@ export function EntradaFiscalDialog({
       </Dialog>
 
       <ItemDialog
+        escopo={escopoDoItemEmEdicao}
         open={itemDialogIndex !== null}
         item={itemEmEdicao}
         grupos={grupos}

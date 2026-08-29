@@ -90,7 +90,7 @@ export async function GET(_: Request, { params }: Params) {
     const { data: transacao, error: transacaoError } = await supabaseAdmin
       .from("transacao")
       .select(
-        "id, descricao, valor, data, tipo, pendente, created_at, updated_at, created_by, updated_by, baixado_por, cliente_id, fornecedor_id, ordemservicoid, vendaid, evento_financeiro_id, pagamento_multiplo_id, parcelamento_id, baixa_de_transacao_id",
+        "id, descricao, valor, data, tipo, pendente, created_at, updated_at, created_by, updated_by, baixado_por, cliente_id, fornecedor_id, ordemservicoid, vendaid, evento_financeiro_id, pagamento_multiplo_id, parcelamento_id, baixa_de_transacao_id, transferencia_id",
       )
       .eq("id", id)
       .eq("is_deleted", false)
@@ -427,8 +427,60 @@ export async function GET(_: Request, { params }: Params) {
       }
     }
 
+    /*
+     * A transferência não cabia em `baixaDe`: ali a linha é o dinheiro de uma
+     * baixa e o outro lado é um título. Aqui o outro lado é a perna gêmea, e o
+     * que a tela precisa dizer é diferente — não "isto paga aquilo", e sim "isto
+     * e aquilo são a mesma coisa vista de duas contas".
+     */
+    let transferencia: {
+      id: number;
+      valor: number;
+      origem: string | null;
+      destino: string | null;
+      sentido: "SAIDA" | "ENTRADA";
+      contraparteId: number | null;
+    } | null = null;
+
+    if (transacao.transferencia_id != null) {
+      const [{ data: operacao }, { data: contraparte }] = await Promise.all([
+        supabaseAdmin
+          .from("transacao_transferencia")
+          .select(
+            "id, valor, " +
+              "origem:bancoconta!transacao_transferencia_banco_origem_id_fkey ( titulo ), " +
+              "destino:bancoconta!transacao_transferencia_banco_destino_id_fkey ( titulo )",
+          )
+          .eq("id", transacao.transferencia_id)
+          .maybeSingle(),
+        supabaseAdmin
+          .from("transacao")
+          .select("id")
+          .eq("transferencia_id", transacao.transferencia_id)
+          .neq("id", transacao.id)
+          .eq("is_deleted", false)
+          .maybeSingle(),
+      ]);
+
+      // O tipo gerado do Supabase ainda não conhece `transacao_transferencia`;
+      // até ele ser regerado, a leitura passa por `any` como nos demais embeds.
+      const op = operacao as any;
+      if (op) {
+        transferencia = {
+          id: Number(op.id),
+          valor: Number(op.valor ?? 0),
+          origem: op.origem?.titulo ?? null,
+          destino: op.destino?.titulo ?? null,
+          sentido:
+            String(transacao.tipo ?? "").toUpperCase() === "RECEITA" ? "ENTRADA" : "SAIDA",
+          contraparteId: contraparte ? Number(contraparte.id) : null,
+        };
+      }
+    }
+
     return NextResponse.json({
       baixaDe,
+      transferencia,
       relacionadas: {
         origem,
         itens: relacionadas.map((item) => ({

@@ -1,6 +1,7 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 
 import { encodeCode128C } from "@/lib/nfe/code128";
+import { DANFE_DEFAULT_FONT_SCALE, type DanfeFontScale } from "@/lib/nfe/danfeFontScale";
 import type { DanfeViewData } from "@/components/danfe/danfe-view";
 import type { DanfeItem } from "@/lib/nfe/danfeParser";
 
@@ -95,10 +96,13 @@ type Ctx = {
   page: PDFPage;
   font: PDFFont;
   bold: PDFFont;
+  fontScale: DanfeFontScale;
   /** Cursor medido a partir do topo da folha. */
   y: number;
   novaPagina: () => void;
 };
+
+const scaled = (ctx: Ctx, value: number) => value * ctx.fontScale;
 
 function wrap(text: string, font: PDFFont, size: number, maxWidth: number) {
   const clean = safe(text).replace(/\s+/g, " ").trim();
@@ -130,17 +134,22 @@ function wrap(text: string, font: PDFFont, size: number, maxWidth: number) {
   return linhas.length ? linhas : [""];
 }
 
+function wrapText(ctx: Ctx, text: string, font: PDFFont, size: number, maxWidth: number) {
+  return wrap(text, font, scaled(ctx, size), maxWidth);
+}
+
 function texto(ctx: Ctx, value: string, x: number, top: number, size: number, font: PDFFont) {
-  ctx.page.drawText(safe(value), { x, y: PAGE_H - top - size, size, font, color: BLACK });
+  const fontSize = scaled(ctx, size);
+  ctx.page.drawText(safe(value), { x, y: PAGE_H - top - fontSize, size: fontSize, font, color: BLACK });
 }
 
 function textoDireita(ctx: Ctx, value: string, xFim: number, top: number, size: number, font: PDFFont) {
-  const largura = font.widthOfTextAtSize(safe(value), size);
+  const largura = font.widthOfTextAtSize(safe(value), scaled(ctx, size));
   texto(ctx, value, xFim - largura, top, size, font);
 }
 
 function textoCentro(ctx: Ctx, value: string, x: number, largura: number, top: number, size: number, font: PDFFont) {
-  const w = font.widthOfTextAtSize(safe(value), size);
+  const w = font.widthOfTextAtSize(safe(value), scaled(ctx, size));
   texto(ctx, value, x + (largura - w) / 2, top, size, font);
 }
 
@@ -168,24 +177,30 @@ type Campo = { label: string; valor: string; alinhamento?: "esquerda" | "direita
 
 /** Uma linha de celulas rotuladas, com bordas — o "Cell" do DANFE em tela. */
 function linhaDeCampos(ctx: Ctx, campos: Campo[], larguras: number[], altura = 8.5 * MM / 2) {
-  const alturaMin = Math.max(altura, LABEL_SIZE + VALUE_SIZE + 5);
-  let maiorAltura = alturaMin;
-
-  const linhasPorCampo = campos.map((campo, indice) => {
-    const linhas = wrap(campo.valor || "-", ctx.font, VALUE_SIZE, larguras[indice] - 4);
-    const necessario = LABEL_SIZE + 4 + linhas.length * (VALUE_SIZE + 1.2);
-    if (necessario > maiorAltura) maiorAltura = necessario;
-    return linhas;
-  });
+  const alturaLinhaLabel = LABEL_SIZE + 1;
+  const alturaLinhaValor = VALUE_SIZE + 1.2;
+  const layouts = campos.map((campo, indice) => ({
+    labels: wrapText(ctx, campo.label.toUpperCase(), ctx.bold, LABEL_SIZE, larguras[indice] - 4),
+    valores: wrapText(ctx, campo.valor || "-", ctx.font, VALUE_SIZE, larguras[indice] - 4),
+  }));
+  const maxLabels = Math.max(1, ...layouts.map((layout) => layout.labels.length));
+  const maxValores = Math.max(1, ...layouts.map((layout) => layout.valores.length));
+  const maiorAltura = Math.max(
+    altura,
+    scaled(ctx, 3 + maxLabels * alturaLinhaLabel + maxValores * alturaLinhaValor),
+  );
+  const topoValor = ctx.y + scaled(ctx, 2 + maxLabels * alturaLinhaLabel);
 
   caixa(ctx, MARGIN, ctx.y, larguras.reduce((soma, item) => soma + item, 0), maiorAltura);
 
   let x = MARGIN;
   campos.forEach((campo, indice) => {
     if (indice > 0) linhaVertical(ctx, x, ctx.y, maiorAltura);
-    texto(ctx, campo.label.toUpperCase(), x + 2, ctx.y + 1.5, LABEL_SIZE, ctx.bold);
-    linhasPorCampo[indice].forEach((linha, ordem) => {
-      const top = ctx.y + LABEL_SIZE + 3 + ordem * (VALUE_SIZE + 1.2);
+    layouts[indice].labels.forEach((linha, ordem) => {
+      texto(ctx, linha, x + 2, ctx.y + scaled(ctx, 1 + ordem * alturaLinhaLabel), LABEL_SIZE, ctx.bold);
+    });
+    layouts[indice].valores.forEach((linha, ordem) => {
+      const top = topoValor + ordem * scaled(ctx, alturaLinhaValor);
       if (campo.alinhamento === "direita") {
         textoDireita(ctx, linha, x + larguras[indice] - 2, top, VALUE_SIZE, ctx.font);
       } else {
@@ -207,7 +222,7 @@ function colunas(total: number, pesos: number[]) {
 function tituloBloco(ctx: Ctx, titulo: string) {
   ctx.y += 1.5 * MM;
   texto(ctx, titulo.toUpperCase(), MARGIN, ctx.y, LABEL_SIZE, ctx.bold);
-  ctx.y += LABEL_SIZE + 1.5;
+  ctx.y += scaled(ctx, LABEL_SIZE + 1.5);
 }
 
 function avisoFiscal(ctx: Ctx, data: DanfeViewData) {
@@ -217,7 +232,7 @@ function avisoFiscal(ctx: Ctx, data: DanfeViewData) {
   else if (data.tipoEmissao && data.tipoEmissao !== "1") mensagem = `EMISSAO EM CONTINGENCIA - TIPO ${data.tipoEmissao}`;
   if (!mensagem) return;
 
-  const altura = 12;
+  const altura = scaled(ctx, 12);
   ctx.page.drawRectangle({
     x: MARGIN, y: PAGE_H - ctx.y - altura, width: CONTENT_W, height: altura,
     borderWidth: 1.5, borderColor: BLACK,
@@ -227,7 +242,7 @@ function avisoFiscal(ctx: Ctx, data: DanfeViewData) {
 }
 
 function canhoto(ctx: Ctx, data: DanfeViewData) {
-  const altura = 17 * MM;
+  const altura = 17 * MM * ctx.fontScale;
   const larguraDireita = 30 * MM;
   const larguraEsquerda = CONTENT_W - larguraDireita;
 
@@ -235,8 +250,8 @@ function canhoto(ctx: Ctx, data: DanfeViewData) {
   linhaVertical(ctx, MARGIN + larguraEsquerda, ctx.y, altura);
 
   const recebemos = `RECEBEMOS DE ${data.emitenteNome} OS PRODUTOS/SERVICOS CONSTANTES DA NF-e INDICADA AO LADO`;
-  wrap(recebemos, ctx.bold, 6, larguraEsquerda - 4).forEach((linha, ordem) => {
-    texto(ctx, linha, MARGIN + 2, ctx.y + 2 + ordem * 7, 6, ctx.bold);
+  wrapText(ctx, recebemos, ctx.bold, 6, larguraEsquerda - 4).forEach((linha, ordem) => {
+    texto(ctx, linha, MARGIN + 2, ctx.y + 2 + ordem * scaled(ctx, 7), 6, ctx.bold);
   });
   texto(ctx, "DATA DE RECEBIMENTO: ____________________", MARGIN + 2, ctx.y + altura - 16, 6, ctx.font);
   texto(ctx, "IDENTIFICACAO E ASSINATURA: ______________________________________", MARGIN + 2, ctx.y + altura - 8, 6, ctx.font);
@@ -271,7 +286,7 @@ function codigoDeBarras(ctx: Ctx, chave: string, x: number, top: number, largura
 function cabecalho(ctx: Ctx, data: DanfeViewData, pagina: number, totalPaginas: number) {
   avisoFiscal(ctx, data);
 
-  const altura = 30 * MM;
+  const altura = 30 * MM * ctx.fontScale;
   const [colEmitente, colTitulo, colChave] = colunas(CONTENT_W, [67, 34, 74]);
 
   caixa(ctx, MARGIN, ctx.y, CONTENT_W, altura);
@@ -281,19 +296,19 @@ function cabecalho(ctx: Ctx, data: DanfeViewData, pagina: number, totalPaginas: 
   // Emitente
   let topo = ctx.y + 2;
   texto(ctx, "IDENTIFICACAO DO EMITENTE", MARGIN + 2, topo, LABEL_SIZE, ctx.bold);
-  topo += LABEL_SIZE + 4;
-  wrap(data.emitenteNome, ctx.bold, 8, colEmitente - 4).forEach((linha) => {
+  topo += scaled(ctx, LABEL_SIZE + 4);
+  wrapText(ctx, data.emitenteNome, ctx.bold, 8, colEmitente - 4).forEach((linha) => {
     textoCentro(ctx, linha, MARGIN, colEmitente, topo, 8, ctx.bold);
-    topo += 9;
+    topo += scaled(ctx, 9);
   });
   topo += 2;
-  wrap(data.emitenteEndereco, ctx.font, 6, colEmitente - 4).forEach((linha) => {
+  wrapText(ctx, data.emitenteEndereco, ctx.font, 6, colEmitente - 4).forEach((linha) => {
     texto(ctx, linha, MARGIN + 2, topo, 6, ctx.font);
-    topo += 7;
+    topo += scaled(ctx, 7);
   });
-  wrap(`CNPJ: ${fmtDoc(data.emitenteCnpj)} - IE: ${data.emitenteIe || "-"}`, ctx.font, 6, colEmitente - 4).forEach((linha) => {
+  wrapText(ctx, `CNPJ: ${fmtDoc(data.emitenteCnpj)} - IE: ${data.emitenteIe || "-"}`, ctx.font, 6, colEmitente - 4).forEach((linha) => {
     texto(ctx, linha, MARGIN + 2, topo, 6, ctx.font);
-    topo += 7;
+    topo += scaled(ctx, 7);
   });
   if (data.emitenteTelefone) {
     texto(ctx, `Fone: ${data.emitenteTelefone}`, MARGIN + 2, topo, 6, ctx.font);
@@ -303,18 +318,18 @@ function cabecalho(ctx: Ctx, data: DanfeViewData, pagina: number, totalPaginas: 
   const xTitulo = MARGIN + colEmitente;
   let topoTitulo = ctx.y + 4;
   textoCentro(ctx, "DANFE", xTitulo, colTitulo, topoTitulo, 14, ctx.bold);
-  topoTitulo += 16;
-  wrap("Documento Auxiliar da Nota Fiscal Eletronica", ctx.bold, 5.5, colTitulo - 4).forEach((linha) => {
+  topoTitulo += scaled(ctx, 16);
+  wrapText(ctx, "Documento Auxiliar da Nota Fiscal Eletronica", ctx.bold, 5.5, colTitulo - 4).forEach((linha) => {
     textoCentro(ctx, linha, xTitulo, colTitulo, topoTitulo, 5.5, ctx.bold);
-    topoTitulo += 6.5;
+    topoTitulo += scaled(ctx, 6.5);
   });
   topoTitulo += 3;
   textoCentro(ctx, data.tipoOperacao === "ENTRADA" ? "0 - ENTRADA" : "1 - SAIDA", xTitulo, colTitulo, topoTitulo, 6.5, ctx.bold);
-  topoTitulo += 9;
+  topoTitulo += scaled(ctx, 9);
   textoCentro(ctx, `No ${String(data.nfe.numero).padStart(9, "0")}`, xTitulo, colTitulo, topoTitulo, 7, ctx.bold);
-  topoTitulo += 9;
+  topoTitulo += scaled(ctx, 9);
   textoCentro(ctx, `SERIE ${String(data.nfe.serie).padStart(3, "0")}`, xTitulo, colTitulo, topoTitulo, 7, ctx.bold);
-  topoTitulo += 9;
+  topoTitulo += scaled(ctx, 9);
   textoCentro(ctx, `FOLHA ${pagina}/${totalPaginas}`, xTitulo, colTitulo, topoTitulo, 6.5, ctx.bold);
 
   // Chave de acesso
@@ -322,18 +337,19 @@ function cabecalho(ctx: Ctx, data: DanfeViewData, pagina: number, totalPaginas: 
   codigoDeBarras(ctx, data.chaveAcesso, xChave + 3, ctx.y + 3, colChave - 6, 13 * MM);
   let topoChave = ctx.y + 3 + 13 * MM + 3;
   textoCentro(ctx, "CHAVE DE ACESSO", xChave, colChave, topoChave, LABEL_SIZE, ctx.bold);
-  topoChave += LABEL_SIZE + 3;
-  wrap(data.chaveFormatada, ctx.bold, 6.5, colChave - 6).forEach((linha) => {
+  topoChave += scaled(ctx, LABEL_SIZE + 3);
+  wrapText(ctx, data.chaveFormatada, ctx.bold, 6.5, colChave - 6).forEach((linha) => {
     textoCentro(ctx, linha, xChave, colChave, topoChave, 6.5, ctx.bold);
-    topoChave += 7.5;
+    topoChave += scaled(ctx, 7.5);
   });
   topoChave += 1;
-  wrap(
+  wrapText(
+    ctx,
     "Consulta de autenticidade no Portal Nacional da NF-e (www.nfe.fazenda.gov.br/portal) ou no site da Sefaz autorizadora.",
     ctx.font, 4.6, colChave - 6,
   ).forEach((linha) => {
     textoCentro(ctx, linha, xChave, colChave, topoChave, 4.6, ctx.font);
-    topoChave += 5.4;
+    topoChave += scaled(ctx, 5.4);
   });
 
   ctx.y += altura + 1 * MM;
@@ -366,6 +382,24 @@ function destinatario(ctx: Ctx, data: DanfeViewData) {
     { label: "Inscricao estadual", valor: data.destinatarioIe || "-" },
     { label: "Data de saida / entrada", valor: fmtDate(data.dataSaidaEntrada) },
     { label: "", valor: "" },
+  ], larguras);
+}
+
+function localDeEntrega(ctx: Ctx, data: DanfeViewData) {
+  const entrega = data.entrega;
+  if (!entrega) return;
+
+  tituloBloco(ctx, "Local de entrega / retirada");
+  const larguras = colunas(CONTENT_W, [2.2, 1, 1]);
+  linhaDeCampos(ctx, [
+    { label: "Nome / Razao social", valor: entrega.nome || "-" },
+    { label: "CNPJ / CPF", valor: fmtDoc(entrega.documento) },
+    { label: "Municipio / UF", valor: [entrega.municipio, entrega.uf].filter(Boolean).join("/") || "-" },
+  ], larguras);
+  linhaDeCampos(ctx, [
+    { label: "Endereco", valor: [entrega.logradouro, entrega.numero].filter(Boolean).join(", ") || "-" },
+    { label: "Bairro / Complemento", valor: [entrega.bairro, entrega.complemento].filter(Boolean).join(" - ") || "-" },
+    { label: "CEP", valor: entrega.cep || "-" },
   ], larguras);
 }
 
@@ -492,21 +526,28 @@ function alturaDoItem(ctx: Ctx, item: DanfeItem, larguras: number[]) {
   const celulas = celulasDoItem(item);
   let linhas = 1;
   celulas.forEach((valor, indice) => {
-    linhas = Math.max(linhas, wrap(String(valor), ctx.font, ITEM_SIZE, larguras[indice] - 3).length);
+    linhas = Math.max(linhas, wrapText(ctx, String(valor), ctx.font, ITEM_SIZE, larguras[indice] - 3).length);
   });
-  const descricao = wrap(item.descricao, ctx.bold, ITEM_SIZE, larguras[1] - 3).length;
-  const detalhe = wrap(detalheTributario(item), ctx.font, 4.4, larguras[1] - 3).length;
+  const descricao = wrapText(ctx, item.descricao, ctx.bold, ITEM_SIZE, larguras[1] - 3).length;
+  const detalhe = wrapText(ctx, detalheTributario(item), ctx.font, 4.4, larguras[1] - 3).length;
   const linhasDescricao = descricao + detalhe;
-  return Math.max(linhas, linhasDescricao) * (ITEM_SIZE + 1.4) + 3;
+  return scaled(ctx, Math.max(linhas, linhasDescricao) * (ITEM_SIZE + 1.4) + 3);
 }
 
 function cabecalhoDaTabela(ctx: Ctx, larguras: number[]) {
-  const altura = 9;
+  const alturaLinha = ITEM_HEAD_SIZE + 1;
+  const titulos = COLUNAS_ITENS.map((coluna, indice) =>
+    wrapText(ctx, coluna.titulo.toUpperCase(), ctx.bold, ITEM_HEAD_SIZE, larguras[indice] - 3),
+  );
+  const maxLinhas = Math.max(1, ...titulos.map((linhas) => linhas.length));
+  const altura = Math.max(scaled(ctx, 9), scaled(ctx, 3 + maxLinhas * alturaLinha));
   caixa(ctx, MARGIN, ctx.y, CONTENT_W, altura);
   let x = MARGIN;
-  COLUNAS_ITENS.forEach((coluna, indice) => {
+  COLUNAS_ITENS.forEach((_, indice) => {
     if (indice > 0) linhaVertical(ctx, x, ctx.y, altura);
-    texto(ctx, coluna.titulo.toUpperCase(), x + 1.5, ctx.y + 2.5, ITEM_HEAD_SIZE, ctx.bold);
+    titulos[indice].forEach((linha, ordem) => {
+      texto(ctx, linha, x + 1.5, ctx.y + scaled(ctx, 1.5 + ordem * alturaLinha), ITEM_HEAD_SIZE, ctx.bold);
+    });
     x += larguras[indice];
   });
   ctx.y += altura;
@@ -522,17 +563,17 @@ function desenharItem(ctx: Ctx, item: DanfeItem, larguras: number[], altura: num
 
     if (indice === 1) {
       let topo = ctx.y + 2;
-      wrap(item.descricao, ctx.bold, ITEM_SIZE, larguras[1] - 3).forEach((linha) => {
+      wrapText(ctx, item.descricao, ctx.bold, ITEM_SIZE, larguras[1] - 3).forEach((linha) => {
         texto(ctx, linha, x + 1.5, topo, ITEM_SIZE, ctx.bold);
-        topo += ITEM_SIZE + 1.4;
+        topo += scaled(ctx, ITEM_SIZE + 1.4);
       });
-      wrap(detalheTributario(item), ctx.font, 4.4, larguras[1] - 3).forEach((linha) => {
+      wrapText(ctx, detalheTributario(item), ctx.font, 4.4, larguras[1] - 3).forEach((linha) => {
         texto(ctx, linha, x + 1.5, topo, 4.4, ctx.font);
-        topo += 5.4;
+        topo += scaled(ctx, 5.4);
       });
     } else {
-      wrap(String(valor), ctx.font, ITEM_SIZE, larguras[indice] - 3).forEach((linha, ordem) => {
-        const topo = ctx.y + 2 + ordem * (ITEM_SIZE + 1.4);
+      wrapText(ctx, String(valor), ctx.font, ITEM_SIZE, larguras[indice] - 3).forEach((linha, ordem) => {
+        const topo = ctx.y + 2 + ordem * scaled(ctx, ITEM_SIZE + 1.4);
         if (COLUNAS_ITENS[indice].alinhamento === "direita") {
           textoDireita(ctx, linha, x + larguras[indice] - 1.5, topo, ITEM_SIZE, ctx.font);
         } else {
@@ -557,13 +598,18 @@ function tabelaRtc(ctx: Ctx, itens: DanfeItem[]) {
   tituloBloco(ctx, "Detalhamento IBS / CBS / IS por item");
 
   const larguras = colunas(CONTENT_W, [3, 6, 8, 7, 5.5, 7, 6, 7, 7, 5, 7, 5, 6]);
-  const alturaCabecalho = 9;
+  const alturaLinha = ITEM_HEAD_SIZE + 1;
+  const titulos = COLUNAS_RTC.map((titulo, indice) =>
+    wrapText(ctx, titulo.toUpperCase(), ctx.bold, ITEM_HEAD_SIZE, larguras[indice] - 3),
+  );
+  const maxLinhas = Math.max(1, ...titulos.map((linhas) => linhas.length));
+  const alturaCabecalho = Math.max(scaled(ctx, 9), scaled(ctx, 3 + maxLinhas * alturaLinha));
   caixa(ctx, MARGIN, ctx.y, CONTENT_W, alturaCabecalho);
   let x = MARGIN;
-  COLUNAS_RTC.forEach((titulo, indice) => {
+  COLUNAS_RTC.forEach((_, indice) => {
     if (indice > 0) linhaVertical(ctx, x, ctx.y, alturaCabecalho);
-    wrap(titulo.toUpperCase(), ctx.bold, ITEM_HEAD_SIZE, larguras[indice] - 3).slice(0, 1).forEach((linha) => {
-      texto(ctx, linha, x + 1.5, ctx.y + 2.5, ITEM_HEAD_SIZE, ctx.bold);
+    titulos[indice].forEach((linha, ordem) => {
+      texto(ctx, linha, x + 1.5, ctx.y + scaled(ctx, 1.5 + ordem * alturaLinha), ITEM_HEAD_SIZE, ctx.bold);
     });
     x += larguras[indice];
   });
@@ -585,14 +631,14 @@ function tabelaRtc(ctx: Ctx, itens: DanfeItem[]) {
       item.cst_is || "-",
       fmtMoney(item.valor_is),
     ];
-    const altura = ITEM_SIZE + 5;
+    const altura = scaled(ctx, ITEM_SIZE + 5);
     if (ctx.y + altura > BOTTOM_LIMIT) ctx.novaPagina();
 
     caixa(ctx, MARGIN, ctx.y, CONTENT_W, altura);
     let coluna = MARGIN;
     valores.forEach((valor, indice) => {
       if (indice > 0) linhaVertical(ctx, coluna, ctx.y, altura);
-      const linha = wrap(valor, ctx.font, ITEM_SIZE, larguras[indice] - 3)[0] ?? "";
+      const linha = wrapText(ctx, valor, ctx.font, ITEM_SIZE, larguras[indice] - 3)[0] ?? "";
       if (indice >= 3) textoDireita(ctx, linha, coluna + larguras[indice] - 1.5, ctx.y + 2, ITEM_SIZE, ctx.font);
       else texto(ctx, linha, coluna + 1.5, ctx.y + 2, ITEM_SIZE, ctx.font);
       coluna += larguras[indice];
@@ -654,11 +700,11 @@ function rodape(ctx: Ctx, data: DanfeViewData) {
   if (data.xmlError) avisos.push("Falha ao ler o XML: visualizacao complementada com dados do banco.");
   if (!data.xmlBaseAvailable) avisos.push("XML nao armazenado: esta visualizacao nao substitui um DANFE originado do XML autorizado.");
 
-  const linhasInfo = wrap(data.infCpl || "-", ctx.font, VALUE_SIZE, colInfo - 4);
-  const linhasAviso = avisos.flatMap((aviso) => wrap(aviso, ctx.bold, VALUE_SIZE, colInfo - 4));
-  const linhasFisco = wrap(data.infAdFisco || "-", ctx.font, VALUE_SIZE, colFisco - 4);
+  const linhasInfo = wrapText(ctx, data.infCpl || "-", ctx.font, VALUE_SIZE, colInfo - 4);
+  const linhasAviso = avisos.flatMap((aviso) => wrapText(ctx, aviso, ctx.bold, VALUE_SIZE, colInfo - 4));
+  const linhasFisco = wrapText(ctx, data.infAdFisco || "-", ctx.font, VALUE_SIZE, colFisco - 4);
   const linhasNecessarias = Math.max(linhasInfo.length + linhasAviso.length, linhasFisco.length);
-  const altura = Math.max(22 * MM, LABEL_SIZE + 6 + linhasNecessarias * (VALUE_SIZE + 1.4));
+  const altura = Math.max(22 * MM, scaled(ctx, LABEL_SIZE + 6 + linhasNecessarias * (VALUE_SIZE + 1.4)));
 
   if (ctx.y + altura > BOTTOM_LIMIT) ctx.novaPagina();
 
@@ -666,21 +712,21 @@ function rodape(ctx: Ctx, data: DanfeViewData) {
   linhaVertical(ctx, MARGIN + colInfo, ctx.y, altura);
 
   texto(ctx, "INFORMACOES COMPLEMENTARES", MARGIN + 2, ctx.y + 2, LABEL_SIZE, ctx.bold);
-  let topo = ctx.y + LABEL_SIZE + 5;
+  let topo = ctx.y + scaled(ctx, LABEL_SIZE + 5);
   linhasInfo.forEach((linha) => {
     texto(ctx, linha, MARGIN + 2, topo, VALUE_SIZE, ctx.font);
-    topo += VALUE_SIZE + 1.4;
+    topo += scaled(ctx, VALUE_SIZE + 1.4);
   });
   linhasAviso.forEach((linha) => {
     texto(ctx, linha, MARGIN + 2, topo, VALUE_SIZE, ctx.bold);
-    topo += VALUE_SIZE + 1.4;
+    topo += scaled(ctx, VALUE_SIZE + 1.4);
   });
 
   texto(ctx, "RESERVADO AO FISCO", MARGIN + colInfo + 2, ctx.y + 2, LABEL_SIZE, ctx.bold);
-  let topoFisco = ctx.y + LABEL_SIZE + 5;
+  let topoFisco = ctx.y + scaled(ctx, LABEL_SIZE + 5);
   linhasFisco.forEach((linha) => {
     texto(ctx, linha, MARGIN + colInfo + 2, topoFisco, VALUE_SIZE, ctx.font);
-    topoFisco += VALUE_SIZE + 1.4;
+    topoFisco += scaled(ctx, VALUE_SIZE + 1.4);
   });
 
   ctx.y += altura;
@@ -691,12 +737,12 @@ function emGrupos(ctx: Ctx, campos: Campo[], porLinha: number) {
   for (let indice = 0; indice < campos.length; indice += porLinha) {
     const grupo = campos.slice(indice, indice + porLinha);
     while (grupo.length < porLinha) grupo.push({ label: "", valor: "" });
-    if (ctx.y + 20 > BOTTOM_LIMIT) ctx.novaPagina();
+    if (ctx.y + scaled(ctx, 20) > BOTTOM_LIMIT) ctx.novaPagina();
     linhaDeCampos(ctx, grupo, colunas(CONTENT_W, grupo.map(() => 1)));
   }
 }
 
-async function montar(data: DanfeViewData, totalDeclarado: number) {
+async function montar(data: DanfeViewData, totalDeclarado: number, fontScale: DanfeFontScale) {
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
@@ -713,6 +759,7 @@ async function montar(data: DanfeViewData, totalDeclarado: number) {
     page: pdf.addPage([PAGE_W, PAGE_H]),
     font,
     bold,
+    fontScale,
     y: MARGIN,
     novaPagina: () => {},
   };
@@ -729,6 +776,7 @@ async function montar(data: DanfeViewData, totalDeclarado: number) {
   canhoto(ctx, data);
   cabecalho(ctx, data, 1, totalDeclarado);
   destinatario(ctx, data);
+  localDeEntrega(ctx, data);
   calculoDoImposto(ctx, data);
   transportador(ctx, data);
 
@@ -736,9 +784,10 @@ async function montar(data: DanfeViewData, totalDeclarado: number) {
   cabecalhoDaTabela(ctx, larguras);
 
   if (!itens.length) {
-    caixa(ctx, MARGIN, ctx.y, CONTENT_W, 12);
+    const altura = scaled(ctx, 12);
+    caixa(ctx, MARGIN, ctx.y, CONTENT_W, altura);
     texto(ctx, "Nenhum item localizado.", MARGIN + 3, ctx.y + 3.5, ITEM_SIZE, ctx.font);
-    ctx.y += 12;
+    ctx.y += altura;
   }
 
   for (const item of itens) {
@@ -753,12 +802,16 @@ async function montar(data: DanfeViewData, totalDeclarado: number) {
   return { pdf, paginas: paginaAtual };
 }
 
-export async function gerarDanfePdf(data: DanfeViewData): Promise<Uint8Array> {
+export async function gerarDanfePdf(
+  data: DanfeViewData,
+  options: { fontScale?: DanfeFontScale } = {},
+): Promise<Uint8Array> {
+  const fontScale = options.fontScale ?? DANFE_DEFAULT_FONT_SCALE;
   // Duas passadas: o cabecalho precisa do "FOLHA x/y" antes de sabermos quantas
   // folhas o documento tera. A primeira so conta; a segunda desenha para valer.
-  const contagem = await montar(data, 1);
+  const contagem = await montar(data, 1, fontScale);
   if (contagem.paginas === 1) return contagem.pdf.save();
 
-  const definitivo = await montar(data, contagem.paginas);
+  const definitivo = await montar(data, contagem.paginas, fontScale);
   return definitivo.pdf.save();
 }

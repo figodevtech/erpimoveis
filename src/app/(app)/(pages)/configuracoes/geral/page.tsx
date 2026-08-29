@@ -23,6 +23,9 @@ import {
   ShoppingBag,
   KeyRound,
   Unplug,
+  Highlighter,
+  Trash2,
+  Plus,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -44,6 +47,18 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import type { Config } from "../../type";
+import {
+  DESTAQUE_CORES,
+  DESTAQUE_ESTILOS,
+  DESTAQUE_TEXTO_MAX,
+  STATUS_OS_VALIDOS,
+  estiloDestaque,
+  rotuloStatusOS,
+  statusOSValido,
+  type DestaqueCor,
+  type RegrasDestaqueStatus,
+  type StatusOSValido,
+} from "@/lib/ordens/destaque";
 
 type UsoConsultasPlaca = {
   limite: number;
@@ -181,6 +196,39 @@ function colorPickerValue(value: string | undefined, fallback: string) {
   return /^#[0-9a-fA-F]{6}$/.test(value ?? "") ? value! : fallback;
 }
 
+/**
+ * O destaque por status é guardado indexado pelo status — é assim que "uma cor
+ * por status" fica garantida pelo próprio formato do dado. Mas uma linha
+ * recém-adicionada na tela ainda não tem status escolhido e não caberia nesse
+ * objeto, então a edição acontece sobre uma lista e só depois é serializada.
+ */
+type LinhaDestaque = {
+  status: string;
+  cor: DestaqueCor;
+  texto: string;
+};
+
+function regrasParaLinhas(regras: RegrasDestaqueStatus | undefined | null): LinhaDestaque[] {
+  if (!regras) return [];
+  return STATUS_OS_VALIDOS.filter((status) => regras[status]).map((status) => ({
+    status,
+    cor: regras[status]!.cor,
+    texto: regras[status]!.texto ?? "",
+  }));
+}
+
+function linhasParaRegras(linhas: LinhaDestaque[]): RegrasDestaqueStatus {
+  const regras: RegrasDestaqueStatus = {};
+  for (const linha of linhas) {
+    if (!statusOSValido(linha.status)) continue;
+    regras[linha.status as StatusOSValido] = {
+      cor: linha.cor,
+      texto: linha.texto.trim() || null,
+    };
+  }
+  return regras;
+}
+
 export default function ConfigGeralPage() {
   const [salvando, setSalvando] = useState(false);
   const [carregando, setCarregando] = useState(true);
@@ -192,6 +240,7 @@ export default function ConfigGeralPage() {
   const [shopeeIntegration, setShopeeIntegration] = useState<ShopeeIntegration>({ configured: false, missing: [], account: null });
   const [setores, setSetores] = useState<SetorOption[]>([]);
   const [carregandoSetores, setCarregandoSetores] = useState(true);
+  const [linhasDestaque, setLinhasDestaque] = useState<LinhaDestaque[]>([]);
 
   const { handleSubmit, setValue, watch, reset } = useForm<Partial<Config>>({
     defaultValues: {
@@ -215,8 +264,18 @@ export default function ConfigGeralPage() {
       habilitar_edicao_transacoes: false,
       permitir_produto_avulso_os: false,
       setor_padrao_os_id: null,
+      destaque_os_por_status: {},
     },
   });
+
+  // Espelha a lista editável no campo do formulário, que é o que vai no PUT.
+  const atualizarLinhasDestaque = useCallback(
+    (proximas: LinhaDestaque[]) => {
+      setLinhasDestaque(proximas);
+      setValue("destaque_os_por_status", linhasParaRegras(proximas), { shouldDirty: true });
+    },
+    [setValue],
+  );
 
   const carregarConfig = useCallback(async () => {
     setCarregando(true);
@@ -235,6 +294,7 @@ export default function ConfigGeralPage() {
       const setoresData = await setoresResponse.json().catch(() => ({}));
       if (response.ok && data.config) {
         reset(data.config);
+        setLinhasDestaque(regrasParaLinhas(data.config.destaque_os_por_status));
         window.dispatchEvent(new CustomEvent("erpoficina:config-updated", { detail: data.config }));
       } else {
         toast.error("Erro ao carregar configurações");
@@ -292,6 +352,11 @@ export default function ConfigGeralPage() {
       if (response.ok) {
         toast.success("Configurações atualizadas com sucesso!");
         reset(data.config);
+        setLinhasDestaque(regrasParaLinhas(data.config.destaque_os_por_status));
+        // Sem isso o resto do app segue com a config antiga em sessionStorage
+        // até o próximo reload — e o destaque por status só apareceria na lista
+        // de OS depois de recarregar a página.
+        window.dispatchEvent(new CustomEvent("erpoficina:config-updated", { detail: data.config }));
       } else {
         throw new Error(data.error || "Erro ao salvar");
       }
@@ -891,6 +956,154 @@ export default function ConfigGeralPage() {
               Na execução, o estoque é validado quando a OS é iniciada.
             </p>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-primary/10 shadow-sm lg:col-span-12">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Highlighter className="h-5 w-5 text-primary" />
+              <CardTitle>Destacar ordens de serviço por status</CardTitle>
+            </div>
+            <CardDescription>
+              Pinta na listagem toda OS que estiver no status escolhido. Uma cor por status.
+              O destaque marcado à mão dentro da OS sempre sobrepõe estas regras.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {linhasDestaque.length === 0 ? (
+              <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+                Nenhum status destacado. As ordens aparecem com o visual padrão da lista.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                <div className="hidden gap-3 px-1 text-xs font-medium text-muted-foreground md:grid md:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1.6fr)_auto]">
+                  <span>Status</span>
+                  <span>Cor</span>
+                  <span>Texto explicativo (opcional)</span>
+                  <span className="w-9" />
+                </div>
+
+                {linhasDestaque.map((linha, indice) => {
+                  // Uma cor por status: o select não oferece status já usado em
+                  // outra linha, então nem dá para criar a regra conflitante.
+                  const statusEmUso = new Set(
+                    linhasDestaque.filter((_, i) => i !== indice).map((item) => item.status),
+                  );
+                  const estilo = estiloDestaque(linha.cor);
+
+                  return (
+                    <div
+                      key={`${linha.status || "novo"}-${indice}`}
+                      className="grid gap-3 rounded-lg border bg-muted/20 p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1.6fr)_auto] md:items-center"
+                    >
+                      <Select
+                        value={linha.status || undefined}
+                        onValueChange={(value) =>
+                          atualizarLinhasDestaque(
+                            linhasDestaque.map((item, i) =>
+                              i === indice ? { ...item, status: value } : item,
+                            ),
+                          )
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Selecione o status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {STATUS_OS_VALIDOS.filter((status) => !statusEmUso.has(status)).map((status) => (
+                            <SelectItem key={status} value={status}>
+                              {rotuloStatusOS(status)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+
+                      <Select
+                        value={linha.cor}
+                        onValueChange={(value) =>
+                          atualizarLinhasDestaque(
+                            linhasDestaque.map((item, i) =>
+                              i === indice ? { ...item, cor: value as DestaqueCor } : item,
+                            ),
+                          )
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {DESTAQUE_CORES.map((cor) => (
+                            <SelectItem key={cor.valor} value={cor.valor}>
+                              <span className="flex items-center gap-2">
+                                <span className={`h-3 w-3 shrink-0 rounded-full ${DESTAQUE_ESTILOS[cor.valor].amostra}`} />
+                                {cor.label}
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+
+                      <Input
+                        value={linha.texto}
+                        maxLength={DESTAQUE_TEXTO_MAX}
+                        placeholder="Ex.: aguardando o cliente pagar"
+                        onChange={(event) =>
+                          atualizarLinhasDestaque(
+                            linhasDestaque.map((item, i) =>
+                              i === indice ? { ...item, texto: event.target.value } : item,
+                            ),
+                          )
+                        }
+                      />
+
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="justify-self-end text-destructive hover:text-destructive"
+                        aria-label="Remover destaque"
+                        onClick={() =>
+                          atualizarLinhasDestaque(linhasDestaque.filter((_, i) => i !== indice))
+                        }
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+
+                      {/* A cor só se explica vista como a lista mostra. */}
+                      <div className="md:col-span-4">
+                        <div className={`rounded-sm border px-3 py-2 text-xs ${estilo.linha}`}>
+                          <span className="font-mono font-semibold">#1234</span>
+                          <span className="mx-2 text-muted-foreground">·</span>
+                          <span>{linha.status ? rotuloStatusOS(linha.status) : "Selecione o status"}</span>
+                          {linha.texto.trim() ? (
+                            <span className="ml-2 text-muted-foreground">— {linha.texto.trim()}</span>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={linhasDestaque.length >= STATUS_OS_VALIDOS.length}
+              onClick={() =>
+                atualizarLinhasDestaque([...linhasDestaque, { status: "", cor: "verde", texto: "" }])
+              }
+            >
+              <Plus className="h-4 w-4" />
+              Adicionar destaque
+            </Button>
+
+            <p className="text-xs text-muted-foreground">
+              Linhas sem status escolhido são descartadas ao salvar. O texto explicativo aparece
+              no mesmo aviso que já mostra o motivo do destaque manual na listagem.
+            </p>
           </CardContent>
         </Card>
 

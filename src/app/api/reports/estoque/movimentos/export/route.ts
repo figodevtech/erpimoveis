@@ -5,6 +5,7 @@ import * as XLSX from "xlsx";
 
 import { requireRelatoriosAccess } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { escopoDoSlug, slugDoEscopo, type UsoConsumoEscopo } from "@/lib/usoconsumo/escopo";
 
 /**
  * Relatorio de movimentacao de estoque.
@@ -217,13 +218,15 @@ async function linhasDeProdutos(params: URLSearchParams): Promise<Linha[]> {
  * cabecalhos filtrados com seus itens. Os cabecalhos vem primeiro justamente
  * para o periodo e o status filtrarem antes de qualquer juncao.
  */
-async function linhasDeUsoConsumo(params: URLSearchParams): Promise<Linha[]> {
+async function linhasDeUsoConsumo(params: URLSearchParams, escopo: UsoConsumoEscopo): Promise<Linha[]> {
   const dateFrom = texto(params.get("dateFrom"), 10);
   const dateTo = texto(params.get("dateTo"), 10);
   const sentido = (params.get("sentido") ?? "").toUpperCase();
   const status = (params.get("status") ?? "").toUpperCase();
   const fiscal = (params.get("fiscal") ?? "").toLowerCase();
 
+  // O cabecalho NAO e filtrado por escopo: uma entrada MISTO tem item dos dois
+  // estoques, e o corte certo e por item — feito la embaixo, ao montar as linhas.
   const periodo = (query: any) => {
     let atual = query;
     if (dateFrom) atual = atual.gte("created_at", inicioDoDia(dateFrom));
@@ -296,7 +299,7 @@ async function linhasDeUsoConsumo(params: URLSearchParams): Promise<Linha[]> {
 
   const itens = await mapaPorId(
     "usoconsumo_item",
-    "id, titulo, ultimovalordecompra, precocompra",
+    "id, escopo, titulo, ultimovalordecompra, precocompra",
     [...itensDeEntrada, ...itensDeSaida].map((linha) => linha.item_id),
   );
   const fornecedores = await mapaPorId(
@@ -320,9 +323,14 @@ async function linhasDeUsoConsumo(params: URLSearchParams): Promise<Linha[]> {
 
   const linhas: Linha[] = [];
 
+  // Uma linha pertence ao estoque do ITEM. E o que separa corretamente as duas
+  // metades de uma entrada MISTO.
+  const doEscopoPedido = (itemId: unknown) =>
+    itens.get(String(itemId))?.escopo === escopo;
+
   for (const linha of itensDeEntrada) {
     const entrada = porEntrada.get(String(linha.entrada_id));
-    if (!entrada) continue;
+    if (!entrada || !doEscopoPedido(linha.item_id)) continue;
     const item = itens.get(String(linha.item_id));
     const nota = texto(entrada.numero_nota, 30);
     linhas.push({
@@ -345,7 +353,7 @@ async function linhasDeUsoConsumo(params: URLSearchParams): Promise<Linha[]> {
 
   for (const linha of itensDeSaida) {
     const saida = porSaida.get(String(linha.saida_id));
-    if (!saida) continue;
+    if (!saida || !doEscopoPedido(linha.item_id)) continue;
     const item = itens.get(String(linha.item_id));
     linhas.push({
       data: saida.created_at,
@@ -445,10 +453,13 @@ export async function GET(request: Request) {
   try {
     await requireRelatoriosAccess();
     const { searchParams } = new URL(request.url);
-    const usoConsumo = searchParams.get("inventario") === "uso-consumo";
+    const inventario = searchParams.get("inventario") ?? "";
+    // "produtos" é o razão de produto; qualquer outro valor é um estoque simples,
+    // e o slug diz qual deles.
+    const escopo = inventario === "produtos" || !inventario ? null : escopoDoSlug(inventario);
 
-    const linhas = usoConsumo
-      ? await linhasDeUsoConsumo(searchParams)
+    const linhas = escopo
+      ? await linhasDeUsoConsumo(searchParams, escopo)
       : await linhasDeProdutos(searchParams);
 
     const rows = linhas.map((linha) => [
@@ -507,7 +518,7 @@ export async function GET(request: Request) {
       },
     ]);
 
-    const nome = usoConsumo ? "movimentacao_uso_consumo" : "movimentacao_estoque";
+    const nome = escopo ? `movimentacao_${slugDoEscopo(escopo).replace("-", "_")}` : "movimentacao_estoque";
     return new NextResponse(buffer, {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

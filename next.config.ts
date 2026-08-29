@@ -63,8 +63,11 @@ const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   {
+    // O microfone e liberado somente para a propria origem: e ele que a
+    // mensagem de voz do chat usa, sempre depois de uma acao explicita do
+    // usuario. Camera e localizacao continuam bloqueadas.
     key: "Permissions-Policy",
-    value: "camera=(), microphone=(), geolocation=(), browsing-topics=()",
+    value: "camera=(), microphone=(self), geolocation=(), browsing-topics=()",
   },
   {
     key: "Strict-Transport-Security",

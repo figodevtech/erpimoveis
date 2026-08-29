@@ -13,6 +13,32 @@ function nonNegative(value: unknown, field: string) {
   return number;
 }
 
+/**
+ * Os lancamentos de DRE que a tela calculou, saneados na borda.
+ *
+ * `undefined` quando nao vem nada: a RPC so lanca quando a chave existe, entao
+ * cliente antigo continua gravando entrada sem evento nenhum.
+ */
+export function tributosDaEntrada(valor: unknown) {
+  if (!Array.isArray(valor)) return undefined;
+  const tributos = valor
+    .map((tributo: any) => ({
+      tipo: String(tributo?.tipo ?? "").trim(),
+      natureza: tributo?.natureza === "RECEITA" ? "RECEITA" : "DESPESA",
+      valor: Number(tributo?.valor ?? 0),
+      descricao: String(tributo?.descricao ?? "").trim() || String(tributo?.tipo ?? ""),
+      detalhe: tributo?.detalhe == null ? null : String(tributo.detalhe).trim() || null,
+      itens: Array.isArray(tributo?.itens)
+        ? tributo.itens.map((item: any) => ({
+            numeroItem: item?.numeroItem == null ? null : Number(item.numeroItem),
+            valor: Number(item?.valor ?? 0),
+          }))
+        : [],
+    }))
+    .filter((tributo) => tributo.tipo !== "" && Number.isFinite(tributo.valor) && tributo.valor > 0);
+  return tributos;
+}
+
 function nullableId(value: unknown, field: string) {
   if (value === null || value === undefined || value === "") return null;
   return positiveInt(value, field);
@@ -204,6 +230,10 @@ export async function registrarEntradaConfirmada(
     // Lido pela RPC via p_entrada->>'created_by' (mesmo padrao de registrar_saida_usoconsumo).
     created_by: createdBy ?? null,
     observacao: text(body?.observacao),
+    // O imposto que a nota cobrou e nao vira custo do produto. Viaja aqui dentro,
+    // e nao num parametro novo, porque a RPC le `p_entrada` por chave nomeada:
+    // chave extra e inerte, e a aridade intacta evita overload ambiguo.
+    tributos: tributosDaEntrada(body?.tributos),
   };
 
   const rpcName = entrada.fiscal_dfe_documento_id

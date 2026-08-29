@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUsoConsumoAccess, requireUsoConsumoEntrada } from "@/app/api/_authz/perms";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { usoConsumoError } from "@/lib/usoconsumo/api";
+import { escopoDaBusca, escoposDoCabecalho, usoConsumoError } from "@/lib/usoconsumo/api";
 import { registrarEntradaUsoConsumo } from "@/services/usoconsumo/entradaService";
 
 export async function GET(req: NextRequest) {
@@ -10,9 +10,11 @@ export async function GET(req: NextRequest) {
     await requireUsoConsumoAccess();
     const page = Math.max(Number(req.nextUrl.searchParams.get("page")) || 1, 1);
     const limit = Math.min(Math.max(Number(req.nextUrl.searchParams.get("limit")) || 20, 1), 100);
+    const escopo = escopoDaBusca(req.nextUrl.searchParams);
     const itemId = Number(req.nextUrl.searchParams.get("itemId"));
     let query = supabaseAdmin.from("usoconsumo_entrada")
       .select("*,fornecedor:fornecedor(id,nomerazaosocial,cpfcnpj),itens:usoconsumo_entrada_item(*,item:usoconsumo_item(id,titulo,referencia,unidade))", { count: "exact" })
+      .in("escopo", escoposDoCabecalho(escopo))
       .order("created_at", { ascending: false }).range((page-1)*limit, page*limit-1);
     if (Number.isInteger(itemId) && itemId > 0) query = query.eq("itens.item_id", itemId);
     const { data,error,count } = await query;

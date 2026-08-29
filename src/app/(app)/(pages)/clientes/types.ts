@@ -22,6 +22,14 @@ export enum Cliente_rank{
 }
 
 
+/** Contato adicional do cliente. O principal segue em `Customer.telefone`. */
+export interface TelefoneCliente {
+  id: number
+  telefone: string
+  contato: string | null
+  observacao: string | null
+}
+
 export interface Customer {
   id: number
   tipopessoa: TipoPessoa
@@ -29,6 +37,8 @@ export interface Customer {
   nomerazaosocial: string
   email: string | null
   telefone: string | null
+  /** Telefones secundários; só o cadastro do cliente os carrega. */
+  telefones?: TelefoneCliente[]
   endereco: string | null
   endereconumero: string | null
   enderecocomplemento: string | null
@@ -48,6 +58,21 @@ export interface Customer {
   veiculos: Veiculo[]
   ordens: Ordem[]
   rank?: Cliente_rank | null
+  /**
+   * Dívida em aberto, quando a origem dos dados a calcula — hoje só a listagem
+   * (`GET /api/customers`). Opcional porque `Customer` também serve o
+   * `customerSelect` e os diálogos, que não pedem esse resumo.
+   */
+  divida?: DividaCliente | null
+}
+
+export interface DividaCliente {
+  totalEmAberto: number
+  totalVencido: number
+  quantidadeEmAberto: number
+  quantidadeVencida: number
+  /** Parte da dívida veio de carga de outro sistema, não foi gerada aqui. */
+  temMigrado: boolean
 }
 
 export interface Pagination {

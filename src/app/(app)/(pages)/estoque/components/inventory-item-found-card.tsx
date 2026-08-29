@@ -12,14 +12,16 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type {
-  InventoryLabelItem,
-  InventoryLabelKind,
-  InventoryLabelMatchBy,
+import {
+  inventoryTargetLabel,
+  type InventoryLabelItem,
+  type InventoryLabelMatchBy,
+  type InventoryTarget,
 } from "@/lib/inventory-labels";
 
 type InventoryItemFoundCardProps = {
-  kind: InventoryLabelKind;
+  /** Qual dos tres estoques, ja resolvido: produto, uso/consumo ou geral. */
+  estoque: InventoryTarget;
   item: InventoryLabelItem;
   matchBy?: InventoryLabelMatchBy;
   subtitle?: string;
@@ -80,12 +82,12 @@ function formatCurrency(value: number | null | undefined) {
 }
 
 export function InventoryItemFoundCard({
-  kind,
+  estoque,
   item,
   onBaixa,
   showPurchaseValues = false,
 }: InventoryItemFoundCardProps) {
-  const moduleName = kind === "PRODUTO" ? "Produto" : "Uso/consumo";
+  const moduleName = inventoryTargetLabel(estoque);
   const imageUrl = item.imgUrl || item.img_url;
   const status = stockStatusMeta(item.status_estoque);
   const itemName = item.titulo || `${moduleName} sem nome`;
@@ -158,7 +160,7 @@ export function InventoryItemFoundCard({
                 showPurchaseValues
                   ? cn(
                       "grid grid-cols-2 gap-x-3 gap-y-3",
-                      kind === "PRODUTO" ? "sm:grid-cols-5" : "sm:grid-cols-4",
+                      estoque === "PRODUTO" ? "sm:grid-cols-5" : "sm:grid-cols-4",
                     )
                   : "flex flex-wrap gap-x-8 gap-y-3",
               )}
@@ -212,7 +214,7 @@ export function InventoryItemFoundCard({
                       {formatCurrency(item.ultimovalordecompra)}
                     </dd>
                   </div>
-                  {kind === "PRODUTO" ? (
+                  {estoque === "PRODUTO" ? (
                     <div className="min-w-0">
                       <dt
                         className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"

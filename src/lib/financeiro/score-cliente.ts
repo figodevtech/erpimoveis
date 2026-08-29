@@ -12,6 +12,13 @@ const TETO_COM_TITULO_VENCIDO = 59;
 const TETO_COM_ATRASO_GRAVE = 39;
 const DIAS_PARA_ATRASO_GRAVE = 30;
 
+// Carimbo que toda carga de sistema anterior recebe, de qualquer cliente. Os
+// titulos que vieram assim entram no Score como qualquer outro — sao divida de
+// verdade —, mas a tela precisa saber diferencia-los: uma carteira inteira
+// limitada a 59 logo depois de uma migracao nao e sinal sobre o cliente, e sim
+// sobre o saldo que veio de fora.
+const ORIGEM_MIGRACAO = "ORIGEM_MIGRACAO";
+
 export type TituloClienteInput = {
   id: number;
   valor: number;
@@ -25,6 +32,8 @@ export type TituloClienteInput = {
   ordemServicoId?: number | null;
   vendaId?: number | null;
   metodoPagamento?: string | null;
+  /** `origem` da transacao. `ORIGEM_MIGRACAO` marca titulo vindo de carga. */
+  origem?: string | null;
 };
 
 export type SituacaoTituloCliente =
@@ -46,6 +55,8 @@ export type TituloClienteAvaliado = {
   ordemServicoId: number | null;
   vendaId: number | null;
   metodoPagamento: string | null;
+  /** Veio de carga de outro sistema, nao foi gerado aqui. */
+  migrado: boolean;
 };
 
 export type ResumoFinanceiroCliente = {
@@ -68,6 +79,16 @@ export type ResumoFinanceiroCliente = {
   percentualPagoEmDia: number | null;
   /** Só sobre títulos que tiveram prazo — à vista não mede pontualidade. */
   mediaDiasAtraso: number | null;
+  /** Quanto da dívida em aberto veio de carga de outro sistema. */
+  totalMigrado: number;
+  /** Quantos títulos em aberto vieram de carga. */
+  quantidadeMigrada: number;
+  /**
+   * O teto só existe por causa da carga: todos os títulos vencidos em aberto
+   * são migrados. Havendo um vencido gerado aqui, a nota estaria limitada de
+   * qualquer jeito e isto é falso.
+   */
+  tetoPorTituloMigrado: boolean;
   titulos: TituloClienteAvaliado[];
 };
 
@@ -127,11 +148,14 @@ export function calcularScoreCliente(
   let totalRecebido = 0;
   let quantidadeEmAberto = 0;
   let quantidadeVencida = 0;
+  let totalMigrado = 0;
+  let quantidadeMigrada = 0;
 
   const avaliados: TituloClienteAvaliado[] = [];
 
   for (const titulo of titulos) {
     const valor = valorDeFace(titulo);
+    const migrado = titulo.origem === ORIGEM_MIGRACAO;
     const vencimento = diaNoFuso(titulo.vencimentoEm ?? titulo.data);
     // Recebimento à vista nasce quitado e sem `vencimento_em`: não houve prazo a
     // cumprir, o dia do lançamento é vencimento e pagamento ao mesmo tempo.
@@ -163,6 +187,11 @@ export function calcularScoreCliente(
       totalEmAberto += emAberto;
       quantidadeEmAberto += 1;
 
+      if (migrado) {
+        totalMigrado += emAberto;
+        quantidadeMigrada += 1;
+      }
+
       if (vencimento && vencimento < hoje) {
         totalVencido += emAberto;
         quantidadeVencida += 1;
@@ -191,6 +220,7 @@ export function calcularScoreCliente(
         ordemServicoId: titulo.ordemServicoId ?? null,
         vendaId: titulo.vendaId ?? null,
         metodoPagamento: titulo.metodoPagamento ?? null,
+        migrado,
       });
       continue;
     }
@@ -219,6 +249,7 @@ export function calcularScoreCliente(
       ordemServicoId: titulo.ordemServicoId ?? null,
       vendaId: titulo.vendaId ?? null,
       metodoPagamento: titulo.metodoPagamento ?? null,
+      migrado,
     });
   }
 
@@ -248,6 +279,18 @@ export function calcularScoreCliente(
   const score = scoreBase == null || tetoAplicado == null
     ? scoreBase
     : Math.min(scoreBase, tetoAplicado);
+
+  /*
+   * A nota só está limitada por causa da carga?
+   *
+   * Só quando TODO vencido em aberto é migrado. Basta um vencido gerado aqui
+   * para o teto existir de qualquer jeito, e aí atribuí-lo à migração seria
+   * desculpar o cliente por uma dívida que é dele. Do jeito que está, o aviso
+   * quer dizer algo acionável: sem o saldo herdado, esta nota não teria teto.
+   */
+  const tetoPorTituloMigrado = tetoAplicado != null
+    && vencidosEmAberto.length > 0
+    && vencidosEmAberto.every((titulo) => titulo.migrado);
 
   // Pontualidade só faz sentido sobre quem teve prazo para cumprir. Incluir os
   // à vista (sempre 0 dias) empurraria os dois indicadores para 100% / 0 dia em
@@ -280,6 +323,12 @@ export function calcularScoreCliente(
       ? Math.round((pagosEmDia / pagosComPrazo.length) * 100)
       : null,
     mediaDiasAtraso,
+    totalMigrado: arredondarDinheiro(totalMigrado),
+    quantidadeMigrada,
+    // O teto só é reportado quando de fato baixou a nota; a marcação segue a
+    // mesma regra para as duas não se contradizerem na tela.
+    tetoPorTituloMigrado: tetoPorTituloMigrado
+      && score != null && scoreBase != null && score < scoreBase,
     titulos: avaliados.sort((a, b) => b.vencimentoEm.localeCompare(a.vencimentoEm)),
   };
 }

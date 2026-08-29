@@ -23,6 +23,13 @@ const LINHAS = [
   { id: 20, codigo: "10.1", nome: "Receitas financeiras", nivel: 2, parent_id: 25, tipo: "DETALHE", sinal: 1 },
   { id: 40, codigo: "10.2", nome: "Despesas financeiras", nivel: 2, parent_id: 25, tipo: "DETALHE", sinal: -1 },
 
+  // CUSTOS: os tributos de compra somam (4.8, sinal -1) e a desoneracao abate
+  // (4.9, sinal +1). Mesmo mecanismo do grupo 10, com os papeis invertidos.
+  { id: 9, codigo: "4", nome: "CUSTOS", nivel: 1, parent_id: null, tipo: "GRUPO", sinal: -1 },
+  { id: 41, codigo: "4.1", nome: "CMV", nivel: 2, parent_id: 9, tipo: "DETALHE", sinal: -1 },
+  { id: 48, codigo: "4.8", nome: "Tributos sobre compras", nivel: 2, parent_id: 9, tipo: "DETALHE", sinal: -1 },
+  { id: 49, codigo: "4.9", nome: "Recuperacoes sobre compras", nivel: 2, parent_id: 9, tipo: "DETALHE", sinal: 1 },
+
   { id: 3, codigo: "9", nome: "RESULTADO OPERACIONAL", nivel: 1, parent_id: null, tipo: "FORMULA", sinal: 1, formula: "7 - 8" },
   { id: 38, codigo: "11", nome: "OUTRAS", nivel: 1, parent_id: null, tipo: "GRUPO", sinal: 1 },
   { id: 32, codigo: "12", nome: "ANTES DOS TRIBUTOS", nivel: 1, parent_id: null, tipo: "FORMULA", sinal: 1, formula: "9 + 10 + 11" },
@@ -66,9 +73,25 @@ test("resultado financeiro positivo continua positivo", () => {
   assert.equal(dre.get("10"), 3800);
 });
 
+test("o tributo da compra soma ao custo e a desoneracao abate", () => {
+  // A fixture de R$ 5.296,00: 5.060 de CMV quando a mercadoria sair, 316 de
+  // tributo agora e 80 de desoneracao agora. O grupo tem de valer 5.296, e nao
+  // 5.456 — somar a desoneracao junto seria cobrar duas vezes.
+  const dre = calcular({ 41: 5060, 48: 316, 49: 80 });
+  assert.equal(dre.get("4"), 5296);
+});
+
+test("a recuperacao sozinha deixa o custo negativo, e nao positivo", () => {
+  // Mes em que so houve desoneracao: o grupo CUSTOS vale -80, para a formula
+  // 5 = 3 - 4 devolver os 80 ao lucro bruto em vez de tira-los.
+  const dre = calcular({ 49: 80 });
+  assert.equal(dre.get("4"), -80);
+});
+
 test("grupo sem lancamento nenhum vale zero, nao NaN", () => {
   const dre = calcular({});
   assert.equal(dre.get("1"), 0);
+  assert.equal(dre.get("4"), 0);
   assert.equal(dre.get("10"), 0);
   assert.equal(dre.get("12"), 0);
 });

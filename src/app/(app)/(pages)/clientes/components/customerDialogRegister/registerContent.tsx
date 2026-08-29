@@ -40,10 +40,12 @@ import {
 import {
   NewCustomer,
   StatusCliente,
+  TelefoneSecundario,
   TipoPessoa,
   ESTADOS_BRASIL,
 } from "./types";
 import { formatCep, formatCpfCnpj, formatTelefone } from "./utils";
+import SecondaryPhonesCard from "./secondaryPhonesCard";
 import { useGetCidades } from "@/app/(app)/hooks/useGetCidades";
 import {
   Popover,
@@ -119,6 +121,8 @@ export default function RegisterContent({
   const [open2, setOpen2] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  // Vão para tabela própria depois que o cliente existe, como a foto.
+  const [telefonesSecundarios, setTelefonesSecundarios] = useState<TelefoneSecundario[]>([]);
 
   // `ind_ie_dest` é numérico; os demais campos do cadastro são texto.
   const handleInputChange = (
@@ -272,6 +276,18 @@ export default function RegisterContent({
       return;
     }
 
+    // Linha totalmente em branco é descartada: o + adiciona antes de digitar.
+    const telefonesPreenchidos = telefonesSecundarios.filter(
+      (item) =>
+        item.telefone.trim() !== "" ||
+        item.contato.trim() !== "" ||
+        item.observacao.trim() !== "",
+    );
+    if (telefonesPreenchidos.some((item) => !/^\d{10,11}$/.test(item.telefone.replace(/\D/g, "")))) {
+      toast.warning("Informe DDD e número em todos os telefones secundários.");
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const response = await axios.post("/api/customers", {
@@ -298,6 +314,18 @@ export default function RegisterContent({
             console.error("Erro ao salvar foto do cliente:", photoError);
           }
         }
+        if (telefonesPreenchidos.length) {
+          try {
+            await axios.put(`/api/customers/${response.data.id}/telefones`, {
+              telefones: telefonesPreenchidos,
+            });
+          } catch (telefonesError) {
+            toast.warning(
+              "Cliente cadastrado, mas não foi possível salvar os telefones secundários.",
+            );
+            console.error("Erro ao salvar telefones do cliente:", telefonesError);
+          }
+        }
         toast.success("Sucesso!", {
           description: "Cliente cadastrado.",
           duration: 2000,
@@ -308,6 +336,7 @@ export default function RegisterContent({
         onRegister?.(registeredCustomer);
         setSelectedPhoto(null);
         setPhotoPreview(null);
+        setTelefonesSecundarios([]);
         setNewCustomer({
           tipopessoa: "FISICA",
           cpfcnpj: "",
@@ -620,7 +649,7 @@ export default function RegisterContent({
                 className="flex items-center gap-2 text-sm"
               >
                 <Phone className="h-3 w-3 sm:h-4 sm:w-4" />
-                Telefone {newCustomer.tipopessoa === "JURIDICA" && "*"}
+                Telefone (principal) {newCustomer.tipopessoa === "JURIDICA" && "*"}
               </Label>
               <Input
                 inputMode="tel"
@@ -921,6 +950,12 @@ export default function RegisterContent({
             </div>
           </div>
           </div>
+
+          <SecondaryPhonesCard
+            telefones={telefonesSecundarios}
+            setTelefones={setTelefonesSecundarios}
+            disabled={isSubmitting}
+          />
 
           {/* Dados fiscais - Apenas para Pessoa Jurídica */}
           {newCustomer.tipopessoa === "JURIDICA" && (

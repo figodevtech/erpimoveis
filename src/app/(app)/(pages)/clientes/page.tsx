@@ -29,6 +29,17 @@ export default function ClientesPage() {
     totalPages: 0,
   });
   const [status, setStatus] = useState<Status>(Status.TODOS);
+  const [devedores, setDevedores] = useState(false);
+  /*
+   * O filtro de devedores é estado desta página, não da tabela.
+   *
+   * A tabela chama `handleGetCustomers` na paginação passando só página, limite,
+   * busca e status — mudar essa assinatura obrigaria a tocar em oito chamadas
+   * para carregar um dado que ela não usa. A ref deixa a paginação preservar o
+   * filtro sozinha, e quem precisa forçar um valor passa por parâmetro.
+   */
+  const devedoresRef = useRef(devedores);
+  devedoresRef.current = devedores;
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const requestSequence = useRef(0);
@@ -43,8 +54,10 @@ export default function ClientesPage() {
     pageNumber?: number,
     limit?: number,
     search?: string,
-    status?: Status
+    status?: Status,
+    devedoresParam?: boolean
   ) => {
+    const soDevedores = devedoresParam ?? devedoresRef.current;
     const requestId = ++requestSequence.current;
     requestController.current?.abort();
     const controller = new AbortController();
@@ -58,6 +71,7 @@ export default function ClientesPage() {
           limit: limit || pagination.limit,
           search: search || undefined,
           status: status || "TODOS",
+          devedores: soDevedores ? 1 : undefined,
         },
       });
       if (response.status === 200 && requestId === requestSequence.current) {
@@ -94,9 +108,9 @@ export default function ClientesPage() {
   }, [selectedCustomerId]);
 
   useEffect(() => {
-    handleGetCustomers(1, pagination.limit, search, status);
+    handleGetCustomers(1, pagination.limit, search, status, devedores);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, search]);
+  }, [status, search, devedores]);
 
   return (
     <div className="space-y-6">
@@ -123,6 +137,8 @@ export default function ClientesPage() {
         }}
         setStatus={setStatus}
         status={status}
+        devedores={devedores}
+        setDevedores={setDevedores}
       />
 
       {/* Customers Table */}

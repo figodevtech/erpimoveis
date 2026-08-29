@@ -9,6 +9,7 @@ import { PrintShareMenu } from "../../../../components/PrintShareMenu";
 import { fetchPrintColors } from "@/lib/print-config";
 import { calcularScoreCliente, type ResumoFinanceiroCliente } from "@/lib/financeiro/score-cliente";
 import { carregarTitulosDoCliente } from "@/lib/financeiro/titulos-cliente";
+import { resolveOrdemVehicle } from "@/lib/ordens/vehicle-snapshot";
 
 export const runtime = "nodejs";
 
@@ -312,6 +313,7 @@ export default async function ClienteHistoricoPrintPage({ params }: PageProps) {
       .from("ordemservico")
       .select(
         `id, dataentrada, datasaida, status, descricao, orcamentototal, alvo_tipo,
+         migracao_referencia, veiculo_snapshot,
          equipamento_nome, equipamento_patrimonio,
          peca:pecaid ( titulo, descricao ),
          veiculo:veiculoid ( placa, marca, modelo )`,
@@ -338,7 +340,10 @@ export default async function ClienteHistoricoPrintPage({ params }: PageProps) {
   if (vendasResult.error) console.error("Erro ao carregar vendas:", vendasResult.error);
 
   const veiculos = (veiculosResult.data ?? []) as any[];
-  const ordens = (ordensResult.data ?? []) as any[];
+  const ordens = ((ordensResult.data ?? []) as any[]).map((ordem) => ({
+    ...ordem,
+    veiculo: resolveOrdemVehicle(ordem.veiculo, ordem.veiculo_snapshot),
+  }));
   const vendas = (vendasResult.data ?? []) as any[];
   const financeiro = calcularScoreCliente(titulos);
 
@@ -1083,7 +1088,9 @@ export default async function ClienteHistoricoPrintPage({ params }: PageProps) {
                             ? `OS #${titulo.ordemServicoId}`
                             : titulo.vendaId
                               ? `Venda #${titulo.vendaId}`
-                              : EMPTY}
+                              : titulo.migrado
+                                ? "Outro sistema"
+                                : "Avulso"}
                         </td>
                         <td className="nowrap">{fmtDate(titulo.vencimentoEm)}</td>
                         <td className="nowrap">{fmtDate(titulo.pagoEm)}</td>

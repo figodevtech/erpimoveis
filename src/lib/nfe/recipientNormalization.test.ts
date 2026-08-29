@@ -3,10 +3,19 @@ import test from "node:test";
 
 import {
   formatCpfCnpj,
+  hasValidCpfCnpjLength,
   isValidCnpj,
   isValidCpf,
   normalizeFiscalRecipient,
 } from "./recipientNormalization";
+
+test("aceita somente documentos com 11 ou 14 dígitos", () => {
+  assert.equal(hasValidCpfCnpjLength("529.982.247-25"), true);
+  assert.equal(hasValidCpfCnpjLength("04.252.011/0001-10"), true);
+  assert.equal(hasValidCpfCnpjLength("1234567890"), false);
+  assert.equal(hasValidCpfCnpjLength("1234567890123"), false);
+  assert.equal(hasValidCpfCnpjLength("123456789012345"), false);
+});
 
 test("valida os dígitos verificadores de CPF e CNPJ", () => {
   assert.equal(isValidCpf("529.982.247-25"), true);

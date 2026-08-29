@@ -4,13 +4,23 @@ import { useEffect, useState } from "react";
 import axios, { isAxiosError } from "axios";
 import { CheckCircle2, ChevronLeft, ChevronRight, Loader2, MapPinned } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { lookupInventoryLabel, type InventoryLabelItem, type InventoryLabelKind } from "@/lib/inventory-labels";
+import {
+  inventoryTargetLabel,
+  inventoryTargetOf,
+  lookupInventoryLabel,
+  type InventoryLabelItem,
+  type InventoryTarget,
+} from "@/lib/inventory-labels";
 import { toast } from "@/lib/toast";
 import { InventoryItemFoundCard } from "../components/inventory-item-found-card";
 import { QrCodeInput } from "../components/dialog-produto/qr-code-input";
 
 type Step = 1 | 2 | 3 | 4;
-type MovementTarget = { kind: InventoryLabelKind; item: InventoryLabelItem };
+/**
+ * `estoque` e o estoque de verdade — os tres —, nao a tabela: e o que a tela
+ * rotula e o que decide para qual endpoint o direcionamento vai.
+ */
+type MovementTarget = { estoque: InventoryTarget; item: InventoryLabelItem };
 
 function errorText(error: unknown, fallback: string) {
   if (isAxiosError(error)) return error.response?.data?.error ?? fallback;
@@ -51,17 +61,17 @@ export default function MovimentacaoPage() {
         const match = lookup.matches[0];
         if (!match) {
           setTarget(null);
-          setItemError("Etiqueta ou código de barras não vinculado a produto nem a item de uso/consumo.");
+          setItemError("Etiqueta ou código de barras não vinculado a nenhum dos estoques.");
           return;
         }
 
         if (match.restricted || !match.item) {
           setTarget(null);
-          setItemError(`A etiqueta pertence ao módulo ${match.kind === "PRODUTO" ? "de produtos" : "de uso/consumo"}, mas seu perfil não possui acesso.`);
+          setItemError(`A etiqueta pertence ao estoque ${inventoryTargetLabel(inventoryTargetOf(match))}, mas seu perfil não possui acesso.`);
           return;
         }
 
-        setTarget({ kind: match.kind, item: match.item });
+        setTarget({ estoque: inventoryTargetOf(match), item: match.item });
       } catch (error) {
         if (!active) return;
         setTarget(null);
@@ -82,7 +92,7 @@ export default function MovimentacaoPage() {
 
     setSaving(true);
     try {
-      if (target.kind === "PRODUTO") {
+      if (target.estoque === "PRODUTO") {
         await axios.patch(`/api/products/${target.item.id}`, {
           changes: { local: { original: target.item.local ?? null, value: local.trim() } },
         });
@@ -93,7 +103,7 @@ export default function MovimentacaoPage() {
         });
       }
       toast.success("Local atualizado", {
-        description: `${target.kind === "PRODUTO" ? "Produto" : "Item de uso/consumo"} direcionado para ${local.trim()}.`,
+        description: `${inventoryTargetLabel(target.estoque)} direcionado para ${local.trim()}.`,
       });
       setStep(4);
     } catch (error) {
@@ -143,12 +153,12 @@ export default function MovimentacaoPage() {
             {buscandoItem ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Buscando nos estoques de produtos e uso/consumo...
+                Buscando nos estoques de produtos, uso/consumo e geral/avulso...
               </div>
             ) : null}
 
             {itemError ? <p className="text-sm text-destructive">{itemError}</p> : null}
-            {target ? <InventoryItemFoundCard kind={target.kind} item={target.item} subtitle="Pronto para movimentação" /> : null}
+            {target ? <InventoryItemFoundCard estoque={target.estoque} item={target.item} subtitle="Pronto para movimentação" /> : null}
 
             <Button className="w-full gap-2" disabled={!target || buscandoItem} onClick={() => setStep(2)}>
               Próximo
@@ -186,7 +196,7 @@ export default function MovimentacaoPage() {
                 <MapPinned className="h-4 w-4" />
                 Conferir movimentação
               </div>
-              {target ? <InventoryItemFoundCard kind={target.kind} item={target.item} subtitle="Confira os dados antes de confirmar" /> : null}
+              {target ? <InventoryItemFoundCard estoque={target.estoque} item={target.item} subtitle="Confira os dados antes de confirmar" /> : null}
               <div className="mt-3 space-y-1">
                 <p>Local atual: <b>{target?.item.local || "—"}</b></p>
                 <p>Novo local: <b>{local}</b></p>
@@ -210,7 +220,7 @@ export default function MovimentacaoPage() {
             <div>
               <h2 className="font-semibold">Local atualizado</h2>
               <p className="text-sm text-muted-foreground">
-                {target?.kind === "USOCONSUMO" ? "O item de uso/consumo" : "O produto"} foi direcionado para {local}.
+                {target ? inventoryTargetLabel(target.estoque) : "O item"} foi direcionado para {local}.
               </p>
             </div>
             <Button className="w-full" onClick={reset}>Registrar outra movimentação</Button>

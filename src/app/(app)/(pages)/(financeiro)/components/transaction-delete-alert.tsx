@@ -35,6 +35,19 @@ type Adiantamento = {
   sentido?: "RECEBER" | "PAGAR";
   titulos?: Array<{ id: number; descricao: string | null; valor: number }>;
 };
+/**
+ * Transferência entre contas: a linha é uma das duas pernas.
+ *
+ * Não bloqueia nada — excluir é legítimo. O que muda é o alcance: a pessoa
+ * clicou numa linha e vão embora duas, e isso ela precisa saber antes.
+ */
+type Transferencia = {
+  id: number;
+  valor: number;
+  origem: string | null;
+  destino: string | null;
+  motivo: string;
+};
 type PagamentoMultiplo = {
   id: number;
   valorTotal: number;
@@ -88,6 +101,7 @@ export function TransactionDeleteAlert({
   const [liquidado, setLiquidado] = useState<Liquidado | null>(null);
   const [adiantamento, setAdiantamento] = useState<Adiantamento | null>(null);
   const [grupo, setGrupo] = useState<PagamentoMultiplo | null>(null);
+  const [transferencia, setTransferencia] = useState<Transferencia | null>(null);
   const [falhou, setFalhou] = useState<string | null>(null);
 
   async function handleOpenChange(nextOpen: boolean) {
@@ -118,6 +132,7 @@ export function TransactionDeleteAlert({
       setLiquidado(payload?.liquidado ?? null);
       setAdiantamento(payload?.adiantamento?.desfaz ? payload.adiantamento : null);
       setGrupo(payload?.pagamentoMultiplo ?? null);
+      setTransferencia(payload?.transferencia ?? null);
     } catch {
       setFalhou("Não foi possível verificar o impacto da exclusão.");
     } finally {
@@ -144,7 +159,9 @@ export function TransactionDeleteAlert({
     ? "Esta transação não pode ser excluída"
     : falhou
       ? "Não foi possível verificar"
-      : adiantamento
+      : transferencia
+        ? "Isto apaga as duas pernas da transferência"
+        : adiantamento
         ? `Isto devolve ${adiantamento.quantidade} título(s) para ${reabrePara}`
         : desfazGrupo
           ? "Isto desfaz o pagamento inteiro"
@@ -189,6 +206,20 @@ export function TransactionDeleteAlert({
                   <Ban className="mt-0.5 h-4 w-4 shrink-0" />
                   {travado.motivo}
                 </span>
+              ) : transferencia ? (
+                <>
+                  <span className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-amber-700 dark:text-amber-300">
+                    <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span className="min-w-0">{transferencia.motivo}</span>
+                  </span>
+                  <span className="block">
+                    Sai da lista a saída de <strong>{transferencia.origem ?? "origem"}</strong>{" "}
+                    e a entrada em <strong>{transferencia.destino ?? "destino"}</strong>, as
+                    duas de {moeda(transferencia.valor)}. O saldo das duas contas volta ao que
+                    era antes da transferência.
+                  </span>
+                  <span>Deseja realmente prosseguir? Esta ação não pode ser desfeita.</span>
+                </>
               ) : adiantamento ? (
                 <>
                   <span className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-amber-700 dark:text-amber-300">
@@ -274,7 +305,9 @@ export function TransactionDeleteAlert({
             >
               {desfazGrupo
                 ? "Excluir o pagamento inteiro"
-                : adiantamento
+                : transferencia
+                  ? "Excluir a transferência"
+                  : adiantamento
                   ? "Excluir e reabrir os títulos"
                   : "Prosseguir"}
             </AlertDialogAction>

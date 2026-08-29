@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   try {
     const { data, error } = await supabaseAdmin
       .from("usuario")
-      .select("id, nome, email, ativo, data_admissao, perfil:perfilid (id, nome), setor:setorid (id, nome)")
+      .select("id, nome, email, foto_url, ativo, data_admissao, perfil:perfilid (id, nome), setor:setorid (id, nome)")
       .eq("id", userId)
       .maybeSingle();
 
@@ -30,6 +30,7 @@ export async function GET(req: Request) {
         id: String(registro.id),
         nome: texto(registro.nome),
         email: texto(registro.email),
+        fotoUrl: texto(registro.foto_url),
         ativo: registro.ativo !== false,
         dataAdmissao: texto(registro.data_admissao),
         perfil: relacaoNomeada(registro.perfil),

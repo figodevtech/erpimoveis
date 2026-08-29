@@ -20,6 +20,7 @@ import { Building2, Loader2, Minus, PackagePlus, Plus, Search, X } from "lucide-
 import { useEffect, useState } from "react";
 import ValueInput from "../dialog-produto/entrada-valor";
 import { toast } from "@/lib/toast";
+import { rotuloDeEscopo, type UsoConsumoEscopo } from "@/lib/usoconsumo/escopo";
 import axios, { isAxiosError } from "axios";
 import { Estoque_status, Fornecedor, Pagination } from "../../types";
 import { Switch } from "@/components/ui/switch";
@@ -47,6 +48,12 @@ interface DialogEntradaProps {
   paginantion?: Pagination;
   status?: Estoque_status;
   inventory?: "produto" | "usoconsumo";
+  /**
+   * Qual dos dois estoques simples, quando `inventory` e "usoconsumo". Fica ao
+   * lado de `inventory` porque os dois dividem tabela e endpoint: muda so a linha
+   * endereçada, nao a rota.
+   */
+  escopo?: UsoConsumoEscopo;
   onSuccess?: () => void | Promise<void>;
 }
 
@@ -64,6 +71,7 @@ export default function DialogEntrada({
   search,
   status,
   inventory = "produto",
+  escopo = "USOCONSUMO",
   onSuccess,
 }: DialogEntradaProps) {
   const [newQtd, setNewQtd] = useState(0);
@@ -218,7 +226,7 @@ export default function DialogEntrada({
       // a partir de `data` no momento da baixa.
       const transacoes = !lancarFinanceiro ? [] : pagamentoFuturo
         ? parcelas.map((parcela) => ({
-            descricao: "Compra de material de uso e consumo",
+            descricao: rotuloDeEscopo(escopo).compra,
             valor: Number(parcela.valor.toFixed(2)),
             data: `${parcela.dataVencimento}T12:00:00`,
             metodopagamento: null,
@@ -234,7 +242,7 @@ export default function DialogEntrada({
             centro_custo: null,
           }))
         : [{
-            descricao: "Compra de material de uso e consumo",
+            descricao: rotuloDeEscopo(escopo).compra,
             valor: Number(totalEntrada.toFixed(2)),
             data: now,
             metodopagamento: selectedMetodo,
@@ -253,6 +261,7 @@ export default function DialogEntrada({
         fornecedor_id: selectedFornecedor?.id,
         fiscal: false,
         origem: "AJUSTE_RAPIDO",
+        escopo,
         tipo: String(selectedType),
         observacao: observacaoLimpa ?? undefined,
         itens: [{ item_id: productId, quantidade: newQtd, valor_unitario_compra: value }],
@@ -563,7 +572,7 @@ export default function DialogEntrada({
     </Button>
   );
 
-  const titulo = `Entrada de ${inventory === "usoconsumo" ? "uso/consumo" : "estoque"}`;
+  const titulo = `Entrada de ${inventory === "usoconsumo" ? rotuloDeEscopo(escopo).curto.toLocaleLowerCase("pt-BR") : "estoque"}`;
 
   return (
     <Dialog

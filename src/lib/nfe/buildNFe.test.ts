@@ -111,6 +111,42 @@ describe("destino da operação na NF-e", () => {
   });
 });
 
+describe("limite de xNome", () => {
+  it("corta emitente, destinatário e transportadora em 60 caracteres sem alterar a origem", () => {
+    const nomeEmitente = "E".repeat(61);
+    const nomeDestinatario = "D".repeat(61);
+    const nomeTransportadora = "T".repeat(61);
+    const empresaLonga = { ...empresa, ambiente: "PRODUCAO" as const, razaosocial: nomeEmitente };
+    const destinatarioLongo = { ...destinatario("SP"), razaoSocial: nomeDestinatario };
+
+    const { xml } = buildNFePreviewXml(
+      empresaLonga,
+      10,
+      1,
+      [item],
+      destinatarioLongo,
+      {
+        nomeMunicipioEmitente: "SAO PAULO",
+        ambiente: "PRODUCAO",
+        transporte: {
+          modFrete: "0",
+          transportadora: {
+            documento: "12345678000199",
+            nome: nomeTransportadora,
+            uf: "SP",
+          },
+        },
+      },
+    );
+
+    const nomesNoXml = Array.from(xml.matchAll(/<xNome>(.*?)<\/xNome>/g), (match) => match[1]);
+    assert.deepEqual(nomesNoXml.map((nome) => nome.length), [60, 60, 60]);
+    assert.deepEqual(nomesNoXml, ["E".repeat(60), "D".repeat(60), "T".repeat(60)]);
+    assert.equal(empresaLonga.razaosocial, nomeEmitente);
+    assert.equal(destinatarioLongo.razaoSocial, nomeDestinatario);
+  });
+});
+
 describe("documentos referenciados e devolução", () => {
   const chaveOriginal = "35260812345678000199550010000001231000001234";
 
@@ -497,5 +533,70 @@ describe("normalização de rascunho legado", () => {
       `<det nItem="1"><vItem>10.00</vItem></det></infNFe></NFe>`;
 
     assert.equal(normalizarNiveisDeReferencia(soCabecalho), soCabecalho);
+  });
+});
+
+describe("grupo <entrega> (local de entrega/retirada)", () => {
+  it("não gera <entrega> quando a opção não foi informada", () => {
+    const { xml } = buildNFePreviewXml(empresa, 20, 1, [item], destinatario("SP"), {
+      nomeMunicipioEmitente: "SAO PAULO",
+    });
+
+    assert.doesNotMatch(xml, /<entrega>/);
+  });
+
+  it("gera <entrega> com a pessoa indicada, sem alterar o <dest>", () => {
+    const { xml } = buildNFePreviewXml(empresa, 21, 1, [item], destinatario("MT"), {
+      nomeMunicipioEmitente: "SAO PAULO",
+      entrega: {
+        documento: "49354549896",
+        nome: "Gustavo Guarnieri Guarnieri",
+        endereco: {
+          logradouro: "AVENIDA RIO DE JANEIRO",
+          numero: "SN",
+          complemento: "RETIRADA EM AEROPORTO",
+          bairro: "PARQUE JOAO BRAZ - CIDADE INDUSTRIAL",
+          codigoMunicipio: "5208707",
+          nomeMunicipio: "GOIANIA",
+          uf: "GO",
+          cep: "74483500",
+        },
+      },
+    });
+
+    assert.match(xml, /<entrega><CPF>49354549896<\/CPF><xNome>Gustavo Guarnieri Guarnieri<\/xNome>/);
+    assert.match(xml, /<xCpl>RETIRADA EM AEROPORTO<\/xCpl>/);
+    assert.match(xml, /<cMun>5208707<\/cMun><xMun>GOIANIA<\/xMun><UF>GO<\/UF><CEP>74483500<\/CEP><\/entrega>/);
+    // O destinatário fiscal continua sendo o da operação, não a pessoa indicada.
+    assert.match(xml, /<dest><CPF>12345678909<\/CPF>/);
+  });
+
+  it("não gera <entrega> pela metade quando falta documento ou endereço", () => {
+    const { xml } = buildNFePreviewXml(empresa, 22, 1, [item], destinatario("SP"), {
+      nomeMunicipioEmitente: "SAO PAULO",
+      entrega: {
+        documento: "49354549896",
+        nome: "Gustavo Guarnieri Guarnieri",
+        // Endereço incompleto: sem cMun/UF a SEFAZ rejeita, então o grupo some.
+        endereco: { logradouro: "AVENIDA RIO DE JANEIRO" },
+      },
+    });
+
+    assert.doesNotMatch(xml, /<entrega>/);
+  });
+});
+
+describe("grupo <transp> (modalidade de frete)", () => {
+  it("gera <transp> só com modFrete quando nenhuma transportadora foi informada", () => {
+    // Caso real: nota de garantia autorizada pela SEFAZ com modFrete=0 e
+    // nenhum dado de transportadora — <transporta> é opcional no layout da
+    // NF-e independente do modFrete escolhido.
+    const { xml } = buildNFePreviewXml(empresa, 23, 1, [item], destinatario("SP"), {
+      nomeMunicipioEmitente: "SAO PAULO",
+      transporte: { modFrete: "0" },
+    });
+
+    assert.match(xml, /<transp><modFrete>0<\/modFrete><\/transp>/);
+    assert.doesNotMatch(xml, /<transporta>/);
   });
 });

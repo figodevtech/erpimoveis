@@ -232,3 +232,93 @@ test("título vencido pesa pelo saldo, não pelo valor de face", () => {
   assert.equal(resumo.totalVencido, 600);
   assert.equal(resumo.totalEmAberto, 600);
 });
+
+test("titulo migrado conta na divida e fica marcado", () => {
+  const resumo = calcularScoreCliente(
+    [
+      titulo({
+        valor: 1_000,
+        pendente: true,
+        vencimentoEm: "2026-08-01T12:00:00-03:00",
+        origem: "ORIGEM_MIGRACAO",
+      }),
+    ],
+    hoje,
+  );
+
+  assert.equal(resumo.totalEmAberto, 1_000);
+  assert.equal(resumo.totalMigrado, 1_000);
+  assert.equal(resumo.quantidadeMigrada, 1);
+  assert.equal(resumo.titulos[0].migrado, true);
+});
+
+test("titulo do ERP nao e marcado como migrado", () => {
+  const resumo = calcularScoreCliente(
+    [titulo({ valor: 500, pendente: true, vencimentoEm: "2026-08-01T12:00:00-03:00" })],
+    hoje,
+  );
+
+  assert.equal(resumo.totalMigrado, 0);
+  assert.equal(resumo.quantidadeMigrada, 0);
+  assert.equal(resumo.titulos[0].migrado, false);
+  assert.equal(resumo.tetoPorTituloMigrado, false);
+});
+
+test("teto so e creditado a migracao quando todo vencido veio dela", () => {
+  const soMigrado = calcularScoreCliente(
+    [
+      // Histórico bom, para o teto de fato baixar a nota.
+      titulo({ id: 1, valor: 1_000 }),
+      titulo({
+        id: 2,
+        valor: 300,
+        pendente: true,
+        vencimentoEm: "2026-08-01T12:00:00-03:00",
+        origem: "ORIGEM_MIGRACAO",
+      }),
+    ],
+    hoje,
+  );
+
+  assert.equal(soMigrado.tetoAplicado, 59);
+  assert.equal(soMigrado.tetoPorTituloMigrado, true);
+
+  // Basta um vencido gerado aqui para o teto existir de qualquer jeito.
+  const misturado = calcularScoreCliente(
+    [
+      titulo({ id: 1, valor: 1_000 }),
+      titulo({
+        id: 2,
+        valor: 300,
+        pendente: true,
+        vencimentoEm: "2026-08-01T12:00:00-03:00",
+        origem: "ORIGEM_MIGRACAO",
+      }),
+      titulo({ id: 3, valor: 200, pendente: true, vencimentoEm: "2026-08-02T12:00:00-03:00" }),
+    ],
+    hoje,
+  );
+
+  assert.equal(misturado.tetoAplicado, 59);
+  assert.equal(misturado.tetoPorTituloMigrado, false);
+});
+
+test("titulo migrado a vencer nao credita teto a migracao", () => {
+  const resumo = calcularScoreCliente(
+    [
+      titulo({ id: 1, valor: 1_000 }),
+      titulo({
+        id: 2,
+        valor: 300,
+        pendente: true,
+        vencimentoEm: "2026-09-30T12:00:00-03:00",
+        origem: "ORIGEM_MIGRACAO",
+      }),
+    ],
+    hoje,
+  );
+
+  assert.equal(resumo.tetoAplicado, null);
+  assert.equal(resumo.tetoPorTituloMigrado, false);
+  assert.equal(resumo.totalMigrado, 300);
+});

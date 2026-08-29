@@ -24,6 +24,8 @@ const authConfig: NextAuthConfig = {
         (session.user as any).ativo = (token as any).ativo ?? true;
         (session.user as any).permissoes = (token as any).permissoes ?? [];
         (session.user as any).permissoesRefreshedAt = (token as any).permissoesRefreshedAt ?? null;
+        (session.user as any).supabaseAccessToken = (token as any).supabaseAccessToken ?? null;
+        (session.user as any).supabaseAccessTokenExpiresAt = (token as any).supabaseAccessTokenExpiresAt ?? null;
       }
 
       return session;

@@ -8,15 +8,16 @@
  * Trabalha sobre o objeto do `fast-xml-parser` (o formato que a rota de entrada
  * usa), não sobre DOM — `danfeParser` lê os mesmos campos a partir do XML cru
  * para a DANFE. Os nomes de saída são os mesmos dos dois lados de propósito.
+ *
+ * Estes valores são COBRANÇA, não composição do total: `vOrig`, `vDesc`, `vLiq`
+ * e `vDup` nunca entram no cálculo do `vNF`. Servem para contas a pagar,
+ * parcelas e conferência financeira.
  */
 
+import { comoLista, paraDia, paraNumero, paraTexto, registro } from "./xml-valores";
+
 export interface DuplicataDaNota {
-  /**
-   * `nDup`, só para exibir. Texto porque o XML admite qualquer rótulo ("001",
-   * "A/1"), mas sem promessa de fidelidade: o `fast-xml-parser` da rota converte
-   * "012345" em número e o zero à esquerda se perde no caminho. Nada depende
-   * deste campo — a parcela é vencimento e valor.
-   */
+  /** `nDup`, só para exibir — o XML admite qualquer rótulo ("001", "A/1"). */
   numero: string | null;
   /** `dVenc` normalizado em AAAA-MM-DD, ou `null` quando o XML não trouxe. */
   vencimento: string | null;
@@ -34,53 +35,6 @@ export interface FaturaDaNota {
 export interface CobrancaDaNota {
   fatura: FaturaDaNota | null;
   duplicatas: DuplicataDaNota[];
-}
-
-/**
- * O `fast-xml-parser` converte o que parece número em número, então o mesmo campo
- * chega ora como `119`, ora como `"119,00"` (emitente que usa vírgula). Os dois
- * precisam virar o mesmo `119`.
- */
-function paraNumero(valor: unknown): number | null {
-  if (typeof valor === "number") return Number.isFinite(valor) ? valor : null;
-  if (typeof valor !== "string") return null;
-
-  const limpo = valor.trim().replace(",", ".");
-  if (!limpo) return null;
-
-  const numero = Number(limpo);
-  return Number.isFinite(numero) ? numero : null;
-}
-
-function paraTexto(valor: unknown): string | null {
-  if (valor == null) return null;
-  const texto = String(valor).trim();
-  return texto || null;
-}
-
-/**
- * `dVenc` é data pura (AAAA-MM-DD) na especificação, mas aparece com hora colada
- * em emissor que reaproveita campo de timestamp. Cortar em 10 evita que o
- * vencimento ande um dia ao virar `Date` no fuso do navegador.
- */
-function paraDia(valor: unknown): string | null {
-  const texto = paraTexto(valor);
-  if (!texto) return null;
-
-  const encontrado = /^(\d{4})-(\d{2})-(\d{2})/.exec(texto);
-  return encontrado ? encontrado[0].slice(0, 10) : null;
-}
-
-/** Um nó do fast-xml-parser vira lista: filho único não vem em array. */
-function comoLista(valor: unknown): unknown[] {
-  if (valor == null) return [];
-  return Array.isArray(valor) ? valor : [valor];
-}
-
-function registro(valor: unknown): Record<string, unknown> | null {
-  return valor && typeof valor === "object" && !Array.isArray(valor)
-    ? (valor as Record<string, unknown>)
-    : null;
 }
 
 export function extrairCobranca(infNFe: unknown): CobrancaDaNota {

@@ -69,6 +69,8 @@ export type NFSeItemEmissao = {
   servicoid: number;
   quantidade: number;
   valor: number;
+  /** Texto livre da linha da OS (`osservico.descricao`), não o nome do cadastro. */
+  descricaoItem?: string | null;
   servico?: {
     descricao?: string | null;
   } | null;
@@ -365,6 +367,24 @@ function validarItensEmissao(itens: NFSeItemEmissao[]) {
   });
 }
 
+/**
+ * A descrição escrita na linha da OS (`osservico.descricao`), quando ela
+ * acrescenta algo ao nome do serviço do cadastro. Mesma regra da impressão da
+ * OS: repetir o mesmo texto não vira linha nova.
+ */
+export function descricaoComplementarDoItem(
+  descricaoItem: unknown,
+  descricaoCadastro: unknown,
+): string | null {
+  // A discriminação é numerada por item, e uma quebra no meio do texto livre
+  // faria a linha seguinte parecer um item novo.
+  const complemento = textoObrigatorio(descricaoItem).replace(/\s+/g, " ");
+  if (!complemento) return null;
+  const cadastro = textoObrigatorio(descricaoCadastro);
+  if (complemento.toLocaleLowerCase("pt-BR") === cadastro.toLocaleLowerCase("pt-BR")) return null;
+  return complemento;
+}
+
 function montarDiscriminacaoServicos(
   osId: number,
   itens: NFSeItemEmissao[],
@@ -372,11 +392,13 @@ function montarDiscriminacaoServicos(
   limiteCaracteres = 2000,
 ) {
   validarItensEmissao(itens);
-  const linhas = itens.map((item, index) => {
+  const linhas = itens.flatMap((item, index) => {
     const descricao = textoObrigatorio(item.servico?.descricao);
     const quantidade = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 4 }).format(item.quantidade);
     const valor = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(item.valor);
-    return `${index + 1}. ${descricao} — ${quantidade} un. — ${valor}`;
+    const complemento = descricaoComplementarDoItem(item.descricaoItem, descricao);
+    const linhaDoItem = `${index + 1}. ${descricao} — ${quantidade} un. — ${valor}`;
+    return complemento ? [linhaDoItem, `   ${complemento}`] : [linhaDoItem];
   });
   const blocos = [`OS #${osId}`, ...linhas];
   if (informacoesComplementares) {
@@ -386,7 +408,7 @@ function montarDiscriminacaoServicos(
   if (discriminacao.length > limiteCaracteres) {
     const origem = informacoesComplementares ? "dos serviços e das informações complementares" : "dos serviços";
     throw new NFSeValidationError(
-      `A discriminação consolidada ${origem} ultrapassa ${limiteCaracteres} caracteres. Reduza o texto complementar ou a quantidade de serviços.`,
+      `A discriminação consolidada ${origem} ultrapassa ${limiteCaracteres} caracteres. Reduza o texto complementar, as descrições dos serviços na OS ou a quantidade de serviços.`,
     );
   }
   return discriminacao;

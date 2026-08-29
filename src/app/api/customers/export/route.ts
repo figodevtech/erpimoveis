@@ -45,6 +45,10 @@ export async function GET(req: Request) {
       "Inscrição Municipal",
       "Código Município",
       "Status",
+      "Em aberto",
+      "Vencido",
+      "Títulos vencidos",
+      "Tem título migrado",
       "Criado em",
       "Atualizado em",
     ] as const;
@@ -71,6 +75,10 @@ export async function GET(req: Request) {
       { wch: 18 }, // IM
       { wch: 16 }, // Código Município
       { wch: 10 }, // Status
+      { wch: 14 }, // Em aberto
+      { wch: 14 }, // Vencido
+      { wch: 16 }, // Títulos vencidos
+      { wch: 18 }, // Tem título migrado
       { wch: 20 }, // Criado em
       { wch: 20 }, // Atualizado em
     ];
@@ -111,6 +119,23 @@ export async function GET(req: Request) {
       const { data, error } = await buildQuery().range(from, to);
       if (error) throw error;
 
+      /*
+       * A dívida vem por bloco, pelos ids que já estão em maos — a mesma RPC da
+       * listagem, para a planilha nao contar uma historia diferente da tela.
+       */
+      const dividas = new Map<number, any>();
+      const ids = (data ?? []).map((c: any) => Number(c.id));
+      if (ids.length) {
+        const { data: linhas, error: erroDivida } = await supabaseAdmin.rpc(
+          "clientes_divida",
+          { p_cliente_ids: ids, p_somente_devedores: false },
+        );
+        if (erroDivida) throw erroDivida;
+        for (const linha of (linhas ?? []) as any[]) {
+          dividas.set(Number(linha.cliente_id), linha);
+        }
+      }
+
       const rows = (data ?? []).map((c) => [
         c.id ?? "",
         c.tipopessoa ?? "",
@@ -128,6 +153,10 @@ export async function GET(req: Request) {
         c.inscricaomunicipal ?? "",
         c.codigomunicipio ?? "",
         c.status ?? "",
+        Number(dividas.get(Number(c.id))?.total_em_aberto ?? 0),
+        Number(dividas.get(Number(c.id))?.total_vencido ?? 0),
+        Number(dividas.get(Number(c.id))?.quantidade_vencida ?? 0),
+        dividas.get(Number(c.id))?.tem_migrado ? "SIM" : "",
         c.createdat ? new Date(c.createdat) : "",
         c.updatedat ? new Date(c.updatedat) : "",
       ]);

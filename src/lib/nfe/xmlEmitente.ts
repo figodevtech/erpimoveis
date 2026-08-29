@@ -1,6 +1,6 @@
 // src/lib/nfe/xmlEmitente.ts
 import type { NFeEmitente } from './types';
-import { escapeXml } from './xmlUtils';
+import { escapeXml, truncateNfeXNome } from './xmlUtils';
 
 /**
  * Gera o bloco <emit> da NF-e a partir do NFeEmitente.
@@ -10,7 +10,7 @@ export function buildEmitXml(emit: NFeEmitente): string {
 
   partes.push('<emit>');
   partes.push(`<CNPJ>${emit.cnpj}</CNPJ>`);
-  partes.push(`<xNome>${escapeXml(emit.razaoSocial)}</xNome>`);
+  partes.push(`<xNome>${escapeXml(truncateNfeXNome(emit.razaoSocial))}</xNome>`);
 
   if (emit.nomeFantasia) {
     partes.push(`<xFant>${escapeXml(emit.nomeFantasia)}</xFant>`);

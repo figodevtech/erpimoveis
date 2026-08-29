@@ -25,6 +25,7 @@ import {
   Headset,
   History,
   Handbag,
+  Boxes,
   Lock,
   Car,
   Wrench,
@@ -40,6 +41,7 @@ import {
   Send,
   FileText,
   Building2,
+  RadioTower,
 } from "lucide-react";
 
 import { NavMain } from "./components/nav-main";
@@ -135,6 +137,12 @@ const data = {
           title: "Uso/Consumo",
           url: "/estoque/uso-consumo",
           icon: Handbag,
+          perm: PERMS.USOCONSUMO,
+        },
+        {
+          title: "Geral/Avulso",
+          url: "/estoque/geral",
+          icon: Boxes,
           perm: PERMS.USOCONSUMO,
         },
         {
@@ -243,6 +251,12 @@ const data = {
       title: "Acompanhamento",
       url: "/acompanhamento",
       icon: Tv,
+      perm: PERMS.ACOMPANHAMENTO,
+    },
+    {
+      title: "Central Operacional",
+      url: "/central-operacional",
+      icon: RadioTower,
       perm: PERMS.ACOMPANHAMENTO,
     },
     {

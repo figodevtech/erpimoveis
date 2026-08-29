@@ -17,7 +17,7 @@ import { Separator } from "@/components/ui/separator";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   AlertTriangle,
   ArrowDown,
@@ -276,6 +276,7 @@ type OS = {
   /** Saida fisica, registrada independentemente do pagamento. */
   datasaida?: string | null;
   pagamento_concluido_em?: string | null;
+  finalizado_em?: string | null;
   destacada?: boolean;
   destaque_motivo?: string | null;
   destaque_cor?: "vermelho" | "amarelo" | string | null;
@@ -471,6 +472,8 @@ type OSDetalhesResponse = {
     criado_por?: { id: string; nome: string } | null;
     pode_gerar_transacao: boolean;
     transacaoid?: number | null;
+    /** Boleto que quita esta despesa, quando o pagamento cobre várias ou é parcelado. */
+    lancamento_id?: number | null;
     competencia_em?: string | null;
   }>;
   transacoes?: Array<{
@@ -481,6 +484,7 @@ type OSDetalhesResponse = {
     data: string;
     tipo: string;
     pendente: boolean;
+    lancamento_id?: number | null;
     metodopagamento?: any;
     banco_id?: number | null;
     plano_de_conta?: string | null;
@@ -529,8 +533,12 @@ type OSDetalhesResponse = {
         detalhe: string | null;
         valor: number;
         status: "ATIVO" | "CONVERTIDO";
-        situacao: "PREVISTA" | "A_PAGAR" | "PAGA" | "LANCADA";
+        situacao: "PREVISTA" | "A_PAGAR" | "PARCIAL" | "PAGA" | "LANCADA";
         transacaoid: number | null;
+        lancamentoid: number | null;
+        /** Parcelas do boleto que quita esta despesa. Zero no vínculo direto. */
+        parcelas: number;
+        parcelasPagas: number;
       }>;
       realizadores: Array<{
         usuarioid: string;
@@ -766,7 +774,11 @@ export function OSDetalhesDialog({
     detalhe: string;
     valor: number;
     natureza: "RECEITA" | "DESPESA";
-    transacaoId: number;
+    /** Um dos dois vem preenchido: transação avulsa ou boleto em grupo. */
+    transacaoId: number | null;
+    lancamentoId: number | null;
+    /** Quantas parcelas somem junto. Zero quando o vínculo é direto. */
+    parcelas: number;
   } | null>(null);
   const [excluindoTransacaoEvento, setExcluindoTransacaoEvento] = useState(false);
   const [salvandoSnapshot, setSalvandoSnapshot] = useState(false);
@@ -775,12 +787,16 @@ export function OSDetalhesDialog({
   const [produtoDialogOpen, setProdutoDialogOpen] = useState(false);
   const [baixaDialogOpen, setBaixaDialogOpen] = useState(false);
   const [despesaParaBaixa, setDespesaParaBaixa] = useState<Transaction | null>(null);
+  // `ids` no plural porque um boleto de terceirizado pode cobrir várias
+  // despesas de serviço da mesma OS. Com um id só, é o lançamento de sempre.
   const [eventoParaLancamento, setEventoParaLancamento] = useState<{
-    id: number;
+    ids: number[];
     tipo: "ENTRADA" | "SAIDA";
     descricao: string;
     valor: number;
   } | null>(null);
+  const [modoSelecaoEventos, setModoSelecaoEventos] = useState(false);
+  const [eventosSelecionados, setEventosSelecionados] = useState<Set<number>>(new Set());
   const [anexos, setAnexos] = useState<OsAnexo[]>([]);
   const [anexoCategoria, setAnexoCategoria] = useState<OsAnexoCategoria>("OUTROS");
   const [loadingAnexos, setLoadingAnexos] = useState(false);
@@ -1027,6 +1043,68 @@ export function OSDetalhesDialog({
 
     return lancamentos.sort((a, b) => a.grupo.localeCompare(b.grupo, "pt-BR", { numeric: true }) || a.ordemNoGrupo - b.ordemNoGrupo || a.id - b.id);
   }, [data?.eventosFinanceiros]);
+
+  const eventosSelecionaveis = useMemo(
+    () => fluxoOs.filter((lancamento) => eventoSelecionavel(lancamento)),
+    [fluxoOs],
+  );
+
+  const despesasEscolhidas = useMemo(
+    () => eventosSelecionaveis.filter((lancamento) => eventosSelecionados.has(lancamento.id)),
+    [eventosSelecionaveis, eventosSelecionados],
+  );
+
+  const totalSelecionado = useMemo(
+    () => arredondarMoeda(despesasEscolhidas.reduce((soma, item) => soma + item.valor, 0)),
+    [despesasEscolhidas],
+  );
+
+  const alternarSelecaoEvento = useCallback((id: number) => {
+    setEventosSelecionados((atual) => {
+      const proximo = new Set(atual);
+      if (proximo.has(id)) proximo.delete(id);
+      else proximo.add(id);
+      return proximo;
+    });
+  }, []);
+
+  const sairDoModoSelecao = useCallback(() => {
+    setModoSelecaoEventos(false);
+    setEventosSelecionados(new Set());
+  }, []);
+
+  // Sem despesa elegível não há o que selecionar — a última pode ter acabado de
+  // ser lançada por outra aba.
+  useEffect(() => {
+    if (modoSelecaoEventos && eventosSelecionaveis.length === 0) sairDoModoSelecao();
+  }, [modoSelecaoEventos, eventosSelecionaveis.length, sairDoModoSelecao]);
+
+  // Poda a seleção quando os eventos recarregam: uma despesa lançada em outra
+  // aba continuaria marcada e entraria na soma. Devolve o Set anterior quando
+  // nada mudou, senão o estado novo a cada render reentraria neste efeito.
+  useEffect(() => {
+    setEventosSelecionados((atual) => {
+      if (atual.size === 0) return atual;
+      const validos = new Set(eventosSelecionaveis.map((lancamento) => lancamento.id));
+      const proximo = new Set([...atual].filter((id) => validos.has(id)));
+      return proximo.size === atual.size ? atual : proximo;
+    });
+  }, [eventosSelecionaveis]);
+
+  const lancarSelecaoNoFinanceiro = useCallback(() => {
+    if (despesasEscolhidas.length === 0) return;
+    const ids = despesasEscolhidas.map((lancamento) => lancamento.id).sort((a, b) => a - b);
+    setEventoParaLancamento({
+      ids,
+      tipo: "SAIDA",
+      valor: totalSelecionado,
+      descricao:
+        ids.length === 1
+          ? despesasEscolhidas[0].descricao
+          : `Despesas da OS #${data?.os?.id ?? ""} (${ids.length} lançamentos)`,
+    });
+  }, [despesasEscolhidas, totalSelecionado, data?.os?.id]);
+
   const totaisEventos = useMemo(() => {
     const receita = fluxoOs.filter((item) => item.tipo === "ENTRADA").reduce((soma, item) => soma + item.valor, 0);
     const despesa = fluxoOs.filter((item) => item.tipo === "SAIDA").reduce((soma, item) => soma + item.valor, 0);
@@ -1121,6 +1199,29 @@ export function OSDetalhesDialog({
     }
   }
 
+  /**
+   * O que precisa ser desfeito para o evento voltar a ser editável.
+   *
+   * No vínculo direto é a própria transação. No boleto em grupo não existe "a"
+   * transação — são N parcelas —, então o alvo é o lançamento. Ler o grupo em
+   * vez de uma parcela também evita depender de `data.transacoes`, que só vem
+   * para quem enxerga rentabilidade.
+   */
+  function vinculoDoEvento(eventoId: number) {
+    const evento = data?.eventosFinanceiros?.find((item) => item.id === eventoId);
+    const parcelas =
+      evento?.lancamento_id == null
+        ? 0
+        : (data?.transacoes ?? []).filter(
+            (transacao) => transacao.lancamento_id === evento.lancamento_id,
+          ).length;
+    return {
+      transacaoId: evento?.transacaoid ? Number(evento.transacaoid) : null,
+      lancamentoId: evento?.lancamento_id == null ? null : Number(evento.lancamento_id),
+      parcelas,
+    };
+  }
+
   function abrirEdicaoSnapshot(
     id: number,
     descricao: string,
@@ -1128,14 +1229,23 @@ export function OSDetalhesDialog({
     valor: number,
     natureza: "RECEITA" | "DESPESA",
     status: string,
-    transacaoId?: number | null,
+    vinculo?: { transacaoId: number | null; lancamentoId: number | null; parcelas: number },
   ) {
     if (status === "CONVERTIDO") {
-      if (!transacaoId) {
-        toast.error("A transação vinculada não foi localizada.");
+      if (!vinculo?.transacaoId && !vinculo?.lancamentoId) {
+        toast.error("O lançamento vinculado não foi localizado.");
         return;
       }
-      setEventoConvertidoParaEditar({ id, descricao, detalhe, valor, natureza, transacaoId });
+      setEventoConvertidoParaEditar({
+        id,
+        descricao,
+        detalhe,
+        valor,
+        natureza,
+        transacaoId: vinculo.transacaoId,
+        lancamentoId: vinculo.lancamentoId,
+        parcelas: vinculo.parcelas,
+      });
       return;
     }
     setEventoEdicao({ id, descricao, detalhe, valor, natureza });
@@ -1148,9 +1258,15 @@ export function OSDetalhesDialog({
     if (!eventoConvertidoParaEditar) return;
     setExcluindoTransacaoEvento(true);
     try {
-      const response = await fetch(`/api/transaction/${eventoConvertidoParaEditar.transacaoId}`, { method: "DELETE" });
+      // Boleto em grupo some por inteiro; transação avulsa, sozinha. As guardas
+      // de parcela paga e de OS finalizada vivem no servidor, então uma recusa
+      // aqui já chega com a mensagem certa.
+      const alvo = eventoConvertidoParaEditar.lancamentoId
+        ? `/api/lancamento-de-eventos/${eventoConvertidoParaEditar.lancamentoId}`
+        : `/api/transaction/${eventoConvertidoParaEditar.transacaoId}`;
+      const response = await fetch(alvo, { method: "DELETE" });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload?.error || "Erro ao excluir a transação vinculada");
+      if (!response.ok) throw new Error(payload?.error || "Erro ao desfazer o lançamento vinculado");
       const evento = eventoConvertidoParaEditar;
       setEventoConvertidoParaEditar(null);
       setEventoEdicao({
@@ -1198,6 +1314,36 @@ export function OSDetalhesDialog({
 
   /** Mês da competência já encerrado: o valor está congelado porque a DRE
    * daquele período seria reescrita. Vale para editar e para sincronizar. */
+  /**
+   * Despesa que ainda pode virar pagamento.
+   *
+   * `competenciaFechada` de propósito não entra: lançar não reescreve o valor do
+   * evento, só o vincula a um pagamento. O mês fechado trava a edição, não a
+   * quitação.
+   */
+  function eventoSelecionavel(lancamento: {
+    podeGerarTransacao: boolean;
+    status: string;
+    tipo: "ENTRADA" | "SAIDA";
+  }) {
+    return (
+      lancamento.podeGerarTransacao &&
+      lancamento.status === "ATIVO" &&
+      lancamento.tipo === "SAIDA"
+    );
+  }
+
+  function motivoNaoSelecionavel(lancamento: {
+    podeGerarTransacao: boolean;
+    status: string;
+    tipo: "ENTRADA" | "SAIDA";
+  }) {
+    if (lancamento.tipo !== "SAIDA") return "Só despesas podem ser agrupadas num pagamento.";
+    if (lancamento.status !== "ATIVO") return "Esta despesa já foi lançada no financeiro.";
+    if (!lancamento.podeGerarTransacao) return "Lançamento automático não gera transação.";
+    return undefined;
+  }
+
   function podeAlterarValor(lancamento: { competenciaFechada: boolean }) {
     return !osFinalizada && podeEditarEventosFinanceiros && !lancamento.competenciaFechada;
   }
@@ -1639,16 +1785,24 @@ export function OSDetalhesDialog({
                   ) : null}
                 </div>
 
-                <span className="grid grid-cols-3 gap-2 text-left sm:ml-auto sm:min-w-[390px] sm:text-right">
+                <span className="grid grid-cols-2 gap-2 text-left sm:ml-auto sm:min-w-[520px] sm:grid-cols-4 sm:text-right">
                   <span className="rounded-md border bg-card px-2.5 py-1.5">
                     <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                       Entrada
                     </span>
                     <span className="block text-xs font-semibold text-foreground">{fmtDate(data?.os?.dataentrada)}</span>
                   </span>
+                  <span className="rounded-md border bg-card px-2.5 py-1.5" title="Quando a OS entrou em um status final">
+                    <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Finalizada
+                    </span>
+                    <span className="block text-xs font-semibold text-foreground">
+                      {fmtDate(data?.os?.finalizado_em)}
+                    </span>
+                  </span>
                   <span
                     className="rounded-md border bg-card px-2.5 py-1.5"
-                    title="Quando o andamento foi finalizado"
+                    title="Quando o pagamento foi concluído"
                   >
                     <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                       Pagamento concluído
@@ -2492,10 +2646,14 @@ export function OSDetalhesDialog({
                                                   {despesa.situacao === "PREVISTA"
                                                     ? "Prevista"
                                                     : despesa.situacao === "A_PAGAR"
-                                                      ? "A pagar"
-                                                      : despesa.situacao === "PAGA"
-                                                        ? "Paga"
-                                                        : "Lançada"}
+                                                      ? despesa.parcelas > 1
+                                                        ? `A pagar · ${despesa.parcelas}x`
+                                                        : "A pagar"
+                                                      : despesa.situacao === "PARCIAL"
+                                                        ? `${despesa.parcelasPagas} de ${despesa.parcelas} pagas`
+                                                        : despesa.situacao === "PAGA"
+                                                          ? "Paga"
+                                                          : "Lançada"}
                                                 </Badge>
                                                 <p className="font-semibold tabular-nums text-red-700 dark:text-red-300">
                                                   {fmtMoney(despesa.valor)}
@@ -2655,11 +2813,59 @@ export function OSDetalhesDialog({
                       </div>
                     </div>
 
-                    {!osFinalizada && podeEditarEventosFinanceiros ? <div className="flex justify-end">
-                      <Button type="button" size="sm" onClick={() => setEventoDialogOpen(true)}>
-                        Novo lançamento
-                      </Button>
-                    </div> : null}
+                    {!osFinalizada && podeEditarEventosFinanceiros ? (
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        {modoSelecaoEventos ? (
+                          <>
+                            <p className="mr-auto text-sm text-muted-foreground">
+                              {despesasEscolhidas.length} de {eventosSelecionaveis.length} despesa(s)
+                              {despesasEscolhidas.length > 0 ? ` · ${fmtMoney(totalSelecionado)}` : null}
+                            </p>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  disabled={despesasEscolhidas.length === 0}
+                                >
+                                  Executar
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-64">
+                                <DropdownMenuLabel>Ações em massa</DropdownMenuLabel>
+                                <DropdownMenuItem onSelect={() => lancarSelecaoNoFinanceiro()}>
+                                  Lançar no financeiro ({despesasEscolhidas.length}) — {fmtMoney(totalSelecionado)}
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                            <Button type="button" size="sm" variant="ghost" onClick={sairDoModoSelecao}>
+                              Cancelar
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              aria-pressed={false}
+                              disabled={eventosSelecionaveis.length === 0}
+                              title={
+                                eventosSelecionaveis.length === 0
+                                  ? "Nenhuma despesa disponível para lançar."
+                                  : "Selecionar despesas para lançar juntas no financeiro"
+                              }
+                              onClick={() => setModoSelecaoEventos(true)}
+                            >
+                              <ListChecks /> Selecionar
+                            </Button>
+                            <Button type="button" size="sm" onClick={() => setEventoDialogOpen(true)}>
+                              Novo lançamento
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    ) : null}
 
                     <div className="overflow-hidden rounded-xl border bg-card">
                       <div className="hidden grid-cols-[minmax(0,1fr)_130px_130px] gap-3 border-b bg-muted/50 px-4 py-2 text-xs font-medium text-muted-foreground sm:grid">
@@ -2672,19 +2878,35 @@ export function OSDetalhesDialog({
                           {fluxoOs.map((lancamento) => (
                             <div key={lancamento.id} className="grid gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_130px_130px] sm:items-center">
                               <div className="flex min-w-0 items-start gap-3">
-                                <span
-                                  className={
-                                    lancamento.tipo === "ENTRADA"
-                                      ? "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                                      : "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-red-500/15 text-red-600 dark:text-red-400"
-                                  }
-                                >
-                                  {lancamento.tipo === "ENTRADA" ? (
-                                    <ArrowUp className="size-3.5" />
-                                  ) : (
-                                    <ArrowDown className="size-3.5" />
-                                  )}
-                                </span>
+                                {modoSelecaoEventos ? (
+                                  // O checkbox ocupa o lugar da seta, no mesmo
+                                  // tamanho: entrar no modo de seleção não faz a
+                                  // lista inteira saltar para o lado.
+                                  <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center">
+                                    <Checkbox
+                                      checked={eventosSelecionados.has(lancamento.id)}
+                                      disabled={!eventoSelecionavel(lancamento)}
+                                      onCheckedChange={() => alternarSelecaoEvento(lancamento.id)}
+                                      aria-label={`Selecionar ${lancamento.descricao}`}
+                                      title={motivoNaoSelecionavel(lancamento)}
+                                      className="hover:cursor-pointer"
+                                    />
+                                  </span>
+                                ) : (
+                                  <span
+                                    className={
+                                      lancamento.tipo === "ENTRADA"
+                                        ? "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                                        : "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-red-500/15 text-red-600 dark:text-red-400"
+                                    }
+                                  >
+                                    {lancamento.tipo === "ENTRADA" ? (
+                                      <ArrowUp className="size-3.5" />
+                                    ) : (
+                                      <ArrowDown className="size-3.5" />
+                                    )}
+                                  </span>
+                                )}
                                 <div className="min-w-0">
                                   <div className="flex flex-wrap items-center gap-2">
                                     <p className="truncate text-sm font-medium">{lancamento.descricao}</p>
@@ -2721,7 +2943,7 @@ export function OSDetalhesDialog({
                                 <span className="mr-auto text-xs text-muted-foreground sm:hidden">Ações</span>
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
-                                    <Button type="button" variant="ghost" size="icon" className="size-8" aria-label="Abrir ações do evento">
+                                    <Button type="button" variant="ghost" size="icon" className="size-8" aria-label="Abrir ações do evento" disabled={modoSelecaoEventos}>
                                       <MoreHorizontal className="size-4" />
                                     </Button>
                                   </DropdownMenuTrigger>
@@ -2735,7 +2957,7 @@ export function OSDetalhesDialog({
                                         lancamento.valor,
                                         lancamento.tipo === "ENTRADA" ? "RECEITA" : "DESPESA",
                                         lancamento.status,
-                                        data.eventosFinanceiros?.find((item) => item.id === lancamento.id)?.transacaoid,
+                                        vinculoDoEvento(lancamento.id),
                                       )}>
                                         <Pencil /> {lancamento.tipo === "SAIDA" ? "Editar despesa" : "Editar valor do lançamento"}
                                       </DropdownMenuItem>
@@ -2772,7 +2994,7 @@ export function OSDetalhesDialog({
                                     ) : null}
                                     {lancamento.podeGerarTransacao && lancamento.status === "ATIVO" ? (
                                       <DropdownMenuItem onSelect={() => setEventoParaLancamento({
-                                        id: lancamento.id,
+                                        ids: [lancamento.id],
                                         tipo: lancamento.tipo,
                                         descricao: lancamento.descricao,
                                         valor: lancamento.valor,
@@ -2793,7 +3015,7 @@ export function OSDetalhesDialog({
 
                     {eventoParaLancamento ? (
                       <TransactionDialog
-                        key={eventoParaLancamento.id}
+                        key={eventoParaLancamento.ids.join("-")}
                         open
                         setOpen={(nextOpen) => {
                           if (!nextOpen) setEventoParaLancamento(null);
@@ -2802,8 +3024,22 @@ export function OSDetalhesDialog({
                         handleGetTransactions={() => void recarregarDetalhes()}
                         internalCompanyExpense={eventoParaLancamento.tipo === "SAIDA"}
                         lockValue
+                        // Despesa vai pelo lançamento em grupo — é o caminho que
+                        // aceita boleto parcelado e várias despesas num pagamento
+                        // só. Receita continua no vínculo direto de sempre.
+                        lancamentoDeEventos={
+                          eventoParaLancamento.tipo === "SAIDA"
+                            ? {
+                                ordemServicoId: data.os.id,
+                                eventosIds: eventoParaLancamento.ids,
+                                onConcluido: () => sairDoModoSelecao(),
+                              }
+                            : undefined
+                        }
                         initialTransaction={{
-                          evento_financeiro_id: eventoParaLancamento.id,
+                          ...(eventoParaLancamento.tipo === "ENTRADA"
+                            ? { evento_financeiro_id: eventoParaLancamento.ids[0] }
+                            : {}),
                           tipo: eventoParaLancamento.tipo === "ENTRADA" ? Tipo_transacao.RECEITA : Tipo_transacao.DESPESA,
                           descricao: eventoParaLancamento.descricao,
                           valor: eventoParaLancamento.valor,
@@ -2964,9 +3200,19 @@ export function OSDetalhesDialog({
                     >
                       <AlertDialogContent>
                         <AlertDialogHeader>
-                          <AlertDialogTitle>Excluir transação vinculada?</AlertDialogTitle>
+                          <AlertDialogTitle>
+                            {eventoConvertidoParaEditar?.lancamentoId
+                              ? "Desfazer o lançamento inteiro?"
+                              : "Excluir transação vinculada?"}
+                          </AlertDialogTitle>
                           <AlertDialogDescription>
-                            Este evento já foi lançado no financeiro. Para alterar seus dados, será necessário excluir a transação vinculada. Deseja continuar?
+                            {eventoConvertidoParaEditar?.lancamentoId
+                              ? `Esta despesa foi lançada num pagamento${
+                                  eventoConvertidoParaEditar.parcelas > 1
+                                    ? ` de ${eventoConvertidoParaEditar.parcelas} parcelas`
+                                    : ""
+                                } que pode cobrir outras despesas. Para alterar seus dados, o lançamento inteiro precisa ser desfeito: as parcelas somem e todas as despesas cobertas por ele voltam a previstas. Deseja continuar?`
+                              : "Este evento já foi lançado no financeiro. Para alterar seus dados, será necessário excluir a transação vinculada. Deseja continuar?"}
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
