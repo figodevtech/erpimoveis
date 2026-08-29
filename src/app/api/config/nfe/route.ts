@@ -20,6 +20,10 @@ import {
   descreverIssues,
   prepararPadroesFiscais,
 } from "@/services/fiscal/padraoFiscalConfigService";
+import {
+  prepararPatchesGarantiaNfe,
+  serializarConfigGarantiaNfe,
+} from "@/lib/fiscal/configGarantia";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
@@ -35,10 +39,12 @@ type ConfigRow = {
   csc_id_producao: string | null;
   qrcode_versao: number | null;
   padroes_emissao: unknown;
+  incluir_garantia_venda: boolean;
+  incluir_garantia_os: boolean;
 };
 
 const CAMPOS =
-  "id, modelo, serie, natureza_operacao, csc_homologacao, csc_id_homologacao, csc_producao, csc_id_producao, qrcode_versao, padroes_emissao";
+  "id, modelo, serie, natureza_operacao, csc_homologacao, csc_id_homologacao, csc_producao, csc_id_producao, qrcode_versao, padroes_emissao, incluir_garantia_venda, incluir_garantia_os";
 
 function padroesDoModelo(config: ConfigRow | null) {
   const valor = config?.padroes_emissao;
@@ -78,6 +84,7 @@ function serializar(configs: Awaited<ReturnType<typeof carregarConfigs>>) {
     serieNFCe: configs.nfce?.serie != null ? String(configs.nfce.serie) : "",
     naturezaOperacao: configs.nfe?.natureza_operacao ?? "",
     naturezaOperacaoNFCe: configs.nfce?.natureza_operacao ?? "",
+    ...serializarConfigGarantiaNfe(configs.nfe, configs.nfce),
     idCscHomologacao: configs.nfce?.csc_id_homologacao ?? "",
     idCscProducao: configs.nfce?.csc_id_producao ?? "",
     // Mascarados: o segredo nunca volta inteiro para a tela.
@@ -158,6 +165,7 @@ export async function PUT(req: NextRequest) {
     // Validado antes de qualquer gravação: padrão inválido não estraga uma
     // nota, estraga todas as emitidas depois, e a rejeição aparece longe daqui.
     const crt = crtDaEmpresa(empresa);
+    const patchesGarantia = prepararPatchesGarantiaNfe(nfe);
     const padroesRecebidos = (nfe.padroesFiscais ?? {}) as Record<string, unknown>;
     const padroesNFe =
       "NFE" in padroesRecebidos
@@ -190,6 +198,7 @@ export async function PUT(req: NextRequest) {
     const patchNFe = {
       ...(serieNFe !== undefined ? { serie: serieNFe } : {}),
       ...(naturezaNFe !== undefined ? { natureza_operacao: naturezaNFe } : {}),
+      ...patchesGarantia.nfe,
       ...(padroesNFe ? { padroes_emissao: padroesNFe.padroes } : {}),
     };
 
@@ -217,6 +226,7 @@ export async function PUT(req: NextRequest) {
       const patchNFCe = {
         ...(serieNFCe !== undefined ? { serie: serieNFCe } : {}),
         ...(naturezaNFCe !== undefined ? { natureza_operacao: naturezaNFCe } : {}),
+        ...patchesGarantia.nfce,
         ...(qrCodeVersao !== undefined ? { qrcode_versao: qrCodeVersao } : {}),
         ...(cscHomologacao !== undefined ? { csc_homologacao: cscHomologacao } : {}),
         ...(cscProducao !== undefined ? { csc_producao: cscProducao } : {}),

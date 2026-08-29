@@ -200,7 +200,7 @@ export interface Transaction {
   baixa_de_transacao_id?: number | null;
   /**
    * Transferência entre contas próprias de que esta linha é uma das pernas. As
-   * duas carregam o mesmo número; a de DESPESA está na origem e a de RECEITA no
+   * duas carregam o mesmo número; a de SAQUE está na origem e a de DEPOSITO no
    * destino.
    */
   transferencia_id?: number | null;

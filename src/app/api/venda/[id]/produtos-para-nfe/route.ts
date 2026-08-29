@@ -6,6 +6,7 @@ import { descontoPorItem, parcelaDoDescontoNaNota } from "@/lib/nfe/descontoOrig
 import { exigirModelo, MODELO_NFE } from "@/lib/nfe/modeloDocumento";
 import { resolverPadraoFiscalItem } from "@/lib/nfe/padraoFiscalItem";
 import { buscarContextoPadraoFiscal } from "@/services/fiscal/nfeConfigService";
+import { comporObservacoesComGarantia } from "@/lib/fiscal/garantiaObservacoes";
 
 export const runtime = "nodejs";
 
@@ -133,11 +134,12 @@ export async function GET(
     const modelo = modeloParam ? exigirModelo(modeloParam) : MODELO_NFE;
     // `SAIDA` é a saída de venda. A saída de estoque que não vende nada
     // (devolução, remessa, garantia) tem padrão próprio, em `SAIDA_NAO_VENDA`.
-    const { padrao, crt, rotuloPadrao } = await buscarContextoPadraoFiscal(modelo, "SAIDA");
+    const { padrao, crt, rotuloPadrao, garantiaPorOrigem } =
+      await buscarContextoPadraoFiscal(modelo, "SAIDA");
     // 1) garantir que venda existe
     const { data: venda, error: vendaError } = await supabaseAdmin
       .from("venda")
-      .select("id, clienteid, observacoes_fiscais, canal, valor_frete, valortotal")
+      .select("id, clienteid, observacoes_fiscais, garantia, canal, valor_frete, valortotal")
       .eq("id", vendaId)
       .maybeSingle();
 
@@ -303,7 +305,11 @@ export async function GET(
         valorFrete: frete,
         modFrete: frete > 0 ? "0" : "9",
       },
-      observacoes_fiscais: venda.observacoes_fiscais ?? null,
+      observacoes_fiscais: comporObservacoesComGarantia({
+        observacoes: venda.observacoes_fiscais,
+        garantia: venda.garantia,
+        incluir: garantiaPorOrigem.VENDA,
+      }) || null,
       // A venda não tem serviços, então todo o desconto geral cabe aos produtos.
       desconto_geral: descontoDosProdutos,
       // Mesmo formato da OS para a tela não precisar de dois caminhos. Sem

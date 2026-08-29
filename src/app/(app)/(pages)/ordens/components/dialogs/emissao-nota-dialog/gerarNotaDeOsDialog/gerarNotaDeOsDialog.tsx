@@ -758,7 +758,9 @@ export function GerarNotaDeOsDialog({
     const { texto, truncado } = concatenarBloco(observations, bloco, LIMITE_OBSERVACOES);
     setObservations(texto);
     if (truncado) {
-      toast.warning(`O texto foi cortado no limite de ${LIMITE_OBSERVACOES} caracteres do campo.`);
+      toast.warning(
+        `O texto ultrapassou o limite de ${LIMITE_OBSERVACOES} caracteres. Reduza-o antes de emitir.`,
+      );
     }
   }
   const motivoDaDivergencia = selectedIds.length < items.length
@@ -1207,6 +1209,13 @@ export function GerarNotaDeOsDialog({
       toast.error("Selecione pelo menos um produto.");
       return;
     }
+    if (includeObservations && observations.trim().length > LIMITE_OBSERVACOES) {
+      toast.error(
+        `As observações fiscais devem possuir no máximo ${LIMITE_OBSERVACOES} caracteres.`,
+        { description: "Reduza o texto antes de gerar a nota." },
+      );
+      return;
+    }
     if (selectedIssues.length > 0) {
       openFirstPending();
       toast.error("Corrija as pendências fiscais dos produtos selecionados.");
@@ -1257,7 +1266,7 @@ export function GerarNotaDeOsDialog({
           itens: selectedItems.map(toApiItem),
           observacoesFiscais:
             includeObservations && observations.trim()
-              ? observations.trim().slice(0, 500)
+              ? observations.trim()
               : null,
           ...(usesEditableRecipient
             ? {
@@ -2098,13 +2107,16 @@ export function GerarNotaDeOsDialog({
                       <Textarea
                         id="nfe-origin-observations-text"
                         value={observations}
-                        maxLength={LIMITE_OBSERVACOES}
                         className="min-h-20 resize-none"
-                        onChange={(event) =>
-                          setObservations(event.target.value.slice(0, LIMITE_OBSERVACOES))
-                        }
+                        onChange={(event) => setObservations(event.target.value)}
                       />
-                      <p className="text-right text-xs tabular-nums text-muted-foreground">
+                      <p
+                        className={`text-right text-xs tabular-nums ${
+                          observations.length > LIMITE_OBSERVACOES
+                            ? "font-medium text-destructive"
+                            : "text-muted-foreground"
+                        }`}
+                      >
                         {observations.length}/{LIMITE_OBSERVACOES}
                       </p>
                     </>

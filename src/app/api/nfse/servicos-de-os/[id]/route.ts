@@ -9,6 +9,7 @@ import type { CodigosFiscaisForm } from "@/app/(app)/(pages)/ordens/components/d
 import { CAMPOS_ALVO_OS, carregarAlvoDaOs } from "@/services/fiscal/alvoDaOs";
 import { distribuirDinheiro, particionarDescontoDaOs } from "@/lib/nfe/descontoOrigem";
 import { inferirDescontoGeralOs } from "@/lib/ordens/totais";
+import { comporObservacoesComGarantia } from "@/lib/fiscal/garantiaObservacoes";
 
 export const runtime = "nodejs";
 
@@ -39,6 +40,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       .select(`
         id,
         observacoes_fiscais,
+        garantia,
         subtotal,
         orcamentototal,
         valor_frete,
@@ -83,7 +85,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     // nenhum preenchido.
     const { data: nfseConfig } = await supabaseAdmin
       .from("nfse_config")
-      .select("padroes_emissao")
+      .select("padroes_emissao, incluir_garantia_os")
       .eq("empresa_id", empresa?.id ?? 1)
       .maybeSingle();
 
@@ -167,9 +169,16 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       modeloEmissao,
       codigoMunicipio,
       padraoFiscal,
-      // Mesma observação que a NF-e de produto já leva no infCpl: quem escreveu
-      // na OS não precisa redigitar aqui. A tela pré-preenche e deixa editar.
-      observacoesFiscais: os.observacoes_fiscais ?? null,
+      // A observação da OS continua vencendo o padrão do modelo, como antes.
+      // A garantia é acrescentada sobre o texto que efetivamente abriria no
+      // campo, sem fazer o padrão municipal/nacional desaparecer.
+      observacoesFiscais: comporObservacoesComGarantia({
+        observacoes:
+          String(os.observacoes_fiscais ?? "").trim()
+          || padraoFiscal?.informacoesComplementares,
+        garantia: os.garantia,
+        incluir: Boolean(nfseConfig?.incluir_garantia_os),
+      }) || null,
       // Alvo do reparo, para o botão que injeta os dados dele no texto livre.
       alvo: await carregarAlvoDaOs(os),
       // Null quando a OS não tem desconto geral: a tela não ganha painel nenhum.

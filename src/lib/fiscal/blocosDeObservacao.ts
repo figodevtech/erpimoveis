@@ -213,12 +213,12 @@ export function blocosDeObservacao(
 
 /**
  * Acrescenta o bloco ao que já está no campo, em linha nova. Devolve `truncado`
- * quando o limite do campo cortou o texto, para a tela poder avisar em vez de
- * perder informação em silêncio.
+ * quando o limite foi ultrapassado, mas preserva o texto integral: a tela avisa
+ * e bloqueia a emissão até o operador decidir o que remover.
  */
 export function concatenarBloco(atual: string, bloco: string, limite: number) {
   const base = atual.trimEnd();
   if (!bloco) return { texto: base, truncado: false };
   const junto = base ? `${base}\n${bloco}` : bloco;
-  return { texto: junto.slice(0, limite), truncado: junto.length > limite };
+  return { texto: junto, truncado: junto.length > limite };
 }

@@ -20,6 +20,7 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { descricaoComplementarDoItem } from "@/lib/services/fiscais/nfse-service";
 import type { BlocoDeObservacao } from "@/lib/fiscal/blocosDeObservacao";
+import { LIMITE_INFORMACOES_COMPLEMENTARES } from "./types";
 import type {
   CodigosFiscaisForm,
   DescontoOrigemNfse,
@@ -70,7 +71,7 @@ export function NfseFiscalForm({
   loading: boolean;
   /** Como o desconto da OS foi dividido entre a NF-e e esta NFS-e. */
   descontoOrigem?: DescontoOrigemNfse | null;
-  /** Texto livre veio das observações fiscais da OS, e não foi digitado aqui. */
+  /** Texto livre foi preparado a partir da OS, e não foi digitado aqui. */
   herdouObservacoesDaOs?: boolean;
   /** Blocos que os botões acrescentam ao texto livre. */
   blocosDoTextoLivre?: BlocoDeObservacao[];
@@ -466,7 +467,7 @@ export function NfseFiscalForm({
             <Label htmlFor="nfse-informacoes-complementares">Texto livre da nota</Label>
             {herdouObservacoesDaOs ? (
               <p className="text-[11px] leading-relaxed text-muted-foreground">
-                Herdado das observações fiscais da OS — a mesma que vai na NF-e de produto.
+                Carregado automaticamente das configurações e da OS, incluindo a garantia quando essa opção estiver ativa.
                 Editar aqui não altera a OS, e apagar o campo emite a nota sem texto livre.
               </p>
             ) : null}
@@ -496,12 +497,17 @@ export function NfseFiscalForm({
               value={codigos.informacoesComplementares}
               onChange={(event) => onChange("informacoesComplementares", event.target.value)}
               placeholder="Informações adicionais que devem constar na NFS-e..."
-              maxLength={2000}
               rows={5}
               disabled={loading}
             />
-            <p className="text-right text-xs tabular-nums text-muted-foreground">
-              {codigos.informacoesComplementares.length}/2000
+            <p
+              className={`text-right text-xs tabular-nums ${
+                codigos.informacoesComplementares.length > LIMITE_INFORMACOES_COMPLEMENTARES
+                  ? "font-medium text-destructive"
+                  : "text-muted-foreground"
+              }`}
+            >
+              {codigos.informacoesComplementares.length}/{LIMITE_INFORMACOES_COMPLEMENTARES}
             </p>
           </fieldset>
 

@@ -3,6 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { buscarEmpresaAtual } from "@/services/fiscal/empresaAtual";
 import { identificarModeloEmissao } from "@/lib/services/fiscais/nfse-service";
+import {
+  prepararPatchGarantiaNfse,
+  serializarConfigGarantiaNfse,
+} from "@/lib/fiscal/configGarantia";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
@@ -52,6 +56,7 @@ function normalizarPadroesEmissao(entrada: unknown): Record<string, unknown> {
 function serializar(row: Record<string, any> | null | undefined) {
   return {
     provedor: row?.provedor ?? "",
+    ...serializarConfigGarantiaNfse(row),
     inscricaoMunicipal: row?.inscricao_municipal ?? "",
     serieRPS: row?.serie_rps ?? "",
     usuario: row?.usuario ?? "",
@@ -104,14 +109,26 @@ export async function PUT(req: NextRequest) {
     const nfse = body?.nfse || {};
 
     const empresa = await buscarEmpresaAtual();
+    const empresaId = empresa?.id ?? 1;
     const padroesEmissao = normalizarPadroesEmissao(nfse.padroesEmissao);
+    const garantiaRecebida = prepararPatchGarantiaNfse(nfse);
+    const atual = await supabase
+      .from("nfse_config")
+      .select("incluir_garantia_os")
+      .eq("empresa_id", empresaId)
+      .maybeSingle();
+    if (atual.error) throw atual.error;
+    const incluirGarantiaOs = "incluir_garantia_os" in garantiaRecebida
+      ? garantiaRecebida.incluir_garantia_os
+      : Boolean(atual.data?.incluir_garantia_os);
 
     const up = await supabase
       .from("nfse_config")
       .upsert(
         {
-          empresa_id: empresa?.id ?? 1,
+          empresa_id: empresaId,
           provedor: nfse.provedor ?? null,
+          incluir_garantia_os: incluirGarantiaOs,
           inscricao_municipal: nfse.inscricaoMunicipal ?? null,
           serie_rps: nfse.serieRPS ?? null,
           usuario: nfse.usuario ?? null,

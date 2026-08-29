@@ -376,16 +376,16 @@ export function TransferenciaDialog({
                   <strong className="tabular-nums text-destructive">
                     {formatarEmReal(valor)}
                   </strong>{" "}
-                  de <strong>{origem?.titulo ?? "conta de origem"}</strong> — uma despesa
-                  já liquidada.
+                  de <strong>{origem?.titulo ?? "conta de origem"}</strong> — um saque
+                  já realizado.
                 </li>
                 <li>
                   Entra{" "}
                   <strong className="tabular-nums text-emerald-600">
                     {formatarEmReal(valor)}
                   </strong>{" "}
-                  em <strong>{destino?.titulo ?? "conta de destino"}</strong> — uma receita
-                  já liquidada.
+                  em <strong>{destino?.titulo ?? "conta de destino"}</strong> — um depósito
+                  já realizado.
                 </li>
                 <li>
                   O <strong>saldo total da empresa não muda</strong>: uma conta cai e a

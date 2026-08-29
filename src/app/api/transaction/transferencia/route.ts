@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { requireFinanceiroEdit } from "@/app/api/_authz/perms";
 import { auth } from "@/lib/auth";
+import { tipoEhEntradaDeCaixa } from "@/lib/financeiro/transacao";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 /**
@@ -163,7 +164,9 @@ export async function GET(req: NextRequest) {
         // Quem pergunta é sempre uma das pernas: dizer qual dos dois lados ela é
         // poupa a tela de deduzir isso do tipo.
         sentido:
-          lista.find((p: { id: number }) => Number(p.id) === id)?.tipo === "RECEITA"
+          tipoEhEntradaDeCaixa(
+            lista.find((p: { id: number }) => Number(p.id) === id)?.tipo,
+          )
             ? "ENTRADA"
             : "SAIDA",
         contraparte,

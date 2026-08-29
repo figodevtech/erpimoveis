@@ -31,10 +31,12 @@ export type FiscalConfigRow = {
   qrcode_versao: number;
   /** Padrão fiscal dos itens, por tipo de operação. Ver `padraoFiscalItem.ts`. */
   padroes_emissao: unknown;
+  incluir_garantia_venda: boolean;
+  incluir_garantia_os: boolean;
 };
 
 const CAMPOS_PUBLICOS =
-  "id, empresaid, modelo, serie, ultimo_numero, ambiente, qrcode_versao, padroes_emissao";
+  "id, empresaid, modelo, serie, ultimo_numero, ambiente, qrcode_versao, padroes_emissao, incluir_garantia_venda, incluir_garantia_os";
 
 /**
  * Configuração do modelo pedido. `empresaId` omitido pega a primeira empresa
@@ -86,6 +88,8 @@ export type ContextoPadraoFiscal = {
    * `ORIGEM_PADRAO_SAIDA_VENDA` quando a saída sem venda aproveitou o da venda.
    */
   rotuloPadrao: string;
+  /** Opções de preenchimento automático do texto livre deste modelo. */
+  garantiaPorOrigem: { VENDA: boolean; OS: boolean };
 };
 
 /**
@@ -130,7 +134,11 @@ export async function buscarContextoPadraoFiscal(
   const crt = [1, 2, 3, 4].includes(regime) ? (regime as CRT) : null;
 
   const proprio = padraoDaOperacao(config?.padroes_emissao, operacao);
-  if (proprio) return { padrao: proprio, crt, rotuloPadrao: ORIGEM_PADRAO };
+  const garantiaPorOrigem = {
+    VENDA: Boolean(config?.incluir_garantia_venda),
+    OS: Boolean(config?.incluir_garantia_os),
+  };
+  if (proprio) return { padrao: proprio, crt, rotuloPadrao: ORIGEM_PADRAO, garantiaPorOrigem };
 
   // Degrau 1: a saída sem venda cai para a de venda do próprio modelo. Ela é a
   // única que já tem padrão cadastrado nos bancos em uso, e sem esta ponte todo
@@ -139,13 +147,13 @@ export async function buscarContextoPadraoFiscal(
   if (operacao === "SAIDA_NAO_VENDA") {
     const daVenda = padraoDaOperacao(config?.padroes_emissao, "SAIDA");
     if (daVenda) {
-      return { padrao: daVenda, crt, rotuloPadrao: ORIGEM_PADRAO_SAIDA_VENDA };
+      return { padrao: daVenda, crt, rotuloPadrao: ORIGEM_PADRAO_SAIDA_VENDA, garantiaPorOrigem };
     }
   }
 
   // Degrau 2: a NFC-e cai para o padrão de saída de venda da NF-e.
   if (modelo !== MODELO_NFCE) {
-    return { padrao: null, crt, rotuloPadrao: ORIGEM_PADRAO };
+    return { padrao: null, crt, rotuloPadrao: ORIGEM_PADRAO, garantiaPorOrigem };
   }
 
   const configNfe = await buscarFiscalConfig(MODELO_NFE, empresaId ?? config?.empresaid);
@@ -154,6 +162,7 @@ export async function buscarContextoPadraoFiscal(
     padrao: herdado,
     crt,
     rotuloPadrao: herdado ? ORIGEM_PADRAO_HERDADO : ORIGEM_PADRAO,
+    garantiaPorOrigem,
   };
 }
 

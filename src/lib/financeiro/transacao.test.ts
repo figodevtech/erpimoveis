@@ -9,6 +9,7 @@ import {
   ehTituloAntecipado,
   origemDaTransacao,
   tipoEhEditavel,
+  tipoEhEntradaDeCaixa,
   tipoTemValorLiquido,
   taxaEhOUnicoDesconto,
   valorDeFace,
@@ -53,6 +54,15 @@ test("valor líquido só existe em recebimento e saque", () => {
   assert.equal(tipoTemValorLiquido("DESPESA"), false);
   assert.equal(tipoTemValorLiquido("DEPOSITO"), false);
   assert.equal(tipoTemValorLiquido(null), false);
+});
+
+test("entrada de caixa inclui receita e depósito", () => {
+  assert.equal(tipoEhEntradaDeCaixa("RECEITA"), true);
+  assert.equal(tipoEhEntradaDeCaixa("DEPOSITO"), true);
+  assert.equal(tipoEhEntradaDeCaixa("deposito"), true);
+  assert.equal(tipoEhEntradaDeCaixa("DESPESA"), false);
+  assert.equal(tipoEhEntradaDeCaixa("SAQUE"), false);
+  assert.equal(tipoEhEntradaDeCaixa(null), false);
 });
 
 test("despesa vale o bruto mesmo com líquido gravado", () => {

@@ -9,10 +9,10 @@
 // observação da OS/venda entra na nota mesmo com o switch desmarcado.
 
 /** Limite do infCpl que respeitamos desde a montagem do rascunho. */
-const LIMITE_INFCPL = 500;
+export const LIMITE_OBSERVACOES_FISCAIS = 500;
 
 function normalizar(value: string | null | undefined) {
-  return value?.trim().slice(0, LIMITE_INFCPL) || null;
+  return value?.trim() || null;
 }
 
 export function resolverObservacoesFiscais(

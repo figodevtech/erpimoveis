@@ -50,6 +50,10 @@ export type NFeCfg = {
   serieNFCe?: string;
   naturezaOperacao: string;
   naturezaOperacaoNFCe?: string;
+  incluirGarantiaVendaNFe: boolean;
+  incluirGarantiaVendaNFCe: boolean;
+  incluirGarantiaOsNFe: boolean;
+  incluirGarantiaOsNFCe: boolean;
   /**
    * CSC da NFC-e. Chega mascarado do backend (`*****A4F2`); só é regravado se o
    * usuário digitar um valor novo, sem "*".
@@ -73,6 +77,7 @@ export type NFeCfg = {
 
 export type NFSecfg = {
   provedor: string;
+  incluirGarantiaOs: boolean;
   inscricaoMunicipal?: string;
   serieRPS?: string;
   usuario?: string;

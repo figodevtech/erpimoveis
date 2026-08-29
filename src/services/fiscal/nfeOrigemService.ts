@@ -1,7 +1,10 @@
 import { isCfopCompatibleWithOperation } from "@/lib/nfe/cfopOperation";
 import { descontoPorItem, distribuirDinheiro } from "@/lib/nfe/descontoOrigem";
 import { normalizarIndIEDest } from "@/lib/nfe/indIEDest";
-import { resolverObservacoesFiscais } from "@/lib/nfe/observacoesFiscais";
+import {
+  LIMITE_OBSERVACOES_FISCAIS,
+  resolverObservacoesFiscais,
+} from "@/lib/nfe/observacoesFiscais";
 import { normalizeFiscalRecipient } from "@/lib/nfe/recipientNormalization";
 import {
   mapSalesChannelToPresence,
@@ -12,12 +15,14 @@ import {
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { inferirDescontoGeralOs } from "@/lib/ordens/totais";
 import { MODELO_NFE, MODELO_NFCE, modeloParaDb, rotuloModelo } from "@/lib/nfe/modeloDocumento";
+import { comporObservacoesComGarantia } from "@/lib/fiscal/garantiaObservacoes";
 import type { ClienteRow, ModeloDocumentoFiscal } from "@/lib/nfe/types";
 import {
   salvarNFeAvulsaDraft,
   type NFeAvulsaDraftInput,
   type NFeAvulsaItemInput,
 } from "@/services/fiscal/nfeAvulsaService";
+import { buscarFiscalConfig } from "@/services/fiscal/nfeConfigService";
 
 export type NFeOrigemTipo = "OS" | "VENDA" | "ENTRADA";
 
@@ -138,6 +143,7 @@ type LoadedSource = {
   naturezaOperacao: string;
   finalidade: NFeAvulsaDraftInput["operacao"]["finalidade"];
   observacoesFiscais: string | null;
+  garantia: string | null;
   destinatario: NFeAvulsaDraftInput["destinatario"] | null;
   consumidorFinal: boolean;
   indicadorPresenca: string;
@@ -264,7 +270,7 @@ async function getEmpresaUf() {
 async function loadOs(osId: number): Promise<LoadedSource> {
   const { data: os, error: osError } = await supabaseAdmin
     .from("ordemservico")
-    .select("id, clienteid, observacoes_fiscais, subtotal, orcamentototal, valor_frete")
+    .select("id, clienteid, observacoes_fiscais, garantia, subtotal, orcamentototal, valor_frete")
     .eq("id", osId)
     .maybeSingle();
   if (osError) throw osError;
@@ -322,6 +328,7 @@ async function loadOs(osId: number): Promise<LoadedSource> {
     naturezaOperacao: "VENDA DE MERCADORIA",
     finalidade: "NORMAL",
     observacoesFiscais: os.observacoes_fiscais as string | null,
+    garantia: os.garantia as string | null,
     destinatario: clienteToDraft(cliente),
     consumidorFinal: true,
     indicadorPresenca: "1",
@@ -346,7 +353,7 @@ async function loadOs(osId: number): Promise<LoadedSource> {
 async function loadVenda(vendaId: number): Promise<LoadedSource> {
   const { data: venda, error: vendaError } = await supabaseAdmin
     .from("venda")
-    .select("id, clienteid, observacoes_fiscais, canal, valor_frete, valortotal")
+    .select("id, clienteid, observacoes_fiscais, garantia, canal, valor_frete, valortotal")
     .eq("id", vendaId)
     .maybeSingle();
   if (vendaError) throw vendaError;
@@ -399,6 +406,7 @@ async function loadVenda(vendaId: number): Promise<LoadedSource> {
     naturezaOperacao: "VENDA DE MERCADORIA",
     finalidade: "NORMAL",
     observacoesFiscais: venda.observacoes_fiscais as string | null,
+    garantia: venda.garantia as string | null,
     destinatario: clienteToDraft(cliente),
     consumidorFinal: true,
     indicadorPresenca: mapSalesChannelToPresence(venda.canal),
@@ -469,6 +477,7 @@ async function loadEntrada(entradaId: number): Promise<LoadedSource> {
     naturezaOperacao,
     finalidade: "NORMAL",
     observacoesFiscais: null,
+    garantia: null,
     destinatario: fornecedor ? fornecedorToDraft(fornecedor) : null,
     consumidorFinal: false,
     indicadorPresenca: "0",
@@ -544,6 +553,17 @@ export async function salvarNFeDeOrigem(
   }
 
   const source = await loadSource(tipo, origemId);
+  const fiscalConfig = await buscarFiscalConfig(modelo);
+  const observacoesFiscaisOrigem = comporObservacoesComGarantia({
+    observacoes: source.observacoesFiscais,
+    garantia: source.garantia,
+    incluir:
+      tipo === "OS"
+        ? Boolean(fiscalConfig?.incluir_garantia_os)
+        : tipo === "VENDA"
+          ? Boolean(fiscalConfig?.incluir_garantia_venda)
+          : false,
+  });
   // Na NFC-e quem manda é a tela: o operador decide se o consumidor se
   // identifica. Sem bloco de destinatário na requisição, a nota sai sem
   // consumidor identificado — que é o caso normal do balcão. O cadastro do
@@ -567,6 +587,19 @@ export async function salvarNFeDeOrigem(
   const sourceById = new Map(source.itens.map((item) => [item.sourceItemId, item]));
   const requestedIds = new Set<string>();
   const errors: Array<{ step: string; itemIndex?: number; field?: string; message: string }> = [];
+  const observacoesFiscais = resolverObservacoesFiscais(
+    input.observacoesFiscais,
+    observacoesFiscaisOrigem,
+  );
+  if ((observacoesFiscais?.length ?? 0) > LIMITE_OBSERVACOES_FISCAIS) {
+    errors.push({
+      step: "operation",
+      field: "observacoesFiscais",
+      message:
+        `As observações fiscais devem possuir no máximo ${LIMITE_OBSERVACOES_FISCAIS} caracteres. ` +
+        "Reduza o texto antes de gerar a nota.",
+    });
+  }
 
   const itens = input.itens.flatMap((item, itemIndex) => {
     if (requestedIds.has(item.sourceItemId)) {
@@ -741,10 +774,7 @@ export async function salvarNFeDeOrigem(
       // NFC-e é sempre para consumidor final, por definição do modelo.
       consumidorFinal: isNfce ? true : consumidorFinal,
       indicadorPresenca,
-      observacoesFiscais: resolverObservacoesFiscais(
-        input.observacoesFiscais,
-        source.observacoesFiscais,
-      ),
+      observacoesFiscais,
     },
     pagamento: {
       meio: pagamentos[0]?.meio ?? "90",
