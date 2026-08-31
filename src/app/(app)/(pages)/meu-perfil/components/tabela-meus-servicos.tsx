@@ -3,11 +3,11 @@
 
 import { useCallback } from "react";
 import { Table, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { buscarMeusServicos } from "../lib/api";
 import { formatarDataHora, formatarMoeda, formatarQuantidade } from "../lib/format";
 import { useListaPaginada } from "../hooks/use-lista-paginada";
 import type { MeuServico, Periodo } from "../types";
+import { DescricaoServico } from "./descricao-servico";
 import { StatusBadge } from "./status-badge";
 import {
   CartaoTabela,
@@ -67,17 +67,11 @@ export function TabelaMeusServicos({ periodo, ativo, usuarioId }: { periodo: Per
                 <TableCell className="font-medium tabular-nums">#{servico.ordemId}</TableCell>
 
                 <TableCell className="max-w-[20rem]">
-                  <span className="block truncate">{servico.descricao}</span>
-                  {servico.observacao && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="block max-w-full cursor-help truncate text-xs text-muted-foreground">
-                          {servico.observacao}
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-xs">{servico.observacao}</TooltipContent>
-                    </Tooltip>
-                  )}
+                  <DescricaoServico
+                    descricao={servico.descricao}
+                    subdescricao={servico.subdescricao}
+                    observacao={servico.observacao}
+                  />
                 </TableCell>
 
                 <TableCell className="max-w-[10rem] truncate text-muted-foreground">

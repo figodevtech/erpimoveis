@@ -26,6 +26,10 @@ const sanitizeCkStatus = (s?: string): CkStatus => {
 
 type RealizadorLite = { id: string; nome: string | null };
 
+function primeiro<T>(value: T | T[] | null | undefined): T | null {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
 /* =========================================
  * GET: OS + setor + peça + checklist (+imagens) + itens + aprovações
  * ========================================= */
@@ -509,12 +513,15 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     >();
     for (const rr of rel_res.data ?? []) {
       const sid = Number((rr as any).servicoid);
-      const usuario = (rr as any).usuario;
+      const usuario = primeiro((rr as any).usuario) as { id?: unknown; nome?: unknown } | null;
       const usuarioid = (rr as any).usuarioid;
+      const idRealizador = String(usuario?.id ?? usuarioid ?? "").trim();
+      if (!idRealizador) continue;
+      const nomeRealizador = String(usuario?.nome ?? "").trim() || null;
 
       const item: RealizadorLite = {
-        id: String(usuario?.id ?? usuarioid),
-        nome: usuario?.nome ?? null,
+        id: idRealizador,
+        nome: nomeRealizador,
       };
 
       const arr = realizadoresByServico.get(sid) ?? [];
@@ -523,8 +530,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
       const comissoes = comissoesByServico.get(sid) ?? [];
       comissoes.push({
-        usuarioid: String(usuario?.id ?? usuarioid),
-        nome: usuario?.nome ?? null,
+        usuarioid: idRealizador,
+        nome: nomeRealizador,
         percentual: toNum((rr as any).comissao_percent_aplicada),
         valorBase: toNum((rr as any).valor_base),
         valorComissao: toNum((rr as any).valor_comissao),

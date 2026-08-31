@@ -104,6 +104,13 @@ import { Tipo_transacao, type Transaction } from "../../../(financeiro)/fluxodec
 import { formatPaymentMethodLabel, type PlannedPayment } from "@/lib/payment-methods";
 import { ChecklistImagePreview } from "./checklist-image-preview";
 import { FinanceiroOsTab } from "./financeiro-os-tab";
+import {
+  descreverRealizadores,
+  normalizarIdsRealizadores,
+  normalizarRealizadores,
+  resolverNomeRealizador,
+  type RealizadorLite,
+} from "./realizadores-servico";
 import { ClienteResumoCard } from "@/components/cliente/cliente-resumo-card";
 import { TrocarClienteOsButton } from "./trocar-cliente-os-dialog";
 
@@ -352,11 +359,6 @@ type ItemProdutoAvulso = {
   subtotal: number;
 };
 
-type RealizadorLite = {
-  id: string;
-  nome: string | null;
-};
-
 type ItemServico = {
   ordemservicoid: number;
   servicoid: number;
@@ -555,18 +557,6 @@ type OSDetalhesResponse = {
   };
 };
 
-function uniq(arr: string[]) {
-  return [...new Set(arr)];
-}
-
-function getIdsFromItem(it: ItemServico): string[] {
-  const ids = (it.realizadores ?? []).map((r) => r?.id).filter(Boolean) as string[];
-  if (ids.length) return uniq(ids);
-
-  const legacy = typeof it.idusuariorealizador === "string" && it.idusuariorealizador.trim() ? it.idusuariorealizador : "";
-  return legacy ? [legacy] : [];
-}
-
 function buildRealizadoresFromIds(ids: string[], responsaveis: UsuarioAtivo[]): RealizadorLite[] {
   return ids.map((id) => ({
     id,
@@ -608,11 +598,13 @@ function MultiSelectRealizadores({
   disabled,
   responsaveis,
   valueIds,
+  valueRealizadores,
   onChangeIds,
 }: {
   disabled: boolean;
   responsaveis: UsuarioAtivo[];
   valueIds: string[];
+  valueRealizadores: RealizadorLite[];
   onChangeIds: (nextIds: string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -620,13 +612,8 @@ function MultiSelectRealizadores({
   const selected = useMemo(() => new Set(valueIds), [valueIds]);
 
   const label = useMemo(() => {
-    if (valueIds.length === 0) return "Sem realizador";
-    if (valueIds.length === 1) {
-      const u = responsaveis.find((r) => r.id === valueIds[0]);
-      return u?.nome ?? valueIds[0];
-    }
-    return `${valueIds.length} selecionados`;
-  }, [valueIds, responsaveis]);
+    return descreverRealizadores(valueRealizadores, responsaveis).texto;
+  }, [valueRealizadores, responsaveis]);
 
   function toggle(id: string) {
     const next = new Set(selected);
@@ -639,7 +626,7 @@ function MultiSelectRealizadores({
     <Popover modal={true} open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button type="button" variant="outline" size="sm" disabled={disabled} className="h-8 w-full justify-between">
-          <span className="truncate flex items-center gap-2">
+          <span className="truncate flex items-center gap-2" title={label}>
             <Users className="h-4 w-4" />
             {label}
           </span>
@@ -680,7 +667,11 @@ function MultiSelectRealizadores({
         {valueIds.length > 0 && (
           <div className="border-t p-2 flex flex-wrap gap-1">
             {valueIds.slice(0, 6).map((id) => {
-              const nome = responsaveis.find((r) => r.id === id)?.nome ?? id;
+              const realizador = valueRealizadores.find((item) => item.id === id) ?? {
+                id,
+                nome: null,
+              };
+              const nome = resolverNomeRealizador(realizador, responsaveis);
               return (
                 <Badge key={id} variant="secondary" className="truncate max-w-[140px]">
                   {nome}
@@ -820,7 +811,7 @@ export function OSDetalhesDialog({
   );
 
   const temServicoSemResponsavel = useMemo(() => {
-    return (data?.itensServico ?? []).some((s) => getIdsFromItem(s).length === 0);
+    return (data?.itensServico ?? []).some((s) => normalizarRealizadores(s).length === 0);
   }, [data?.itensServico]);
 
   const mostrarAlertaAntesDeIniciar = useMemo(
@@ -1423,7 +1414,7 @@ export function OSDetalhesDialog({
     const key = `${item.ordemservicoid}-${item.servicoid}`;
     setSavingResponsavelKey(key);
 
-    const ids = uniq(usuarioIds.filter(Boolean));
+    const ids = normalizarIdsRealizadores(usuarioIds);
     const otimista = buildRealizadoresFromIds(ids, responsaveis);
     const principal = ids[0] ?? null;
 
@@ -2254,7 +2245,12 @@ export function OSDetalhesDialog({
                           {data.itensServico.map((it, idx) => {
                             const rowKey = `${it.ordemservicoid}-${it.servicoid}-${idx}`;
                             const isSaving = savingResponsavelKey === `${it.ordemservicoid}-${it.servicoid}`;
-                            const selectedIds = getIdsFromItem(it);
+                            const realizadoresDoItem = normalizarRealizadores(it);
+                            const selectedIds = realizadoresDoItem.map((realizador) => realizador.id);
+                            const descricaoRealizadores = descreverRealizadores(
+                              realizadoresDoItem,
+                              responsaveis,
+                            );
                             const estaSemResponsavel = selectedIds.length === 0;
                             const descontoAplicado = calcularDescontoAplicado(
                               Number(it.quantidade || 0) * Number(it.precounitario || 0),
@@ -2294,12 +2290,14 @@ export function OSDetalhesDialog({
                                           disabled={isSaving || loadingResponsaveis}
                                           responsaveis={responsaveis}
                                           valueIds={selectedIds}
+                                          valueRealizadores={realizadoresDoItem}
                                           onChangeIds={(ids) => salvarRealizadores(it, ids)}
                                         />
                                       </div>
                                     ) : (
-                                      <span>
-                                        Responsável: <b>{it.realizador?.nome ?? "—"}</b>
+                                      <span className="min-w-0 break-words">
+                                        {descricaoRealizadores.rotulo}:{" "}
+                                        <b>{descricaoRealizadores.texto}</b>
                                       </span>
                                     )}
                                   </div>

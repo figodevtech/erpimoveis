@@ -13,6 +13,7 @@ import {
   parsePaginacao,
   parsePeriodo,
   relacaoNomeada,
+  resolverTextosServico,
   STATUS_OS_FINALIZADAS,
   texto,
   totalDePaginas,
@@ -102,13 +103,17 @@ export async function GET(req: Request) {
       const servico = relacaoNomeada(item?.servico, "descricao");
       const servicoBruto = primeiro(item?.servico);
       const ordem = primeiro(item?.ordem);
+      const textos = resolverTextosServico(
+        servico?.nome,
+        item?.descricao,
+        "Serviço removido da OS",
+      );
 
       return {
         ordemId: Number(linha.ordemservicoid),
         servicoId: Number(linha.servicoid),
-        // `osservico.descricao` costuma vir nula na base; o nome do servico e o
-        // texto que o usuario reconhece.
-        descricao: texto(item?.descricao) ?? servico?.nome ?? "Serviço removido da OS",
+        descricao: textos.descricao,
+        subdescricao: textos.subdescricao,
         codigo: texto(servicoBruto?.codigo),
         quantidade: num(item?.quantidade) || 1,
         valorUnitario: num(item?.precounitario),

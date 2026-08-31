@@ -61,6 +61,7 @@ export type MinhaVenda = {
 export type ItemOrdem = {
   id: number;
   descricao: string;
+  subdescricao: string | null;
   referencia?: string | null;
   codigo?: string | null;
   unidade?: string | null;
@@ -101,6 +102,7 @@ export type MeuServico = {
   ordemId: number;
   servicoId: number;
   descricao: string;
+  subdescricao: string | null;
   codigo: string | null;
   quantidade: number;
   valorUnitario: number;

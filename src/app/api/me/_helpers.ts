@@ -5,11 +5,12 @@ import { hasUsuariosAccess } from "@/app/api/_authz/perms";
 
 export {
   parsePeriodo,
+  resolverTextosServico,
   STATUS_OS_EM_EXECUCAO,
   STATUS_OS_FINALIZADAS,
   STATUS_VENDAS_REALIZADAS,
 } from "@/lib/meu-perfil/regras";
-export type { PeriodoConsulta as Periodo } from "@/lib/meu-perfil/regras";
+export type { PeriodoConsulta as Periodo, TextosServico } from "@/lib/meu-perfil/regras";
 
 /**
  * Helpers da Central Pessoal (/meu-perfil).

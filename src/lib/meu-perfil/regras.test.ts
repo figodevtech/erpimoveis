@@ -2,9 +2,51 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   parsePeriodo,
+  resolverTextosServico,
   STATUS_OS_FINALIZADAS,
   STATUS_VENDAS_REALIZADAS,
 } from "./regras";
+
+test("separa o titulo cadastrado da subdescricao da OS", () => {
+  assert.deepEqual(
+    resolverTextosServico("Troca de óleo", "Inclui limpeza do cárter", "Serviço removido"),
+    {
+      descricao: "Troca de óleo",
+      subdescricao: "Inclui limpeza do cárter",
+    },
+  );
+});
+
+test("omite a subdescricao quando ela repete o titulo", () => {
+  assert.deepEqual(
+    resolverTextosServico("  Alinhamento 3D ", "alinhamento 3d", "Serviço removido"),
+    {
+      descricao: "Alinhamento 3D",
+      subdescricao: null,
+    },
+  );
+});
+
+test("aceita somente o titulo cadastrado", () => {
+  assert.deepEqual(resolverTextosServico("Balanceamento", null, "Serviço removido"), {
+    descricao: "Balanceamento",
+    subdescricao: null,
+  });
+});
+
+test("promove a subdescricao a titulo quando o cadastro nao existe", () => {
+  assert.deepEqual(resolverTextosServico(null, "Reparo emergencial", "Serviço removido"), {
+    descricao: "Reparo emergencial",
+    subdescricao: null,
+  });
+});
+
+test("usa o fallback quando o servico nao possui nenhum texto", () => {
+  assert.deepEqual(resolverTextosServico(" ", null, "Serviço removido da OS"), {
+    descricao: "Serviço removido da OS",
+    subdescricao: null,
+  });
+});
 
 test("mantem somente os status definidos para OS e vendas realizadas", () => {
   assert.deepEqual(STATUS_OS_FINALIZADAS, ["PAGAMENTO", "CONCLUIDO"]);
