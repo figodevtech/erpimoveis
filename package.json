@@ -48,7 +48,8 @@
     "radios:sincronizar:todos-bancos": "tsx scripts/radios/sync-catalog-all-databases.ts",
     "test:radios": "tsx --test src/lib/radio/*.test.ts",
     "test:chat": "tsx --test src/lib/chat/*.test.ts src/components/chat/*.test.ts src/components/chat/*.test.tsx",
-    "test:central-operacional": "tsx --test src/lib/central-operacional/*.test.ts \"src/app/(app)/(full)/central-operacional/components/*.test.ts\""
+    "test:central-operacional": "tsx --test src/lib/central-operacional/*.test.ts \"src/app/(app)/(full)/central-operacional/components/*.test.ts\"",
+    "test:mercadolivre": "tsx --test src/lib/integrations/mercadolivre-*.test.ts"
   },
   "overrides": {
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"

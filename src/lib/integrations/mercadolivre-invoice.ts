@@ -1,4 +1,4 @@
-import { refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
+import { mercadoLivreTokenMetadata, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 const ML_API_BASE_URL = "https://api.mercadolibre.com";
@@ -174,7 +174,7 @@ async function ensureValidAccessToken(account: MercadoLivreAccount) {
       token_type: token.token_type ?? null,
       scope: token.scope ?? null,
       expires_at: tokenExpiresAt(token.expires_in),
-      raw_token: token,
+      raw_token: mercadoLivreTokenMetadata(token),
       updated_at: new Date().toISOString(),
     })
     .eq("id", account.id);

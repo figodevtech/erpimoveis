@@ -1,11 +1,10 @@
 import { createHash } from "crypto";
-import { getMercadoLivreOrder, mercadoLivreApiGet, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
+import { getMercadoLivreOrder, mercadoLivreApiGet, mercadoLivreTokenMetadata, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
 import { importMercadoLivreOrder } from "@/lib/integrations/mercadolivre-orders";
 import { syncMercadoLivreShipmentForVenda } from "@/lib/integrations/mercadolivre-shipping";
 import { applyMercadoLivrePriceToErp, getMercadoLivrePriceState } from "@/lib/integrations/mercadolivre-price-sync";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-const MERCADO_PAGO_API_BASE_URL = "https://api.mercadopago.com";
 
 type NotificationPayload = {
   topic?: string;
@@ -209,7 +208,10 @@ async function processNotification(notificationId: number, attempts: number) {
     } else if (topic === "messages" || topic === "messaging") {
       await processMessage(accessToken, resource);
     } else if (topic === "payments") {
-      await processPayment(account, accessToken, resource);
+      // O estado financeiro já é reconciliado por orders_v2 e pelo cron. Apps
+      // Mercado Livre e Mercado Pago devem permanecer separados desde 30/08/2026.
+      finalStatus = "IGNORADA";
+      finalError = "Pagamento acompanhado pelo pedido orders_v2; tópico payments não requer processamento separado.";
     } else if (topic.includes("feedback")) {
       await processFeedback(account, accessToken, resource);
     } else {
@@ -257,16 +259,6 @@ async function processMessage(accessToken: string, resource: string) {
   await mercadoLivreApiGet(accessToken, normalizeResource(path));
 }
 
-async function processPayment(account: Account, accessToken: string, resource: string) {
-  const paymentId = extractResourceId(resource);
-  if (!paymentId) throw new Error("Notificação de pagamento sem payment_id.");
-  const payment = await mercadoPagoApiGet(accessToken, `/v1/payments/${encodeURIComponent(paymentId)}`);
-  const orderId = extractPaymentOrderId(payment);
-  if (!orderId) return;
-  const order = await getMercadoLivreOrder(accessToken, orderId);
-  await importMercadoLivreOrder({ ...account, access_token: accessToken }, order);
-}
-
 async function processFeedback(account: Account, accessToken: string, resource: string) {
   const orderId = extractOrderId(resource);
   if (!orderId) throw new Error("Notificação de feedback sem order_id.");
@@ -293,16 +285,26 @@ async function processShipment(account: Account, accessToken: string, resource: 
     return;
   }
 
-  const { data: storedOrder, error } = await supabaseAdmin
+  const { data: storedOrders, error } = await supabaseAdmin
     .from("mercadolivre_order")
-    .select("venda_id")
+    .select("ml_order_id, venda_id")
     .eq("empresa_id", account.empresa_id)
     .eq("account_id", account.id)
-    .eq("ml_shipment_id", Number(shipmentId))
-    .maybeSingle();
+    .eq("ml_shipment_id", Number(shipmentId));
   if (error) throw error;
-  if (!storedOrder?.venda_id) throw new Error(`Envio ${shipmentId} sem pedido vinculado no ERP.`);
-  await syncMercadoLivreShipmentForVenda(Number(storedOrder.venda_id));
+  if (!storedOrders?.length) throw new Error(`Envio ${shipmentId} sem pedido vinculado no ERP.`);
+
+  // Um pack pode conter mais de uma order usando o mesmo shipment. Atualizamos
+  // todas as vendas vinculadas para não deixar parte do carrinho desatualizada.
+  for (const storedOrder of storedOrders) {
+    const mlOrderId = Number(storedOrder.ml_order_id);
+    if (Number.isFinite(mlOrderId) && mlOrderId > 0) {
+      const order = await getMercadoLivreOrder(accessToken, mlOrderId);
+      await importMercadoLivreOrder({ ...account, access_token: accessToken }, order);
+    } else if (storedOrder.venda_id) {
+      await syncMercadoLivreShipmentForVenda(Number(storedOrder.venda_id));
+    }
+  }
 }
 
 async function processItem(
@@ -418,7 +420,7 @@ function getUserProductAvailableQuantity(stock: any) {
 async function processClaim(account: Account, accessToken: string, resource: string) {
   const claimId = extractResourceId(resource);
   if (!claimId) throw new Error("Notificação de reclamação sem claim_id.");
-  const claim = await mercadoPagoApiGet(accessToken, `/post-purchase/v1/claims/${encodeURIComponent(claimId)}`);
+  const claim = await mercadoLivreApiGet<any>(accessToken, `/post-purchase/v1/claims/${encodeURIComponent(claimId)}`);
   const order = await findRelatedOrder(account.empresa_id, account.id, claim);
   if (!order) throw new Error(`Reclamação ${claimId} sem pedido vinculado no ERP.`);
 
@@ -513,20 +515,6 @@ function extractOrderId(resource: string) {
   return match ? Number(match[1]) : null;
 }
 
-function extractPaymentOrderId(payment: any) {
-  const candidates = [
-    payment?.order?.id,
-    payment?.metadata?.order_id,
-    payment?.metadata?.orderId,
-    payment?.external_reference,
-  ];
-  for (const candidate of candidates) {
-    const value = Number(candidate);
-    if (Number.isInteger(value) && value > 0) return value;
-  }
-  return null;
-}
-
 function normalizeResource(resource: string) {
   if (resource.startsWith("http://") || resource.startsWith("https://")) {
     const url = new URL(resource);
@@ -573,7 +561,7 @@ async function ensureValidAccessToken(account: Account) {
       token_type: token.token_type ?? null,
       scope: token.scope ?? null,
       expires_at: tokenExpiresAt(token.expires_in),
-      raw_token: token,
+      raw_token: mercadoLivreTokenMetadata(token),
       updated_at: new Date().toISOString(),
     })
     .eq("id", account.id);
@@ -598,15 +586,6 @@ async function findRelatedOrder(empresaId: number, accountId: number, claim: any
     (data ?? []).find((order: any) => raw.includes(String(order.ml_order_id))) ??
     null
   );
-}
-
-async function mercadoPagoApiGet(accessToken: string, path: string) {
-  const response = await fetch(`${MERCADO_PAGO_API_BASE_URL}${path}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    cache: "no-store",
-  });
-  if (!response.ok) throw new Error(`Mercado Pago ${path} falhou (${response.status}): ${await response.text()}`);
-  return response.json();
 }
 
 function getClaimResolution(claim: any) {

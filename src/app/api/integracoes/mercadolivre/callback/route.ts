@@ -5,6 +5,7 @@ import {
   exchangeMercadoLivreCode,
   getMercadoLivreConfig,
   getMercadoLivreMe,
+  mercadoLivreTokenMetadata,
   tokenExpiresAt,
 } from "@/lib/integrations/mercadolivre";
 import { registerMercadoLivrePlatformAccount } from "@/lib/integrations/mercadolivre-platform";
@@ -46,7 +47,7 @@ export async function GET(req: NextRequest) {
           token_type: token.token_type ?? null,
           scope: token.scope ?? null,
           expires_at: tokenExpiresAt(token.expires_in),
-          raw_token: token,
+          raw_token: mercadoLivreTokenMetadata(token),
           raw_user: user,
           updated_at: new Date().toISOString(),
         },

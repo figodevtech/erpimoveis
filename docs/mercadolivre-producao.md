@@ -17,9 +17,11 @@ A URL única de notificações evita criar um aplicativo Mercado Livre por clien
 3. Publicar `central.figosoftwares.com.br`.
 4. Confirmar `GET https://central.figosoftwares.com.br/api/integracoes/health`.
 5. Publicar cada ERP com `PLATFORM_API_URL`, `PLATFORM_INSTALLATION_ID`, `PLATFORM_API_SECRET`, credenciais Mercado Livre e `CRON_SECRET`.
-6. Reconectar a conta Mercado Livre uma vez em cada ERP para registrar o vendedor na Central.
-7. Alterar no painel do aplicativo a URL de notificações para `https://central.figosoftwares.com.br/api/integracoes/mercadolivre/webhook`.
-8. Habilitar os tópicos usados pelo ERP e enviar uma notificação de teste.
+6. Aplicar em cada banco ERP `20260831130000_remove_mercadolivre_tokens_from_raw_metadata.sql`.
+7. Reconectar a conta Mercado Livre uma vez em cada ERP para registrar o vendedor na Central.
+8. Alterar no painel do aplicativo a URL de notificações para `https://central.figosoftwares.com.br/api/integracoes/mercadolivre/webhook`.
+9. Habilitar os tópicos usados pelo ERP e enviar uma notificação de teste.
+10. Conferir em `GET /applications/APP_ID` que o aplicativo Mercado Livre não possui escopos `urn:mp:`.
 
 Não publique o ERP novo antes da migration e do deploy da Central: o callback OAuth passará a registrar a conta no gateway.
 
@@ -60,7 +62,9 @@ Cadastre no aplicativo Mercado Livre todos os domínios HTTPS usados no OAuth. A
 - criar um pedido controlado;
 - confirmar importação única da venda e baixa de estoque;
 - validar pagamento, `shipment_id`, modalidade logística e rastreamento;
-- gerar a etiqueta do Mercado Envios;
+- gerar a etiqueta do Mercado Envios apenas em `ready_to_ship/ready_to_print` (ou `printed` para reimpressão);
+- validar um carrinho/pack com mais de uma ordem usando o mesmo envio;
+- para ME1, testar os eventos obrigatórios `shipped` e `delivered` pelo endpoint V2;
 - validar emissão e associação da NF-e quando aplicável;
 - responder pergunta e mensagem;
 - simular cancelamento, reclamação ou devolução;

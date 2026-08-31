@@ -13,6 +13,15 @@ type MercadoLivreTokenResponse = {
   refresh_token?: string;
 };
 
+export function mercadoLivreTokenMetadata(token: MercadoLivreTokenResponse) {
+  return {
+    token_type: token.token_type ?? null,
+    expires_in: token.expires_in ?? null,
+    scope: token.scope ?? null,
+    user_id: token.user_id ?? null,
+  };
+}
+
 export type MercadoLivreUser = {
   id: number;
   nickname?: string;

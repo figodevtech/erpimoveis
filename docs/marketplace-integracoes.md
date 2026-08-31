@@ -23,7 +23,7 @@ https://central.figosoftwares.com.br/api/integracoes/mercadolivre/webhook
 
 A Central roteia o evento pelo `user_id` do vendedor para a instalação correta. Após o OAuth, o ERP registra essa associação usando `PLATFORM_INSTALLATION_ID` e `PLATFORM_API_SECRET`. A entrega interna é assinada e aceita somente por `/api/integracoes/mercadolivre/webhook/platform`.
 
-Os tópicos mínimos são `orders_v2`, `items` e `shipments`. Para toda a operação do ERP, habilite também mensagens, perguntas, reclamações/devoluções e invoices disponíveis para o aplicativo.
+Os tópicos mínimos são `orders_v2`, `items` e `shipments`. Para toda a operação do ERP, habilite também mensagens, perguntas, reclamações/devoluções e invoices disponíveis para o aplicativo. O tópico `payments` não é necessário: o estado financeiro é reconciliado por `orders_v2` e pelo cron, mantendo os aplicativos Mercado Livre e Mercado Pago separados.
 
 O agendador deve chamar, com `Authorization: Bearer CRON_SECRET`:
 

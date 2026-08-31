@@ -5,6 +5,7 @@ import {
   getMercadoLivreOrder,
   mercadoLivreApiGet,
   mercadoLivreApiPost,
+  mercadoLivreTokenMetadata,
   refreshMercadoLivreToken,
   tokenExpiresAt,
 } from "@/lib/integrations/mercadolivre";
@@ -144,7 +145,7 @@ async function ensureValidAccessToken(account: Account) {
       access_token: token.access_token,
       refresh_token: token.refresh_token ?? account.refresh_token,
       expires_at: tokenExpiresAt(token.expires_in),
-      raw_token: token,
+      raw_token: mercadoLivreTokenMetadata(token),
       updated_at: new Date().toISOString(),
     })
     .eq("id", account.id)
