@@ -109,6 +109,24 @@ type SetorOption = {
   nome: string;
 };
 
+type ConfigGarantiaFiscal = {
+  incluirGarantiaVendaNFe: boolean;
+  incluirGarantiaVendaNFCe: boolean;
+  incluirGarantiaOsNFe: boolean;
+  incluirGarantiaOsNFCe: boolean;
+  incluirGarantiaOsNFSe: boolean;
+  nfceConfigurada: boolean;
+};
+
+const GARANTIA_FISCAL_DEFAULTS: ConfigGarantiaFiscal = {
+  incluirGarantiaVendaNFe: false,
+  incluirGarantiaVendaNFCe: false,
+  incluirGarantiaOsNFe: false,
+  incluirGarantiaOsNFCe: false,
+  incluirGarantiaOsNFSe: false,
+  nfceConfigurada: false,
+};
+
 function MarketplaceConnectionCard({
   icon,
   iconClass,
@@ -243,6 +261,10 @@ export default function ConfigGeralPage() {
   const [setores, setSetores] = useState<SetorOption[]>([]);
   const [carregandoSetores, setCarregandoSetores] = useState(true);
   const [linhasDestaque, setLinhasDestaque] = useState<LinhaDestaque[]>([]);
+  const [garantiaFiscal, setGarantiaFiscal] = useState<ConfigGarantiaFiscal>(
+    GARANTIA_FISCAL_DEFAULTS,
+  );
+  const [garantiaFiscalDisponivel, setGarantiaFiscalDisponivel] = useState(false);
 
   const { handleSubmit, setValue, watch, reset } = useForm<Partial<Config>>({
     defaultValues: {
@@ -281,19 +303,32 @@ export default function ConfigGeralPage() {
 
   const carregarConfig = useCallback(async () => {
     setCarregando(true);
+    setGarantiaFiscalDisponivel(false);
     try {
-      const [response, empresaResponse, mercadoLivreResponse, shopeeResponse, setoresResponse] = await Promise.all([
+      const [
+        response,
+        empresaResponse,
+        mercadoLivreResponse,
+        shopeeResponse,
+        setoresResponse,
+        nfeResponse,
+        nfseResponse,
+      ] = await Promise.all([
         fetch("/api/config", { cache: "no-store" }),
         fetch("/api/config/empresa", { cache: "no-store" }),
         fetch("/api/config/integracoes/mercadolivre", { cache: "no-store" }),
         SHOPEE_INTEGRATION_ENABLED ? fetch("/api/config/integracoes/shopee", { cache: "no-store" }) : Promise.resolve(null),
         fetch("/api/tipos/setores", { cache: "no-store" }),
+        fetch("/api/config/nfe", { cache: "no-store" }),
+        fetch("/api/config/nfse", { cache: "no-store" }),
       ]);
       const data = await response.json();
       const empresaData = await empresaResponse.json().catch(() => ({}));
       const mercadoLivreData = await mercadoLivreResponse.json().catch(() => ({}));
       const shopeeData = shopeeResponse ? await shopeeResponse.json().catch(() => ({})) : {};
       const setoresData = await setoresResponse.json().catch(() => ({}));
+      const nfeData = await nfeResponse.json().catch(() => ({}));
+      const nfseData = await nfseResponse.json().catch(() => ({}));
       if (response.ok && data.config) {
         reset(data.config);
         setLinhasDestaque(regrasParaLinhas(data.config.destaque_os_por_status));
@@ -328,6 +363,20 @@ export default function ConfigGeralPage() {
           ? setoresData.items.map((item: any) => ({ id: Number(item.id), nome: String(item.nome ?? "") }))
           : [],
       );
+      const garantiaDisponivel = Boolean(
+        nfeResponse.ok && nfeData?.nfe && nfseResponse.ok && nfseData?.nfse,
+      );
+      setGarantiaFiscalDisponivel(garantiaDisponivel);
+      if (garantiaDisponivel) {
+        setGarantiaFiscal({
+          incluirGarantiaVendaNFe: Boolean(nfeData.nfe.incluirGarantiaVendaNFe),
+          incluirGarantiaVendaNFCe: Boolean(nfeData.nfe.incluirGarantiaVendaNFCe),
+          incluirGarantiaOsNFe: Boolean(nfeData.nfe.incluirGarantiaOsNFe),
+          incluirGarantiaOsNFCe: Boolean(nfeData.nfe.incluirGarantiaOsNFCe),
+          incluirGarantiaOsNFSe: Boolean(nfseData.nfse.incluirGarantiaOs),
+          nfceConfigurada: Boolean(nfeData.nfe.nfceConfigurada),
+        });
+      }
     } catch (error) {
       console.error(error);
       toast.error("Falha na comunicação com o servidor");
@@ -351,17 +400,61 @@ export default function ConfigGeralPage() {
       });
 
       const data = await response.json();
-      if (response.ok) {
-        toast.success("Configurações atualizadas com sucesso!");
-        reset(data.config);
-        setLinhasDestaque(regrasParaLinhas(data.config.destaque_os_por_status));
-        // Sem isso o resto do app segue com a config antiga em sessionStorage
-        // até o próximo reload — e o destaque por status só apareceria na lista
-        // de OS depois de recarregar a página.
-        window.dispatchEvent(new CustomEvent("erpoficina:config-updated", { detail: data.config }));
-      } else {
-        throw new Error(data.error || "Erro ao salvar");
+      if (!response.ok) throw new Error(data.error || "Erro ao salvar");
+
+      if (garantiaFiscalDisponivel) {
+        const [nfeResponse, nfseResponse] = await Promise.all([
+          fetch("/api/config/nfe", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              nfe: {
+                incluirGarantiaVendaNFe: garantiaFiscal.incluirGarantiaVendaNFe,
+                incluirGarantiaVendaNFCe: garantiaFiscal.incluirGarantiaVendaNFCe,
+                incluirGarantiaOsNFe: garantiaFiscal.incluirGarantiaOsNFe,
+                incluirGarantiaOsNFCe: garantiaFiscal.incluirGarantiaOsNFCe,
+              },
+            }),
+          }),
+          fetch("/api/config/nfse", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              nfse: { incluirGarantiaOs: garantiaFiscal.incluirGarantiaOsNFSe },
+            }),
+          }),
+        ]);
+        const [nfeData, nfseData] = await Promise.all([
+          nfeResponse.json().catch(() => ({})),
+          nfseResponse.json().catch(() => ({})),
+        ]);
+        if (!nfeResponse.ok) {
+          throw new Error(
+            [nfeData?.error, nfeData?.detalhe].filter(Boolean).join(" ")
+              || "Erro ao salvar as opções de garantia da NF-e/NFC-e.",
+          );
+        }
+        if (!nfseResponse.ok) {
+          throw new Error(nfseData?.error || "Erro ao salvar a opção de garantia da NFS-e.");
+        }
+
+        setGarantiaFiscal((atual) => ({
+          incluirGarantiaVendaNFe: Boolean(nfeData?.nfe?.incluirGarantiaVendaNFe),
+          incluirGarantiaVendaNFCe: Boolean(nfeData?.nfe?.incluirGarantiaVendaNFCe),
+          incluirGarantiaOsNFe: Boolean(nfeData?.nfe?.incluirGarantiaOsNFe),
+          incluirGarantiaOsNFCe: Boolean(nfeData?.nfe?.incluirGarantiaOsNFCe),
+          incluirGarantiaOsNFSe: Boolean(nfseData?.nfse?.incluirGarantiaOs),
+          nfceConfigurada: Boolean(nfeData?.nfe?.nfceConfigurada ?? atual.nfceConfigurada),
+        }));
       }
+
+      toast.success("Configurações atualizadas com sucesso!");
+      reset(data.config);
+      setLinhasDestaque(regrasParaLinhas(data.config.destaque_os_por_status));
+      // Sem isso o resto do app segue com a config antiga em sessionStorage
+      // até o próximo reload — e o destaque por status só apareceria na lista
+      // de OS depois de recarregar a página.
+      window.dispatchEvent(new CustomEvent("erpoficina:config-updated", { detail: data.config }));
     } catch (error: any) {
       toast.error(error.message || "Erro ao salvar configurações");
     } finally {
@@ -739,10 +832,10 @@ export default function ConfigGeralPage() {
           <CardHeader className="bg-primary/5 py-4">
             <div className="flex items-center gap-2">
               <Receipt className="h-5 w-5 text-primary" />
-              <CardTitle>Módulo Fiscal (NF-e / NFC-e)</CardTitle>
+              <CardTitle>Módulo Fiscal (NF-e / NFC-e / NFS-e)</CardTitle>
             </div>
             <CardDescription>
-              Configure a visibilidade e as travas de emissão de notas fiscais no sistema.
+              Configure a visibilidade, as travas de emissão e o carregamento da garantia nas notas fiscais.
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-6 py-6">
@@ -762,6 +855,12 @@ export default function ConfigGeralPage() {
             <Separator />
 
             <div className="grid gap-6 lg:grid-cols-2">
+              {!garantiaFiscalDisponivel ? (
+                <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-sm text-amber-700 dark:text-amber-300 lg:col-span-2">
+                  Não foi possível carregar as opções de garantia fiscal. Confira se a migration
+                  fiscal mais recente foi aplicada.
+                </div>
+              ) : null}
               <div className="space-y-4">
                 <div className="flex items-center gap-2 font-medium text-sm text-primary">
                   <FileText className="h-4 w-4" /> Módulo de Vendas
@@ -784,6 +883,57 @@ export default function ConfigGeralPage() {
                   <Switch
                     checked={watch("emissao_nf_vendas_nao_pagas")}
                     onCheckedChange={(v) => setValue("emissao_nf_vendas_nao_pagas", v)}
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4">
+                  <div className="flex flex-col space-y-1">
+                    <Label htmlFor="garantia-venda-nfe">
+                      Incluir informações de garantia na emissão de NF-e
+                    </Label>
+                    <span className="text-xs text-muted-foreground">
+                      Carrega a garantia da Venda nas observações da NF-e.
+                    </span>
+                  </div>
+                  <Switch
+                    id="garantia-venda-nfe"
+                    checked={garantiaFiscal.incluirGarantiaVendaNFe}
+                    disabled={!garantiaFiscalDisponivel}
+                    onCheckedChange={(value) =>
+                      setGarantiaFiscal((atual) => ({
+                        ...atual,
+                        incluirGarantiaVendaNFe: value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4">
+                  <div className="flex flex-col space-y-1">
+                    <Label
+                      htmlFor="garantia-venda-nfce"
+                      className={
+                        !garantiaFiscalDisponivel || !garantiaFiscal.nfceConfigurada
+                          ? "opacity-60"
+                          : undefined
+                      }
+                    >
+                      Incluir informações de garantia na emissão de NFC-e
+                    </Label>
+                    <span className="text-xs text-muted-foreground">
+                      {garantiaFiscal.nfceConfigurada
+                        ? "Carrega a garantia da Venda nas observações da NFC-e."
+                        : "Disponível após configurar o modelo 65."}
+                    </span>
+                  </div>
+                  <Switch
+                    id="garantia-venda-nfce"
+                    checked={garantiaFiscal.incluirGarantiaVendaNFCe}
+                    disabled={!garantiaFiscalDisponivel || !garantiaFiscal.nfceConfigurada}
+                    onCheckedChange={(value) =>
+                      setGarantiaFiscal((atual) => ({
+                        ...atual,
+                        incluirGarantiaVendaNFCe: value,
+                      }))
+                    }
                   />
                 </div>
               </div>
@@ -810,6 +960,78 @@ export default function ConfigGeralPage() {
                   <Switch
                     checked={watch("emissao_nf_ordens_nao_pagas")}
                     onCheckedChange={(v) => setValue("emissao_nf_ordens_nao_pagas", v)}
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4">
+                  <div className="flex flex-col space-y-1">
+                    <Label htmlFor="garantia-os-nfe">
+                      Incluir informações de garantia na emissão de NF-e
+                    </Label>
+                    <span className="text-xs text-muted-foreground">
+                      Carrega a garantia da OS nas observações da NF-e.
+                    </span>
+                  </div>
+                  <Switch
+                    id="garantia-os-nfe"
+                    checked={garantiaFiscal.incluirGarantiaOsNFe}
+                    disabled={!garantiaFiscalDisponivel}
+                    onCheckedChange={(value) =>
+                      setGarantiaFiscal((atual) => ({
+                        ...atual,
+                        incluirGarantiaOsNFe: value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4">
+                  <div className="flex flex-col space-y-1">
+                    <Label
+                      htmlFor="garantia-os-nfce"
+                      className={
+                        !garantiaFiscalDisponivel || !garantiaFiscal.nfceConfigurada
+                          ? "opacity-60"
+                          : undefined
+                      }
+                    >
+                      Incluir informações de garantia na emissão de NFC-e
+                    </Label>
+                    <span className="text-xs text-muted-foreground">
+                      {garantiaFiscal.nfceConfigurada
+                        ? "Carrega a garantia da OS nas observações da NFC-e."
+                        : "Disponível após configurar o modelo 65."}
+                    </span>
+                  </div>
+                  <Switch
+                    id="garantia-os-nfce"
+                    checked={garantiaFiscal.incluirGarantiaOsNFCe}
+                    disabled={!garantiaFiscalDisponivel || !garantiaFiscal.nfceConfigurada}
+                    onCheckedChange={(value) =>
+                      setGarantiaFiscal((atual) => ({
+                        ...atual,
+                        incluirGarantiaOsNFCe: value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4">
+                  <div className="flex flex-col space-y-1">
+                    <Label htmlFor="garantia-os-nfse">
+                      Carregar informações de garantia para NFS-e
+                    </Label>
+                    <span className="text-xs text-muted-foreground">
+                      Carrega a garantia da OS nas informações complementares da NFS-e.
+                    </span>
+                  </div>
+                  <Switch
+                    id="garantia-os-nfse"
+                    checked={garantiaFiscal.incluirGarantiaOsNFSe}
+                    disabled={!garantiaFiscalDisponivel}
+                    onCheckedChange={(value) =>
+                      setGarantiaFiscal((atual) => ({
+                        ...atual,
+                        incluirGarantiaOsNFSe: value,
+                      }))
+                    }
                   />
                 </div>
               </div>

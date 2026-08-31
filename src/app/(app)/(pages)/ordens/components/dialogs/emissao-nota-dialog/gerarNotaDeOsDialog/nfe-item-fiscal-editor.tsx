@@ -1,9 +1,18 @@
 "use client";
 
-import { AlertCircle, CheckCircle2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { AlertCircle, Check, CheckCircle2, ChevronsUpDown } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import {
   Dialog,
   DialogContent,
@@ -14,6 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -23,6 +33,12 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import ValueInput from "@/components/ui/value-input";
+import { cn } from "@/lib/utils";
+import {
+  listCfopsForEmission,
+  type NFeOperationDirection,
+} from "@/lib/nfe/cfopOperation";
+import type { ModeloDocumentoFiscal } from "@/lib/nfe/types";
 import {
   getRequiredPisCofinsMode,
   PIS_COFINS_CST_OPTIONS,
@@ -47,6 +63,9 @@ type Props = {
   item: AssistedFiscalItem | null;
   setup: FiscalSetup;
   issues: AssistedItemIssue[];
+  modelo: ModeloDocumentoFiscal;
+  tipoOperacao: NFeOperationDirection;
+  parceiroUf?: string | null;
   onChange: (patch: Partial<AssistedFiscalItem>) => void;
 };
 
@@ -150,8 +169,22 @@ export function NfeItemFiscalEditor({
   item,
   setup,
   issues,
+  modelo,
+  tipoOperacao,
+  parceiroUf,
   onChange,
 }: Props) {
+  const [cfopOpen, setCfopOpen] = useState(false);
+  const cfops = useMemo(
+    () =>
+      listCfopsForEmission({
+        modelo,
+        operation: tipoOperacao,
+        emitterUf: setup.empresa?.uf,
+        partnerUf: parceiroUf,
+      }),
+    [modelo, parceiroUf, setup.empresa?.uf, tipoOperacao],
+  );
   if (!item) return null;
 
   const rules = setup.regrasFiscais;
@@ -240,6 +273,14 @@ export function NfeItemFiscalEditor({
           </Alert>
         )}
 
+        {item.cfopResolution?.warning ? (
+          <Alert className="border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>CFOP substituído automaticamente</AlertTitle>
+            <AlertDescription>{item.cfopResolution.warning}</AlertDescription>
+          </Alert>
+        ) : null}
+
         <section className="min-w-0 space-y-3 rounded-lg border p-3 sm:p-4 bg-card">
           <h3 className="text-sm font-semibold">Produto</h3>
           <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-12">
@@ -255,12 +296,60 @@ export function NfeItemFiscalEditor({
               />
             </Field>
             <Field label="CFOP" required origem={proc.cfop} className="lg:col-span-2">
-              <Input
-                value={item.cfop}
-                maxLength={4}
-                inputMode="numeric"
-                onChange={(event) => onChange({ cfop: onlyDigits(event.target.value) })}
-              />
+              <Popover open={cfopOpen} onOpenChange={setCfopOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={cfopOpen}
+                    className="w-full justify-between px-3 font-normal"
+                  >
+                    <span className="truncate">{item.cfop || "Selecione"}</span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="start"
+                  className="w-[min(34rem,calc(100vw-2rem))] p-0"
+                >
+                  <Command>
+                    <CommandInput placeholder="Buscar por código ou descrição..." />
+                    <CommandList className="max-h-72">
+                      <CommandEmpty>Nenhum CFOP permitido para esta operação.</CommandEmpty>
+                      <CommandGroup>
+                        {cfops.map((entry) => (
+                          <CommandItem
+                            key={entry.codigo}
+                            value={`${entry.codigo} ${entry.descricao}`}
+                            onSelect={() => {
+                              onChange({
+                                cfop: entry.codigo,
+                                cfopResolution: null,
+                                procedenciaFiscal: {
+                                  ...item.procedenciaFiscal,
+                                  cfop: "USUARIO",
+                                },
+                              });
+                              setCfopOpen(false);
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                "mr-2 h-4 w-4 shrink-0",
+                                item.cfop === entry.codigo ? "opacity-100" : "opacity-0",
+                              )}
+                            />
+                            <span className="min-w-0">
+                              <strong>{entry.codigo}</strong> — {entry.descricao}
+                            </span>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </Field>
             <Field label="Unidade" required className="lg:col-span-3">
               <Select value={item.unidade} onValueChange={(unidade) => onChange({ unidade })}>

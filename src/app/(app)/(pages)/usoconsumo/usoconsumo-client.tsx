@@ -67,36 +67,12 @@ import type {
   UsoConsumoStatus,
 } from "@/types/usoconsumo";
 import { EntradaFiscalDialog } from "@/components/entrada-fiscal/entrada-fiscal-dialog";
+import { DialogEntradaGeral } from "@/app/(app)/(pages)/estoque/components/dialog-entrada-geral/dialog-entrada-geral";
 import { ItemDialog } from "./components/item-dialog";
-import { ManualEntryDialog } from "./components/manual-entry-dialog";
 import { MovementDialog } from "./components/movement-dialog";
 
 type Counts = Record<"TODOS" | UsoConsumoStatus, number>;
 type StatusFilter = "TODOS" | UsoConsumoStatus;
-type Option = {
-  id: number;
-  nome?: string;
-  titulo?: string;
-  codigo?: string;
-  nomerazaosocial?: string;
-  cpfcnpj?: string;
-};
-type Options = {
-  fornecedores: Option[];
-  bancos: Option[];
-  categorias: Option[];
-  planos: Option[];
-  centros: Option[];
-};
-
-const EMPTY_OPTIONS: Options = {
-  fornecedores: [],
-  bancos: [],
-  categorias: [],
-  planos: [],
-  centros: [],
-};
-
 function errorText(error: unknown) {
   return isAxiosError(error)
     ? error.response?.data?.error ?? error.message
@@ -181,7 +157,6 @@ export default function UsoConsumoClient({ escopo = "USOCONSUMO" }: UsoConsumoCl
 
   const [items, setItems] = useState<UsoConsumoItem[]>([]);
   const [groups, setGroups] = useState<UsoConsumoGrupo[]>([]);
-  const [options, setOptions] = useState<Options>(EMPTY_OPTIONS);
   const [counts, setCounts] = useState<Counts>({ TODOS: 0, OK: 0, BAIXO: 0, CRITICO: 0, SEM_ESTOQUE: 0 });
   const [pagination, setPagination] = useState<UsoConsumoPagination>({ page: 1, limit: 20, total: 0, totalPages: 1 });
   const [search, setSearch] = useState("");
@@ -204,11 +179,6 @@ export default function UsoConsumoClient({ escopo = "USOCONSUMO" }: UsoConsumoCl
   const loadGroups = useCallback(async () => {
     const { data } = await axios.get("/api/usoconsumo/grupos");
     setGroups(data.data ?? []);
-  }, []);
-
-  const loadOptions = useCallback(async () => {
-    const { data } = await axios.get("/api/usoconsumo/opcoes");
-    setOptions(data);
   }, []);
 
   const loadCounts = useCallback(async () => {
@@ -248,10 +218,10 @@ export default function UsoConsumoClient({ escopo = "USOCONSUMO" }: UsoConsumoCl
   }, [load, loadCounts, pagination.page]);
 
   useEffect(() => {
-    Promise.all([loadGroups(), loadOptions()]).catch((error) => {
+    loadGroups().catch((error) => {
       toast.error("Não foi possível carregar as opções.", { description: errorText(error) });
     });
-  }, [loadGroups, loadOptions]);
+  }, [loadGroups]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setSearch(searchInput.trim()), 350);
@@ -492,7 +462,13 @@ export default function UsoConsumoClient({ escopo = "USOCONSUMO" }: UsoConsumoCl
         onClose={() => setMovement(null)}
         onSaved={refresh}
       />
-      <ManualEntryDialog escopo={escopo} open={manualOpen} onOpenChange={setManualOpen} fornecedores={options.fornecedores} onSaved={refresh} />
+      <DialogEntradaGeral
+        inventory="usoconsumo"
+        escopo={escopo}
+        open={manualOpen}
+        onOpenChange={setManualOpen}
+        onSaved={refresh}
+      />
       <EntradaFiscalDialog escopo={escopo} open={fiscalOpen} onOpenChange={setFiscalOpen} onSaved={refresh} />
 
       <AlertDialog open={Boolean(deleteItem)} onOpenChange={(open) => { if (!open && !deleting) setDeleteItem(null); }}>

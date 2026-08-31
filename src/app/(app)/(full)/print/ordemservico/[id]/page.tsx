@@ -6,6 +6,7 @@ import { Car, ClipboardList, Cog, Tag, User, Power } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { formatCep } from "@/app/(app)/(pages)/clientes/components/customerDialogRegister/utils";
 import { Button } from "@/components/ui/button";
+import { PRINT_ACTION_BUTTON_CLASS } from "@/lib/print/actionStyles";
 import Link from "next/link";
 import { PrintDisplayOptionsMenu } from "../../../components/PrintDisplayOptionsMenu";
 import { PrintShareMenu } from "../../../components/PrintShareMenu";
@@ -328,6 +329,10 @@ export default async function OSFullPage({ params }: PageProps) {
   const criador = Array.isArray(os.criador) ? os.criador[0] : os.criador;
   const criadorNome = criador?.nome ?? null;
   const preExecucao = OS_STATUS_PRE_EXECUCAO.has(String(os.status ?? "").toUpperCase());
+  const observacoesImpressao =
+    String(os.observacoes ?? "").trim() ||
+    String(os.defeitorelatado ?? "").trim();
+  const garantiaImpressao = String(os.garantia ?? "").trim();
 
   const itens: Array<{
     tipo: "SERVIÇO" | "PEÇA";
@@ -1053,7 +1058,7 @@ export default async function OSFullPage({ params }: PageProps) {
             asChild
             size={"sm"}
             variant={"outline"}
-            className="!border-slate-300 !bg-white !text-slate-900 hover:!bg-slate-100 hover:!text-slate-900 hover:cursor-pointer"
+            className={PRINT_ACTION_BUTTON_CLASS}
           >
             <Link href="/ordens">
               <Power className="w-3 h-3" aria-hidden="true" />
@@ -1072,8 +1077,12 @@ export default async function OSFullPage({ params }: PageProps) {
         <div className="flex flex-row flex-wrap items-center gap-1">
           <PrintDisplayOptionsMenu
             options={[
-              { attribute: "data-os-observacoes", label: "Observações internas" },
-              { attribute: "data-os-garantia", label: "Garantia" },
+              ...(observacoesImpressao
+                ? [{ attribute: "data-os-observacoes", label: "Observações internas" }]
+                : []),
+              ...(garantiaImpressao
+                ? [{ attribute: "data-os-garantia", label: "Garantia" }]
+                : []),
               { attribute: "data-print-ocultar-valores", label: "Ocultar valores" },
               { attribute: "data-print-ocultar-cliente", label: "Ocultar dados do cliente" },
             ]}
@@ -1333,20 +1342,20 @@ export default async function OSFullPage({ params }: PageProps) {
             <div data-print-final-block>
               <div className="rodape">
               <div>
-                {(os.observacoes || os.defeitorelatado) && (
+                {observacoesImpressao && (
                   <div className="observacoes-box os-observacoes">
                     {" "}
                     <div className="obs-titulo">Observações:</div>{" "}
                     <div className="obs-texto font-bold clamp-3">
-                      {os.observacoes || os.defeitorelatado || EMPTY}
+                      {observacoesImpressao}
                     </div>{" "}
                   </div>
                 )}
-                {os.garantia && (
+                {garantiaImpressao && (
                   <div className="observacoes-box os-garantia">
                     <div className="obs-titulo">Garantia:</div>
                     <div className="obs-texto font-bold clamp-3">
-                      {os.garantia}
+                      {garantiaImpressao}
                     </div>
                   </div>
                 )}

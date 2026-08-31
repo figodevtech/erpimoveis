@@ -3,9 +3,6 @@
 import type { UseFormRegister, UseFormSetValue, UseFormWatch } from "react-hook-form";
 import type { FormValues } from "../types";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Info } from "lucide-react";
 
 import { PadraoNFSeFields } from "./padrao-nfse-fields";
@@ -63,7 +60,7 @@ export function NFSeTab({
           </div>
         </div> */}
 
-        <section className="space-y-4 border-t pt-6">
+        <section className="space-y-4">
           <div>
             <h3 className="text-sm font-semibold">Padrão fiscal dos serviços</h3>
             <p className="text-muted-foreground mt-1 text-xs">

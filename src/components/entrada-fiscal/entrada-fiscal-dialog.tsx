@@ -52,6 +52,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -67,6 +68,7 @@ import { totalDasDuplicatas } from "@/lib/nfe/duplicatas";
 import { componentesDoTotal } from "@/lib/nfe/totais-nfe";
 import { ROTULO_DO_TRATAMENTO } from "@/lib/nfe/tratamento-custo";
 import { apropriarValorFiscal } from "@/lib/nfe/valor-fiscal-entrada";
+import { ratearCustoPersonalizado } from "@/lib/nfe/entrada-fiscal-personalizada";
 import {
   conferirIdentidade,
   lancamentosDreDaEntrada,
@@ -80,12 +82,15 @@ import FornecedorSelect from "@/app/(app)/components/fornecedorSelect";
 import ProductSelect from "@/app/(app)/components/productSelect";
 import BotaoNf from "@/app/(app)/(pages)/estoque/components/dialog-entrada/botao-nota-fiscal";
 import type { NF } from "@/app/(app)/(pages)/estoque/components/dialog-entrada/types";
-import type { Fornecedor } from "@/app/(app)/(pages)/estoque/types";
+import type { Fornecedor, Produto } from "@/app/(app)/(pages)/estoque/types";
 import { DialogProduto } from "@/app/(app)/(pages)/estoque/components/dialog-produto/dialog-produto";
 import ValueInput from "@/app/(app)/(pages)/estoque/components/dialog-produto/entrada-valor";
 import FornecedorDialog from "@/app/(app)/(pages)/configuracoes/tipos/components/fornecedorDialog";
 import { ItemDialog } from "@/app/(app)/(pages)/usoconsumo/components/item-dialog";
-import { ItemSelectDialog } from "@/app/(app)/(pages)/usoconsumo/components/item-select-dialog";
+import {
+  ItemSelectDialog,
+  type UsoConsumoItemOption,
+} from "@/app/(app)/(pages)/usoconsumo/components/item-select-dialog";
 import { Metodo_pagamento } from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/types";
 import { useCategoriasTransacao } from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/hooks/use-categoria-transacao";
 import { usePlanosDeConta } from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/hooks/use-planos-de-conta";
@@ -218,6 +223,17 @@ export function EntradaFiscalDialog({
   const [itemValoresIniciais, setItemValoresIniciais] =
     useState<Record<string, string | number | null>>();
   const [grupos, setGrupos] = useState<UsoConsumoGrupo[]>([]);
+
+  const [entradaPersonalizada, setEntradaPersonalizada] = useState(false);
+  const [destinoPersonalizado, setDestinoPersonalizado] =
+    useState<DestinoEntrada>();
+  const [produtoPersonalizado, setProdutoPersonalizado] =
+    useState<Produto>();
+  const [itemPersonalizado, setItemPersonalizado] =
+    useState<UsoConsumoItemOption>();
+  const [quantidadePersonalizada, setQuantidadePersonalizada] = useState("1");
+  const [produtoPersonalizadoOpen, setProdutoPersonalizadoOpen] = useState(false);
+  const [itemPersonalizadoOpen, setItemPersonalizadoOpen] = useState(false);
 
   const [pagamentoFuturo, setPagamentoFuturo] = useState(true);
   const [confirmarVencidaAberto, setConfirmarVencidaAberto] = useState(false);
@@ -502,6 +518,34 @@ export function EntradaFiscalDialog({
   const semDestino = linhasDisponiveis.some((linha) => !linha.destino);
   const semVinculo = linhasDisponiveis.some((linha) => !linhaVinculada(linha));
   const notaDividida = linhasEstoque.length > 0 && linhasUsoConsumo.length > 0;
+  const temApropriacaoAnterior =
+    parsed?.itens.some((linha) => Boolean(linha.destinoApropriado)) ?? false;
+  const quantidadePersonalizadaNumero = Number(quantidadePersonalizada);
+  const itemPersonalizadoId =
+    destinoPersonalizado === "ESTOQUE"
+      ? produtoPersonalizado?.id
+      : itemPersonalizado?.id;
+  const itemPersonalizadoTitulo =
+    destinoPersonalizado === "ESTOQUE"
+      ? produtoPersonalizado?.titulo ?? produtoPersonalizado?.descricao
+      : itemPersonalizado?.titulo;
+  const rateioPersonalizado = useMemo(() => {
+    try {
+      return ratearCustoPersonalizado(
+        custoDestinado,
+        quantidadePersonalizadaNumero,
+      );
+    } catch {
+      return null;
+    }
+  }, [custoDestinado, quantidadePersonalizadaNumero]);
+  const personalizadaValida =
+    Boolean(parsed?.documentoFiscalRecebidoId) &&
+    Boolean(destinoPersonalizado) &&
+    destinosPermitidos.includes(destinoPersonalizado as DestinoEntrada) &&
+    Boolean(itemPersonalizadoId) &&
+    Boolean(rateioPersonalizado) &&
+    !temApropriacaoAnterior;
 
   const ocupado =
     carregandoNota ||
@@ -528,6 +572,13 @@ export function EntradaFiscalDialog({
     setItemDialogIndex(null);
     setItemEmEdicao(null);
     setItemValoresIniciais(undefined);
+    setEntradaPersonalizada(false);
+    setDestinoPersonalizado(undefined);
+    setProdutoPersonalizado(undefined);
+    setItemPersonalizado(undefined);
+    setQuantidadePersonalizada("1");
+    setProdutoPersonalizadoOpen(false);
+    setItemPersonalizadoOpen(false);
     setPagamentoFuturo(true);
     setParcelas([]);
     setUsarDuplicatas(false);
@@ -564,6 +615,13 @@ export function EntradaFiscalDialog({
       setParcelasManuais([]);
       setParcelas([]);
       duplicatasAplicadasRef.current = null;
+      setEntradaPersonalizada(false);
+      setDestinoPersonalizado(undefined);
+      setProdutoPersonalizado(undefined);
+      setItemPersonalizado(undefined);
+      setQuantidadePersonalizada("1");
+      setProdutoPersonalizadoOpen(false);
+      setItemPersonalizadoOpen(false);
     };
 
     if (!nota) {
@@ -691,8 +749,9 @@ export function EntradaFiscalDialog({
       .get("/api/entradas/apropriacoes", { params: { documentoId } })
       .then((resposta) => {
         if (cancelado) return;
+        const apropriacoes = resposta.data.data ?? [];
         const mapa = new Map<number, "PRODUTO" | "USOCONSUMO">(
-          (resposta.data.data ?? []).map(
+          apropriacoes.map(
             (linha: {
               numero_item: number;
               destino: "PRODUTO" | "USOCONSUMO";
@@ -710,6 +769,12 @@ export function EntradaFiscalDialog({
               }
             : atual,
         );
+        if (apropriacoes.length > 0) {
+          setEntradaPersonalizada(false);
+          setDestinoPersonalizado(undefined);
+          setProdutoPersonalizado(undefined);
+          setItemPersonalizado(undefined);
+        }
       })
       .catch((error) => {
         if (cancelado) return;
@@ -1000,13 +1065,33 @@ export function EntradaFiscalDialog({
       );
     if (!linhasDisponiveis.length)
       return toast.error("Todos os itens desta nota já foram destinados.");
-    if (semDestino)
-      return toast.error(
-        "Escolha o destino de todos os itens: estoque de revenda ou uso e consumo.",
-      );
-    if (semVinculo)
-      return toast.error("Vincule todos os itens ao seu respectivo cadastro.");
-    if (linhasUsoConsumo.length && duplicidades.length) {
+    if (entradaPersonalizada) {
+      if (temApropriacaoAnterior)
+        return toast.error(
+          "A entrada personalizada exige que nenhum item da NF-e tenha sido destinado.",
+        );
+      if (!parsed.documentoFiscalRecebidoId)
+        return toast.error("A NF-e precisa estar vinculada ao documento fiscal recebido.");
+      if (!destinoPersonalizado)
+        return toast.error("Escolha o estoque de destino da entrada personalizada.");
+      if (!itemPersonalizadoId)
+        return toast.error("Selecione o item que receberá a entrada personalizada.");
+      if (!rateioPersonalizado)
+        return toast.error("Informe uma quantidade inteira maior que zero.");
+    } else {
+      if (semDestino)
+        return toast.error(
+          "Escolha o destino de todos os itens: estoque de revenda ou uso e consumo.",
+        );
+      if (semVinculo)
+        return toast.error("Vincule todos os itens ao seu respectivo cadastro.");
+    }
+    const personalizadaEmEstoqueSimples =
+      entradaPersonalizada && ehEstoqueSimples(destinoPersonalizado);
+    if (
+      (linhasUsoConsumo.length || personalizadaEmEstoqueSimples) &&
+      duplicidades.length
+    ) {
       return toast.error(
         "Esta NF-e já possui uma entrada confirmada no estoque de uso/consumo.",
       );
@@ -1066,7 +1151,30 @@ export function EntradaFiscalDialog({
 
     setSubmitting(true);
     try {
-      if (notaDividida) {
+      if (entradaPersonalizada) {
+        await axios.post("/api/entradas/fiscal/personalizada", {
+          documentoFiscalRecebidoId: parsed.documentoFiscalRecebidoId,
+          fornecedorId: parsed.fornecedorReferenteId,
+          destino: destinoPersonalizado,
+          itemReferenciaId: itemPersonalizadoId,
+          quantidade: quantidadePersonalizadaNumero,
+          financeiro: pagamentoFuturo
+            ? {
+                parcelas: parcelas.map((parcela) => ({
+                  valor: parcela.valor,
+                  dataVencimento: parcela.dataVencimento,
+                })),
+                categoria,
+                categoriaId:
+                  categorias.find((item) => item.nome === categoria)?.id ?? null,
+                bancoId: bancoId ? Number(bancoId) : null,
+                metodoPagamento: metodo || null,
+                planoContaId: planoId ? Number(planoId) : null,
+                centroCustoId: centroCustoId ? Number(centroCustoId) : null,
+              }
+            : null,
+        });
+      } else if (notaDividida) {
         await axios.post("/api/entradas/fiscal/mista", {
           ...comum,
           ...financeiro,
@@ -1147,8 +1255,7 @@ export function EntradaFiscalDialog({
     !ocupado &&
     !submitting &&
     linhasDisponiveis.length > 0 &&
-    !semDestino &&
-    !semVinculo;
+    (entradaPersonalizada ? personalizadaValida : !semDestino && !semVinculo);
 
   return (
     <>
@@ -1182,8 +1289,9 @@ export function EntradaFiscalDialog({
             <DialogHeader className="shrink-0 border-b bg-background px-4 pb-4 pr-16 pt-[max(1rem,env(safe-area-inset-top))] text-left sm:px-6 sm:py-4 sm:pr-14">
               <DialogTitle>Entrada por Nota Fiscal</DialogTitle>
               <DialogDescription className="text-xs leading-relaxed">
-                Cada item da nota vai para o estoque de revenda ou para uso e
-                consumo.
+                {entradaPersonalizada
+                  ? "Todos os itens da nota serão consolidados em um único item de estoque."
+                  : "Cada item da nota recebe seu destino e vínculo no estoque."}
               </DialogDescription>
             </DialogHeader>
 
@@ -1220,6 +1328,202 @@ export function EntradaFiscalDialog({
                     <X className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 </div>
+
+                <Card
+                  className={`w-full max-w-full gap-4 py-4 ${entradaPersonalizada ? "border-amber-400 bg-amber-50/70 dark:bg-amber-950/10" : ""}`}
+                >
+                  <CardHeader className="px-4 pb-0 sm:px-6">
+                    <div className="flex min-h-12 items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <CardTitle className="text-base">Entrada personalizada</CardTitle>
+                        <CardDescription className="text-xs leading-relaxed">
+                          Consolida todos os itens da NF-e em um único item de estoque.
+                        </CardDescription>
+                      </div>
+                      <Switch
+                        checked={entradaPersonalizada}
+                        disabled={
+                          carregandoApropriacoes ||
+                          temApropriacaoAnterior ||
+                          !parsed.documentoFiscalRecebidoId
+                        }
+                        onCheckedChange={(marcado) => {
+                          setEntradaPersonalizada(marcado);
+                          if (marcado) {
+                            setDestinoPersonalizado(
+                              (atual) => atual ?? destinosPermitidos[0],
+                            );
+                          }
+                        }}
+                        aria-label="Ativar entrada fiscal personalizada"
+                      />
+                    </div>
+                  </CardHeader>
+
+                  {temApropriacaoAnterior ? (
+                    <CardContent className="px-4 text-xs text-amber-800 dark:text-amber-300 sm:px-6">
+                      Esta NF-e já possui item destinado. A personalização só pode
+                      consolidar uma nota ainda não apropriada.
+                    </CardContent>
+                  ) : entradaPersonalizada ? (
+                    <CardContent className="space-y-4 px-4 sm:px-6">
+                      <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-100/70 p-3 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                        <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                        <p>
+                          As {parsed.itens.length} linhas originais serão apropriadas
+                          por esta entrada. A quantidade final não precisa coincidir
+                          com as quantidades informadas pelo fornecedor.
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Estoque de destino</Label>
+                        <div className="grid gap-2 sm:grid-cols-3">
+                          {destinosPermitidos.map((destino) => (
+                            <Button
+                              key={destino}
+                              type="button"
+                              variant={
+                                destinoPersonalizado === destino
+                                  ? "default"
+                                  : "outline"
+                              }
+                              className="w-full justify-center text-xs"
+                              onClick={() => {
+                                if (destino === destinoPersonalizado) return;
+                                setDestinoPersonalizado(destino);
+                                if (destino === "ESTOQUE") {
+                                  setItemPersonalizado(undefined);
+                                } else {
+                                  setProdutoPersonalizado(undefined);
+                                  if (itemPersonalizado?.escopo !== destino) {
+                                    setItemPersonalizado(undefined);
+                                  }
+                                }
+                                setProdutoPersonalizadoOpen(false);
+                                setItemPersonalizadoOpen(false);
+                              }}
+                            >
+                              {DESTINO_LABEL[destino]}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {destinoPersonalizado ? (
+                        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px]">
+                          <div className="space-y-2">
+                            <Label>Item que receberá a entrada</Label>
+                            <div className="flex min-h-12 items-center gap-2 rounded-md border bg-background px-3 py-2">
+                              <span
+                                className={`min-w-0 flex-1 truncate text-sm ${itemPersonalizadoId ? "font-medium" : "text-muted-foreground"}`}
+                              >
+                                {itemPersonalizadoId
+                                  ? itemPersonalizadoTitulo || `Item #${itemPersonalizadoId}`
+                                  : "Nenhum item selecionado"}
+                              </span>
+                              {itemPersonalizadoId ? (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-9 text-destructive"
+                                  aria-label="Remover item personalizado"
+                                  onClick={() => {
+                                    setProdutoPersonalizado(undefined);
+                                    setItemPersonalizado(undefined);
+                                  }}
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              ) : null}
+                              {destinoPersonalizado === "ESTOQUE" ? (
+                                <ProductSelect
+                                  open={produtoPersonalizadoOpen}
+                                  setOpen={setProdutoPersonalizadoOpen}
+                                  OnSelect={(produto) => {
+                                    setProdutoPersonalizado(produto);
+                                    setProdutoPersonalizadoOpen(false);
+                                  }}
+                                >
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="shrink-0"
+                                  >
+                                    <Search className="h-4 w-4" />
+                                    Selecionar
+                                  </Button>
+                                </ProductSelect>
+                              ) : ehEstoqueSimples(destinoPersonalizado) ? (
+                                <ItemSelectDialog
+                                  escopo={destinoPersonalizado}
+                                  open={itemPersonalizadoOpen}
+                                  setOpen={setItemPersonalizadoOpen}
+                                  onSelect={(item) => {
+                                    setItemPersonalizado(item);
+                                    setItemPersonalizadoOpen(false);
+                                  }}
+                                >
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="shrink-0"
+                                  >
+                                    <Search className="h-4 w-4" />
+                                    Selecionar
+                                  </Button>
+                                </ItemSelectDialog>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label htmlFor="quantidade-entrada-personalizada">
+                              Quantidade final
+                            </Label>
+                            <Input
+                              id="quantidade-entrada-personalizada"
+                              type="number"
+                              inputMode="numeric"
+                              min={1}
+                              step={1}
+                              value={quantidadePersonalizada}
+                              onChange={(evento) =>
+                                setQuantidadePersonalizada(evento.target.value)
+                              }
+                            />
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <div className="grid gap-3 rounded-lg border bg-background p-3 text-xs sm:grid-cols-3">
+                        <div>
+                          <p className="text-muted-foreground">Custo consolidado</p>
+                          <p className="mt-1 font-semibold tabular-nums">
+                            {formatarEmReal(custoDestinado)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Custo unitário médio</p>
+                          <p className="mt-1 font-semibold tabular-nums">
+                            {rateioPersonalizado
+                              ? formatarEmReal(rateioPersonalizado.custoUnitario)
+                              : "—"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Valor fiscal/financeiro</p>
+                          <p className="mt-1 font-semibold tabular-nums">
+                            {formatarEmReal(valorDaNota)}
+                          </p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  ) : null}
+                </Card>
 
                 <Card className="w-full max-w-full gap-4 py-4 sm:py-6">
                   <CardHeader className="px-4 pb-2 sm:px-6">
@@ -1439,7 +1743,7 @@ export function EntradaFiscalDialog({
                         </span>
                       ) : null}
                     </div>
-                    {semDestino ? (
+                    {semDestino && !entradaPersonalizada ? (
                       <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
                         <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
                         Escolha o destino de cada item para liberar o registro.
@@ -1591,7 +1895,9 @@ export function EntradaFiscalDialog({
                         </div>
                       </div>
                     ) : null}
-                    {linhasUsoConsumo.length && duplicidades.length ? (
+                    {(linhasUsoConsumo.length ||
+                      (entradaPersonalizada && ehEstoqueSimples(destinoPersonalizado))) &&
+                    duplicidades.length ? (
                       <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
                         <FileWarning className="mt-0.5 h-4 w-4 shrink-0" />
                         <div>
@@ -1705,7 +2011,23 @@ export function EntradaFiscalDialog({
                             </p>
                           </div>
 
-                          <Separator />
+                          {entradaPersonalizada ? (
+                            <>
+                              <Separator />
+                              <div className="flex items-start gap-2 rounded-md bg-amber-50 p-3 text-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
+                                <ReceiptText className="mt-0.5 h-4 w-4 shrink-0" />
+                                <div>
+                                  <p className="font-semibold">Item original da NF-e</p>
+                                  <p className="mt-0.5 text-[11px] leading-relaxed">
+                                    Esta linha será preservada na auditoria e
+                                    consolidada no item escolhido acima.
+                                  </p>
+                                </div>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <Separator />
 
                           {!bloqueado ? (
                             <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center">
@@ -1919,6 +2241,8 @@ export function EntradaFiscalDialog({
                               </>
                             ) : null}
                           </div>
+                            </>
+                          )}
                         </div>
                       </div>
                     );

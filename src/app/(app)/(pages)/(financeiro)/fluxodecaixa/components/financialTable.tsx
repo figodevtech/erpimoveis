@@ -86,6 +86,7 @@ import {
   ehTransferencia,
   origemDaTransacao,
   saldoEmAberto,
+  tipoEhEntradaDeCaixa,
   valorLiquidoEfetivo,
 } from "@/lib/financeiro/transacao";
 import { getCategoryIcon, getTypeColor } from "../utils";
@@ -925,11 +926,9 @@ export default function FinancialTable({
 
                         {/*
                           A perna de uma transferência. No Fluxo ela senta ao lado
-                          de despesas e receitas de verdade e some no meio delas —
-                          e é justamente o que ela não é: a empresa não gastou nem
-                          faturou nada, o dinheiro só mudou de conta. Sem o badge,
-                          quem varre a coluna lê uma despesa de R$ 50.000 que nunca
-                          existiu.
+                          de saques e depósitos comuns, mas o badge distingue o
+                          movimento interno: a empresa não gastou nem faturou nada,
+                          o dinheiro só mudou de conta.
                         */}
                         {ehTransferencia(t) ? (
                           <Tooltip>
@@ -939,7 +938,7 @@ export default function FinancialTable({
                               </span>
                             </TooltipTrigger>
                             <TooltipContent side="top" align="start">
-                              {String(t.tipo).toUpperCase() === "RECEITA"
+                              {tipoEhEntradaDeCaixa(t.tipo)
                                 ? "Entrada de uma transferência entre contas suas: o dinheiro veio de outra conta, não de fora."
                                 : "Saída de uma transferência entre contas suas: o dinheiro foi para outra conta, não para fora."}{" "}
                               Não entra no DRE, e a outra perna sai junto se esta

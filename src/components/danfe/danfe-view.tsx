@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type CSSProperties, type Dispatch, type Re
 import { Download, Loader2, Printer } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
+import { PRINT_ACTION_BUTTON_CLASS } from "@/lib/print/actionStyles";
 import { encodeCode128C } from "@/lib/nfe/code128";
 import {
   aumentarFonteDanfe,
@@ -222,6 +223,7 @@ function DefaultActions({
     <div aria-label="Tamanho do texto do DANFE" className="font-size-control" role="group">
       <Button
         aria-label="Diminuir texto do DANFE"
+        className={PRINT_ACTION_BUTTON_CLASS}
         disabled={fontScale === DANFE_DEFAULT_FONT_SCALE}
         onClick={() => onFontScaleChange((current) => diminuirFonteDanfe(current))}
         size="sm"
@@ -234,6 +236,7 @@ function DefaultActions({
       <span aria-live="polite" className="font-size-value">Texto {percentualFonteDanfe(fontScale)}%</span>
       <Button
         aria-label="Aumentar texto do DANFE"
+        className={PRINT_ACTION_BUTTON_CLASS}
         disabled={fontScale === DANFE_MAX_FONT_SCALE}
         onClick={() => onFontScaleChange((current) => aumentarFonteDanfe(current))}
         size="sm"
@@ -244,11 +247,11 @@ function DefaultActions({
         <span aria-hidden="true" className="font-size-symbol">A+</span>
       </Button>
     </div>
-    <Button type="button" variant="outline" size="sm" onClick={() => void handleDownloadPdf()} disabled={isGeneratingPdf}>
+    <Button className={PRINT_ACTION_BUTTON_CLASS} type="button" variant="outline" size="sm" onClick={() => void handleDownloadPdf()} disabled={isGeneratingPdf}>
       {isGeneratingPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
       {isGeneratingPdf ? "Gerando PDF..." : "Baixar PDF"}
     </Button>
-    <Button type="button" variant="outline" size="sm" onClick={() => window.print()}><Printer className="mr-2 h-4 w-4" />Imprimir</Button>
+    <Button className={PRINT_ACTION_BUTTON_CLASS} type="button" variant="outline" size="sm" onClick={() => window.print()}><Printer className="mr-2 h-4 w-4" />Imprimir</Button>
   </>;
 }
 

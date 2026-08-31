@@ -55,6 +55,48 @@ BEGIN
     RAISE EXCEPTION 'registrar_transferencia_entre_contas nao existe. Rode as migrations.';
   END IF;
 
+  /* ---------------- historico canonico ---------------- */
+
+  SELECT count(*) INTO v_n
+    FROM (
+      SELECT tr.id
+        FROM public.transacao_transferencia tr
+        LEFT JOIN public.transacao t ON t.transferencia_id = tr.id
+       GROUP BY tr.id
+      HAVING count(t.id) <> 2
+          OR count(*) FILTER (
+               WHERE t.banco_id = tr.banco_origem_id
+                 AND upper(t.tipo::text) = 'SAQUE'
+             ) <> 1
+          OR count(*) FILTER (
+               WHERE t.banco_id = tr.banco_destino_id
+                 AND upper(t.tipo::text) = 'DEPOSITO'
+             ) <> 1
+    ) inconsistentes;
+
+  IF v_n = 0 THEN
+    v_ok := v_ok + 1;
+    RAISE NOTICE 'OK 0a: todo o historico tem um saque na origem e um deposito no destino';
+  ELSE
+    v_falhou := v_falhou + 1;
+    RAISE NOTICE 'FALHOU 0a: % transferencia(s) historica(s) fora do formato canonico', v_n;
+  END IF;
+
+  SELECT count(*) INTO v_n
+    FROM public.eventos_financeiros e
+    JOIN public.transacao t
+      ON e.source_type = 'TRANSACAO' AND e.source_id = t.id
+   WHERE t.transferencia_id IS NOT NULL
+     AND e.status = 'ATIVO';
+
+  IF v_n = 0 THEN
+    v_ok := v_ok + 1;
+    RAISE NOTICE 'OK 0b: nenhuma transferencia historica tem evento ativo de DRE';
+  ELSE
+    v_falhou := v_falhou + 1;
+    RAISE NOTICE 'FALHOU 0b: % evento(s) ativo(s) de DRE no historico', v_n;
+  END IF;
+
   /* ---------------- fixture: duas contas ---------------- */
   --
   -- Contas próprias do teste, e não as do banco: assim o saldo apurado começa em
@@ -113,13 +155,13 @@ BEGIN
   SELECT * INTO v_tx FROM public.transacao WHERE id = v_saida;
   SELECT * INTO v_outra FROM public.transacao WHERE id = v_entrada;
 
-  IF upper(v_tx.tipo::text) = 'DESPESA' AND v_tx.banco_id = v_origem
-     AND upper(v_outra.tipo::text) = 'RECEITA' AND v_outra.banco_id = v_destino
+  IF upper(v_tx.tipo::text) = 'SAQUE' AND v_tx.banco_id = v_origem
+     AND upper(v_outra.tipo::text) = 'DEPOSITO' AND v_outra.banco_id = v_destino
      AND v_tx.valor = 1000.00 AND v_outra.valor = 1000.00
      AND v_tx."valorLiquido" = 1000.00 AND v_outra."valorLiquido" = 1000.00
      AND v_tx.pendente = false AND v_outra.pendente = false THEN
     v_ok := v_ok + 1;
-    RAISE NOTICE 'OK 3: despesa de R$ 1.000,00 na origem, receita de R$ 1.000,00 no destino, as duas liquidadas';
+    RAISE NOTICE 'OK 3: saque de R$ 1.000,00 na origem, deposito de R$ 1.000,00 no destino, os dois liquidados';
   ELSE
     v_falhou := v_falhou + 1;
     RAISE NOTICE 'FALHOU 3: saida tipo=% banco=% valor=% pendente=% / entrada tipo=% banco=% valor=% pendente=%',

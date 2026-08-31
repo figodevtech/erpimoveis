@@ -12,6 +12,7 @@ import {
   type NFSeItemEmissao,
   type NFSeModeloEmissao,
 } from "@/lib/services/fiscais/nfse-service";
+import { comporObservacoesComGarantia } from "@/lib/fiscal/garantiaObservacoes";
 
 export const runtime = "nodejs";
 
@@ -132,7 +133,44 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const validacaoFiscal = validarCodigosFiscais(body?.codigosFiscais, modeloEmissao.modelo);
+    const { data: nfseConfig, error: nfseConfigError } = await supabaseAdmin
+      .from("nfse_config")
+      .select("token, incluir_garantia_os, padroes_emissao")
+      .eq("empresa_id", empresa.id)
+      .maybeSingle();
+    if (nfseConfigError) throw nfseConfigError;
+
+    const codigosRecebidos = body?.codigosFiscais && typeof body.codigosFiscais === "object"
+      ? body.codigosFiscais as Record<string, unknown>
+      : {};
+    const informouTextoLivre = Object.prototype.hasOwnProperty.call(
+      codigosRecebidos,
+      "informacoes_complementares",
+    );
+    const padroesEmissao = nfseConfig?.padroes_emissao
+      && typeof nfseConfig.padroes_emissao === "object"
+      && !Array.isArray(nfseConfig.padroes_emissao)
+      ? nfseConfig.padroes_emissao as Record<string, unknown>
+      : {};
+    const padraoDoModelo = padroesEmissao[modeloEmissao.modelo]
+      && typeof padroesEmissao[modeloEmissao.modelo] === "object"
+      && !Array.isArray(padroesEmissao[modeloEmissao.modelo])
+      ? padroesEmissao[modeloEmissao.modelo] as Record<string, unknown>
+      : {};
+    const codigosParaValidar = informouTextoLivre
+      ? codigosRecebidos
+      : {
+          ...codigosRecebidos,
+          informacoes_complementares: comporObservacoesComGarantia({
+            observacoes:
+              String(os.observacoes_fiscais ?? "").trim()
+              || padraoDoModelo.informacoesComplementares,
+            garantia: os.garantia,
+            incluir: Boolean(nfseConfig?.incluir_garantia_os),
+          }),
+        };
+
+    const validacaoFiscal = validarCodigosFiscais(codigosParaValidar, modeloEmissao.modelo);
     if (!validacaoFiscal.ok) {
       return NextResponse.json({ ok: false, message: validacaoFiscal.message }, { status: 400 });
     }
@@ -160,12 +198,6 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         { status: 409 },
       );
     }
-
-    const { data: nfseConfig } = await supabaseAdmin
-      .from("nfse_config")
-      .select("token")
-      .eq("empresa_id", empresa.id)
-      .maybeSingle();
 
     const nfseService = new NFSeService();
     nfseService.configurarAmbiente(empresa.ambiente, nfseConfig?.token);

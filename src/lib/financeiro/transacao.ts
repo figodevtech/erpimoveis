@@ -68,6 +68,18 @@ export function tipoTemValorLiquido(tipo: string | null | undefined): boolean {
 }
 
 /**
+ * O tipo representa dinheiro entrando numa conta?
+ *
+ * Receita e deposito entram no caixa; despesa e saque saem. Centralizar essa
+ * regra evita que consumidores deduzam o sentido de uma transferencia apenas
+ * pelo tipo antigo RECEITA.
+ */
+export function tipoEhEntradaDeCaixa(tipo: string | null | undefined): boolean {
+  const normalizado = String(tipo ?? "").toUpperCase();
+  return normalizado === "RECEITA" || normalizado === "DEPOSITO";
+}
+
+/**
  * Valor de face: o que a transação valia antes de juros, multa e afins.
  *
  * `valor` é o que o cliente paga, já com os acréscimos aplicados. Para abater um

@@ -52,7 +52,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
 import ValueInput from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/components/transactionDialog/valueInput";
-import { normalizeCfopForOperation } from "@/lib/nfe/cfopOperation";
+import { resolveCfopForEmission } from "@/lib/nfe/cfopOperation";
 import {
   blocosDeObservacao,
   concatenarBloco,
@@ -550,13 +550,15 @@ export function GerarNotaDeOsDialog({
 
       const fiscalSetup = setupJson as FiscalSetup;
       const parceiro = productsJson.fornecedor ?? productsJson.cliente;
+      const parceiroUfCfop = modelo === MODELO_NFCE ? fiscalSetup.empresa?.uf : parceiro?.uf;
       const indIEDest = indicadorDoCliente(productsJson.cliente);
       const mapped = productsJson.itens.map((item) =>
         createAssistedItem(item, fiscalSetup, {
           tipoOperacao: productsJson.tipo_operacao ?? "SAIDA",
-          parceiroUf: parceiro?.uf,
+          parceiroUf: parceiroUfCfop,
           indFinal: defaultFiscalConfig.consumidorFinal ? 1 : 0,
           indIEDest,
+          modelo,
         }),
       );
       setSetup(fiscalSetup);
@@ -693,17 +695,19 @@ export function GerarNotaDeOsDialog({
     const parceiroUf = usesEditableRecipient
       ? entrySupplier.estado
       : (source?.fornecedor ?? source?.cliente)?.uf;
+    const parceiroUfCfop = isNfce ? setup.empresa?.uf : parceiroUf;
     for (const item of items) {
       map.set(
         item.sourceItemId,
         validateAssistedItem(item, setup, {
           tipoOperacao: source?.tipo_operacao ?? "SAIDA",
-          parceiroUf,
+          parceiroUf: parceiroUfCfop,
+          modelo,
         }),
       );
     }
     return map;
-  }, [entrySupplier.estado, items, setup, source, usesEditableRecipient]);
+  }, [entrySupplier.estado, isNfce, items, modelo, setup, source, usesEditableRecipient]);
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const selectedItems = useMemo(
@@ -716,6 +720,10 @@ export function GerarNotaDeOsDialog({
         (issuesByItem.get(item.sourceItemId) ?? []).map((issue) => ({ item, issue })),
       ),
     [issuesByItem, selectedItems],
+  );
+  const selectedCfopWarnings = useMemo(
+    () => selectedItems.filter((item) => Boolean(item.cfopResolution?.warning)),
+    [selectedItems],
   );
   const readyCount = items.filter((item) => (issuesByItem.get(item.sourceItemId) ?? []).length === 0).length;
   const freteDaNota = Math.max(0, fiscalConfig.valorFrete);
@@ -758,7 +766,9 @@ export function GerarNotaDeOsDialog({
     const { texto, truncado } = concatenarBloco(observations, bloco, LIMITE_OBSERVACOES);
     setObservations(texto);
     if (truncado) {
-      toast.warning(`O texto foi cortado no limite de ${LIMITE_OBSERVACOES} caracteres do campo.`);
+      toast.warning(
+        `O texto ultrapassou o limite de ${LIMITE_OBSERVACOES} caracteres. Reduza-o antes de emitir.`,
+      );
     }
   }
   const motivoDaDivergencia = selectedIds.length < items.length
@@ -901,18 +911,37 @@ export function GerarNotaDeOsDialog({
     setServerError(null);
   }
 
+  function resolveItemCfopForPartner(
+    item: AssistedFiscalItem,
+    parceiroUf: string | null | undefined,
+    tipoOperacao: "SAIDA" | "ENTRADA",
+  ): AssistedFiscalItem {
+    if (!setup) return item;
+    const resolution = resolveCfopForEmission({
+      candidates: item.cfopResolution?.attempts.length
+        ? item.cfopResolution.attempts.map((attempt) => ({
+            value: attempt.originalCfop,
+            origin: attempt.origin,
+          }))
+        : [{ value: item.cfop, origin: "PRODUTO" }],
+      modelo,
+      operation: tipoOperacao,
+      emitterUf: setup.empresa?.uf,
+      partnerUf: isNfce ? setup.empresa?.uf : parceiroUf,
+    });
+    return { ...item, cfop: resolution.cfop, cfopResolution: resolution };
+  }
+
   function updateEntrySupplier(next: NFeEntrySupplierDraft) {
     if (setup && next.estado !== entrySupplier.estado) {
       setItems((current) =>
-        current.map((item) => ({
-          ...item,
-          cfop: normalizeCfopForOperation(
-            item.cfop,
-            origin === "ENTRADA" ? "ENTRADA" : "SAIDA",
-            setup.empresa?.uf,
+        current.map((item) =>
+          resolveItemCfopForPartner(
+            item,
             next.estado,
+            origin === "ENTRADA" ? "ENTRADA" : "SAIDA",
           ),
-        })),
+        ),
       );
     }
     setEntrySupplier(next);
@@ -1009,9 +1038,10 @@ export function GerarNotaDeOsDialog({
       const novosItens = selecionaveis.map((candidato) =>
         createAssistedItem(candidato.item, setupAtual, {
           tipoOperacao: "SAIDA",
-          parceiroUf: destinatarioAtual.estado,
+          parceiroUf: modelo === MODELO_NFCE ? setupAtual.empresa?.uf : destinatarioAtual.estado,
           indFinal: destinatarioAtual.indicadorIe === "9" ? 1 : 0,
           indIEDest: destinatarioAtual.indicadorIe,
+          modelo,
         }),
       );
       const itensPrincipais = nextCanonico.itens.filter((item) => item.saidaId === Number(originId));
@@ -1183,9 +1213,10 @@ export function GerarNotaDeOsDialog({
       const parceiro = json.fornecedor ?? json.cliente;
       const updatedItem = createAssistedItem(updatedSource, setup, {
         tipoOperacao: json.tipo_operacao ?? "SAIDA",
-        parceiroUf: parceiro?.uf,
+        parceiroUf: modelo === MODELO_NFCE ? setup.empresa?.uf : parceiro?.uf,
         indFinal: fiscalConfig.consumidorFinal ? 1 : 0,
         indIEDest: indicadorDoCliente(json.cliente),
+        modelo,
       });
       setSource(json);
       setItems((current) =>
@@ -1205,6 +1236,13 @@ export function GerarNotaDeOsDialog({
   async function generateDraft() {
     if (!generateEndpoint || selectedItems.length === 0) {
       toast.error("Selecione pelo menos um produto.");
+      return;
+    }
+    if (includeObservations && observations.trim().length > LIMITE_OBSERVACOES) {
+      toast.error(
+        `As observações fiscais devem possuir no máximo ${LIMITE_OBSERVACOES} caracteres.`,
+        { description: "Reduza o texto antes de gerar a nota." },
+      );
       return;
     }
     if (selectedIssues.length > 0) {
@@ -1257,7 +1295,7 @@ export function GerarNotaDeOsDialog({
           itens: selectedItems.map(toApiItem),
           observacoesFiscais:
             includeObservations && observations.trim()
-              ? observations.trim().slice(0, 500)
+              ? observations.trim()
               : null,
           ...(usesEditableRecipient
             ? {
@@ -2033,6 +2071,11 @@ export function GerarNotaDeOsDialog({
                                   {issues.length > 3 ? <li>Mais {issues.length - 3} pendência(s)</li> : null}
                                 </ul>
                               ) : null}
+                              {item.cfopResolution?.warning ? (
+                                <p className="text-xs leading-relaxed text-amber-700 dark:text-amber-400 [overflow-wrap:anywhere]">
+                                  {item.cfopResolution.warning}
+                                </p>
+                              ) : null}
                             </div>
                             <div className="col-span-2 flex min-w-0 flex-wrap items-center justify-end gap-1 sm:col-span-1 sm:flex-nowrap">
                               <DialogProduto
@@ -2098,13 +2141,16 @@ export function GerarNotaDeOsDialog({
                       <Textarea
                         id="nfe-origin-observations-text"
                         value={observations}
-                        maxLength={LIMITE_OBSERVACOES}
                         className="min-h-20 resize-none"
-                        onChange={(event) =>
-                          setObservations(event.target.value.slice(0, LIMITE_OBSERVACOES))
-                        }
+                        onChange={(event) => setObservations(event.target.value)}
                       />
-                      <p className="text-right text-xs tabular-nums text-muted-foreground">
+                      <p
+                        className={`text-right text-xs tabular-nums ${
+                          observations.length > LIMITE_OBSERVACOES
+                            ? "font-medium text-destructive"
+                            : "text-muted-foreground"
+                        }`}
+                      >
                         {observations.length}/{LIMITE_OBSERVACOES}
                       </p>
                     </>
@@ -2132,6 +2178,11 @@ export function GerarNotaDeOsDialog({
                       Todos os itens selecionados passaram pela validação fiscal.
                     </p>
                   )}
+                  {selectedCfopWarnings.length > 0 ? (
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      {selectedCfopWarnings.length} item(ns) tiveram o CFOP substituído por uma opção válida.
+                    </p>
+                  ) : null}
                 </>
               }
               acoes={
@@ -2152,6 +2203,7 @@ export function GerarNotaDeOsDialog({
                     disabled={
                       saving ||
                       selectedItems.length === 0 ||
+                      selectedIssues.length > 0 ||
                       setup.empresaErros.length > 0 ||
                       entrySupplierErrors.length > 0 ||
                       customerErrors.length > 0 ||
@@ -2179,6 +2231,15 @@ export function GerarNotaDeOsDialog({
           item={editingItem}
           setup={setup}
           issues={editingIssues}
+          modelo={modelo}
+          tipoOperacao={source?.tipo_operacao ?? "SAIDA"}
+          parceiroUf={
+            isNfce
+              ? setup.empresa?.uf
+              : usesEditableRecipient
+                ? entrySupplier.estado
+                : (source?.fornecedor ?? source?.cliente)?.uf
+          }
           onChange={updateEditingItem}
         />
       ) : null}
@@ -2191,10 +2252,9 @@ export function GerarNotaDeOsDialog({
             const updated = customerToFiscalCustomer(customer);
             setSource((current) => current ? { ...current, cliente: updated } : current);
             if (setup && updated.uf !== source.cliente?.uf) {
-              setItems((current) => current.map((item) => ({
-                ...item,
-                cfop: normalizeCfopForOperation(item.cfop, "SAIDA", setup.empresa?.uf, updated.uf),
-              })));
+              setItems((current) =>
+                current.map((item) => resolveItemCfopForPartner(item, updated.uf, "SAIDA")),
+              );
             }
             setCustomerDialogOpen(false);
             setServerError(null);

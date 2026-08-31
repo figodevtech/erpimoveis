@@ -34,12 +34,17 @@ export default function ConfigFiscalPagamentosPage() {
         idCscProducao: "",
         naturezaOperacao: "Venda de mercadoria",
         naturezaOperacaoNFCe: "Venda ao consumidor",
+        incluirGarantiaVendaNFe: false,
+        incluirGarantiaVendaNFCe: false,
+        incluirGarantiaOsNFe: false,
+        incluirGarantiaOsNFCe: false,
         qrCodeVersao: "3",
         nfceConfigurada: false,
         padroesFiscais: { NFE: {}, NFCE: {} },
       },
       nfse: {
         provedor: "",
+        incluirGarantiaOs: false,
         inscricaoMunicipal: "",
         serieRPS: "",
         usuario: "",
@@ -78,6 +83,10 @@ export default function ConfigFiscalPagamentosPage() {
       setValue("nfe.idCscProducao", n.idCscProducao ?? "");
       setValue("nfe.naturezaOperacao", n.naturezaOperacao ?? "Venda de mercadoria");
       setValue("nfe.naturezaOperacaoNFCe", n.naturezaOperacaoNFCe ?? "Venda ao consumidor");
+      setValue("nfe.incluirGarantiaVendaNFe", Boolean(n.incluirGarantiaVendaNFe));
+      setValue("nfe.incluirGarantiaVendaNFCe", Boolean(n.incluirGarantiaVendaNFCe));
+      setValue("nfe.incluirGarantiaOsNFe", Boolean(n.incluirGarantiaOsNFe));
+      setValue("nfe.incluirGarantiaOsNFCe", Boolean(n.incluirGarantiaOsNFCe));
       setValue("nfe.qrCodeVersao", n.qrCodeVersao ?? "3");
       setValue("nfe.nfceConfigurada", Boolean(n.nfceConfigurada));
       setValue("nfe.padroesFiscais", {
@@ -92,6 +101,7 @@ export default function ConfigFiscalPagamentosPage() {
     (n: any) => {
       if (!n) return;
       setValue("nfse.provedor", n.provedor ?? "");
+      setValue("nfse.incluirGarantiaOs", Boolean(n.incluirGarantiaOs));
       setValue("nfse.inscricaoMunicipal", n.inscricaoMunicipal ?? "");
       setValue("nfse.serieRPS", n.serieRPS ?? "");
       setValue("nfse.usuario", n.usuario ?? "");

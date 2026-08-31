@@ -100,7 +100,7 @@ export type ServicosOSResponse = {
   modeloEmissao?: ModeloEmissao | null;
   padraoFiscal?: Partial<CodigosFiscaisForm> | null;
   cliente?: ClienteResumo | null;
-  /** Observações fiscais da OS, herdadas pelas informações complementares. */
+  /** Texto inicial das informações complementares, já composto para edição. */
   observacoesFiscais?: string | null;
   /** Alvo do reparo, para o botão que injeta os dados dele no texto livre. */
   alvo?: AlvoFiscal | null;

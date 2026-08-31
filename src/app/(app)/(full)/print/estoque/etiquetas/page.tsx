@@ -9,6 +9,7 @@ import { Power } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PrintButton } from "@/app/(app)/(full)/components/PrintButton";
 import type { LabelSize } from "@/lib/etiquetas/label-sizes";
+import { PRINT_ACTION_BUTTON_CLASS } from "@/lib/print/actionStyles";
 
 const ETIQUETAS_PRINT_STORAGE_PREFIX = "erpoficina:etiquetas-print:";
 
@@ -97,7 +98,7 @@ function EtiquetasPrintContent() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-3 p-6 text-center">
         <p className="text-lg font-semibold">Etiquetas não encontradas.</p>
-        <Button asChild variant="outline">
+        <Button asChild variant="outline" className={PRINT_ACTION_BUTTON_CLASS}>
           <Link href="/etiquetas">Voltar</Link>
         </Button>
       </div>
@@ -194,7 +195,7 @@ function EtiquetasPrintContent() {
           </div>
         </div>
         <div className="flex gap-2">
-          <Button asChild size="sm" variant="outline">
+          <Button asChild size="sm" variant="outline" className={PRINT_ACTION_BUTTON_CLASS}>
             <Link href="/etiquetas">
               <Power className="h-3 w-3" />
               Sair

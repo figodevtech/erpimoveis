@@ -1,5 +1,11 @@
 "use client";
-import { useCallback, useEffect, useState, useMemo } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+  useMemo,
+  type ReactNode,
+} from "react";
 import {
   DialogClose,
   DialogContent,
@@ -9,9 +15,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import FornecedorSelect from "@/app/(app)/components/fornecedorSelect";
-import { Fornecedor, Produto, Unidade_medida } from "../../types";
+import { Fornecedor } from "../../types";
 import { toast } from "@/lib/toast";
 import ProductSelect from "@/app/(app)/components/productSelect";
+import { ItemSelectDialog } from "@/app/(app)/(pages)/usoconsumo/components/item-select-dialog";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -21,214 +28,152 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Loader2, Minus, Plus, Search, Trash2, X } from "lucide-react";
+import {
+  ArrowDownToLine,
+  Boxes,
+  Building2,
+  CheckCircle2,
+  CircleDollarSign,
+  ClipboardList,
+  Loader2,
+  Minus,
+  PackagePlus,
+  Plus,
+  Search,
+  Trash2,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { Input } from "@/components/ui/input";
 import ValueInput from "@/components/ui/value-input";
 import { Switch } from "@/components/ui/switch";
 import { DatePicker } from "@/components/ui/date-picker";
-import { Banco, Metodo_pagamento } from "../../../(financeiro)/fluxodecaixa/types";
+import {
+  Banco,
+  Metodo_pagamento,
+} from "../../../(financeiro)/fluxodecaixa/types";
 import { useCategoriasTransacao } from "../../../(financeiro)/fluxodecaixa/hooks/use-categoria-transacao";
 import { usePlanosDeConta } from "../../../(financeiro)/fluxodecaixa/hooks/use-planos-de-conta";
 import { useCentrosCusto } from "../../../(financeiro)/fluxodecaixa/hooks/use-centros-custo";
 import { PlanoContaCombobox } from "../../../(financeiro)/fluxodecaixa/components/plano-conta-combobox";
 import { SearchCombobox } from "../../../(financeiro)/fluxodecaixa/components/search-combobox";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { useTiposEntrada } from "../../hooks/use-tipos-entrada";
 import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
-// ======== NOVO MODELO DO ITEM (alinhado com entradaitens) ========
-type EntradaItemForm = {
-  produto_id: number;
-
-  titulo: string | null;
-  referencia: string | null;
-
-  ncm: string | null;
-  csosn: string | null;
-  cfop: string | null;
-  cest: string | null;
-  unidade: Unidade_medida | null;
-
-  cClassTrib: string | null;
-  cstIbs: string | null;
-  cstCbs: string | null;
-
-  cst: string | null;
-  aliquotaicms: number | null;
-
-  cst_pis: string | null;
-  aliquota_pis: number | null;
-
-  cst_cofins: string | null;
-  aliquota_cofins: number | null;
-
-  quantidade: number;
-  precovenda: number;
-};
-
-type EntradaItemInsert = {
-  produto_id: number;
-  quantidade: number;
-  precovenda: number;
-
-  unidade: Unidade_medida | null;
-
-  ncm: string | null;
-  cest: string | null;
-  csosn: string | null;
-  referencia: string | null;
-  titulo: string | null;
-
-  cClassTrib: string | null;
-  cstIbs: string | null;
-  cstCbs: string | null;
-
-  cst: string | null;
-  aliquotaicms: number | null;
-  cfop: string | null;
-
-  cst_pis: string | null;
-  aliquota_pis: number | null;
-
-  cst_cofins: string | null;
-  aliquota_cofins: number | null;
-};
-
-type EntradaCreatePayload = {
-  fornecedorid: number | null;
-
-  // fixos por requisito
-  fiscal: false;
-  notachave: null;
-
-  /** Código de um tipo cadastrado em Configurações &gt; Tipos. */
-  tipo: string;
-  itens: EntradaItemInsert[];
-  financeiro?: {
-    lancar: boolean;
-    pagamentoFuturo: boolean;
-    parcelas: Array<{ valor: number; dataVencimento: string }>;
-    bancoId: number | null;
-    metodoPagamento: Metodo_pagamento | null;
-    categoria: string | null;
-    categoriaId: number | null;
-    planoContaId: number | null;
-    centroCustoId: number | null;
-    nomePagador: string;
-    cpfCnpjPagador: string;
-    descricao: string;
-  };
-};
-
-type Parcela = {
-  id: number;
-  dataVencimento?: string;
-  valor: number;
-};
-
-function n(v: unknown, fallback = 0) {
-  const x = typeof v === "number" ? v : Number(v);
-  return Number.isFinite(x) ? x : fallback;
-}
-
-function toNullableText(v: unknown): string | null {
-  if (v === undefined || v === null) return null;
-  const s = String(v).trim();
-  return s.length ? s : null;
-}
-
-function criarItemDeProduto(produto: Produto): EntradaItemForm {
-  return {
-    produto_id: produto.id ?? 0,
-
-    titulo:
-      toNullableText((produto as any).titulo) ??
-      toNullableText((produto as any).descricao) ??
-      null,
-    referencia: toNullableText((produto as any).referencia),
-
-    ncm: toNullableText((produto as any).ncm),
-    csosn: toNullableText((produto as any).csosn),
-    cfop: toNullableText((produto as any).cfop),
-    cest: toNullableText((produto as any).cest),
-    unidade: ((produto as any).unidade ?? null) as Unidade_medida | null,
-
-    cClassTrib: toNullableText((produto as any).cClassTrib),
-    cstIbs: toNullableText((produto as any).cstIbs),
-    cstCbs: toNullableText((produto as any).cstCbs),
-
-    cst: toNullableText((produto as any).cst),
-    aliquotaicms:
-      (produto as any).aliquotaicms == null
-        ? null
-        : n((produto as any).aliquotaicms),
-
-    cst_pis: toNullableText((produto as any).cst_pis),
-    aliquota_pis:
-      (produto as any).aliquota_pis == null
-        ? null
-        : n((produto as any).aliquota_pis),
-
-    cst_cofins: toNullableText((produto as any).cst_cofins),
-    aliquota_cofins:
-      (produto as any).aliquota_cofins == null
-        ? null
-        : n((produto as any).aliquota_cofins),
-
-    quantidade: 1,
-    precovenda: n(
-      (produto as any).ultimovalordecompra ?? (produto as any).precocompra,
-      0,
-    ),
-  };
-}
-
-function mapFormToInsert(item: EntradaItemForm): EntradaItemInsert {
-  return {
-    produto_id: item.produto_id,
-    quantidade: n(item.quantidade),
-    precovenda: n(item.precovenda),
-
-    unidade: item.unidade,
-
-    ncm: item.ncm,
-    cest: item.cest,
-    csosn: item.csosn,
-    referencia: item.referencia,
-    titulo: item.titulo,
-
-    cClassTrib: item.cClassTrib,
-    cstIbs: item.cstIbs,
-    cstCbs: item.cstCbs,
-
-    cst: item.cst,
-    aliquotaicms: item.aliquotaicms,
-    cfop: item.cfop,
-
-    cst_pis: item.cst_pis,
-    aliquota_pis: item.aliquota_pis,
-
-    cst_cofins: item.cst_cofins,
-    aliquota_cofins: item.aliquota_cofins,
-  };
-}
+import { rotuloDeEscopo, type UsoConsumoEscopo } from "@/lib/usoconsumo/escopo";
+import {
+  adicionarOuIncrementarItem,
+  buildEntradaPayload,
+  criarItemDeSelecionavel,
+  endpointDaEntrada,
+  numero,
+  totalDaEntrada,
+  validarEntrada,
+  type EntradaFinanceiroForm,
+  type EntradaInventory,
+  type EntradaItemForm,
+  type EntradaItemSelecionavel,
+  type EntradaParcela,
+} from "./register-model";
 
 interface RegisterContentProps {
   open?: boolean;
   onOpenChange?: (v: boolean) => void;
+  inventory?: EntradaInventory;
+  escopo?: UsoConsumoEscopo;
+  onSaved?: () => void | Promise<void>;
+}
+
+function SectionHeading({
+  icon: Icon,
+  eyebrow,
+  title,
+  description,
+  action,
+}: {
+  icon: LucideIcon;
+  eyebrow: string;
+  title: string;
+  description: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex min-w-0 items-start gap-3">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/10">
+          <Icon className="size-5" aria-hidden="true" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">
+            {eyebrow}
+          </p>
+          <h2 className="mt-0.5 text-base font-semibold tracking-tight text-foreground">
+            {title}
+          </h2>
+          <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+            {description}
+          </p>
+        </div>
+      </div>
+      {action ? <div className="shrink-0">{action}</div> : null}
+    </div>
+  );
+}
+
+function SummaryMetric({
+  label,
+  value,
+  emphasized = false,
+}: {
+  label: string;
+  value: ReactNode;
+  emphasized?: boolean;
+}) {
+  return (
+    <div
+      className={
+        emphasized
+          ? "rounded-xl border border-primary/15 bg-primary/[0.06] px-3 py-2.5"
+          : "rounded-xl border bg-muted/25 px-3 py-2.5"
+      }
+    >
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <p
+        className={
+          emphasized
+            ? "mt-0.5 text-base font-semibold tabular-nums text-primary"
+            : "mt-0.5 text-base font-semibold tabular-nums text-foreground"
+        }
+      >
+        {value}
+      </p>
+    </div>
+  );
 }
 
 export default function RegisterContent({
   open,
   onOpenChange,
+  inventory = "produto",
+  escopo,
+  onSaved,
 }: RegisterContentProps) {
   const [tipo, setTipo] = useState<string>("COMPRA_FORNECEDOR");
   const { options: metodosPagamento } = usePaymentMethodOptions();
   const [itens, setItens] = useState<EntradaItemForm[]>([]);
-  const { tipos, loadingTipos } = useTiposEntrada(open !== false);
+  const { tipos, loadingTipos } = useTiposEntrada(open !== false, inventory);
   // Se o tipo selecionado nao estiver na lista ativa (desativado no cadastro),
   // cai no primeiro disponivel. Derivado na leitura, sem setState em efeito.
-  const tipoAtual = tipos.some((item) => item.codigo === tipo) ? tipo : tipos[0]?.codigo ?? tipo;
+  const tipoAtual = tipos.some((item) => item.codigo === tipo)
+    ? tipo
+    : (tipos[0]?.codigo ?? tipo);
 
   const [fornecedorSelecionado, setFornecedorSelecionado] = useState<
     Fornecedor | undefined
@@ -238,11 +183,13 @@ export default function RegisterContent({
   const [loadingConcluirEntrada, setLoadingConcluirEntrada] = useState(false);
   const [lancarFinanceiro, setLancarFinanceiro] = useState(true);
   const [pagamentoFuturo, setPagamentoFuturo] = useState(true);
-  const [parcelas, setParcelas] = useState<Parcela[]>([]);
+  const [parcelas, setParcelas] = useState<EntradaParcela[]>([]);
   const [banks, setBanks] = useState<Banco[]>([]);
   const [loadingBanks, setLoadingBanks] = useState(false);
   const [selectedBankId, setSelectedBankId] = useState("");
-  const [selectedMetodo, setSelectedMetodo] = useState<Metodo_pagamento | "">("");
+  const [selectedMetodo, setSelectedMetodo] = useState<Metodo_pagamento | "">(
+    "",
+  );
   const [selectedCategoria, setSelectedCategoria] = useState("");
   const [selectedPlanoId, setSelectedPlanoId] = useState("");
   const [selectedCentroCustoId, setSelectedCentroCustoId] = useState("");
@@ -250,12 +197,16 @@ export default function RegisterContent({
   const { gruposPlanosDeConta, loadingPlanos } = usePlanosDeConta();
   const { centrosCusto, loadingCentrosCusto } = useCentrosCusto();
 
-  const totalGeral = useMemo(() => {
-    return itens.reduce(
-      (acc, it) => acc + n(it.quantidade) * n(it.precovenda),
-      0,
-    );
-  }, [itens]);
+  const totalGeral = useMemo(() => totalDaEntrada(itens), [itens]);
+  const totalParcelas = useMemo(
+    () => parcelas.reduce((sum, parcela) => sum + parcela.valor, 0),
+    [parcelas],
+  );
+  const escopoEfetivo = escopo ?? "USOCONSUMO";
+  const rotuloEstoque =
+    inventory === "produto"
+      ? { nome: "Produtos", item: "produto", compra: "Compra de mercadorias" }
+      : rotuloDeEscopo(escopoEfetivo);
 
   const resetForm = useCallback(() => {
     setTipo("COMPRA_FORNECEDOR");
@@ -279,17 +230,20 @@ export default function RegisterContent({
   }, [open, resetForm]);
 
   useEffect(() => {
-    if (!lancarFinanceiro) return;
+    if (!open || !lancarFinanceiro) return;
     let cancelled = false;
     setLoadingBanks(true);
     fetch("/api/banks")
       .then(async (response) => {
         const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload?.error || "Falha ao carregar bancos");
-        if (!cancelled) setBanks(Array.isArray(payload?.data) ? payload.data : []);
+        if (!response.ok)
+          throw new Error(payload?.error || "Falha ao carregar bancos");
+        if (!cancelled)
+          setBanks(Array.isArray(payload?.data) ? payload.data : []);
       })
       .catch((error) => {
-        if (!cancelled) toast.error(error?.message || "Não foi possível carregar os bancos");
+        if (!cancelled)
+          toast.error(error?.message || "Não foi possível carregar os bancos");
       })
       .finally(() => {
         if (!cancelled) setLoadingBanks(false);
@@ -297,20 +251,15 @@ export default function RegisterContent({
     return () => {
       cancelled = true;
     };
-  }, [lancarFinanceiro]);
+  }, [lancarFinanceiro, open]);
 
-  const handleAdicionarProduto = (produto: Produto) => {
-    setItens((prev) => {
-      const idx = prev.findIndex((i) => i.produto_id === (produto.id ?? 0));
-      if (idx >= 0) {
-        const copy = [...prev];
-        const item = { ...copy[idx] };
-        item.quantidade = n(item.quantidade) + 1;
-        copy[idx] = item;
-        return copy;
-      }
-      return [...prev, criarItemDeProduto(produto)];
-    });
+  const handleAdicionarItem = (selecionado: EntradaItemSelecionavel) => {
+    const novoItem = criarItemDeSelecionavel(selecionado);
+    if (!novoItem.itemId) {
+      toast.error("O item selecionado não possui um ID válido.");
+      return;
+    }
+    setItens((current) => adicionarOuIncrementarItem(current, novoItem));
   };
 
   const updateItem = <K extends keyof EntradaItemForm>(
@@ -330,87 +279,81 @@ export default function RegisterContent({
   };
 
   const handleRegistrarEntrada = async () => {
-    if (itens.length === 0) {
-      toast.error("Adicione ao menos um produto.");
-      return;
-    }
-
-    const itemInvalido = itens.findIndex(
-      (item) => !Number.isInteger(item.quantidade) || item.quantidade <= 0 || !Number.isFinite(item.precovenda) || item.precovenda < 0,
-    );
-    if (itemInvalido >= 0) {
-      toast.error(`Revise a quantidade e o valor do produto ${itemInvalido + 1}. A quantidade deve ser um inteiro maior que zero.`);
-      return;
-    }
-
-    if (lancarFinanceiro) {
-      if (totalGeral <= 0) {
-        toast.error("O total da entrada deve ser maior que zero para gerar um lançamento financeiro.");
-        return;
-      }
-      if (!selectedCategoria) {
-        toast.error("Selecione a categoria do lançamento financeiro.");
-        return;
-      }
-      if (pagamentoFuturo) {
-        if (!parcelas.length || parcelas.some((parcela) => !parcela.dataVencimento || parcela.valor <= 0)) {
-          toast.error("Informe uma data de vencimento e um valor positivo em todas as parcelas.");
-          return;
-        }
-        const soma = parcelas.reduce((total, parcela) => total + parcela.valor, 0);
-        if (Math.abs(soma - totalGeral) > 0.01) {
-          toast.error("A soma das parcelas deve ser igual ao total da entrada.");
-          return;
-        }
-      } else if (!selectedBankId || !selectedMetodo) {
-        toast.error("Selecione o banco e o método de pagamento para o lançamento imediato.");
-        return;
-      }
-    }
-
-    const payload: EntradaCreatePayload = {
-      fornecedorid: fornecedorSelecionado?.id ?? null,
-
-      // fixos por requisito
-      fiscal: false,
-      notachave: null,
-
-      tipo: tipoAtual,
-      itens: itens.map(mapFormToInsert),
-      financeiro: {
-        lancar: lancarFinanceiro,
-        pagamentoFuturo,
-        parcelas: pagamentoFuturo
-          ? parcelas.map((parcela) => ({ valor: parcela.valor, dataVencimento: parcela.dataVencimento! }))
-          : [],
-        bancoId: selectedBankId ? Number(selectedBankId) : null,
-        metodoPagamento: selectedMetodo || null,
-        categoria: selectedCategoria || null,
-        categoriaId: categorias.find((categoria) => categoria.nome === selectedCategoria)?.id ?? null,
-        planoContaId: selectedPlanoId ? Number(selectedPlanoId) : null,
-        centroCustoId: selectedCentroCustoId ? Number(selectedCentroCustoId) : null,
-        nomePagador: fornecedorSelecionado?.nomerazaosocial || "Fornecedor não informado",
-        cpfCnpjPagador: fornecedorSelecionado?.cpfcnpj || "",
-        descricao: "Compra de mercadorias",
-      },
+    const financeiro: EntradaFinanceiroForm = {
+      lancar: lancarFinanceiro,
+      pagamentoFuturo,
+      parcelas,
+      bancoId: selectedBankId ? Number(selectedBankId) : null,
+      metodoPagamento: selectedMetodo || null,
+      categoria: selectedCategoria || null,
+      categoriaId:
+        categorias.find((categoria) => categoria.nome === selectedCategoria)
+          ?.id ?? null,
+      planoContaId: selectedPlanoId ? Number(selectedPlanoId) : null,
+      centroCustoId: selectedCentroCustoId
+        ? Number(selectedCentroCustoId)
+        : null,
+      nomePagador:
+        fornecedorSelecionado?.nomerazaosocial || "Fornecedor não informado",
+      cpfCnpjPagador: fornecedorSelecionado?.cpfcnpj || "NAO INFORMADO",
     };
+
+    const exigeValor =
+      tipos.find((item) => item.codigo === tipoAtual)?.exigeValor !== false;
+    const validationError = validarEntrada({
+      itens,
+      exigeValor,
+      financeiro,
+    });
+    if (validationError) {
+      toast.error(validationError);
+      return;
+    }
+
+    const payload = buildEntradaPayload({
+      inventory,
+      escopo: inventory === "usoconsumo" ? escopoEfetivo : undefined,
+      fornecedorId: fornecedorSelecionado?.id ?? null,
+      tipo: tipoAtual,
+      itens,
+      financeiro,
+    });
 
     setLoadingConcluirEntrada(true);
     try {
-      const res = await fetch("/api/entradas/geral", {
+      const res = await fetch(endpointDaEntrada(inventory), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || "Não foi possível registrar a entrada.");
+      if (!res.ok)
+        throw new Error(data?.error || "Não foi possível registrar a entrada.");
 
-      toast.success("Entrada registrada com sucesso!");
+      toast.success(
+        `Entrada em ${rotuloEstoque.nome.toLocaleLowerCase("pt-BR")} registrada com sucesso!`,
+      );
       resetForm();
       onOpenChange?.(false);
-    } catch (error: any) {
+      try {
+        await onSaved?.();
+      } catch (refreshError) {
+        toast.error(
+          "A entrada foi registrada, mas a lista não pôde ser atualizada.",
+          {
+            description:
+              refreshError instanceof Error
+                ? refreshError.message
+                : "Atualize a página para consultar o novo saldo.",
+          },
+        );
+      }
+    } catch (error: unknown) {
       toast.error("Erro ao registrar entrada", {
-        description: error?.message || "Verifique sua conexão e tente novamente.",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Verifique sua conexão e tente novamente.",
       });
     } finally {
       setLoadingConcluirEntrada(false);
@@ -420,9 +363,13 @@ export default function RegisterContent({
   return (
     <DialogContent
       showCloseButton={false}
-      className="left-0 top-0 h-dvh w-screen max-w-none translate-x-0 translate-y-0 gap-0 overflow-hidden rounded-none border-0 p-0 shadow-none motion-reduce:animate-none motion-reduce:duration-0 sm:left-1/2 sm:top-1/2 sm:h-[min(850px,calc(100dvh-2rem))] sm:w-[95vw] sm:max-w-[1100px] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:border sm:shadow-lg"
-      onEscapeKeyDown={(event) => loadingConcluirEntrada && event.preventDefault()}
-      onInteractOutside={(event) => loadingConcluirEntrada && event.preventDefault()}
+      className="left-0 top-0 h-dvh w-screen max-w-none translate-x-0 translate-y-0 gap-0 overflow-hidden rounded-none border-0 p-0 shadow-none motion-reduce:animate-none motion-reduce:duration-0 sm:left-1/2 sm:top-1/2 sm:h-[min(850px,calc(100dvh-2rem))] sm:w-[95vw] sm:max-w-[1100px] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:shadow-xl"
+      onEscapeKeyDown={(event) =>
+        loadingConcluirEntrada && event.preventDefault()
+      }
+      onInteractOutside={(event) =>
+        loadingConcluirEntrada && event.preventDefault()
+      }
     >
       <DialogClose asChild>
         <Button
@@ -431,18 +378,31 @@ export default function RegisterContent({
           size="icon"
           aria-label="Fechar entrada"
           disabled={loadingConcluirEntrada}
-          className="absolute right-2 top-[max(0.5rem,env(safe-area-inset-top))] z-20 size-12 sm:right-4 sm:top-4 sm:size-9"
+          className="absolute right-2 top-[max(0.5rem,env(safe-area-inset-top))] z-20 size-12 rounded-xl text-muted-foreground transition-[transform,background-color,color] duration-150 hover:bg-primary/10 hover:text-primary active:scale-95 motion-reduce:transform-none motion-reduce:transition-none sm:right-4 sm:top-4 sm:size-10"
         >
           <X aria-hidden="true" />
         </Button>
       </DialogClose>
 
       <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
-        <DialogHeader className="shrink-0 border-b bg-background px-4 pb-4 pr-16 pt-[max(1rem,env(safe-area-inset-top))] text-left sm:px-6 sm:py-4 sm:pr-14">
-          <DialogTitle>Criar entrada</DialogTitle>
-          <DialogDescription>
-            Monte a entrada com fornecedor e itens. Depois, conclua.
-          </DialogDescription>
+        <DialogHeader className="relative shrink-0 overflow-hidden border-b bg-card px-4 pb-4 pr-16 pt-[max(1rem,env(safe-area-inset-top))] text-left sm:px-6 sm:py-5 sm:pr-16">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/10">
+              <ArrowDownToLine className="size-5" aria-hidden="true" />
+            </span>
+            <div className="min-w-0">
+              <span className="inline-flex rounded-full bg-primary/[0.08] px-2.5 py-1 text-xs font-semibold text-primary ring-1 ring-inset ring-primary/10">
+                Entrada múltipla
+              </span>
+              <DialogTitle className="mt-2 text-xl leading-tight tracking-tight sm:text-2xl">
+                Criar entrada · {rotuloEstoque.nome}
+              </DialogTitle>
+              <DialogDescription className="mt-1 max-w-2xl text-sm leading-relaxed">
+                Adicione vários itens do estoque selecionado e conclua tudo em
+                uma única operação.
+              </DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
 
         <FornecedorSelect
@@ -454,19 +414,28 @@ export default function RegisterContent({
           setOpen={setOpenFornecedor}
         />
 
-        <ProductSelect
-          OnSelect={(p) => {
-            handleAdicionarProduto(p);
-            setOpenProduto(false);
-          }}
-          open={openProduto}
-          setOpen={setOpenProduto}
-        />
+        {inventory === "produto" ? (
+          <ProductSelect
+            OnSelect={(produto) => {
+              handleAdicionarItem(produto);
+              setOpenProduto(false);
+            }}
+            open={openProduto}
+            setOpen={setOpenProduto}
+          />
+        ) : null}
 
-        <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto overscroll-contain bg-muted/20 px-4 py-4 [-webkit-overflow-scrolling:touch] sm:px-6 sm:py-6 [&_input]:min-h-12 [&_[data-slot=button]]:min-h-12 [&_[data-slot=select-trigger]]:min-h-12 sm:[&_input]:min-h-9 sm:[&_[data-slot=button]]:min-h-9 sm:[&_[data-slot=select-trigger]]:min-h-9">
+        <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto overscroll-contain bg-muted/20 px-4 py-4 [-webkit-overflow-scrolling:touch] sm:space-y-5 sm:px-6 sm:py-6 [&_input]:min-h-12 [&_[data-slot=button]]:min-h-12 [&_[data-slot=select-trigger]]:min-h-12 sm:[&_input]:min-h-10 sm:[&_[data-slot=button]]:min-h-10 sm:[&_[data-slot=select-trigger]]:min-h-10">
           {/* Dados da entrada */}
-          <div className="min-w-0 max-w-full space-y-4 rounded-xl border bg-card p-3 sm:p-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <section className="min-w-0 max-w-full rounded-2xl border bg-card p-4 shadow-xs sm:p-5">
+            <SectionHeading
+              icon={ClipboardList}
+              eyebrow="Dados da entrada"
+              title="Defina a origem da movimentação"
+              description="Escolha o tipo e, se necessário, vincule um fornecedor à entrada."
+            />
+
+            <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label>Tipo da entrada</Label>
                 <Select
@@ -474,17 +443,21 @@ export default function RegisterContent({
                   onValueChange={setTipo}
                   disabled={loadingTipos && !tipos.length}
                 >
-                  <SelectTrigger className="w-full text-xs">
+                  <SelectTrigger className="w-full">
                     <SelectValue
-                      placeholder={loadingTipos && !tipos.length ? "Carregando tipos..." : "Selecione o tipo"}
+                      placeholder={
+                        loadingTipos && !tipos.length
+                          ? "Carregando tipos..."
+                          : "Selecione o tipo"
+                      }
                     />
                   </SelectTrigger>
-                  <SelectContent className="text-xs">
+                  <SelectContent>
                     {tipos.map((opt) => (
                       <SelectItem
                         key={opt.codigo}
                         value={opt.codigo}
-                        className="text-xs hover:cursor-pointer"
+                        className="hover:cursor-pointer"
                       >
                         {opt.nome}
                       </SelectItem>
@@ -493,79 +466,100 @@ export default function RegisterContent({
                 </Select>
                 {!loadingTipos && !tipos.length ? (
                   <p className="text-xs text-muted-foreground">
-                    Nenhum tipo de entrada ativo. Cadastre em Configurações &gt; Tipos.
+                    Nenhum tipo de entrada ativo. Cadastre em Configurações &gt;
+                    Tipos.
                   </p>
                 ) : null}
               </div>
-            </div>
 
-            <Separator />
+              <div className="space-y-2">
+                <Label>Fornecedor (opcional)</Label>
 
-            <div className="space-y-2">
-              <Label>Fornecedor (opcional)</Label>
-
-              {fornecedorSelecionado ? (
-                <div className="flex min-w-0 items-center gap-2">
-                  <div className="min-w-0 flex-1 rounded-xl bg-muted px-3 py-2 text-xs">
-                    <span className="font-medium text-muted-foreground">
-                      #{fornecedorSelecionado.id}
-                    </span>{" "}
-                    <span className="break-words text-primary">
-                      {fornecedorSelecionado?.nomerazaosocial}
-                    </span>
+                {fornecedorSelecionado ? (
+                  <div className="flex min-h-12 min-w-0 items-center gap-3 rounded-xl border border-primary/15 bg-primary/[0.04] p-2 pl-3">
+                    <Building2
+                      className="size-5 shrink-0 text-primary"
+                      aria-hidden="true"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-muted-foreground">
+                        Fornecedor #{fornecedorSelecionado.id}
+                      </p>
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {fornecedorSelecionado.nomerazaosocial}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setFornecedorSelecionado(undefined)}
+                      className="size-12 shrink-0 rounded-xl text-destructive hover:cursor-pointer hover:bg-destructive/10 hover:text-destructive sm:size-10"
+                      aria-label="Remover fornecedor"
+                      title="Remover fornecedor"
+                    >
+                      <X className="h-4 w-4" aria-hidden="true" />
+                    </Button>
                   </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setFornecedorSelecionado(undefined)}
-                    className="size-12 shrink-0 rounded-full bg-muted text-destructive hover:cursor-pointer hover:text-destructive sm:size-9"
-                    aria-label="Remover fornecedor"
-                    title="Remover fornecedor"
-                  >
-                    <X className="h-4 w-4" aria-hidden="true" />
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex min-w-0 items-center justify-between gap-2 text-sm text-muted-foreground">
-                  <span className="min-w-0">Nenhum fornecedor selecionado</span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setOpenFornecedor(true)}
-                    className="group size-12 shrink-0 rounded-full bg-muted/50 transition-all hover:cursor-pointer hover:bg-muted sm:size-9"
-                    aria-label="Selecionar fornecedor"
-                    title="Selecionar fornecedor"
-                  >
-                    <Search className="h-4 w-4 text-primary/80 transition-all group-hover:text-primary" aria-hidden="true" />
-                  </Button>
-                </div>
-              )}
+                ) : (
+                  <div className="space-y-1.5">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setOpenFornecedor(true)}
+                      className="group w-full justify-start rounded-xl transition-[transform,background-color,border-color] duration-150 hover:cursor-pointer hover:border-primary/25 hover:bg-primary/[0.04] active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none"
+                    >
+                      <Search
+                        className="size-4 text-primary"
+                        aria-hidden="true"
+                      />
+                      Selecionar fornecedor
+                    </Button>
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      Você pode concluir esta entrada sem informar um
+                      fornecedor.
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
 
-            <Separator />
+            <div className="mt-5 space-y-3 border-t pt-4">
+              <Label>{inventory === "produto" ? "Produtos" : "Itens"}</Label>
 
-            <div className="space-y-2">
-              <Label>Produtos</Label>
-
-              <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
-                <Button
-                  variant="outline"
-                  type="button"
-                  size="sm"
-                  className="min-h-12 min-w-0 gap-2 text-xs hover:cursor-pointer sm:min-h-9"
-                  onClick={() => setOpenProduto(true)}
-                >
-                  <Search className="h-3 w-3" />
-                  Adicionar produto
-                </Button>
+              <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:flex sm:items-center">
+                {inventory === "produto" ? (
+                  <Button
+                    variant="secondary"
+                    type="button"
+                    className="min-h-12 min-w-0 rounded-xl transition-transform duration-150 hover:cursor-pointer active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none sm:min-h-10"
+                    onClick={() => setOpenProduto(true)}
+                  >
+                    <PackagePlus className="size-4" />
+                    Adicionar produto
+                  </Button>
+                ) : (
+                  <ItemSelectDialog
+                    escopo={escopoEfetivo}
+                    open={openProduto}
+                    setOpen={setOpenProduto}
+                    onSelect={handleAdicionarItem}
+                  >
+                    <Button
+                      variant="secondary"
+                      type="button"
+                      className="min-h-12 min-w-0 rounded-xl transition-transform duration-150 hover:cursor-pointer active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none sm:min-h-10"
+                    >
+                      <PackagePlus className="size-4" />
+                      Adicionar {rotuloEstoque.item.toLocaleLowerCase("pt-BR")}
+                    </Button>
+                  </ItemSelectDialog>
+                )}
 
                 <Button
                   type="button"
                   variant="ghost"
-                  className="min-h-12 min-w-0 gap-2 text-xs hover:cursor-pointer sm:min-h-9"
-                  size="sm"
+                  className="min-h-12 min-w-0 rounded-xl text-muted-foreground hover:cursor-pointer hover:bg-destructive/10 hover:text-destructive sm:min-h-10"
                   onClick={() => setItens([])}
                   disabled={itens.length === 0}
                 >
@@ -574,239 +568,96 @@ export default function RegisterContent({
               </div>
             </div>
 
-            <Separator />
-
-            <div className="rounded-lg border p-3 space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Itens</span>
-                <span className="font-medium">{itens.length}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Total</span>
-                <span className="font-semibold">
-                  {formatarEmReal(Number(totalGeral.toFixed(2)))}
-                </span>
-              </div>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <SummaryMetric label="Itens adicionados" value={itens.length} />
+              <SummaryMetric
+                label="Total da entrada"
+                value={formatarEmReal(Number(totalGeral.toFixed(2)))}
+                emphasized
+              />
             </div>
-          </div>
+          </section>
 
           {/* Lista de itens */}
-          <div className="min-h-0 min-w-0 max-w-full overflow-hidden rounded-xl border bg-card p-3 sm:p-4">
-            <div className="mb-3 flex min-w-0 items-center justify-between">
-              <div className="min-w-0">
-                <h3 className="text-sm font-semibold">Itens da entrada</h3>
-                <p className="text-xs text-muted-foreground">
-                  Edite os campos do item e remova quando quiser.
-                </p>
-              </div>
-            </div>
+          <section className="min-h-0 min-w-0 max-w-full overflow-hidden rounded-2xl border bg-card p-4 shadow-xs sm:p-5">
+            <SectionHeading
+              icon={Boxes}
+              eyebrow="Itens"
+              title="Itens da entrada"
+              description="Quantidade e custo ficam em destaque; os dados fiscais podem ser expandidos quando necessário."
+            />
 
-            <div className="min-w-0 max-w-full space-y-4">
+            <div className="mt-5 min-w-0 max-w-full space-y-4">
               {itens.length === 0 ? (
-                <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-                  Nenhum produto adicionado ainda.
+                <div className="rounded-2xl border border-dashed border-primary/20 bg-primary/[0.025] px-4 py-10 text-center">
+                  <span className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                    <PackagePlus className="size-6" aria-hidden="true" />
+                  </span>
+                  <p className="mt-3 text-sm font-semibold text-foreground">
+                    Nenhum item adicionado
+                  </p>
+                  <p className="mx-auto mt-1 max-w-sm text-sm leading-relaxed text-muted-foreground">
+                    Use o botão acima para selecionar um ou vários itens deste
+                    estoque.
+                  </p>
                 </div>
               ) : (
                 itens.map((item, index) => (
                   <div
-                    key={`${item.produto_id}-${index}`}
-                    className="min-w-0 max-w-full space-y-4 overflow-hidden rounded-xl border p-3 sm:p-4"
+                    key={item.itemId}
+                    className="min-w-0 max-w-full space-y-4 overflow-hidden rounded-2xl border border-border/80 bg-background/70 p-3 shadow-xs sm:p-4"
                   >
-                    <div className="flex min-w-0 flex-col items-stretch gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0">
-                        <div className="line-clamp-2 break-words text-sm font-semibold">
-                          Produto #{item.produto_id} —{" "}
-                          {item.titulo ?? "Sem título"}
-                        </div>
-                        <div className="mt-1 break-words text-xs leading-relaxed text-muted-foreground">
-                          Ref: {item.referencia ?? "-"} • NCM: {item.ncm ?? "-"}{" "}
-                          • CFOP: {item.cfop ?? "-"} • CSOSN:{" "}
-                          {item.csosn ?? "-"} • Unidade: {item.unidade ?? "-"}
+                    <div className="flex min-w-0 items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-sm font-semibold tabular-nums text-primary">
+                          {index + 1}
+                        </span>
+                        <div className="min-w-0 pt-0.5">
+                          <div className="line-clamp-2 break-words text-sm font-semibold leading-relaxed sm:text-base">
+                            {item.titulo ?? "Sem título"}
+                          </div>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {inventory === "produto" ? "Produto" : "Item"} #
+                            {item.itemId}
+                          </p>
                         </div>
                       </div>
 
                       <Button
                         type="button"
                         variant="ghost"
-                        className="min-h-12 w-full gap-2 text-destructive hover:cursor-pointer hover:text-destructive sm:min-h-9 sm:w-auto"
+                        size="icon"
+                        className="size-12 shrink-0 rounded-xl text-destructive hover:cursor-pointer hover:bg-destructive/10 hover:text-destructive sm:size-10"
                         onClick={() => handleRemove(index)}
+                        aria-label={`Remover ${item.titulo ?? "item"}`}
+                        title="Remover item"
                       >
-                        <Trash2 className="h-4 w-4" />
-                        Remover
+                        <Trash2 className="size-4" />
                       </Button>
                     </div>
 
-                    <Separator />
-
-                    <div className="space-y-1.5">
-                      <Label>Título</Label>
-                      <Input
-                        value={item.titulo ?? ""}
-                        onChange={(e) =>
-                          updateItem(index, "titulo", e.target.value || null)
-                        }
-                      />
-                    </div>
-                    <Separator />
-                    <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-5 [&>*]:min-w-0">
-                      <div className="space-y-1.5">
-                        <Label>Referência</Label>
-                        <Input
-                          value={item.referencia ?? ""}
-                          onChange={(e) =>
-                            updateItem(
-                              index,
-                              "referencia",
-                              e.target.value || null,
-                            )
-                          }
-                        />
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label>Unidade</Label>
-                        <Input
-                          value={item.unidade ?? ""}
-                          onChange={(e) =>
-                            updateItem(
-                              index,
-                              "unidade",
-                              (e.target.value || null) as Unidade_medida | null,
-                            )
-                          }
-                          placeholder="UN, CX..."
-                        />
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label>NCM</Label>
-                        <Input
-                          value={item.ncm ?? ""}
-                          onChange={(e) =>
-                            updateItem(index, "ncm", e.target.value || null)
-                          }
-                        />
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label>CEST</Label>
-                        <Input
-                          value={item.cest ?? ""}
-                          onChange={(e) =>
-                            updateItem(index, "cest", e.target.value || null)
-                          }
-                        />
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label>CSOSN</Label>
-                        <Input
-                          value={item.csosn ?? ""}
-                          onChange={(e) =>
-                            updateItem(index, "csosn", e.target.value || null)
-                          }
-                        />
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label>CFOP</Label>
-                        <Input
-                          value={item.cfop ?? ""}
-                          onChange={(e) =>
-                            updateItem(index, "cfop", e.target.value || null)
-                          }
-                          maxLength={4}
-                          inputMode="numeric"
-                          placeholder="5102"
-                        />
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label>CST</Label>
-                        <Input
-                          value={item.cst ?? ""}
-                          onChange={(e) =>
-                            updateItem(index, "cst", e.target.value || null)
-                          }
-                        />
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label>Alíquota ICMS</Label>
-                        <Input
-                          type="number"
-                          step={0.01}
-                          value={item.aliquotaicms ?? ""}
-                          onChange={(e) =>
-                            updateItem(
-                              index,
-                              "aliquotaicms",
-                              e.target.value === "" ? null : n(e.target.value),
-                            )
-                          }
-                        />
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label>CST PIS</Label>
-                        <Input
-                          value={item.cst_pis ?? ""}
-                          onChange={(e) =>
-                            updateItem(index, "cst_pis", e.target.value || null)
-                          }
-                        />
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label>Alíquota PIS</Label>
-                        <Input
-                          type="number"
-                          step={0.01}
-                          value={item.aliquota_pis ?? ""}
-                          onChange={(e) =>
-                            updateItem(
-                              index,
-                              "aliquota_pis",
-                              e.target.value === "" ? null : n(e.target.value),
-                            )
-                          }
-                        />
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label>CST COFINS</Label>
-                        <Input
-                          value={item.cst_cofins ?? ""}
-                          onChange={(e) =>
-                            updateItem(
-                              index,
-                              "cst_cofins",
-                              e.target.value || null,
-                            )
-                          }
-                        />
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label>Alíquota COFINS</Label>
-                        <Input
-                          type="number"
-                          step={0.01}
-                          value={item.aliquota_cofins ?? ""}
-                          onChange={(e) =>
-                            updateItem(
-                              index,
-                              "aliquota_cofins",
-                              e.target.value === "" ? null : n(e.target.value),
-                            )
-                          }
-                        />
-                      </div>
+                    <div className="flex min-w-0 flex-wrap gap-1.5">
+                      {(
+                        [
+                          ["Ref.", item.referencia],
+                          ["Un.", item.unidade],
+                          ["NCM", item.ncm],
+                          ["CFOP", item.cfop],
+                        ] as const
+                      ).map(([label, value]) => (
+                        <span
+                          key={label}
+                          className="inline-flex max-w-full items-center gap-1 rounded-lg bg-muted/60 px-2 py-1 text-xs text-muted-foreground"
+                        >
+                          <strong className="font-medium text-foreground">
+                            {label}
+                          </strong>
+                          <span className="truncate">{value ?? "-"}</span>
+                        </span>
+                      ))}
                     </div>
 
-                    <Separator />
-
-                    <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-3 [&>*]:min-w-0">
+                    <div className="grid min-w-0 grid-cols-1 gap-3 rounded-xl border border-primary/10 bg-primary/[0.035] p-3 md:grid-cols-3 [&>*]:min-w-0">
                       <div className="space-y-1.5">
                         <Label>Quantidade</Label>
                         <Input
@@ -815,7 +666,11 @@ export default function RegisterContent({
                           step={1}
                           value={item.quantidade}
                           onChange={(e) =>
-                            updateItem(index, "quantidade", n(e.target.value))
+                            updateItem(
+                              index,
+                              "quantidade",
+                              numero(e.target.value),
+                            )
                           }
                         />
                       </div>
@@ -823,57 +678,300 @@ export default function RegisterContent({
                       <div className="space-y-1.5">
                         <Label>Valor unitário de compra</Label>
                         <ValueInput
-                          value={item.precovenda}
-                          onValueChange={(value) => updateItem(index, "precovenda", value)}
+                          value={item.valorUnitarioCompra}
+                          onValueChange={(value) =>
+                            updateItem(index, "valorUnitarioCompra", value)
+                          }
                         />
-                        <p className="text-[11px] text-muted-foreground">
-                          Este valor será salvo como o último valor de compra do produto.
+                        <p className="text-xs leading-relaxed text-muted-foreground">
+                          Salvo como o último custo de compra do item.
                         </p>
                       </div>
 
                       <div className="space-y-1.5">
                         <Label>Total do item</Label>
                         <Input
+                          className="bg-background font-semibold tabular-nums"
                           value={formatarEmReal(
                             Number(
-                              (n(item.quantidade) * n(item.precovenda)).toFixed(
-                                2,
-                              ),
+                              (
+                                numero(item.quantidade) *
+                                numero(item.valorUnitarioCompra)
+                              ).toFixed(2),
                             ),
                           )}
                           readOnly
                         />
                       </div>
                     </div>
+
+                    <Accordion
+                      type="single"
+                      collapsible
+                      className="motion-reduce:[&_[data-slot=accordion-content]]:animate-none"
+                    >
+                      <AccordionItem
+                        value="dados-fiscais"
+                        className="overflow-hidden rounded-xl border bg-muted/[0.18] px-3"
+                      >
+                        <AccordionTrigger className="min-h-12 py-3 hover:no-underline motion-reduce:transition-none motion-reduce:[&_svg]:transition-none">
+                          <div className="pr-2 text-left">
+                            <p className="font-medium text-foreground">
+                              Dados fiscais e cadastrais
+                            </p>
+                            <p className="mt-0.5 text-xs font-normal leading-relaxed text-muted-foreground">
+                              Título, referência, unidade e tributação do item
+                            </p>
+                          </div>
+                        </AccordionTrigger>
+                        <AccordionContent className="space-y-4 pb-3 pt-1">
+                          <div className="space-y-1.5">
+                            <Label>Título</Label>
+                            <Input
+                              value={item.titulo ?? ""}
+                              onChange={(e) =>
+                                updateItem(
+                                  index,
+                                  "titulo",
+                                  e.target.value || null,
+                                )
+                              }
+                            />
+                          </div>
+                          <Separator />
+                          <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-5 [&>*]:min-w-0">
+                            <div className="space-y-1.5">
+                              <Label>Referência</Label>
+                              <Input
+                                value={item.referencia ?? ""}
+                                onChange={(e) =>
+                                  updateItem(
+                                    index,
+                                    "referencia",
+                                    e.target.value || null,
+                                  )
+                                }
+                              />
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <Label>Unidade</Label>
+                              <Input
+                                value={item.unidade ?? ""}
+                                onChange={(e) =>
+                                  updateItem(
+                                    index,
+                                    "unidade",
+                                    e.target.value || null,
+                                  )
+                                }
+                                placeholder="UN, CX..."
+                              />
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <Label>NCM</Label>
+                              <Input
+                                value={item.ncm ?? ""}
+                                onChange={(e) =>
+                                  updateItem(
+                                    index,
+                                    "ncm",
+                                    e.target.value || null,
+                                  )
+                                }
+                              />
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <Label>CEST</Label>
+                              <Input
+                                value={item.cest ?? ""}
+                                onChange={(e) =>
+                                  updateItem(
+                                    index,
+                                    "cest",
+                                    e.target.value || null,
+                                  )
+                                }
+                              />
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <Label>CSOSN</Label>
+                              <Input
+                                value={item.csosn ?? ""}
+                                onChange={(e) =>
+                                  updateItem(
+                                    index,
+                                    "csosn",
+                                    e.target.value || null,
+                                  )
+                                }
+                              />
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <Label>CFOP</Label>
+                              <Input
+                                value={item.cfop ?? ""}
+                                onChange={(e) =>
+                                  updateItem(
+                                    index,
+                                    "cfop",
+                                    e.target.value || null,
+                                  )
+                                }
+                                maxLength={4}
+                                inputMode="numeric"
+                                placeholder="5102"
+                              />
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <Label>CST</Label>
+                              <Input
+                                value={item.cst ?? ""}
+                                onChange={(e) =>
+                                  updateItem(
+                                    index,
+                                    "cst",
+                                    e.target.value || null,
+                                  )
+                                }
+                              />
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <Label>Alíquota ICMS</Label>
+                              <Input
+                                type="number"
+                                step={0.01}
+                                value={item.aliquotaicms ?? ""}
+                                onChange={(e) =>
+                                  updateItem(
+                                    index,
+                                    "aliquotaicms",
+                                    e.target.value === ""
+                                      ? null
+                                      : numero(e.target.value),
+                                  )
+                                }
+                              />
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <Label>CST PIS</Label>
+                              <Input
+                                value={item.cstPis ?? ""}
+                                onChange={(e) =>
+                                  updateItem(
+                                    index,
+                                    "cstPis",
+                                    e.target.value || null,
+                                  )
+                                }
+                              />
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <Label>Alíquota PIS</Label>
+                              <Input
+                                type="number"
+                                step={0.01}
+                                value={item.aliquotaPis ?? ""}
+                                onChange={(e) =>
+                                  updateItem(
+                                    index,
+                                    "aliquotaPis",
+                                    e.target.value === ""
+                                      ? null
+                                      : numero(e.target.value),
+                                  )
+                                }
+                              />
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <Label>CST COFINS</Label>
+                              <Input
+                                value={item.cstCofins ?? ""}
+                                onChange={(e) =>
+                                  updateItem(
+                                    index,
+                                    "cstCofins",
+                                    e.target.value || null,
+                                  )
+                                }
+                              />
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <Label>Alíquota COFINS</Label>
+                              <Input
+                                type="number"
+                                step={0.01}
+                                value={item.aliquotaCofins ?? ""}
+                                onChange={(e) =>
+                                  updateItem(
+                                    index,
+                                    "aliquotaCofins",
+                                    e.target.value === ""
+                                      ? null
+                                      : numero(e.target.value),
+                                  )
+                                }
+                              />
+                            </div>
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    </Accordion>
                   </div>
                 ))
               )}
             </div>
-          </div>
+          </section>
 
-          <div className="min-w-0 max-w-full space-y-4 overflow-hidden rounded-xl border bg-card p-3 sm:p-4">
-            <div className="flex min-w-0 items-center justify-between gap-4">
-              <div className="min-w-0">
-                <h3 className="text-sm font-semibold">Lançamento financeiro</h3>
-                <p className="text-xs text-muted-foreground">
-                  Opcional. Registre a despesa agora ou como parcelas futuras.
-                </p>
-              </div>
-              <Switch
-                checked={lancarFinanceiro}
-                onCheckedChange={(checked) => {
-                  setLancarFinanceiro(checked);
-                  if (checked && parcelas.length === 0) {
-                    setParcelas([{ id: Date.now(), valor: totalGeral, dataVencimento: undefined }]);
-                  }
-                }}
-                disabled={loadingConcluirEntrada}
-              />
-            </div>
+          <section className="min-w-0 max-w-full space-y-5 overflow-hidden rounded-2xl border bg-card p-4 shadow-xs sm:p-5">
+            <SectionHeading
+              icon={CircleDollarSign}
+              eyebrow="Financeiro"
+              title="Lançamento financeiro"
+              description="Opcional. Registre a despesa agora ou programe parcelas futuras."
+              action={
+                <Label
+                  htmlFor="lancar-financeiro"
+                  className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border bg-muted/30 px-3 py-2 sm:min-h-10"
+                >
+                  <span className="text-sm font-medium">
+                    {lancarFinanceiro ? "Ativado" : "Desativado"}
+                  </span>
+                  <Switch
+                    id="lancar-financeiro"
+                    checked={lancarFinanceiro}
+                    onCheckedChange={(checked) => {
+                      setLancarFinanceiro(checked);
+                      if (checked && parcelas.length === 0) {
+                        setParcelas([
+                          {
+                            id: Date.now(),
+                            valor: totalGeral,
+                            dataVencimento: undefined,
+                          },
+                        ]);
+                      }
+                    }}
+                    disabled={loadingConcluirEntrada}
+                    aria-label="Lançar movimentação no financeiro"
+                  />
+                </Label>
+              }
+            />
 
             {lancarFinanceiro ? (
-              <div className="space-y-4 border-t pt-4">
-                <div className="flex min-w-0 flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+              <div className="animate-in space-y-5 border-t pt-5 duration-200 fade-in-0 slide-in-from-top-1 motion-reduce:animate-none motion-reduce:duration-0">
+                <div className="grid min-w-0 gap-2 sm:max-w-md">
                   <Label>Forma do lançamento</Label>
                   <Select
                     value={pagamentoFuturo ? "FUTURO" : "IMEDIATO"}
@@ -881,155 +979,270 @@ export default function RegisterContent({
                       const futuro = value === "FUTURO";
                       setPagamentoFuturo(futuro);
                       if (futuro && parcelas.length === 0) {
-                        setParcelas([{ id: Date.now(), valor: totalGeral, dataVencimento: undefined }]);
+                        setParcelas([
+                          {
+                            id: Date.now(),
+                            valor: totalGeral,
+                            dataVencimento: undefined,
+                          },
+                        ]);
                       }
                     }}
                   >
-                    <SelectTrigger className="w-full sm:w-[260px]">
+                    <SelectTrigger className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="FUTURO">Parcelas futuras</SelectItem>
-                      <SelectItem value="IMEDIATO">Pagamento imediato</SelectItem>
+                      <SelectItem value="IMEDIATO">
+                        Pagamento imediato
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
                 {pagamentoFuturo ? (
-                  <div className="space-y-3">
+                  <div className="space-y-4">
                     {parcelas.map((parcela, index) => (
-                      <div key={parcela.id} className="grid min-w-0 gap-3 overflow-hidden rounded-lg border bg-muted/20 p-3 sm:grid-cols-[auto_1fr_1fr] sm:items-end [&>*]:min-w-0">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="text-destructive"
-                          onClick={() => {
-                            if (parcelas.length === 1) {
-                              toast.error("Mantenha ao menos uma parcela.");
-                              return;
-                            }
-                            setParcelas((current) => current.filter((_, itemIndex) => itemIndex !== index));
-                          }}
-                          aria-label={`Remover parcela ${index + 1}`}
-                        >
-                          <Minus className="h-4 w-4" />
-                        </Button>
-                        <div className="space-y-1.5">
-                          <Label>Vencimento da parcela {index + 1}</Label>
-                          <DatePicker
-                            value={parcela.dataVencimento ?? ""}
-                            onChange={(value) =>
+                      <div
+                        key={parcela.id}
+                        className="min-w-0 overflow-hidden rounded-xl border bg-muted/20 p-3 sm:p-4"
+                      >
+                        <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
+                          <span className="inline-flex rounded-lg bg-primary/10 px-2.5 py-1 text-sm font-medium text-primary">
+                            Parcela {index + 1}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="size-12 rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive sm:size-10"
+                            onClick={() => {
+                              if (parcelas.length === 1) {
+                                toast.error("Mantenha ao menos uma parcela.");
+                                return;
+                              }
                               setParcelas((current) =>
-                                current.map((item, itemIndex) =>
-                                  itemIndex === index ? { ...item, dataVencimento: value || undefined } : item,
+                                current.filter(
+                                  (_, itemIndex) => itemIndex !== index,
                                 ),
-                              )
-                            }
-                          />
+                              );
+                            }}
+                            aria-label={`Remover parcela ${index + 1}`}
+                          >
+                            <Minus className="size-4" />
+                          </Button>
                         </div>
-                        <div className="space-y-1.5">
-                          <Label>Valor</Label>
-                          <ValueInput
-                            value={parcela.valor}
-                            onValueChange={(value) =>
-                              setParcelas((current) =>
-                                current.map((item, itemIndex) => itemIndex === index ? { ...item, valor: value } : item),
-                              )
-                            }
-                          />
+                        <div className="grid min-w-0 gap-3 sm:grid-cols-2 [&>*]:min-w-0">
+                          <div className="space-y-1.5">
+                            <Label>Vencimento</Label>
+                            <DatePicker
+                              value={parcela.dataVencimento ?? ""}
+                              onChange={(value) =>
+                                setParcelas((current) =>
+                                  current.map((item, itemIndex) =>
+                                    itemIndex === index
+                                      ? {
+                                          ...item,
+                                          dataVencimento: value || undefined,
+                                        }
+                                      : item,
+                                  ),
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label>Valor</Label>
+                            <ValueInput
+                              value={parcela.valor}
+                              onValueChange={(value) =>
+                                setParcelas((current) =>
+                                  current.map((item, itemIndex) =>
+                                    itemIndex === index
+                                      ? { ...item, valor: value }
+                                      : item,
+                                  ),
+                                )
+                              }
+                            />
+                          </div>
                         </div>
                       </div>
                     ))}
-                    <div className="flex min-w-0 flex-col items-stretch gap-3 text-xs text-muted-foreground sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                    <div className="grid grid-cols-2 gap-2">
+                      <SummaryMetric
+                        label="Total da entrada"
+                        value={formatarEmReal(totalGeral)}
+                      />
+                      <SummaryMetric
+                        label="Total das parcelas"
+                        value={formatarEmReal(totalParcelas)}
+                        emphasized
+                      />
+                    </div>
+                    <div className="flex min-w-0 flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <Button
                         type="button"
                         variant="outline"
-                        size="sm"
-                        onClick={() => setParcelas((current) => [...current, { id: Date.now(), valor: 0 }])}
+                        className="rounded-xl"
+                        onClick={() =>
+                          setParcelas((current) => [
+                            ...current,
+                            { id: Date.now(), valor: 0 },
+                          ])
+                        }
                       >
-                        <Plus className="mr-2 h-4 w-4" />
+                        <Plus className="size-4" />
                         Adicionar parcela
                       </Button>
-                      <span className="break-words leading-relaxed sm:text-right">
-                        Total da entrada: {formatarEmReal(totalGeral)} · Parcelas: {formatarEmReal(parcelas.reduce((sum, parcela) => sum + parcela.valor, 0))}
-                      </span>
+                      <p className="text-xs leading-relaxed text-muted-foreground sm:text-right">
+                        A soma das parcelas deve corresponder ao total da
+                        entrada.
+                      </p>
                     </div>
                   </div>
                 ) : (
-                  <div className="grid min-w-0 gap-3 sm:grid-cols-2 [&>*]:min-w-0">
+                  <div className="grid min-w-0 gap-3 rounded-xl border bg-muted/20 p-3 sm:grid-cols-2 sm:p-4 [&>*]:min-w-0">
                     <div className="space-y-1.5">
                       <Label>Banco</Label>
-                      <Select value={selectedBankId} onValueChange={setSelectedBankId}>
-                        <SelectTrigger><SelectValue placeholder={loadingBanks ? "Carregando..." : "Selecione o banco"} /></SelectTrigger>
+                      <Select
+                        value={selectedBankId}
+                        onValueChange={setSelectedBankId}
+                      >
+                        <SelectTrigger>
+                          <SelectValue
+                            placeholder={
+                              loadingBanks
+                                ? "Carregando..."
+                                : "Selecione o banco"
+                            }
+                          />
+                        </SelectTrigger>
                         <SelectContent>
-                          {banks.map((bank) => <SelectItem key={bank.id} value={String(bank.id)}>{bank.titulo}</SelectItem>)}
+                          {banks.map((bank) => (
+                            <SelectItem key={bank.id} value={String(bank.id)}>
+                              {bank.titulo}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-1.5">
                       <Label>Método de pagamento</Label>
-                      <Select value={selectedMetodo} onValueChange={(value) => setSelectedMetodo(value as Metodo_pagamento)}>
-                        <SelectTrigger><SelectValue placeholder="Selecione o método" /></SelectTrigger>
+                      <Select
+                        value={selectedMetodo}
+                        onValueChange={(value) =>
+                          setSelectedMetodo(value as Metodo_pagamento)
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione o método" />
+                        </SelectTrigger>
                         <SelectContent>
-                          {metodosPagamento.map((method) => <SelectItem key={method.value} value={method.value}>{method.label}</SelectItem>)}
+                          {metodosPagamento.map((method) => (
+                            <SelectItem key={method.value} value={method.value}>
+                              {method.label}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
                   </div>
                 )}
 
-                <div className="grid min-w-0 gap-3 sm:grid-cols-3 [&>*]:min-w-0">
-                  <div className="space-y-1.5">
-                    <Label>Categoria</Label>
-                    <Select value={selectedCategoria} onValueChange={setSelectedCategoria}>
-                      <SelectTrigger><SelectValue placeholder="Selecione a categoria" /></SelectTrigger>
-                      <SelectContent>
-                        {categorias.map((categoria) => <SelectItem key={categoria.id} value={categoria.nome}>{categoria.nome}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                <div className="space-y-3 border-t pt-5">
+                  <div>
+                    <h3 className="text-sm font-semibold">
+                      Classificação financeira
+                    </h3>
+                    <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                      Organize o lançamento para relatórios e acompanhamento de
+                      custos.
+                    </p>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label>Plano de conta</Label>
-                    <PlanoContaCombobox
-                      value={selectedPlanoId}
-                      groups={gruposPlanosDeConta}
-                      loading={loadingPlanos}
-                      clearable
-                      onClear={() => setSelectedPlanoId("")}
-                      onValueChange={setSelectedPlanoId}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Centro de custo</Label>
-                    <SearchCombobox
-                      value={selectedCentroCustoId}
-                      options={centrosCusto.map((centro) => ({ value: String(centro.id), label: centro.nome }))}
-                      loading={loadingCentrosCusto}
-                      clearable
-                      clearLabel="Sem centro de custo"
-                      placeholder="Selecione o centro de custo"
-                      onValueChange={setSelectedCentroCustoId}
-                    />
+                  <div className="grid min-w-0 gap-3 sm:grid-cols-3 [&>*]:min-w-0">
+                    <div className="space-y-1.5">
+                      <Label>Categoria</Label>
+                      <Select
+                        value={selectedCategoria}
+                        onValueChange={setSelectedCategoria}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione a categoria" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {categorias.map((categoria) => (
+                            <SelectItem
+                              key={categoria.id}
+                              value={categoria.nome}
+                            >
+                              {categoria.nome}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Plano de conta</Label>
+                      <PlanoContaCombobox
+                        value={selectedPlanoId}
+                        groups={gruposPlanosDeConta}
+                        loading={loadingPlanos}
+                        clearable
+                        onClear={() => setSelectedPlanoId("")}
+                        onValueChange={setSelectedPlanoId}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Centro de custo</Label>
+                      <SearchCombobox
+                        value={selectedCentroCustoId}
+                        options={centrosCusto.map((centro) => ({
+                          value: String(centro.id),
+                          label: centro.nome,
+                        }))}
+                        loading={loadingCentrosCusto}
+                        clearable
+                        clearLabel="Sem centro de custo"
+                        placeholder="Selecione o centro de custo"
+                        onValueChange={setSelectedCentroCustoId}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
             ) : null}
-          </div>
+          </section>
         </div>
 
-        <DialogFooter className="shrink-0 border-t bg-background px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:px-6 sm:py-4">
-          <div className="flex min-w-0 w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 items-center justify-between gap-3 text-sm sm:block">
-              <span className="text-muted-foreground">Total da entrada: </span>
-              <span className="shrink-0 font-semibold tabular-nums">
+        <DialogFooter className="z-10 shrink-0 border-t bg-background/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-8px_24px_-20px_rgba(0,0,0,0.45)] backdrop-blur-md sm:px-6 sm:py-4">
+          <div className="flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div
+              className="flex min-w-0 items-center justify-between gap-3 sm:block"
+              aria-live="polite"
+            >
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">
+                  Resumo da entrada
+                </p>
+                <p className="mt-0.5 text-sm text-foreground">
+                  {itens.length} {itens.length === 1 ? "item" : "itens"}
+                </p>
+              </div>
+              <span className="shrink-0 text-lg font-semibold tabular-nums text-primary sm:text-base">
                 {formatarEmReal(Number(totalGeral.toFixed(2)))}
               </span>
             </div>
 
             <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:justify-end">
               <DialogClose asChild>
-                <Button type="button" variant="outline" disabled={loadingConcluirEntrada} className="min-h-12 w-full sm:min-h-9 sm:w-auto">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={loadingConcluirEntrada}
+                  className="min-h-12 w-full rounded-xl sm:min-h-10 sm:w-auto"
+                >
                   Cancelar
                 </Button>
               </DialogClose>
@@ -1038,15 +1251,18 @@ export default function RegisterContent({
                 type="button"
                 onClick={handleRegistrarEntrada}
                 disabled={itens.length === 0 || loadingConcluirEntrada}
-                className="min-h-12 w-full hover:cursor-pointer sm:min-h-9 sm:w-auto sm:min-w-[170px]"
+                className="min-h-12 w-full rounded-xl shadow-sm transition-transform duration-150 hover:cursor-pointer active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none sm:min-h-10 sm:w-auto sm:min-w-[180px]"
               >
                 {loadingConcluirEntrada ? (
-                  <div className="flex flex-row items-center gap-1">
-                    <Loader2 className=" animate-spin w-3 h-3" />{" "}
+                  <div className="flex flex-row items-center gap-2">
+                    <Loader2 className="size-4 animate-spin motion-reduce:animate-none" />
                     <span>Registrando...</span>
                   </div>
                 ) : (
-                  "Concluir entrada"
+                  <>
+                    <CheckCircle2 className="size-4" aria-hidden="true" />
+                    Concluir entrada
+                  </>
                 )}
               </Button>
             </div>

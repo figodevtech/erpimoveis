@@ -3,6 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { buscarEmpresaAtual } from "@/services/fiscal/empresaAtual";
 import { identificarModeloEmissao } from "@/lib/services/fiscais/nfse-service";
+import {
+  prepararPatchGarantiaNfse,
+  serializarConfigGarantiaNfse,
+} from "@/lib/fiscal/configGarantia";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
@@ -52,6 +56,7 @@ function normalizarPadroesEmissao(entrada: unknown): Record<string, unknown> {
 function serializar(row: Record<string, any> | null | undefined) {
   return {
     provedor: row?.provedor ?? "",
+    ...serializarConfigGarantiaNfse(row),
     inscricaoMunicipal: row?.inscricao_municipal ?? "",
     serieRPS: row?.serie_rps ?? "",
     usuario: row?.usuario ?? "",
@@ -104,28 +109,52 @@ export async function PUT(req: NextRequest) {
     const nfse = body?.nfse || {};
 
     const empresa = await buscarEmpresaAtual();
-    const padroesEmissao = normalizarPadroesEmissao(nfse.padroesEmissao);
-
-    const up = await supabase
+    const empresaId = empresa?.id ?? 1;
+    const garantiaRecebida = prepararPatchGarantiaNfse(nfse);
+    const atual = await supabase
       .from("nfse_config")
-      .upsert(
-        {
-          empresa_id: empresa?.id ?? 1,
-          provedor: nfse.provedor ?? null,
-          inscricao_municipal: nfse.inscricaoMunicipal ?? null,
-          serie_rps: nfse.serieRPS ?? null,
-          usuario: nfse.usuario ?? null,
-          senha: nfse.senha ?? null,
-          token: nfse.token ?? null,
-          certificado_a1_base64: nfse.certificadoA1Base64 ?? null,
-          senha_certificado: nfse.senhaCertificado ?? null,
-          padroes_emissao: padroesEmissao,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "empresa_id" },
-      )
-      .select("*")
+      .select("empresa_id")
+      .eq("empresa_id", empresaId)
       .maybeSingle();
+    if (atual.error) throw atual.error;
+
+    const informou = (campo: string) => Object.prototype.hasOwnProperty.call(nfse, campo);
+    // Configurações Gerais envia somente o switch de garantia. Campos omitidos
+    // não podem apagar credenciais nem os padrões fiscais salvos nesta tabela.
+    const patch = {
+      ...garantiaRecebida,
+      ...(informou("provedor") ? { provedor: nfse.provedor ?? null } : {}),
+      ...(informou("inscricaoMunicipal")
+        ? { inscricao_municipal: nfse.inscricaoMunicipal ?? null }
+        : {}),
+      ...(informou("serieRPS") ? { serie_rps: nfse.serieRPS ?? null } : {}),
+      ...(informou("usuario") ? { usuario: nfse.usuario ?? null } : {}),
+      ...(informou("senha") ? { senha: nfse.senha ?? null } : {}),
+      ...(informou("token") ? { token: nfse.token ?? null } : {}),
+      ...(informou("certificadoA1Base64")
+        ? { certificado_a1_base64: nfse.certificadoA1Base64 ?? null }
+        : {}),
+      ...(informou("senhaCertificado")
+        ? { senha_certificado: nfse.senhaCertificado ?? null }
+        : {}),
+      ...(informou("padroesEmissao")
+        ? { padroes_emissao: normalizarPadroesEmissao(nfse.padroesEmissao) }
+        : {}),
+      updated_at: new Date().toISOString(),
+    };
+
+    const up = atual.data
+      ? await supabase
+          .from("nfse_config")
+          .update(patch)
+          .eq("empresa_id", empresaId)
+          .select("*")
+          .maybeSingle()
+      : await supabase
+          .from("nfse_config")
+          .upsert({ empresa_id: empresaId, ...patch }, { onConflict: "empresa_id" })
+          .select("*")
+          .maybeSingle();
     if (up.error) throw up.error;
 
     return NextResponse.json({

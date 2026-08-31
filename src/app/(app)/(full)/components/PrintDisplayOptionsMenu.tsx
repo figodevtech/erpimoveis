@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PRINT_ACTION_BUTTON_CLASS } from "@/lib/print/actionStyles";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -19,35 +20,20 @@ export type PrintDisplayOption = {
   defaultChecked?: boolean;
 };
 
-function useAtributoHtml(atributo: string, defaultChecked: boolean) {
-  const [ativo, setAtivo] = useState(defaultChecked);
-
-  useEffect(() => {
-    const html = document.documentElement;
-
-    if (ativo) {
-      html.setAttribute(atributo, "1");
-    } else {
-      html.removeAttribute(atributo);
-    }
-
-    return () => html.removeAttribute(atributo);
-  }, [ativo, atributo]);
-
-  return [ativo, setAtivo] as const;
-}
-
-function OptionCheckboxItem({ option }: { option: PrintDisplayOption }) {
-  const [ativo, setAtivo] = useAtributoHtml(
-    option.attribute,
-    Boolean(option.defaultChecked),
-  );
-
+function OptionCheckboxItem({
+  option,
+  checked,
+  onCheckedChange,
+}: {
+  option: PrintDisplayOption;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
   return (
     <DropdownMenuCheckboxItem
-      checked={ativo}
+      checked={checked}
       onSelect={(event) => event.preventDefault()}
-      onCheckedChange={setAtivo}
+      onCheckedChange={(value) => onCheckedChange(value === true)}
     >
       {option.label}
     </DropdownMenuCheckboxItem>
@@ -65,6 +51,36 @@ export function PrintDisplayOptionsMenu({
   options: PrintDisplayOption[];
   label?: string;
 }) {
+  /*
+   * O conteúdo do Radix é desmontado quando o dropdown fecha. Por isso o
+   * estado precisa morar no menu, que continua montado durante toda a
+   * visualização de impressão; se ficar em OptionCheckboxItem, cada escolha
+   * volta ao padrão assim que o usuário fecha o painel.
+   */
+  const [checkedByAttribute, setCheckedByAttribute] = useState<
+    Record<string, boolean>
+  >(() =>
+    Object.fromEntries(
+      options.map((option) => [option.attribute, Boolean(option.defaultChecked)]),
+    ),
+  );
+
+  useEffect(() => {
+    const html = document.documentElement;
+
+    for (const option of options) {
+      if (checkedByAttribute[option.attribute]) {
+        html.setAttribute(option.attribute, "1");
+      } else {
+        html.removeAttribute(option.attribute);
+      }
+    }
+
+    return () => {
+      for (const option of options) html.removeAttribute(option.attribute);
+    };
+  }, [checkedByAttribute, options]);
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -72,7 +88,7 @@ export function PrintDisplayOptionsMenu({
           type="button"
           size="sm"
           variant="outline"
-          className="!border-slate-300 !bg-white !text-slate-900 hover:!bg-slate-100 hover:!text-slate-900 hover:cursor-pointer"
+          className={PRINT_ACTION_BUTTON_CLASS}
         >
           <SlidersHorizontal className="w-3 h-3" aria-hidden="true" />
           {label}
@@ -82,7 +98,17 @@ export function PrintDisplayOptionsMenu({
         <DropdownMenuLabel>Exibir na impressão</DropdownMenuLabel>
         <DropdownMenuSeparator />
         {options.map((option) => (
-          <OptionCheckboxItem key={option.attribute} option={option} />
+          <OptionCheckboxItem
+            key={option.attribute}
+            option={option}
+            checked={Boolean(checkedByAttribute[option.attribute])}
+            onCheckedChange={(checked) =>
+              setCheckedByAttribute((current) => ({
+                ...current,
+                [option.attribute]: checked,
+              }))
+            }
+          />
         ))}
       </DropdownMenuContent>
     </DropdownMenu>

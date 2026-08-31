@@ -8,6 +8,7 @@ import { StatusOS } from "@/app/(app)/(pages)/ordens/types";
 import { requireOSAccess } from "@/app/api/_authz/perms";
 import { carregarAutores } from "@/lib/movement-authors";
 import { resolveOrdemVehicle } from "@/lib/ordens/vehicle-snapshot";
+import { resolveOrdemCustomer } from "@/lib/ordens/customer-snapshot";
 
 type Prioridade = "ALTA" | "NORMAL" | "BAIXA" | null;
 type AlvoTipo = "VEICULO" | "PECA" | "EQUIPAMENTO" | null;
@@ -326,6 +327,7 @@ export async function GET(req: Request) {
           equipamento_ano,
           equipamento_horimetro,
           migracao_referencia,
+          cliente_snapshot,
           veiculo_snapshot,
 
           cliente:clienteid (
@@ -467,6 +469,9 @@ export async function GET(req: Request) {
           `veiculo_snapshot->>placa.ilike.${like}`,
           `veiculo_snapshot->>modelo.ilike.${like}`,
           `veiculo_snapshot->>marca.ilike.${like}`,
+          `cliente_snapshot->>nome.ilike.${like}`,
+          `cliente_snapshot->>cpfcnpj.ilike.${like}`,
+          `cliente_snapshot->>telefone.ilike.${like}`,
           `cFilter.not.is.null`,
           `vFilter.not.is.null`,
           `pFilter.not.is.null`,
@@ -538,14 +543,17 @@ export async function GET(req: Request) {
 
       }: null,
 
-      cliente: r.cliente
-        ? {
-            id: r.cliente.id as number,
-            nome: r.cliente.nomerazaosocial as string,
-            telefone: (r.cliente.telefone as string | null) ?? null,
-            email: (r.cliente.email as string | null) ?? null,
-          }
-        : null,
+      cliente: resolveOrdemCustomer(
+        r.cliente
+          ? {
+              id: r.cliente.id as number,
+              nome: r.cliente.nomerazaosocial as string,
+              telefone: (r.cliente.telefone as string | null) ?? null,
+              email: (r.cliente.email as string | null) ?? null,
+            }
+          : null,
+        r.cliente_snapshot,
+      ),
 
       veiculo: resolveOrdemVehicle(r.veiculo, r.veiculo_snapshot),
 

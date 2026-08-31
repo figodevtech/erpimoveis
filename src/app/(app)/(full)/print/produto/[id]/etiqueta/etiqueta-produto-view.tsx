@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PrintButton } from "@/app/(app)/(full)/components/PrintButton";
+import { PRINT_ACTION_BUTTON_CLASS } from "@/lib/print/actionStyles";
 import {
   DEFAULT_LABEL_SIZE,
   LABEL_PRESETS,
@@ -294,7 +295,7 @@ export function EtiquetaProdutoView({ produtoId, titulo, etiqueta, referencias }
           </div>
 
           <div className="flex gap-2">
-            <Button asChild size="sm" variant="outline">
+            <Button asChild size="sm" variant="outline" className={PRINT_ACTION_BUTTON_CLASS}>
               <Link href="/estoque">
                 <Power className="h-3 w-3" />
                 Sair

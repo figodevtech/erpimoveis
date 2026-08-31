@@ -11,6 +11,7 @@ import { formatarData, formatarMoeda, formatarQuantidade, rotuloDeStatus } from 
 import { containerDeLinhas, linha } from "../lib/motion";
 import { useListaPaginada } from "../hooks/use-lista-paginada";
 import type { IndicadoresOrdens, ItemOrdem, MinhaOrdem, Periodo } from "../types";
+import { DescricaoServico } from "./descricao-servico";
 import { IndicadoresDeOrdens } from "./indicadores-ordens";
 import { StatusBadge } from "./status-badge";
 import {
@@ -69,14 +70,12 @@ function BlocoDeItens({
                 variants={linha}
                 className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-border/60 pb-1.5 text-sm last:border-0 last:pb-0"
               >
-                <span className="min-w-0 flex-1 truncate">
-                  {item.descricao}
-                  {(item.referencia || item.codigo) && (
-                    <span className="ml-2 text-xs text-muted-foreground">
-                      {item.referencia ?? item.codigo}
-                    </span>
-                  )}
-                </span>
+                <DescricaoServico
+                  descricao={item.descricao}
+                  subdescricao={item.subdescricao}
+                  identificador={item.referencia ?? item.codigo}
+                  className="flex-1"
+                />
                 <span className="text-muted-foreground tabular-nums">
                   {formatarQuantidade(item.quantidade)}
                   {item.unidade ? ` ${item.unidade}` : ""} × {formatarMoeda(item.valorUnitario)}

@@ -18,7 +18,7 @@ export type StatusOS =
   | "AGUARDANDO_CHECKLIST"
 
 export type Cliente = {
-  id: number;
+  id: number | null;
   nome: string;
   nomerazaosocial?: string | null;
   telefone?: string | null;
@@ -27,6 +27,7 @@ export type Cliente = {
   // A rota /api/ordens/[id] devolve a linha completa do cliente.
   tipopessoa?: string | null;
   cpfcnpj?: string | null;
+  historico?: boolean;
   endereco?: string | null;
   endereconumero?: string | null;
   enderecocomplemento?: string | null;

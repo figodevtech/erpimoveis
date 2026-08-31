@@ -30,6 +30,7 @@ export type ClienteResumo = {
   cep?: string | null;
   status?: string | null;
   rank?: string | null;
+  historico?: boolean;
 };
 
 const statusClasses: Record<string, string> = {
@@ -146,6 +147,11 @@ export function ClienteResumoCard({
           >
             Cliente
           </span>
+          {cliente?.historico ? (
+            <Badge variant="outline" className="border-sky-300 bg-sky-50 text-[10px] text-sky-700 dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-300">
+              Legado
+            </Badge>
+          ) : null}
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">

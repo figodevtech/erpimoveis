@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { Button } from "@/components/ui/button";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { parseReferencias } from "@/lib/etiquetas/label-sizes";
+import { PRINT_ACTION_BUTTON_CLASS } from "@/lib/print/actionStyles";
 import { EtiquetaProdutoView } from "./etiqueta-produto-view";
 
 export const runtime = "nodejs";
@@ -44,7 +45,7 @@ export default async function EtiquetaProdutoPrintPage({ params }: PageProps) {
         <p className="max-w-md text-sm text-muted-foreground">
           Defina a etiqueta em Estoque &rarr; produto &rarr; aba Localização antes de imprimir.
         </p>
-        <Button asChild variant="outline">
+        <Button asChild variant="outline" className={PRINT_ACTION_BUTTON_CLASS}>
           <Link href="/estoque">Voltar</Link>
         </Button>
       </div>

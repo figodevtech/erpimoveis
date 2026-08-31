@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 import { requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { calculateFinancialTotal } from "@/lib/financial-surcharge";
 import { carregarAutores } from "@/lib/movement-authors";
-import { valorDeFace } from "@/lib/financeiro/transacao";
+import { tipoEhEntradaDeCaixa, valorDeFace } from "@/lib/financeiro/transacao";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 type Params = { params: Promise<{ id: string }> };
@@ -471,8 +471,7 @@ export async function GET(_: Request, { params }: Params) {
           valor: Number(op.valor ?? 0),
           origem: op.origem?.titulo ?? null,
           destino: op.destino?.titulo ?? null,
-          sentido:
-            String(transacao.tipo ?? "").toUpperCase() === "RECEITA" ? "ENTRADA" : "SAIDA",
+          sentido: tipoEhEntradaDeCaixa(transacao.tipo) ? "ENTRADA" : "SAIDA",
           contraparteId: contraparte ? Number(contraparte.id) : null,
         };
       }

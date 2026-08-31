@@ -5,6 +5,7 @@ import Script from "next/script";
 import Link from "next/link";
 import { Car, ClipboardList, Power, ShoppingBag, WalletCards } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PRINT_ACTION_BUTTON_CLASS } from "@/lib/print/actionStyles";
 import { PrintShareMenu } from "../../../../components/PrintShareMenu";
 import { fetchPrintColors } from "@/lib/print-config";
 import { calcularScoreCliente, type ResumoFinanceiroCliente } from "@/lib/financeiro/score-cliente";
@@ -786,7 +787,7 @@ export default async function ClienteHistoricoPrintPage({ params }: PageProps) {
             asChild
             size="sm"
             variant="outline"
-            className="!border-slate-300 !bg-white !text-slate-900 hover:!bg-slate-100 hover:!text-slate-900 hover:cursor-pointer"
+            className={PRINT_ACTION_BUTTON_CLASS}
           >
             <Link href="/clientes">
               <Power className="w-3 h-3" />

@@ -61,6 +61,7 @@ interface ProductSelectProps {
   OnSelect?: (value: Produto) => void;
   setOpen?: (value: boolean) => void;
   open?: boolean;
+  permitirCriacao?: boolean;
 }
 
 export default function ProductSelect({
@@ -68,6 +69,7 @@ export default function ProductSelect({
   OnSelect,
   setOpen,
   open,
+  permitirCriacao = true,
 }: ProductSelectProps) {
   const { data: session } = useSession();
   const canCreateProduct = permissionSetHas(
@@ -212,7 +214,7 @@ export default function ProductSelect({
               </div>
             </div>
 
-            {canCreateProduct && (
+            {permitirCriacao && canCreateProduct && (
               <div className="flex items-center gap-2">
                 <Button
                   type="button"

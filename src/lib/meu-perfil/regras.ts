@@ -16,6 +16,47 @@ export type PeriodoConsulta = {
   fimExclusivo: string | null;
 };
 
+export type TextosServico = {
+  descricao: string;
+  subdescricao: string | null;
+};
+
+function textoNaoVazio(value: unknown): string | null {
+  if (value == null) return null;
+  const texto = String(value).trim();
+  return texto || null;
+}
+
+function mesmoTexto(a: string, b: string): boolean {
+  return a.toLocaleLowerCase("pt-BR") === b.toLocaleLowerCase("pt-BR");
+}
+
+/**
+ * Separa o titulo do cadastro da descricao complementar gravada na linha da OS.
+ * Quando o cadastro nao existe mais, o complemento ainda e a melhor descricao
+ * disponivel e passa a ocupar o titulo.
+ */
+export function resolverTextosServico(
+  tituloCadastrado: unknown,
+  descricaoDaOs: unknown,
+  fallback: string,
+): TextosServico {
+  const titulo = textoNaoVazio(tituloCadastrado);
+  const complemento = textoNaoVazio(descricaoDaOs);
+
+  if (!titulo) {
+    return {
+      descricao: complemento ?? fallback,
+      subdescricao: null,
+    };
+  }
+
+  return {
+    descricao: titulo,
+    subdescricao: complemento && !mesmoTexto(titulo, complemento) ? complemento : null,
+  };
+}
+
 function dataValida(value: string): boolean {
   const match = DATA_ISO.exec(value);
   if (!match) return false;

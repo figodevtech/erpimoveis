@@ -7,9 +7,11 @@ import { inferirDescontoGeralOs } from "@/lib/ordens/totais";
 import { mapPaymentMethodToNFe } from "@/lib/nfe/originFiscalDefaults";
 import { valorDeFace } from "@/lib/financeiro/transacao";
 import { exigirModelo, MODELO_NFE } from "@/lib/nfe/modeloDocumento";
+import type { CfopCandidate } from "@/lib/nfe/cfopOperation";
 import { resolverPadraoFiscalItem } from "@/lib/nfe/padraoFiscalItem";
 import { buscarContextoPadraoFiscal } from "@/services/fiscal/nfeConfigService";
 import { CAMPOS_ALVO_OS, carregarAlvoDaOs } from "@/services/fiscal/alvoDaOs";
+import { comporObservacoesComGarantia } from "@/lib/fiscal/garantiaObservacoes";
 
 export const runtime = "nodejs";
 
@@ -20,6 +22,7 @@ type ProdutoDb = {
   descricao: string | null;
   ncm: string | null;
   cfop: string | null;
+  cfopCandidates: CfopCandidate[];
   codigobarras: string | null;
   referencia: string | null;
   unidade: string | null;
@@ -158,7 +161,8 @@ export async function GET(req: Request) {
     const modelo = modeloParam ? exigirModelo(modeloParam) : MODELO_NFE;
     // A peça aplicada na OS é venda de mercadoria: vale o padrão de saída de
     // venda, o mesmo do PDV. `SAIDA_NAO_VENDA` é da saída de estoque.
-    const { padrao, crt, rotuloPadrao } = await buscarContextoPadraoFiscal(modelo, "SAIDA");
+    const { padrao, crt, rotuloPadrao, garantiaPorOrigem } =
+      await buscarContextoPadraoFiscal(modelo, "SAIDA");
 
     console.log(
       "GET /api/ordens/[osId]/produtos-para-nfe -> idOs:",
@@ -169,7 +173,7 @@ export async function GET(req: Request) {
     const { data: os, error: osError } = await supabaseAdmin
       .from("ordemservico")
       .select(
-        `id, clienteid, observacoes_fiscais, subtotal, orcamentototal, valor_frete, forma_pagamento, pagamentos_previstos, ${CAMPOS_ALVO_OS}`,
+        `id, clienteid, observacoes_fiscais, garantia, subtotal, orcamentototal, valor_frete, forma_pagamento, pagamentos_previstos, ${CAMPOS_ALVO_OS}`,
       )
       .eq("id", idOs)
       .maybeSingle();
@@ -328,6 +332,10 @@ export async function GET(req: Request) {
         ncm: p?.ncm ?? null,
         cest: p?.cest ?? null,
         ...fiscal,
+        cfopCandidates: [
+          { value: p?.cfop ?? null, origin: "PRODUTO" },
+          { value: padrao?.cfop ?? null, origin: "PADRAO" },
+        ],
 
         codigobarras: p?.codigobarras ?? null,
         referencia: p?.referencia ?? null,
@@ -387,7 +395,11 @@ export async function GET(req: Request) {
         valorFrete: Math.max(0, toNumber(os.valor_frete)),
         pagamentos: Array.from(pagamentosAgrupados, ([meio, valor]) => ({ meio, valor })),
       },
-      observacoes_fiscais: os.observacoes_fiscais ?? null,
+      observacoes_fiscais: comporObservacoesComGarantia({
+        observacoes: os.observacoes_fiscais,
+        garantia: os.garantia,
+        incluir: garantiaPorOrigem.OS,
+      }) || null,
       // Alvo do reparo, para a tela oferecer o botão que injeta os dados dele no
       // texto livre da nota.
       alvo: await carregarAlvoDaOs(os),

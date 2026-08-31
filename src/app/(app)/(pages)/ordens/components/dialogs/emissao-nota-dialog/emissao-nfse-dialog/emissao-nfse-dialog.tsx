@@ -220,9 +220,7 @@ export function EmissaoNfseDialog({ open, onOpenChange, osId, onAfterGenerate }:
       setServicos(nextServices);
       setModeloEmissao(payload.modeloEmissao ?? null);
       setPadraoFiscal(payload.padraoFiscal ?? null);
-      setObservacoesFiscaisOs(
-        (payload.observacoesFiscais ?? "").trim().slice(0, LIMITE_INFORMACOES_COMPLEMENTARES),
-      );
+      setObservacoesFiscaisOs((payload.observacoesFiscais ?? "").trim());
       setAlvo(payload.alvo ?? null);
       setDescontoOrigem(payload.descontoOrigem ?? null);
       setCliente(payload.cliente ?? null);
@@ -283,9 +281,9 @@ export function EmissaoNfseDialog({ open, onOpenChange, osId, onAfterGenerate }:
       itemListaServico: valorComum(servicosSelecionados.map((item) => item.servico?.itemlistaservico)) || padraoFiscal?.itemListaServico || "",
       codigoCnae: valorComum(servicosSelecionados.map((item) => item.servico?.cnae)) || padraoFiscal?.codigoCnae || "",
       aliquotaIss: valorComum(servicosSelecionados.map((item) => item.servico?.aliquotaiss)) || padraoFiscal?.aliquotaIss || "",
-      // Herda a observação fiscal da OS, a mesma que a NF-e de produto leva no
-      // infCpl. Continua editável na revisão, e apagar o campo é o jeito de não
-      // levar nada — aqui não há fallback no servidor.
+      // Herda o texto fiscal preparado a partir da OS, incluindo a garantia
+      // quando configurada. Continua editável, e apagar o campo é uma escolha
+      // explícita que o servidor respeita.
       informacoesComplementares: observacoesFiscaisOs || padraoFiscal?.informacoesComplementares || "",
     });
     setValidationError(null);
@@ -326,7 +324,7 @@ export function EmissaoNfseDialog({ open, onOpenChange, osId, onAfterGenerate }:
     setCodigosFiscais((current) => ({ ...current, informacoesComplementares: texto }));
     if (truncado) {
       toast.warning(
-        `O texto foi cortado no limite de ${LIMITE_INFORMACOES_COMPLEMENTARES} caracteres do campo.`,
+        `O texto ultrapassou o limite de ${LIMITE_INFORMACOES_COMPLEMENTARES} caracteres. Reduza-o antes de emitir.`,
       );
     }
   };

@@ -78,6 +78,7 @@ export async function POST(request: NextRequest, context: Context) {
           cest: produto.cest ?? null,
           ...fiscal,
           cfop: cfopSugerido || null,
+          cfopCandidates: [{ value: cfopSugerido || null, origin: "OPERACAO_SAIDA" }],
           codigobarras: produto.codigobarras ?? null,
           referencia: produto.referencia ?? null,
           unidade: produto.unidade ?? "UN",

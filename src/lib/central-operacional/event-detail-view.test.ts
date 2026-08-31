@@ -344,7 +344,7 @@ test("a transação distingue baixa parcial, transferência e origem", () => {
     evento,
     {
       entidadeTipo: "TRANSACAO",
-      transacao: { id: 6, tipo: "DESPESA", pendente: false, valor: 200, transferencia_id: 3 },
+      transacao: { id: 6, tipo: "SAQUE", pendente: false, valor: 200, transferencia_id: 3 },
     },
     TUDO,
     GERADO_EM,

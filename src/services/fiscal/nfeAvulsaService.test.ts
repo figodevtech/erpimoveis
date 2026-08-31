@@ -94,6 +94,23 @@ describe("emissão avulsa: caminho feliz", () => {
   });
 });
 
+describe("emissão avulsa: catálogo oficial de CFOP", () => {
+  it("recusa 6405 numa chamada direta antes de gravar o rascunho", () => {
+    const encontrados = erros(draftBase({ itens: [itemBase({ cfop: "6405" })] }), "cfop");
+    assert.equal(encontrados.length, 1);
+    assert.match(encontrados[0].message, /não existe na tabela vigente/i);
+  });
+
+  it("recusa na NFC-e um CFOP que existe, mas não é permitido no modelo 65", () => {
+    const encontrados = erros(
+      draftBase({ modelo: 65, itens: [itemBase({ cfop: "6102" })] }),
+      "cfop",
+    );
+    assert.equal(encontrados.length, 1);
+    assert.match(encontrados[0].message, /não é permitido em NFC-e/i);
+  });
+});
+
 describe("emissão avulsa: frete no total da nota", () => {
   it("cobra o frete na soma dos pagamentos", () => {
     // Produtos 100 + frete 20: pagar só os 100 tem de acusar diferença.

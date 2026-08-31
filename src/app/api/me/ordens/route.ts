@@ -14,6 +14,7 @@ import {
   parsePaginacao,
   parsePeriodo,
   relacaoNomeada,
+  resolverTextosServico,
   STATUS_OS_FINALIZADAS,
   texto,
   totalDePaginas,
@@ -105,6 +106,7 @@ export async function GET(req: Request) {
         return {
           id: Number(item.produtoid),
           descricao: produto?.nome ?? "Produto removido",
+          subdescricao: null,
           referencia: texto(produtoBruto?.referencia),
           unidade: texto(produtoBruto?.unidade),
           quantidade: num(item.quantidade),
@@ -119,11 +121,12 @@ export async function GET(req: Request) {
           | Record<string, unknown>
           | null
           | undefined;
+        const textos = resolverTextosServico(servico?.nome, item.descricao, "Serviço removido");
 
         return {
           id: Number(item.servicoid),
-          // A descricao gravada na OS tem prioridade: e o texto que o cliente viu.
-          descricao: texto(item.descricao) ?? servico?.nome ?? "Serviço removido",
+          descricao: textos.descricao,
+          subdescricao: textos.subdescricao,
           codigo: texto(servicoBruto?.codigo),
           quantidade: num(item.quantidade),
           valorUnitario: num(item.precounitario),

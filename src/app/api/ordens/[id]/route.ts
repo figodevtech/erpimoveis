@@ -7,6 +7,10 @@ import {
   resolveOrdemVehicle,
   type OrdemVehicleSnapshot,
 } from "@/lib/ordens/vehicle-snapshot";
+import {
+  resolveOrdemCustomer,
+  type OrdemCustomerSnapshot,
+} from "@/lib/ordens/customer-snapshot";
 import { carregarFatiasRateadas, fatiaComoTransacao } from "@/lib/financeiro/rateio-documentos";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
@@ -25,6 +29,10 @@ const sanitizeCkStatus = (s?: string): CkStatus => {
 };
 
 type RealizadorLite = { id: string; nome: string | null };
+
+function primeiro<T>(value: T | T[] | null | undefined): T | null {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
 
 /* =========================================
  * GET: OS + setor + peça + checklist (+imagens) + itens + aprovações
@@ -88,6 +96,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
           "execucao_inicio_em",
           "execucao_fim_em",
           "migracao_referencia",
+          "cliente_snapshot",
           "veiculo_snapshot"
         ].join(",")
       )
@@ -147,6 +156,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       motivo_cancelamento?: string | null;
       motivo_sem_cobranca?: string | null;
       migracao_referencia?: string | null;
+      cliente_snapshot?: OrdemCustomerSnapshot | null;
       veiculo_snapshot?: OrdemVehicleSnapshot | null;
     };
 
@@ -214,8 +224,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       clienteRow = cli_res.data as ClienteRow | null;
     }
 
-    const cliente: ClienteRow | null = clienteRow
-      ? {
+    const cliente = clienteRow
+      ? resolveOrdemCustomer({
         id: clienteRow.id,
         tipopessoa: clienteRow.tipopessoa,
         nomerazaosocial: clienteRow.nomerazaosocial,
@@ -236,8 +246,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         updatedat: clienteRow.updatedat,
         status: clienteRow.status,
         rank: clienteRow.rank,
-      }
-      : null;
+      }, null)
+      : resolveOrdemCustomer(null, osRow.cliente_snapshot);
 
     // Veículo
     let veiculo:
@@ -509,12 +519,15 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     >();
     for (const rr of rel_res.data ?? []) {
       const sid = Number((rr as any).servicoid);
-      const usuario = (rr as any).usuario;
+      const usuario = primeiro((rr as any).usuario) as { id?: unknown; nome?: unknown } | null;
       const usuarioid = (rr as any).usuarioid;
+      const idRealizador = String(usuario?.id ?? usuarioid ?? "").trim();
+      if (!idRealizador) continue;
+      const nomeRealizador = String(usuario?.nome ?? "").trim() || null;
 
       const item: RealizadorLite = {
-        id: String(usuario?.id ?? usuarioid),
-        nome: usuario?.nome ?? null,
+        id: idRealizador,
+        nome: nomeRealizador,
       };
 
       const arr = realizadoresByServico.get(sid) ?? [];
@@ -523,8 +536,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
       const comissoes = comissoesByServico.get(sid) ?? [];
       comissoes.push({
-        usuarioid: String(usuario?.id ?? usuarioid),
-        nome: usuario?.nome ?? null,
+        usuarioid: idRealizador,
+        nome: nomeRealizador,
         percentual: toNum((rr as any).comissao_percent_aplicada),
         valorBase: toNum((rr as any).valor_base),
         valorComissao: toNum((rr as any).valor_comissao),
@@ -837,6 +850,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       cliente,
       veiculo,
       migracaoReferencia: osRow.migracao_referencia ?? null,
+      cliente_snapshot: osRow.cliente_snapshot ?? null,
       veiculo_snapshot: osRow.veiculo_snapshot ?? null,
       peca,
       equipamento,
