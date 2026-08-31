@@ -7,6 +7,7 @@ import {
   getMercadoLivreMe,
   tokenExpiresAt,
 } from "@/lib/integrations/mercadolivre";
+import { registerMercadoLivrePlatformAccount } from "@/lib/integrations/mercadolivre-platform";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -59,6 +60,11 @@ export async function GET(req: NextRequest) {
       await prepareAccountReplacement(empresaId, Number(existingAccount.id), Number(existingAccount.ml_user_id));
     }
     await reattachSellerHistory(empresaId, Number(connectedAccount.id), Number(user.id));
+    await registerMercadoLivrePlatformAccount({
+      mlUserId: Number(user.id),
+      nickname: user.nickname ?? null,
+      siteId: user.site_id ?? config.siteId,
+    });
 
     return htmlResponse(
       "Mercado Livre conectado",

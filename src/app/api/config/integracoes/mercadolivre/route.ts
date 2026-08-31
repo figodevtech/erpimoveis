@@ -4,6 +4,7 @@ import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
 import { mercadoLivreApiGet } from "@/lib/integrations/mercadolivre";
+import { unregisterMercadoLivrePlatformAccount } from "@/lib/integrations/mercadolivre-platform";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -70,6 +71,8 @@ export async function DELETE() {
       .maybeSingle();
     if (accountError) throw accountError;
     if (!account) return NextResponse.json({ ok: true });
+
+    await unregisterMercadoLivrePlatformAccount();
 
     await detachHistoricalRecords(Number(account.id), Number(account.ml_user_id));
 

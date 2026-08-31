@@ -1,5 +1,7 @@
 import "server-only";
 
+import { prepareShopeeImage } from "@/lib/integrations/shopee-image";
+
 type GatewayConfiguration = {
   configured: boolean;
   missing: string[];
@@ -113,18 +115,20 @@ export async function uploadShopeeImageFromUrl(imageUrl: string) {
     }
     throw new Error(`O servidor da imagem recusou o download (status ${imageResponse.status}). Tente outra imagem.`);
   }
-  const mimeType = String(imageResponse.headers.get("content-type") || "").split(";")[0].toLowerCase();
-  if (!["image/jpeg", "image/png", "image/webp"].includes(mimeType)) {
+  const sourceMimeType = String(imageResponse.headers.get("content-type") || "").split(";")[0].toLowerCase();
+  if (!["image/jpeg", "image/png", "image/webp"].includes(sourceMimeType)) {
     throw new Error("Formato de imagem não suportado. Use JPG, PNG ou WebP.");
   }
-  const bytes = new Uint8Array(await imageResponse.arrayBuffer());
-  if (!bytes.length || bytes.length > 8 * 1024 * 1024) throw new Error("A imagem deve ter no máximo 8 MB.");
+  const sourceBytes = new Uint8Array(await imageResponse.arrayBuffer());
+  if (!sourceBytes.length || sourceBytes.length > 8 * 1024 * 1024) throw new Error("A imagem deve ter no máximo 8 MB.");
+  const originalFileName = decodeURIComponent(url.pathname.split("/").pop() || "produto").slice(0, 120);
+  const prepared = await prepareShopeeImage(sourceBytes, originalFileName);
   const result = await shopeeGatewayRequest<any>("/api/v1/shopee/media", {
     method: "POST",
     body: {
-      data: Buffer.from(bytes).toString("base64"),
-      mimeType,
-      fileName: decodeURIComponent(url.pathname.split("/").pop() || "produto.jpg").slice(0, 120),
+      data: Buffer.from(prepared.bytes).toString("base64"),
+      mimeType: prepared.mimeType,
+      fileName: prepared.fileName,
     },
   });
   const imageId = result?.response?.image_info?.image_id || result?.response?.image_id || result?.image_id;

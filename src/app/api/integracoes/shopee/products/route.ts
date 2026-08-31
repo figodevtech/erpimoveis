@@ -218,7 +218,19 @@ export async function POST(request: NextRequest) {
     try {
       created = await shopeeShopApi<any>({ path: "/api/v2/product/add_item", method: "POST", body: payload });
     } catch (error) {
-      throw publicationStageError("enviar o anúncio para a Shopee", error);
+      if (isAmbiguousShopeeItemCreationError(error)) {
+        const recovered = await findRemoteItemCreatedBySku(String(payload.item_sku), title).catch(() => null);
+        if (recovered) {
+          created = {
+            response: recovered,
+            warning: "A Shopee informou uma falha interna, mas o anúncio foi localizado e vinculado ao ERP.",
+          };
+        } else {
+          throw publicationStageError("enviar o anúncio para a Shopee", error);
+        }
+      } else {
+        throw publicationStageError("enviar o anúncio para a Shopee", error);
+      }
     }
     const itemId = Number(created?.response?.item_id);
     if (!itemId) throw new Error("A Shopee não retornou o Item ID do anúncio.");
@@ -316,6 +328,16 @@ async function loadRemoteItems() {
   return result;
 }
 
+async function findRemoteItemCreatedBySku(itemSku: string, title: string) {
+  const normalizedSku = itemSku.trim().toLowerCase();
+  const normalizedTitle = title.trim().toLowerCase();
+  const matches = (await loadRemoteItems()).filter((item) =>
+    String(item.item_sku || "").trim().toLowerCase() === normalizedSku
+    && String(item.item_name || "").trim().toLowerCase() === normalizedTitle
+  );
+  return matches.length === 1 ? matches[0] : null;
+}
+
 async function reconcileRemoteCatalog(empresaId: number, products: any[], links: any[], items: RemoteItem[]) {
   const productsBySku = new Map<string, any>();
   for (const product of products) {
@@ -367,11 +389,20 @@ function parseLocalizedNumber(value: unknown) {
 
 function friendlyShopeeError(error: any) {
   const message = String(error?.message || "");
+  if (isAmbiguousShopeeItemCreationError(error)) {
+    const requestId = message.match(/request_id\s+([a-z0-9-]+)/i)?.[1];
+    return `A Shopee apresentou uma falha interna ao criar o SKU/modelo do anúncio. Os campos obrigatórios da categoria já haviam sido validados pelo ERP. Atualize os anúncios para conferir se ele foi criado e tente novamente somente se não aparecer${requestId ? `. Request ID: ${requestId}` : ""}`;
+  }
   return message
     .replace(/^Shopee \/api\/v2\/[^:]+:\s*/i, "")
-    .replace("error_permission", "O aplicativo ainda não possui permissão para este recurso")
-    .replace("error_param", "A Shopee recusou um ou mais campos do produto")
+    .replace(/(?:product\.)?error_permission/gi, "O aplicativo ainda não possui permissão para este recurso")
+    .replace(/(?:product\.)?error_param/gi, "A Shopee recusou um ou mais campos do produto")
     .replace("error_item_not_found", "Produto Shopee não encontrado");
+}
+
+function isAmbiguousShopeeItemCreationError(error: unknown) {
+  const message = String((error as any)?.message || error || "");
+  return /BatchGetItemModelCrossShardingUsingMaster|update Item_model table error|mpsku\.add_item_with_basic_info/i.test(message);
 }
 
 function publicationStageError(stage: string, cause: unknown) {
