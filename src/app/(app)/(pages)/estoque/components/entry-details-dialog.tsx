@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Building2, CalendarClock, Download, Eye, FileText, Loader2, PackageOpen, Receipt, UserRound, Wallet } from "lucide-react";
+import { Building2, CalendarClock, Download, Eye, FileText, Loader2, PackageOpen, Receipt, TriangleAlert, UserRound, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -45,6 +45,22 @@ type EntryTransaction = {
   estorno_transacao_id?: number | null;
 };
 
+type FiscalCustomization = {
+  destino: "ESTOQUE" | "USOCONSUMO" | "GERAL";
+  custoTotalEstoque: number;
+  createdAt: string;
+  itensOriginais: Array<{
+    numeroItem: number;
+    codigo: string | null;
+    descricao: string | null;
+    unidade: string | null;
+    quantidade: number;
+    valorUnitario: number;
+    valorTotal: number;
+    custoEstoque: number;
+  }>;
+};
+
 type EntryDetails = Record<string, unknown> & {
   id: number;
   status?: string | null;
@@ -72,6 +88,7 @@ type EntryDetails = Record<string, unknown> & {
   } | null;
   itens?: EntryItem[];
   transacoes?: EntryTransaction[];
+  personalizacaoFiscal?: FiscalCustomization | null;
 };
 
 type Props = {
@@ -126,6 +143,11 @@ function formatDateTime(value: unknown) {
 function numberValue(value: unknown) {
   const number = Number(value ?? 0);
   return Number.isFinite(number) ? number : 0;
+}
+
+function customizationDestinationLabel(destination: FiscalCustomization["destino"]) {
+  if (destination === "ESTOQUE") return "estoque de revenda";
+  return rotuloDeEscopo(destination).nome.toLocaleLowerCase("pt-BR");
 }
 
 function statusBadge(status?: string | null) {
@@ -202,6 +224,15 @@ export function EntryDetailsDialog({ entryId, inventory, open, onOpenChange }: P
   const entryTotal = numberValue(entry?.valor_total) || computedTotal;
   const totalUnits = items.reduce((total, item) => total + numberValue(item.quantidade), 0);
   const autor = entry?.criador?.nome;
+  const customization = entry?.personalizacaoFiscal ?? null;
+  const customizedItem = items[0];
+  const customizedRelatedItem = customizedItem?.produto || customizedItem?.item;
+  const customizedItemTitle = customizedItem
+    ? customizedItem.titulo ||
+      customizedRelatedItem?.titulo ||
+      `Item #${customizedItem.produto_id || customizedItem.item_id || customizedItem.id}`
+    : "item não identificado";
+  const customizedUnit = customizedItem?.unidade || customizedItem?.item?.unidade || "UN";
 
   function handleVerNfe() {
     onOpenChange(false);
@@ -324,6 +355,61 @@ export function EntryDetailsDialog({ entryId, inventory, open, onOpenChange }: P
               {entry.cancelada_at ? (
                 <p className="mt-1 text-xs text-muted-foreground">Cancelada em {formatDateTime(entry.cancelada_at)}</p>
               ) : null}
+            </div>
+          ) : null}
+
+          {customization && customizedItem ? (
+            <div className="overflow-hidden rounded-lg border border-amber-400/60 bg-amber-50/70 dark:bg-amber-950/15">
+              <div className="flex items-start gap-3 border-b border-amber-400/40 p-4">
+                <TriangleAlert className="mt-0.5 size-5 shrink-0 text-amber-700 dark:text-amber-300" />
+                <div className="min-w-0 space-y-1">
+                  <p className="font-semibold text-amber-950 dark:text-amber-100">
+                    Entrada fiscal personalizada
+                  </p>
+                  <p className="text-sm leading-relaxed text-amber-900 dark:text-amber-200">
+                    Os {customization.itensOriginais.length} itens originais da NF-e
+                    foram consolidados em{" "}
+                    <span className="font-semibold">
+                      {numberValue(customizedItem.quantidade).toLocaleString("pt-BR")} {customizedUnit} de {customizedItemTitle}
+                    </span>{" "}
+                    no {customizationDestinationLabel(customization.destino)}.
+                  </p>
+                  <p className="text-xs leading-relaxed text-amber-800 dark:text-amber-300">
+                    Custo incorporado ao estoque: {formatarEmReal(customization.custoTotalEstoque)}.
+                    {transactions.length
+                      ? ` O financeiro permaneceu pelo valor fiscal integral de ${formatarEmReal(entryTotal)}.`
+                      : ` O valor fiscal da entrada permaneceu em ${formatarEmReal(entryTotal)}, sem lançamento financeiro.`}
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-2 p-4">
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-amber-800 dark:text-amber-300">
+                  Itens recebidos no XML
+                </p>
+                <div className="grid gap-2">
+                  {customization.itensOriginais.map((original) => (
+                    <div
+                      key={`${original.numeroItem}-${original.codigo ?? "sem-codigo"}`}
+                      className="grid gap-2 rounded-md border border-amber-300/60 bg-background/80 p-3 text-xs sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium">
+                          Item {original.numeroItem} · {original.descricao || "Sem descrição"}
+                        </p>
+                        <p className="mt-0.5 text-muted-foreground">
+                          Código {original.codigo || "—"} · Unitário {formatarEmReal(original.valorUnitario)}
+                        </p>
+                      </div>
+                      <span className="font-medium tabular-nums">
+                        {original.quantidade.toLocaleString("pt-BR")} {original.unidade || "UN"}
+                      </span>
+                      <span className="font-semibold tabular-nums sm:text-right">
+                        {formatarEmReal(original.valorTotal)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           ) : null}
 

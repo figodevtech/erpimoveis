@@ -7,6 +7,7 @@ import { inferirDescontoGeralOs } from "@/lib/ordens/totais";
 import { mapPaymentMethodToNFe } from "@/lib/nfe/originFiscalDefaults";
 import { valorDeFace } from "@/lib/financeiro/transacao";
 import { exigirModelo, MODELO_NFE } from "@/lib/nfe/modeloDocumento";
+import type { CfopCandidate } from "@/lib/nfe/cfopOperation";
 import { resolverPadraoFiscalItem } from "@/lib/nfe/padraoFiscalItem";
 import { buscarContextoPadraoFiscal } from "@/services/fiscal/nfeConfigService";
 import { CAMPOS_ALVO_OS, carregarAlvoDaOs } from "@/services/fiscal/alvoDaOs";
@@ -21,6 +22,7 @@ type ProdutoDb = {
   descricao: string | null;
   ncm: string | null;
   cfop: string | null;
+  cfopCandidates: CfopCandidate[];
   codigobarras: string | null;
   referencia: string | null;
   unidade: string | null;
@@ -330,6 +332,10 @@ export async function GET(req: Request) {
         ncm: p?.ncm ?? null,
         cest: p?.cest ?? null,
         ...fiscal,
+        cfopCandidates: [
+          { value: p?.cfop ?? null, origin: "PRODUTO" },
+          { value: padrao?.cfop ?? null, origin: "PADRAO" },
+        ],
 
         codigobarras: p?.codigobarras ?? null,
         referencia: p?.referencia ?? null,

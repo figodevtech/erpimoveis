@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireEstoqueAccess, requireEstoqueEdit } from "@/app/api/_authz/perms";
 import { anexarAutor } from "@/lib/movement-authors";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { carregarPersonalizacaoFiscal } from "@/services/estoque/entradaFiscalPersonalizadaAuditService";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -33,11 +34,15 @@ export async function GET(_req: Request, { params }: Params) {
     const { data, error } = await supabaseAdmin.from("entrada").select(SELECT_ENTRADA).eq("id", id).maybeSingle();
     if (error) throw error;
     if (!data) return NextResponse.json({ error: "Entrada não encontrada." }, { status: 404 });
-    return NextResponse.json({
-      entrada: await anexarAutor({
+    const [entrada, personalizacaoFiscal] = await Promise.all([
+      anexarAutor({
         ...data,
         itens: Array.isArray(data.itens) ? [...data.itens].sort((a, b) => Number(a.id) - Number(b.id)) : [],
       }),
+      carregarPersonalizacaoFiscal("produto", Number(id)),
+    ]);
+    return NextResponse.json({
+      entrada: { ...entrada, personalizacaoFiscal },
     });
   } catch (error: any) {
     return NextResponse.json(

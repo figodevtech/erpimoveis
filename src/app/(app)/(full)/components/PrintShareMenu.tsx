@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { PRINT_ACTION_BUTTON_CLASS } from "@/lib/print/actionStyles";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -511,7 +512,7 @@ export function PrintShareMenu({
           <Button
             variant="outline"
             size="sm"
-            className="print:hidden !border-slate-300 !bg-white !text-slate-900 hover:!bg-slate-100 hover:!text-slate-900 hover:cursor-pointer"
+            className={`print:hidden ${PRINT_ACTION_BUTTON_CLASS}`}
           >
             <Share2 className="w-4 h-4 mr-2" />
             Compartilhar

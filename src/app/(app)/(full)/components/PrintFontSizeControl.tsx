@@ -15,6 +15,7 @@ import {
   PRINT_MAX_FONT_SCALE,
   type PrintFontScale,
 } from "@/lib/print/fontScale";
+import { PRINT_ACTION_BUTTON_CLASS } from "@/lib/print/actionStyles";
 
 export function PrintFontSizeControl() {
   const [fontScale, setFontScale] = useState<PrintFontScale>(PRINT_DEFAULT_FONT_SCALE);
@@ -63,7 +64,7 @@ export function PrintFontSizeControl() {
     >
       <Button
         aria-label="Diminuir texto da impressão"
-        className="min-w-9 px-2 font-bold"
+        className={`min-w-9 px-2 font-bold ${PRINT_ACTION_BUTTON_CLASS}`}
         disabled={fontScale === PRINT_DEFAULT_FONT_SCALE}
         onClick={() => setFontScale((current) => diminuirFonteImpressao(current))}
         size="sm"
@@ -81,7 +82,7 @@ export function PrintFontSizeControl() {
       </span>
       <Button
         aria-label="Aumentar texto da impressão"
-        className="min-w-9 px-2 font-bold"
+        className={`min-w-9 px-2 font-bold ${PRINT_ACTION_BUTTON_CLASS}`}
         disabled={fontScale === PRINT_MAX_FONT_SCALE}
         onClick={() => setFontScale((current) => aumentarFonteImpressao(current))}
         size="sm"

@@ -1,4 +1,4 @@
-import { isCfopCompatibleWithOperation } from "@/lib/nfe/cfopOperation";
+import { validateCfopForEmission } from "@/lib/nfe/cfopOperation";
 import { descontoPorItem, distribuirDinheiro } from "@/lib/nfe/descontoOrigem";
 import { normalizarIndIEDest } from "@/lib/nfe/indIEDest";
 import {
@@ -635,17 +635,21 @@ export async function salvarNFeDeOrigem(
   const empresaUf = await getEmpresaUf();
   itens.forEach((item, itemIndex) => {
     const cfop = onlyDigits(item.cfop);
-    if (
-      empresaUf &&
-      partnerUf &&
-      cfop &&
-      !isCfopCompatibleWithOperation(cfop, source.tipoOperacao, empresaUf, partnerUf)
-    ) {
+    const validation = validateCfopForEmission({
+      value: cfop,
+      modelo,
+      operation: source.tipoOperacao,
+      emitterUf: empresaUf,
+      // NFC-e é sempre interna, mesmo quando o consumidor identificado mora
+      // em outra UF; a UF dele não pode transformar o CFOP em interestadual.
+      partnerUf: isNfce ? empresaUf : partnerUf,
+    });
+    if (!validation.valid) {
       errors.push({
         step: "products",
         itemIndex,
         field: "cfop",
-        message: `CFOP ${cfop} é incompatível com esta operação de ${source.tipoOperacao === "ENTRADA" ? "entrada" : "saída"}.`,
+        message: validation.message ?? `CFOP ${cfop} inválido.`,
       });
     }
   });

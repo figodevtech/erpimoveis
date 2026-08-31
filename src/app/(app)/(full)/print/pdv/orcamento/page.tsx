@@ -15,6 +15,7 @@ import {
 } from "../../../pdv/components/pdv-orcamento-print";
 import { formatCep } from "@/app/(app)/(pages)/clientes/components/customerDialogRegister/utils";
 import { getTermoAceiteVenda } from "@/lib/print-aceite";
+import { PRINT_ACTION_BUTTON_CLASS } from "@/lib/print/actionStyles";
 
 const TERMO_ACEITE_PDV = getTermoAceiteVenda("ORCAMENTO");
 
@@ -178,7 +179,7 @@ function PrintPdvOrcamentoContent() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-3 text-center p-6">
         <p className="text-lg font-semibold">Orçamento do PDV não encontrado.</p>
-        <Button asChild variant="outline">
+        <Button asChild variant="outline" className={PRINT_ACTION_BUTTON_CLASS}>
           <Link href="/pdv">Voltar ao PDV</Link>
         </Button>
       </div>
@@ -533,7 +534,7 @@ function PrintPdvOrcamentoContent() {
           <div className="text-xs font-bold">Visualização de orçamento</div>
         </div>
         <div className="flex flex-row items-center gap-2">
-          <Button asChild size="sm" variant="outline" className="hover:cursor-pointer hover:text-black">
+          <Button asChild size="sm" variant="outline" className={PRINT_ACTION_BUTTON_CLASS}>
             <Link href="/pdv">
               <Power className="w-3 h-3" />
               Sair

@@ -23,7 +23,8 @@ import type {
 import { padraoDaOperacao } from "@/lib/nfe/padraoFiscalItem";
 import { getNFeFiscalFieldRules, NFE_FISCAL_RULE_VERSION, validateNFeItemTax } from "@/lib/nfe/taxRules";
 import { resolverNomeMunicipioIbge } from "@/lib/ibge/municipio";
-import { isCfopCompatibleWithOperation } from "@/lib/nfe/cfopOperation";
+import { validateCfopForEmission } from "@/lib/nfe/cfopOperation";
+import { validateCfopInCatalog } from "@/lib/nfe/cfopCatalog";
 import { preverProximoNumero } from "@/services/fiscal/nfeNumeracaoService";
 import {
   isValidCnpj,
@@ -811,8 +812,14 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
     if (onlyDigits(item.ncm).length !== 8) {
       errors.push({ step: "products", itemIndex: index, field: "ncm", message: "NCM deve ter 8 dígitos." });
     }
-    if (onlyDigits(item.cfop).length !== 4) {
-      errors.push({ step: "products", itemIndex: index, field: "cfop", message: "CFOP deve ter 4 dígitos." });
+    const cfopValidation = validateCfopInCatalog({ value: item.cfop, modelo });
+    if (!cfopValidation.valid) {
+      errors.push({
+        step: "products",
+        itemIndex: index,
+        field: "cfop",
+        message: cfopValidation.message ?? "CFOP inválido.",
+      });
     }
     if (!unidadesPermitidas.has(cleanText(item.unidade))) {
       errors.push({ step: "products", itemIndex: index, field: "unidade", message: "Unidade inválida." });
@@ -1385,20 +1392,21 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
   const destinatarioUf = cleanText(input.destinatario.estado).toUpperCase();
   const cfopErrors: ValidationError[] = input.itens.flatMap((item, itemIndex) => {
     const cfop = onlyDigits(item.cfop);
-    if (
-      cfop.length === 4 &&
-      !isCfopCompatibleWithOperation(
-        cfop,
-        input.operacao.tipoOperacao,
-        empresaUf,
-        destinatarioUf,
-      )
-    ) {
+    const validation = validateCfopForEmission({
+      value: cfop,
+      modelo,
+      operation: input.operacao.tipoOperacao,
+      emitterUf: empresaUf,
+      // No modelo 65 o destino da operação é sempre interno. A UF eventual do
+      // consumidor identificado não altera o prefixo permitido do CFOP.
+      partnerUf: isNfce ? empresaUf : destinatarioUf,
+    });
+    if (!validation.valid) {
       return [{
         step: "products",
         itemIndex,
         field: "cfop",
-        message: `CFOP ${cfop} é incompatível com a operação de ${input.operacao.tipoOperacao === "ENTRADA" ? "entrada" : "saída"} e o destino informado.`,
+        message: validation.message ?? `CFOP ${cfop} inválido.`,
       }];
     }
     return [];

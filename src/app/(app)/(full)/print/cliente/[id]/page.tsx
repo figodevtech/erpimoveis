@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { PrintShareMenu } from "../../../components/PrintShareMenu";
 import { fetchPrintColors } from "@/lib/print-config";
 import { normalizarIndIEDest, INDICADORES_IE_DEST } from "@/lib/nfe/indIEDest";
+import { PRINT_ACTION_BUTTON_CLASS } from "@/lib/print/actionStyles";
 import { calcularScoreCliente, type ResumoFinanceiroCliente } from "@/lib/financeiro/score-cliente";
 import { carregarTitulosDoCliente } from "@/lib/financeiro/titulos-cliente";
 
@@ -754,7 +755,7 @@ export default async function ClientePrintPage({ params }: PageProps) {
             asChild
             size="sm"
             variant="outline"
-            className="!border-slate-300 !bg-white !text-slate-900 hover:!bg-slate-100 hover:!text-slate-900 hover:cursor-pointer"
+            className={PRINT_ACTION_BUTTON_CLASS}
           >
             <Link href="/clientes">
               <Power className="w-3 h-3" />

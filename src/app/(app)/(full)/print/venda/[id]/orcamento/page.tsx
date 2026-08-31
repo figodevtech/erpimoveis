@@ -17,6 +17,7 @@ import { fetchLogoEmpresaDataUrl } from "@/lib/empresa-logo";
 import { fetchPrintColors } from "@/lib/print-config";
 import { getTermoAceiteVenda } from "@/lib/print-aceite";
 import { loadPrintPaymentSummary } from "@/lib/print-payment-display-server";
+import { PRINT_ACTION_BUTTON_CLASS } from "@/lib/print/actionStyles";
 
 export const runtime = "nodejs";
 
@@ -483,7 +484,7 @@ export default async function PrintVendaOrcamentoPage({ params }: PageProps) {
             asChild
             size="sm"
             variant="outline"
-            className="hover:cursor-pointer hover:text-black"
+            className={PRINT_ACTION_BUTTON_CLASS}
           >
             <Link href="/historicovendas">
               <Power className="w-3 h-3" aria-hidden="true" />

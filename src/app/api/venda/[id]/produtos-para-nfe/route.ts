@@ -4,6 +4,7 @@ import { requireVendasAccess } from "@/app/api/_authz/perms";
 import { mapSalesChannelToPresence } from "@/lib/nfe/originFiscalDefaults";
 import { descontoPorItem, parcelaDoDescontoNaNota } from "@/lib/nfe/descontoOrigem";
 import { exigirModelo, MODELO_NFE } from "@/lib/nfe/modeloDocumento";
+import type { CfopCandidate } from "@/lib/nfe/cfopOperation";
 import { resolverPadraoFiscalItem } from "@/lib/nfe/padraoFiscalItem";
 import { buscarContextoPadraoFiscal } from "@/services/fiscal/nfeConfigService";
 import { comporObservacoesComGarantia } from "@/lib/fiscal/garantiaObservacoes";
@@ -17,6 +18,7 @@ type ProdutoDb = {
   descricao: string | null;
   ncm: string | null;
   cfop: string | null;
+  cfopCandidates: CfopCandidate[];
   codigobarras: string | null;
   referencia: string | null;
   unidade: string | null;
@@ -275,6 +277,10 @@ export async function GET(
         ncm: p?.ncm ?? null,
         cest: p?.cest ?? null,
         ...fiscal,
+        cfopCandidates: [
+          { value: p?.cfop ?? null, origin: "PRODUTO" },
+          { value: padrao?.cfop ?? null, origin: "PADRAO" },
+        ],
 
         codigobarras: p?.codigobarras ?? null,
         referencia: p?.referencia ?? null,

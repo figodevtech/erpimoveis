@@ -74,10 +74,12 @@ export type UsoConsumoItemOption = {
   /**
    * Bloco fiscal do cadastro. Opcional porque nem todo consumidor do dialog
    * precisa dele; a NF-e avulsa usa para montar o item da nota sem redigitação.
-   * Note que `cfop_entrada` não vem: é CFOP de entrada e não serve para saída.
+   * `cfop_entrada` atende ao diálogo de entrada e deve ser ignorado por fluxos
+   * de saída, que calculam o CFOP apropriado à operação.
    */
   ncm?: string | null;
   cest?: string | null;
+  cfop_entrada?: string | null;
   origem_mercadoria?: string | null;
   csosn?: string | null;
   cst?: string | null;
@@ -112,6 +114,8 @@ type Props = {
    * so evita duplicar o botao na barra de acoes.
    */
   permitirTrocaDeEscopo?: boolean;
+  /** Permite abrir o cadastro sem sair do seletor. */
+  permitirCriacao?: boolean;
 };
 
 export function ItemSelectDialog({
@@ -121,6 +125,7 @@ export function ItemSelectDialog({
   children,
   escopo = "USOCONSUMO",
   permitirTrocaDeEscopo = false,
+  permitirCriacao = true,
 }: Props) {
   const { data: session } = useSession();
   const canCreateItem = permissionSetHas(
@@ -212,8 +217,8 @@ export function ItemSelectDialog({
   }, [open, search, escopoAtivo]);
 
   useEffect(() => {
-    if (open && canCreateItem) void loadGroups();
-  }, [open, canCreateItem]);
+    if (open && permitirCriacao && canCreateItem) void loadGroups();
+  }, [open, permitirCriacao, canCreateItem]);
 
   useEffect(() => () => requestController.current?.abort(), []);
 
@@ -253,6 +258,21 @@ export function ItemSelectDialog({
   return (
     <Dialog
       onOpenChange={(nextOpen) => {
+        // O mesmo seletor pode ser reutilizado enquanto o destino da entrada
+        // muda. Ao abrir, a prop atual e a autoridade; nao reutilize o filtro
+        // interno deixado pela abertura anterior.
+        if (nextOpen) {
+          requestSequence.current += 1;
+          requestController.current?.abort();
+          setEscopoAtivo(escopo);
+          setItems([]);
+          setPagination((current) => ({
+            ...current,
+            total: 0,
+            page: 1,
+            totalPages: 0,
+          }));
+        }
         setOpen(nextOpen);
         if (!nextOpen) {
           setSearchInput("");
@@ -282,7 +302,7 @@ export function ItemSelectDialog({
               </div>
             </div>
 
-            {canCreateItem && (
+            {permitirCriacao && canCreateItem && (
               <div className="flex items-center gap-2">
                 <Button
                   type="button"

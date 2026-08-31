@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PRINT_ACTION_BUTTON_CLASS } from "@/lib/print/actionStyles";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -87,7 +88,7 @@ export function PrintDisplayOptionsMenu({
           type="button"
           size="sm"
           variant="outline"
-          className="!border-slate-300 !bg-white !text-slate-900 hover:!bg-slate-100 hover:!text-slate-900 hover:cursor-pointer"
+          className={PRINT_ACTION_BUTTON_CLASS}
         >
           <SlidersHorizontal className="w-3 h-3" aria-hidden="true" />
           {label}

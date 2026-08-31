@@ -119,6 +119,7 @@ export async function GET(_request: Request, context: Context) {
         // para o assistente bloquear e pedir uma decisão explícita. O CFOP de
         // venda do produto não pode classificar uma operação diferente.
         cfop: cfopSugerido || null,
+        cfopCandidates: [{ value: cfopSugerido || null, origin: "OPERACAO_SAIDA" }],
         codigobarras: produto?.codigobarras ?? null,
         referencia: produto?.referencia ?? null,
         unidade: produto?.unidade ?? "UN",

@@ -26,6 +26,7 @@ import {
 } from "../../../components/PrintDocumentHeader";
 import { fetchLogoEmpresaDataUrl } from "@/lib/empresa-logo";
 import { fetchPrintColors } from "@/lib/print-config";
+import { PRINT_ACTION_BUTTON_CLASS } from "@/lib/print/actionStyles";
 
 export const runtime = "nodejs";
 
@@ -435,7 +436,7 @@ export default async function OrcamentoPrintPage({ params }: PageProps) {
 
       <div className="barra-acoes">
         <Link href="/orcamentos">
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" className={PRINT_ACTION_BUTTON_CLASS}>
             Voltar
           </Button>
         </Link>

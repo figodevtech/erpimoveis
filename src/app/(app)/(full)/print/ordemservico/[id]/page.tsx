@@ -6,6 +6,7 @@ import { Car, ClipboardList, Cog, Tag, User, Power } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { formatCep } from "@/app/(app)/(pages)/clientes/components/customerDialogRegister/utils";
 import { Button } from "@/components/ui/button";
+import { PRINT_ACTION_BUTTON_CLASS } from "@/lib/print/actionStyles";
 import Link from "next/link";
 import { PrintDisplayOptionsMenu } from "../../../components/PrintDisplayOptionsMenu";
 import { PrintShareMenu } from "../../../components/PrintShareMenu";
@@ -1057,7 +1058,7 @@ export default async function OSFullPage({ params }: PageProps) {
             asChild
             size={"sm"}
             variant={"outline"}
-            className="!border-slate-300 !bg-white !text-slate-900 hover:!bg-slate-100 hover:!text-slate-900 hover:cursor-pointer"
+            className={PRINT_ACTION_BUTTON_CLASS}
           >
             <Link href="/ordens">
               <Power className="w-3 h-3" aria-hidden="true" />

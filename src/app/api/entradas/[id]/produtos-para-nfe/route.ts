@@ -201,6 +201,11 @@ export async function GET(_request: Request, context: Context) {
         ncm: row.ncm ?? produto?.ncm ?? null,
         cest: row.cest ?? produto?.cest ?? null,
         ...fiscal,
+        cfopCandidates: [
+          { value: row.cfop ?? null, origin: "ENTRADA" },
+          { value: produto?.cfop ?? null, origin: "PRODUTO" },
+          { value: padrao?.cfop ?? null, origin: "PADRAO" },
+        ],
         codigobarras: produto?.codigobarras ?? null,
         referencia: row.referencia ?? produto?.referencia ?? null,
         unidade: row.unidade ?? produto?.unidade ?? "UN",

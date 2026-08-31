@@ -7,6 +7,7 @@ import { toJpeg } from "html-to-image";
 
 import { Button } from "@/components/ui/button";
 import { toast } from "@/lib/toast";
+import { PRINT_ACTION_BUTTON_CLASS } from "@/lib/print/actionStyles";
 
 type PdfImage = { bytes: Uint8Array; width: number; height: number };
 
@@ -139,14 +140,14 @@ export function A4PdfActions({
 
   return (
     <div className="print:hidden flex items-center gap-2">
-      <Button asChild type="button" variant="outline" size="sm">
+      <Button asChild type="button" variant="outline" size="sm" className={PRINT_ACTION_BUTTON_CLASS}>
         <Link href={backHref}>Voltar</Link>
       </Button>
-      <Button type="button" variant="outline" size="sm" onClick={() => void downloadPdf()} disabled={generating}>
+      <Button className={PRINT_ACTION_BUTTON_CLASS} type="button" variant="outline" size="sm" onClick={() => void downloadPdf()} disabled={generating}>
         {generating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
         {generating ? "Gerando PDF..." : "Baixar PDF"}
       </Button>
-      <Button type="button" variant="outline" size="sm" onClick={() => window.print()}>
+      <Button className={PRINT_ACTION_BUTTON_CLASS} type="button" variant="outline" size="sm" onClick={() => window.print()}>
         <Printer className="mr-2 h-4 w-4" />Imprimir
       </Button>
     </div>

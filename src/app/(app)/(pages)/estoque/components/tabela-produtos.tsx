@@ -385,19 +385,18 @@ export default function TabelaProdutos({
         />
         <DialogEntradaGeral
           open={entradaGeralOpen}
-          onOpenChange={(open) => {
-            if (!open) {
-              setEntradaGeralOpen(false);
+          onOpenChange={setEntradaGeralOpen}
+          onSaved={async () => {
+            await Promise.all([
               handleGetProducts(
                 pagination.page,
                 pagination.limit,
                 search,
                 status,
                 filters,
-              );
-            } else {
-              setEntradaGeralOpen(true);
-            }
+              ),
+              fetchStatusCounts(),
+            ]);
           }}
         />
       </CardHeader>

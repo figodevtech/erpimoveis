@@ -16,10 +16,14 @@ import {
 } from "@/lib/nfe/difal";
 export { aplicarSugestaoDifal, type DifalContexto } from "@/lib/nfe/difal-sugestao";
 import {
-  isCfopCompatibleWithOperation,
-  normalizeCfopForOperation,
+  resolveCfopForEmission,
+  validateCfopForEmission,
+  type CfopCandidate,
+  type CfopResolution,
   type NFeOperationDirection,
 } from "@/lib/nfe/cfopOperation";
+import { MODELO_NFE } from "@/lib/nfe/modeloDocumento";
+import type { ModeloDocumentoFiscal } from "@/lib/nfe/types";
 import { descontoPorItem } from "@/lib/nfe/descontoOrigem";
 
 export type FiscalSetup = {
@@ -58,6 +62,7 @@ export type SourceProduct = {
   valorDescontoProprio?: number | null;
   ncm: string | null;
   cfop: string | null;
+  cfopCandidates?: CfopCandidate[] | null;
   codigobarras: string | null;
   referencia?: string | null;
   unidade?: string | null;
@@ -109,6 +114,8 @@ export type AssistedFiscalItem = {
   valorDescontoProprio: number;
   ncm: string;
   cfop: string;
+  /** Metadados exclusivos da interface; não são enviados nem entram no XML. */
+  cfopResolution: CfopResolution | null;
   unidade: string;
   orig: string;
   csosn: string;
@@ -216,6 +223,7 @@ export function createAssistedItem(
     parceiroUf?: string | null;
     indFinal?: number | string;
     indIEDest?: number | string;
+    modelo?: ModeloDocumentoFiscal;
   },
 ): AssistedFiscalItem {
   const crt = Number(setup.empresa?.crt ?? 0);
@@ -224,8 +232,20 @@ export function createAssistedItem(
   // Os valores abaixo são ponto de partida — o usuário confirma ou corrige.
   const ufEmitente = String(setup.empresa?.uf ?? "");
   const ufDestino = String(context?.parceiroUf ?? "");
+  const tipoOperacao = context?.tipoOperacao ?? "SAIDA";
+  const modelo = context?.modelo ?? MODELO_NFE;
+  const cfopResolution = resolveCfopForEmission({
+    candidates:
+      source.cfopCandidates?.length
+        ? source.cfopCandidates
+        : [{ value: source.cfop, origin: "PRODUTO" }],
+    modelo,
+    operation: tipoOperacao,
+    emitterUf: setup.empresa?.uf,
+    partnerUf: context?.parceiroUf,
+  });
   const exigeDifal =
-    (context?.tipoOperacao ?? "SAIDA") === "SAIDA" &&
+    tipoOperacao === "SAIDA" &&
     Boolean(ufEmitente && ufDestino) &&
     deveGerarICMSUFDest({
       ufEmitente,
@@ -233,7 +253,7 @@ export function createAssistedItem(
       indFinal: context?.indFinal ?? 1,
       indIEDest: context?.indIEDest ?? 9,
       tpNF: 1,
-      cfop: source.cfop,
+      cfop: cfopResolution.cfop,
     });
   const internaSugerida = exigeDifal
     ? ALIQUOTA_INTERNA_POR_UF[ufDestino.trim().toUpperCase()]
@@ -253,12 +273,8 @@ export function createAssistedItem(
     valorDesconto: Math.max(0, Number(source.valorDesconto || 0)),
     valorDescontoProprio: Math.max(0, Number(source.valorDescontoProprio || 0)),
     ncm: onlyDigits(source.ncm),
-    cfop: normalizeCfopForOperation(
-      source.cfop,
-      context?.tipoOperacao ?? "SAIDA",
-      setup.empresa?.uf,
-      context?.parceiroUf,
-    ),
+    cfop: cfopResolution.cfop,
+    cfopResolution,
     unidade: source.unidade || "UN",
     orig: String(source.origem_mercadoria ?? ""),
     csosn: crt === 1 || crt === 4 ? normalizeCode(source.csosn, 3) : "",
@@ -373,6 +389,9 @@ export function aplicarCamposFiscais(
     valorUnitario,
     subtotal: Number((item.quantidade * valorUnitario).toFixed(2)),
     cfop: manter(campos.cfop, item.cfop),
+    // O espelho pode substituir o CFOP; uma justificativa da resolução
+    // anterior deixaria de descrever o valor que está na tela.
+    cfopResolution: texto(campos.cfop) ? null : item.cfopResolution,
     orig: manter(campos.origem_mercadoria, item.orig),
     csosn: manter(campos.csosn, item.csosn),
     cst: manter(campos.cst, item.cst),
@@ -505,6 +524,7 @@ export function validateAssistedItem(
     clienteUf?: string | null;
     parceiroUf?: string | null;
     tipoOperacao?: NFeOperationDirection;
+    modelo?: ModeloDocumentoFiscal;
   },
 ): AssistedItemIssue[] {
   const issues: AssistedItemIssue[] = [];
@@ -541,18 +561,21 @@ export function validateAssistedItem(
   const empresaUf = String(setup.empresa?.uf ?? "").toUpperCase();
   const parceiroUf = String(context?.parceiroUf ?? context?.clienteUf ?? "").toUpperCase();
   const tipoOperacao = context?.tipoOperacao ?? "SAIDA";
-  if (
-    cfop.length === 4 &&
-    empresaUf &&
-    parceiroUf &&
-    !isCfopCompatibleWithOperation(cfop, tipoOperacao, empresaUf, parceiroUf)
-  ) {
-    const sentido = tipoOperacao === "ENTRADA" ? "entrada" : "saída";
-    issues.push({
-      code: "NFE_CFOP_DESTINATION_MISMATCH",
-      field: "cfop",
-      message: `CFOP incompatível com a operação de ${sentido} entre ${empresaUf} e ${parceiroUf}.`,
+  if (cfop.length === 4) {
+    const validation = validateCfopForEmission({
+      value: cfop,
+      modelo: context?.modelo ?? MODELO_NFE,
+      operation: tipoOperacao,
+      emitterUf: empresaUf,
+      partnerUf: parceiroUf,
     });
+    if (!validation.valid) {
+      issues.push({
+        code: `NFE_CFOP_${validation.code}`,
+        field: "cfop",
+        message: validation.message ?? "CFOP inválido.",
+      });
+    }
   }
 
   const cst = normalizeCode(item.cst, 2);

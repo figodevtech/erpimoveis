@@ -5,20 +5,37 @@ import {
 } from "@/components/ui/dialog";
 import RegisterContent from "./register-content";
 import EditContent from "./edit-content";
+import type { UsoConsumoEscopo } from "@/lib/usoconsumo/escopo";
 
-
-interface DialogEntradaGeralProps {
-  selectedEntradaId?: number;
+type BaseDialogEntradaGeralProps = {
   children?: React.ReactNode;
   open?: boolean;
   onOpenChange?: (v: boolean) => void;
-}
+  onSaved?: () => void | Promise<void>;
+};
+
+export type DialogEntradaGeralProps = BaseDialogEntradaGeralProps &
+  (
+    | {
+        inventory?: "produto";
+        escopo?: never;
+        selectedEntradaId?: number;
+      }
+    | {
+        inventory: "usoconsumo";
+        escopo: UsoConsumoEscopo;
+        selectedEntradaId?: never;
+      }
+  );
 
 export function DialogEntradaGeral({
   children,
   open,
   onOpenChange,
+  onSaved,
   selectedEntradaId,
+  inventory = "produto",
+  escopo,
 }: DialogEntradaGeralProps) {
 
   return (
@@ -27,7 +44,13 @@ export function DialogEntradaGeral({
       {selectedEntradaId ? (
         <EditContent selectedEntradaId={selectedEntradaId} />
       ) : (
-        <RegisterContent open={open} onOpenChange={onOpenChange} />
+        <RegisterContent
+          open={open}
+          onOpenChange={onOpenChange}
+          onSaved={onSaved}
+          inventory={inventory}
+          escopo={escopo}
+        />
       )}
     </Dialog>
   );

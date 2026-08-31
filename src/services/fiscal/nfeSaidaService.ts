@@ -1,4 +1,4 @@
-import { isCfopCompatibleWithOperation } from "@/lib/nfe/cfopOperation";
+import { validateCfopForEmission } from "@/lib/nfe/cfopOperation";
 import {
   destinoDaCompraPorOperacao,
   sugerirCfopDevolucaoDeCompra,
@@ -1016,12 +1016,19 @@ async function salvarNFeDaSaidaUnica(saidaId: number, input: NFeSaidaDraftInput)
 
   const ufEmitente = await buscarUfEmitente();
   itens.forEach((item, itemIndex) => {
-    if (!isCfopCompatibleWithOperation(item.cfop, "SAIDA", ufEmitente, destinatario.estado)) {
+    const validation = validateCfopForEmission({
+      value: item.cfop,
+      modelo: MODELO_NFE,
+      operation: "SAIDA",
+      emitterUf: ufEmitente,
+      partnerUf: destinatario.estado,
+    });
+    if (!validation.valid) {
       errors.push({
         step: "products",
         itemIndex,
         field: "cfop",
-        message: `CFOP ${onlyDigits(item.cfop)} é incompatível com a saída para ${destinatario.estado || "a UF informada"}.`,
+        message: validation.message ?? `CFOP ${onlyDigits(item.cfop)} inválido.`,
       });
     }
   });
@@ -1300,12 +1307,19 @@ export async function salvarNFeDaSaida(saidaId: number, input: NFeSaidaDraftInpu
 
   const ufEmitente = await buscarUfEmitente();
   itens.forEach((item, itemIndex) => {
-    if (!isCfopCompatibleWithOperation(item.cfop, "SAIDA", ufEmitente, destinatario.estado)) {
+    const validation = validateCfopForEmission({
+      value: item.cfop,
+      modelo: MODELO_NFE,
+      operation: "SAIDA",
+      emitterUf: ufEmitente,
+      partnerUf: destinatario.estado,
+    });
+    if (!validation.valid) {
       errors.push({
         step: "products",
         itemIndex,
         field: "cfop",
-        message: `CFOP ${onlyDigits(item.cfop)} é incompatível com a saída para ${destinatario.estado || "a UF informada"}.`,
+        message: validation.message ?? `CFOP ${onlyDigits(item.cfop)} inválido.`,
       });
     }
   });
