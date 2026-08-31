@@ -33,9 +33,7 @@
     "migracao:garage:os-historicas": "tsx scripts/migracao/garagepremium-os-historicas.ts",
     "migracao:garage:os-pnr5f15": "tsx scripts/migracao/garagepremium-os-pnr5f15.ts",
     "migracao:garage:os-troca-titularidade": "tsx scripts/migracao/garagepremium-os-troca-titularidade.ts",
-<<<<<<< HEAD
     "migracao:garage:os-titular-divergente": "tsx scripts/migracao/garagepremium-os-titular-divergente.ts",
-=======
     "migracao:garage:os-chassi-cadastrado": "tsx scripts/migracao/garagepremium-os-chassi-cadastrado.ts",
     "migracao:garage:os-placa-prioritaria": "tsx scripts/migracao/garagepremium-os-placa-prioritaria.ts",
     "migracao:garage:os-pendentes-xlsx": "tsx scripts/migracao/garagepremium-os-pendentes-xlsx.ts",
@@ -45,7 +43,6 @@
     "migracao:garage:criar-veiculos-vincular-os": "tsx scripts/migracao/garagepremium-criar-veiculos-vincular-os.ts",
     "migracao:garage:clientes-nao-cadastrados-xlsx": "tsx scripts/migracao/garagepremium-clientes-nao-cadastrados-xlsx.ts",
     "migracao:garage:os-sem-cliente": "tsx scripts/migracao/garagepremium-os-sem-cliente.ts",
->>>>>>> 06598fd06be35255bc20eb0caedc2e08bf8395cb
     "test:fiscal": "tsx --test src/services/fiscal/*.test.ts",
     "test:dre": "tsx --test src/app/api/dre/*.test.ts",
     "db:remover-fantasma": "tsx scripts/db/remover-versao-fantasma.ts",
