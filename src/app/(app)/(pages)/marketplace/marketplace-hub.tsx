@@ -6,12 +6,14 @@ import ShopeeMarketplace from "./shopee-marketplace";
 import MarketplaceAll from "./marketplace-all";
 import { MarketplaceChannelProvider, type MarketplaceChannel } from "./marketplace-channel";
 
-export default function MarketplaceHub() {
+export default function MarketplaceHub({ shopeeEnabled }: { shopeeEnabled: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const requested = searchParams.get("canal");
-  const channel: MarketplaceChannel = requested === "shopee" || requested === "mercadolivre" ? requested : "all";
+  const channel: MarketplaceChannel = shopeeEnabled
+    ? requested === "shopee" || requested === "mercadolivre" ? requested : "all"
+    : "mercadolivre";
 
   function setChannel(nextChannel: MarketplaceChannel) {
     const params = new URLSearchParams(searchParams.toString());
@@ -23,8 +25,8 @@ export default function MarketplaceHub() {
   }
 
   return (
-    <MarketplaceChannelProvider channel={channel} setChannel={setChannel}>
-      {channel === "all" ? <MarketplaceAll /> : channel === "mercadolivre" ? <MercadoLivreMarketplace /> : <ShopeeMarketplace />}
+    <MarketplaceChannelProvider channel={channel} setChannel={setChannel} shopeeEnabled={shopeeEnabled}>
+      {!shopeeEnabled || channel === "mercadolivre" ? <MercadoLivreMarketplace /> : channel === "all" ? <MarketplaceAll /> : <ShopeeMarketplace />}
     </MarketplaceChannelProvider>
   );
 }

@@ -2,6 +2,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   getMercadoLivreOrder,
   mercadoLivreApiGet,
+  mercadoLivreTokenMetadata,
   refreshMercadoLivreToken,
   searchMercadoLivreOrders,
   tokenExpiresAt,
@@ -243,7 +244,7 @@ async function ensureValidAccessToken(account: MercadoLivreAccount) {
       token_type: token.token_type ?? null,
       scope: token.scope ?? null,
       expires_at: tokenExpiresAt(token.expires_in),
-      raw_token: token,
+      raw_token: mercadoLivreTokenMetadata(token),
       updated_at: new Date().toISOString(),
     })
     .eq("id", account.id);

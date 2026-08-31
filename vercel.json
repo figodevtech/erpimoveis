@@ -8,8 +8,8 @@
   },
   "crons": [
     {
-      "path": "/api/integracoes/shopee/cron",
-      "schedule": "0 3 * * *"
+      "path": "/api/integracoes/mercadolivre/cron",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

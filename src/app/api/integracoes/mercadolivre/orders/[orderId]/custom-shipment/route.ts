@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireVendasEdit } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
-import { mercadoLivreApiGet, mercadoLivreApiPost, mercadoLivreApiPut, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
+import { mercadoLivreApiGet, mercadoLivreApiPost, mercadoLivreApiPut, mercadoLivreTokenMetadata, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
+import { buildMercadoLivreMe1TrackingEvent } from "@/lib/integrations/mercadolivre-me1";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -96,6 +97,7 @@ export async function POST(req: NextRequest, ctx: ParamsCtx) {
       sellerNotification = await updateMercadoLivreShipmentStatus(accessToken, {
         shipmentId,
         shipmentMode,
+        siteId: account.site_id,
         receiverId: Number(currentShipment?.receiver_id ?? currentShipment?.receiver_address?.receiver_id ?? order.buyer_id),
         carrier,
         trackingCode,
@@ -266,6 +268,7 @@ async function updateMercadoLivreShipmentStatus(
   params: {
     shipmentId: number;
     shipmentMode: string;
+    siteId: string | null;
     receiverId: number;
     carrier: string;
     trackingCode: string;
@@ -297,17 +300,21 @@ async function updateMercadoLivreShipmentStatus(
     );
   }
 
-  return mercadoLivreApiPost<any>(accessToken, `/shipments/${encodeURIComponent(String(params.shipmentId))}/seller_notifications`, {
-    payload: {
-      service_id: 11,
-      comment: `Enviado por ${formatCarrierLabel(params.carrier)}`,
-      date: params.date,
-    },
-    tracking_number: params.trackingCode || undefined,
-    tracking_url: params.trackingUrl || undefined,
+  const event = buildMercadoLivreMe1TrackingEvent({
+    siteId: params.siteId,
+    carrierLabel: formatCarrierLabel(params.carrier),
+    date: params.date,
+    trackingNumber: params.trackingCode,
+    trackingUrl: params.trackingUrl,
     status: params.status,
     substatus: params.substatus,
   });
+
+  return mercadoLivreApiPost<any>(
+    accessToken,
+    `/v2/shipments/${encodeURIComponent(String(params.shipmentId))}/seller_notifications`,
+    event,
+  );
 }
 
 function parseDeliverySpeedHours(value: string) {
@@ -330,7 +337,7 @@ async function ensureValidAccessToken(account: MercadoLivreAccount) {
       token_type: token.token_type ?? null,
       scope: token.scope ?? null,
       expires_at: tokenExpiresAt(token.expires_in),
-      raw_token: token,
+      raw_token: mercadoLivreTokenMetadata(token),
       updated_at: new Date().toISOString(),
     })
     .eq("id", account.id);

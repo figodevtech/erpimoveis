@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { requireVendasCreate } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
-import { getMercadoLivreOrder, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
+import { getMercadoLivreOrder, mercadoLivreTokenMetadata, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
 import { importMercadoLivreOrder } from "@/lib/integrations/mercadolivre-orders";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -109,7 +109,7 @@ async function ensureValidAccessToken(account: MercadoLivreAccount) {
       token_type: token.token_type ?? null,
       scope: token.scope ?? null,
       expires_at: tokenExpiresAt(token.expires_in),
-      raw_token: token,
+      raw_token: mercadoLivreTokenMetadata(token),
       updated_at: new Date().toISOString(),
     })
     .eq("id", account.id);

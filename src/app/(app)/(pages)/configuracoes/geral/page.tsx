@@ -60,6 +60,8 @@ import {
   type StatusOSValido,
 } from "@/lib/ordens/destaque";
 
+const SHOPEE_INTEGRATION_ENABLED = process.env.NEXT_PUBLIC_SHOPEE_INTEGRATION_ENABLED === "true";
+
 type UsoConsultasPlaca = {
   limite: number;
   usadas: number;
@@ -284,13 +286,13 @@ export default function ConfigGeralPage() {
         fetch("/api/config", { cache: "no-store" }),
         fetch("/api/config/empresa", { cache: "no-store" }),
         fetch("/api/config/integracoes/mercadolivre", { cache: "no-store" }),
-        fetch("/api/config/integracoes/shopee", { cache: "no-store" }),
+        SHOPEE_INTEGRATION_ENABLED ? fetch("/api/config/integracoes/shopee", { cache: "no-store" }) : Promise.resolve(null),
         fetch("/api/tipos/setores", { cache: "no-store" }),
       ]);
       const data = await response.json();
       const empresaData = await empresaResponse.json().catch(() => ({}));
       const mercadoLivreData = await mercadoLivreResponse.json().catch(() => ({}));
-      const shopeeData = await shopeeResponse.json().catch(() => ({}));
+      const shopeeData = shopeeResponse ? await shopeeResponse.json().catch(() => ({})) : {};
       const setoresData = await setoresResponse.json().catch(() => ({}));
       if (response.ok && data.config) {
         reset(data.config);
@@ -316,7 +318,7 @@ export default function ConfigGeralPage() {
         setEmpresaResumo(null);
       }
       setMercadoLivreAccount(mercadoLivreResponse.ok ? mercadoLivreData?.account ?? null : null);
-      setShopeeIntegration(shopeeResponse.ok ? {
+      setShopeeIntegration(shopeeResponse?.ok ? {
         configured: Boolean(shopeeData?.configured),
         missing: shopeeData?.missing ?? [],
         account: shopeeData?.account ?? null,
@@ -468,7 +470,7 @@ export default function ConfigGeralPage() {
             </Button>
           </section>
 
-          <MarketplaceConnectionCard
+          {SHOPEE_INTEGRATION_ENABLED ? <MarketplaceConnectionCard
             icon={<Store className="h-5 w-5" />}
             iconClass="bg-amber-500/15 text-amber-700 dark:text-amber-400"
             name="Mercado Livre"
@@ -484,7 +486,7 @@ export default function ConfigGeralPage() {
             disconnecting={desconectandoMercadoLivre}
             disconnectTitle="Desconectar conta Mercado Livre?"
             disconnectDescription="Os pedidos históricos serão preservados. Os vínculos dos anúncios serão removidos e precisarão ser refeitos ao conectar outra conta."
-          />
+          /> : null}
 
           <MarketplaceConnectionCard
             icon={<ShoppingBag className="h-5 w-5" />}

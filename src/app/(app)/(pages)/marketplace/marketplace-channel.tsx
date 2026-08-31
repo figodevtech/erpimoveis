@@ -10,20 +10,24 @@ export type MarketplaceChannel = "all" | "mercadolivre" | "shopee";
 const MarketplaceChannelContext = createContext<{
   channel: MarketplaceChannel;
   setChannel: (channel: MarketplaceChannel) => void;
+  shopeeEnabled: boolean;
 } | null>(null);
 
-export function MarketplaceChannelProvider({ channel, setChannel, children }: {
+export function MarketplaceChannelProvider({ channel, setChannel, shopeeEnabled, children }: {
   channel: MarketplaceChannel;
   setChannel: (channel: MarketplaceChannel) => void;
+  shopeeEnabled: boolean;
   children: React.ReactNode;
 }) {
-  return <MarketplaceChannelContext.Provider value={{ channel, setChannel }}>{children}</MarketplaceChannelContext.Provider>;
+  return <MarketplaceChannelContext.Provider value={{ channel, setChannel, shopeeEnabled }}>{children}</MarketplaceChannelContext.Provider>;
 }
 
 export function MarketplaceChannelSwitcher() {
   const context = useContext(MarketplaceChannelContext);
   if (!context) return null;
-  const current = CHANNELS.find((item) => item.id === context.channel) ?? CHANNELS[0];
+  const channels = context.shopeeEnabled ? CHANNELS : CHANNELS.filter((item) => item.id === "mercadolivre");
+  const current = channels.find((item) => item.id === context.channel) ?? channels[0];
+  if (channels.length === 1) return null;
   const CurrentIcon = current.icon;
 
   return (
@@ -43,7 +47,7 @@ export function MarketplaceChannelSwitcher() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-72 p-1.5">
-        {CHANNELS.map((item) => {
+        {channels.map((item) => {
           const Icon = item.icon;
           return (
             <DropdownMenuItem key={item.id} className="gap-3 rounded-md p-3" onClick={() => context.setChannel(item.id)}>

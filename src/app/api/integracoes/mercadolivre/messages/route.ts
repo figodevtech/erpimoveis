@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireVendasAccess, requireVendasEdit } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
-import { mercadoLivreApiGet, mercadoLivreApiPost, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
+import { mercadoLivreApiGet, mercadoLivreApiPost, mercadoLivreTokenMetadata, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -166,7 +166,7 @@ async function ensureValidAccessToken(account: MercadoLivreAccount) {
       token_type: token.token_type ?? null,
       scope: token.scope ?? null,
       expires_at: tokenExpiresAt(token.expires_in),
-      raw_token: token,
+      raw_token: mercadoLivreTokenMetadata(token),
       updated_at: new Date().toISOString(),
     })
     .eq("id", account.id);

@@ -31,6 +31,7 @@
     "migracao:garage:os-historicas": "tsx scripts/migracao/garagepremium-os-historicas.ts",
     "migracao:garage:os-pnr5f15": "tsx scripts/migracao/garagepremium-os-pnr5f15.ts",
     "migracao:garage:os-troca-titularidade": "tsx scripts/migracao/garagepremium-os-troca-titularidade.ts",
+    "migracao:garage:os-titular-divergente": "tsx scripts/migracao/garagepremium-os-titular-divergente.ts",
     "test:fiscal": "tsx --test src/services/fiscal/*.test.ts",
     "test:dre": "tsx --test src/app/api/dre/*.test.ts",
     "db:remover-fantasma": "tsx scripts/db/remover-versao-fantasma.ts",
@@ -48,7 +49,8 @@
     "radios:sincronizar:todos-bancos": "tsx scripts/radios/sync-catalog-all-databases.ts",
     "test:radios": "tsx --test src/lib/radio/*.test.ts",
     "test:chat": "tsx --test src/lib/chat/*.test.ts src/components/chat/*.test.ts src/components/chat/*.test.tsx",
-    "test:central-operacional": "tsx --test src/lib/central-operacional/*.test.ts \"src/app/(app)/(full)/central-operacional/components/*.test.ts\""
+    "test:central-operacional": "tsx --test src/lib/central-operacional/*.test.ts \"src/app/(app)/(full)/central-operacional/components/*.test.ts\"",
+    "test:mercadolivre": "tsx --test src/lib/integrations/mercadolivre-*.test.ts"
   },
   "overrides": {
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"

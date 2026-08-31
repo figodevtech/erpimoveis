@@ -19,9 +19,9 @@ Este documento compara o que já existe no ERPOficina com o conjunto necessário
 - consulta dinâmica de categorias e atributos obrigatórios/opcionais;
 - edição de título, descrição e SKU;
 - atualização de preço e estoque, pausa e reativação;
-- conversas, histórico, leitura e resposta de texto no Seller Chat;
+- preparação de envio por coleta, postagem ou logística não integrada, conforme os parâmetros do pedido;
 - consulta inicial de métricas de anúncios, quando autorizada;
-- fallback diário por cron para pedidos, preço e estoque.
+- fallback a cada 15 minutos por cron para pedidos, preço e estoque.
 
 ### Parcial
 
@@ -29,7 +29,7 @@ Este documento compara o que já existe no ERPOficina com o conjunto necessário
 - desempenho: depende dos dados e permissões retornados pela Shopee e ainda não possui séries históricas;
 - sincronização de pedidos: funciona por consulta, mas ainda não recebe eventos em tempo real;
 - atributos: campos simples, listas e unidades estão cobertos; seleções múltiplas e regras condicionais precisam de homologação por categoria;
-- chat: texto está coberto; anexos, imagens, tipos especiais e regras de janela de resposta ainda precisam ser tratados.
+- atendimento: a Chat API não está disponível para novos aplicativos Third-party Partner desde 18/11/2024; o atendimento Shopee permanece no Seller Center.
 
 ## Backlog recomendado
 
@@ -100,8 +100,8 @@ Este documento compara o que já existe no ERPOficina com o conjunto necessário
    - política de margem, preço mínimo e estoque de segurança;
    - desvinculação e encerramento controlados.
 
-9. **Atendimento completo**
-   - chat unificado Shopee/Mercado Livre;
+9. **Atendimento completo, se a política da Shopee mudar**
+   - chat unificado Shopee/Mercado Livre somente mediante permissão oficial;
    - filtros por canal, não lidas, pedido e comprador;
    - mensagens com imagem, produto e pedido quando suportadas;
    - modelos de resposta;
@@ -154,7 +154,7 @@ Este documento compara o que já existe no ERPOficina com o conjunto necessário
 - chamada duplicada de webhook;
 - indisponibilidade temporária e limite de requisições;
 - duas empresas distintas sem vazamento de dados;
-- chat com mensagem recebida, lida e respondida.
+- confirmação de que o informativo direciona o atendimento Shopee ao Seller Center.
 
 ## Referências oficiais
 

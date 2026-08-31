@@ -1,4 +1,4 @@
-import { refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
+import { mercadoLivreTokenMetadata, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type MercadoLivreAccountCredentials = {
@@ -41,7 +41,7 @@ export async function getValidMercadoLivreAccount(empresaId: number) {
       token_type: token.token_type ?? null,
       scope: token.scope ?? null,
       expires_at: updated.expires_at,
-      raw_token: token,
+      raw_token: mercadoLivreTokenMetadata(token),
       updated_at: new Date().toISOString(),
     })
     .eq("id", account.id);
