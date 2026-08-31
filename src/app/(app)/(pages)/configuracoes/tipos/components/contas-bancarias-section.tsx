@@ -34,6 +34,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ValueInput } from "@/components/ui/value-input";
 import { Banco_tipo } from "../../../(financeiro)/fluxodecaixa/types";
 
 type ContaBancaria = {
@@ -53,7 +54,7 @@ type ContaForm = {
   agencia: string;
   contanumero: string;
   proprietario: string;
-  valorinicial: string;
+  valorinicial: number;
   ativo: boolean;
 };
 
@@ -63,11 +64,18 @@ const emptyForm: ContaForm = {
   agencia: "",
   contanumero: "",
   proprietario: "",
-  valorinicial: "",
+  valorinicial: 0,
   ativo: true,
 };
 
 const DEFAULT_LIMIT = 10;
+
+const valorFormatter = new Intl.NumberFormat("pt-BR", {
+  style: "currency",
+  currency: "BRL",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 6,
+});
 
 export default function ContasBancariasSection() {
   const [contas, setContas] = useState<ContaBancaria[]>([]);
@@ -175,7 +183,7 @@ export default function ContasBancariasSection() {
       agencia: c.agencia ?? "",
       contanumero: c.contanumero ?? "",
       proprietario: c.proprietario ?? "",
-      valorinicial: c.valorinicial != null ? String(c.valorinicial) : "",
+      valorinicial: c.valorinicial ?? 0,
       ativo: c.ativo ?? true,
     });
     setDialogOpen(true);
@@ -193,7 +201,7 @@ export default function ContasBancariasSection() {
       agencia: form.agencia.trim() || null,
       contanumero: form.contanumero.trim() || null,
       proprietario: form.proprietario.trim() || null,
-      valorinicial: form.valorinicial ? Number(form.valorinicial) : null,
+      valorinicial: form.valorinicial,
       ativo: form.ativo,
     };
 
@@ -314,11 +322,15 @@ export default function ContasBancariasSection() {
                 </div>
                 <div className="space-y-1.5">
                   <Label>Valor inicial</Label>
-                  <Input
+                  <ValueInput
                     value={form.valorinicial}
-                    onChange={(e) => handleChange("valorinicial", e.target.value)}
-                    placeholder="0,00"
+                    onValueChange={(v) => handleChange("valorinicial", v)}
+                    decimals={6}
+                    allowNegative
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Aceita até 6 casas decimais. Digite <b>-</b> para inverter o sinal quando a conta abrir negativa.
+                  </p>
                 </div>
 
                 <div className="mt-4 flex items-center justify-between rounded-md border px-3 py-2 bg-muted/40">
@@ -404,7 +416,7 @@ export default function ContasBancariasSection() {
                   </TableCell>
                   <TableCell className="text-sm">{c.proprietario || "-"}</TableCell>
                   <TableCell className="whitespace-nowrap">
-                    R$ {Number(c.valorinicial ?? 0).toFixed(2)}
+                    {valorFormatter.format(Number(c.valorinicial ?? 0))}
                   </TableCell>
                   <TableCell>
                     <Badge
