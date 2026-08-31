@@ -7,6 +7,10 @@ import {
   resolveOrdemVehicle,
   type OrdemVehicleSnapshot,
 } from "@/lib/ordens/vehicle-snapshot";
+import {
+  resolveOrdemCustomer,
+  type OrdemCustomerSnapshot,
+} from "@/lib/ordens/customer-snapshot";
 import { carregarFatiasRateadas, fatiaComoTransacao } from "@/lib/financeiro/rateio-documentos";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
@@ -92,6 +96,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
           "execucao_inicio_em",
           "execucao_fim_em",
           "migracao_referencia",
+          "cliente_snapshot",
           "veiculo_snapshot"
         ].join(",")
       )
@@ -151,6 +156,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       motivo_cancelamento?: string | null;
       motivo_sem_cobranca?: string | null;
       migracao_referencia?: string | null;
+      cliente_snapshot?: OrdemCustomerSnapshot | null;
       veiculo_snapshot?: OrdemVehicleSnapshot | null;
     };
 
@@ -218,8 +224,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       clienteRow = cli_res.data as ClienteRow | null;
     }
 
-    const cliente: ClienteRow | null = clienteRow
-      ? {
+    const cliente = clienteRow
+      ? resolveOrdemCustomer({
         id: clienteRow.id,
         tipopessoa: clienteRow.tipopessoa,
         nomerazaosocial: clienteRow.nomerazaosocial,
@@ -240,8 +246,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         updatedat: clienteRow.updatedat,
         status: clienteRow.status,
         rank: clienteRow.rank,
-      }
-      : null;
+      }, null)
+      : resolveOrdemCustomer(null, osRow.cliente_snapshot);
 
     // Veículo
     let veiculo:
@@ -844,6 +850,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       cliente,
       veiculo,
       migracaoReferencia: osRow.migracao_referencia ?? null,
+      cliente_snapshot: osRow.cliente_snapshot ?? null,
       veiculo_snapshot: osRow.veiculo_snapshot ?? null,
       peca,
       equipamento,

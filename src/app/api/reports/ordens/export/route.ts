@@ -7,6 +7,7 @@ import * as XLSX from "xlsx";
 import { requireRelatoriosAccess } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { resolveOrdemVehicle } from "@/lib/ordens/vehicle-snapshot";
+import { resolveOrdemCustomer } from "@/lib/ordens/customer-snapshot";
 
 const LOCAL_OFFSET = "-03:00";
 const PAGE_SIZE = 1000;
@@ -140,7 +141,7 @@ export async function GET(request: Request) {
         .select(`
           id, descricao, status, prioridade, dataentrada, datasaida, execucao_fim_em, orcamentototal,
           alvo_tipo, equipamento_nome, equipamento_patrimonio, equipamento_ano, equipamento_horimetro,
-          migracao_referencia, veiculo_snapshot,
+          migracao_referencia, cliente_snapshot, veiculo_snapshot,
           cliente:clienteid(id, nomerazaosocial, cpfcnpj),
           veiculo:veiculoid(id, placa, marca, modelo),
           peca:pecaid(id, titulo, descricao),
@@ -181,8 +182,8 @@ export async function GET(request: Request) {
         formatDate(os.datasaida),
         os.status ?? "",
         os.prioridade ?? "",
-        os.cliente?.nomerazaosocial ?? "Sem cliente",
-        os.cliente?.cpfcnpj ?? "",
+        resolveOrdemCustomer(os.cliente, os.cliente_snapshot)?.nomerazaosocial ?? "Sem cliente",
+        resolveOrdemCustomer(os.cliente, os.cliente_snapshot)?.cpfcnpj ?? "",
         targetLabel(os),
         os.setor?.nome ?? "Sem setor",
         os.usuario?.nome ?? "Não informado",
@@ -271,7 +272,7 @@ export async function GET(request: Request) {
         formatDate(os?.execucao_fim_em),
         formatDate(os?.datasaida),
         os?.usuario?.nome ?? "Não informado",
-        os?.cliente?.nomerazaosocial ?? "Sem cliente",
+        resolveOrdemCustomer(os?.cliente, os?.cliente_snapshot)?.nomerazaosocial ?? "Sem cliente",
         targetLabel(os ?? {}),
         evento.id,
         formatDate(evento.data_evento),
