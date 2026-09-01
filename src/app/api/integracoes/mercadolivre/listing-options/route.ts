@@ -3,6 +3,7 @@ import { requireVendasAccess } from "@/app/api/_authz/perms";
 import { requireEmpresaId } from "@/lib/empresa-context";
 import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
 import { mercadoLivreApiGet } from "@/lib/integrations/mercadolivre";
+import { resolveMercadoLivreDefaultListingType } from "@/lib/integrations/mercadolivre-listing-validation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -180,11 +181,17 @@ export async function GET(req: NextRequest) {
     const listAllowed = seller.status?.list?.allow !== false;
     const listingCodes = seller.status?.list?.codes ?? [];
     const activeTypes = listingTypes.filter((item) => item.available);
+    const preferredListingTypeId = account.default_listing_type_id || "gold_special";
+    const defaultListingTypeId = resolveMercadoLivreDefaultListingType(
+      preferredListingTypeId,
+      activeTypes.map((item) => item.id),
+    );
 
     return NextResponse.json({
       listingTypes,
       source: hasCategoryAvailability ? "account-category" : baseTypes.length ? "account" : "fallback",
-      defaultListingTypeId: activeTypes.some((item) => item.id === "gold_special") ? "gold_special" : activeTypes[0]?.id ?? null,
+      defaultListingTypeId,
+      preferredListingTypeId,
       seller: {
         canList: listAllowed,
         restrictions: listingCodes.map(translateSellerStatusCode),

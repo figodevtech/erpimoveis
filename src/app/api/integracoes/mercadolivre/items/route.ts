@@ -3,6 +3,10 @@ import { requireVendasEdit } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { mercadoLivreApiGet, mercadoLivreApiPost, mercadoLivreApiPut } from "@/lib/integrations/mercadolivre";
 import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
+import {
+  buildMercadoLivrePackageAttributes,
+  hasOnlyMercadoLivreValidationWarnings,
+} from "@/lib/integrations/mercadolivre-listing-validation";
 import { uploadMercadoLivrePictures } from "@/lib/integrations/mercadolivre-pictures";
 import {
   validateMercadoLivreShippingForListing,
@@ -206,7 +210,7 @@ export async function POST(req: Request) {
     if (model) attributesById.set("MODEL", { id: "MODEL", value_name: model });
     if (partNumber) attributesById.set("PART_NUMBER", { id: "PART_NUMBER", value_name: partNumber });
     if (isValidGtin(gtin)) attributesById.set("GTIN", { id: "GTIN", value_name: gtin });
-    for (const attribute of buildPackageAttributes({ shippingMode, lengthCm, widthCm, heightCm, weightGrams })) {
+    for (const attribute of buildMercadoLivrePackageAttributes({ shippingMode, lengthCm, widthCm, heightCm, weightGrams })) {
       attributesById.set(attribute.id, attribute);
     }
 
@@ -338,6 +342,9 @@ async function validateMercadoLivreItem(accessToken: string, payload: Record<str
   }
 
   const shipping = payload.shipping as Record<string, unknown> | undefined;
+  // /items/validate can answer 400 even when every cause is advisory. The real
+  // item creation remains authoritative and will still reject actual errors.
+  if (hasOnlyMercadoLivreValidationWarnings(validation)) return;
   if (String(shipping?.mode ?? "").toLowerCase() === "me2" && isLegacyMe1ValidationError(validation)) {
     return;
   }
@@ -591,24 +598,6 @@ function buildShippingDimensions(params: { lengthCm: number; widthCm: number; he
     return null;
   }
   return `${params.lengthCm}x${params.widthCm}x${params.heightCm},${params.weightGrams}`;
-}
-
-function buildPackageAttributes(params: {
-  shippingMode: string;
-  lengthCm: number;
-  widthCm: number;
-  heightCm: number;
-  weightGrams: number;
-}): MlAttributePayload[] {
-  if (params.shippingMode !== "me2") return [];
-  if (![params.lengthCm, params.widthCm, params.heightCm].every((value) => Number.isFinite(value) && value > 0)) return [];
-  if (!Number.isInteger(params.weightGrams) || params.weightGrams <= 0) return [];
-  return [
-    { id: "SELLER_PACKAGE_LENGTH", value_struct: { number: params.lengthCm, unit: "cm" } },
-    { id: "SELLER_PACKAGE_WIDTH", value_struct: { number: params.widthCm, unit: "cm" } },
-    { id: "SELLER_PACKAGE_HEIGHT", value_struct: { number: params.heightCm, unit: "cm" } },
-    { id: "SELLER_PACKAGE_WEIGHT", value_struct: { number: params.weightGrams, unit: "g" } },
-  ];
 }
 
 async function verifyCreatedItemOrClose(accessToken: string, itemId: string, requireMercadoEnvios: boolean) {

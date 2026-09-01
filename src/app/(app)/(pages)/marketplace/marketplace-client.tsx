@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
   AlertTriangle,
+  BadgePercent,
   Check,
   CheckCheck,
   ChevronLeft,
@@ -223,7 +224,14 @@ type ListingPerformanceDetails = {
     score?: number | null;
     level?: string | null;
     calculatedAt?: string | null;
-    actions: Array<{ id: string; title: string; status: string; message?: string; link?: string | null }>;
+    actions: Array<{
+      id: string;
+      title: string;
+      status: string;
+      message?: string;
+      link?: string | null;
+      kind?: "quantity_price" | "same_day_shipping" | "video" | "pictures" | "description" | "attributes" | "external";
+    }>;
   };
   permissions: {
     title: boolean;
@@ -248,6 +256,19 @@ type ListingPerformanceDetails = {
     daily: Array<{ date: string; visits: number; orders: number; units: number; revenue: number }>;
   };
 };
+
+type QuantityPricingDetails = {
+  eligible: boolean;
+  reason?: string | null;
+  itemId: string;
+  basePrice: number;
+  currency: string;
+  tiers: Array<{ id?: string | null; quantity: number; percentage: number }>;
+  recommendations: Array<{ quantity: number; percentage: number; unitPrice: number; incoherent: boolean }>;
+  defaults?: { enabled: boolean; tiers: Array<{ quantity: number; percentage: number }> };
+};
+
+type QuantityTierForm = { quantity: string; percentage: string };
 
 type MarketplaceDiagnostics = {
   status: "ok" | "warning" | "error";
@@ -543,6 +564,7 @@ type ListingEditForm = {
   price: string;
   availableQuantity: string;
   description: string;
+  videoUrl: string;
   pictureUrl: string;
   warranty: string;
   warrantyTime: string;
@@ -1616,6 +1638,11 @@ export default function MarketplacePage() {
   const [performanceDialogOpen, setPerformanceDialogOpen] = useState(false);
   const [loadingListingPerformance, setLoadingListingPerformance] = useState(false);
   const [listingPerformance, setListingPerformance] = useState<ListingPerformanceDetails | null>(null);
+  const [quantityPricingOpen, setQuantityPricingOpen] = useState(false);
+  const [loadingQuantityPricing, setLoadingQuantityPricing] = useState(false);
+  const [savingQuantityPricing, setSavingQuantityPricing] = useState(false);
+  const [quantityPricing, setQuantityPricing] = useState<QuantityPricingDetails | null>(null);
+  const [quantityTiers, setQuantityTiers] = useState<QuantityTierForm[]>([]);
   const [loadingEditListing, setLoadingEditListing] = useState(false);
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<MlOrder | null>(null);
   const [orderToCancel, setOrderToCancel] = useState<MlOrder | null>(null);
@@ -1701,6 +1728,7 @@ export default function MarketplacePage() {
     price: "",
     availableQuantity: "",
     description: "",
+    videoUrl: "",
     pictureUrl: "",
     warranty: "",
     warrantyTime: "",
@@ -2130,9 +2158,14 @@ export default function MarketplacePage() {
         setListingTypeOptions(json.listingTypes);
         setListingForm((current) => {
           const selected = json.listingTypes.find((option: ListingTypeOption) => option.id === current.listingTypeId);
-          if (!selected || selected.available !== false) return current;
           const fallbackId = json.defaultListingTypeId || json.listingTypes.find((option: ListingTypeOption) => option.available !== false)?.id;
-          return fallbackId ? { ...current, listingTypeId: fallbackId } : current;
+          if (!filters?.categoryId && fallbackId && current.listingTypeId !== fallbackId) {
+            return { ...current, listingTypeId: fallbackId };
+          }
+          if (!selected || selected.available === false) {
+            return fallbackId ? { ...current, listingTypeId: fallbackId } : current;
+          }
+          return current;
         });
       }
       setListingCommercialInfo({
@@ -2845,6 +2878,7 @@ export default function MarketplacePage() {
       price: formatCurrencyInputFromNumber(product.precovenda),
       availableQuantity: String(Math.max(Number(product.estoque ?? 0), 0)),
       description: product.descricaoMarketplace || product.descricao || "",
+      videoUrl: "",
       pictureUrl: (product.imageUrls?.length ? product.imageUrls : product.imgUrl ? [product.imgUrl] : []).join("\n"),
       warranty: "",
       warrantyTime: "",
@@ -2890,6 +2924,7 @@ export default function MarketplacePage() {
         price: formatCurrencyInputFromNumber(item.price ?? product.precovenda),
         availableQuantity: String(Math.max(Number(item.availableQuantity ?? product.estoque ?? 0), 0)),
         description: item.description || fallbackForm.description,
+        videoUrl: item.videoUrl || "",
         pictureUrl: Array.isArray(item.pictures) && item.pictures.length ? item.pictures.join("\n") : fallbackForm.pictureUrl,
         warranty: item.warranty || "",
         warrantyTime: item.warrantyTime || "",
@@ -2950,6 +2985,89 @@ export default function MarketplacePage() {
     }
   }
 
+  async function openQuantityPricing(itemId: string) {
+    setPerformanceDialogOpen(false);
+    setQuantityPricingOpen(true);
+    setLoadingQuantityPricing(true);
+    setQuantityPricing(null);
+    try {
+      const response = await fetch(`/api/integracoes/mercadolivre/items/${encodeURIComponent(itemId)}/quantity-prices`, { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || "Falha ao consultar preços por quantidade.");
+      setQuantityPricing(data);
+      const current = Array.isArray(data?.tiers) ? data.tiers : [];
+      const recommended = Array.isArray(data?.recommendations) ? data.recommendations.filter((entry: any) => !entry.incoherent) : [];
+      const configuredDefaults = data?.defaults?.enabled && Array.isArray(data?.defaults?.tiers) ? data.defaults.tiers : [];
+      const initial = current.length ? current : configuredDefaults.length ? configuredDefaults : recommended;
+      setQuantityTiers(initial.map((entry: any) => ({
+        quantity: String(entry.quantity ?? ""),
+        percentage: Number(entry.percentage ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 }),
+      })));
+    } catch (error) {
+      toast.error(marketplaceErrorMessage(error, "Falha ao consultar preços por quantidade."));
+      setQuantityPricingOpen(false);
+    } finally {
+      setLoadingQuantityPricing(false);
+    }
+  }
+
+  async function saveQuantityPricing(tiers = quantityTiers) {
+    if (!quantityPricing?.itemId || !quantityPricing.eligible) return;
+    setSavingQuantityPricing(true);
+    try {
+      const response = await fetch(`/api/integracoes/mercadolivre/items/${encodeURIComponent(quantityPricing.itemId)}/quantity-prices`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tiers: tiers.map((tier) => ({
+            quantity: Number(tier.quantity),
+            percentage: Number(tier.percentage.replace(",", ".")),
+          })),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || "Falha ao salvar preços por quantidade.");
+      toast.success(tiers.length ? "Preços por quantidade atualizados." : "Preços por quantidade removidos.");
+      setQuantityPricingOpen(false);
+      if (listingPerformance) {
+        const product = products.find((candidate) => candidate.id === listingPerformance.produto_id);
+        if (product) void openListingPerformance(product);
+      }
+    } catch (error) {
+      toast.error(marketplaceErrorMessage(error, "Falha ao salvar preços por quantidade."));
+    } finally {
+      setSavingQuantityPricing(false);
+    }
+  }
+
+  async function handleQualityObjective(action: ListingPerformanceDetails["quality"]["actions"][number]) {
+    if (action.kind === "quantity_price" && listingPerformance?.ml_item_id) {
+      await openQuantityPricing(listingPerformance.ml_item_id);
+      return;
+    }
+    if (action.kind === "same_day_shipping") {
+      window.location.href = "/configuracoes/geral#marketplace-settings";
+      return;
+    }
+    const editableKinds = new Set(["video", "pictures", "description", "attributes"]);
+    if (action.kind && editableKinds.has(action.kind)) {
+      const product = products.find((candidate) => candidate.id === listingPerformance?.produto_id);
+      if (!product) {
+        toast.error("Não foi possível localizar o produto vinculado no ERP.");
+        return;
+      }
+      setPerformanceDialogOpen(false);
+      await openEditListing(product);
+      return;
+    }
+
+    if (action.link) {
+      window.open(action.link, "_blank", "noopener,noreferrer");
+      return;
+    }
+    toast.info("O Mercado Livre não disponibilizou uma ação automática para este objetivo.");
+  }
+
   async function saveEditedListing() {
     if (!editForm.itemId) return;
     if (!editForm.userProductEnabled && !editForm.title.trim()) {
@@ -2983,6 +3101,7 @@ export default function MarketplacePage() {
       addTextChange("title", editForm.title);
       addTextChange("familyName", editForm.familyName);
       addTextChange("description", editForm.description);
+      addTextChange("videoUrl", editForm.videoUrl);
       addTextChange("pictureUrl", editForm.pictureUrl);
       addTextChange("warranty", editForm.warranty);
       addTextChange("warrantyTime", editForm.warrantyTime);
@@ -3481,6 +3600,10 @@ export default function MarketplacePage() {
             <DropdownMenuItem onClick={() => openListingPerformance(product)} disabled={Boolean(busy)}>
               <TrendingUp className="mr-2 h-4 w-4" />
               Desempenho e qualidade
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => openQuantityPricing(link.ml_item_id)} disabled={Boolean(busy)}>
+              <BadgePercent className="mr-2 h-4 w-4" />
+              Preço por quantidade
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => itemAction(link.ml_item_id, "sync_stock_price")} disabled={Boolean(busy)}>
               <RefreshCcw className="mr-2 h-4 w-4" />
@@ -5772,7 +5895,7 @@ export default function MarketplacePage() {
                   <ValueInput
                     value={parseCurrencyInput(editForm.price)}
                     onValueChange={(value) => updateEditForm("price", formatCurrencyInputFromNumber(value))}
-                    disabled={editingListing || loadingEditListing || !editCapabilities.familyName}
+                    disabled={editingListing || loadingEditListing || !editCapabilities.price}
                     className={listingFieldClass}
                   />
                 </div>
@@ -5784,7 +5907,7 @@ export default function MarketplacePage() {
                   min="0"
                   value={editForm.availableQuantity}
                   onChange={(event) => updateEditForm("availableQuantity", event.target.value)}
-                    disabled={editingListing || loadingEditListing || !editCapabilities.price}
+                    disabled={editingListing || loadingEditListing || !editCapabilities.stock}
                   className={listingFieldClass}
                 />
               </div>
@@ -5796,7 +5919,7 @@ export default function MarketplacePage() {
                     updateEditForm("warranty", value === "none" ? "" : value);
                     if (value === "Sem garantia") updateEditForm("warrantyTime", "");
                   }}
-                  disabled={editingListing || loadingEditListing || !editCapabilities.stock}
+                  disabled={editingListing || loadingEditListing}
                 >
                   <SelectTrigger className={listingSelectClass}>
                     <SelectValue />
@@ -6019,6 +6142,20 @@ export default function MarketplacePage() {
             </div>
 
             <div className="mt-4 space-y-2">
+              <Label>Vídeo do anúncio</Label>
+              <Input
+                value={editForm.videoUrl}
+                onChange={(event) => updateEditForm("videoUrl", event.target.value)}
+                placeholder="https://www.youtube.com/watch?v=..."
+                disabled={editingListing || loadingEditListing}
+                className={listingFieldClass}
+              />
+              <p className="text-xs text-muted-foreground">
+                Use uma URL pública do YouTube ou o código de 11 caracteres do vídeo. A disponibilidade final depende da categoria e das regras do anúncio.
+              </p>
+            </div>
+
+            <div className="mt-4 space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <Label>Imagens do anúncio</Label>
                 <Button
@@ -6151,20 +6288,36 @@ export default function MarketplacePage() {
                     </div>
                   ) : (
                     <div className="divide-y rounded-md border">
-                      {listingPerformance.quality.actions.map((action) => (
-                        <div key={`${action.id}:${action.title}`} className="flex gap-3 px-3 py-3">
-                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-                          <div>
-                            <p className="text-sm font-medium">{marketplaceTextLabel(action.title)}</p>
-                            {action.message && <p className="mt-0.5 text-xs text-muted-foreground">{marketplaceTextLabel(action.message)}</p>}
-                            {action.link && (
-                              <a className="mt-1 inline-flex text-xs text-primary hover:underline" href={action.link} target="_blank" rel="noreferrer">
-                                Ver orientação do Mercado Livre
-                              </a>
+                      {listingPerformance.quality.actions.map((action) => {
+                        const editableInErp = ["video", "pictures", "description", "attributes"].includes(action.kind ?? "");
+                        const accountConfiguration = action.kind === "quantity_price" || action.kind === "same_day_shipping";
+                        return (
+                          <div key={`${action.id}:${action.title}`} className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-start">
+                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="text-sm font-medium">{marketplaceTextLabel(action.title)}</p>
+                                <Badge variant={editableInErp ? "secondary" : "outline"} className="text-[10px]">
+                                  {editableInErp ? "Ajuste no ERP" : accountConfiguration ? "Depende da conta" : "Orientação"}
+                                </Badge>
+                              </div>
+                              {action.message && <p className="mt-0.5 text-xs text-muted-foreground">{marketplaceTextLabel(action.message)}</p>}
+                              {action.kind === "quantity_price" && (
+                                <p className="mt-1 text-xs text-muted-foreground">Disponível somente quando o vendedor e o anúncio forem elegíveis para preço por quantidade.</p>
+                              )}
+                              {action.kind === "same_day_shipping" && (
+                                <p className="mt-1 text-xs text-muted-foreground">Configuração logística da conta: exige Envios Flex, área atendida, horário limite e capacidade.</p>
+                              )}
+                            </div>
+                            {(editableInErp || action.link || accountConfiguration) && (
+                              <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={() => void handleQualityObjective(action)}>
+                                {editableInErp ? <Pencil className="h-3.5 w-3.5" /> : <ExternalLink className="h-3.5 w-3.5" />}
+                                {editableInErp ? "Corrigir no ERP" : action.link ? "Abrir configuração" : "Ver requisito"}
+                              </Button>
                             )}
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </section>
@@ -6196,6 +6349,126 @@ export default function MarketplacePage() {
               </div>
             </ScrollArea>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={quantityPricingOpen} onOpenChange={(open) => !savingQuantityPricing && setQuantityPricingOpen(open)}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Preço por quantidade</DialogTitle>
+            <DialogDescription>
+              Configure descontos progressivos para compradores empresariais elegíveis no Mercado Livre.
+            </DialogDescription>
+          </DialogHeader>
+          {loadingQuantityPricing ? (
+            <div className="flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" /> Consultando elegibilidade e recomendações...
+            </div>
+          ) : quantityPricing ? (
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-md border bg-muted/20 p-3">
+                  <p className="text-xs text-muted-foreground">Anúncio</p>
+                  <p className="mt-1 font-mono text-sm">{quantityPricing.itemId}</p>
+                </div>
+                <div className="rounded-md border bg-muted/20 p-3">
+                  <p className="text-xs text-muted-foreground">Preço base</p>
+                  <p className="mt-1 text-sm font-medium">{formatCurrency(quantityPricing.basePrice)}</p>
+                </div>
+                <div className="rounded-md border bg-muted/20 p-3">
+                  <p className="text-xs text-muted-foreground">Elegibilidade</p>
+                  <p className={`mt-1 text-sm font-medium ${quantityPricing.eligible ? "text-emerald-600" : "text-amber-600"}`}>
+                    {quantityPricing.eligible ? "Conta B2B habilitada" : "Não habilitada"}
+                  </p>
+                </div>
+              </div>
+
+              {!quantityPricing.eligible ? (
+                <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-800 dark:text-amber-200">
+                  {quantityPricing.reason} O ERP não consegue solicitar essa habilitação; ela é liberada pelo próprio Mercado Livre.
+                </div>
+              ) : (
+                <>
+                  <label className="flex items-start gap-3 rounded-md border bg-muted/20 p-3">
+                    <Checkbox
+                      checked={quantityTiers.length > 0}
+                      onCheckedChange={(checked) => {
+                        if (!checked) {
+                          setQuantityTiers([]);
+                          return;
+                        }
+                        const recommended = quantityPricing.recommendations.filter((entry) => !entry.incoherent);
+                        setQuantityTiers(
+                          (recommended.length ? recommended : [{ quantity: 2, percentage: 5 }]).map((entry) => ({
+                            quantity: String(entry.quantity),
+                            percentage: Number(entry.percentage).toLocaleString("pt-BR", { maximumFractionDigits: 2 }),
+                          })),
+                        );
+                      }}
+                      disabled={savingQuantityPricing}
+                    />
+                    <span>
+                      <span className="block text-sm font-medium">Ativar descontos progressivos</span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">Desmarque e salve para remover todas as faixas deste anúncio.</span>
+                    </span>
+                  </label>
+                  <div className="space-y-2">
+                    <div className="hidden grid-cols-[1fr_1fr_1fr_auto] gap-2 px-1 text-xs font-medium text-muted-foreground sm:grid">
+                      <span>Quantidade mínima</span><span>Desconto</span><span>Preço estimado/un.</span><span className="w-9" />
+                    </div>
+                    {quantityTiers.map((tier, index) => {
+                      const percentage = Number(tier.percentage.replace(",", "."));
+                      const estimated = quantityPricing.basePrice * (1 - (Number.isFinite(percentage) ? percentage : 0) / 100);
+                      const recommendation = quantityPricing.recommendations.find((entry) => entry.quantity === Number(tier.quantity));
+                      return (
+                        <div key={index} className="grid gap-2 rounded-md border p-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-start">
+                          <Input
+                            type="number"
+                            min="1"
+                            max="100"
+                            value={tier.quantity}
+                            onChange={(event) => setQuantityTiers((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, quantity: event.target.value } : entry))}
+                            disabled={savingQuantityPricing}
+                          />
+                          <div>
+                            <div className="relative">
+                              <Input
+                                inputMode="decimal"
+                                value={tier.percentage}
+                                onChange={(event) => setQuantityTiers((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, percentage: event.target.value.replace(/[^\d,.]/g, "") } : entry))}
+                                disabled={savingQuantityPricing}
+                                className="pr-8"
+                              />
+                              <span className="pointer-events-none absolute right-3 top-2.5 text-sm text-muted-foreground">%</span>
+                            </div>
+                            {recommendation && <p className="mt-1 text-[11px] text-muted-foreground">Mínimo recomendado: {recommendation.percentage.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%</p>}
+                          </div>
+                          <div className="flex h-10 items-center rounded-md border bg-muted/30 px-3 text-sm">{formatCurrency(estimated)}</div>
+                          <Button type="button" variant="ghost" size="icon" aria-label="Remover faixa" onClick={() => setQuantityTiers((current) => current.filter((_, entryIndex) => entryIndex !== index))} disabled={savingQuantityPricing}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      );
+                    })}
+                    {quantityTiers.length === 0 && <p className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">Nenhuma faixa configurada.</p>}
+                  </div>
+                  <Button type="button" variant="outline" size="sm" disabled={savingQuantityPricing || quantityTiers.length >= 5} onClick={() => setQuantityTiers((current) => [...current, { quantity: "", percentage: "" }])}>
+                    <Plus className="h-4 w-4" /> Adicionar faixa
+                  </Button>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    Antes de salvar, o ERP consulta novamente a recomendação oficial e impede descontos abaixo do mínimo aceito. O Mercado Livre permite até cinco faixas.
+                  </p>
+                </>
+              )}
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setQuantityPricingOpen(false)} disabled={savingQuantityPricing}>Cancelar</Button>
+            <Button onClick={() => void saveQuantityPricing()} disabled={loadingQuantityPricing || savingQuantityPricing || !quantityPricing?.eligible}>
+              {savingQuantityPricing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+              {quantityTiers.length ? "Salvar preços" : "Remover preços"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

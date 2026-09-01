@@ -8,9 +8,11 @@ import {
   mercadoLivreApiPut,
 } from "@/lib/integrations/mercadolivre";
 import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
+import { buildMercadoLivrePackageAttributes } from "@/lib/integrations/mercadolivre-listing-validation";
 import { uploadMercadoLivrePictures } from "@/lib/integrations/mercadolivre-pictures";
 import { validateMercadoLivreShippingSelection } from "@/lib/integrations/mercadolivre-shipping-preferences";
 import { getMercadoLivrePriceState } from "@/lib/integrations/mercadolivre-price-sync";
+import { mercadoLivreVideoInput, normalizeMercadoLivreVideoId } from "@/lib/integrations/mercadolivre-video";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -307,6 +309,7 @@ function normalizeItemForEdit(item: any, description: any, userProduct?: any, fa
     listingTypeId: item?.listing_type_id ?? null,
     condition: item?.condition ?? null,
     description: description?.plain_text ?? description?.text ?? "",
+    videoUrl: mercadoLivreVideoInput(item?.video_id),
     pictures: Array.isArray(item?.pictures)
       ? item.pictures.map((picture: any) => picture?.secure_url || picture?.url || picture?.source).filter(Boolean)
       : [],
@@ -370,6 +373,8 @@ function buildListingUpdatePayload(body: any, userProductEnabled: boolean) {
   const lengthCm = Number(body?.lengthCm);
   const weightGrams = Math.trunc(Number(body?.weightGrams));
 
+  if (body?.videoUrl !== undefined) payload.video_id = normalizeMercadoLivreVideoId(body.videoUrl);
+
   if (shippingMode && shippingMode !== "me2") {
     throw new Error("O ERP mantém anúncios apenas com Mercado Envios habilitado.");
   }
@@ -422,7 +427,7 @@ function buildListingUpdatePayload(body: any, userProductEnabled: boolean) {
     attributesById.set(id, option?.id ? { id, value_id: option.id, value_name: option.name ?? valueName } : { id, value_name: valueName });
   }
 
-  const packageAttributes = buildPackageAttributes({
+  const packageAttributes = buildMercadoLivrePackageAttributes({
     shippingMode,
     widthCm,
     heightCm,
@@ -484,26 +489,11 @@ function buildEditConfirmations(changes: any, item: any, description: any, price
     const actual = Array.isArray(item?.pictures) ? item.pictures.length : 0;
     results.push({ field: "images", status: requested === actual ? "CONFIRMADO" : "DIVERGENTE", requested, actual });
   }
+  if (changes.videoUrl !== undefined) {
+    const requested = normalizeMercadoLivreVideoId(changes.videoUrl);
+    compare("videoUrl", item?.video_id, requested);
+  }
   return results;
-}
-
-function buildPackageAttributes(params: {
-  shippingMode: string;
-  widthCm: number;
-  heightCm: number;
-  lengthCm: number;
-  weightGrams: number;
-}) {
-  if (params.shippingMode !== "me2") return [];
-  if (![params.widthCm, params.heightCm, params.lengthCm].every((value) => Number.isFinite(value) && value > 0)) return [];
-  if (!Number.isInteger(params.weightGrams) || params.weightGrams <= 0) return [];
-
-  return [
-    { id: "SELLER_PACKAGE_LENGTH", value_struct: { number: params.lengthCm, unit: "cm" } },
-    { id: "SELLER_PACKAGE_WIDTH", value_struct: { number: params.widthCm, unit: "cm" } },
-    { id: "SELLER_PACKAGE_HEIGHT", value_struct: { number: params.heightCm, unit: "cm" } },
-    { id: "SELLER_PACKAGE_WEIGHT", value_struct: { number: params.weightGrams, unit: "g" } },
-  ];
 }
 
 function parsePictureUrls(value: string) {

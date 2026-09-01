@@ -5,6 +5,11 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
 import { mercadoLivreApiGet } from "@/lib/integrations/mercadolivre";
 import { unregisterMercadoLivrePlatformAccount } from "@/lib/integrations/mercadolivre-platform";
+import { validateMercadoLivreQuantityTiers } from "@/lib/integrations/mercadolivre-quantity-pricing";
+import {
+  parseMercadoLivreSellerProfile,
+  type MercadoLivreSellerProfile,
+} from "@/lib/integrations/mercadolivre-seller-profile";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,23 +20,43 @@ export async function GET() {
     const empresaId = await requireEmpresaId();
     const { data, error } = await supabaseAdmin
       .from("mercadolivre_account")
-      .select("id, empresa_id, ml_user_id, nickname, site_id, scope, expires_at, refresh_token, updated_at")
+      .select("id, empresa_id, ml_user_id, nickname, site_id, scope, expires_at, refresh_token, default_listing_type_id, quantity_pricing_default_enabled, quantity_pricing_default_tiers, updated_at")
       .eq("empresa_id", empresaId)
       .maybeSingle();
     if (error) throw error;
 
     let shipping: { modes: string[]; option: string | null; mercadoEnviosEnabled: boolean; error: string | null } | null = null;
+    let sellerProfile: (MercadoLivreSellerProfile & { error: string | null }) | null = null;
     if (data) {
       try {
         const account = await getValidMercadoLivreAccount(empresaId);
-        const preferences = await mercadoLivreApiGet<{ modes?: string[]; option?: string | null }>(
-          account.access_token,
-          `/users/${account.ml_user_id}/shipping_preferences`,
-        );
-        const modes = (preferences.modes ?? []).map((mode) => String(mode).toLowerCase());
-        shipping = { modes, option: preferences.option ?? null, mercadoEnviosEnabled: modes.includes("me2"), error: null };
-      } catch (shippingError: any) {
-        shipping = { modes: [], option: null, mercadoEnviosEnabled: false, error: shippingError?.message || "Falha ao consultar preferências de envio." };
+        const [shippingResult, profileResult] = await Promise.allSettled([
+          mercadoLivreApiGet<{ modes?: string[]; option?: string | null }>(
+            account.access_token,
+            `/users/${account.ml_user_id}/shipping_preferences`,
+          ),
+          mercadoLivreApiGet<unknown>(account.access_token, `/users/${account.ml_user_id}`),
+        ]);
+
+        if (shippingResult.status === "fulfilled") {
+          const modes = (shippingResult.value.modes ?? []).map((mode) => String(mode).toLowerCase());
+          shipping = { modes, option: shippingResult.value.option ?? null, mercadoEnviosEnabled: modes.includes("me2"), error: null };
+        } else {
+          shipping = {
+            modes: [],
+            option: null,
+            mercadoEnviosEnabled: false,
+            error: errorMessage(shippingResult.reason, "Falha ao consultar preferências de envio."),
+          };
+        }
+
+        sellerProfile = profileResult.status === "fulfilled"
+          ? { ...parseMercadoLivreSellerProfile(profileResult.value), error: null }
+          : { ...parseMercadoLivreSellerProfile(null), error: errorMessage(profileResult.reason, "Falha ao consultar o perfil do vendedor.") };
+      } catch (accountError: unknown) {
+        const message = errorMessage(accountError, "Falha ao consultar a conta Mercado Livre.");
+        shipping = { modes: [], option: null, mercadoEnviosEnabled: false, error: message };
+        sellerProfile = { ...parseMercadoLivreSellerProfile(null), error: message };
       }
     }
 
@@ -47,7 +72,11 @@ export async function GET() {
             expiresAt: data.expires_at,
             updatedAt: data.updated_at,
             needsReconnect: !data.refresh_token,
+            defaultListingTypeId: data.default_listing_type_id || "gold_special",
+            quantityPricingDefaultEnabled: Boolean(data.quantity_pricing_default_enabled),
+            quantityPricingDefaultTiers: validateMercadoLivreQuantityTiers(data.quantity_pricing_default_tiers ?? []),
             shipping,
+            sellerProfile,
           }
         : null,
     });
@@ -58,6 +87,54 @@ export async function GET() {
       { status: errorStatus(error) },
     );
   }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    await requireConfigEdit();
+    const empresaId = await requireEmpresaId();
+    const body = await request.json().catch(() => null);
+    const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (body?.defaultListingTypeId !== undefined) {
+      const defaultListingTypeId = String(body.defaultListingTypeId).trim().toLowerCase();
+      if (!new Set(["free", "gold_special", "gold_pro"]).has(defaultListingTypeId)) {
+        return NextResponse.json({ error: "Tipo de publicação padrão inválido." }, { status: 400 });
+      }
+      updates.default_listing_type_id = defaultListingTypeId;
+    }
+    if (body?.quantityPricingDefaultEnabled !== undefined) {
+      updates.quantity_pricing_default_enabled = Boolean(body.quantityPricingDefaultEnabled);
+    }
+    if (body?.quantityPricingDefaultTiers !== undefined) {
+      updates.quantity_pricing_default_tiers = validateMercadoLivreQuantityTiers(body.quantityPricingDefaultTiers);
+    }
+    if (Object.keys(updates).length === 1) return NextResponse.json({ error: "Nenhuma preferência informada." }, { status: 400 });
+
+    const { data, error } = await supabaseAdmin
+      .from("mercadolivre_account")
+      .update(updates)
+      .eq("empresa_id", empresaId)
+      .select("default_listing_type_id, quantity_pricing_default_enabled, quantity_pricing_default_tiers")
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return NextResponse.json({ error: "Conecte uma conta Mercado Livre antes de definir o padrão." }, { status: 404 });
+
+    return NextResponse.json({
+      defaultListingTypeId: data.default_listing_type_id,
+      quantityPricingDefaultEnabled: Boolean(data.quantity_pricing_default_enabled),
+      quantityPricingDefaultTiers: validateMercadoLivreQuantityTiers(data.quantity_pricing_default_tiers ?? []),
+    });
+  } catch (error: any) {
+    console.error("PATCH /api/config/integracoes/mercadolivre", error);
+    return NextResponse.json(
+      { error: error?.message || "Falha ao salvar o tipo de publicação padrão." },
+      { status: errorStatus(error) },
+    );
+  }
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 export async function DELETE() {

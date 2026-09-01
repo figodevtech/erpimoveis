@@ -47,6 +47,7 @@ export async function GET(req: NextRequest) {
           token_type: token.token_type ?? null,
           scope: token.scope ?? null,
           expires_at: tokenExpiresAt(token.expires_in),
+          default_listing_type_id: accountChanged ? "gold_special" : existingAccount?.default_listing_type_id ?? "gold_special",
           raw_token: mercadoLivreTokenMetadata(token),
           raw_user: user,
           updated_at: new Date().toISOString(),
@@ -80,7 +81,7 @@ export async function GET(req: NextRequest) {
 async function getExistingAccount(empresaId: number) {
   const { data, error } = await supabaseAdmin
     .from("mercadolivre_account")
-    .select("id, ml_user_id, refresh_token")
+    .select("id, ml_user_id, refresh_token, default_listing_type_id")
     .eq("empresa_id", empresaId)
     .maybeSingle();
 

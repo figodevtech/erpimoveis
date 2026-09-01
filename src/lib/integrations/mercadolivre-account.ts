@@ -9,12 +9,13 @@ export type MercadoLivreAccountCredentials = {
   access_token: string;
   refresh_token: string | null;
   expires_at: string | null;
+  default_listing_type_id: "free" | "gold_special" | "gold_pro";
 };
 
 export async function getValidMercadoLivreAccount(empresaId: number) {
   const { data, error } = await supabaseAdmin
     .from("mercadolivre_account")
-    .select("id, empresa_id, ml_user_id, site_id, access_token, refresh_token, expires_at")
+    .select("id, empresa_id, ml_user_id, site_id, access_token, refresh_token, expires_at, default_listing_type_id")
     .eq("empresa_id", empresaId)
     .order("updated_at", { ascending: false })
     .limit(1)

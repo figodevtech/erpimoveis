@@ -222,9 +222,9 @@ export async function searchMercadoLivreOrders(
   }>(accessToken, `/orders/search?${searchParams.toString()}`);
 }
 
-export async function mercadoLivreApiGet<T>(accessToken: string, path: string) {
+export async function mercadoLivreApiGet<T>(accessToken: string, path: string, extraHeaders?: HeadersInit) {
   const response = await fetch(`${ML_API_BASE_URL}${path}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: { Authorization: `Bearer ${accessToken}`, ...extraHeaders },
     cache: "no-store",
   });
 
@@ -256,13 +256,14 @@ export async function mercadoLivreApiPut<T>(accessToken: string, path: string, b
   return (await response.json()) as T;
 }
 
-export async function mercadoLivreApiPost<T>(accessToken: string, path: string, body: unknown) {
+export async function mercadoLivreApiPost<T>(accessToken: string, path: string, body: unknown, extraHeaders?: HeadersInit) {
   const response = await fetch(`${ML_API_BASE_URL}${path}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
       Accept: "application/json",
+      ...extraHeaders,
     },
     body: JSON.stringify(body),
     cache: "no-store",

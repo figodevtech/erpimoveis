@@ -172,6 +172,7 @@ function normalizeQuality(performance: any, legacyHealth: unknown) {
         status: String(variable?.status ?? "PENDING"),
         message: String(variable?.description ?? variable?.message ?? variable?.progress?.wording ?? ""),
         link: variable?.link ?? variable?.action?.link ?? null,
+        kind: classifyQualityAction(variable),
       })),
   );
   return {
@@ -182,6 +183,30 @@ function normalizeQuality(performance: any, legacyHealth: unknown) {
     actions,
     raw: performance ?? null,
   };
+}
+
+function classifyQualityAction(variable: any) {
+  const text = [
+    variable?.key,
+    variable?.id,
+    variable?.code,
+    variable?.title,
+    variable?.wording,
+    variable?.name,
+    variable?.description,
+    variable?.message,
+    variable?.progress?.wording,
+  ]
+    .map((value) => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase())
+    .join(" ");
+
+  if (/atacado|wholesale|price.{0,20}quantity|quantity.{0,20}price|maior quantidade/.test(text)) return "quantity_price";
+  if (/mesmo dia|same.{0,10}day|envios? flex|self_service/.test(text)) return "same_day_shipping";
+  if (/video/.test(text)) return "video";
+  if (/imagem|foto|picture/.test(text)) return "pictures";
+  if (/descricao|description/.test(text)) return "description";
+  if (/ficha tecnica|technical|atribut|attribute/.test(text)) return "attributes";
+  return "external";
 }
 
 function summarizePeriod(days: Array<{ visits: number; orders: number; units: number; revenue: number }>) {
