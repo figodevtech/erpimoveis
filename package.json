@@ -43,6 +43,7 @@
     "migracao:garage:criar-veiculos-vincular-os": "tsx scripts/migracao/garagepremium-criar-veiculos-vincular-os.ts",
     "migracao:garage:clientes-nao-cadastrados-xlsx": "tsx scripts/migracao/garagepremium-clientes-nao-cadastrados-xlsx.ts",
     "migracao:garage:os-sem-cliente": "tsx scripts/migracao/garagepremium-os-sem-cliente.ts",
+    "migracao:garage:orcamentos-historicos": "tsx scripts/migracao/garagepremium-orcamentos-historicos.ts",
     "test:fiscal": "tsx --test src/services/fiscal/*.test.ts",
     "test:dre": "tsx --test src/app/api/dre/*.test.ts",
     "db:remover-fantasma": "tsx scripts/db/remover-versao-fantasma.ts",

@@ -468,6 +468,26 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       desconto: toNum(item.desconto ?? 0),
     }));
 
+    const historicoRes = await supabase
+      .from("ositem_historico")
+      .select("id, ordemservicoid, linha_origem, tipo, codigo_legado, descricao, unidade, quantidade, preco_unitario, subtotal")
+      .eq("ordemservicoid", osId)
+      .order("linha_origem", { ascending: true });
+    if (historicoRes.error) throw historicoRes.error;
+
+    const itensHistoricos = (historicoRes.data ?? []).map((item: any) => ({
+      id: Number(item.id),
+      ordemservicoid: osId,
+      linhaOrigem: Number(item.linha_origem),
+      tipo: item.tipo === "SERVICO" ? "SERVICO" : "PRODUTO",
+      codigoLegado: String(item.codigo_legado ?? "").trim() || null,
+      descricao: String(item.descricao ?? ""),
+      unidade: String(item.unidade ?? "").trim() || null,
+      quantidade: toNum(item.quantidade),
+      precoUnitario: toNum(item.preco_unitario),
+      subtotal: toNum(item.subtotal),
+    }));
+
     // Itens — serviços
     const serv_res = await supabase
       .from("osservico")
@@ -600,7 +620,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       pendente: Boolean(t.pendente),
     }));
     const resumoFinanceiro = calcularResumoFinanceiroOs({
-      totalComercial: osRow.orcamentototal,
+      totalComercial: osRow.migracao_referencia ? 0 : osRow.orcamentototal,
       acrescimoFinanceiroTipo: osRow.acrescimo_financeiro_tipo,
       acrescimoFinanceiroValor: osRow.acrescimo_financeiro_valor,
       transacoes,
@@ -865,6 +885,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         subtotal: p.subtotal,
       })),
       produtosAvulsos: itensProdutoAvulso,
+      itensHistoricos,
       servicos: itensServico.map((s) => ({
         servicoid: s.servicoid,
         descricao: s.servico?.descricao ?? "Serviço",
@@ -886,12 +907,13 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         itensProduto,
         itensProdutoAvulso,
         itensServico,
+        itensHistoricos,
         checklist,
         saida,
         aprovacoes,
         orcamento,
         resumoFinanceiro,
-        ...(podeVerRentabilidade ? { transacoes, rentabilidade } : {}),
+        ...(podeVerRentabilidade && !osRow.migracao_referencia ? { transacoes, rentabilidade } : {}),
       },
       { headers: { "Cache-Control": "no-store" } }
     );

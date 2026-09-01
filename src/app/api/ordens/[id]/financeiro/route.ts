@@ -48,7 +48,7 @@ export async function GET(_: Request, { params }: Params) {
     const [ordemResult, transacoesResult] = await Promise.all([
       supabaseAdmin
         .from("ordemservico")
-        .select("id, status, orcamentototal, acrescimo_financeiro_tipo, acrescimo_financeiro_valor")
+        .select("id, status, orcamentototal, acrescimo_financeiro_tipo, acrescimo_financeiro_valor, migracao_referencia")
         .eq("id", osId)
         .eq("is_deleted", false)
         .maybeSingle(),
@@ -135,16 +135,22 @@ export async function GET(_: Request, { params }: Params) {
           : null,
       };
     });
+    const historica = Boolean(ordemResult.data.migracao_referencia);
     const resumo = calcularResumoFinanceiroOs({
-      totalComercial: ordemResult.data.orcamentototal,
-      acrescimoFinanceiroTipo: ordemResult.data.acrescimo_financeiro_tipo,
-      acrescimoFinanceiroValor: ordemResult.data.acrescimo_financeiro_valor,
+      totalComercial: historica ? 0 : ordemResult.data.orcamentototal,
+      acrescimoFinanceiroTipo: historica ? null : ordemResult.data.acrescimo_financeiro_tipo,
+      acrescimoFinanceiroValor: historica ? 0 : ordemResult.data.acrescimo_financeiro_valor,
       transacoes,
     });
 
     return NextResponse.json(
       {
-        ordem: { id: ordemResult.data.id, status: ordemResult.data.status },
+        ordem: {
+          id: ordemResult.data.id,
+          status: ordemResult.data.status,
+          historica,
+          orcamentoHistorico: historica ? Number(ordemResult.data.orcamentototal ?? 0) : null,
+        },
         resumo,
         transacoes,
       },

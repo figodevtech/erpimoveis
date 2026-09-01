@@ -104,6 +104,7 @@ import { Tipo_transacao, type Transaction } from "../../../(financeiro)/fluxodec
 import { formatPaymentMethodLabel, type PlannedPayment } from "@/lib/payment-methods";
 import { ChecklistImagePreview } from "./checklist-image-preview";
 import { FinanceiroOsTab } from "./financeiro-os-tab";
+import { agruparItensHistoricos } from "@/lib/ordens/itens-historicos";
 import {
   descreverRealizadores,
   normalizarIdsRealizadores,
@@ -327,6 +328,7 @@ type OS = {
     ano?: number | null;
     horimetro?: number | null;
   } | null;
+  migracaoReferencia?: string | null;
 };
 
 type ItemProduto = {
@@ -373,6 +375,19 @@ type ItemServico = {
 
   idusuariorealizador?: string | null;
   realizador?: { id: string; nome: string | null } | null;
+};
+
+type ItemHistorico = {
+  id: number;
+  ordemservicoid: number;
+  linhaOrigem: number;
+  tipo: "PRODUTO" | "SERVICO";
+  codigoLegado?: string | null;
+  descricao: string;
+  unidade?: string | null;
+  quantidade: number;
+  precoUnitario: number;
+  subtotal: number;
 };
 
 type ChecklistImage = {
@@ -446,6 +461,7 @@ type OSDetalhesResponse = {
   itensProduto: ItemProduto[];
   itensProdutoAvulso: ItemProdutoAvulso[];
   itensServico: ItemServico[];
+  itensHistoricos: ItemHistorico[];
   checklist: ChecklistItem[];
   saida?: {
     id: number;
@@ -804,6 +820,9 @@ export function OSDetalhesDialog({
 
   const statusUpper = (data?.os?.status || "").toUpperCase();
   const osFinalizada = ["CONCLUIDO", "SEM_COBRANCA", "CANCELADO"].includes(statusUpper);
+  const osHistorica = Boolean(data?.os?.migracaoReferencia);
+  const podeExibirRentabilidade = podeVerRentabilidade && !osHistorica;
+  const podeExibirEventosFinanceiros = podeVerEventosFinanceiros && !osHistorica;
 
   const podeEditarResponsavel = useMemo(
     () => statusUpper === "ORCAMENTO_APROVADO" || statusUpper === "EM_ANDAMENTO",
@@ -954,10 +973,10 @@ export function OSDetalhesDialog({
 
   // Se a permissao cair enquanto o dialog esta aberto, volta para uma aba visivel.
   useEffect(() => {
-    if (currentTab === "rentabilidade" && !podeVerRentabilidade) setCurrentTab("resumo");
-    if (currentTab === "fluxo-os" && !podeVerEventosFinanceiros) setCurrentTab("resumo");
+    if (currentTab === "rentabilidade" && !podeExibirRentabilidade) setCurrentTab("resumo");
+    if (currentTab === "fluxo-os" && !podeExibirEventosFinanceiros) setCurrentTab("resumo");
     if (currentTab === "financeiro" && !podeVerFinanceiro) setCurrentTab("resumo");
-  }, [currentTab, podeVerRentabilidade, podeVerEventosFinanceiros, podeVerFinanceiro]);
+  }, [currentTab, podeExibirRentabilidade, podeExibirEventosFinanceiros, podeVerFinanceiro]);
 
   const titulo = useMemo(() => (data?.os?.id ? `Detalhes da OS #${data.os.id}` : "Detalhes da OS"), [data?.os?.id]);
 
@@ -971,15 +990,24 @@ export function OSDetalhesDialog({
     return p ? <Badge className={prioClasses[p] ?? ""}>{p}</Badge> : null;
   }, [data?.os?.prioridade]);
 
+  const itensHistoricosAgrupados = useMemo(
+    () => agruparItensHistoricos(data?.itensHistoricos),
+    [data?.itensHistoricos]
+  );
+  const itensHistoricosProduto = itensHistoricosAgrupados.produtos;
+  const itensHistoricosServico = itensHistoricosAgrupados.servicos;
   const totalProdutos = useMemo(
     () =>
       (data?.itensProduto || []).reduce((acc, it) => acc + Number(it.subtotal || 0), 0) +
-      (data?.itensProdutoAvulso || []).reduce((acc, it) => acc + Number(it.subtotal || 0), 0),
-    [data?.itensProduto, data?.itensProdutoAvulso]
+      (data?.itensProdutoAvulso || []).reduce((acc, it) => acc + Number(it.subtotal || 0), 0) +
+      itensHistoricosAgrupados.totalProdutos,
+    [data?.itensProduto, data?.itensProdutoAvulso, itensHistoricosAgrupados.totalProdutos]
   );
   const totalServicos = useMemo(
-    () => (data?.itensServico || []).reduce((acc, it) => acc + Number(it.subtotal || 0), 0),
-    [data?.itensServico]
+    () =>
+      (data?.itensServico || []).reduce((acc, it) => acc + Number(it.subtotal || 0), 0) +
+      itensHistoricosAgrupados.totalServicos,
+    [data?.itensServico, itensHistoricosAgrupados.totalServicos]
   );
   const subtotalOS = useMemo(
     () => arredondarMoeda(totalProdutos + totalServicos),
@@ -1854,7 +1882,7 @@ export function OSDetalhesDialog({
                           Checklist
                         </span>
                       </TabsTrigger>
-                      {podeVerRentabilidade ? (
+                      {podeExibirRentabilidade ? (
                         <TabsTrigger value="rentabilidade" className={tabTriggerClass}>
                           <span className="flex items-center gap-2">
                             <Calculator className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
@@ -1862,7 +1890,7 @@ export function OSDetalhesDialog({
                           </span>
                         </TabsTrigger>
                       ) : null}
-                      {podeVerEventosFinanceiros ? (
+                      {podeExibirEventosFinanceiros ? (
                         <TabsTrigger value="fluxo-os" className={tabTriggerClass}>
                           <span className="flex items-center gap-2">
                             <ListTree className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
@@ -2179,7 +2207,9 @@ export function OSDetalhesDialog({
                           Total: <b>{fmtMoney(totalProdutos)}</b>
                         </span>
                       </div>
-                      {(data.itensProduto ?? []).length === 0 && (data.itensProdutoAvulso ?? []).length === 0 ? (
+                      {(data.itensProduto ?? []).length === 0 &&
+                      (data.itensProdutoAvulso ?? []).length === 0 &&
+                      itensHistoricosProduto.length === 0 ? (
                         <div className="text-sm text-muted-foreground">—</div>
                       ) : (
                         <ul className="space-y-2 text-sm">
@@ -2224,6 +2254,23 @@ export function OSDetalhesDialog({
                               <div className="shrink-0 font-medium sm:text-right">{fmtMoney(it.subtotal)}</div>
                             </li>
                           ))}
+                          {itensHistoricosProduto.map((it) => (
+                            <li key={`historico-produto-${it.id}`} className="flex flex-col gap-1 rounded-md border border-sky-500/30 bg-sky-500/5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2 font-medium">
+                                  <span className="break-words">{it.descricao}</span>
+                                  <Badge variant="outline" className="border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300">
+                                    Histórico migrado
+                                  </Badge>
+                                </div>
+                                <div className="mt-0.5 text-xs text-muted-foreground">
+                                  {it.codigoLegado ? `Código legado ${it.codigoLegado} · ` : ""}
+                                  {it.quantidade} {it.unidade ? `${it.unidade} ` : ""}× {fmtMoney(it.precoUnitario)}
+                                </div>
+                              </div>
+                              <div className="shrink-0 font-medium tabular-nums sm:text-right">{fmtMoney(it.subtotal)}</div>
+                            </li>
+                          ))}
                         </ul>
                       )}
                     </div>
@@ -2238,7 +2285,7 @@ export function OSDetalhesDialog({
                         </span>
                       </div>
 
-                      {(data.itensServico ?? []).length === 0 ? (
+                      {(data.itensServico ?? []).length === 0 && itensHistoricosServico.length === 0 ? (
                         <div className="text-sm text-muted-foreground">—</div>
                       ) : (
                         <ul className="space-y-2 text-sm">
@@ -2312,6 +2359,23 @@ export function OSDetalhesDialog({
                               </li>
                             );
                           })}
+                          {itensHistoricosServico.map((it) => (
+                            <li key={`historico-servico-${it.id}`} className="flex flex-col gap-1 rounded-md border border-sky-500/30 bg-sky-500/5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2 font-medium">
+                                  <span className="break-words">{it.descricao}</span>
+                                  <Badge variant="outline" className="border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300">
+                                    Histórico migrado
+                                  </Badge>
+                                </div>
+                                <div className="mt-0.5 text-xs text-muted-foreground">
+                                  {it.codigoLegado ? `Código legado ${it.codigoLegado} · ` : ""}
+                                  {it.quantidade} {it.unidade ? `${it.unidade} ` : ""}× {fmtMoney(it.precoUnitario)}
+                                </div>
+                              </div>
+                              <div className="shrink-0 font-medium tabular-nums sm:text-right">{fmtMoney(it.subtotal)}</div>
+                            </li>
+                          ))}
                         </ul>
                       )}
                     </div>
@@ -2362,7 +2426,7 @@ export function OSDetalhesDialog({
 
                 </TabsContent>
 
-                {podeVerRentabilidade ? (
+                {podeExibirRentabilidade ? (
                   <TabsContent value="rentabilidade" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-4 sm:px-6 sm:py-5">
                     {data.rentabilidade ? (
                       <>
@@ -2741,7 +2805,7 @@ export function OSDetalhesDialog({
                   </TabsContent>
                 ) : null}
 
-                {podeVerEventosFinanceiros ? (
+                {podeExibirEventosFinanceiros ? (
                   <TabsContent value="fluxo-os" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-4 sm:px-6 sm:py-5">
                     <div className="grid gap-3 sm:grid-cols-3">
                       <div className="rounded-xl border bg-card p-4">
