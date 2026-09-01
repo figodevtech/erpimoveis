@@ -62,6 +62,11 @@ import { useFipe } from "./useFipe";
 import ValueInput from "../../(financeiro)/fluxodecaixa/components/transactionDialog/valueInput";
 import { useVeiculoImagens } from "./use-veiculo-imagens";
 import { TabVeiculoImagens } from "./tab-veiculo-imagens";
+import { ItemHistoricoResumo } from "@/components/ordens/item-historico-resumo";
+import {
+  agruparItensHistoricos,
+  type ItemHistoricoDetalhado,
+} from "@/lib/ordens/itens-historicos";
 
 function somenteAlphaNumMaiusculo(valor: string) {
   return valor.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -1460,6 +1465,11 @@ export default function EditContent({
                             const servicos = Array.isArray(ordem.servicos)
                               ? ordem.servicos
                               : [];
+                            const itensHistoricos = agruparItensHistoricos<ItemHistoricoDetalhado>(
+                              Array.isArray(ordem.itensHistoricos)
+                                ? (ordem.itensHistoricos as ItemHistoricoDetalhado[])
+                                : [],
+                            );
                             const expanded = expandedOrdemId === ordem.id;
 
                             return (
@@ -1481,6 +1491,14 @@ export default function EditContent({
                                         )}
                                       />
                                       #{ordem.id}
+                                      {ordem.migracaoReferencia ? (
+                                        <Badge
+                                          variant="outline"
+                                          className="border-sky-500/40 bg-sky-500/10 text-[10px] text-sky-700 dark:text-sky-300"
+                                        >
+                                          Migrada
+                                        </Badge>
+                                      ) : null}
                                     </span>
                                   </TableCell>
                                   <TableCell>{formatDate(dataOrdem)}</TableCell>
@@ -1511,7 +1529,7 @@ export default function EditContent({
                                           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                                             Serviços
                                           </p>
-                                          {servicos.length > 0 ? (
+                                          {servicos.length > 0 || itensHistoricos.servicos.length > 0 ? (
                                             <div className="space-y-2">
                                               {servicos.map(
                                                 (item: any, index: number) => (
@@ -1538,6 +1556,12 @@ export default function EditContent({
                                                   </div>
                                                 ),
                                               )}
+                                              {itensHistoricos.servicos.map((item) => (
+                                                <ItemHistoricoResumo
+                                                  key={`historico-servico-${item.id}`}
+                                                  item={item}
+                                                />
+                                              ))}
                                             </div>
                                           ) : (
                                             <p className="text-xs text-muted-foreground">
@@ -1550,7 +1574,7 @@ export default function EditContent({
                                           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                                             Produtos
                                           </p>
-                                          {produtos.length > 0 ? (
+                                          {produtos.length > 0 || itensHistoricos.produtos.length > 0 ? (
                                             <div className="space-y-2">
                                               {produtos.map(
                                                 (item: any, index: number) => (
@@ -1576,6 +1600,12 @@ export default function EditContent({
                                                   </div>
                                                 ),
                                               )}
+                                              {itensHistoricos.produtos.map((item) => (
+                                                <ItemHistoricoResumo
+                                                  key={`historico-produto-${item.id}`}
+                                                  item={item}
+                                                />
+                                              ))}
                                             </div>
                                           ) : (
                                             <p className="text-xs text-muted-foreground">

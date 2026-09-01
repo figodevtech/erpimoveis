@@ -6,6 +6,10 @@ import * as XLSX from "xlsx";
 
 import { requireRelatoriosAccess } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { arredondarMoeda } from "@/lib/ordens/desconto";
+import { inferirDescontoGeralOs, sanitizarValorFrete } from "@/lib/ordens/totais";
+import { calculateFinancialSurcharge } from "@/lib/financial-surcharge";
+import { fetchAllSupabaseRowsByChunks } from "@/lib/supabase-pagination";
 import { resolveOrdemVehicle } from "@/lib/ordens/vehicle-snapshot";
 import { resolveOrdemCustomer } from "@/lib/ordens/customer-snapshot";
 
@@ -93,6 +97,225 @@ function targetLabel(os: any) {
   return "Sem alvo informado";
 }
 
+type ItensDaOs = { produtos: number; servicos: number };
+
+type OrigemItem = "CATALOGO" | "AVULSO" | "SERVICO" | "HISTORICO";
+
+type LinhaItemOs = {
+  ordemservicoid: number;
+  origem: OrigemItem;
+  tipo: "PRODUTO" | "SERVICO";
+  codigo: string;
+  descricao: string;
+  unidade: string;
+  quantidade: number;
+  precoUnitario: number;
+  /** Sempre o valor gravado, já líquido do desconto do próprio item. */
+  subtotal: number;
+};
+
+const ROTULO_ORIGEM: Record<OrigemItem, string> = {
+  CATALOGO: "Catálogo",
+  AVULSO: "Avulso",
+  SERVICO: "Serviço",
+  HISTORICO: "Migrado",
+};
+
+function texto(valor: unknown) {
+  return String(valor ?? "").trim();
+}
+
+/** O Supabase devolve a junção ora como objeto, ora como lista de um. */
+function juncao(valor: unknown): any {
+  return Array.isArray(valor) ? valor[0] ?? null : valor ?? null;
+}
+
+/**
+ * Os itens de cada OS, pelas quatro portas em que eles existem.
+ *
+ * Produto entra por três (catálogo, avulso e item de OS migrada) e serviço por
+ * duas; deixar qualquer uma de fora subestima o total em silêncio.
+ *
+ * `detalhado` só troca a lista de colunas de cada consulta: sem ele nenhuma
+ * junção de descrição é paga e o relatório padrão custa o que sempre custou.
+ * As duas saídas — as colunas Produtos/Serviços e a aba Itens — leem das mesmas
+ * linhas, então a soma da aba e o total da ordem não têm como divergir.
+ *
+ * A ordem sai pronta daqui, e a folha de impressão não reordena nada: é o que
+ * impede o papel e a planilha de discordarem.
+ */
+async function carregarItensPorOs(ids: number[], detalhado: boolean) {
+  const porOs = new Map<number, LinhaItemOs[]>();
+  if (!ids.length) return porOs;
+
+  const buscar = (tabela: string, colunas: string, ordem: string[]) =>
+    fetchAllSupabaseRowsByChunks<any, number>(ids, (chunk) => {
+      let query = supabaseAdmin.from(tabela).select(colunas).in("ordemservicoid", chunk);
+      ordem.forEach((coluna) => { query = query.order(coluna, { ascending: true }); });
+      return query as any;
+    });
+
+  const colunas = (resumo: string, detalhe: string) => (detalhado ? `${resumo}, ${detalhe}` : resumo);
+
+  const [produtos, avulsos, servicos, historicos] = await Promise.all([
+    buscar(
+      "osproduto",
+      colunas("ordemservicoid, subtotal", "quantidade, precounitario, produto:produtoid (titulo, descricao, referencia)"),
+      ["ordemservicoid", "produtoid"],
+    ),
+    buscar(
+      "osproduto_avulso",
+      colunas("ordemservicoid, subtotal", "id, titulo, quantidade, precounitario"),
+      ["id"],
+    ),
+    buscar(
+      "osservico",
+      colunas("ordemservicoid, subtotal", "descricao, quantidade, precounitario, servico:servicoid (codigo, descricao)"),
+      ["ordemservicoid", "servicoid"],
+    ),
+    buscar(
+      "ositem_historico",
+      colunas("ordemservicoid, subtotal, tipo", "codigo_legado, descricao, unidade, quantidade, preco_unitario"),
+      // Por `linha_origem`, que é a ordem do documento migrado. A ordenação por
+      // id era inofensiva para somar e errada para exibir.
+      ["linha_origem", "id"],
+    ),
+  ]);
+
+  let sequencia = 0;
+  const acrescentar = (linha: any, montar: () => Omit<LinhaItemOs, "ordemservicoid">) => {
+    const osId = Number(linha.ordemservicoid);
+    if (!Number.isFinite(osId)) return;
+    const atual = porOs.get(osId) ?? [];
+    atual.push({ ordemservicoid: osId, ...montar() });
+    porOs.set(osId, atual);
+  };
+
+  produtos.forEach((linha) => {
+    const produto = juncao(linha.produto);
+    acrescentar(linha, () => ({
+      origem: "CATALOGO",
+      tipo: "PRODUTO",
+      // `titulo` antes de `descricao`, como na tela de orçamento.
+      codigo: texto(produto?.referencia),
+      descricao: texto(produto?.titulo) || texto(produto?.descricao),
+      unidade: "",
+      quantidade: Number(linha.quantidade ?? 0),
+      precoUnitario: Number(linha.precounitario ?? 0),
+      subtotal: Number(linha.subtotal ?? 0),
+      chave: `catalogo-${(sequencia += 1)}`,
+    }));
+  });
+
+  avulsos.forEach((linha) =>
+    acrescentar(linha, () => ({
+      origem: "AVULSO",
+      tipo: "PRODUTO",
+      codigo: "",
+      descricao: texto(linha.titulo),
+      unidade: "",
+      quantidade: Number(linha.quantidade ?? 0),
+      precoUnitario: Number(linha.precounitario ?? 0),
+      subtotal: Number(linha.subtotal ?? 0),
+      chave: `avulso-${(sequencia += 1)}`,
+    })),
+  );
+
+  servicos.forEach((linha) => {
+    const servico = juncao(linha.servico);
+    acrescentar(linha, () => ({
+      origem: "SERVICO",
+      tipo: "SERVICO",
+      codigo: texto(servico?.codigo),
+      // O texto específico daquela OS vence o do catálogo: é o que o cliente viu.
+      descricao: texto(linha.descricao) || texto(servico?.descricao),
+      unidade: "",
+      quantidade: Number(linha.quantidade ?? 0),
+      precoUnitario: Number(linha.precounitario ?? 0),
+      subtotal: Number(linha.subtotal ?? 0),
+      chave: `servico-${(sequencia += 1)}`,
+    }));
+  });
+
+  historicos.forEach((linha) =>
+    acrescentar(linha, () => ({
+      origem: "HISTORICO",
+      tipo: linha.tipo === "SERVICO" ? "SERVICO" : "PRODUTO",
+      codigo: texto(linha.codigo_legado),
+      descricao: texto(linha.descricao),
+      unidade: texto(linha.unidade),
+      quantidade: Number(linha.quantidade ?? 0),
+      precoUnitario: Number(linha.preco_unitario ?? 0),
+      subtotal: Number(linha.subtotal ?? 0),
+      chave: `historico-${(sequencia += 1)}`,
+    })),
+  );
+
+  return porOs;
+}
+
+/**
+ * Produtos e serviços somados, por OS.
+ *
+ * As duas colunas não fecham com `orcamentototal`: aquele campo já traz o
+ * desconto geral, o frete e o acréscimo financeiro da ordem, que são da OS
+ * inteira e não pertencem a nenhum dos dois lados. O que se soma aqui é o
+ * subtotal dos itens — já líquido do desconto de cada item —, que é o nível
+ * onde a divisão entre produto e serviço de fato existe.
+ */
+function somarItensPorOs(itensPorOs: Map<number, LinhaItemOs[]>) {
+  const totais = new Map<number, ItensDaOs>();
+
+  for (const [osId, itens] of itensPorOs) {
+    const soma: ItensDaOs = { produtos: 0, servicos: 0 };
+    for (const item of itens) {
+      if (item.tipo === "SERVICO") soma.servicos += item.subtotal;
+      else soma.produtos += item.subtotal;
+    }
+    totais.set(osId, soma);
+  }
+
+  return totais;
+}
+
+/**
+ * Desconto do próprio item, em reais.
+ *
+ * `subtotal` é gravado líquido, então o desconto é a diferença para o bruto. O
+ * piso em zero importa: linha migrada pode ter subtotal acima do bruto por
+ * arredondamento na migração, e "− R$ −0,03" no papel é pior que nada.
+ */
+function descontoDoItem(item: LinhaItemOs) {
+  return Math.max(0, arredondarMoeda(item.quantidade * item.precoUnitario - item.subtotal));
+}
+
+/**
+ * As parcelas que fecham a OS, na ordem da regra única de `calcularTotaisOs`:
+ * itens − desconto + frete = orçamento. O acréscimo financeiro sai à parte por
+ * incidir sobre o orçamento já fechado, e não sobre os itens.
+ *
+ * O desconto e o acréscimo são gravados como tipo + valor (R$ ou %), nunca em
+ * reais já resolvidos, então o relatório precisa refazer a mesma conta para ter
+ * o número que de fato saiu do total. O desconto sai de `inferirDescontoGeralOs`
+ * pelo subtotal gravado — é o mesmo caminho usado na origem da NF-e, e é o que
+ * evita que uma OS ainda sem total vire 100% de desconto.
+ */
+function fecharOs(os: any) {
+  const orcamento = arredondarMoeda(Number(os.orcamentototal ?? 0));
+  const frete = sanitizarValorFrete(os.valor_frete);
+  const desconto = inferirDescontoGeralOs({
+    subtotal: os.subtotal,
+    orcamentoTotal: orcamento,
+    valorFrete: frete,
+  });
+  const acrescimoFinanceiro = calculateFinancialSurcharge(
+    orcamento,
+    os.acrescimo_financeiro_tipo,
+    os.acrescimo_financeiro_valor,
+  );
+  return { desconto, frete, orcamento, acrescimoFinanceiro };
+}
+
 type SheetSpec = { name: string; headers: string[]; rows: unknown[][]; widths: number[] };
 
 function makeWorkbookFrom(sheets: SheetSpec[]) {
@@ -107,15 +330,14 @@ function makeWorkbookFrom(sheets: SheetSpec[]) {
   return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
 }
 
-function makeWorkbook(headers: string[], rows: unknown[][], widths: number[]) {
-  return makeWorkbookFrom([{ name: "Relatório", headers, rows, widths }]);
-}
-
 export async function GET(request: Request) {
   try {
     await requireRelatoriosAccess();
     const { searchParams } = new URL(request.url);
     const mode = searchParams.get("mode") === "financeiro" ? "financeiro" : "simples";
+    // Só a folha de impressão pede os itens, e só quando o usuário marca a
+    // opção; o download pela tela de relatórios continua com uma aba só.
+    const incluirItens = searchParams.get("itens") === "1";
     const status = statusSelecionados(searchParams.get("status"));
     const prioridadeParam = safeText(searchParams.get("prioridade"), 20).toUpperCase();
     const prioridade = PRIORIDADES.has(prioridadeParam) ? prioridadeParam : "";
@@ -140,6 +362,7 @@ export async function GET(request: Request) {
         .from("ordemservico")
         .select(`
           id, descricao, status, prioridade, dataentrada, datasaida, execucao_fim_em, orcamentototal,
+          subtotal, valor_frete, acrescimo_financeiro_tipo, acrescimo_financeiro_valor,
           alvo_tipo, equipamento_nome, equipamento_patrimonio, equipamento_ano, equipamento_horimetro,
           migracao_referencia, cliente_snapshot, veiculo_snapshot,
           cliente:clienteid(id, nomerazaosocial, cpfcnpj),
@@ -175,26 +398,67 @@ export async function GET(request: Request) {
     }
 
     if (mode === "simples") {
-      const rows = ordens.map((os) => [
-        os.id,
-        formatDate(os.dataentrada),
-        formatDate(os.execucao_fim_em),
-        formatDate(os.datasaida),
-        os.status ?? "",
-        os.prioridade ?? "",
-        resolveOrdemCustomer(os.cliente, os.cliente_snapshot)?.nomerazaosocial ?? "Sem cliente",
-        resolveOrdemCustomer(os.cliente, os.cliente_snapshot)?.cpfcnpj ?? "",
-        targetLabel(os),
-        os.setor?.nome ?? "Sem setor",
-        os.usuario?.nome ?? "Não informado",
-        os.descricao ?? "",
-        Number(os.orcamentototal ?? 0),
-      ]);
-      const buffer = makeWorkbook(
-        ["OS", "Entrada", "Conclusão", "Saída", "Status", "Prioridade", "Cliente", "CPF/CNPJ", "Alvo atendido", "Setor", "Responsável", "Descrição", "Orçamento (R$)"],
-        rows,
-        [9, 20, 20, 20, 24, 12, 35, 20, 35, 22, 26, 45, 18],
-      );
+      const itensPorOs = await carregarItensPorOs(ordens.map((os) => Number(os.id)), incluirItens);
+      const totaisPorOs = somarItensPorOs(itensPorOs);
+      const rows = ordens.map((os) => {
+        const itens = totaisPorOs.get(Number(os.id)) ?? { produtos: 0, servicos: 0 };
+        const fechamento = fecharOs(os);
+        return [
+          os.id,
+          formatDate(os.dataentrada),
+          formatDate(os.execucao_fim_em),
+          formatDate(os.datasaida),
+          os.status ?? "",
+          os.prioridade ?? "",
+          resolveOrdemCustomer(os.cliente, os.cliente_snapshot)?.nomerazaosocial ?? "Sem cliente",
+          resolveOrdemCustomer(os.cliente, os.cliente_snapshot)?.cpfcnpj ?? "",
+          targetLabel(os),
+          os.setor?.nome ?? "Sem setor",
+          os.usuario?.nome ?? "Não informado",
+          os.descricao ?? "",
+          arredondarMoeda(itens.produtos),
+          arredondarMoeda(itens.servicos),
+          fechamento.desconto,
+          fechamento.frete,
+          fechamento.orcamento,
+          fechamento.acrescimoFinanceiro,
+        ];
+      });
+      const abas: SheetSpec[] = [
+        {
+          name: "Relatório",
+          headers: ["OS", "Entrada", "Conclusão", "Saída", "Status", "Prioridade", "Cliente", "CPF/CNPJ", "Alvo atendido", "Setor", "Responsável", "Descrição", "Produtos (R$)", "Serviços (R$)", "Desconto (R$)", "Frete (R$)", "Orçamento (R$)", "Acréscimo financeiro (R$)"],
+          rows,
+          widths: [9, 20, 20, 20, 24, 12, 35, 20, 35, 22, 26, 45, 16, 16, 16, 14, 18, 24],
+        },
+      ];
+
+      if (incluirItens) {
+        // Agrupada na mesma ordem da aba principal, para a folha distribuir os
+        // itens numa passada só, sem reordenar nada.
+        const linhasDeItens = ordens.flatMap((os) =>
+          (itensPorOs.get(Number(os.id)) ?? []).map((item) => [
+            os.id,
+            ROTULO_ORIGEM[item.origem],
+            item.tipo === "SERVICO" ? "Serviço" : "Produto",
+            item.codigo,
+            item.descricao,
+            item.unidade,
+            item.quantidade,
+            arredondarMoeda(item.precoUnitario),
+            descontoDoItem(item),
+            arredondarMoeda(item.subtotal),
+          ]),
+        );
+        abas.push({
+          name: "Itens",
+          headers: ["OS", "Origem", "Tipo", "Código", "Descrição", "Unidade", "Quantidade", "Preço unitário (R$)", "Desconto do item (R$)", "Subtotal (R$)"],
+          rows: linhasDeItens,
+          widths: [9, 12, 12, 16, 45, 10, 12, 18, 20, 16],
+        });
+      }
+
+      const buffer = makeWorkbookFrom(abas);
       return new NextResponse(buffer, {
         headers: {
           "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

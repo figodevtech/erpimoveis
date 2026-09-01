@@ -15,6 +15,7 @@
     "test:financeiro": "tsx --test src/lib/financeiro/*.test.ts src/app/api/transaction/_lib/*.test.ts",
     "test:telegram": "tsx --test src/lib/ordens/telegram-notifications.test.ts src/lib/financeiro/telegram-daily-summary.test.ts src/lib/estoque/telegram-stock-notifications.test.ts",
     "test:ordens": "tsx --test src/lib/ordens/*.test.ts",
+    "test:relatorios": "tsx --test \"src/app/(app)/(full)/print/relatorios/**/*.test.ts\"",
     "localidades:gerar": "node scripts/localidades/gerar-municipios.mjs",
     "db:status": "tsx scripts/db/status.ts",
     "db:test:chat-migration": "tsx scripts/db/test-chat-migration.ts",

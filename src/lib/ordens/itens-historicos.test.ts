@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { agruparItensHistoricos, type ItemHistoricoOs } from "./itens-historicos";
+import {
+  agruparItensHistoricos,
+  mapearItemHistorico,
+  type ItemHistoricoOs,
+} from "./itens-historicos";
 
 function item(id: number, tipo: ItemHistoricoOs["tipo"], subtotal: number): ItemHistoricoOs {
   return { id, tipo, subtotal };
@@ -42,4 +46,33 @@ test("considera vazio quando a OS nao possui snapshots", () => {
   assert.equal(resultado.servicos.length, 0);
   assert.equal(resultado.totalProdutos, 0);
   assert.equal(resultado.totalServicos, 0);
+});
+
+test("converte a linha do banco para o contrato usado nos dialogos", () => {
+  assert.deepEqual(
+    mapearItemHistorico({
+      id: "10",
+      ordemservicoid: 20,
+      linha_origem: 30,
+      tipo: "SERVICO",
+      codigo_legado: "65",
+      descricao: "MÃO DE OBRA",
+      unidade: "UN",
+      quantidade: "2",
+      preco_unitario: "50.5",
+      subtotal: "101",
+    }),
+    {
+      id: 10,
+      ordemservicoid: 20,
+      linhaOrigem: 30,
+      tipo: "SERVICO",
+      codigoLegado: "65",
+      descricao: "MÃO DE OBRA",
+      unidade: "UN",
+      quantidade: 2,
+      precoUnitario: 50.5,
+      subtotal: 101,
+    },
+  );
 });
