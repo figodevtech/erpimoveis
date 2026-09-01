@@ -128,6 +128,26 @@ export async function GET(
       desconto: toNum(r.desconto ?? 0),
     }));
 
+    const { data: historicoRows, error: historicoErr } = await supabase
+      .from("ositem_historico")
+      .select("id, ordemservicoid, linha_origem, tipo, codigo_legado, descricao, unidade, quantidade, preco_unitario, subtotal")
+      .eq("ordemservicoid", osId)
+      .order("linha_origem", { ascending: true });
+
+    if (historicoErr) throw historicoErr;
+    const itensHistoricos = (historicoRows ?? []).map((r: any) => ({
+      id: toNum(r.id),
+      ordemservicoid: osId,
+      linhaOrigem: toNum(r.linha_origem),
+      tipo: r.tipo === "SERVICO" ? "SERVICO" : "PRODUTO",
+      codigoLegado: String(r.codigo_legado ?? "").trim() || null,
+      descricao: String(r.descricao ?? ""),
+      unidade: String(r.unidade ?? "").trim() || null,
+      quantidade: toNum(r.quantidade),
+      precoUnitario: toNum(r.preco_unitario),
+      subtotal: toNum(r.subtotal),
+    }));
+
     // A tela precisa avisar antes de vincular um avulso: com a OS já em
     // execução no modo EXECUCAO, o vínculo baixa o estoque na hora.
     const statusOS = String((osRow as any)?.status ?? "").toUpperCase();
@@ -140,6 +160,7 @@ export async function GET(
         produtos,
         produtosAvulsos,
         servicos,
+        itensHistoricos,
         statusOS,
         baixaAoVincularAvulso,
         subtotal: toNum((osRow as any)?.subtotal ?? 0),

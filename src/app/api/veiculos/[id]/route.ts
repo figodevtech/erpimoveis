@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { requireVeiculosAccess, requireVeiculosDelete, requireVeiculosEdit } from "@/app/api/_authz/perms";
+import { mapearItemHistorico } from "@/lib/ordens/itens-historicos";
 
 // Evita cache no App Router
 export const revalidate = 0;
@@ -56,6 +57,7 @@ export async function GET(_request: Request, ctx: Ctx) {
           descricao, observacoes,
           dataentrada, datasaida,
           orcamentototal,
+          migracao_referencia, cliente_snapshot, veiculo_snapshot,
           cliente:cliente (
             nomerazaosocial
           ),
@@ -71,6 +73,10 @@ export async function GET(_request: Request, ctx: Ctx) {
             subtotal,
             servico:servicoid ( id, descricao )
           ),
+          itens_historicos:ositem_historico (
+            id, ordemservicoid, linha_origem, tipo, codigo_legado, descricao,
+            unidade, quantidade, preco_unitario, subtotal
+          ),
           createdat, updatedat,
           is_deleted, deleted_at
         )
@@ -82,7 +88,16 @@ export async function GET(_request: Request, ctx: Ctx) {
 
     if (error) return respostaJSON({ error: "Veículo não encontrado." }, 404);
 
-    return respostaJSON({ veiculo: data });
+    const veiculo = {
+      ...data,
+      ordens: ((data as any).ordens ?? []).map((ordem: any) => ({
+        ...ordem,
+        migracaoReferencia: ordem.migracao_referencia ?? null,
+        itensHistoricos: (ordem.itens_historicos ?? []).map(mapearItemHistorico),
+      })),
+    };
+
+    return respostaJSON({ veiculo });
   } catch (err: any) {
     console.error("GET /api/veiculos/[id]", err);
     return respostaJSON({ error: "Falha ao buscar veículo" }, 500);

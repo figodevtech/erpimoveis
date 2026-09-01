@@ -46,7 +46,3 @@ comment on column public.ordemservico.cliente_snapshot is
 
 comment on constraint ordemservico_migracao_historica_consistente on public.ordemservico is
   'OS historica concluida e sem cobranca; aceita cliente cadastrado ou snapshot legado identificado por nome.';
-<<<<<<< HEAD
-=======
-
->>>>>>> 06598fd06be35255bc20eb0caedc2e08bf8395cb

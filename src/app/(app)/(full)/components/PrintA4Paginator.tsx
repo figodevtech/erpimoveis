@@ -64,6 +64,8 @@ export function PrintA4Paginator() {
 
       const sourceContent = source.querySelector<HTMLElement>(":scope > .conteudo");
       const sourceHeader = source.querySelector<HTMLElement>(":scope > .header-os");
+      const repeatHeader = root.hasAttribute("data-print-pagination-repeat-header");
+      const numberedPages = root.hasAttribute("data-print-pagination-number-pages");
       const items = sourceContent?.querySelector<HTMLElement>(`:scope > ${ITEMS_SELECTOR}`);
       const finalBlock = sourceContent?.querySelector<HTMLElement>(`:scope > ${FINAL_SELECTOR}`);
 
@@ -106,7 +108,7 @@ export function PrintA4Paginator() {
         sheet.removeAttribute("data-print-export-target");
         sheet.classList.add("print-generated-page");
 
-        if (firstPage && sourceHeader) {
+        if ((firstPage || repeatHeader) && sourceHeader) {
           const header = sourceHeader.cloneNode(true) as HTMLElement;
           removeIds(header);
           sheet.appendChild(header);
@@ -161,7 +163,31 @@ export function PrintA4Paginator() {
         removeIds(rowClone);
         current.tbody?.appendChild(rowClone);
 
-        if (!fits(current)) {
+        // Alguns cabeçalhos precisam permanecer com a primeira linha de
+        // conteúdo seguinte. As linhas necessárias entram apenas como sondas
+        // de medição e serão adicionadas definitivamente nas próximas iterações.
+        let fitsWithRequiredNext = fits(current);
+        const requiredNextRows: HTMLTableRowElement[] = [];
+        if (row.hasAttribute("data-print-row-keep-with-next")) {
+          for (let probeIndex = index + 1; probeIndex < sourceRows.length; probeIndex += 1) {
+            const nextRow = sourceRows[probeIndex];
+            requiredNextRows.push(nextRow);
+            if (!nextRow.hasAttribute("data-print-row-keep-with-next")) break;
+          }
+        }
+        if (fitsWithRequiredNext && requiredNextRows.length && current.tbody) {
+          const probes = requiredNextRows.map((requiredNextRow) => {
+            const probe = requiredNextRow.cloneNode(true) as HTMLTableRowElement;
+            removeIds(probe);
+            probe.setAttribute("data-print-pagination-probe", "");
+            current.tbody?.appendChild(probe);
+            return probe;
+          });
+          fitsWithRequiredNext = fits(current);
+          probes.forEach((probe) => probe.remove());
+        }
+
+        if (!fitsWithRequiredNext) {
           rowClone.remove();
           current = createPage(false, true);
           current.tbody?.appendChild(rowClone);
@@ -199,6 +225,15 @@ export function PrintA4Paginator() {
           const footerPage = createPage(false, false);
           addFinalBlock(footerPage);
         }
+      }
+
+      if (numberedPages) {
+        pages.forEach((page, index) => {
+          const footer = document.createElement("div");
+          footer.className = "print-generated-page-number";
+          footer.textContent = `Página ${index + 1} de ${pages.length}`;
+          page.sheet.appendChild(footer);
+        });
       }
 
       generated.style.removeProperty("position");
@@ -293,6 +328,16 @@ const PRINT_A4_PAGINATION_CSS = `
     min-height:var(--a4h) !important;
     max-height:var(--a4h) !important;
     overflow:hidden !important;
+    position:relative !important;
+  }
+
+  .print-generated-page-number{
+    position:absolute;
+    right:12mm;
+    bottom:6mm;
+    color:#64748b;
+    font-size:8px;
+    font-variant-numeric:tabular-nums;
   }
 
   .print-generated-page > .conteudo{

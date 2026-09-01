@@ -14,6 +14,7 @@ const PUBLIC_PATHS = [
   "/recuperar-senha",
   "/os",
   "/venda",
+  "/verificar/checklist",
   // NextAuth
   "/api/auth",
 ];
@@ -26,6 +27,7 @@ const PUBLIC_API_PREFIXES = [
 
   "/api/ordens/aprovacao",
   "/api/venda/aprovacao",
+  "/api/verificar/checklist",
   "/api/site/agendamentos",
   // Chamadas servidor-servidor. Cada rota aplica sua propria validacao.
   "/api/integracoes/mercadolivre/cron",
@@ -75,6 +77,7 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
   { prefix: "/api/customers", perm: PERMS.CLIENTES },
   { prefix: "/api/clientes", perm: PERMS.CLIENTES },
   { prefix: "/api/ordens", perm: PERMS.ORDENS },
+  { prefix: "/api/checklist-documentos", perm: PERMS.ORDENS },
   { prefix: "/api/orcamentos", perm: PERMS.ORCAMENTOS },
   { prefix: "/api/agendamentos", perm: PERMS.AGENDAMENTOS },
   { prefix: "/api/products", perm: PERMS.ESTOQUE },
@@ -100,6 +103,7 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
   { prefix: "/dashboard", perm: PERMS.DASHBOARD },
   { prefix: "/clientes", perm: PERMS.CLIENTES },
   { prefix: "/ordens", perm: PERMS.ORDENS },
+  { prefix: "/print/checklist", perm: PERMS.ORDENS },
   { prefix: "/orcamentos", perm: PERMS.ORCAMENTOS },
   { prefix: "/print/orcamento", perm: PERMS.ORCAMENTOS },
   { prefix: "/print/produto", perm: PERMS.ESTOQUE },

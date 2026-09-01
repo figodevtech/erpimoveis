@@ -18,6 +18,13 @@ export type PrintDisplayOption = {
   attribute: string;
   label: string;
   defaultChecked?: boolean;
+  /**
+   * Para a opção que muda o que o React renderiza, e não só o que o CSS mostra:
+   * buscar dados, repaginar. Chamado no clique, nunca pelo efeito abaixo — o
+   * efeito depende de `options`, que os chamadores montam como literal a cada
+   * render, e disparar dali refaria o ciclo sozinho.
+   */
+  onCheckedChange?: (checked: boolean) => void;
 };
 
 function OptionCheckboxItem({
@@ -102,12 +109,13 @@ export function PrintDisplayOptionsMenu({
             key={option.attribute}
             option={option}
             checked={Boolean(checkedByAttribute[option.attribute])}
-            onCheckedChange={(checked) =>
+            onCheckedChange={(checked) => {
               setCheckedByAttribute((current) => ({
                 ...current,
                 [option.attribute]: checked,
-              }))
-            }
+              }));
+              option.onCheckedChange?.(checked);
+            }}
           />
         ))}
       </DropdownMenuContent>

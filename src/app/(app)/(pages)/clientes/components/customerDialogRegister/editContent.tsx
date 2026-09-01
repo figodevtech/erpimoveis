@@ -72,6 +72,11 @@ import {
 } from "@/components/ui/drawer";
 import CustomerRelationshipTabs from "./customerRelationshipTabs";
 import SecondaryPhonesCard from "./secondaryPhonesCard";
+import { ItemHistoricoResumo } from "@/components/ordens/item-historico-resumo";
+import {
+  agruparItensHistoricos,
+  type ItemHistoricoDetalhado,
+} from "@/lib/ordens/itens-historicos";
 
 interface EditContentProps {
   customerId: number;
@@ -1295,6 +1300,11 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                             const dataOrdem = ordem.dataentrada || ordem.createdat || ordem.created_at;
                             const produtos = Array.isArray(ordem.produtos) ? ordem.produtos : [];
                             const servicos = Array.isArray(ordem.servicos) ? ordem.servicos : [];
+                            const itensHistoricos = agruparItensHistoricos<ItemHistoricoDetalhado>(
+                              Array.isArray(ordem.itensHistoricos)
+                                ? (ordem.itensHistoricos as ItemHistoricoDetalhado[])
+                                : [],
+                            );
                             const expanded = expandedOrdemId === ordem.id;
                             const alvoDescricao =
                               ordem.alvo_tipo === "PECA"
@@ -1324,6 +1334,14 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                                     <span className="inline-flex items-center gap-1.5">
                                       <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-180")} />
                                       #{ordem.id}
+                                      {ordem.migracaoReferencia ? (
+                                        <Badge
+                                          variant="outline"
+                                          className="border-sky-500/40 bg-sky-500/10 text-[10px] text-sky-700 dark:text-sky-300"
+                                        >
+                                          Migrada
+                                        </Badge>
+                                      ) : null}
                                     </span>
                                   </TableCell>
                                   <TableCell>{formatDate(dataOrdem)}</TableCell>
@@ -1377,7 +1395,7 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                                           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                                             Serviços
                                           </p>
-                                          {servicos.length > 0 ? (
+                                          {servicos.length > 0 || itensHistoricos.servicos.length > 0 ? (
                                             <div className="space-y-2">
                                               {servicos.map((item: any, index: number) => (
                                                 <div key={`${ordem.id}-servico-${index}`} className="flex items-center justify-between gap-3 text-xs">
@@ -1389,6 +1407,12 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                                                   </span>
                                                 </div>
                                               ))}
+                                              {itensHistoricos.servicos.map((item) => (
+                                                <ItemHistoricoResumo
+                                                  key={`historico-servico-${item.id}`}
+                                                  item={item}
+                                                />
+                                              ))}
                                             </div>
                                           ) : (
                                             <p className="text-xs text-muted-foreground">Nenhum serviço vinculado.</p>
@@ -1399,7 +1423,7 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                                           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                                             Produtos
                                           </p>
-                                          {produtos.length > 0 ? (
+                                          {produtos.length > 0 || itensHistoricos.produtos.length > 0 ? (
                                             <div className="space-y-2">
                                               {produtos.map((item: any, index: number) => (
                                                 <div key={`${ordem.id}-produto-${index}`} className="flex items-center justify-between gap-3 text-xs">
@@ -1410,6 +1434,12 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                                                     {formatCurrency(item.subtotal || 0)}
                                                   </span>
                                                 </div>
+                                              ))}
+                                              {itensHistoricos.produtos.map((item) => (
+                                                <ItemHistoricoResumo
+                                                  key={`historico-produto-${item.id}`}
+                                                  item={item}
+                                                />
                                               ))}
                                             </div>
                                           ) : (

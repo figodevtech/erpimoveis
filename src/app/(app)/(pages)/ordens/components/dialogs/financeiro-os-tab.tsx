@@ -140,7 +140,12 @@ function ValoresDaTransacao({
 }
 
 type PayloadFinanceiro = {
-  ordem: { id: number; status: string };
+  ordem: {
+    id: number;
+    status: string;
+    historica?: boolean;
+    orcamentoHistorico?: number | null;
+  };
   resumo: ResumoFinanceiroOs;
   transacoes: TransacaoOs[];
 };
@@ -397,6 +402,37 @@ export function FinanceiroOsTab({
           </Button>
         </div>
       </div>
+    );
+  }
+
+  if (payload.ordem.historica) {
+    return (
+      <section className="overflow-hidden rounded-xl border border-sky-500/30 bg-card shadow-sm">
+        <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-sky-500/10 p-2.5 text-sky-600 dark:text-sky-300">
+              <Info className="size-5" aria-hidden />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-semibold tracking-tight">Orçamento histórico sem cobrança</h3>
+                <Badge variant="outline" className="border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300">
+                  Histórico migrado
+                </Badge>
+              </div>
+              <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+                O valor foi preservado apenas para consulta. Esta OS não possui saldo a receber e não permite pagamentos ou lançamentos financeiros.
+              </p>
+            </div>
+          </div>
+          <div className="shrink-0 rounded-lg border bg-muted/30 px-4 py-3 sm:text-right">
+            <p className="text-xs text-muted-foreground">Total registrado</p>
+            <p className="mt-0.5 text-xl font-semibold tabular-nums">
+              {formatarEmReal(Number(payload.ordem.orcamentoHistorico ?? 0))}
+            </p>
+          </div>
+        </div>
+      </section>
     );
   }
 

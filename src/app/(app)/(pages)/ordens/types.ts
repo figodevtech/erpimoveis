@@ -1,6 +1,7 @@
 import { Transaction } from "../(financeiro)/fluxodecaixa/types";
 import type { PlannedPayment } from "@/lib/payment-methods";
 import type { OrdemVehicleSnapshot } from "@/lib/ordens/vehicle-snapshot";
+import type { ItemHistoricoDetalhado } from "@/lib/ordens/itens-historicos";
 
 export type ID = number | string;
 
@@ -85,6 +86,7 @@ export type Ordem = {
   veiculo?: Veiculo | null;
   veiculo_snapshot?: OrdemVehicleSnapshot | null;
   migracaoReferencia?: string | null;
+  itensHistoricos?: ItemHistoricoDetalhado[];
   peca?: Peca | null
   equipamento?: Equipamento | null;
   checklistTemplateId?: string | null;

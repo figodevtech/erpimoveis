@@ -325,11 +325,13 @@ export default function ContasBancariasSection() {
                   <ValueInput
                     value={form.valorinicial}
                     onValueChange={(v) => handleChange("valorinicial", v)}
+                    mode="decimal"
                     decimals={6}
                     allowNegative
                   />
                   <p className="text-xs text-muted-foreground">
-                    Aceita até 6 casas decimais. Digite <b>-</b> para inverter o sinal quando a conta abrir negativa.
+                    Digite o valor com vírgula, até 6 casas decimais (443,32 ou 443,333221). Comece com{" "}
+                    <b>-</b> para conta que abre negativa.
                   </p>
                 </div>
 

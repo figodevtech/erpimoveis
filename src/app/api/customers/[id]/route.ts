@@ -6,6 +6,7 @@ import { normalizarIndIEDest } from "@/lib/nfe/indIEDest";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireClientesAccess, requireClientesDelete, requireClientesEdit } from "@/app/api/_authz/perms";
 import { resolveOrdemVehicle } from "@/lib/ordens/vehicle-snapshot";
+import { mapearItemHistorico } from "@/lib/ordens/itens-historicos";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -41,6 +42,10 @@ const ORDEM_FIELDS = `
     precounitario,
     subtotal,
     servico:servicoid ( id, descricao )
+  ),
+  itens_historicos:ositem_historico (
+    id, ordemservicoid, linha_origem, tipo, codigo_legado, descricao,
+    unidade, quantidade, preco_unitario, subtotal
   )
 `
 
@@ -169,6 +174,7 @@ export async function GET(_: Request, ctx: Params) {
         ...ordem,
         migracaoReferencia: ordem.migracao_referencia ?? null,
         veiculo: resolveOrdemVehicle(ordem.veiculo, ordem.veiculo_snapshot),
+        itensHistoricos: (ordem.itens_historicos ?? []).map(mapearItemHistorico),
       })),
     };
 

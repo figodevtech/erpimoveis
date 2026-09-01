@@ -37,6 +37,7 @@ export function PrintDocumentHeader({
             height={70}
             className="logo-img"
             priority
+            unoptimized
           />
         </div>
       ) : (
