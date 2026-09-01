@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildAppointmentRateLimitKeys,
+  buildChecklistVerificationRateLimitKeys,
   buildPublicApprovalRateLimitKeys,
   buildLoginRateLimitKeys,
   buildRecoveryRateLimitKeys,
@@ -46,16 +47,22 @@ test("separa as chaves de aprovacao publica das chaves de login", () => {
   process.env.AUTH_SECRET = "segredo-de-teste-com-tamanho-suficiente";
 
   try {
-  const request = new Request("https://example.test", {
-    headers: { "x-real-ip": "203.0.113.8" },
-  });
-  const loginKeys = buildLoginRateLimitKeys("cliente", request);
-  const approvalKeys = buildPublicApprovalRateLimitKeys("token", request);
+    const request = new Request("https://example.test", {
+      headers: { "x-real-ip": "203.0.113.8" },
+    });
+    const loginKeys = buildLoginRateLimitKeys("cliente", request);
+    const approvalKeys = buildPublicApprovalRateLimitKeys("token", request);
 
-  assert.equal(approvalKeys.length, 2);
-  assert.notDeepEqual(approvalKeys, loginKeys);
-  assert.match(approvalKeys[0], /^approval-token:[a-f0-9]{64}$/);
-  assert.match(approvalKeys[1], /^approval-ip:[a-f0-9]{64}$/);
+    assert.equal(approvalKeys.length, 2);
+    assert.notDeepEqual(approvalKeys, loginKeys);
+    assert.match(approvalKeys[0], /^approval-token:[a-f0-9]{64}$/);
+    assert.match(approvalKeys[1], /^approval-ip:[a-f0-9]{64}$/);
+
+    const checklistKeys = buildChecklistVerificationRateLimitKeys("token", request);
+    assert.notDeepEqual(checklistKeys, loginKeys);
+    assert.notDeepEqual(checklistKeys, approvalKeys);
+    assert.match(checklistKeys[0], /^checklist-verification-token:[a-f0-9]{64}$/);
+    assert.match(checklistKeys[1], /^checklist-verification-ip:[a-f0-9]{64}$/);
 
     const recoveryKeys = buildRecoveryRateLimitKeys("cliente@example.com", request);
     const appointmentKeys = buildAppointmentRateLimitKeys("12345678901", request);

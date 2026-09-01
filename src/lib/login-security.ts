@@ -36,6 +36,13 @@ export function buildPublicApprovalRateLimitKeys(token: string, request: Request
   ];
 }
 
+export function buildChecklistVerificationRateLimitKeys(token: string, request: Request): string[] {
+  return [
+    hashRateLimitValue("checklist-verification-token", token),
+    hashRateLimitValue("checklist-verification-ip", getClientIp(request)),
+  ];
+}
+
 export function buildRecoveryRateLimitKeys(email: string, request: Request): string[] {
   return [
     hashRateLimitValue("recovery-email", email),

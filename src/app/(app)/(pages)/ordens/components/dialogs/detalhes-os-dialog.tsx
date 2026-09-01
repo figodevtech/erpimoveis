@@ -40,6 +40,7 @@ import {
   Package,
   Paperclip,
   Pencil,
+  Printer,
   RefreshCw,
   Eye,
   MoreHorizontal,
@@ -114,6 +115,10 @@ import {
 } from "./realizadores-servico";
 import { ClienteResumoCard } from "@/components/cliente/cliente-resumo-card";
 import { TrocarClienteOsButton } from "./trocar-cliente-os-dialog";
+import type {
+  ChecklistDocumentoResumo,
+  ChecklistTipo,
+} from "@/lib/ordens/checklist-documento";
 
 const PUBLIC_APPROVAL_BASE = "/aprovacao";
 function approvalUrlFromToken(token: string) {
@@ -610,6 +615,165 @@ function badgeClassForChecklistStatus(status?: string) {
   }
 }
 
+function ChecklistDocumentHistory({
+  tipo,
+  documents,
+  loading,
+  podeExcluir,
+  podeExcluirAssinado,
+  onExcluido,
+}: {
+  tipo: ChecklistTipo;
+  documents: ChecklistDocumentoResumo[];
+  loading: boolean;
+  podeExcluir: boolean;
+  podeExcluirAssinado: boolean;
+  onExcluido: () => void | Promise<void>;
+}) {
+  const items = documents.filter((document) => document.tipo === tipo);
+  const [documentoParaExcluir, setDocumentoParaExcluir] = useState<ChecklistDocumentoResumo | null>(null);
+  const [excluindo, setExcluindo] = useState(false);
+  const statusLabel: Record<ChecklistDocumentoResumo["status"], string> = {
+    NAO_ASSINADO: "Não assinado",
+    ASSINADO_PENDENTE_PDF: "PDF pendente",
+    ASSINADO: "Assinado",
+  };
+
+  // Versão assinada é o comprovante de ciência do cliente: só sai das mãos de
+  // quem recebeu a permissão dedicada para isso.
+  function bloqueioDeExclusao(document: ChecklistDocumentoResumo) {
+    if (!podeExcluir) return "Você não tem permissão para excluir versões do checklist.";
+    if (document.status !== "NAO_ASSINADO" && !podeExcluirAssinado) {
+      return "Esta versão está assinada. Excluí-la exige a permissão específica para checklists assinados.";
+    }
+    return null;
+  }
+
+  async function excluirVersao() {
+    if (!documentoParaExcluir || excluindo) return;
+    setExcluindo(true);
+    try {
+      const response = await fetch(`/api/checklist-documentos/${documentoParaExcluir.publicId}`, { method: "DELETE" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Não foi possível excluir a versão do checklist.");
+      toast.success(`Versão ${documentoParaExcluir.versao} do checklist excluída.`);
+      setDocumentoParaExcluir(null);
+      await onExcluido();
+    } catch (error: any) {
+      toast.error(error?.message || "Não foi possível excluir a versão do checklist.");
+    } finally {
+      setExcluindo(false);
+    }
+  }
+
+  return (
+    <>
+      <Popover>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
+              <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" aria-label={`Histórico do checklist de ${tipo.toLowerCase()}`}>
+                <History className="h-4 w-4" />
+              </Button>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Histórico de versões</TooltipContent>
+        </Tooltip>
+        <PopoverContent align="end" className="w-[min(92vw,420px)] p-0">
+          <div className="border-b px-4 py-3">
+            <div className="font-medium">Versões do checklist de {tipo.toLowerCase()}</div>
+            <div className="text-xs text-muted-foreground">Cada impressão cria um snapshot imutável.</div>
+          </div>
+          <div className="max-h-72 overflow-y-auto p-2">
+            {loading ? (
+              <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Carregando versões...</div>
+            ) : items.length === 0 ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">Nenhuma versão criada.</div>
+            ) : items.map((document) => {
+              const bloqueio = bloqueioDeExclusao(document);
+              return (
+                <div key={document.publicId} className="flex items-start gap-1 rounded-md pr-1 hover:bg-muted">
+                  <a
+                    href={`/print/checklist/${document.publicId}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex min-w-0 flex-1 items-start justify-between gap-3 rounded-md px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary"
+                  >
+                    <span className="min-w-0">
+                      <span className="flex items-center gap-2 text-sm font-medium">
+                        V{document.versao}
+                        {document.maisRecente && <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">Mais recente</Badge>}
+                        {document.mudancas?.conteudoIdentico && <Badge variant="outline" className="h-5 px-1.5 text-[10px]">Conteúdo idêntico</Badge>}
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground">{document.codigo}</span>
+                      <span className="block text-xs text-muted-foreground">{fmtDate(document.criadoEm)}{document.criadoPor ? ` • ${document.criadoPor}` : ""}</span>
+                    </span>
+                    <Badge variant="outline" className="shrink-0 text-[10px]">{statusLabel[document.status]}</Badge>
+                  </a>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex shrink-0 self-center">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                          aria-label={`Excluir versão ${document.versao} do checklist`}
+                          disabled={Boolean(bloqueio)}
+                          onClick={() => setDocumentoParaExcluir(document)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>{bloqueio ?? "Excluir esta versão"}</TooltipContent>
+                  </Tooltip>
+                </div>
+              );
+            })}
+          </div>
+        </PopoverContent>
+      </Popover>
+
+      <AlertDialog
+        open={Boolean(documentoParaExcluir)}
+        onOpenChange={(aberto) => { if (!aberto && !excluindo) setDocumentoParaExcluir(null); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir a versão V{documentoParaExcluir?.versao} do checklist?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  {documentoParaExcluir?.codigo} • criada em {fmtDate(documentoParaExcluir?.criadoEm)}.
+                  O snapshot, o histórico de eventos e o PDF oficial desta versão são apagados e não podem ser recuperados.
+                </p>
+                {documentoParaExcluir && documentoParaExcluir.status !== "NAO_ASSINADO" ? (
+                  <p className="font-medium text-destructive">
+                    Esta versão foi assinada presencialmente. A assinatura do cliente será apagada junto.
+                  </p>
+                ) : null}
+                <p className="text-xs">As fotografias continuam preservadas, pois são compartilhadas com as demais versões da OS.</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={excluindo}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => { event.preventDefault(); void excluirVersao(); }}
+              disabled={excluindo}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              {excluindo ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+              Excluir versão
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
 function MultiSelectRealizadores({
   disabled,
   responsaveis,
@@ -737,6 +901,11 @@ export function OSDetalhesDialog({
   const podeEditarEventosFinanceiros =
     podeVerEventosFinanceiros && permissionSetHas(permissoesUsuario, PERMS.ORDENS_EDITAR);
   const podeEditarOS = permissionSetHas(permissoesUsuario, PERMS.ORDENS_EDITAR);
+  const podeExcluirOS = permissionSetHas(permissoesUsuario, PERMS.ORDENS_EXCLUIR);
+  const podeExcluirChecklistAssinado = permissionSetHas(
+    permissoesUsuario,
+    PERMS.ORDENS_EXCLUIR_CHECKLIST_ASSINADO,
+  );
 
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<OSDetalhesResponse | null>(null);
@@ -809,6 +978,9 @@ export function OSDetalhesDialog({
   const [loadingAnexos, setLoadingAnexos] = useState(false);
   const [uploadingAnexo, setUploadingAnexo] = useState(false);
   const [deletingAnexoId, setDeletingAnexoId] = useState<number | null>(null);
+  const [checklistDocuments, setChecklistDocuments] = useState<ChecklistDocumentoResumo[]>([]);
+  const [loadingChecklistDocuments, setLoadingChecklistDocuments] = useState(false);
+  const [creatingChecklistType, setCreatingChecklistType] = useState<ChecklistTipo | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const destaqueSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const destaqueEdicaoVersaoRef = useRef(0);
@@ -923,6 +1095,60 @@ export function OSDetalhesDialog({
 
     void carregarAnexos();
   }, [canFetch, carregarAnexos]);
+
+  const carregarVersoesChecklist = useCallback(async () => {
+    if (!osId) {
+      setChecklistDocuments([]);
+      return;
+    }
+    setLoadingChecklistDocuments(true);
+    try {
+      const response = await fetch(`/api/checklist-documentos?ordemServicoId=${osId}`, { cache: "no-store" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Erro ao carregar as versões dos checklists.");
+      setChecklistDocuments(Array.isArray(payload?.items) ? payload.items : []);
+    } catch (error: any) {
+      setChecklistDocuments([]);
+      toast.error(error?.message || "Não foi possível carregar as versões dos checklists.");
+    } finally {
+      setLoadingChecklistDocuments(false);
+    }
+  }, [osId]);
+
+  useEffect(() => {
+    if (!canFetch || currentTab !== "checklist") return;
+    void carregarVersoesChecklist();
+  }, [canFetch, currentTab, carregarVersoesChecklist]);
+
+  const criarVersaoChecklist = useCallback(async (tipo: ChecklistTipo) => {
+    if (!osId || creatingChecklistType) return;
+    const preview = window.open("about:blank", "_blank");
+    if (preview) {
+      preview.document.title = "Gerando versão do checklist...";
+      preview.document.body.innerHTML = '<p style="font-family:system-ui;padding:24px">Preservando as imagens e gerando a versão do checklist...</p>';
+    }
+    setCreatingChecklistType(tipo);
+    try {
+      const response = await fetch("/api/checklist-documentos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ordemServicoId: osId, tipo }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Não foi possível criar a versão do checklist.");
+      const publicId = String(payload?.document?.publicId ?? "");
+      if (!publicId) throw new Error("A versão foi criada sem um identificador de impressão.");
+      toast.success(`Versão ${payload.document.versao} do checklist de ${tipo.toLowerCase()} criada.`);
+      await carregarVersoesChecklist();
+      if (preview) preview.location.href = `/print/checklist/${publicId}`;
+      else window.open(`/print/checklist/${publicId}`, "_blank", "noopener,noreferrer");
+    } catch (error: any) {
+      preview?.close();
+      toast.error(error?.message || "Não foi possível criar a versão do checklist.");
+    } finally {
+      setCreatingChecklistType(null);
+    }
+  }, [osId, creatingChecklistType, carregarVersoesChecklist]);
 
   useEffect(() => {
     if (!open) return;
@@ -3291,12 +3517,45 @@ export function OSDetalhesDialog({
                 <TabsContent value="checklist" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 sm:px-6 sm:py-5">
                   <Accordion type="multiple" defaultValue={["entrada", "saida"]} className="space-y-4">
                     <AccordionItem value="saida" className="rounded-lg border bg-card px-4">
-                      <AccordionTrigger className="hover:no-underline">
-                        <span className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center">
-                          <span className="flex items-center gap-2"><ListChecks className="h-4 w-4 text-primary" />Checklist de saída</span>
-                          {data.saida?.usuario?.nome ? <span className="text-xs font-normal text-muted-foreground sm:ml-auto sm:mr-3">Realizado por: <b>{data.saida.usuario.nome}</b></span> : null}
-                        </span>
-                      </AccordionTrigger>
+                      <div className="flex items-center gap-1">
+                        <div className="min-w-0 flex-1">
+                          <AccordionTrigger className="min-w-0 hover:no-underline">
+                            <span className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center">
+                              <span className="flex items-center gap-2"><ListChecks className="h-4 w-4 text-primary" />Checklist de saída</span>
+                              {data.saida?.usuario?.nome ? <span className="text-xs font-normal text-muted-foreground sm:ml-auto sm:mr-3">Realizado por: <b>{data.saida.usuario.nome}</b></span> : null}
+                            </span>
+                          </AccordionTrigger>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="inline-flex">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 gap-1.5 px-2 sm:px-3"
+                                  aria-label="Imprimir checklist de saída"
+                                  disabled={!(data.saida?.itens ?? []).length || creatingChecklistType !== null}
+                                  onClick={() => void criarVersaoChecklist("SAIDA")}
+                                >
+                                  {creatingChecklistType === "SAIDA" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+                                  <span className="hidden sm:inline">Imprimir saída</span>
+                                </Button>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>{!(data.saida?.itens ?? []).length ? "Disponível quando o checklist de saída tiver itens preenchidos." : "Cria uma nova versão imutável e abre a impressão."}</TooltipContent>
+                          </Tooltip>
+                          <ChecklistDocumentHistory
+                            tipo="SAIDA"
+                            documents={checklistDocuments}
+                            loading={loadingChecklistDocuments}
+                            podeExcluir={podeExcluirOS}
+                            podeExcluirAssinado={podeExcluirChecklistAssinado}
+                            onExcluido={carregarVersoesChecklist}
+                          />
+                        </div>
+                      </div>
                       <AccordionContent>
                         {!data.saida || !(data.saida.itens ?? []).length ? (
                           <p className="text-sm text-muted-foreground">Checklist de saída não preenchido.</p>
@@ -3352,12 +3611,45 @@ export function OSDetalhesDialog({
                     </AccordionItem>
                     {/* Checklist */}
                     <AccordionItem value="entrada" className="rounded-lg border bg-card px-4">
-                      <AccordionTrigger className="hover:no-underline">
-                        <span className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center">
-                          <span className="flex items-center gap-2"><ListChecks className="h-4 w-4 text-primary" />Checklist de entrada</span>
-                          {checklistAutores.length ? <span className="text-xs font-normal text-muted-foreground sm:ml-auto sm:mr-3">Realizado por: <b>{checklistAutores.join(", ")}</b></span> : null}
-                        </span>
-                      </AccordionTrigger>
+                      <div className="flex items-center gap-1">
+                        <div className="min-w-0 flex-1">
+                          <AccordionTrigger className="min-w-0 hover:no-underline">
+                            <span className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center">
+                              <span className="flex items-center gap-2"><ListChecks className="h-4 w-4 text-primary" />Checklist de entrada</span>
+                              {checklistAutores.length ? <span className="text-xs font-normal text-muted-foreground sm:ml-auto sm:mr-3">Realizado por: <b>{checklistAutores.join(", ")}</b></span> : null}
+                            </span>
+                          </AccordionTrigger>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="inline-flex">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 gap-1.5 px-2 sm:px-3"
+                                  aria-label="Imprimir checklist de entrada"
+                                  disabled={!(data.checklist ?? []).length || creatingChecklistType !== null}
+                                  onClick={() => void criarVersaoChecklist("ENTRADA")}
+                                >
+                                  {creatingChecklistType === "ENTRADA" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+                                  <span className="hidden sm:inline">Imprimir entrada</span>
+                                </Button>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>{!(data.checklist ?? []).length ? "Disponível quando o checklist de entrada tiver itens preenchidos." : "Cria uma nova versão imutável e abre a impressão."}</TooltipContent>
+                          </Tooltip>
+                          <ChecklistDocumentHistory
+                            tipo="ENTRADA"
+                            documents={checklistDocuments}
+                            loading={loadingChecklistDocuments}
+                            podeExcluir={podeExcluirOS}
+                            podeExcluirAssinado={podeExcluirChecklistAssinado}
+                            onExcluido={carregarVersoesChecklist}
+                          />
+                        </div>
+                      </div>
                       <AccordionContent>
 
                         {(data.checklist ?? []).length === 0 ? (

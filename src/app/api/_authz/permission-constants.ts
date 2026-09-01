@@ -17,6 +17,7 @@ export const PERMS = {
   ORDENS_RENTABILIDADE: "ordens:rentabilidade",
   ORDENS_EVENTOS_FINANCEIROS: "ordens:eventos_financeiros",
   ORDENS_FINALIZAR_SEM_COBRANCA: "ordens:finalizar_sem_cobranca",
+  ORDENS_EXCLUIR_CHECKLIST_ASSINADO: "ordens:excluir_checklist_assinado",
 
   ORCAMENTOS: "orcamentos:visualizar",
   ORCAMENTOS_CRIAR: "orcamentos:criar",
