@@ -1,0 +1,36 @@
+name: Typecheck
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+# Um push novo no mesmo branch cancela a execucao anterior.
+concurrency:
+  group: typecheck-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tsc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # tsc chega a ~3,1GB neste projeto; o heap padrao de ~4,3GB entra em GC
+      # agressivo perto do teto e a checagem fica bem mais lenta.
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: npm
+
+      - run: npm ci --ignore-scripts
+
+      # next-env.d.ts e .next/types nao entram no git. Sem eles o tsc perde as
+      # referencias de tipo do Next e os tipos gerados de rota, e checaria uma
+      # superficie menor do que a build da Vercel checava.
+      - run: npx next typegen
+
+      - run: npx tsc --noEmit

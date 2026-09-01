@@ -3650,7 +3650,7 @@ export function OSDetalhesDialog({
                           />
                         </div>
                       </div>
-                      <AccordionContent>
+Ah, he got okay. 6, but I got to get on the other floor because that's where the guy got the key, mad. One on the other side, one on the porch, one on the lateral, one on the porch, one on the other side. One Today, I actually, I say they sit down and I, you know, nobody knows about it, but I am gonna be patient. I, I like to be patient. I bet, I bet you will be. I think so, I think. I think so, I think you will be. I think so, I think you will be. I think so, I think you will be. I think so, I think you will be. I think so, I think you will be. I think so, I think it I think I can make my I can There's a lot of work. I thought it was like that. The whole thing is... Relatório de... Eh, Relação de Ordem de Serviço. Relação I don't believe I I think here, I got a mess. I have a problem. I think I can easily, if I think I can see here, if you can see here. I think that's right. I think I can easily, if you can, if Eh... no It's caso... So, people, I see, The most, the most. The fortunate, the only one that is... you know, the most good person is the one who doesn't... who has... for Commission. No, it- it No, it- it reserves reserves the the supply. Ah, but if you say, eh, it's better, ah, but if you say, eh, if you say, ah, but if you say you can get a maximum, then- then you can buy the m-                      <AccordionContent>
 
                         {(data.checklist ?? []).length === 0 ? (
                           <div className="text-sm text-muted-foreground">—</div>

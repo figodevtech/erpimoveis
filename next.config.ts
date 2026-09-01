@@ -108,6 +108,10 @@ const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR || ".next",
   typescript: {
     tsconfigPath: process.env.NEXT_TSCONFIG_PATH || "tsconfig.json",
+    // A checagem de tipos custa ~135s dos ~145s da build e roda com 3,1GB num
+    // heap de 4,3GB, o que faz a deploy travar em GC. O gate nao sumiu: vive em
+    // .github/workflows/typecheck.yml, fora do caminho critico da deploy.
+    ignoreBuildErrors: true,
   },
   eslint: {
     ignoreDuringBuilds: true,
