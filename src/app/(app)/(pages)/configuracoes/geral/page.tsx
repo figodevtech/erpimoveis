@@ -546,7 +546,7 @@ export default function ConfigGeralPage() {
           </div>
           <CardDescription>Conecte as contas vendedoras que serão operadas pelo ERP.</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-0 p-0 lg:grid-cols-3">
+        <CardContent className={`grid gap-0 p-0 ${SHOPEE_INTEGRATION_ENABLED ? "lg:grid-cols-3" : "lg:grid-cols-2"}`}>
           <section className="flex min-h-44 flex-col justify-between gap-5 border-b p-5 lg:border-b-0 lg:border-r">
             <div className="flex items-start gap-3">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -563,7 +563,7 @@ export default function ConfigGeralPage() {
             </Button>
           </section>
 
-          {SHOPEE_INTEGRATION_ENABLED ? <MarketplaceConnectionCard
+          <MarketplaceConnectionCard
             icon={<Store className="h-5 w-5" />}
             iconClass="bg-amber-500/15 text-amber-700 dark:text-amber-400"
             name="Mercado Livre"
@@ -579,9 +579,9 @@ export default function ConfigGeralPage() {
             disconnecting={desconectandoMercadoLivre}
             disconnectTitle="Desconectar conta Mercado Livre?"
             disconnectDescription="Os pedidos históricos serão preservados. Os vínculos dos anúncios serão removidos e precisarão ser refeitos ao conectar outra conta."
-          /> : null}
+          />
 
-          <MarketplaceConnectionCard
+          {SHOPEE_INTEGRATION_ENABLED ? <MarketplaceConnectionCard
             icon={<ShoppingBag className="h-5 w-5" />}
             iconClass="bg-orange-500/15 text-orange-700 dark:text-orange-400"
             name="Shopee"
@@ -598,7 +598,7 @@ export default function ConfigGeralPage() {
             disconnecting={desconectandoShopee}
             disconnectTitle="Desconectar loja Shopee?"
             disconnectDescription="Os pedidos históricos serão preservados. Os vínculos de produtos Shopee serão removidos."
-          />
+          /> : null}
         </CardContent>
       </Card>
 
