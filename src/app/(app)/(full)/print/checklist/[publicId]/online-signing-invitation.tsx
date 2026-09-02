@@ -24,7 +24,7 @@ const STATUS_LABEL: Record<ChecklistConviteStatus, string> = {
 };
 
 const DARK_INPUT_CLASS =
-  "dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500";
+  "select-text dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500";
 const DARK_SELECT_CLASS =
   "border-input bg-background text-foreground h-9 w-full rounded-md border px-3 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:[color-scheme:dark]";
 const DARK_OUTLINE_BUTTON_CLASS =
@@ -186,7 +186,7 @@ export function ChecklistOnlineSigningInvitation({
           )}
 
           {showForm && (
-            <section className="space-y-4 bg-card p-4 rounded-xl">
+            <section className="space-y-4 select-none bg-card p-4 rounded-xl">
               {active && <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">Ao gerar, o convite ativo será revogado imediatamente.</p>}
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="space-y-1.5 text-sm sm:col-span-2"><span className="font-medium">CPF do responsável</span><Input className={DARK_INPUT_CLASS} name="checklist-signing-recipient" value={cpf} onChange={(event) => setCpf(event.target.value)} inputMode="numeric" autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} aria-autocomplete="none" placeholder="000.000.000-00" /></label>

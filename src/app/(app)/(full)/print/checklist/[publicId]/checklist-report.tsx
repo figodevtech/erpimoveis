@@ -30,6 +30,10 @@ import { PrintA4Paginator } from "../../../components/PrintA4Paginator";
 import { PrintDocumentHeader, PRINT_DOCUMENT_HEADER_CSS } from "../../../components/PrintDocumentHeader";
 import { ChecklistOnlineSigningInvitation } from "./online-signing-invitation";
 
+function preventPageSelection(event: Event) {
+  event.preventDefault();
+}
+
 function formatDate(value: string | null | undefined) {
   if (!value) return "Não informado";
   const date = new Date(value);
@@ -92,6 +96,12 @@ function ChecklistPhoto({
 function SignatureDialog({ publicId, open, onOpenChange }: { publicId: string; open: boolean; onOpenChange: (open: boolean) => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingRef = useRef(false);
+  const selectionLockRef = useRef<{
+    rootUserSelect: string;
+    rootWebkitUserSelect: string;
+    bodyUserSelect: string;
+    bodyWebkitUserSelect: string;
+  } | null>(null);
   const [name, setName] = useState("");
   const [documentNumber, setDocumentNumber] = useState("");
   const [quality, setQuality] = useState<ChecklistSignatarioQualidade>("CLIENTE");
@@ -120,7 +130,26 @@ function SignatureDialog({ publicId, open, onOpenChange }: { publicId: string; o
   useEffect(() => {
     if (!open) return;
     const frame = window.requestAnimationFrame(prepareCanvas);
-    return () => window.cancelAnimationFrame(frame);
+    const canvas = canvasRef.current;
+    const preventNativeGesture = (event: Event) => event.preventDefault();
+    canvas?.addEventListener("pointerdown", preventNativeGesture, { passive: false });
+    canvas?.addEventListener("pointermove", preventNativeGesture, { passive: false });
+    canvas?.addEventListener("touchstart", preventNativeGesture, { passive: false });
+    canvas?.addEventListener("touchmove", preventNativeGesture, { passive: false });
+    canvas?.addEventListener("selectstart", preventNativeGesture);
+    canvas?.addEventListener("contextmenu", preventNativeGesture);
+    canvas?.addEventListener("dragstart", preventNativeGesture);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      canvas?.removeEventListener("pointerdown", preventNativeGesture);
+      canvas?.removeEventListener("pointermove", preventNativeGesture);
+      canvas?.removeEventListener("touchstart", preventNativeGesture);
+      canvas?.removeEventListener("touchmove", preventNativeGesture);
+      canvas?.removeEventListener("selectstart", preventNativeGesture);
+      canvas?.removeEventListener("contextmenu", preventNativeGesture);
+      canvas?.removeEventListener("dragstart", preventNativeGesture);
+      unlockPageSelection();
+    };
   }, [open]);
 
   function point(event: ReactPointerEvent<HTMLCanvasElement>) {
@@ -129,8 +158,44 @@ function SignatureDialog({ publicId, open, onOpenChange }: { publicId: string; o
     return { x: event.clientX - rect.left, y: event.clientY - rect.top };
   }
 
+  function lockPageSelection() {
+    if (selectionLockRef.current) return;
+    const root = document.documentElement;
+    const body = document.body;
+    selectionLockRef.current = {
+      rootUserSelect: root.style.userSelect,
+      rootWebkitUserSelect: root.style.getPropertyValue("-webkit-user-select"),
+      bodyUserSelect: body.style.userSelect,
+      bodyWebkitUserSelect: body.style.getPropertyValue("-webkit-user-select"),
+    };
+    root.style.userSelect = "none";
+    root.style.setProperty("-webkit-user-select", "none");
+    body.style.userSelect = "none";
+    body.style.setProperty("-webkit-user-select", "none");
+    document.addEventListener("selectstart", preventPageSelection, true);
+    document.addEventListener("dragstart", preventPageSelection, true);
+  }
+
+  function unlockPageSelection() {
+    const previous = selectionLockRef.current;
+    if (!previous) return;
+    const root = document.documentElement;
+    const body = document.body;
+    root.style.userSelect = previous.rootUserSelect;
+    body.style.userSelect = previous.bodyUserSelect;
+    if (previous.rootWebkitUserSelect) root.style.setProperty("-webkit-user-select", previous.rootWebkitUserSelect);
+    else root.style.removeProperty("-webkit-user-select");
+    if (previous.bodyWebkitUserSelect) body.style.setProperty("-webkit-user-select", previous.bodyWebkitUserSelect);
+    else body.style.removeProperty("-webkit-user-select");
+    document.removeEventListener("selectstart", preventPageSelection, true);
+    document.removeEventListener("dragstart", preventPageSelection, true);
+    selectionLockRef.current = null;
+  }
+
   function startDrawing(event: ReactPointerEvent<HTMLCanvasElement>) {
     event.preventDefault();
+    if (!event.isPrimary || event.button !== 0) return;
+    lockPageSelection();
     window.getSelection()?.removeAllRanges();
     const context = canvasRef.current?.getContext("2d");
     if (!context) return;
@@ -153,11 +218,13 @@ function SignatureDialog({ publicId, open, onOpenChange }: { publicId: string; o
 
   function finishDrawing(event: ReactPointerEvent<HTMLCanvasElement>) {
     event.preventDefault();
+    if (!event.isPrimary) return;
     drawingRef.current = false;
     canvasRef.current?.getContext("2d")?.closePath();
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
+    unlockPageSelection();
   }
 
   async function submit() {
@@ -237,7 +304,7 @@ function SignatureDialog({ publicId, open, onOpenChange }: { publicId: string; o
             onPointerMove={draw}
             onPointerUp={finishDrawing}
             onPointerCancel={finishDrawing}
-            onLostPointerCapture={() => { drawingRef.current = false; }}
+            onLostPointerCapture={(event) => { if (!event.isPrimary) return; drawingRef.current = false; unlockPageSelection(); }}
           />
         </div>
         <label className="flex items-start gap-3 rounded-md border bg-muted/30 p-3 text-sm leading-relaxed">
