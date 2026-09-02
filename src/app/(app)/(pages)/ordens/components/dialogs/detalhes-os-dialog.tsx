@@ -104,6 +104,10 @@ import { DialogProduto } from "../../../estoque/components/dialog-produto/dialog
 import { Tipo_transacao, type Transaction } from "../../../(financeiro)/fluxodecaixa/types";
 import { formatPaymentMethodLabel, type PlannedPayment } from "@/lib/payment-methods";
 import { ChecklistImagePreview } from "./checklist-image-preview";
+import {
+  createChecklistDocumentWithProgress,
+  prepareChecklistDocumentWindow,
+} from "./checklist-document-preparation";
 import { FinanceiroOsTab } from "./financeiro-os-tab";
 import { agruparItensHistoricos } from "@/lib/ordens/itens-historicos";
 import {
@@ -1123,29 +1127,30 @@ export function OSDetalhesDialog({
   const criarVersaoChecklist = useCallback(async (tipo: ChecklistTipo) => {
     if (!osId || creatingChecklistType) return;
     const preview = window.open("about:blank", "_blank");
-    if (preview) {
-      preview.document.title = "Gerando versão do checklist...";
-      preview.document.body.innerHTML = '<p style="font-family:system-ui;padding:24px">Preservando as imagens e gerando a versão do checklist...</p>';
-    }
+    const preparation = preview ? prepareChecklistDocumentWindow(preview, tipo) : null;
     setCreatingChecklistType(tipo);
     try {
-      const response = await fetch("/api/checklist-documentos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ordemServicoId: osId, tipo }),
+      const payload = await createChecklistDocumentWithProgress({
+        ordemServicoId: osId,
+        tipo,
+        onProgress: (progress) => preparation?.update(progress),
       });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload?.error || "Não foi possível criar a versão do checklist.");
       const publicId = String(payload?.document?.publicId ?? "");
       if (!publicId) throw new Error("A versão foi criada sem um identificador de impressão.");
       toast.success(`Versão ${payload.document.versao} do checklist de ${tipo.toLowerCase()} criada.`);
-      await carregarVersoesChecklist();
-      if (preview) preview.location.href = `/print/checklist/${publicId}`;
+      preparation?.finish();
+      void carregarVersoesChecklist();
+      if (preview && !preview.closed) {
+        await new Promise((resolve) => window.setTimeout(resolve, 350));
+        preview.location.replace(`/print/checklist/${publicId}`);
+      }
       else window.open(`/print/checklist/${publicId}`, "_blank", "noopener,noreferrer");
     } catch (error: any) {
-      preview?.close();
-      toast.error(error?.message || "Não foi possível criar a versão do checklist.");
+      const message = error?.message || "Não foi possível criar a versão do checklist.";
+      preparation?.fail(message);
+      toast.error(message);
     } finally {
+      preparation?.finish();
       setCreatingChecklistType(null);
     }
   }, [osId, creatingChecklistType, carregarVersoesChecklist]);

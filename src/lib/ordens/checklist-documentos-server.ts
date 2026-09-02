@@ -33,6 +33,31 @@ type RequestAudit = {
   userAgent: string | null;
 };
 
+export type ChecklistDocumentoProgress = {
+  percentual: number;
+  titulo: string;
+  detalhe: string;
+  etapa: "INICIANDO" | "CARREGANDO_DADOS" | "PREPARANDO_ARQUIVOS" | "PRESERVANDO_IMAGENS" | "MONTANDO_DOCUMENTO" | "REGISTRANDO_VERSAO" | "CONCLUIDO";
+  atual?: number;
+  total?: number;
+};
+
+type ChecklistDocumentoProgressReporter = (progress: ChecklistDocumentoProgress) => void;
+
+function reportChecklistDocumentoProgress(
+  reporter: ChecklistDocumentoProgressReporter | undefined,
+  progress: ChecklistDocumentoProgress,
+) {
+  try {
+    reporter?.({
+      ...progress,
+      percentual: Math.max(0, Math.min(100, Math.round(progress.percentual))),
+    });
+  } catch {
+    // O fechamento da aba de progresso não pode interromper a criação imutável.
+  }
+}
+
 type LiveSource = {
   os: any;
   empresa: any;
@@ -215,20 +240,30 @@ async function preserveAsset(args: {
   const storagePath = `assets/${args.kind === "logo" ? "logos" : "fotos"}/${hash}.${normalized.extension}`;
 
   if (args.persist) {
-    const upload = await supabaseAdmin.storage
-      .from(CHECKLIST_DOCUMENTOS_BUCKET)
-      .upload(storagePath, normalized.bytes, {
-        contentType: normalized.mimeType,
-        cacheControl: "31536000",
-        upsert: false,
-      });
-    if (upload.error) {
-      const duplicate = /already exists|duplicate|resource exists/i.test(String(upload.error.message ?? ""));
-      if (!duplicate) throw upload.error;
+    const bucket = supabaseAdmin.storage.from(CHECKLIST_DOCUMENTOS_BUCKET);
+    const existingObject = await bucket.exists(storagePath);
+
+    if (existingObject.data) {
       const existing = await supabaseAdmin.storage.from(CHECKLIST_DOCUMENTOS_BUCKET).download(storagePath);
       if (existing.error || !existing.data) throw existing.error ?? new Error("Ativo preservado não pôde ser validado.");
       const existingHash = sha256(Buffer.from(await existing.data.arrayBuffer()));
       if (existingHash !== hash) throw new Error("Colisão de hash ao preservar imagem do checklist.");
+    } else {
+      const upload = await bucket.upload(storagePath, normalized.bytes, {
+        contentType: normalized.mimeType,
+        cacheControl: "31536000",
+        upsert: false,
+      });
+      if (upload.error) {
+        // Uma criação concorrente pode gravar o mesmo hash entre o HEAD e o
+        // upload. Nesse caso, nunca sobrescrevemos: baixamos e conferimos os bytes.
+        const duplicate = /already exists|duplicate|resource exists/i.test(String(upload.error.message ?? ""));
+        if (!duplicate) throw upload.error;
+        const existing = await bucket.download(storagePath);
+        if (existing.error || !existing.data) throw existing.error ?? new Error("Ativo preservado não pôde ser validado.");
+        const existingHash = sha256(Buffer.from(await existing.data.arrayBuffer()));
+        if (existingHash !== hash) throw new Error("Colisão de hash ao preservar imagem do checklist.");
+      }
     }
   }
 
@@ -378,11 +413,43 @@ async function buildSnapshot(args: {
   versao: number;
   criadoEm: string;
   persistAssets: boolean;
+  onProgress?: ChecklistDocumentoProgressReporter;
 }) {
+  reportChecklistDocumentoProgress(args.onProgress, {
+    percentual: 10,
+    etapa: "CARREGANDO_DADOS",
+    titulo: "Carregando dados da ordem de serviço",
+    detalhe: "Consultando checklist, responsáveis, cliente e objeto inspecionado.",
+  });
   const source = await loadLiveSource(args.ordemServicoId, args.tipo);
-  if (args.persistAssets) await ensureBucket();
+  const totalPhotos = source.checklist.reduce((total: number, item) => total + (Array.isArray(item.imagens) ? item.imagens.length : 0), 0);
+  reportChecklistDocumentoProgress(args.onProgress, {
+    percentual: 20,
+    etapa: "CARREGANDO_DADOS",
+    titulo: "Dados do checklist carregados",
+    detalhe: `${source.checklist.length} ${source.checklist.length === 1 ? "item encontrado" : "itens encontrados"} e ${totalPhotos} ${totalPhotos === 1 ? "fotografia para preservar" : "fotografias para preservar"}.`,
+    atual: 0,
+    total: totalPhotos,
+  });
+  if (args.persistAssets) {
+    reportChecklistDocumentoProgress(args.onProgress, {
+      percentual: 23,
+      etapa: "PREPARANDO_ARQUIVOS",
+      titulo: "Preparando armazenamento seguro",
+      detalhe: "Validando a área privada e imutável usada pelo documento.",
+    });
+    await ensureBucket();
+  }
 
   const company = source.empresa;
+  reportChecklistDocumentoProgress(args.onProgress, {
+    percentual: 26,
+    etapa: "PREPARANDO_ARQUIVOS",
+    titulo: "Preservando a identidade visual",
+    detalhe: source.logoSource
+      ? "Normalizando e copiando a logomarca vigente da empresa."
+      : "A empresa não possui logomarca disponível; as cores e informações serão mantidas.",
+  });
   const logo = source.logoSource
     ? await preserveAsset({
         source: source.logoSource,
@@ -392,8 +459,15 @@ async function buildSnapshot(args: {
         persist: args.persistAssets,
       })
     : null;
+  reportChecklistDocumentoProgress(args.onProgress, {
+    percentual: 30,
+    etapa: "PREPARANDO_ARQUIVOS",
+    titulo: "Identidade visual preservada",
+    detalhe: "Empresa, cores e logomarca foram preparadas para esta versão.",
+  });
 
   const snapshotItems: ChecklistSnapshotItem[] = [];
+  let processedPhotos = 0;
   for (let itemIndex = 0; itemIndex < source.checklist.length; itemIndex += 1) {
     const item = source.checklist[itemIndex];
     const photos: ChecklistSnapshotAsset[] = [];
@@ -401,6 +475,14 @@ async function buildSnapshot(args: {
       if (!text(image.url)) {
         throw new ChecklistDocumentoError("Uma fotografia do checklist não possui origem.", 409, "FOTO_INDISPONIVEL");
       }
+      reportChecklistDocumentoProgress(args.onProgress, {
+        percentual: totalPhotos ? 30 + (processedPhotos / totalPhotos) * 52 : 82,
+        etapa: "PRESERVANDO_IMAGENS",
+        titulo: `Preservando fotografia ${processedPhotos + 1} de ${totalPhotos}`,
+        detalhe: `Baixando, corrigindo para impressão e armazenando a foto do item “${text(item.item ?? item.titulo) ?? `Item ${itemIndex + 1}`}”. Imagens maiores podem levar alguns segundos.`,
+        atual: processedPhotos + 1,
+        total: totalPhotos,
+      });
       photos.push(await preserveAsset({
         source: String(image.url),
         kind: "foto",
@@ -409,6 +491,15 @@ async function buildSnapshot(args: {
         registradoEm: image.createdat ?? image.created_at,
         persist: args.persistAssets,
       }));
+      processedPhotos += 1;
+      reportChecklistDocumentoProgress(args.onProgress, {
+        percentual: totalPhotos ? 30 + (processedPhotos / totalPhotos) * 52 : 82,
+        etapa: "PRESERVANDO_IMAGENS",
+        titulo: `${processedPhotos} de ${totalPhotos} fotografias preservadas`,
+        detalhe: "A cópia foi conferida por hash para garantir que nenhuma imagem seja omitida ou alterada.",
+        atual: processedPhotos,
+        total: totalPhotos,
+      });
     }
     const creatorId = text(item.created_by);
     snapshotItems.push({
@@ -424,6 +515,23 @@ async function buildSnapshot(args: {
       fotos: photos,
     });
   }
+  if (!totalPhotos) {
+    reportChecklistDocumentoProgress(args.onProgress, {
+      percentual: 82,
+      etapa: "PRESERVANDO_IMAGENS",
+      titulo: "Nenhuma fotografia para processar",
+      detalhe: "Os itens serão preservados somente com respostas e observações.",
+      atual: 0,
+      total: 0,
+    });
+  }
+
+  reportChecklistDocumentoProgress(args.onProgress, {
+    percentual: 85,
+    etapa: "MONTANDO_DOCUMENTO",
+    titulo: "Montando o documento imutável",
+    detalhe: "Organizando identificação, itens, observações, responsáveis e fotografias.",
+  });
 
   const os = source.os;
   const customer = resolveOrdemCustomer(first<any>(os.cliente), os.cliente_snapshot) as any;
@@ -515,8 +623,17 @@ export async function createChecklistDocumento(args: {
   tipo: ChecklistTipo;
   userId: string;
   audit: RequestAudit;
+  onProgress?: ChecklistDocumentoProgressReporter;
 }) {
   for (let attempt = 0; attempt < 4; attempt += 1) {
+    reportChecklistDocumentoProgress(args.onProgress, {
+      percentual: attempt ? 8 : 3,
+      etapa: "INICIANDO",
+      titulo: attempt ? "Atualizando o número da versão" : "Iniciando a preparação",
+      detalhe: attempt
+        ? "Outra versão foi criada ao mesmo tempo. Recalculando a numeração com segurança."
+        : "Verificando o histórico para reservar a próxima versão do checklist.",
+    });
     const latestResult = await supabaseAdmin
       .from("checklist_documento")
       .select("id,versao,snapshot,conteudo_hash")
@@ -539,10 +656,23 @@ export async function createChecklistDocumento(args: {
       versao,
       criadoEm,
       persistAssets: true,
+      onProgress: args.onProgress,
+    });
+    reportChecklistDocumentoProgress(args.onProgress, {
+      percentual: 88,
+      etapa: "MONTANDO_DOCUMENTO",
+      titulo: "Calculando a integridade do documento",
+      detalhe: "Gerando os hashes que permitem detectar qualquer alteração futura.",
     });
     const exactHash = snapshotHash(built.snapshot);
     const semanticHash = conteudoHash(built.snapshot);
     const changes = resumirMudancas(built.snapshot, (latest?.snapshot as ChecklistSnapshotV1 | null) ?? null);
+    reportChecklistDocumentoProgress(args.onProgress, {
+      percentual: 92,
+      etapa: "REGISTRANDO_VERSAO",
+      titulo: `Registrando a versão ${versao}`,
+      detalhe: "Gravando o snapshot e seus vínculos de integridade no histórico da OS.",
+    });
     const insert = await supabaseAdmin
       .from("checklist_documento")
       .insert({
@@ -568,6 +698,12 @@ export async function createChecklistDocumento(args: {
       throw insert.error;
     }
 
+    reportChecklistDocumentoProgress(args.onProgress, {
+      percentual: 96,
+      etapa: "REGISTRANDO_VERSAO",
+      titulo: "Registrando a auditoria",
+      detalhe: "Vinculando operador, horário e resultado da comparação com a versão anterior.",
+    });
     await registerChecklistDocumentoEvent({
       documentoId: Number(insert.data.id),
       tipo: "VERSAO_CRIADA",
@@ -575,7 +711,20 @@ export async function createChecklistDocumento(args: {
       audit: args.audit,
       metadata: { versao, conteudoIdentico: changes.conteudoIdentico },
     });
-    return loadChecklistDocumento(publicId, { checkCurrentContent: false });
+    reportChecklistDocumentoProgress(args.onProgress, {
+      percentual: 98,
+      etapa: "REGISTRANDO_VERSAO",
+      titulo: "Conferindo a versão criada",
+      detalhe: "Validando o documento preservado antes de abrir a pré-visualização.",
+    });
+    const document = await loadChecklistDocumento(publicId, { checkCurrentContent: false });
+    reportChecklistDocumentoProgress(args.onProgress, {
+      percentual: 100,
+      etapa: "CONCLUIDO",
+      titulo: "Documento preparado",
+      detalhe: `Versão ${versao} criada com sucesso. Abrindo a pré-visualização…`,
+    });
+    return document;
   }
   throw new ChecklistDocumentoError("Não foi possível reservar a próxima versão do checklist.", 409, "VERSAO_CONCORRENTE");
 }

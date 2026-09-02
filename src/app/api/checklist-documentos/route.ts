@@ -9,6 +9,7 @@ import {
   ChecklistDocumentoError,
   createChecklistDocumento,
   listChecklistDocumentos,
+  type ChecklistDocumentoProgress,
 } from "@/lib/ordens/checklist-documentos-server";
 import { checklistRequestAudit } from "@/lib/ordens/checklist-request";
 
@@ -21,6 +22,15 @@ function responseError(error: unknown) {
     error: error instanceof Error ? error.message : "Falha ao processar o documento de checklist.",
     code: error instanceof ChecklistDocumentoError ? error.code : undefined,
   }, { status });
+}
+
+function streamError(error: unknown) {
+  console.error("/api/checklist-documentos (stream)", error);
+  return {
+    type: "error" as const,
+    error: error instanceof Error ? error.message : "Falha ao processar o documento de checklist.",
+    code: error instanceof ChecklistDocumentoError ? error.code : undefined,
+  };
 }
 
 export async function GET(request: NextRequest) {
@@ -56,12 +66,54 @@ export async function POST(request: NextRequest) {
     if (!tipoChecklistValido(body?.tipo)) {
       return NextResponse.json({ error: "Tipo de checklist inválido." }, { status: 400 });
     }
-    const document = await createChecklistDocumento({
+    const createArgs = {
       ordemServicoId,
       tipo: body.tipo,
       userId,
       audit: checklistRequestAudit(request),
-    });
+    };
+    const wantsProgress = request.headers.get("accept")?.includes("application/x-ndjson");
+    if (wantsProgress) {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          let closed = false;
+          const send = (event: { type: "progress"; progress: ChecklistDocumentoProgress } | { type: "complete"; document: unknown } | ReturnType<typeof streamError>) => {
+            if (closed) return;
+            try {
+              controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+            } catch {
+              closed = true;
+            }
+          };
+          const close = () => {
+            if (closed) return;
+            closed = true;
+            try { controller.close(); } catch { /* a criação já foi concluída ou continuará no servidor */ }
+          };
+
+          void createChecklistDocumento({
+            ...createArgs,
+            onProgress: (progress) => send({ type: "progress", progress }),
+          }).then((document) => {
+            send({ type: "complete", document });
+            close();
+          }).catch((error) => {
+            send(streamError(error));
+            close();
+          });
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/x-ndjson; charset=utf-8",
+          "Cache-Control": "private, no-store, no-transform",
+          "X-Accel-Buffering": "no",
+        },
+      });
+    }
+    const document = await createChecklistDocumento(createArgs);
     return NextResponse.json({ document }, { status: 201 });
   } catch (error) {
     return responseError(error);
