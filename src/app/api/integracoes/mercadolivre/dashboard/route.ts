@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { requireVendasAccess } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
+import { mercadoLivreApiGet } from "@/lib/integrations/mercadolivre";
+import { parseMercadoLivreSellerProfile } from "@/lib/integrations/mercadolivre-seller-profile";
+import { getMercadoLivreShippingAddress, selectMercadoLivreShippingAddressSummary } from "@/lib/integrations/mercadolivre-address";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -109,6 +113,26 @@ export async function GET() {
     if (priceSyncLogsError) throw priceSyncLogsError;
     if (operationalOrdersError) throw operationalOrdersError;
 
+    let sellerProfile = null;
+    let shippingAddress = null;
+    if (accounts?.length) {
+      try {
+        const account = await getValidMercadoLivreAccount(empresaId);
+        const [sellerResult, addressResult] = await Promise.allSettled([
+          mercadoLivreApiGet<unknown>(account.access_token, `/users/${account.ml_user_id}`),
+          getMercadoLivreShippingAddress(account.access_token, account.ml_user_id),
+        ]);
+        if (sellerResult.status === "fulfilled") sellerProfile = parseMercadoLivreSellerProfile(sellerResult.value);
+        if (addressResult.status === "fulfilled" && addressResult.value) {
+          shippingAddress = addressResult.value;
+        } else if (sellerResult.status === "fulfilled") {
+          shippingAddress = selectMercadoLivreShippingAddressSummary(sellerResult.value, "seller_profile");
+        }
+      } catch (profileError) {
+        console.warn("GET /api/integracoes/mercadolivre/dashboard seller profile", profileError);
+      }
+    }
+
     const stockSync = buildStockSyncSummary(stockQueue ?? []);
     const diagnostics = buildDiagnostics({
       accounts: accounts ?? [],
@@ -124,6 +148,8 @@ export async function GET() {
         ...account,
         needs_reconnect: !refresh_token,
       })),
+      sellerProfile,
+      shippingAddress,
       orders: orders ?? [],
       notifications: notifications ?? [],
       syncRuns: syncRuns ?? [],

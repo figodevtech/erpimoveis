@@ -277,6 +277,28 @@ export async function mercadoLivreApiPost<T>(accessToken: string, path: string, 
   return (await response.json()) as T;
 }
 
+export async function mercadoLivreApiDelete<T>(accessToken: string, path: string, body?: unknown) {
+  const response = await fetch(`${ML_API_BASE_URL}${path}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Mercado Livre ${path} falhou (${response.status}): ${text}`);
+  }
+
+  if (response.status === 204) return undefined as T;
+  const text = await response.text();
+  return (text ? JSON.parse(text) : undefined) as T;
+}
+
 export function tokenExpiresAt(expiresIn?: number) {
   if (!expiresIn || Number.isNaN(expiresIn)) return null;
   return new Date(Date.now() + expiresIn * 1000).toISOString();

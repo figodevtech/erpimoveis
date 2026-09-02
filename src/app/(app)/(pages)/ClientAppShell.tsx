@@ -17,6 +17,7 @@ import { HeaderRadioPlayer } from "../components/header-radio-player";
 import { useUserPreferences } from "../components/user-preferences-provider";
 import { useConfig } from "./config-context";
 import { ChatCenter } from "@/components/chat/chat-center";
+import { NotificationCenter } from "@/components/notifications/notification-center";
 
 const routeTitles: Record<string, string> = {
   "/execucao": "Execução de Ordens",
@@ -237,6 +238,7 @@ export default function ClientAppShell({
 
             {radio.effective ? <HeaderRadioPlayer /> : null}
             <DateTimeBadge />
+            <NotificationCenter />
             <ChatCenter />
             <ModeToggle />
           </header>

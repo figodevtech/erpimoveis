@@ -26,6 +26,9 @@ import {
   Highlighter,
   Trash2,
   Plus,
+  ExternalLink,
+  MapPin,
+  RefreshCcw,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -112,6 +115,25 @@ type MercadoLivreAccount = {
     mercadoEnviosEnabled: boolean;
     error: string | null;
   } | null;
+  shippingAddress?: {
+    id: string;
+    addressLine: string | null;
+    zipCode: string | null;
+    city: string | null;
+    cityId: string | null;
+    state: string | null;
+    stateId: string | null;
+    neighborhood: string | null;
+    municipality: string | null;
+    country: string | null;
+    types: string[];
+    normalized: boolean | null;
+    status: string | null;
+    source: "account_address" | "seller_profile" | "listing";
+    partial: boolean;
+  } | null;
+  shippingAddressError?: string | null;
+  shippingAddressNotice?: string | null;
   sellerProfile?: {
     userType: string | null;
     accountStatus: string | null;
@@ -303,16 +325,20 @@ function MarketplaceConnectionCard({
 function MercadoLivreOperationSettingsCard({
   account,
   savingListingType,
+  refreshingAccount,
   onListingTypeChange,
   onQuantityDefaultsSave,
+  onRefreshAccount,
 }: {
   account: MercadoLivreAccount | null;
   savingListingType: boolean;
+  refreshingAccount: boolean;
   onListingTypeChange: (value: "free" | "gold_special" | "gold_pro") => void;
   onQuantityDefaultsSave: (
     enabled: boolean,
     tiers: Array<{ quantity: number; percentage: number }>,
   ) => Promise<boolean>;
+  onRefreshAccount: () => Promise<void>;
 }) {
   const connected = Boolean(account && !account.needsReconnect);
   const businessEnabled = Boolean(account?.sellerProfile?.businessEnabled);
@@ -347,6 +373,17 @@ function MercadoLivreOperationSettingsCard({
           .map((tier) => `${tier.quantity} un. · ${tier.percentage}%`)
           .join("  |  ")
       : "Sem preenchimento automático";
+  const shippingAddress = account?.shippingAddress ?? null;
+  const shippingLocation = [shippingAddress?.city, shippingAddress?.state]
+    .filter(Boolean)
+    .join(" / ");
+  const shippingAddressType = shippingAddress?.partial
+    ? "Localização aproximada"
+    : shippingAddress?.types.includes("shipping")
+    ? "Endereço de envio"
+    : shippingAddress?.types.includes("default_selling_address")
+      ? "Endereço padrão de venda"
+      : "Endereço da conta";
 
   return (
     <>
@@ -495,6 +532,52 @@ function MercadoLivreOperationSettingsCard({
                     </a>
                   </Button>
                 ) : null}
+              </section>
+
+              <section className="rounded-lg border bg-muted/20 p-4 lg:col-span-3">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10">
+                      <MapPin className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-medium">Origem dos envios</p>
+                        {shippingAddress ? <Badge variant="outline">{shippingAddressType}</Badge> : null}
+                        {shippingAddress?.normalized === false ? <Badge variant="destructive">Endereço não normalizado</Badge> : null}
+                      </div>
+                      {shippingAddress ? (
+                        <div className="mt-2 space-y-1 text-sm">
+                          {shippingAddress.addressLine ? <p>{shippingAddress.addressLine}</p> : null}
+                          <p className="text-muted-foreground">
+                            {[shippingAddress.neighborhood, shippingLocation].filter(Boolean).join(" · ") || "Localização não informada"}
+                            {shippingAddress.zipCode ? ` · CEP ${shippingAddress.zipCode}` : ""}
+                          </p>
+                          <p className="pt-1 text-xs leading-relaxed text-muted-foreground">
+                            {account?.shippingAddressNotice || "Este é o endereço retornado pela conta vendedora e usado como referência nas simulações do ERP. Em Full, Flex, coleta ou estoque multi-origem, o Mercado Livre pode definir outro depósito ou nó logístico para o envio real."}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="mt-2 text-sm text-muted-foreground">
+                          <p>{account?.shippingAddressError || "O Mercado Livre não retornou um endereço de envio ativo para esta conta."}</p>
+                          <p className="mt-1 text-xs">Você pode conferir ou alterar a origem diretamente nas preferências de envio da conta vendedora.</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+                    <Button type="button" variant="outline" size="sm" onClick={() => void onRefreshAccount()} disabled={refreshingAccount}>
+                      <RefreshCcw className={`h-4 w-4 ${refreshingAccount ? "animate-spin" : ""}`} />
+                      Atualizar dados
+                    </Button>
+                    <Button asChild type="button" variant="outline" size="sm">
+                      <a href="https://www.mercadolivre.com.br/" target="_blank" rel="noreferrer">
+                        <ExternalLink className="h-4 w-4" />
+                        Editar no Mercado Livre
+                      </a>
+                    </Button>
+                  </div>
+                </div>
               </section>
             </div>
           )}
@@ -717,6 +800,7 @@ export default function ConfigGeralPage() {
     useState(false);
   const [salvandoPublicacaoPadrao, setSalvandoPublicacaoPadrao] =
     useState(false);
+  const [atualizandoMercadoLivre, setAtualizandoMercadoLivre] = useState(false);
   const [desconectandoShopee, setDesconectandoShopee] = useState(false);
   const [usoConsultasPlaca, setUsoConsultasPlaca] =
     useState<UsoConsultasPlaca | null>(null);
@@ -881,6 +965,21 @@ export default function ConfigGeralPage() {
   useEffect(() => {
     carregarConfig();
   }, [carregarConfig]);
+
+  const atualizarDadosMercadoLivre = async () => {
+    setAtualizandoMercadoLivre(true);
+    try {
+      const response = await fetch("/api/config/integracoes/mercadolivre", { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || "Falha ao atualizar os dados do Mercado Livre.");
+      setMercadoLivreAccount(data?.account ?? null);
+      toast.success("Dados da conta Mercado Livre atualizados.");
+    } catch (error: any) {
+      toast.error(error?.message || "Falha ao atualizar os dados do Mercado Livre.");
+    } finally {
+      setAtualizandoMercadoLivre(false);
+    }
+  };
 
   const onSalvar = async (values: Partial<Config>) => {
     setSalvando(true);
@@ -1281,10 +1380,12 @@ export default function ConfigGeralPage() {
       <MercadoLivreOperationSettingsCard
         account={mercadoLivreAccount}
         savingListingType={salvandoPublicacaoPadrao}
+        refreshingAccount={atualizandoMercadoLivre}
         onListingTypeChange={(value) =>
           void salvarPublicacaoPadraoMercadoLivre(value)
         }
         onQuantityDefaultsSave={salvarPrecoQuantidadePadrao}
+        onRefreshAccount={atualizarDadosMercadoLivre}
       />
 
       <div className="grid items-start gap-6 lg:grid-cols-12">

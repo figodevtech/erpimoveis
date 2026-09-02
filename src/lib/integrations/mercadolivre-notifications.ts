@@ -4,6 +4,9 @@ import { importMercadoLivreOrder } from "@/lib/integrations/mercadolivre-orders"
 import { syncMercadoLivreShipmentForVenda } from "@/lib/integrations/mercadolivre-shipping";
 import { applyMercadoLivrePriceToErp, getMercadoLivrePriceState } from "@/lib/integrations/mercadolivre-price-sync";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { mercadoLivreSystemNotification } from "@/lib/integrations/mercadolivre-system-notification";
+import { notifySalesUsers } from "@/lib/system-notifications";
+import { processTelegramMarketplaceNotifications } from "@/lib/integrations/telegram-marketplace-notifications";
 
 
 type NotificationPayload = {
@@ -217,6 +220,19 @@ async function processNotification(notificationId: number, attempts: number) {
     } else {
       finalStatus = "IGNORADA";
       finalError = `Tópico sem processador configurado: ${topic || "não informado"}.`;
+    }
+
+    if (finalStatus === "PROCESSADA") {
+      const userNotification = mercadoLivreSystemNotification({ notificationId, topic, resource });
+      if (userNotification) {
+        await notifySalesUsers(userNotification).then(async () => {
+          await processTelegramMarketplaceNotifications({ sourceEventId: userNotification.sourceEventId });
+        }).catch((notificationError) => {
+          // A central de avisos é complementar: uma falha nela não pode desfazer
+          // a importação do pedido, envio ou anúncio já processado com sucesso.
+          console.error("Falha ao criar notificação interna do Mercado Livre", notificationError);
+        });
+      }
     }
 
     const { error: updateError } = await supabaseAdmin

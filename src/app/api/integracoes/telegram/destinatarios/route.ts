@@ -38,6 +38,7 @@ const recipientSchema = z.object({
     .array(z.string())
     .max(FISCAL_NOTIFICATION_EVENT_VALUES.length)
     .refine((events) => events.every(isFiscalNotificationEvent)),
+  notificarMarketplace: z.boolean(),
 });
 
 function errorResponse(error: unknown, fallback: string) {
@@ -69,7 +70,7 @@ export async function GET() {
       supabaseAdmin.from("usuario").select("id, nome, email, ativo, perfilid").order("nome", { ascending: true }),
       supabaseAdmin
         .from("telegram_usuario_preferencia")
-        .select("usuario_id, chat_id, telegram_username, telegram_nome, vinculado_em, ativo, modo, escopo, notificar_criacao, status_selecionados, notificar_financeiro_diario, horario_resumo_financeiro, financeiro_incluir_atrasadas, financeiro_enviar_sem_contas, notificar_receber_diario, horario_resumo_receber, receber_incluir_vencidas, receber_enviar_sem_contas, estoque_eventos_selecionados, fiscal_eventos_selecionados, ultimo_erro")
+        .select("usuario_id, chat_id, telegram_username, telegram_nome, vinculado_em, ativo, modo, escopo, notificar_criacao, status_selecionados, notificar_financeiro_diario, horario_resumo_financeiro, financeiro_incluir_atrasadas, financeiro_enviar_sem_contas, notificar_receber_diario, horario_resumo_receber, receber_incluir_vencidas, receber_enviar_sem_contas, estoque_eventos_selecionados, fiscal_eventos_selecionados, notificar_marketplace, ultimo_erro")
         .order("updated_at", { ascending: false }),
       supabaseAdmin
         .from("permissao")
@@ -83,6 +84,7 @@ export async function GET() {
       "financeiro:visualizar",
       "estoque:visualizar",
       "financeiro:notas_fiscais",
+      "vendas:visualizar",
     ]);
     const permissionIdByName = new Map(
       (permissionsResult.data ?? [])
@@ -106,13 +108,16 @@ export async function GET() {
     const financeProfiles = new Set<number>();
     const stockProfiles = new Set<number>();
     const fiscalProfiles = new Set<number>();
+    const salesProfiles = new Set<number>();
     const financePermissionId = permissionIdByName.get("financeiro:visualizar");
     const stockPermissionId = permissionIdByName.get("estoque:visualizar");
     const fiscalPermissionId = permissionIdByName.get("financeiro:notas_fiscais");
+    const salesPermissionId = permissionIdByName.get("vendas:visualizar");
     for (const link of permissionLinks) {
       if (link.permissaoid === financePermissionId) financeProfiles.add(link.perfilid);
       if (link.permissaoid === stockPermissionId) stockProfiles.add(link.perfilid);
       if (link.permissaoid === fiscalPermissionId) fiscalProfiles.add(link.perfilid);
+      if (link.permissaoid === salesPermissionId) salesProfiles.add(link.perfilid);
     }
 
     const users = (usersResult.data ?? []).map((user) => ({
@@ -123,6 +128,7 @@ export async function GET() {
       financialAccess: financeProfiles.has(Number(user.perfilid)),
       stockAccess: stockProfiles.has(Number(user.perfilid)),
       fiscalAccess: fiscalProfiles.has(Number(user.perfilid)),
+      marketplaceAccess: salesProfiles.has(Number(user.perfilid)),
     }));
     const userById = new Map(users.map((user) => [user.id, user]));
     const recipients = (preferencesResult.data ?? []).map((row) => ({
@@ -147,6 +153,7 @@ export async function GET() {
       receivableSendWhenEmpty: row.receber_enviar_sem_contas === true,
       selectedStockEvents: Array.isArray(row.estoque_eventos_selecionados) ? row.estoque_eventos_selecionados : [],
       selectedFiscalEvents: Array.isArray(row.fiscal_eventos_selecionados) ? row.fiscal_eventos_selecionados : [],
+      notifyMarketplace: row.notificar_marketplace === true,
       lastError: row.ultimo_erro ? String(row.ultimo_erro) : null,
     }));
     return NextResponse.json({ users, recipients });
@@ -195,6 +202,9 @@ export async function PUT(request: Request) {
     if (parsed.data.fiscalEventosSelecionados.length > 0 && !(await userHasPermission(parsed.data.usuarioId, "financeiro:notas_fiscais"))) {
       return NextResponse.json({ error: "O usuário precisa ter acesso às Notas fiscais para receber esses avisos." }, { status: 400 });
     }
+    if (parsed.data.notificarMarketplace && !(await userHasPermission(parsed.data.usuarioId, "vendas:visualizar"))) {
+      return NextResponse.json({ error: "O usuário precisa ter acesso a Vendas para receber avisos do Marketplace." }, { status: 400 });
+    }
 
     const { error } = await supabaseAdmin.from("telegram_usuario_preferencia").upsert({
       usuario_id: parsed.data.usuarioId,
@@ -214,6 +224,7 @@ export async function PUT(request: Request) {
       receber_enviar_sem_contas: parsed.data.receberEnviarSemContas,
       estoque_eventos_selecionados: Array.from(new Set(parsed.data.estoqueEventosSelecionados)),
       fiscal_eventos_selecionados: Array.from(new Set(parsed.data.fiscalEventosSelecionados)),
+      notificar_marketplace: parsed.data.notificarMarketplace,
       ultimo_erro: null,
       updated_at: new Date().toISOString(),
     }, { onConflict: "usuario_id" });

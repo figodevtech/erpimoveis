@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Boxes, Clock3, HandCoins, Loader2, ReceiptText, WalletCards, Wrench } from "lucide-react";
+import { Boxes, Clock3, HandCoins, Loader2, ReceiptText, ShoppingBag, WalletCards, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -52,6 +52,7 @@ export type TelegramUser = {
   financialAccess: boolean;
   stockAccess: boolean;
   fiscalAccess: boolean;
+  marketplaceAccess: boolean;
 };
 export type TelegramRecipient = {
   usuarioId: string;
@@ -75,6 +76,7 @@ export type TelegramRecipient = {
   receivableSendWhenEmpty: boolean;
   selectedStockEvents: StockNotificationEvent[];
   selectedFiscalEvents: FiscalNotificationEvent[];
+  notifyMarketplace: boolean;
 };
 export type RecipientFormData = {
   usuarioId: string;
@@ -92,6 +94,7 @@ export type RecipientFormData = {
   receivableSendWhenEmpty: boolean;
   selectedStockEvents: StockNotificationEvent[];
   selectedFiscalEvents: FiscalNotificationEvent[];
+  notifyMarketplace: boolean;
 };
 
 export function recipientEvents(recipient: TelegramRecipient) {
@@ -127,6 +130,7 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
     receivableSendWhenEmpty: recipient.receivableSendWhenEmpty,
     selectedStockEvents: recipient.selectedStockEvents,
     selectedFiscalEvents: recipient.selectedFiscalEvents,
+    notifyMarketplace: recipient.notifyMarketplace,
   } : {
     usuarioId: "",
     telegramUsername: "",
@@ -143,6 +147,7 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
     receivableSendWhenEmpty: false,
     selectedStockEvents: [],
     selectedFiscalEvents: [],
+    notifyMarketplace: false,
   });
 
   function setEvents(selectedEvents: readonly string[]) {
@@ -221,12 +226,14 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
   const financialAllowed = selectedUser?.financialAccess === true;
   const stockAllowed = selectedUser?.stockAccess === true;
   const fiscalAllowed = selectedUser?.fiscalAccess === true;
+  const marketplaceAllowed = selectedUser?.marketplaceAccess === true;
   const hasNotification = Boolean(
     form.selectedEvents.length
     || form.notifyFinancialDaily
     || form.notifyReceivableDaily
     || form.selectedStockEvents.length
-    || form.selectedFiscalEvents.length,
+    || form.selectedFiscalEvents.length
+    || form.notifyMarketplace,
   );
   const valid = Boolean(
     form.usuarioId
@@ -235,7 +242,8 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
     && (!form.notifyFinancialDaily || financialAllowed)
     && (!form.notifyReceivableDaily || financialAllowed)
     && (!form.selectedStockEvents.length || stockAllowed)
-    && (!form.selectedFiscalEvents.length || fiscalAllowed),
+    && (!form.selectedFiscalEvents.length || fiscalAllowed)
+    && (!form.notifyMarketplace || marketplaceAllowed),
   );
 
   return (
@@ -299,11 +307,12 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
               </div>
 
               <Tabs defaultValue="os" className="gap-4">
-                <TabsList className="grid h-11 w-full grid-cols-4">
+                <TabsList className="grid h-auto w-full grid-cols-2 sm:h-11 sm:grid-cols-5">
                   <TabsTrigger value="os"><Wrench />OS</TabsTrigger>
                   <TabsTrigger value="financeiro"><WalletCards />Financeiro</TabsTrigger>
                   <TabsTrigger value="estoque"><Boxes />Estoque</TabsTrigger>
                   <TabsTrigger value="fiscal"><ReceiptText />Fiscal</TabsTrigger>
+                  <TabsTrigger value="marketplace"><ShoppingBag />Marketplace</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="os" className="space-y-4">
@@ -608,6 +617,30 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
                       );
                     })}
                   </div>
+                </TabsContent>
+
+                <TabsContent value="marketplace" className="space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card p-4">
+                    <div className="flex items-start gap-3">
+                      <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><ShoppingBag className="size-4" /></span>
+                      <div>
+                        <Label htmlFor="dialog-marketplace-notifications">Atualizações do Mercado Livre</Label>
+                        <p className="text-xs text-muted-foreground">Envia perguntas, mensagens, pedidos, alterações de envio, reclamações e anúncios processados pelo ERP.</p>
+                      </div>
+                    </div>
+                    <Switch
+                      id="dialog-marketplace-notifications"
+                      checked={form.notifyMarketplace}
+                      disabled={!marketplaceAllowed}
+                      onCheckedChange={(notifyMarketplace) => setForm((current) => ({ ...current, notifyMarketplace }))}
+                    />
+                  </div>
+                  {!form.usuarioId ? (
+                    <p className="text-xs text-muted-foreground">Selecione o usuário para verificar o acesso ao Marketplace.</p>
+                  ) : !marketplaceAllowed ? (
+                    <p className="text-xs text-amber-700 dark:text-amber-400">Este usuário não possui a permissão Vendas: visualizar.</p>
+                  ) : null}
+                  <p className="text-xs text-muted-foreground">O usuário recebe somente eventos que também aparecem na Central de Notificações e para os quais possui acesso ao módulo de vendas.</p>
                 </TabsContent>
               </Tabs>
             </div>

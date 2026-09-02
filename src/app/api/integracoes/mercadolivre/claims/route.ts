@@ -66,7 +66,7 @@ export async function GET(req: NextRequest) {
     const accessToken = await ensureValidAccessToken(account);
     const orders = await getOrders(account.empresa_id, account.id, orderDbId, mlOrderId);
     const notifications = await getClaimNotifications(account);
-    const searchedClaims = await searchClaims(accessToken);
+    const searchedClaims = await searchClaims(accessToken, account.ml_user_id);
     const candidates = dedupeClaimCandidates([
       ...searchedClaims.map((claim: any) => ({ source: "search", claim, claimId: String(claim?.id ?? "") })),
       ...notifications.map((notification) => ({ source: "notification", notification, claimId: getClaimId(notification) })),
@@ -388,11 +388,16 @@ function normalizeStoredClaim(claim: any) {
   };
 }
 
-async function searchClaims(accessToken: string) {
+async function searchClaims(accessToken: string, sellerId: number) {
+  const sellerFilter = {
+    "players.user_id": String(sellerId),
+    "players.role": "respondent",
+    limit: "50",
+    sort: "last_updated:desc",
+  };
   const queries = [
-    new URLSearchParams({ limit: "50" }),
-    new URLSearchParams({ limit: "50", status: "opened" }),
-    new URLSearchParams({ limit: "50", status: "closed" }),
+    new URLSearchParams({ ...sellerFilter, status: "opened" }),
+    new URLSearchParams({ ...sellerFilter, status: "closed" }),
   ];
 
   const results = await Promise.all(

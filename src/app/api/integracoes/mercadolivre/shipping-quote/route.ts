@@ -3,6 +3,7 @@ import { requireVendasAccess } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
 import { mercadoLivreApiGet } from "@/lib/integrations/mercadolivre";
+import { getMercadoLivreShippingAddress } from "@/lib/integrations/mercadolivre-address";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +31,7 @@ export async function POST(req: NextRequest) {
     }
 
     const account = await getValidMercadoLivreAccount(empresaId);
+    const shippingAddress = await getMercadoLivreShippingAddress(account.access_token, account.ml_user_id).catch(() => null);
     const params = new URLSearchParams({
       dimensions: `${height}x${width}x${length},${weight}`,
       verbose: "true",
@@ -40,6 +42,9 @@ export async function POST(req: NextRequest) {
       logistic_type: logisticType,
       free_shipping: String(freeShipping),
     });
+    if (shippingAddress?.zipCode) params.set("zip_code", shippingAddress.zipCode.replace(/\D/g, ""));
+    if (shippingAddress?.stateId) params.set("state_id", shippingAddress.stateId);
+    if (shippingAddress?.cityId) params.set("city_id", shippingAddress.cityId);
     const quote = await mercadoLivreApiGet<any>(
       account.access_token,
       `/users/${account.ml_user_id}/shipping_options/free?${params.toString()}`,
@@ -47,10 +52,11 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       data: {
-        currencyId: quote?.currency_id ?? "BRL",
-        listCost: numberOrNull(quote?.list_cost ?? quote?.coverage?.list_cost),
-        sellerCost: numberOrNull(quote?.cost ?? quote?.coverage?.cost ?? quote?.seller?.cost),
-        billableWeight: numberOrNull(quote?.billable_weight ?? quote?.coverage?.billable_weight),
+        currencyId: quote?.currency_id ?? quote?.coverage?.all_country?.currency_id ?? "BRL",
+        listCost: numberOrNull(quote?.list_cost ?? quote?.coverage?.list_cost ?? quote?.coverage?.all_country?.list_cost),
+        sellerCost: numberOrNull(quote?.cost ?? quote?.coverage?.cost ?? quote?.coverage?.all_country?.cost ?? quote?.seller?.cost),
+        billableWeight: numberOrNull(quote?.billable_weight ?? quote?.coverage?.billable_weight ?? quote?.coverage?.all_country?.billable_weight),
+        origin: shippingAddress,
         raw: quote ?? {},
       },
     });
@@ -68,6 +74,7 @@ function badRequest(error: string) {
 }
 
 function numberOrNull(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }

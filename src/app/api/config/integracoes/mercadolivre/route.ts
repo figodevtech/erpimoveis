@@ -4,6 +4,11 @@ import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
 import { mercadoLivreApiGet } from "@/lib/integrations/mercadolivre";
+import {
+  getMercadoLivreShippingAddress,
+  selectMercadoLivreShippingAddressSummary,
+  type MercadoLivreShippingAddress,
+} from "@/lib/integrations/mercadolivre-address";
 import { unregisterMercadoLivrePlatformAccount } from "@/lib/integrations/mercadolivre-platform";
 import { validateMercadoLivreQuantityTiers } from "@/lib/integrations/mercadolivre-quantity-pricing";
 import {
@@ -27,15 +32,19 @@ export async function GET() {
 
     let shipping: { modes: string[]; option: string | null; mercadoEnviosEnabled: boolean; error: string | null } | null = null;
     let sellerProfile: (MercadoLivreSellerProfile & { error: string | null }) | null = null;
+    let shippingAddress: MercadoLivreShippingAddress | null = null;
+    let shippingAddressError: string | null = null;
+    let shippingAddressNotice: string | null = null;
     if (data) {
       try {
         const account = await getValidMercadoLivreAccount(empresaId);
-        const [shippingResult, profileResult] = await Promise.allSettled([
+        const [shippingResult, profileResult, addressResult] = await Promise.allSettled([
           mercadoLivreApiGet<{ modes?: string[]; option?: string | null }>(
             account.access_token,
             `/users/${account.ml_user_id}/shipping_preferences`,
           ),
           mercadoLivreApiGet<unknown>(account.access_token, `/users/${account.ml_user_id}`),
+          getMercadoLivreShippingAddress(account.access_token, account.ml_user_id),
         ]);
 
         if (shippingResult.status === "fulfilled") {
@@ -53,10 +62,23 @@ export async function GET() {
         sellerProfile = profileResult.status === "fulfilled"
           ? { ...parseMercadoLivreSellerProfile(profileResult.value), error: null }
           : { ...parseMercadoLivreSellerProfile(null), error: errorMessage(profileResult.reason, "Falha ao consultar o perfil do vendedor.") };
+
+        if (addressResult.status === "fulfilled" && addressResult.value) {
+          shippingAddress = addressResult.value;
+        } else {
+          shippingAddress = await getAddressSummaryFromLatestListing(empresaId)
+            ?? (profileResult.status === "fulfilled"
+              ? selectMercadoLivreShippingAddressSummary(profileResult.value, "seller_profile")
+              : null);
+          const message = "O Mercado Livre protegeu o endereço completo desta conta para este aplicativo. O frete continua sendo calculado com a origem configurada no Mercado Envios.";
+          if (shippingAddress) shippingAddressNotice = message;
+          else shippingAddressError = message;
+        }
       } catch (accountError: unknown) {
         const message = errorMessage(accountError, "Falha ao consultar a conta Mercado Livre.");
         shipping = { modes: [], option: null, mercadoEnviosEnabled: false, error: message };
         sellerProfile = { ...parseMercadoLivreSellerProfile(null), error: message };
+        shippingAddressError = message;
       }
     }
 
@@ -76,6 +98,9 @@ export async function GET() {
             quantityPricingDefaultEnabled: Boolean(data.quantity_pricing_default_enabled),
             quantityPricingDefaultTiers: validateMercadoLivreQuantityTiers(data.quantity_pricing_default_tiers ?? []),
             shipping,
+            shippingAddress,
+            shippingAddressError,
+            shippingAddressNotice,
             sellerProfile,
           }
         : null,
@@ -135,6 +160,26 @@ export async function PATCH(request: Request) {
 
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
+}
+
+async function getAddressSummaryFromLatestListing(empresaId: number | string) {
+  const { data, error } = await supabaseAdmin
+    .from("mercadolivre_product_link")
+    .select("raw_item")
+    .eq("empresa_id", empresaId)
+    .not("raw_item", "is", null)
+    .order("updated_at", { ascending: false })
+    .limit(10);
+  if (error) {
+    console.warn("Falha ao obter localização aproximada dos anúncios Mercado Livre", error.message);
+    return null;
+  }
+
+  for (const row of data ?? []) {
+    const address = selectMercadoLivreShippingAddressSummary(row.raw_item, "listing");
+    if (address) return address;
+  }
+  return null;
 }
 
 export async function DELETE() {

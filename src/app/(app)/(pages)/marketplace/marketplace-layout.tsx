@@ -69,6 +69,7 @@ export function MarketplaceHeader({
   connected,
   accountName,
   accountDescription,
+  accountBadge,
 }: {
   icon: LucideIcon;
   iconClassName: string;
@@ -76,6 +77,7 @@ export function MarketplaceHeader({
   connected: boolean;
   accountName: string;
   accountDescription: string;
+  accountBadge?: React.ReactNode;
 }) {
   return (
     <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -93,7 +95,12 @@ export function MarketplaceHeader({
         <div className="flex min-w-0 items-center gap-3 rounded-md border bg-card px-3 py-2 shadow-sm">
           <span className={`h-2 w-2 shrink-0 rounded-full ${connected ? "bg-emerald-500" : "bg-orange-500"}`} />
           <div className="min-w-0">
-            <p className="truncate text-sm font-medium">{accountName}</p>
+            <div className="flex min-w-0 items-center gap-2">
+              <p className="truncate text-sm font-medium">{accountName}</p>
+              {accountBadge ? (
+                <span className="shrink-0">{accountBadge}</span>
+              ) : null}
+            </div>
             <p className="truncate text-xs text-muted-foreground">{accountDescription}</p>
           </div>
           {connected ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" /> : null}

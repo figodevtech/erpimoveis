@@ -5,14 +5,24 @@ import { motion, useReducedMotion } from "motion/react";
 
 import { unreadBadgeLabel } from "./chat-utils";
 
-export function UnreadBadge({ count, compact = false }: { count: number; compact?: boolean }) {
+export function UnreadBadge({
+  count,
+  compact = false,
+  singular = "mensagem não lida",
+  plural = "mensagens não lidas",
+}: {
+  count: number;
+  compact?: boolean;
+  singular?: string;
+  plural?: string;
+}) {
   const reduceMotion = useReducedMotion();
   if (count <= 0) return null;
 
   return (
     <motion.span
       key={count}
-      aria-label={`${count} ${count === 1 ? "mensagem não lida" : "mensagens não lidas"}`}
+      aria-label={`${count} ${count === 1 ? singular : plural}`}
       initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.72 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={reduceMotion ? { duration: 0.08 } : { type: "spring", stiffness: 520, damping: 27 }}

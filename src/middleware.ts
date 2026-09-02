@@ -9,6 +9,11 @@ const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
 // REMOVED GLOBAL CLIENT TO AVOID STATE LEAKAGE
 
+type FreshUserState = { available: boolean; user: { ativo?: boolean } | null };
+const USER_STATE_CACHE_TTL_MS = 15_000;
+const freshUserStateCache = new Map<string, { expiresAt: number; value: FreshUserState }>();
+let lastUserVerificationWarningAt = 0;
+
 const PUBLIC_PATHS = [
   "/login",
   "/recuperar-senha",
@@ -241,6 +246,9 @@ function isExecutorOnly(user: any) {
 async function fetchFreshUserState(userId: string) {
   if (!supabaseUrl || !serviceKey) return { available: false as const, user: null };
 
+  const cached = freshUserStateCache.get(userId);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+
   const url = new URL(`${supabaseUrl}/rest/v1/usuario`);
   url.searchParams.set("id", `eq.${userId}`);
   url.searchParams.set("select", "ativo");
@@ -248,7 +256,7 @@ async function fetchFreshUserState(userId: string) {
 
   const res = await fetch(url.toString(), {
     cache: "no-store",
-    signal: AbortSignal.timeout(3_000),
+    signal: AbortSignal.timeout(5_000),
     headers: {
       apikey: serviceKey,
       Authorization: `Bearer ${serviceKey}`,
@@ -262,10 +270,29 @@ async function fetchFreshUserState(userId: string) {
   }
 
   const rows = await res.json().catch(() => []);
-  return {
+  const value = {
     available: true as const,
     user: Array.isArray(rows) ? rows[0] ?? null : null,
   };
+  freshUserStateCache.set(userId, { value, expiresAt: Date.now() + USER_STATE_CACHE_TTL_MS });
+  if (freshUserStateCache.size > 500) {
+    const now = Date.now();
+    for (const [key, entry] of freshUserStateCache) {
+      if (entry.expiresAt <= now) freshUserStateCache.delete(key);
+    }
+  }
+  return value;
+}
+
+function warnUserVerificationUnavailable(error: unknown) {
+  const now = Date.now();
+  if (now - lastUserVerificationWarningAt < 60_000) return;
+  lastUserVerificationWarningAt = now;
+  const name = error instanceof Error ? error.name : "Erro";
+  const message = name === "TimeoutError"
+    ? "Supabase não respondeu em 5 segundos; usando temporariamente o estado da sessão."
+    : error instanceof Error ? error.message : String(error);
+  console.warn(`[Middleware] Verificação temporariamente indisponível: ${message}`);
 }
 
 async function fetchPlatformAccess() {
@@ -342,7 +369,7 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
         isInactive = true;
       }
     } catch (err) {
-      console.warn("[Middleware] Verificação temporariamente indisponível:", err);
+      warnUserVerificationUnavailable(err);
       userVerificationUnavailable = true;
     }
   }
