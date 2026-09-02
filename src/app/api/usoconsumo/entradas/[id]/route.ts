@@ -17,7 +17,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     if (!data) return NextResponse.json({ error: "Entrada não encontrada." }, { status: 404 });
     const [entrada, personalizacaoFiscal] = await Promise.all([
       anexarAutor(data),
-      carregarPersonalizacaoFiscal("usoconsumo", id),
+      carregarPersonalizacaoFiscal("usoconsumo", id, {
+        documentoId: Number(data.documento_fiscal_recebido_id) || null,
+        entradaCreatedAt: String(data.created_at),
+      }),
     ]);
     return NextResponse.json({ data: { ...entrada, personalizacaoFiscal } });
   } catch (error) { return usoConsumoError(error, "Erro ao buscar entrada."); }

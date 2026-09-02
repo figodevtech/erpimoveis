@@ -269,7 +269,6 @@ export default function BancosFinanceiroPage() {
               <TableRow>
                 <TableHead>Banco</TableHead>
                 <TableHead className="hidden lg:table-cell">Conta</TableHead>
-                <TableHead className="hidden md:table-cell text-right">Inicial</TableHead>
                 <TableHead className="hidden md:table-cell text-right">Entradas</TableHead>
                 <TableHead className="hidden md:table-cell text-right">Saídas</TableHead>
                 <TableHead className="hidden lg:table-cell">Última movimentação</TableHead>
@@ -280,14 +279,14 @@ export default function BancosFinanceiroPage() {
               {isLoading ? (
                 Array.from({ length: 4 }).map((_, index) => (
                   <TableRow key={index}>
-                    <TableCell colSpan={7}>
+                    <TableCell colSpan={6}>
                       <div className="h-10 animate-pulse rounded-md bg-muted" />
                     </TableCell>
                   </TableRow>
                 ))
               ) : items.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
                     Nenhum banco cadastrado.
                   </TableCell>
                 </TableRow>
@@ -328,7 +327,6 @@ export default function BancosFinanceiroPage() {
                     <TableCell className="hidden lg:table-cell text-muted-foreground">
                       {[banco.agencia, banco.contanumero].filter(Boolean).join(" / ") || "-"}
                     </TableCell>
-                    <TableCell className="hidden md:table-cell text-right">{formatarEmReal(banco.valorinicial)}</TableCell>
                     <TableCell className="hidden md:table-cell text-right text-emerald-600">
                       {formatarEmReal(banco.entradas)}
                     </TableCell>

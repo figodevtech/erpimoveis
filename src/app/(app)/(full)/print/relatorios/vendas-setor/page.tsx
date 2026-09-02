@@ -1,11 +1,21 @@
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { Printer, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
+import { carregarVendasPorSetor, STATUS_VENDA_REALIZADA } from "@/lib/vendas/vendas-por-setor";
+
 export const runtime = "nodejs";
+
+/**
+ * Folha de vendas por setor.
+ *
+ * A consulta e o agrupamento saem de `@/lib/vendas/vendas-por-setor`, os mesmos
+ * que a exportação em xlsx usa. Antes esta página repetia a consulta inteira, e
+ * as duas cópias filtravam o período em memória sobre uma busca sem paginação —
+ * o papel e a planilha podiam discordar, e ambos podiam calar vendas.
+ */
 
 type PageProps = {
   searchParams: Promise<{
@@ -21,17 +31,6 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-const FORTALEZA_OFFSET = "-03:00";
-
-function localDayStartToUtcIso(dateStr: string) {
-  return new Date(`${dateStr}T00:00:00${FORTALEZA_OFFSET}`).toISOString();
-}
-
-function localNextDayStartToUtcIso(dateStr: string) {
-  const d = new Date(`${dateStr}T00:00:00${FORTALEZA_OFFSET}`);
-  return new Date(d.getTime() + 24 * 60 * 60 * 1000).toISOString();
-}
-
 function fmtMoney(v: number | string | null | undefined) {
   if (v == null) return "—";
   const n = Number(v);
@@ -42,171 +41,40 @@ function fmtMoney(v: number | string | null | undefined) {
   });
 }
 
-function toNum(v: any): number | null {
-  if (v == null) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
 export default async function PrintVendasSetorPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const inicio = params.inicio?.trim() || "";
   const fim = params.fim?.trim() || "";
-  const setorQuery = params.setor?.trim() || "";
+  const setor = params.setor?.trim() || "";
 
-  // 1. Buscar a Venda baseada na data + status (PAGO ou FINALIZADA)
-  const vendaQueryDb = supabaseAdmin
-    .from("venda")
-    .select(`
-      id, 
-      status, 
-      datavenda, 
-      valortotal,
-      comissao_venda_percent_aplicada,
-      cliente:cliente ( id, nomerazaosocial ),
-      vendedor:vendedor ( id, nome, email, setorid )
-    `)
-    .in("status", ["PAGO", "FINALIZADA"]);
-
-  const inicioUtc = inicio ? new Date(localDayStartToUtcIso(inicio)) : null;
-  const fimUtc = fim ? new Date(localNextDayStartToUtcIso(fim)) : null;
-
-  const { data: vendasRows, error: vendasErr } = await vendaQueryDb;
-
-  if (vendasErr) {
-    console.error("[vendas-setor] Erro ao buscar vendas", vendasErr);
-    return <div>Erro ao carregar Vendas.</div>;
+  let relatorio;
+  try {
+    relatorio = await carregarVendasPorSetor({ inicio, fim, setor });
+  } catch (error) {
+    console.error("[vendas-setor] Erro ao buscar vendas", error);
+    return <div className="p-8">Erro ao carregar Vendas.</div>;
   }
 
-  // Filtragem extra das datas de Vendas no servidor
-  const filteredVendas = (vendasRows || []).filter((venda: any) => {
-    const refDateIso = venda.datavenda;
-    if (!refDateIso) return !inicioUtc && !fimUtc;
+  const setoresExibicao = relatorio.setores;
 
-    const d = new Date(refDateIso);
-    if (Number.isNaN(d.getTime())) return !inicioUtc && !fimUtc;
-
-    if (inicioUtc && d < inicioUtc) return false;
-    if (fimUtc && d >= fimUtc) return false;
-
-    return true;
-  });
-
-  if (filteredVendas.length === 0) {
+  if (setoresExibicao.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center p-8 text-muted-foreground w-full h-screen">
-        Nenhuma venda concluída (PAGA/FINALIZADA) encontrada neste período.
+        Nenhuma venda realizada encontrada neste período.
       </div>
     );
   }
 
-  // 2. Buscar Setores para mapear os nomes
-  const { data: setoresRows } = await supabaseAdmin.from("setor").select("id, nome");
-
-  const mapSetorNome = new Map<string, string>();
-  for (const s of setoresRows || []) mapSetorNome.set(String(s.id), s.nome);
-
-  // AGRUPAMENTO DOS DADOS (Sector -> User -> Items)
-  type VendaItem = {
-    vendaId: number;
-    cliente: string;
-    dataVenda: string;
-    valorTotal: number;
-    percentualComissao: number;
-    valorComissao: number;
-  };
-
-  type VendedorResult = {
-    userId: string;
-    nome: string;
-    itens: VendaItem[];
-    subtotalVenda: number;
-    subtotalComissao: number;
-  };
-
-  type SetorResult = {
-    setorId: string;
-    nome: string;
-    vendedores: VendedorResult[];
-    totalVenda: number;
-    totalComissao: number;
-  };
-
-  const mapGrpSetor = new Map<string, SetorResult>();
-  const idSemSetor = "SEM_SETOR";
-
-  for (const venda of filteredVendas) {
-    const vinfo = venda.vendedor as any;
-    const uId = vinfo ? String(vinfo.id) : "SEM_VENDEDOR";
-    const sId = vinfo?.setorid ? String(vinfo.setorid) : idSemSetor;
-
-    // Se houver um filtro por setor ativo, ignoramos quem não pertence a esse setor
-    if (setorQuery && setorQuery !== "all" && sId !== setorQuery) {
-      continue;
-    }
-
-    if (!mapGrpSetor.has(sId)) {
-      mapGrpSetor.set(sId, {
-        setorId: sId,
-        nome: sId === idSemSetor ? "Sem Setor" : (mapSetorNome.get(sId) || "Setor Oculto"),
-        vendedores: [],
-        totalVenda: 0,
-        totalComissao: 0
-      });
-    }
-
-    const setorObj = mapGrpSetor.get(sId)!;
-    let vendedorObj = setorObj.vendedores.find(r => r.userId === uId);
-
-    if (!vendedorObj) {
-      vendedorObj = {
-        userId: uId,
-        nome: uId === "SEM_VENDEDOR" ? "Sem Vendedor Vinculado" : (vinfo?.nome || vinfo?.email || "Usuário Desconhecido"),
-        itens: [],
-        subtotalVenda: 0,
-        subtotalComissao: 0
-      };
-      setorObj.vendedores.push(vendedorObj);
-    }
-
-    const vTotal = toNum(venda.valortotal) || 0;
-    const cInfo = Array.isArray(venda.cliente) ? venda.cliente[0] : venda.cliente;
-    const cNome = cInfo?.nomerazaosocial ? cInfo.nomerazaosocial : "Cliente Desconhecido";
-    const percent = toNum(venda.comissao_venda_percent_aplicada) || 0;
-    const vComissao = (vTotal * percent) / 100;
-
-    vendedorObj.itens.push({
-      vendaId: Number(venda.id),
-      cliente: cNome,
-      dataVenda: venda.datavenda ? format(new Date(venda.datavenda), "dd/MM/yyyy HH:mm", { locale: ptBR }) : "—",
-      valorTotal: vTotal,
-      percentualComissao: percent,
-      valorComissao: vComissao
-    });
-
-    vendedorObj.subtotalVenda += vTotal;
-    vendedorObj.subtotalComissao += vComissao;
-    setorObj.totalVenda += vTotal;
-    setorObj.totalComissao += vComissao;
-  }
-
-  // Filtrar setores sem vendas
-  const setoresExibicao = Array.from(mapGrpSetor.values()).filter(s => s.vendedores.length > 0);
-
-  // Ordenação alfabética de Setor e de Vendedor dentro
-  setoresExibicao.sort((a, b) => a.nome.localeCompare(b.nome));
-  setoresExibicao.forEach(s => s.vendedores.sort((a, b) => a.nome.localeCompare(b.nome)));
-
-  const totalGeral = setoresExibicao.reduce((acc, s) => acc + s.totalVenda, 0);
-  const totalGeralComissao = setoresExibicao.reduce((acc, s) => acc + s.totalComissao, 0);
+  const totalGeral = relatorio.totalVenda;
+  const totalGeralComissao = relatorio.totalComissao;
 
   return (
     <div className="bg-neutral-200 text-black min-h-screen py-10 print:py-0 print:bg-white flex flex-col items-center">
-      
+
       {/* Action Bar (Fora do Papel) */}
       <div className="print:hidden w-full max-w-[210mm] flex justify-between items-center mb-6 px-4 sm:px-0">
-        <Link 
-          href="/relatorios" 
+        <Link
+          href="/relatorios"
           className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -231,26 +99,28 @@ export default async function PrintVendasSetorPage({ searchParams }: PageProps) 
               Período: {inicio ? format(new Date(`${inicio}T12:00:00`), "dd/MM/yyyy", { locale: ptBR }) : "Início"} a{" "}
               {fim ? format(new Date(`${fim}T12:00:00`), "dd/MM/yyyy", { locale: ptBR }) : "Hoje"}
             </p>
+            {/* Os status saem da mesma constante que a consulta usa: a folha não
+                pode anunciar um recorte e trazer outro. */}
             <p className="text-sm text-gray-700 mt-1">
-              Status da Venda: <span className="font-semibold">PAGO, FINALIZADA</span>
+              Status da Venda: <span className="font-semibold">{STATUS_VENDA_REALIZADA.join(", ")}</span>
             </p>
           </div>
         </div>
 
         {/* Lista de Setores */}
         <div className="space-y-8">
-          {setoresExibicao.map((setor) => (
-            <div key={setor.setorId} className="border border-gray-300 rounded overflow-hidden">
+          {setoresExibicao.map((setorGrupo) => (
+            <div key={setorGrupo.setorId} className="border border-gray-300 rounded overflow-hidden">
               <div className="bg-gray-100 px-4 py-2 border-b border-gray-300 flex justify-between items-center font-bold text-base uppercase">
-                <span>Setor | {setor.nome}</span>
+                <span>Setor | {setorGrupo.nome}</span>
                 <div className="text-right text-sm leading-tight">
-                  <span className="block text-gray-500 font-medium text-xs">Vendas: {fmtMoney(setor.totalVenda)}</span>
-                  <span className="block text-green-700">Comissão: {fmtMoney(setor.totalComissao)}</span>
+                  <span className="block text-gray-500 font-medium text-xs">Vendas: {fmtMoney(setorGrupo.totalVenda)}</span>
+                  <span className="block text-green-700">Comissão: {fmtMoney(setorGrupo.totalComissao)}</span>
                 </div>
               </div>
 
               <div className="p-4 space-y-6">
-                {setor.vendedores.map((vendedor) => (
+                {setorGrupo.vendedores.map((vendedor) => (
                   <div key={vendedor.userId} className="pl-2 border-l-4 border-gray-400">
                     <div className="flex justify-between items-end font-semibold text-sm mb-2 text-gray-800 border-b border-gray-200 pb-1">
                       <span>Vendedor: {vendedor.nome}</span>
@@ -266,7 +136,12 @@ export default async function PrintVendasSetorPage({ searchParams }: PageProps) 
                           <th className="py-1 w-16 text-center">Venda #</th>
                           <th className="py-1">Cliente</th>
                           <th className="py-1 w-32">Data da Venda</th>
+                          <th className="py-1 w-24">Status</th>
                           <th className="py-1 text-right w-24">Valor (R$)</th>
+                          {/* O frete nao comissiona, entao a base aparece ao
+                              lado do valor: sem ela, valor x percentual nao
+                              fecha com a comissao impressa. */}
+                          <th className="py-1 text-right w-24">Base (R$)</th>
                           <th className="py-1 text-right w-20">Comis. (%)</th>
                           <th className="py-1 text-right w-24">Comissão (R$)</th>
                         </tr>
@@ -277,7 +152,9 @@ export default async function PrintVendasSetorPage({ searchParams }: PageProps) 
                             <td className="py-1 text-gray-500 font-medium text-center">{item.vendaId}</td>
                             <td className="py-1 truncate max-w-[200px]" title={item.cliente}>{item.cliente}</td>
                             <td className="py-1 text-gray-600">{item.dataVenda}</td>
+                            <td className="py-1 text-gray-600">{item.status}</td>
                             <td className="py-1 text-right font-medium text-gray-900">{fmtMoney(item.valorTotal)}</td>
+                            <td className="py-1 text-right text-gray-600">{fmtMoney(item.baseComissao)}</td>
                             <td className="py-1 text-right text-gray-600">
                               {item.percentualComissao.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}%
                             </td>

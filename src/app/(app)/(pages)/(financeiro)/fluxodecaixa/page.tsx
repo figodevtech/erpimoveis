@@ -10,6 +10,7 @@ import {
   Tipo_transacao,
   Transaction,
   type TransactionRelationFilters,
+  VIEW_MODE_TABS,
 } from "./types";
 import { KpisFluxo } from "./components/kpis-fluxo";
 import FinancialTable from "./components/financialTable";
@@ -51,6 +52,21 @@ export default function FinanceiroPage() {
     viewMode: FluxoViewMode;
     ordenacao: Ordenacao;
   } | null>(null);
+
+  /*
+   * `?view=A_PAGAR` abre a tela já na aba pedida.
+   *
+   * Os botões dos resumos diários do Telegram sempre mandaram esse parâmetro,
+   * e ninguém o lia: quem tocava em "Abrir contas a pagar" caía no fluxo geral
+   * e tinha de procurar a aba. Fica no efeito, e não no estado inicial, porque
+   * o componente também renderiza no servidor, onde não existe `window`.
+   */
+  useEffect(() => {
+    const view = new URLSearchParams(window.location.search).get("view");
+    if (VIEW_MODE_TABS.some((tab) => tab.value === view)) {
+      setViewMode(view as FluxoViewMode);
+    }
+  }, []);
 
   // Contas a pagar/receber se leem por vencimento: o que vence antes vem antes.
   // O extrato geral continua do lançamento mais novo para o mais antigo.

@@ -88,6 +88,24 @@ export type MinhaOrdem = {
   servicos: ItemOrdem[];
 };
 
+/**
+ * Totais da aba de vendas, sobre todo o período filtrado.
+ *
+ * As parcelas fecham: `produtos − descontos + frete = total`. Elas existem
+ * separadas porque a soma dos produtos vendidos não é o valor das vendas
+ * quando há frete ou desconto no meio.
+ */
+export type IndicadoresVendas = {
+  vendas: number;
+  /** Soma dos itens, antes de desconto e frete. */
+  produtos: number;
+  frete: number;
+  descontos: number;
+  /** `venda.valortotal` — o valor fechado da venda. */
+  total: number;
+  parcial: boolean;
+};
+
 /** Totais da aba de ordens, sobre todo o período filtrado. */
 export type IndicadoresOrdens = {
   ordens: number;
@@ -98,16 +116,33 @@ export type IndicadoresOrdens = {
   parcial: boolean;
 };
 
+/** Quem executou um servico, e o que coube a cada um. */
+export type RealizadorDoServico = {
+  usuarioId: string;
+  nome: string;
+  /** Fatia do valor do servico atribuida a esta pessoa. */
+  valorBase: number;
+  valorComissao: number;
+  euMesmo: boolean;
+};
+
 export type MeuServico = {
   ordemId: number;
   servicoId: number;
   descricao: string;
   subdescricao: string | null;
   codigo: string | null;
+  /** `servico.gera_comissao` do cadastro, como esta hoje. */
+  geraComissao: boolean;
   quantidade: number;
   valorUnitario: number;
   subtotal: number;
   observacao: string | null;
+  /** A fatia e a comissao desta pessoa, como gravadas. */
+  valorBase: number;
+  valorComissao: number;
+  /** Todos os executores do servico — mais de um significa trabalho dividido. */
+  realizadores: RealizadorDoServico[];
   ordem: {
     status: string | null;
     dataEntrada: string | null;
@@ -116,6 +151,23 @@ export type MeuServico = {
     cliente: RelacaoNomeada | null;
     setor: RelacaoNomeada | null;
   };
+};
+
+/**
+ * Totais da aba de servicos realizados, sobre todo o periodo filtrado.
+ *
+ * Os valores somam o subtotal cheio do servico — o mesmo numero que a coluna
+ * "Valor" da lista mostra —, entao o card e a tabela fecham igual. Servico
+ * dividido com outro realizador entra inteiro para os dois.
+ */
+export type IndicadoresServicos = {
+  servicos: number;
+  valorTotal: number;
+  /** Quanto desse valor vem de servicos marcados como "gera comissao". */
+  valorComComissao: number;
+  /** Comissao do usuario no periodo, somada do que esta gravado em cada vinculo. */
+  comissao: number;
+  parcial: boolean;
 };
 
 export type Paginado<T> = {

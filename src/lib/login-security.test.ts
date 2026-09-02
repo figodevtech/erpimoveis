@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildAppointmentRateLimitKeys,
   buildChecklistVerificationRateLimitKeys,
+  buildChecklistSigningRateLimitKeys,
   buildPublicApprovalRateLimitKeys,
   buildLoginRateLimitKeys,
   buildRecoveryRateLimitKeys,
@@ -63,6 +64,11 @@ test("separa as chaves de aprovacao publica das chaves de login", () => {
     assert.notDeepEqual(checklistKeys, approvalKeys);
     assert.match(checklistKeys[0], /^checklist-verification-token:[a-f0-9]{64}$/);
     assert.match(checklistKeys[1], /^checklist-verification-ip:[a-f0-9]{64}$/);
+
+    const signingKeys = buildChecklistSigningRateLimitKeys("convite-publico", request);
+    assert.notDeepEqual(signingKeys, checklistKeys);
+    assert.match(signingKeys[0], /^checklist-signing-invitation:[a-f0-9]{64}$/);
+    assert.match(signingKeys[1], /^checklist-signing-ip:[a-f0-9]{64}$/);
 
     const recoveryKeys = buildRecoveryRateLimitKeys("cliente@example.com", request);
     const appointmentKeys = buildAppointmentRateLimitKeys("12345678901", request);

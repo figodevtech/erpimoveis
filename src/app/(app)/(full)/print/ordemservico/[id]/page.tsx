@@ -21,6 +21,11 @@ import { fetchPrintColors } from "@/lib/print-config";
 import { getTermoAceiteOS, type AceiteAlvo } from "@/lib/print-aceite";
 import { loadPrintPaymentSummary } from "@/lib/print-payment-display-server";
 import { resolveOrdemVehicle } from "@/lib/ordens/vehicle-snapshot";
+import {
+  agruparItensHistoricos,
+  mapearItemHistorico,
+  type ItemHistoricoDetalhado,
+} from "@/lib/ordens/itens-historicos";
 
 export const runtime = "nodejs";
 
@@ -226,7 +231,8 @@ export default async function OSFullPage({ params }: PageProps) {
       criador:usuariocriadorid ( id, nome ),
       servicos:osservico (*, servico:servicoid (*)),
       produtos:osproduto (*, produto:produtoid (*)),
-      produtosAvulsos:osproduto_avulso (*)
+      produtosAvulsos:osproduto_avulso (*),
+      itensHistoricos:ositem_historico (*)
     `
     )
     .eq("id", osId)
@@ -251,12 +257,21 @@ export default async function OSFullPage({ params }: PageProps) {
     parcelasPagamento: os.parcelas_pagamento ?? null,
   });
 
+  const linhasHistoricas = (Array.isArray(os.itensHistoricos)
+    ? os.itensHistoricos
+    : []) as Record<string, unknown>[];
+  const itensHistoricos: ItemHistoricoDetalhado[] = linhasHistoricas
+    .map((item: Record<string, unknown>) => mapearItemHistorico(item))
+    .sort((a: ItemHistoricoDetalhado, b: ItemHistoricoDetalhado) => a.linhaOrigem - b.linhaOrigem);
+  const historicosAgrupados = agruparItensHistoricos<ItemHistoricoDetalhado>(itensHistoricos);
+
   const totalProdutos =
     (os.produtos?.reduce((acc: number, p: any) => acc + toNumber(p.subtotal), 0) || 0) +
-    (os.produtosAvulsos?.reduce((acc: number, p: any) => acc + toNumber(p.subtotal), 0) || 0);
+    (os.produtosAvulsos?.reduce((acc: number, p: any) => acc + toNumber(p.subtotal), 0) || 0) +
+    historicosAgrupados.totalProdutos;
   const totalServicos =
-    os.servicos?.reduce((acc: number, s: any) => acc + toNumber(s.subtotal), 0) ||
-    0;
+    (os.servicos?.reduce((acc: number, s: any) => acc + toNumber(s.subtotal), 0) || 0) +
+    historicosAgrupados.totalServicos;
   const subtotalOS = roundMoney(totalProdutos + totalServicos);
   const descontoGeralTipo = getTipoDesconto(os.desconto_tipo);
   const descontoGeralAplicado = calcularDescontoAplicado(
@@ -372,6 +387,17 @@ export default async function OSFullPage({ params }: PageProps) {
         subtotal: s.subtotal,
       };
     }),
+    ...historicosAgrupados.servicos.map((item) => ({
+      tipo: "SERVIÇO" as const,
+      descricao: item.descricao,
+      subdescricao: item.codigoLegado ? `Código ${item.codigoLegado}` : null,
+      qtd: item.quantidade,
+      unitario: item.precoUnitario,
+      descontoTipo: null,
+      desconto: 0,
+      descontoAplicado: 0,
+      subtotal: item.subtotal,
+    })),
     ...(os.produtos ?? []).map((p: any) => {
       const qtd = Number(p.quantidade ?? 1);
       const unitario = toNumber(p.precounitario);
@@ -413,6 +439,21 @@ export default async function OSFullPage({ params }: PageProps) {
         subtotal: p.subtotal,
       };
     }),
+    ...historicosAgrupados.produtos.map((item) => ({
+      tipo: "PEÇA" as const,
+      descricao: item.descricao,
+      produtoId: null,
+      etiqueta: null,
+      subdescricao: item.codigoLegado ? `Código ${item.codigoLegado}` : null,
+      avulso: false,
+      estoque: null,
+      qtd: item.quantidade,
+      unitario: item.precoUnitario,
+      descontoTipo: null,
+      desconto: 0,
+      descontoAplicado: 0,
+      subtotal: item.subtotal,
+    })),
   ];
 
   const metaOS = [

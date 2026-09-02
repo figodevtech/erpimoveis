@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { atualizarRegistroNFSe } from "@/lib/services/fiscais/nfse-registro";
+import { arquivarTentativaNFSe, atualizarRegistroNFSe } from "@/lib/services/fiscais/nfse-registro";
 import {
   NFSeService,
   criarReferenciaPorServicos,
@@ -31,16 +31,20 @@ const STATUS_ATIVOS = ["PROCESSANDO", "AUTORIZADA", "DENEGADA"];
  * problema é de dados, reenviar igual só repete a recusa -- corrija pelo
  * diálogo de emissão.
  *
- * Cada tentativa nasce como um registro novo. A rejeitada fica onde está, com
- * o payload e o retorno bruto dela, que é o material de diagnóstico; para
- * descartá-la existe o DELETE.
+ * A nota é a MESMA: o reenvio acontece na própria linha rejeitada, e não numa
+ * cópia. Rejeitada nunca virou documento na prefeitura -- fica sem número, sem
+ * protocolo e sem consumir RPS --, então não há nada de fiscal preso àquele
+ * registro, e trocar a referência dele basta. Antes disso a tentativa recusada
+ * vai inteira para `tentativas`, que é o material de diagnóstico.
  */
 export async function POST(_req: Request, { params }: RouteParams) {
-  let novoRegistroId: number | null = null;
+  let nfseId = 0;
+  /** Só depois da reserva a linha é nossa para marcar como rejeitada de novo. */
+  let reservado = false;
 
   try {
     const { id } = await params;
-    const nfseId = Number(String(id ?? "").trim());
+    nfseId = Number(String(id ?? "").trim());
 
     if (!Number.isInteger(nfseId) || nfseId <= 0) {
       return NextResponse.json({ ok: false, message: "NFS-e inválida." }, { status: 400 });
@@ -88,11 +92,14 @@ export async function POST(_req: Request, { params }: RouteParams) {
     }
 
     // Mesma trava da emissão normal: se algum serviço já entrou em outra nota
-    // viva, o reenvio duplicaria o documento.
+    // viva, o reenvio duplicaria o documento. A própria linha fica de fora --
+    // ela está rejeitada e não bateria com os status ativos, mas quem reenvia
+    // não pode depender disso para não colidir consigo mesma.
     const { data: notasAtivas, error: notasAtivasError } = await supabaseAdmin
       .from("nfse")
       .select("id, referencia, status")
       .eq("ordemservicoid", origem.ordemservicoid)
+      .neq("id", nfseId)
       .overlaps("servico_ids", servicoIds)
       .in("status", STATUS_ATIVOS)
       .limit(1);
@@ -130,32 +137,36 @@ export async function POST(_req: Request, { params }: RouteParams) {
     const referencia = criarReferenciaPorServicos(Number(origem.ordemservicoid), servicoIds);
     const ehNacional = origem.modelo_emissao === "NACIONAL";
 
-    const { data: registro, error: insertError } = await supabaseAdmin
-      .from("nfse")
-      .insert({
-        ordemservicoid: origem.ordemservicoid,
-        clienteid: origem.clienteid,
-        empresaid: origem.empresaid,
+    // A referência nova entra ANTES do envio: o webhook da Focus casa por ela e
+    // pode chegar antes de esta requisição terminar.
+    //
+    // `payload_enviado` e `retorno_bruto` não são zerados aqui de propósito. Se
+    // o envio estourar no meio do caminho, a linha continua com um envio
+    // gravado e portanto continua reenviável; o update do desfecho, logo
+    // abaixo, sobrescreve os dois com os da tentativa nova.
+    const agora = new Date().toISOString();
+    const reservaError = await atualizarRegistroNFSe(
+      nfseId,
+      {
         referencia,
         status: "PROCESSANDO",
         erros: null,
-        valor_total: origem.valor_total,
-        modelo_emissao: origem.modelo_emissao,
-        servico_ids: servicoIds,
-        itens: origem.itens,
-        informacoes_complementares: origem.informacoes_complementares,
-      })
-      .select("id")
-      .single();
+        // A Focus recalcula a data de emissão no envio: manter a da primeira
+        // tentativa faria a lista da OS mentir sobre quando o RPS saiu.
+        dataemissao: agora,
+        updatedat: agora,
+      },
+      { tentativas: arquivarTentativaNFSe(origem) },
+    );
 
-    if (insertError || !registro) {
-      console.error("[POST /api/nfse/reemitir] Erro ao reservar registro", insertError);
+    if (reservaError) {
+      console.error("[POST /api/nfse/reemitir] Erro ao reservar a nota", reservaError);
       return NextResponse.json(
-        { ok: false, message: "Não foi possível preparar o registro da NFS-e. Nada foi enviado à Focus." },
+        { ok: false, message: "Não foi possível preparar o reenvio da NFS-e. Nada foi enviado à Focus." },
         { status: 500 },
       );
     }
-    novoRegistroId = Number(registro.id);
+    reservado = true;
 
     const parametros = prepararReenvioNFSe(
       origem.payload_enviado as Record<string, unknown>,
@@ -171,8 +182,12 @@ export async function POST(_req: Request, { params }: RouteParams) {
     const statusFinal = resultado.ok ? normalizarStatusNFSe(resultado.status) : "REJEITADA";
 
     const updateError = await atualizarRegistroNFSe(
-      novoRegistroId,
-      { status: statusFinal, erros: resultado.ok ? null : resultado.erros },
+      nfseId,
+      {
+        status: statusFinal,
+        erros: resultado.ok ? null : resultado.erros,
+        updatedat: new Date().toISOString(),
+      },
       { payload_enviado: resultado.payload, retorno_bruto: resultado.retornoBruto },
     );
 
@@ -196,15 +211,21 @@ export async function POST(_req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json(
-      { ok: true, message: "NFS-e reenviada para processamento.", referencia, nfseId: novoRegistroId },
+      { ok: true, message: "NFS-e reenviada para processamento.", referencia, nfseId },
       { status: 202 },
     );
   } catch (error: unknown) {
     console.error("[POST /api/nfse/reemitir] Exception", error);
 
-    if (novoRegistroId) {
+    // A nota ficou em PROCESSANDO esperando um envio que estourou: devolvê-la
+    // para rejeitada é o que reabre o botão de reenvio.
+    if (reservado) {
       const message = error instanceof Error ? error.message : "Erro inesperado ao reenviar a NFS-e.";
-      await atualizarRegistroNFSe(novoRegistroId, { status: "REJEITADA", erros: [{ mensagem: message }] });
+      await atualizarRegistroNFSe(nfseId, {
+        status: "REJEITADA",
+        erros: [{ mensagem: message }],
+        updatedat: new Date().toISOString(),
+      });
     }
 
     return NextResponse.json({ ok: false, message: "Erro inesperado ao reenviar a NFS-e." }, { status: 500 });

@@ -11,6 +11,7 @@ import { syncPendingMercadoLivreStock } from "@/lib/integrations/mercadolivre-st
 import { buscarModoBaixaEstoqueOS } from "@/lib/ordens/estoque-os";
 import { normalizarDadosParaFinanceiro } from "@/lib/financeiro/dados-para-financeiro";
 import type { PlannedPayment } from "@/lib/payment-methods";
+import { applyMarketplaceBuyerNames } from "@/lib/vendas/marketplace-buyer-names";
 
 type Status =
   | "ORCAMENTO"
@@ -161,49 +162,6 @@ const VENDA_SELECT = `
     )
   )
 `;
-
-async function applyMarketplaceBuyerNames(vendas: any[]) {
-  const vendaIds = vendas
-    .filter((venda) => String(venda?.canal ?? "").toUpperCase() === "MERCADO_LIVRE")
-    .map((venda) => Number(venda.id))
-    .filter(Number.isFinite);
-
-  if (vendaIds.length === 0) return vendas;
-
-  const { data, error } = await supabaseAdmin
-    .from("mercadolivre_order")
-    .select("venda_id, buyer_id, raw_order")
-    .in("venda_id", vendaIds);
-
-  if (error) throw error;
-
-  const buyerNameByVenda = new Map<number, string>();
-  for (const order of data ?? []) {
-    const vendaId = Number((order as any).venda_id);
-    const buyerName = formatMercadoLivreBuyerName((order as any).raw_order, (order as any).buyer_id);
-    if (Number.isFinite(vendaId) && buyerName) buyerNameByVenda.set(vendaId, buyerName);
-  }
-
-  for (const venda of vendas) {
-    const buyerName = buyerNameByVenda.get(Number(venda.id));
-    if (!buyerName) continue;
-    venda.cliente = {
-      ...(venda.cliente ?? {}),
-      nomerazaosocial: buyerName,
-    };
-  }
-
-  return vendas;
-}
-
-function formatMercadoLivreBuyerName(rawOrder: any, buyerId?: number | null) {
-  const buyer = rawOrder?.buyer ?? {};
-  const fullName = [buyer.first_name, buyer.last_name].map((value) => String(value ?? "").trim()).filter(Boolean).join(" ");
-  if (fullName) return fullName;
-  if (buyer.nickname) return String(buyer.nickname).trim();
-  const id = buyer.id ?? buyerId;
-  return id ? `Comprador Mercado Livre #${id}` : "";
-}
 
 /* ========================= GET ========================= */
 /**

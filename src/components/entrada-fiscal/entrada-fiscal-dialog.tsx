@@ -225,6 +225,9 @@ export function EntradaFiscalDialog({
   const [grupos, setGrupos] = useState<UsoConsumoGrupo[]>([]);
 
   const [entradaPersonalizada, setEntradaPersonalizada] = useState(false);
+  const [linhasNormaisPersonalizacao, setLinhasNormaisPersonalizacao] = useState<
+    number[]
+  >([]);
   const [destinoPersonalizado, setDestinoPersonalizado] =
     useState<DestinoEntrada>();
   const [produtoPersonalizado, setProdutoPersonalizado] =
@@ -280,6 +283,28 @@ export function EntradaFiscalDialog({
     () => parsed?.itens.filter((linha) => !linha.destinoApropriado) ?? [],
     [parsed],
   );
+  const numerosNormaisPersonalizacao = useMemo(
+    () => new Set(linhasNormaisPersonalizacao),
+    [linhasNormaisPersonalizacao],
+  );
+  const linhasNormais = useMemo(
+    () =>
+      entradaPersonalizada
+        ? linhasDisponiveis.filter((linha) =>
+            numerosNormaisPersonalizacao.has(Number(linha.numeroItem)),
+          )
+        : linhasDisponiveis,
+    [entradaPersonalizada, linhasDisponiveis, numerosNormaisPersonalizacao],
+  );
+  const linhasPersonalizadas = useMemo(
+    () =>
+      entradaPersonalizada
+        ? linhasDisponiveis.filter(
+            (linha) => !numerosNormaisPersonalizacao.has(Number(linha.numeroItem)),
+          )
+        : [],
+    [entradaPersonalizada, linhasDisponiveis, numerosNormaisPersonalizacao],
+  );
   /*
    * Custo de estoque das linhas: a regra do ERP, que soma o que veio NA linha.
    * É o que vai para `entradaitens` e para o preço de compra do produto — e NÃO
@@ -294,15 +319,31 @@ export function EntradaFiscalDialog({
       ),
     [linhasDisponiveis],
   );
+  const custoNormal = useMemo(
+    () =>
+      Number(
+        linhasNormais.reduce((soma, linha) => soma + totalDaLinha(linha), 0).toFixed(2),
+      ),
+    [linhasNormais],
+  );
+  const custoPersonalizado = useMemo(
+    () =>
+      Number(
+        linhasPersonalizadas
+          .reduce((soma, linha) => soma + totalDaLinha(linha), 0)
+          .toFixed(2),
+      ),
+    [linhasPersonalizadas],
+  );
   const linhasEstoque = useMemo(
-    () => linhasDisponiveis.filter((linha) => linha.destino === "ESTOQUE"),
-    [linhasDisponiveis],
+    () => linhasNormais.filter((linha) => linha.destino === "ESTOQUE"),
+    [linhasNormais],
   );
   // As duas metades simples vao para a MESMA entrada: elas dividem a tabela, e uma
   // NF-e nao pode virar duas entradas (a chave e unica globalmente).
   const linhasUsoConsumo = useMemo(
-    () => linhasDisponiveis.filter((linha) => ehEstoqueSimples(linha.destino)),
-    [linhasDisponiveis],
+    () => linhasNormais.filter((linha) => ehEstoqueSimples(linha.destino)),
+    [linhasNormais],
   );
   /** Escopo do cabecalho da entrada: um so estoque, ou MISTO quando ha os dois. */
   const escopoDaEntrada = useMemo(
@@ -515,8 +556,8 @@ export function EntradaFiscalDialog({
     [duplicatas],
   );
 
-  const semDestino = linhasDisponiveis.some((linha) => !linha.destino);
-  const semVinculo = linhasDisponiveis.some((linha) => !linhaVinculada(linha));
+  const semDestino = linhasNormais.some((linha) => !linha.destino);
+  const semVinculo = linhasNormais.some((linha) => !linhaVinculada(linha));
   const notaDividida = linhasEstoque.length > 0 && linhasUsoConsumo.length > 0;
   const temApropriacaoAnterior =
     parsed?.itens.some((linha) => Boolean(linha.destinoApropriado)) ?? false;
@@ -529,23 +570,34 @@ export function EntradaFiscalDialog({
     destinoPersonalizado === "ESTOQUE"
       ? produtoPersonalizado?.titulo ?? produtoPersonalizado?.descricao
       : itemPersonalizado?.titulo;
+  const temLinhasNormais = linhasNormais.length > 0;
+  const temLinhasPersonalizadas = linhasPersonalizadas.length > 0;
+  const entradaHibrida =
+    entradaPersonalizada && temLinhasNormais && temLinhasPersonalizadas;
+  const entradaIntegralPersonalizada =
+    entradaPersonalizada && !temLinhasNormais && temLinhasPersonalizadas;
+  const personalizadaEmEstoqueSimples =
+    entradaPersonalizada &&
+    temLinhasPersonalizadas &&
+    ehEstoqueSimples(destinoPersonalizado);
   const rateioPersonalizado = useMemo(() => {
     try {
       return ratearCustoPersonalizado(
-        custoDestinado,
+        custoPersonalizado,
         quantidadePersonalizadaNumero,
       );
     } catch {
       return null;
     }
-  }, [custoDestinado, quantidadePersonalizadaNumero]);
+  }, [custoPersonalizado, quantidadePersonalizadaNumero]);
   const personalizadaValida =
-    Boolean(parsed?.documentoFiscalRecebidoId) &&
-    Boolean(destinoPersonalizado) &&
-    destinosPermitidos.includes(destinoPersonalizado as DestinoEntrada) &&
-    Boolean(itemPersonalizadoId) &&
-    Boolean(rateioPersonalizado) &&
-    !temApropriacaoAnterior;
+    !temLinhasPersonalizadas ||
+    (Boolean(parsed?.documentoFiscalRecebidoId) &&
+      Boolean(destinoPersonalizado) &&
+      destinosPermitidos.includes(destinoPersonalizado as DestinoEntrada) &&
+      Boolean(itemPersonalizadoId) &&
+      Boolean(rateioPersonalizado) &&
+      !temApropriacaoAnterior);
 
   const ocupado =
     carregandoNota ||
@@ -573,6 +625,7 @@ export function EntradaFiscalDialog({
     setItemEmEdicao(null);
     setItemValoresIniciais(undefined);
     setEntradaPersonalizada(false);
+    setLinhasNormaisPersonalizacao([]);
     setDestinoPersonalizado(undefined);
     setProdutoPersonalizado(undefined);
     setItemPersonalizado(undefined);
@@ -616,6 +669,7 @@ export function EntradaFiscalDialog({
       setParcelas([]);
       duplicatasAplicadasRef.current = null;
       setEntradaPersonalizada(false);
+      setLinhasNormaisPersonalizacao([]);
       setDestinoPersonalizado(undefined);
       setProdutoPersonalizado(undefined);
       setItemPersonalizado(undefined);
@@ -636,6 +690,11 @@ export function EntradaFiscalDialog({
       fornecedorReferenteId: undefined,
       itens: nota.itens.map((item) => ({ ...item })),
     });
+    setLinhasNormaisPersonalizacao(
+      nota.itens
+        .map((item) => Number(item.numeroItem))
+        .filter((numero) => Number.isInteger(numero) && numero > 0),
+    );
   }, []);
 
   // Pre-carga de uma NF-e ja recebida.
@@ -855,6 +914,15 @@ export function EntradaFiscalDialog({
     );
   }
 
+  function definirLinhaComoNormal(numeroItem: number, normal: boolean) {
+    setLinhasNormaisPersonalizacao((atuais) => {
+      if (normal) {
+        return atuais.includes(numeroItem) ? atuais : [...atuais, numeroItem];
+      }
+      return atuais.filter((numero) => numero !== numeroItem);
+    });
+  }
+
   /**
    * A busca do vínculo só faz sentido depois do destino escolhido: cada destino tem
    * o seu próprio catálogo e o seu próprio endpoint de procura.
@@ -1065,7 +1133,7 @@ export function EntradaFiscalDialog({
       );
     if (!linhasDisponiveis.length)
       return toast.error("Todos os itens desta nota já foram destinados.");
-    if (entradaPersonalizada) {
+    if (entradaPersonalizada && temLinhasPersonalizadas) {
       if (temApropriacaoAnterior)
         return toast.error(
           "A entrada personalizada exige que nenhum item da NF-e tenha sido destinado.",
@@ -1078,7 +1146,8 @@ export function EntradaFiscalDialog({
         return toast.error("Selecione o item que receberá a entrada personalizada.");
       if (!rateioPersonalizado)
         return toast.error("Informe uma quantidade inteira maior que zero.");
-    } else {
+    }
+    if (temLinhasNormais) {
       if (semDestino)
         return toast.error(
           "Escolha o destino de todos os itens: estoque de revenda ou uso e consumo.",
@@ -1086,8 +1155,6 @@ export function EntradaFiscalDialog({
       if (semVinculo)
         return toast.error("Vincule todos os itens ao seu respectivo cadastro.");
     }
-    const personalizadaEmEstoqueSimples =
-      entradaPersonalizada && ehEstoqueSimples(destinoPersonalizado);
     if (
       (linhasUsoConsumo.length || personalizadaEmEstoqueSimples) &&
       duplicidades.length
@@ -1136,6 +1203,21 @@ export function EntradaFiscalDialog({
     }
 
     const financeiro = montarFinanceiro();
+    const financeiroEstrito = pagamentoFuturo
+      ? {
+          parcelas: parcelas.map((parcela) => ({
+            valor: parcela.valor,
+            dataVencimento: parcela.dataVencimento,
+          })),
+          categoria,
+          categoriaId:
+            categorias.find((item) => item.nome === categoria)?.id ?? null,
+          bancoId: bancoId ? Number(bancoId) : null,
+          metodoPagamento: metodo || null,
+          planoContaId: planoId ? Number(planoId) : null,
+          centroCustoId: centroCustoId ? Number(centroCustoId) : null,
+        }
+      : null;
     const comum = {
       fornecedorId: parsed.fornecedorReferenteId,
       numeroNota: parsed.numeroNota ?? null,
@@ -1151,28 +1233,33 @@ export function EntradaFiscalDialog({
 
     setSubmitting(true);
     try {
-      if (entradaPersonalizada) {
+      if (entradaHibrida) {
+        await axios.post("/api/entradas/fiscal/hibrida", {
+          documentoFiscalRecebidoId: parsed.documentoFiscalRecebidoId,
+          fornecedorId: parsed.fornecedorReferenteId,
+          itensNormais: linhasNormais.map((linha) => ({
+            numeroItem: Number(linha.numeroItem),
+            destino: linha.destino!,
+            itemReferenciaId:
+              linha.destino === "ESTOQUE"
+                ? linha.produtoReferenciaId!
+                : linha.itemReferenciaId!,
+          })),
+          personalizado: {
+            destino: destinoPersonalizado!,
+            itemReferenciaId: itemPersonalizadoId!,
+            quantidade: quantidadePersonalizadaNumero,
+          },
+          financeiro: financeiroEstrito,
+        });
+      } else if (entradaIntegralPersonalizada) {
         await axios.post("/api/entradas/fiscal/personalizada", {
           documentoFiscalRecebidoId: parsed.documentoFiscalRecebidoId,
           fornecedorId: parsed.fornecedorReferenteId,
           destino: destinoPersonalizado,
           itemReferenciaId: itemPersonalizadoId,
           quantidade: quantidadePersonalizadaNumero,
-          financeiro: pagamentoFuturo
-            ? {
-                parcelas: parcelas.map((parcela) => ({
-                  valor: parcela.valor,
-                  dataVencimento: parcela.dataVencimento,
-                })),
-                categoria,
-                categoriaId:
-                  categorias.find((item) => item.nome === categoria)?.id ?? null,
-                bancoId: bancoId ? Number(bancoId) : null,
-                metodoPagamento: metodo || null,
-                planoContaId: planoId ? Number(planoId) : null,
-                centroCustoId: centroCustoId ? Number(centroCustoId) : null,
-              }
-            : null,
+          financeiro: financeiroEstrito,
         });
       } else if (notaDividida) {
         await axios.post("/api/entradas/fiscal/mista", {
@@ -1255,7 +1342,8 @@ export function EntradaFiscalDialog({
     !ocupado &&
     !submitting &&
     linhasDisponiveis.length > 0 &&
-    (entradaPersonalizada ? personalizadaValida : !semDestino && !semVinculo);
+    personalizadaValida &&
+    (!temLinhasNormais || (!semDestino && !semVinculo));
 
   return (
     <>
@@ -1290,7 +1378,7 @@ export function EntradaFiscalDialog({
               <DialogTitle>Entrada por Nota Fiscal</DialogTitle>
               <DialogDescription className="text-xs leading-relaxed">
                 {entradaPersonalizada
-                  ? "Todos os itens da nota serão consolidados em um único item de estoque."
+                  ? "Escolha quais itens entram normalmente; os demais serão consolidados."
                   : "Cada item da nota recebe seu destino e vínculo no estoque."}
               </DialogDescription>
             </DialogHeader>
@@ -1337,7 +1425,7 @@ export function EntradaFiscalDialog({
                       <div className="space-y-1">
                         <CardTitle className="text-base">Entrada personalizada</CardTitle>
                         <CardDescription className="text-xs leading-relaxed">
-                          Consolida todos os itens da NF-e em um único item de estoque.
+                          Consolida em um único item apenas as linhas desmarcadas abaixo.
                         </CardDescription>
                       </div>
                       <Switch
@@ -1370,12 +1458,14 @@ export function EntradaFiscalDialog({
                       <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-100/70 p-3 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
                         <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
                         <p>
-                          As {parsed.itens.length} linhas originais serão apropriadas
-                          por esta entrada. A quantidade final não precisa coincidir
-                          com as quantidades informadas pelo fornecedor.
+                          {temLinhasPersonalizadas
+                            ? `${linhasPersonalizadas.length} de ${linhasDisponiveis.length} linhas serão consolidadas. A quantidade final não precisa coincidir com as quantidades do fornecedor.`
+                            : "Todas as linhas estão marcadas para entrada normal. Desmarque ao menos uma linha para formar a entrada personalizada."}
                         </p>
                       </div>
 
+                      {temLinhasPersonalizadas ? (
+                        <>
                       <div className="space-y-2">
                         <Label>Estoque de destino</Label>
                         <div className="grid gap-2 sm:grid-cols-3">
@@ -1498,12 +1588,20 @@ export function EntradaFiscalDialog({
                           </div>
                         </div>
                       ) : null}
+                        </>
+                      ) : null}
 
-                      <div className="grid gap-3 rounded-lg border bg-background p-3 text-xs sm:grid-cols-3">
+                      <div className="grid gap-3 rounded-lg border bg-background p-3 text-xs sm:grid-cols-2 lg:grid-cols-5">
+                        <div>
+                          <p className="text-muted-foreground">Custo normal</p>
+                          <p className="mt-1 font-semibold tabular-nums">
+                            {formatarEmReal(custoNormal)}
+                          </p>
+                        </div>
                         <div>
                           <p className="text-muted-foreground">Custo consolidado</p>
                           <p className="mt-1 font-semibold tabular-nums">
-                            {formatarEmReal(custoDestinado)}
+                            {formatarEmReal(custoPersonalizado)}
                           </p>
                         </div>
                         <div>
@@ -1512,6 +1610,12 @@ export function EntradaFiscalDialog({
                             {rateioPersonalizado
                               ? formatarEmReal(rateioPersonalizado.custoUnitario)
                               : "—"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Custo total de estoque</p>
+                          <p className="mt-1 font-semibold tabular-nums">
+                            {formatarEmReal(custoDestinado)}
                           </p>
                         </div>
                         <div>
@@ -1742,8 +1846,16 @@ export function EntradaFiscalDialog({
                           </span>
                         </span>
                       ) : null}
+                      {linhasPersonalizadas.length ? (
+                        <span>
+                          Personalizados: {" "}
+                          <span className="font-semibold">
+                            {linhasPersonalizadas.length}
+                          </span>
+                        </span>
+                      ) : null}
                     </div>
-                    {semDestino && !entradaPersonalizada ? (
+                    {semDestino ? (
                       <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
                         <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
                         Escolha o destino de cada item para liberar o registro.
@@ -1895,8 +2007,7 @@ export function EntradaFiscalDialog({
                         </div>
                       </div>
                     ) : null}
-                    {(linhasUsoConsumo.length ||
-                      (entradaPersonalizada && ehEstoqueSimples(destinoPersonalizado))) &&
+                    {(linhasUsoConsumo.length || personalizadaEmEstoqueSimples) &&
                     duplicidades.length ? (
                       <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
                         <FileWarning className="mt-0.5 h-4 w-4 shrink-0" />
@@ -1920,6 +2031,10 @@ export function EntradaFiscalDialog({
                   {parsed.itens.map((linha, indice) => {
                     const vinculando = vinculandoIndices.includes(indice);
                     const bloqueado = Boolean(linha.destinoApropriado);
+                    const numeroItem = Number(linha.numeroItem);
+                    const entradaNormal =
+                      !entradaPersonalizada ||
+                      numerosNormaisPersonalizacao.has(numeroItem);
                     return (
                       <div
                         key={`${linha.numeroItem}-${linha.codigo}`}
@@ -1941,6 +2056,20 @@ export function EntradaFiscalDialog({
                                   </Badge>
                                 ) : null}
                               </div>
+                              {entradaPersonalizada && !bloqueado ? (
+                                <label className="flex min-h-10 cursor-pointer items-center gap-2 rounded-md border bg-background px-3 py-1.5">
+                                  <Switch
+                                    checked={entradaNormal}
+                                    onCheckedChange={(marcado) =>
+                                      definirLinhaComoNormal(numeroItem, marcado)
+                                    }
+                                    aria-label={`Dar entrada normalmente no item ${linha.numeroItem}`}
+                                  />
+                                  <span className="whitespace-nowrap text-[11px] font-medium">
+                                    Dar entrada normalmente
+                                  </span>
+                                </label>
+                              ) : null}
                               <p className="shrink-0 rounded-md bg-muted px-2 py-1 font-bold sm:bg-transparent sm:p-0">
                                 Total: {formatarEmReal(totalDaLinha(linha))}
                               </p>
@@ -2011,7 +2140,7 @@ export function EntradaFiscalDialog({
                             </p>
                           </div>
 
-                          {entradaPersonalizada ? (
+                          {entradaPersonalizada && !entradaNormal ? (
                             <>
                               <Separator />
                               <div className="flex items-start gap-2 rounded-md bg-amber-50 p-3 text-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
@@ -2020,7 +2149,7 @@ export function EntradaFiscalDialog({
                                   <p className="font-semibold">Item original da NF-e</p>
                                   <p className="mt-0.5 text-[11px] leading-relaxed">
                                     Esta linha será preservada na auditoria e
-                                    consolidada no item escolhido acima.
+                                    consolidada no item personalizado escolhido acima.
                                   </p>
                                 </div>
                               </div>

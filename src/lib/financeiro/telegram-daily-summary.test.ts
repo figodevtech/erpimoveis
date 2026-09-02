@@ -45,6 +45,56 @@ test("dados financeiros são escapados antes de enviar HTML ao Telegram", () => 
   assert.match(message, /A &amp; B/);
 });
 
+test("despesa chama a contraparte de recebedor e receita, de pagador", () => {
+  const [despesa] = buildFinancialSummaryMessages("2026-08-12", [transaction()]);
+  assert.match(despesa, /Recebedor: Distribuidora ABC/);
+  const [receita] = buildFinancialSummaryMessages("2026-08-12", [transaction({ tipo: "RECEITA" })]);
+  assert.match(receita, /Pagador: Distribuidora ABC/);
+});
+
+test("lançamento sem fornecedor cadastrado usa o nome avulso com o documento", () => {
+  const [message] = buildFinancialSummaryMessages("2026-08-12", [
+    transaction({ fornecedor: null, nomepagador: "FORTGIRO", cpfcnpjpagador: "12345678000199" }),
+  ]);
+  assert.match(message, /Recebedor: FORTGIRO · 12\.345\.678\/0001-99/);
+  assert.doesNotMatch(message, /Não informado/);
+});
+
+test("nome avulso sem documento aparece sozinho", () => {
+  const [message] = buildFinancialSummaryMessages("2026-08-12", [
+    transaction({ fornecedor: null, nomepagador: "Aluguel do galpão", cpfcnpjpagador: null }),
+  ]);
+  assert.match(message, /Recebedor: Aluguel do galpão/);
+});
+
+test("sem fornecedor e sem nome avulso a conta segue sem dono", () => {
+  const [message] = buildFinancialSummaryMessages("2026-08-12", [
+    transaction({ fornecedor: null, nomepagador: "   " }),
+  ]);
+  assert.match(message, /Recebedor: Não informado/);
+});
+
+test("resumo de contas a receber usa o próprio título e chama as vencidas pelo nome", () => {
+  const [message] = buildFinancialSummaryMessages("2026-08-12", [
+    transaction({ tipo: "RECEITA", data: "2026-08-11T12:00:00.000Z", valor: 877.07 }),
+  ], "A_RECEBER");
+  assert.match(message, /Contas a receber — 12\/08\/2026/);
+  assert.match(message, /🔴 Vencidas: <b>1<\/b>/);
+  assert.match(message, /877,07/);
+  assert.match(message, /<b>VENCIDAS<\/b>/);
+  assert.match(message, /Pagador: Distribuidora ABC/);
+  assert.doesNotMatch(message, /ATRASADAS/);
+});
+
+test("resumo de contas a pagar segue com o título e as palavras de sempre", () => {
+  const [message] = buildFinancialSummaryMessages("2026-08-12", [
+    transaction({ data: "2026-08-11T12:00:00.000Z" }),
+  ]);
+  assert.match(message, /Contas a pagar — 12\/08\/2026/);
+  assert.match(message, /🔴 Atrasadas: <b>1<\/b>/);
+  assert.match(message, /<b>ATRASADAS<\/b>/);
+});
+
 test("lista grande é dividida respeitando o limite do Telegram", () => {
   const transactions = Array.from({ length: 90 }, (_, index) => transaction({
     id: index + 1,

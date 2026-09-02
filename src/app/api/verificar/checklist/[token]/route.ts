@@ -23,7 +23,7 @@ export async function GET(_request: Request, context: { params: Promise<{ token:
   if (!result.data) return NextResponse.json({ error: "Documento não encontrado." }, { status: 404 });
   const row = result.data as any;
   const [signature, file, newer] = await Promise.all([
-    supabaseAdmin.from("checklist_documento_assinatura").select("assinado_em").eq("documento_id", row.id).maybeSingle(),
+    supabaseAdmin.from("checklist_documento_assinatura").select("assinado_em,metodo").eq("documento_id", row.id).maybeSingle(),
     supabaseAdmin.from("checklist_documento_arquivo").select("pdf_hash").eq("documento_id", row.id).maybeSingle(),
     supabaseAdmin
       .from("checklist_documento")
@@ -48,6 +48,7 @@ export async function GET(_request: Request, context: { params: Promise<{ token:
     codigo: String(row.codigo),
     criadoEm: String(row.criado_em),
     assinadoEm: signature.data?.assinado_em ?? null,
+    metodoAssinatura: signature.data?.metodo ?? null,
     snapshotHash: String(row.snapshot_hash),
     conteudoHash: String(row.conteudo_hash),
     pdfHash: file.data?.pdf_hash ?? null,

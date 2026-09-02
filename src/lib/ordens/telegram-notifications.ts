@@ -155,12 +155,23 @@ async function getMessageData(delivery: Delivery) {
   return { event, order, actorName };
 }
 
+/**
+ * O que está sendo consertado, com o rótulo do próprio tipo.
+ *
+ * Chamar tudo de "Alvo" é vocabulário de banco de dados: quem lê no celular
+ * espera "Veículo", "Peça" ou "Equipamento". O tipo é deduzido do vínculo que
+ * existe, e não de `alvo_tipo`, que é nulo nas OS antigas.
+ */
 function orderTarget(order: Record<string, unknown>) {
   const vehicle = relationOne(order.veiculo as Record<string, unknown> | Record<string, unknown>[] | null);
-  if (vehicle) return `${vehicle.placa ?? "Sem placa"} — ${[vehicle.marca, vehicle.modelo].filter(Boolean).join(" ")}`;
+  if (vehicle) {
+    const description = [vehicle.marca, vehicle.modelo].filter(Boolean).join(" ");
+    const plate = String(vehicle.placa ?? "Sem placa");
+    return { label: "Veículo", value: description ? `${plate} — ${description}` : plate };
+  }
   const part = relationOne(order.peca as Record<string, unknown> | Record<string, unknown>[] | null);
-  if (part) return String(part.titulo ?? "Peça");
-  return String(order.equipamento_nome ?? "Equipamento");
+  if (part) return { label: "Peça", value: String(part.titulo ?? "Não informada") };
+  return { label: "Equipamento", value: String(order.equipamento_nome ?? "Não informado") };
 }
 
 function buildMessage(data: Awaited<ReturnType<typeof getMessageData>>) {
@@ -168,12 +179,13 @@ function buildMessage(data: Awaited<ReturnType<typeof getMessageData>>) {
   const client = relationOne(order.cliente as { nomerazaosocial?: string } | Array<{ nomerazaosocial?: string }> | null);
   const sector = relationOne(order.setor as { nome?: string } | Array<{ nome?: string }> | null);
   const creator = relationOne(order.criador as { nome?: string } | Array<{ nome?: string }> | null);
+  const target = orderTarget(order as Record<string, unknown>);
   const lines = event.tipo === "CRIADA"
     ? [
         `🔧 <b>Nova ordem de serviço #${order.id}</b>`,
         "",
         `<b>Cliente:</b> ${escapeTelegramHtml(client?.nomerazaosocial ?? "Não informado")}`,
-        `<b>Alvo:</b> ${escapeTelegramHtml(orderTarget(order as Record<string, unknown>))}`,
+        `<b>${target.label}:</b> ${escapeTelegramHtml(target.value)}`,
         `<b>Setor:</b> ${escapeTelegramHtml(sector?.nome ?? "Não informado")}`,
         `<b>Prioridade:</b> ${escapeTelegramHtml(order.prioridade ?? "Normal")}`,
         `<b>Criada por:</b> ${escapeTelegramHtml(creator?.nome ?? actorName ?? "Sistema")}`,
@@ -183,7 +195,7 @@ function buildMessage(data: Awaited<ReturnType<typeof getMessageData>>) {
         `🔄 <b>OS #${order.id} atualizada</b>`,
         "",
         `<b>Cliente:</b> ${escapeTelegramHtml(client?.nomerazaosocial ?? "Não informado")}`,
-        `<b>Alvo:</b> ${escapeTelegramHtml(orderTarget(order as Record<string, unknown>))}`,
+        `<b>${target.label}:</b> ${escapeTelegramHtml(target.value)}`,
         `<b>De:</b> ${escapeTelegramHtml(STATUS_LABELS[event.status_anterior ?? ""] ?? event.status_anterior ?? "—")}`,
         `<b>Para:</b> ${escapeTelegramHtml(STATUS_LABELS[event.status_novo] ?? event.status_novo)}`,
         `<b>Alterada por:</b> ${escapeTelegramHtml(actorName ?? "Sistema")}`,

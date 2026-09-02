@@ -11,13 +11,14 @@ export type Insights = {
   totalBudget: number;
   avgTicketAll: number;
   avgCompletionHours: number;
-  p50CompletionHours: number;
-  p90CompletionHours: number;
   ordersToday: number;
   ordersTodayCompleted: number;
   revenueToday: number;
-  revenue30d: number;
+  revenueCompleted: number;
   countsByStatus: Record<string, number>;
+  countsByStatusGeral: Record<string, number>;
+  ordersOpenGeral: number;
+  inProgressGeral: number;
   countsByApproval: Record<string, number>;
   countsByPriority: Record<string, number>;
   monthlyNew: { month: string; count: number }[];
@@ -30,4 +31,5 @@ export type Insights = {
     usuarioEmail: string;
     totalServicos: number;
   }[];
+  servicesWithoutRealizador: number;
 };

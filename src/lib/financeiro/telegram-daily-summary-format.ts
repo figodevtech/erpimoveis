@@ -19,6 +19,13 @@ export type FinancialTransaction = {
   ordemservicoid: number | null;
   vendaid: number | null;
   fornecedor: { nomerazaosocial?: string | null; nomefantasia?: string | null } | Array<{ nomerazaosocial?: string | null; nomefantasia?: string | null }> | null;
+  /**
+   * Contraparte em texto livre. Cliente e fornecedor cadastrados alimentam
+   * estes campos, e o lançamento avulso — aquele que nunca teve cadastro —
+   * só tem eles.
+   */
+  nomepagador?: string | null;
+  cpfcnpjpagador?: string | null;
 };
 
 function relationOne<T>(value: T | T[] | null | undefined): T | null {
@@ -74,9 +81,39 @@ export function financialTransactionValue(transaction: FinancialTransaction) {
   return saldoEmAberto(transaction);
 }
 
-function transactionBlock(transaction: FinancialTransaction) {
+function formatDocument(value: string | null | undefined) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  if (digits.length === 14) return digits.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
+  if (digits.length === 11) return digits.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, "$1.$2.$3-$4");
+  return null;
+}
+
+/**
+ * Quem está do outro lado do título.
+ *
+ * Numa despesa é quem recebe o dinheiro; numa receita, quem paga. O fornecedor
+ * cadastrado responde primeiro; sem ele, vale o nome avulso do lançamento, que
+ * é o único que existe em aluguel, serviço terceirizado e afins. Só quando não
+ * há nenhum dos dois é que a conta aparece sem dono.
+ *
+ * O documento acompanha apenas o avulso: fornecedor cadastrado já é
+ * identificável pelo nome, e nome parecido sem documento é justamente o que não
+ * dá para diferenciar.
+ */
+function counterparty(transaction: FinancialTransaction) {
+  const label = String(transaction.tipo ?? "").toUpperCase() === "RECEITA" ? "Pagador" : "Recebedor";
   const supplier = relationOne(transaction.fornecedor);
-  const supplierName = supplier?.nomefantasia || supplier?.nomerazaosocial || "Não informado";
+  const registeredName = supplier?.nomefantasia || supplier?.nomerazaosocial;
+  if (registeredName) return { label, value: registeredName };
+
+  const freeName = String(transaction.nomepagador ?? "").trim();
+  if (!freeName) return { label, value: "Não informado" };
+  const document = formatDocument(transaction.cpfcnpjpagador);
+  return { label, value: document ? `${freeName} · ${document}` : freeName };
+}
+
+function transactionBlock(transaction: FinancialTransaction) {
+  const { label: counterpartyLabel, value: counterpartyName } = counterparty(transaction);
   const reference = transaction.ordemservicoid
     ? `OS #${transaction.ordemservicoid}`
     : transaction.vendaid
@@ -84,7 +121,7 @@ function transactionBlock(transaction: FinancialTransaction) {
       : `Lançamento #${transaction.id}`;
   return [
     `• <b>${escapeTelegramHtml(transaction.descricao || `Conta #${transaction.id}`)}</b>`,
-    `  Fornecedor: ${escapeTelegramHtml(supplierName)}`,
+    `  ${counterpartyLabel}: ${escapeTelegramHtml(counterpartyName)}`,
     `  Categoria: ${escapeTelegramHtml(transaction.categoria || "Não informada")}`,
     `  Vencimento: ${formatDateKey(financialTransactionDateKey(transaction.data))}`,
     `  Valor: <b>${formatMoney(financialTransactionValue(transaction))}</b>`,
@@ -92,26 +129,75 @@ function transactionBlock(transaction: FinancialTransaction) {
   ].join("\n").slice(0, 1800);
 }
 
-function summaryHeader(referenceDate: string, overdue: FinancialTransaction[], today: FinancialTransaction[]) {
+/**
+ * Os dois resumos diários. Cada um tem o seu destinatário, o seu horário e o
+ * seu vocabulário: conta a pagar atrasa, conta a receber vence sem ser paga.
+ */
+export type FinancialSummaryKind = "A_PAGAR" | "A_RECEBER";
+
+const SUMMARY_WORDING: Record<FinancialSummaryKind, {
+  emoji: string;
+  title: string;
+  overdueLabel: string;
+  overdueSection: string;
+  transactionType: "DESPESA" | "RECEITA";
+  buttonLabel: string;
+  viewMode: string;
+}> = {
+  A_PAGAR: {
+    emoji: "💰",
+    title: "Contas a pagar",
+    overdueLabel: "Atrasadas",
+    overdueSection: "🔴 <b>ATRASADAS</b>",
+    transactionType: "DESPESA",
+    buttonLabel: "Abrir contas a pagar",
+    viewMode: "A_PAGAR",
+  },
+  A_RECEBER: {
+    emoji: "💵",
+    title: "Contas a receber",
+    overdueLabel: "Vencidas",
+    overdueSection: "🔴 <b>VENCIDAS</b>",
+    transactionType: "RECEITA",
+    buttonLabel: "Abrir contas a receber",
+    viewMode: "A_RECEBER",
+  },
+};
+
+export function financialSummaryWording(kind: FinancialSummaryKind) {
+  return SUMMARY_WORDING[kind];
+}
+
+function summaryHeader(
+  referenceDate: string,
+  overdue: FinancialTransaction[],
+  today: FinancialTransaction[],
+  kind: FinancialSummaryKind,
+) {
+  const wording = SUMMARY_WORDING[kind];
   const overdueTotal = overdue.reduce((total, item) => total + financialTransactionValue(item), 0);
   const todayTotal = today.reduce((total, item) => total + financialTransactionValue(item), 0);
   return [
-    `💰 <b>Contas a pagar — ${formatDateKey(referenceDate)}</b>`,
+    `${wording.emoji} <b>${wording.title} — ${formatDateKey(referenceDate)}</b>`,
     "",
-    `🔴 Atrasadas: <b>${overdue.length}</b> · ${formatMoney(overdueTotal)}`,
+    `🔴 ${wording.overdueLabel}: <b>${overdue.length}</b> · ${formatMoney(overdueTotal)}`,
     `🟡 Vencem hoje: <b>${today.length}</b> · ${formatMoney(todayTotal)}`,
     `Total geral: <b>${formatMoney(overdueTotal + todayTotal)}</b>`,
   ].join("\n");
 }
 
-export function buildFinancialSummaryMessages(referenceDate: string, transactions: FinancialTransaction[]) {
+export function buildFinancialSummaryMessages(
+  referenceDate: string,
+  transactions: FinancialTransaction[],
+  kind: FinancialSummaryKind = "A_PAGAR",
+) {
   const overdue = transactions.filter((item) => financialTransactionDateKey(item.data) < referenceDate);
   const today = transactions.filter((item) => financialTransactionDateKey(item.data) === referenceDate);
   const sections: Array<{ title: string; items: FinancialTransaction[] }> = [
-    { title: "🔴 <b>ATRASADAS</b>", items: overdue },
+    { title: SUMMARY_WORDING[kind].overdueSection, items: overdue },
     { title: "🟡 <b>VENCEM HOJE</b>", items: today },
   ].filter((section) => section.items.length > 0);
-  const header = summaryHeader(referenceDate, overdue, today);
+  const header = summaryHeader(referenceDate, overdue, today, kind);
   if (sections.length === 0) return [`${header}\n\n✅ Não há contas pendentes vencidas ou com vencimento hoje.`];
 
   const chunks: string[] = [];

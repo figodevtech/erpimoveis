@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireConfigAccess, requireConfigEdit } from "@/app/api/_authz/perms";
 import { isStockNotificationEvent, STOCK_NOTIFICATION_EVENT_VALUES } from "@/lib/estoque/telegram-stock-events";
+import { FISCAL_NOTIFICATION_EVENT_VALUES, isFiscalNotificationEvent } from "@/lib/fiscal/telegram-fiscal-events";
 import { normalizeTelegramUsername } from "@/lib/integrations/telegram";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -25,10 +26,18 @@ const recipientSchema = z.object({
   horarioResumoFinanceiro: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   financeiroIncluirAtrasadas: z.boolean(),
   financeiroEnviarSemContas: z.boolean(),
+  notificarReceberDiario: z.boolean(),
+  horarioResumoReceber: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+  receberIncluirVencidas: z.boolean(),
+  receberEnviarSemContas: z.boolean(),
   estoqueEventosSelecionados: z
     .array(z.string())
     .max(STOCK_NOTIFICATION_EVENT_VALUES.length)
     .refine((events) => events.every(isStockNotificationEvent)),
+  fiscalEventosSelecionados: z
+    .array(z.string())
+    .max(FISCAL_NOTIFICATION_EVENT_VALUES.length)
+    .refine((events) => events.every(isFiscalNotificationEvent)),
 });
 
 function errorResponse(error: unknown, fallback: string) {
@@ -60,7 +69,7 @@ export async function GET() {
       supabaseAdmin.from("usuario").select("id, nome, email, ativo, perfilid").order("nome", { ascending: true }),
       supabaseAdmin
         .from("telegram_usuario_preferencia")
-        .select("usuario_id, chat_id, telegram_username, telegram_nome, vinculado_em, ativo, modo, escopo, notificar_criacao, status_selecionados, notificar_financeiro_diario, horario_resumo_financeiro, financeiro_incluir_atrasadas, financeiro_enviar_sem_contas, estoque_eventos_selecionados, ultimo_erro")
+        .select("usuario_id, chat_id, telegram_username, telegram_nome, vinculado_em, ativo, modo, escopo, notificar_criacao, status_selecionados, notificar_financeiro_diario, horario_resumo_financeiro, financeiro_incluir_atrasadas, financeiro_enviar_sem_contas, notificar_receber_diario, horario_resumo_receber, receber_incluir_vencidas, receber_enviar_sem_contas, estoque_eventos_selecionados, fiscal_eventos_selecionados, ultimo_erro")
         .order("updated_at", { ascending: false }),
       supabaseAdmin
         .from("permissao")
@@ -70,7 +79,11 @@ export async function GET() {
       throw usersResult.error ?? preferencesResult.error ?? permissionsResult.error;
     }
 
-    const relevantPermissionNames = new Set(["financeiro:visualizar", "estoque:visualizar"]);
+    const relevantPermissionNames = new Set([
+      "financeiro:visualizar",
+      "estoque:visualizar",
+      "financeiro:notas_fiscais",
+    ]);
     const permissionIdByName = new Map(
       (permissionsResult.data ?? [])
         .map((permission) => [String(permission.nome).toLowerCase(), Number(permission.id)] as const)
@@ -92,11 +105,14 @@ export async function GET() {
 
     const financeProfiles = new Set<number>();
     const stockProfiles = new Set<number>();
+    const fiscalProfiles = new Set<number>();
     const financePermissionId = permissionIdByName.get("financeiro:visualizar");
     const stockPermissionId = permissionIdByName.get("estoque:visualizar");
+    const fiscalPermissionId = permissionIdByName.get("financeiro:notas_fiscais");
     for (const link of permissionLinks) {
       if (link.permissaoid === financePermissionId) financeProfiles.add(link.perfilid);
       if (link.permissaoid === stockPermissionId) stockProfiles.add(link.perfilid);
+      if (link.permissaoid === fiscalPermissionId) fiscalProfiles.add(link.perfilid);
     }
 
     const users = (usersResult.data ?? []).map((user) => ({
@@ -106,6 +122,7 @@ export async function GET() {
       active: user.ativo !== false,
       financialAccess: financeProfiles.has(Number(user.perfilid)),
       stockAccess: stockProfiles.has(Number(user.perfilid)),
+      fiscalAccess: fiscalProfiles.has(Number(user.perfilid)),
     }));
     const userById = new Map(users.map((user) => [user.id, user]));
     const recipients = (preferencesResult.data ?? []).map((row) => ({
@@ -124,7 +141,12 @@ export async function GET() {
       financialSummaryTime: String(row.horario_resumo_financeiro ?? "08:00").slice(0, 5),
       financialIncludeOverdue: row.financeiro_incluir_atrasadas !== false,
       financialSendWhenEmpty: row.financeiro_enviar_sem_contas === true,
+      notifyReceivableDaily: row.notificar_receber_diario === true,
+      receivableSummaryTime: String(row.horario_resumo_receber ?? "08:00").slice(0, 5),
+      receivableIncludeOverdue: row.receber_incluir_vencidas !== false,
+      receivableSendWhenEmpty: row.receber_enviar_sem_contas === true,
       selectedStockEvents: Array.isArray(row.estoque_eventos_selecionados) ? row.estoque_eventos_selecionados : [],
+      selectedFiscalEvents: Array.isArray(row.fiscal_eventos_selecionados) ? row.fiscal_eventos_selecionados : [],
       lastError: row.ultimo_erro ? String(row.ultimo_erro) : null,
     }));
     return NextResponse.json({ users, recipients });
@@ -163,11 +185,15 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: "Remova o vínculo atual antes de alterar o usuário do Telegram." }, { status: 409 });
     }
 
-    if (parsed.data.notificarFinanceiroDiario && !(await userHasPermission(parsed.data.usuarioId, "financeiro:visualizar"))) {
+    if ((parsed.data.notificarFinanceiroDiario || parsed.data.notificarReceberDiario)
+      && !(await userHasPermission(parsed.data.usuarioId, "financeiro:visualizar"))) {
       return NextResponse.json({ error: "O usuário precisa ter acesso ao Financeiro para receber esse resumo." }, { status: 400 });
     }
     if (parsed.data.estoqueEventosSelecionados.length > 0 && !(await userHasPermission(parsed.data.usuarioId, "estoque:visualizar"))) {
       return NextResponse.json({ error: "O usuário precisa ter acesso ao Estoque para receber essas movimentações." }, { status: 400 });
+    }
+    if (parsed.data.fiscalEventosSelecionados.length > 0 && !(await userHasPermission(parsed.data.usuarioId, "financeiro:notas_fiscais"))) {
+      return NextResponse.json({ error: "O usuário precisa ter acesso às Notas fiscais para receber esses avisos." }, { status: 400 });
     }
 
     const { error } = await supabaseAdmin.from("telegram_usuario_preferencia").upsert({
@@ -182,7 +208,12 @@ export async function PUT(request: Request) {
       horario_resumo_financeiro: parsed.data.horarioResumoFinanceiro,
       financeiro_incluir_atrasadas: parsed.data.financeiroIncluirAtrasadas,
       financeiro_enviar_sem_contas: parsed.data.financeiroEnviarSemContas,
+      notificar_receber_diario: parsed.data.notificarReceberDiario,
+      horario_resumo_receber: parsed.data.horarioResumoReceber,
+      receber_incluir_vencidas: parsed.data.receberIncluirVencidas,
+      receber_enviar_sem_contas: parsed.data.receberEnviarSemContas,
       estoque_eventos_selecionados: Array.from(new Set(parsed.data.estoqueEventosSelecionados)),
+      fiscal_eventos_selecionados: Array.from(new Set(parsed.data.fiscalEventosSelecionados)),
       ultimo_erro: null,
       updated_at: new Date().toISOString(),
     }, { onConflict: "usuario_id" });
@@ -205,6 +236,10 @@ export async function DELETE(request: Request) {
       supabaseAdmin.from("telegram_vinculo_token").update({ used_at: now }).eq("usuario_id", usuarioId).is("used_at", null),
       supabaseAdmin.from("os_notificacao_entrega").update({ status: "DESCARTADO", updated_at: now }).eq("usuario_id", usuarioId).in("status", ["PENDENTE", "ENVIANDO", "ERRO"]),
       supabaseAdmin.from("telegram_estoque_entrega").update({ status: "DESCARTADO", updated_at: now }).eq("usuario_id", usuarioId).in("status", ["PENDENTE", "ENVIANDO", "ERRO"]),
+      supabaseAdmin.from("telegram_fiscal_entrega").update({ status: "DESCARTADO", updated_at: now }).eq("usuario_id", usuarioId).in("status", ["PENDENTE", "ENVIANDO", "ERRO"]),
+      // Resumo diário ainda não enviado morre junto: sem preferência, o
+      // processador não teria de onde ler o chat e a linha ficaria tentando.
+      supabaseAdmin.from("telegram_resumo_financeiro_envio").update({ status: "SEM_MOVIMENTO", updated_at: now }).eq("usuario_id", usuarioId).in("status", ["PENDENTE", "PROCESSANDO", "ERRO"]),
     ]);
     const preparationError = results.find((result) => result.error)?.error;
     if (preparationError) throw preparationError;

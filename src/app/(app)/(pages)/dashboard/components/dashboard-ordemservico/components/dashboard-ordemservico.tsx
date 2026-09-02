@@ -24,18 +24,25 @@ import {
   ClipboardList,
   CheckCircle2,
   CircleAlert,
-  UserX,
   Medal,
   BadgeDollarSign,
-  ClockAlert,
+  CalendarCheck,
+  Wallet,
   ListTodo,
-  Percent,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
 import type { ServiceOrdersDashboardProps } from "../lib/types";
-import { obterPeriodoInicial, formatarDataYYYYMMDD, formatarDataCompleta } from "../lib/datas";
+import type { PeriodoDashboard } from "../lib/datas";
+import {
+  obterPeriodoInicial,
+  obterMesAtual,
+  obterMesAnterior,
+  mesmoPeriodo,
+  formatarDataYYYYMMDD,
+  formatarDataCompleta,
+} from "../lib/datas";
 import { formatCurrencyBRL, formatDurationHours, formatNumber } from "../lib/format";
 import { pickColorForKey } from "../lib/palette";
 import { STATIC_ZERO_MONTHS, makeZeroedMonthlyFrom, formatMonthLabel } from "../lib/monthly";
@@ -80,6 +87,43 @@ const ROTULOS_PRIORIDADE: Record<string, string> = {
   NORMAL: "Normal",
   BAIXA: "Baixa",
 };
+
+const PRESETS_PERIODO: { chave: string; rotulo: string; calcular: () => PeriodoDashboard }[] = [
+  { chave: "mes-atual", rotulo: "Mês atual", calcular: obterMesAtual },
+  { chave: "mes-anterior", rotulo: "Mês anterior", calcular: obterMesAnterior },
+];
+
+/** Agrupa os KPIs por recorte de tempo — no mobile vira uma coluna, na mesma ordem. */
+function FaixaKpis({
+  titulo,
+  nota,
+  carregando,
+  className,
+  children,
+}: {
+  titulo: string;
+  nota?: string;
+  carregando?: boolean;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="space-y-2">
+      <div className="flex items-center gap-2">
+        <p className="shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{titulo}</p>
+        {nota ? <span className="min-w-0 truncate text-[11px] text-muted-foreground/70">· {nota}</span> : null}
+        <span className="h-px flex-1 bg-border" aria-hidden="true" />
+      </div>
+      <div
+        className={cn("dashboard-kpi-strip grid grid-cols-1 gap-2", className)}
+        data-loading={carregando}
+        aria-busy={carregando}
+      >
+        {children}
+      </div>
+    </section>
+  );
+}
 
 function formatarStatusOS(raw: string) {
   const chave = String(raw ?? "").trim().toUpperCase();
@@ -162,10 +206,13 @@ export default function ServiceOrdersDashboard({
     setDataFim(date);
   }
 
+  function aplicarPeriodo(periodo: PeriodoDashboard) {
+    setDataInicio(periodo.inicio);
+    setDataFim(periodo.fim);
+  }
+
   function limparFiltros() {
-    const p = obterPeriodoInicial();
-    setDataInicio(p.inicio);
-    setDataFim(p.fim);
+    aplicarPeriodo(obterPeriodoInicial());
   }
 
   // Base de 12 meses "zerados" para montar as séries
@@ -194,14 +241,18 @@ export default function ServiceOrdersDashboard({
     done: (monthly.done ?? [])[i]?.count ?? 0,
   }));
 
-  const statusKeys = React.useMemo(() => Object.keys(data?.countsByStatus ?? {}), [data?.countsByStatus]);
-
-  // mantém como no seu original (não vamos usar para colorir, mas deixa disponível)
-  const statusItems = (statusKeys.length ? statusKeys : []).map((status) => ({
-    name: formatarStatusOS(status),
-    value: data?.countsByStatus?.[status] ?? 0,
-    fill: pickColorForKey(status),
-  }));
+  // "OS por status" é a foto de agora: conta todas as OS, não só as do período
+  const statusItems = React.useMemo(
+    () =>
+      Object.entries(data?.countsByStatusGeral ?? {})
+        .filter(([, quantidade]) => Number(quantidade) > 0)
+        .map(([status, quantidade]) => ({
+          name: formatarStatusOS(status),
+          value: Number(quantidade) || 0,
+          fill: pickColorForKey(status),
+        })),
+    [data?.countsByStatusGeral],
+  );
 
   const prioEntries = Object.entries(data?.countsByPriority ?? {}).filter(([, v]) => Number(v) > 0);
   const prioItems = prioEntries.map(([key, value]) => ({
@@ -217,15 +268,9 @@ export default function ServiceOrdersDashboard({
   const servicesByUserMax = Math.max(1, ...servicesByUserSorted.map((item) => item.totalServicos));
 
   const total = data?.totalOrders ?? 0;
-  const inProgress = data?.countsByStatus?.EM_ANDAMENTO ?? 0;
+  const inProgress = data?.inProgressGeral ?? 0;
   const completed = data?.ordersCompleted ?? 0;
   const avgHrs = data?.avgCompletionHours ?? 0;
-  const aprovacoes = data?.countsByApproval ?? {};
-  const totalAprovacoes = Object.values(aprovacoes).reduce((total, quantidade) => total + Number(quantidade ?? 0), 0);
-  const taxaAprovacao = totalAprovacoes > 0 ? ((aprovacoes.APROVADA ?? 0) / totalAprovacoes) * 100 : 0;
-
-  // novo: serviços sem realizador (padrão novo)
-  const servicesWithoutRealizador = (data as any)?.servicesWithoutRealizador ?? 0;
 
   // altura dinâmica só para quando ficar vertical no mobile
   const statusChartHeight = React.useMemo(() => {
@@ -253,6 +298,34 @@ export default function ServiceOrdersDashboard({
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 sm:gap-3">
+          <div className="flex items-center gap-1 rounded-xl border bg-muted/40 p-1">
+            {PRESETS_PERIODO.map((preset) => {
+              const alvo = preset.calcular();
+              const selecionado = mesmoPeriodo(
+                { inicio: dataInicio ?? undefined, fim: dataFim ?? undefined },
+                alvo,
+              );
+
+              return (
+                <button
+                  key={preset.chave}
+                  type="button"
+                  aria-pressed={selecionado}
+                  onClick={() => aplicarPeriodo(alvo)}
+                  className={cn(
+                    "h-7 whitespace-nowrap rounded-lg px-2.5 text-[11px] font-medium transition-all sm:h-8 sm:text-xs",
+                    "hover:cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    selecionado
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {preset.rotulo}
+                </button>
+              );
+            })}
+          </div>
+
           <SheetOsFiltros
             aberto={filtroAberto}
             aoMudarAberto={setFiltroAberto}
@@ -282,19 +355,86 @@ export default function ServiceOrdersDashboard({
       </CardHeader>
 
       <CardContent className="space-y-4 px-2 pb-2 sm:space-y-6 sm:px-3 sm:pb-3">
-        {/* KPIs */}
-        <div className="dashboard-kpi-strip grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-4 2xl:grid-cols-7" data-loading={loading} aria-busy={loading}>
-          <Kpi icon={ClipboardList} label="Total de OS" value={formatNumber(total)} />
-          <Kpi icon={Activity} label="OS do dia" value={formatNumber(data?.ordersToday ?? 0)} />
-          <Kpi icon={CheckCircle2} label="Concluídas" value={formatNumber(completed)} />
-          <Kpi icon={CircleAlert} label="Em andamento" value={formatNumber(inProgress)} />
-          <Kpi icon={Timer} label="Tempo médio" value={formatDurationHours(avgHrs)} />
-          <Kpi icon={DollarSign} label="Valor concluído (30d)" value={formatCurrencyBRL(data?.revenue30d ?? 0)} />
-          <Kpi icon={UserX} label="Serviços sem realizador" value={formatNumber(servicesWithoutRealizador)} />
-          <Kpi icon={ListTodo} label="OS abertas" value={formatNumber(data?.ordersOpen ?? 0)} />
-          <Kpi icon={BadgeDollarSign} label="Ticket médio" value={formatCurrencyBRL(data?.avgTicketAll ?? 0)} />
-          <Kpi icon={Percent} label="Taxa de aprovação" value={`${taxaAprovacao.toFixed(1)}%`} />
-          <Kpi icon={ClockAlert} label="90% concluídas em" value={formatDurationHours(data?.p90CompletionHours ?? 0)} />
+        {/* KPIs, agrupados pelo recorte de tempo de cada número */}
+        <div className="space-y-4">
+          <FaixaKpis titulo="Hoje" nota="não segue o filtro de período" carregando={loading} className="sm:grid-cols-3">
+            <Kpi
+              icon={Activity}
+              label="OS do dia"
+              value={formatNumber(data?.ordersToday ?? 0)}
+              hint="OS abertas hoje, contadas pela data de entrada (fuso de Fortaleza). Não segue o período filtrado."
+            />
+            <Kpi
+              icon={CalendarCheck}
+              label="Concluídas hoje"
+              value={formatNumber(data?.ordersTodayCompleted ?? 0)}
+              hint="OS cujo fim de execução foi carimbado hoje."
+            />
+            <Kpi
+              icon={Wallet}
+              label="Valor concluído hoje"
+              value={formatCurrencyBRL(data?.revenueToday ?? 0)}
+              hint="Soma do orçamento das OS que terminaram a execução hoje."
+            />
+          </FaixaKpis>
+
+          <FaixaKpis
+            titulo="No período"
+            nota={textoPeriodo}
+            carregando={loading}
+            className="sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5"
+          >
+            <Kpi
+              icon={ClipboardList}
+              label="Total de OS"
+              value={formatNumber(total)}
+              hint="OS abertas dentro do período, contadas pela data de entrada. Não inclui OS excluídas."
+            />
+            <Kpi
+              icon={CheckCircle2}
+              label="Concluídas"
+              value={formatNumber(completed)}
+              hint="OS cujo fim de execução caiu no período. Uma OS que entrou em outro mês conta no mês em que terminou — por isso este número pode passar o Total de OS. OS cancelada não entra: cancelar desfaz a conclusão e apaga o carimbo de fim de execução."
+            />
+            <Kpi
+              icon={DollarSign}
+              label="Valor concluído"
+              value={formatCurrencyBRL(data?.revenueCompleted ?? 0)}
+              hint="Soma do valor do orçamento das OS que terminaram a execução no período — a mesma base do card Concluídas, e o mesmo recorte do relatório de ordens por data de conclusão. É orçamento fechado, não valor recebido: pagamento e baixa são eventos posteriores. OS cancelada não entra."
+            />
+            <Kpi
+              icon={BadgeDollarSign}
+              label="Ticket médio"
+              value={formatCurrencyBRL(data?.avgTicketAll ?? 0)}
+              hint="Soma dos orçamentos dividida pelo número de OS abertas no período. Inclui OS ainda em orçamento e canceladas — a base é tudo que entrou."
+            />
+            <Kpi
+              icon={Timer}
+              label="Tempo médio"
+              value={formatDurationHours(avgHrs)}
+              hint="Média de horas entre a entrada e o fim de execução, só das OS concluídas no período. Ignora OS sem data de entrada ou com duração negativa."
+            />
+          </FaixaKpis>
+
+          <FaixaKpis
+            titulo="Geral"
+            nota="situação atual, independente do período"
+            carregando={loading}
+            className="sm:grid-cols-2"
+          >
+            <Kpi
+              icon={CircleAlert}
+              label="Em andamento"
+              value={formatNumber(inProgress)}
+              hint="Todas as OS com status Em andamento neste momento, independente de quando entraram. Não segue o período filtrado."
+            />
+            <Kpi
+              icon={ListTodo}
+              label="OS abertas"
+              value={formatNumber(data?.ordersOpenGeral ?? 0)}
+              hint="OS que ainda não chegaram ao fim do fluxo, neste momento. Não conta Pagamento, Concluído, Sem cobrança, Cancelado nem Orçamento recusado. Não segue o período filtrado."
+            />
+          </FaixaKpis>
         </div>
 
         {error && !loading ? (
@@ -306,10 +446,11 @@ export default function ServiceOrdersDashboard({
         <div className="flex w-full flex-col gap-6 md:grid md:grid-cols-2 xl:grid-cols-3">
           {/* OS por mês */}
           <ChartCard
-            title="OS por mês"
-            description="Novas vs Concluídas (12m)"
+            title="OS por mês (12m)"
+            description="Novas vs Concluídas"
             badge="Tendência"
             badgeIcon={<TrendingUp className="h-3.5 w-3.5" />}
+            hint="Novas pela data de entrada, concluídas pelo fim de execução, nos últimos 12 meses. Fixo em 12 meses — não segue o período filtrado."
             className="md:col-span-2 xl:col-span-2"
           >
             <ChartContainer
@@ -375,9 +516,10 @@ export default function ServiceOrdersDashboard({
 
           {/* Serviços por usuário */}
           <ChartCard
-            title="Serviços por usuário"
+            title="Serviços por usuário (no período)"
             description="Ranking de serviços concluídos no período"
             badge="Ranking"
+            hint="Serviços das OS concluídas no período, agrupados por realizador. Cada serviço conta uma vez por usuário; serviço com dois realizadores conta para os dois, então a soma pode passar o total de serviços. Mostra os 10 primeiros."
             className="md:col-span-2 xl:col-span-1"
           >
             <div className="max-h-80 space-y-3 overflow-y-auto pr-1">
@@ -405,7 +547,13 @@ export default function ServiceOrdersDashboard({
           </ChartCard>
 
           {/* OS por status (muda orientação só no mobile) */}
-          <ChartCard title="OS por status" description="Distribuição atual" badge="Barras" className="md:col-span-2">
+          <ChartCard
+            title="OS por status (geral)"
+            description="Distribuição atual"
+            badge="Barras"
+            hint="Distribuição de todas as OS por status neste momento. Não segue o período filtrado. Status sem nenhuma OS ficam de fora."
+            className="md:col-span-2"
+          >
             <div className="w-full" style={{ height: isMobile ? statusChartHeight : 280 }}>
               <ChartContainer
                 config={{
@@ -495,9 +643,10 @@ export default function ServiceOrdersDashboard({
 
           {/* Prioridade das ordens */}
           <ChartCard
-            title="Prioridade das OS"
+            title="Prioridade das OS (no período)"
             description="Carga por nível"
             badge="Pizza"
+            hint="Prioridade das OS que entraram no período, pela data de entrada. Níveis sem nenhuma OS ficam de fora."
             className="md:col-span-2 xl:col-span-1"
           >
             <ChartContainer
@@ -536,10 +685,11 @@ export default function ServiceOrdersDashboard({
           </ChartCard>
 
           <ChartCard
-            title="Receita concluída por mês"
+            title="Receita concluída por mês (12m)"
             description="Evolução do valor das OS concluídas nos últimos 12 meses"
             badge="Receita"
             badgeIcon={<DollarSign className="h-3.5 w-3.5" />}
+            hint="Soma do orçamento das OS por mês de fim de execução, nos últimos 12 meses. Fixo em 12 meses — não segue o período filtrado."
             className="md:col-span-2 xl:col-span-3"
           >
             <ChartContainer

@@ -1,13 +1,14 @@
 // src/app/(app)/(pages)/meu-perfil/components/tabela-minhas-vendas.tsx
 "use client";
 
-import { Fragment, useCallback, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { AnimatePresence } from "motion/react";
 import { Table, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { buscarMinhasVendas } from "../lib/api";
+import { buscarIndicadoresVendas, buscarMinhasVendas } from "../lib/api";
 import { formatarData, formatarMoeda, formatarQuantidade, rotuloDeStatus } from "../lib/format";
 import { useListaPaginada } from "../hooks/use-lista-paginada";
-import type { MinhaVenda, Periodo } from "../types";
+import type { IndicadoresVendas, MinhaVenda, Periodo } from "../types";
+import { IndicadoresDeVendas } from "./indicadores-vendas";
 import { StatusBadge } from "./status-badge";
 import {
   BotaoExpandir,
@@ -40,6 +41,35 @@ export function TabelaMinhasVendas({ periodo, ativo, usuarioId }: { periodo: Per
     chaveDeReset: `${periodo.de}|${periodo.ate}|${usuarioId ?? "me"}`,
   });
 
+  /*
+   * Os totais cobrem o periodo inteiro, nao a pagina — por isso vivem em outro
+   * endpoint e so sao buscados quando o periodo muda. Mesmo padrao de estado
+   * derivado do resto da Central: a chave da consulta viaja junto com o
+   * resultado, entao "carregando" nao precisa de setState dentro do efeito.
+   */
+  const chaveIndicadores = `${periodo.de}|${periodo.ate}|${usuarioId ?? "me"}`;
+  const [estadoIndicadores, setEstadoIndicadores] = useState<{
+    chave: string;
+    dados: IndicadoresVendas | null;
+  }>({ chave: "", dados: null });
+  const carregandoIndicadores = ativo && estadoIndicadores.chave !== chaveIndicadores;
+
+  useEffect(() => {
+    if (!ativo) return;
+
+    const controller = new AbortController();
+
+    buscarIndicadoresVendas(periodo, usuarioId, controller.signal)
+      .then((dados) => {
+        if (!controller.signal.aborted) setEstadoIndicadores({ chave: chaveIndicadores, dados });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setEstadoIndicadores({ chave: chaveIndicadores, dados: null });
+      });
+
+    return () => controller.abort();
+  }, [ativo, chaveIndicadores, periodo, usuarioId]);
+
   const alternar = (id: number) =>
     setExpandidas((atual) => {
       const proximo = new Set(atual);
@@ -49,8 +79,11 @@ export function TabelaMinhasVendas({ periodo, ativo, usuarioId }: { periodo: Per
     });
 
   return (
-    <CartaoTabela>
-      <Table>
+    <div className="flex flex-col gap-3">
+      <IndicadoresDeVendas dados={estadoIndicadores.dados} carregando={carregandoIndicadores} />
+
+      <CartaoTabela>
+        <Table>
         <TableHeader>
           <TableRow>
             <TableHead className="w-10" />
@@ -186,13 +219,14 @@ export function TabelaMinhasVendas({ periodo, ativo, usuarioId }: { periodo: Per
         </CorpoAnimado>
       </Table>
 
-      <Paginacao
-        page={lista.page}
-        totalPages={lista.totalPages}
-        total={lista.total}
-        rotuloItens={lista.total === 1 ? "venda" : "vendas"}
-        onMudarPagina={lista.irParaPagina}
-      />
-    </CartaoTabela>
+        <Paginacao
+          page={lista.page}
+          totalPages={lista.totalPages}
+          total={lista.total}
+          rotuloItens={lista.total === 1 ? "venda" : "vendas"}
+          onMudarPagina={lista.irParaPagina}
+        />
+      </CartaoTabela>
+    </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Boxes, Clock3, Loader2, WalletCards, Wrench } from "lucide-react";
+import { Boxes, Clock3, HandCoins, Loader2, ReceiptText, WalletCards, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -17,6 +17,11 @@ import {
   STOCK_NOTIFICATION_EVENT_VALUES,
   type StockNotificationEvent,
 } from "@/lib/estoque/telegram-stock-events";
+import {
+  FISCAL_NOTIFICATION_EVENT_GROUPS,
+  FISCAL_NOTIFICATION_EVENT_VALUES,
+  type FiscalNotificationEvent,
+} from "@/lib/fiscal/telegram-fiscal-events";
 
 export const EVENT_GROUPS = [
   { label: "Entrada", description: "Abertura e triagem inicial", events: [["CRIADA", "OS criada"], ["AGUARDANDO_CHECKLIST", "Aguardando checklist"]] },
@@ -29,6 +34,13 @@ const STATUS_EVENTS = EVENT_GROUPS.flatMap((group) => group.events.map(([id]) =>
 export const ALL_EVENTS = ["CRIADA", ...STATUS_EVENTS];
 export const FINAL_EVENTS = ["CRIADA", "SEM_COBRANCA", "CONCLUIDO"];
 const STOCK_REGISTRATION_EVENTS = STOCK_NOTIFICATION_EVENT_VALUES.filter((event) => event.endsWith("_REGISTRO"));
+/** Atalho para quem só quer ser chamado quando a nota não passou. */
+const FISCAL_PROBLEM_EVENTS: readonly FiscalNotificationEvent[] = [
+  "NFE_REJEITADA",
+  "NFE_DENEGADA",
+  "NFE_RESULTADO_INCERTO",
+  "NFSE_REJEITADA",
+];
 
 export type Mode = "CRIACAO" | "CRIACAO_FINALIZACAO" | "TODOS" | "PERSONALIZADO";
 export type Scope = "TODAS" | "MINHAS" | "MEU_SETOR";
@@ -39,6 +51,7 @@ export type TelegramUser = {
   active: boolean;
   financialAccess: boolean;
   stockAccess: boolean;
+  fiscalAccess: boolean;
 };
 export type TelegramRecipient = {
   usuarioId: string;
@@ -56,7 +69,12 @@ export type TelegramRecipient = {
   financialSummaryTime: string;
   financialIncludeOverdue: boolean;
   financialSendWhenEmpty: boolean;
+  notifyReceivableDaily: boolean;
+  receivableSummaryTime: string;
+  receivableIncludeOverdue: boolean;
+  receivableSendWhenEmpty: boolean;
   selectedStockEvents: StockNotificationEvent[];
+  selectedFiscalEvents: FiscalNotificationEvent[];
 };
 export type RecipientFormData = {
   usuarioId: string;
@@ -68,7 +86,12 @@ export type RecipientFormData = {
   financialSummaryTime: string;
   financialIncludeOverdue: boolean;
   financialSendWhenEmpty: boolean;
+  notifyReceivableDaily: boolean;
+  receivableSummaryTime: string;
+  receivableIncludeOverdue: boolean;
+  receivableSendWhenEmpty: boolean;
   selectedStockEvents: StockNotificationEvent[];
+  selectedFiscalEvents: FiscalNotificationEvent[];
 };
 
 export function recipientEvents(recipient: TelegramRecipient) {
@@ -98,7 +121,12 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
     financialSummaryTime: recipient.financialSummaryTime,
     financialIncludeOverdue: recipient.financialIncludeOverdue,
     financialSendWhenEmpty: recipient.financialSendWhenEmpty,
+    notifyReceivableDaily: recipient.notifyReceivableDaily,
+    receivableSummaryTime: recipient.receivableSummaryTime,
+    receivableIncludeOverdue: recipient.receivableIncludeOverdue,
+    receivableSendWhenEmpty: recipient.receivableSendWhenEmpty,
     selectedStockEvents: recipient.selectedStockEvents,
+    selectedFiscalEvents: recipient.selectedFiscalEvents,
   } : {
     usuarioId: "",
     telegramUsername: "",
@@ -109,7 +137,12 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
     financialSummaryTime: "08:00",
     financialIncludeOverdue: true,
     financialSendWhenEmpty: false,
+    notifyReceivableDaily: false,
+    receivableSummaryTime: "08:00",
+    receivableIncludeOverdue: true,
+    receivableSendWhenEmpty: false,
     selectedStockEvents: [],
+    selectedFiscalEvents: [],
   });
 
   function setEvents(selectedEvents: readonly string[]) {
@@ -160,20 +193,49 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
     }));
   }
 
+  function setFiscalEvents(selectedFiscalEvents: readonly FiscalNotificationEvent[]) {
+    setForm((current) => ({ ...current, selectedFiscalEvents: [...selectedFiscalEvents] }));
+  }
+
+  function toggleFiscalEvent(event: FiscalNotificationEvent, checked: boolean) {
+    setForm((current) => ({
+      ...current,
+      selectedFiscalEvents: checked
+        ? Array.from(new Set([...current.selectedFiscalEvents, event]))
+        : current.selectedFiscalEvents.filter((item) => item !== event),
+    }));
+  }
+
+  function toggleFiscalGroup(events: readonly (readonly [FiscalNotificationEvent, string])[]) {
+    const ids = events.map(([id]) => id);
+    const allSelected = ids.every((id) => form.selectedFiscalEvents.includes(id));
+    setForm((current) => ({
+      ...current,
+      selectedFiscalEvents: allSelected
+        ? current.selectedFiscalEvents.filter((id) => !ids.includes(id))
+        : Array.from(new Set([...current.selectedFiscalEvents, ...ids])),
+    }));
+  }
+
   const selectedUser = users.find((user) => user.id === form.usuarioId) ?? recipient?.user ?? null;
   const financialAllowed = selectedUser?.financialAccess === true;
   const stockAllowed = selectedUser?.stockAccess === true;
+  const fiscalAllowed = selectedUser?.fiscalAccess === true;
   const hasNotification = Boolean(
     form.selectedEvents.length
     || form.notifyFinancialDaily
-    || form.selectedStockEvents.length,
+    || form.notifyReceivableDaily
+    || form.selectedStockEvents.length
+    || form.selectedFiscalEvents.length,
   );
   const valid = Boolean(
     form.usuarioId
     && form.telegramUsername.trim()
     && hasNotification
     && (!form.notifyFinancialDaily || financialAllowed)
-    && (!form.selectedStockEvents.length || stockAllowed),
+    && (!form.notifyReceivableDaily || financialAllowed)
+    && (!form.selectedStockEvents.length || stockAllowed)
+    && (!form.selectedFiscalEvents.length || fiscalAllowed),
   );
 
   return (
@@ -237,10 +299,11 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
               </div>
 
               <Tabs defaultValue="os" className="gap-4">
-                <TabsList className="grid h-11 w-full grid-cols-3">
+                <TabsList className="grid h-11 w-full grid-cols-4">
                   <TabsTrigger value="os"><Wrench />OS</TabsTrigger>
                   <TabsTrigger value="financeiro"><WalletCards />Financeiro</TabsTrigger>
                   <TabsTrigger value="estoque"><Boxes />Estoque</TabsTrigger>
+                  <TabsTrigger value="fiscal"><ReceiptText />Fiscal</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="os" className="space-y-4">
@@ -301,7 +364,7 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
                   </div>
                 </TabsContent>
 
-                <TabsContent value="financeiro">
+                <TabsContent value="financeiro" className="space-y-4">
                   <div className="space-y-4 rounded-lg border p-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="flex items-start gap-3">
@@ -342,6 +405,48 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
                           <label className="flex cursor-pointer items-center gap-3 text-sm">
                             <Checkbox checked={form.financialSendWhenEmpty} onCheckedChange={(checked) => setForm((current) => ({ ...current, financialSendWhenEmpty: checked === true }))} />
                             Avisar mesmo quando não houver contas
+                          </label>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="space-y-4 rounded-lg border p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><HandCoins className="size-4" /></span>
+                        <div>
+                          <Label htmlFor="dialog-receivable-daily">Resumo diário de contas a receber</Label>
+                          <p className="text-xs text-muted-foreground">Títulos vencidos em aberto e com vencimento no dia, agrupados com os totais.</p>
+                        </div>
+                      </div>
+                      <Switch
+                        id="dialog-receivable-daily"
+                        checked={form.notifyReceivableDaily}
+                        disabled={!financialAllowed}
+                        onCheckedChange={(notifyReceivableDaily) => setForm((current) => ({ ...current, notifyReceivableDaily }))}
+                      />
+                    </div>
+                    {form.notifyReceivableDaily ? (
+                      <div className="grid gap-4 border-t pt-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="dialog-receivable-time" className="flex items-center gap-1.5"><Clock3 className="size-3.5" />Horário do envio</Label>
+                          <Input
+                            id="dialog-receivable-time"
+                            type="time"
+                            value={form.receivableSummaryTime}
+                            onChange={(event) => setForm((current) => ({ ...current, receivableSummaryTime: event.target.value }))}
+                          />
+                          <p className="text-xs text-muted-foreground">Independente do horário do resumo de contas a pagar.</p>
+                        </div>
+                        <div className="space-y-3 md:pt-7">
+                          <label className="flex cursor-pointer items-center gap-3 text-sm">
+                            <Checkbox checked={form.receivableIncludeOverdue} onCheckedChange={(checked) => setForm((current) => ({ ...current, receivableIncludeOverdue: checked === true }))} />
+                            Incluir títulos vencidos
+                          </label>
+                          <label className="flex cursor-pointer items-center gap-3 text-sm">
+                            <Checkbox checked={form.receivableSendWhenEmpty} onCheckedChange={(checked) => setForm((current) => ({ ...current, receivableSendWhenEmpty: checked === true }))} />
+                            Avisar mesmo quando não houver títulos
                           </label>
                         </div>
                       </div>
@@ -416,6 +521,84 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
                                   checked={form.selectedStockEvents.includes(id)}
                                   disabled={!stockAllowed}
                                   onCheckedChange={(value) => toggleStockEvent(id, value === true)}
+                                />
+                                {label}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="fiscal" className="space-y-3">
+                  <div className="flex flex-wrap items-end justify-between gap-3">
+                    <div>
+                      <Label>Documentos fiscais que enviam notificação</Label>
+                      <p className="text-xs text-muted-foreground">Vale para notas emitidas pela empresa e para as notas de terceiros reconhecidas na distribuição.</p>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={!fiscalAllowed}
+                        onClick={() => setFiscalEvents(FISCAL_PROBLEM_EVENTS)}
+                      >
+                        Somente problemas
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={!fiscalAllowed}
+                        onClick={() => setFiscalEvents(FISCAL_NOTIFICATION_EVENT_VALUES)}
+                      >
+                        Selecionar todas
+                      </Button>
+                      <Button type="button" size="sm" variant="ghost" onClick={() => setFiscalEvents([])}>Limpar</Button>
+                    </div>
+                  </div>
+                  {!form.usuarioId ? (
+                    <p className="text-xs text-muted-foreground">Selecione o usuário para verificar o acesso às notas fiscais.</p>
+                  ) : !fiscalAllowed ? (
+                    <p className="text-xs text-amber-700 dark:text-amber-400">Este usuário não possui a permissão Financeiro: notas fiscais.</p>
+                  ) : null}
+                  <Separator />
+                  <div className="space-y-2">
+                    {FISCAL_NOTIFICATION_EVENT_GROUPS.map((group) => {
+                      const selectedCount = group.events.filter(([id]) => form.selectedFiscalEvents.includes(id)).length;
+                      const checked = selectedCount === group.events.length ? true : selectedCount > 0 ? "indeterminate" : false;
+                      return (
+                        <div key={group.id} className="rounded-md border bg-card">
+                          <div className="flex items-center gap-3 border-b bg-muted/40 px-3 py-2">
+                            <Checkbox
+                              checked={checked}
+                              disabled={!fiscalAllowed}
+                              onCheckedChange={() => toggleFiscalGroup(group.events)}
+                              aria-label={`Selecionar avisos de ${group.label}`}
+                            />
+                            <button
+                              type="button"
+                              className="flex flex-1 items-center justify-between gap-3 text-left disabled:cursor-not-allowed disabled:opacity-50"
+                              disabled={!fiscalAllowed}
+                              onClick={() => toggleFiscalGroup(group.events)}
+                            >
+                              <span>
+                                <span className="block text-sm font-medium">{group.label}</span>
+                                <span className="block text-xs text-muted-foreground">{group.description}</span>
+                              </span>
+                              <span className="text-xs text-muted-foreground">{selectedCount}/{group.events.length}</span>
+                            </button>
+                          </div>
+                          <div className="grid gap-1 p-2 sm:grid-cols-2">
+                            {group.events.map(([id, label]) => (
+                              <label key={id} className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-muted/50">
+                                <Checkbox
+                                  checked={form.selectedFiscalEvents.includes(id)}
+                                  disabled={!fiscalAllowed}
+                                  onCheckedChange={(value) => toggleFiscalEvent(id, value === true)}
                                 />
                                 {label}
                               </label>

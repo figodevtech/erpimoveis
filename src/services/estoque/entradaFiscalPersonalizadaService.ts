@@ -21,7 +21,7 @@ export const destinoEntradaFiscalPersonalizadaSchema = z.enum([
 
 const idOpcional = z.number().int().positive().nullable().optional();
 
-const financeiroSchema = z
+export const financeiroEntradaFiscalSchema = z
   .object({
     parcelas: z
       .array(
@@ -49,7 +49,7 @@ const entradaFiscalPersonalizadaSchema = z
     destino: destinoEntradaFiscalPersonalizadaSchema,
     itemReferenciaId: z.number().int().positive(),
     quantidade: z.number().int().positive(),
-    financeiro: financeiroSchema.nullable(),
+    financeiro: financeiroEntradaFiscalSchema.nullable(),
   })
   .strict();
 
@@ -68,7 +68,7 @@ function digitos(value: unknown) {
   return String(value ?? "").replace(/\D/g, "");
 }
 
-async function carregarDocumentoEFornecedor(documentoId: number, fornecedorId: number) {
+export async function carregarDocumentoFiscalEFornecedor(documentoId: number, fornecedorId: number) {
   const [documentoResult, fornecedorResult] = await Promise.all([
     supabaseAdmin
       .from("fiscal_dfe_documento")
@@ -102,8 +102,8 @@ async function carregarDocumentoEFornecedor(documentoId: number, fornecedorId: n
   };
 }
 
-function montarTransacoes(
-  financeiro: z.infer<typeof financeiroSchema> | null,
+export function montarTransacoesEntradaFiscal(
+  financeiro: z.infer<typeof financeiroEntradaFiscalSchema> | null,
   totalNota: number,
   fornecedor: {
     cpfcnpj: string | null;
@@ -158,7 +158,7 @@ export async function registrarEntradaFiscalPersonalizada(
   }
 
   const input = parsed.data;
-  const { documento, fornecedor } = await carregarDocumentoEFornecedor(
+  const { documento, fornecedor } = await carregarDocumentoFiscalEFornecedor(
     input.documentoFiscalRecebidoId,
     input.fornecedorId,
   );
@@ -225,7 +225,7 @@ export async function registrarEntradaFiscalPersonalizada(
 
   const numeroNota = texto(identificacaoFiscal.resumo.nNF);
   const serieNota = texto(identificacaoFiscal.resumo.serie);
-  const transacoes = montarTransacoes(
+  const transacoes = montarTransacoesEntradaFiscal(
     input.financeiro,
     totalNota,
     fornecedor,

@@ -235,3 +235,22 @@ test("mantem quatro itens de foto unica na primeira pagina, como na previa de im
     "nenhum titulo de item pode invadir a faixa do rodape",
   );
 });
+
+test("descreve assinatura remota no PDF sem alegar coleta presencial", async () => {
+  const { generateChecklistOfficialPdf } = await import("./checklist-documento-pdf");
+  const { document, assets } = await fixture();
+  document.snapshot.checklist.itens = [];
+  if (!document.assinatura) throw new Error("Fixture sem assinatura");
+  document.assinatura.metodo = "REMOTA_DESENHADA";
+  document.assinatura.operadorNome = null;
+  const bytes = await generateChecklistOfficialPdf(document, async (path) => {
+    const asset = assets.get(path);
+    if (!asset) throw new Error(`Ativo ausente: ${path}`);
+    return asset;
+  });
+  const pdf = await PDFDocument.load(bytes);
+  const { allText } = extrairTextos(pdf);
+  assert.ok(allText.some((value) => value.includes("simples remota")));
+  assert.ok(allText.some((value) => value.includes("Link secreto, CPF e senha")));
+  assert.equal(allText.some((value) => value.includes("coletado presencialmente")), false);
+});

@@ -452,6 +452,9 @@ export function EmissaoNotaDialog({
    * Serve para rejeição que não é do conteúdo — prefeitura fora do ar, falha do
    * lado deles. Quando o erro é de dados, reenviar igual repete a recusa: aí o
    * caminho é corrigir e emitir de novo.
+   *
+   * O reenvio acontece na própria nota: a lista continua com a mesma linha,
+   * mudando de estado, em vez de ganhar uma rejeitada a cada tentativa.
    */
   const reenviarNfse = async (nfe: NfeResumo) => {
     if (reenviandoNfseId === nfe.id) return;
@@ -1050,7 +1053,7 @@ export function EmissaoNotaDialog({
                                       variant="outline"
                                       size="sm"
                                       disabled={reenviandoNfseId === nfe.id}
-                                      title="Manda para a prefeitura exatamente o mesmo envio, sem remontar a nota."
+                                      title="Manda para a prefeitura exatamente o mesmo envio, nesta mesma nota, sem remontá-la e sem criar outra."
                                       onClick={() => void reenviarNfse(nfe)}
                                     >
                                       {reenviandoNfseId === nfe.id ? (

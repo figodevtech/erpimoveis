@@ -6,7 +6,7 @@ export async function POST() {
   try {
     await requireConfigEdit();
     const now = new Date().toISOString();
-    const [events, deliveries, stockDeliveries] = await Promise.all([
+    const [events, deliveries, stockDeliveries, fiscalDeliveries] = await Promise.all([
       supabaseAdmin.from("os_notificacao_evento").update({
         status_processamento: "PENDENTE", tentativas: 0, disponivel_em: now, locked_at: null, ultimo_erro: null,
       }).eq("status_processamento", "ERRO").select("id"),
@@ -16,15 +16,20 @@ export async function POST() {
       supabaseAdmin.from("telegram_estoque_entrega").update({
         status: "PENDENTE", tentativas: 0, next_retry_at: now, locked_at: null, erro_codigo: null, erro_mensagem: null, updated_at: now,
       }).in("status", ["ERRO", "DESCARTADO"]).not("erro_codigo", "in", '("400","403","INELIGIVEL")').select("id"),
+      supabaseAdmin.from("telegram_fiscal_entrega").update({
+        status: "PENDENTE", tentativas: 0, next_retry_at: now, locked_at: null, erro_codigo: null, erro_mensagem: null, updated_at: now,
+      }).in("status", ["ERRO", "DESCARTADO"]).not("erro_codigo", "in", '("400","403","INELIGIVEL")').select("id"),
     ]);
     if (events.error) throw events.error;
     if (deliveries.error) throw deliveries.error;
     if (stockDeliveries.error) throw stockDeliveries.error;
+    if (fiscalDeliveries.error) throw fiscalDeliveries.error;
     return NextResponse.json({
       ok: true,
       events: events.data?.length ?? 0,
       deliveries: deliveries.data?.length ?? 0,
       stockDeliveries: stockDeliveries.data?.length ?? 0,
+      fiscalDeliveries: fiscalDeliveries.data?.length ?? 0,
     });
   } catch (error) {
     const statusCode = (error as { statusCode?: number })?.statusCode ?? 500;

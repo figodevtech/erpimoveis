@@ -18,6 +18,29 @@ export type ChecklistSignatarioQualidade =
   | "RECEBEDOR"
   | "OUTRO";
 
+export type ChecklistAssinaturaMetodo =
+  | "PRESENCIAL_DESENHADA"
+  | "REMOTA_DESENHADA";
+
+export type ChecklistConviteStatus =
+  | "ATIVO"
+  | "EXPIRADO"
+  | "REVOGADO"
+  | "UTILIZADO"
+  | "SUPERADO";
+
+export type ChecklistConviteAssinaturaResumo = {
+  publicId: string;
+  status: ChecklistConviteStatus;
+  criadoEm: string;
+  expiraEm: string;
+  ultimoAcessoEm: string | null;
+  revogadoEm: string | null;
+  consumidoEm: string | null;
+  motivoRevogacao: string | null;
+  url: string | null;
+};
+
 export type ChecklistCampo = {
   rotulo: string;
   valor: string;
@@ -150,7 +173,7 @@ export type ChecklistAssinaturaPublica = {
   qualidade: ChecklistSignatarioQualidade;
   qualidadeOutro: string | null;
   declaracao: string;
-  metodo: "PRESENCIAL_DESENHADA";
+  metodo: ChecklistAssinaturaMetodo;
   assinaturaPath: string;
   assinaturaHash: string;
   assinaturaVinculoHash: string;

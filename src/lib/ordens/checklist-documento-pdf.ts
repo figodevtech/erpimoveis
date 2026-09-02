@@ -567,8 +567,9 @@ function verificationUrl(document: ChecklistDocumentoCompleto) {
 async function drawSignatureSection(ctx: PdfContext) {
   const signature = ctx.document.assinatura;
   if (!signature) return;
+  const remote = signature.metodo === "REMOTA_DESENHADA";
   addPage(ctx);
-  section(ctx, "Ciência e assinatura presencial");
+  section(ctx, remote ? "Ciência e assinatura remota" : "Ciência e assinatura presencial");
   const declarationLines = wrap(signature.declaracao, ctx.regular, 8.8, CONTENT_WIDTH - 24);
   const declarationHeight = 20 + declarationLines.length * 11.5;
   ensureSpace(ctx, declarationHeight);
@@ -641,7 +642,9 @@ async function drawSignatureSection(ctx: PdfContext) {
     thickness: 0.65,
     color: mixColor(BLACK, WHITE, 0.35),
   });
-  ctx.page.drawText("Traço coletado presencialmente no dispositivo da oficina", {
+  ctx.page.drawText(remote
+    ? "Traço fornecido pelo responsável no acesso remoto autenticado"
+    : "Traço coletado presencialmente no dispositivo da oficina", {
     x: MARGIN + 18,
     y: cardBottom + 15,
     size: 6.5,
@@ -672,11 +675,18 @@ async function drawSignatureSection(ctx: PdfContext) {
   const quality = CHECKLIST_QUALIDADE_LABEL[signature.signatarioQualidade as ChecklistSignatarioQualidade] ?? signature.signatarioQualidade;
   fieldGrid(ctx, [
     { rotulo: "Nome", valor: signature.signatarioNome },
-    { rotulo: "CPF/CNPJ", valor: formatCpfCnpj(signature.signatarioDocumento) },
+    { rotulo: remote ? "CPF" : "CPF/CNPJ", valor: formatCpfCnpj(signature.signatarioDocumento) },
     { rotulo: "Função", valor: signature.qualidadeOutro || quality },
     { rotulo: "Assinado em", valor: formatPdfDate(signature.assinadoEm) },
-    { rotulo: "Método", valor: "Assinatura eletrônica simples presencial - traço desenhado" },
-    { rotulo: "Operador autenticado", valor: signature.operadorNome || "Identificado no registro interno" },
+    {
+      rotulo: "Método",
+      valor: remote
+        ? "Assinatura eletrônica simples remota — link secreto, CPF e senha"
+        : "Assinatura eletrônica simples presencial - traço desenhado",
+    },
+    remote
+      ? { rotulo: "Autenticação", valor: "Link secreto, CPF e senha" }
+      : { rotulo: "Operador autenticado", valor: signature.operadorNome || "Identificado no registro interno" },
   ]);
   ctx.y -= 9;
   section(ctx, "Integridade e verificação");
@@ -985,7 +995,7 @@ export async function generateChecklistOfficialPdf(
 
 export async function ensureChecklistOfficialPdf(args: {
   publicId: string;
-  userId: string;
+  userId: string | null;
   audit: { ip: string | null; userAgent: string | null };
 }) {
   let document = await loadChecklistDocumento(args.publicId, { checkCurrentContent: false });

@@ -63,6 +63,38 @@ function makeServiceKey(ordemservicoid: number, servicoid: number) {
   return `${ordemservicoid}:${servicoid}`;
 }
 
+const ALL_OS_STATUSES = [
+  "AGUARDANDO_CHECKLIST",
+  "ORCAMENTO",
+  "ORCAMENTO_RECUSADO",
+  "APROVACAO_ORCAMENTO",
+  "ORCAMENTO_APROVADO",
+  "EM_ANDAMENTO",
+  "PAGAMENTO",
+  "SEM_COBRANCA",
+  "CONCLUIDO",
+  "CANCELADO",
+] as const;
+
+/**
+ * Foto de agora: conta todas as OS por status, sem recorte de periodo. Usa
+ * count/head para nao trazer linha nenhuma do banco.
+ */
+async function fetchCountsByStatusGeral(): Promise<Record<string, number>> {
+  const counts = await Promise.all(
+    ALL_OS_STATUSES.map(async (status) => {
+      const { count, error } = await supabaseAdmin
+        .from("ordemservico")
+        .select("id", { count: "exact", head: true })
+        .eq("is_deleted", false)
+        .eq("status", status);
+      if (error) throw error;
+      return count ?? 0;
+    }),
+  );
+  return Object.fromEntries(ALL_OS_STATUSES.map((status, i) => [status, counts[i] ?? 0]));
+}
+
 /** ========================= GET ========================= */
 export async function GET(req: Request) {
   try {
@@ -121,12 +153,10 @@ export async function GET(req: Request) {
       )
     ).filter((row) => row.dataentrada || row.execucao_fim_em);
 
-    const start30Date = new Date(`${today}T00:00:00${FORTALEZA_OFFSET}`);
-    start30Date.setUTCDate(start30Date.getUTCDate() - 29);
     const todayStart = localDayStartToUtcIso(today);
     const tomorrowStart = localNextDayStartToUtcIso(today);
 
-    const [todayRows, todayCompletedRows, recentCompletedRows] = await Promise.all([
+    const [todayRows, todayCompletedRows, countsByStatusGeral] = await Promise.all([
       fetchAllSupabaseRows<Row>(() =>
         supabaseAdmin
           .from("ordemservico")
@@ -145,16 +175,14 @@ export async function GET(req: Request) {
           .lt(SERVICE_ORDER_COMPLETION_COLUMN, tomorrowStart)
           .order("id", { ascending: true }),
       ),
-      fetchAllSupabaseRows<Row>(() =>
-        supabaseAdmin
-          .from("ordemservico")
-          .select("id, status, dataentrada, execucao_fim_em, orcamentototal")
-          .eq("is_deleted", false)
-          .gte(SERVICE_ORDER_COMPLETION_COLUMN, start30Date.toISOString())
-          .lt(SERVICE_ORDER_COMPLETION_COLUMN, tomorrowStart)
-          .order("id", { ascending: true }),
-      ),
+      fetchCountsByStatusGeral(),
     ]);
+
+    const inProgressGeral = countsByStatusGeral.EM_ANDAMENTO ?? 0;
+    const ordersOpenGeral = Object.entries(countsByStatusGeral).reduce(
+      (total, [status, quantidade]) => (isServiceOrderOpen(status) ? total + quantidade : total),
+      0,
+    );
 
     const monthlyNew: Record<string, number> = Object.fromEntries(monthKeys.map((k) => [k, 0]));
     const monthlyCompleted: Record<string, number> = Object.fromEntries(monthKeys.map((k) => [k, 0]));
@@ -176,7 +204,7 @@ export async function GET(req: Request) {
     const ordersCompleted = completedPeriodRows.length;
 
     let totalBudget = 0;
-    const revenue30d = recentCompletedRows.reduce((sum, row) => sum + toNum(row.orcamentototal), 0);
+    const revenueCompleted = completedPeriodRows.reduce((sum, row) => sum + toNum(row.orcamentototal), 0);
     const revenueToday = todayCompletedRows.reduce((sum, row) => sum + toNum(row.orcamentototal), 0);
     const ordersToday = todayRows.length;
     const ordersTodayCompleted = todayCompletedRows.length;
@@ -230,15 +258,8 @@ export async function GET(req: Request) {
       }
     }
 
-    durationsHours.sort((a, b) => a - b);
     const avgCompletionHours = durationsHours.length
       ? durationsHours.reduce((a, b) => a + b, 0) / durationsHours.length
-      : 0;
-    const p50CompletionHours = durationsHours.length
-      ? durationsHours[Math.floor((durationsHours.length - 1) * 0.5)]
-      : 0;
-    const p90CompletionHours = durationsHours.length
-      ? durationsHours[Math.floor((durationsHours.length - 1) * 0.9)]
       : 0;
 
     const avgTicketAll = totalOrders ? totalBudget / totalOrders : 0;
@@ -369,13 +390,14 @@ export async function GET(req: Request) {
         totalBudget,
         avgTicketAll,
         avgCompletionHours,
-        p50CompletionHours,
-        p90CompletionHours,
         ordersToday,
         ordersTodayCompleted,
         revenueToday,
-        revenue30d,
+        revenueCompleted,
         countsByStatus,
+        countsByStatusGeral,
+        ordersOpenGeral,
+        inProgressGeral,
         countsByApproval,
         countsByPriority,
         monthlyNew: monthlyNewArr,

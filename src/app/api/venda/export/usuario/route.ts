@@ -4,6 +4,10 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import * as XLSX from "xlsx";
 
+import { requireRelatoriosAccess } from "@/app/api/_authz/perms";
+import { fetchAllSupabaseRows } from "@/lib/supabase-pagination";
+import { STATUS_VENDA_REALIZADA } from "@/lib/vendas/vendas-por-setor";
+
 const FORTALEZA_TZ = "America/Fortaleza";
 const FORTALEZA_OFFSET = "-03:00";
 
@@ -47,11 +51,13 @@ const VENDA_SELECT = `
   desconto_valor,
   datavenda,
   cliente:clienteid ( nomerazaosocial, cpfcnpj ),
-  vendedor:created_by ( nome )
+  vendedor:vendedor ( nome ),
+  criador:created_by ( nome )
 `;
 
 export async function GET(req: Request) {
   try {
+    await requireRelatoriosAccess();
     const { searchParams } = new URL(req.url);
     const userId = (searchParams.get("userId") ?? "").trim();
     const dateFrom = (searchParams.get("dateFrom") ?? "").trim();
@@ -61,24 +67,32 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Selecione um usuário." }, { status: 400 });
     }
 
-    let query = supabaseAdmin
-      .from("venda")
-      .select(VENDA_SELECT)
-      .eq("created_by", userId)
-      .order("datavenda", { ascending: true, nullsFirst: false })
-      .order("id", { ascending: true });
+    // Credita a venda a quem ela pertence (`venda.vendedor`), e não a quem a
+    // digitou. Eram colunas trocadas: a planilha rotulava `created_by` como
+    // "Vendedor", e o gerente cujas vendas o balcão lança aparecia zerado.
+    const data = await fetchAllSupabaseRows<any>(() => {
+      let query = supabaseAdmin
+        .from("venda")
+        .select(VENDA_SELECT)
+        .eq("vendedor", userId)
+        // Mesmo conjunto de `venda_reconhece_receita`: o relatório diz "vendas
+        // realizadas", então orçamento e cancelada não entram na soma.
+        .in("status", STATUS_VENDA_REALIZADA as unknown as string[])
+        .order("datavenda", { ascending: true, nullsFirst: false })
+        .order("id", { ascending: true });
 
-    if (dateFrom) query = query.gte("datavenda", localDayStartToUtcIso(dateFrom));
-    if (dateTo) query = query.lt("datavenda", localNextDayStartToUtcIso(dateTo));
+      if (dateFrom) query = query.gte("datavenda", localDayStartToUtcIso(dateFrom));
+      if (dateTo) query = query.lt("datavenda", localNextDayStartToUtcIso(dateTo));
 
-    const { data, error } = await query;
-    if (error) throw error;
+      return query;
+    });
 
     const headers = [
       "Venda ID",
       "Data Venda",
       "Status",
-      "Vendedor Nome",
+      "Vendedor",
+      "Lançado por",
       "Cliente Nome/Razão",
       "Cliente CPF/CNPJ",
       "Subtotal (R$)",
@@ -90,12 +104,14 @@ export async function GET(req: Request) {
     const rows = (data ?? []).map((v: any) => {
       const cliente = firstOrSelf<any>(v.cliente);
       const vendedor = firstOrSelf<any>(v.vendedor);
+      const criador = firstOrSelf<any>(v.criador);
 
       return [
         v.id ?? "",
         formatFortaleza(v.datavenda ?? null),
         v.status ?? "",
         vendedor?.nome ?? "",
+        criador?.nome ?? "",
         cliente?.nomerazaosocial ?? "",
         cliente?.cpfcnpj ?? "",
         toNum(v.sub_total) ?? null,
@@ -111,7 +127,8 @@ export async function GET(req: Request) {
       { wch: 10 }, // Venda ID
       { wch: 22 }, // Data Venda
       { wch: 16 }, // Status
-      { wch: 28 }, // Vendedor Nome
+      { wch: 28 }, // Vendedor
+      { wch: 28 }, // Lançado por
       { wch: 34 }, // Cliente Nome/Razão
       { wch: 18 }, // Cliente CPF/CNPJ
       { wch: 16 }, // Subtotal (R$)
@@ -136,7 +153,7 @@ export async function GET(req: Request) {
   } catch (e: any) {
     return NextResponse.json(
       { error: e?.message || "Erro ao exportar vendas por usuário" },
-      { status: 500 }
+      { status: e?.statusCode || 500 }
     );
   }
 }

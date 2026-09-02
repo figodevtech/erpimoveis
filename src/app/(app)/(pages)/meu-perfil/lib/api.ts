@@ -3,6 +3,8 @@
 
 import type {
   IndicadoresOrdens,
+  IndicadoresServicos,
+  IndicadoresVendas,
   MeuPerfil,
   MeuResumo,
   MeuServico,
@@ -97,6 +99,32 @@ export function buscarIndicadoresOrdens(
   if (ate) params.set("ate", ate);
   comUsuario(params, usuarioId);
   return buscarJson<IndicadoresOrdens>(`/api/me/ordens/indicadores?${params.toString()}`, signal);
+}
+
+/** Totais da aba de vendas: dependem do período, não da página. */
+export function buscarIndicadoresVendas(
+  { de, ate }: Periodo,
+  usuarioId?: string,
+  signal?: AbortSignal,
+): Promise<IndicadoresVendas> {
+  const params = new URLSearchParams();
+  if (de) params.set("de", de);
+  if (ate) params.set("ate", ate);
+  comUsuario(params, usuarioId);
+  return buscarJson<IndicadoresVendas>(`/api/me/vendas/indicadores?${params.toString()}`, signal);
+}
+
+/** Totais da aba de serviços: dependem do período, não da página. */
+export function buscarIndicadoresServicos(
+  { de, ate }: Periodo,
+  usuarioId?: string,
+  signal?: AbortSignal,
+): Promise<IndicadoresServicos> {
+  const params = new URLSearchParams();
+  if (de) params.set("de", de);
+  if (ate) params.set("ate", ate);
+  comUsuario(params, usuarioId);
+  return buscarJson<IndicadoresServicos>(`/api/me/servicos/indicadores?${params.toString()}`, signal);
 }
 
 export function buscarMeusServicos({ signal, ...filtros }: ParametrosLista): Promise<Paginado<MeuServico>> {

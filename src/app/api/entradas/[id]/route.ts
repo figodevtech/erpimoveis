@@ -8,7 +8,8 @@ type Params = { params: Promise<{ id: string }> };
 
 const SELECT_ENTRADA = `
   id, created_at, fornecedorid, fiscal, notachave, tipo, status, origem, observacao,
-  numero_nota, serie_nota, data_emissao, valor_total, cancelada_at, created_by,
+  numero_nota, serie_nota, data_emissao, valor_total, fiscal_dfe_documento_id,
+  cancelada_at, created_by,
   cancelada_by, motivo_cancelamento,
   fornecedor:fornecedorid(id, cpfcnpj, nomerazaosocial, nomefantasia),
   itens:entradaitens(
@@ -39,7 +40,10 @@ export async function GET(_req: Request, { params }: Params) {
         ...data,
         itens: Array.isArray(data.itens) ? [...data.itens].sort((a, b) => Number(a.id) - Number(b.id)) : [],
       }),
-      carregarPersonalizacaoFiscal("produto", Number(id)),
+      carregarPersonalizacaoFiscal("produto", Number(id), {
+        documentoId: Number(data.fiscal_dfe_documento_id) || null,
+        entradaCreatedAt: String(data.created_at),
+      }),
     ]);
     return NextResponse.json({
       entrada: { ...entrada, personalizacaoFiscal },

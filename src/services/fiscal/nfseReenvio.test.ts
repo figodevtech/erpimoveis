@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
 import { describe, it, beforeEach, afterEach } from "node:test";
 
+// Antes de `nfse-registro`: ele importa o `supabaseAdmin`, que aborta na carga
+// sem as variáveis de ambiente. Aqui só se exercita função pura.
+import "./__testEnv";
+
 import {
   NFSeService,
   criarReferenciaPorServicos,
   prepararReenvioNFSe,
 } from "@/lib/services/fiscais/nfse-service";
+import { arquivarTentativaNFSe } from "@/lib/services/fiscais/nfse-registro";
 
 /**
  * O reenvio de NFS-e rejeitada repete o `payload_enviado` gravado. São três
@@ -213,5 +218,75 @@ describe("reenvio de NFS-e rejeitada", () => {
     assert.equal(envio.corpo.data_competencia, PAYLOAD_NACIONAL.data_competencia);
     assert.equal(envio.corpo.valor_servico, 650);
     assert.equal("referencia" in envio.corpo, false);
+  });
+});
+
+/**
+ * O reenvio acontece na própria linha rejeitada, e não numa cópia: o que ia
+ * para o registro novo — envio, retorno bruto e erros da tentativa recusada —
+ * seria sobrescrito. `arquivarTentativaNFSe` é o que guarda isso antes.
+ */
+describe("histórico de tentativas da NFS-e reenviada", () => {
+  const rejeitada = {
+    referencia: "OS_31_SRVS_23_111",
+    status: "REJEITADA",
+    erros: [{ codigo: "L999", mensagem: "Problema(s) encontrado(s) no processamento dos dados" }],
+    payload_enviado: PAYLOAD_CABEDELO,
+    retorno_bruto: { http_status: 422, corpo: { codigo: "L999" } },
+    updatedat: "2026-08-19T16:00:20.000Z",
+    tentativas: [],
+  };
+
+  it("arquiva a tentativa recusada inteira", () => {
+    const historico = arquivarTentativaNFSe(rejeitada);
+
+    assert.equal(historico.length, 1);
+    assert.deepEqual(historico[0], {
+      referencia: "OS_31_SRVS_23_111",
+      status: "REJEITADA",
+      erros: rejeitada.erros,
+      payload_enviado: PAYLOAD_CABEDELO,
+      retorno_bruto: rejeitada.retorno_bruto,
+      registrada_em: "2026-08-19T16:00:20.000Z",
+    });
+  });
+
+  it("preserva o histórico anterior e mantém a ordem", () => {
+    const anterior = { referencia: "OS_31_SRVS_23_000", registrada_em: "2026-08-19T15:00:00.000Z" };
+    const historico = arquivarTentativaNFSe({ ...rejeitada, tentativas: [anterior] });
+
+    assert.equal(historico.length, 2);
+    assert.deepEqual(historico[0], anterior);
+    assert.equal(historico[1].referencia, "OS_31_SRVS_23_111");
+  });
+
+  it("tolera a linha gravada antes da coluna existir", () => {
+    for (const tentativas of [null, undefined, "{}", 7]) {
+      const historico = arquivarTentativaNFSe({ ...rejeitada, tentativas });
+      assert.equal(historico.length, 1);
+      assert.equal(historico[0].referencia, "OS_31_SRVS_23_111");
+    }
+  });
+
+  it("sem data de atualização, registra a hora do arquivamento", () => {
+    const semData = { ...rejeitada, updatedat: undefined };
+    const antes = Date.now();
+
+    const [tentativa] = arquivarTentativaNFSe(semData);
+
+    assert.ok(new Date(tentativa.registrada_em).getTime() >= antes);
+  });
+
+  it("corta pelas últimas, descartando as mais antigas", () => {
+    // Cada retorno bruto vai até 20 mil caracteres: uma nota reenviada dezenas
+    // de vezes numa instabilidade não pode inchar a linha sem limite.
+    const antigas = Array.from({ length: 10 }, (_, i) => ({ referencia: `OS_31_SRVS_23_${i}` }));
+
+    const historico = arquivarTentativaNFSe({ ...rejeitada, tentativas: antigas }, 3);
+
+    assert.equal(historico.length, 3);
+    assert.equal(historico[0].referencia, "OS_31_SRVS_23_8");
+    assert.equal(historico[1].referencia, "OS_31_SRVS_23_9");
+    assert.equal(historico[2].referencia, "OS_31_SRVS_23_111");
   });
 });

@@ -10,6 +10,7 @@ import {
   checklistPublicIdValido,
   statusChecklistDocumento,
   type ChecklistCampo,
+  type ChecklistAssinaturaMetodo,
   type ChecklistDocumentoMudancas,
   type ChecklistDocumentoResumo,
   type ChecklistSnapshotAsset,
@@ -66,7 +67,7 @@ export type ChecklistDocumentoCompleto = {
     signatarioQualidade: string;
     qualidadeOutro: string | null;
     declaracao: string;
-    metodo: "PRESENCIAL_DESENHADA";
+    metodo: ChecklistAssinaturaMetodo;
     assinaturaPath: string;
     assinaturaHash: string;
     assinaturaVinculoHash: string;
@@ -738,7 +739,7 @@ export async function loadChecklistDocumento(
       signatarioQualidade: String(signature.signatario_qualidade),
       qualidadeOutro: text(signature.qualidade_outro),
       declaracao: String(signature.declaracao),
-      metodo: "PRESENCIAL_DESENHADA",
+      metodo: String(signature.metodo) as ChecklistAssinaturaMetodo,
       assinaturaPath: String(signature.assinatura_path),
       assinaturaHash: String(signature.assinatura_hash),
       assinaturaVinculoHash: String(signature.assinatura_vinculo_hash),

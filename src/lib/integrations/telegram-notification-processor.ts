@@ -1,4 +1,5 @@
 import { processTelegramStockNotifications } from "@/lib/estoque/telegram-stock-notifications";
+import { processTelegramFiscalNotifications } from "@/lib/fiscal/telegram-fiscal-notifications";
 import { getTelegramEnvironment } from "@/lib/integrations/telegram";
 import { processTelegramNotifications as processTelegramOrderNotifications } from "@/lib/ordens/telegram-notifications";
 
@@ -31,17 +32,22 @@ export async function processTelegramNotificationQueues() {
 
   const os = await safelyProcess("os", () => processTelegramOrderNotifications());
   const estoque = await safelyProcess("estoque", () => processTelegramStockNotifications());
-  const errors = [os.error, estoque.error].filter((error): error is string => Boolean(error));
+  const fiscal = await safelyProcess("fiscal", () => processTelegramFiscalNotifications());
+  const errors = [os.error, estoque.error, fiscal.error].filter((error): error is string => Boolean(error));
 
   return {
-    skipped: os.skipped === true && estoque.skipped === true,
+    skipped: os.skipped === true && estoque.skipped === true && fiscal.skipped === true,
     events: Number(os.events ?? 0),
     deliveries: Number(os.deliveries ?? 0),
-    processedDeliveries: Number(os.processedDeliveries ?? 0) + Number(estoque.processedDeliveries ?? 0),
-    sent: Number(os.sent ?? 0) + Number(estoque.sent ?? 0),
-    failed: Number(os.failed ?? 0) + Number(estoque.failed ?? 0),
+    processedDeliveries:
+      Number(os.processedDeliveries ?? 0)
+      + Number(estoque.processedDeliveries ?? 0)
+      + Number(fiscal.processedDeliveries ?? 0),
+    sent: Number(os.sent ?? 0) + Number(estoque.sent ?? 0) + Number(fiscal.sent ?? 0),
+    failed: Number(os.failed ?? 0) + Number(estoque.failed ?? 0) + Number(fiscal.failed ?? 0),
     errors,
     os,
     estoque,
+    fiscal,
   };
 }

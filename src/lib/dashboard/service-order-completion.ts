@@ -17,6 +17,11 @@ const NON_OPEN_STATUSES = new Set([
 /**
  * A conclusão da OS é o fim da execução técnica. Pagamento e retirada física
  * são eventos posteriores e independentes.
+ *
+ * Não há filtro de status aqui de propósito: o carimbo é a definição. Quem muda
+ * status responde por ele — `fn_os_execucao_set_times` apaga o carimbo quando a
+ * OS volta para EM_ANDAMENTO ou é cancelada (20260902100000). Por isso OS
+ * cancelada não chega a passar por esta função como concluída.
  */
 export function serviceOrderCompletionDate(row: ServiceOrderCompletionRow) {
   return row.execucao_fim_em ?? null;

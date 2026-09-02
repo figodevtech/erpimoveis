@@ -28,6 +28,7 @@ import type { ChecklistDocumentoCompleto } from "@/lib/ordens/checklist-document
 import { A4PdfActions } from "../../../components/A4PdfActions";
 import { PrintA4Paginator } from "../../../components/PrintA4Paginator";
 import { PrintDocumentHeader, PRINT_DOCUMENT_HEADER_CSS } from "../../../components/PrintDocumentHeader";
+import { ChecklistOnlineSigningInvitation } from "./online-signing-invitation";
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "Não informado";
@@ -258,6 +259,9 @@ export function ChecklistReport({ document, assetUrls, canSign }: {
   );
   const logoUrl = document.snapshot.empresa.logo ? assetUrls[document.snapshot.empresa.logo.storagePath] ?? null : null;
   const itemGroups = groupChecklistItemsForPrint(document.snapshot.checklist.itens);
+  const customerPhone = document.snapshot.ordemServico.cliente.find((field) =>
+    /telefone|celular|whatsapp/i.test(field.rotulo),
+  )?.valor ?? null;
 
   useEffect(() => {
     let active = true;
@@ -333,6 +337,13 @@ export function ChecklistReport({ document, assetUrls, canSign }: {
       <Button size="sm" onClick={() => setSignatureOpen(true)} disabled={!canSign || !document.maisRecente} title={!document.maisRecente ? "Somente a versão mais recente pode ser assinada." : undefined}>
         <PenLine className="mr-2 h-4 w-4" />Assinar presencialmente
       </Button>
+      <ChecklistOnlineSigningInvitation
+        publicId={document.publicId}
+        canManage={canSign}
+        latest={document.maisRecente}
+        customerPhone={customerPhone}
+        documentCode={document.codigo}
+      />
     </div>
   );
 
@@ -462,7 +473,7 @@ export function ChecklistReport({ document, assetUrls, canSign }: {
                 {document.snapshot.checklist.observacaoDocumento && <p><b>Observação de saída:</b> {document.snapshot.checklist.observacaoDocumento}</p>}
                 {document.snapshot.checklist.retiradoPor && <p><b>Retirado por:</b> {document.snapshot.checklist.retiradoPor}</p>}
                 {document.assinatura ? <>
-                  <h2>Ciência e assinatura presencial</h2>
+                  <h2>Ciência e assinatura {document.assinatura.metodo === "REMOTA_DESENHADA" ? "remota" : "presencial"}</h2>
                   <p>{document.assinatura.declaracao}</p>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img className="signature-image" src={assetUrls[document.assinatura.assinaturaPath]} alt="Assinatura preservada" />
@@ -471,8 +482,8 @@ export function ChecklistReport({ document, assetUrls, canSign }: {
                     <span><b>CPF/CNPJ:</b> {formatCpfCnpj(document.assinatura.signatarioDocumento)}</span>
                     <span><b>Função:</b> {document.assinatura.qualidadeOutro || CHECKLIST_QUALIDADE_LABEL[document.assinatura.signatarioQualidade as ChecklistSignatarioQualidade]}</span>
                     <span><b>Data/hora:</b> {formatDate(document.assinatura.assinadoEm)}</span>
-                    <span><b>Método:</b> Assinatura eletrônica simples presencial</span>
-                    <span><b>Inspetor(es):</b> {document.snapshot.checklist.responsaveis.join(", ") || "Não identificado"}</span>
+                    <span><b>Método:</b> {document.assinatura.metodo === "REMOTA_DESENHADA" ? "Assinatura eletrônica simples remota — link secreto, CPF e senha" : "Assinatura eletrônica simples presencial"}</span>
+                    <span><b>{document.assinatura.metodo === "REMOTA_DESENHADA" ? "Autenticação" : "Inspetor(es)"}:</b> {document.assinatura.metodo === "REMOTA_DESENHADA" ? "Link secreto, CPF e senha" : document.snapshot.checklist.responsaveis.join(", ") || "Não identificado"}</span>
                   </div>
                   <div className="hashes">Snapshot SHA-256: {document.snapshotHash}<br />Assinatura SHA-256: {document.assinatura.assinaturaHash}<br />Vínculo: {document.assinatura.assinaturaVinculoHash}</div>
                 </> : <div className="provisional-notice"><b>DOCUMENTO PROVISÓRIO · NÃO ASSINADO</b><p>{CHECKLIST_DECLARACAO}</p></div>}

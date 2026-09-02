@@ -159,7 +159,7 @@ export default function DialogVendasSetor() {
         <DialogHeader>
           <DialogTitle>Relatório de Vendas por Setor</DialogTitle>
           <DialogDescription>
-            Selecione o setor e o período para visualizar ou baixar o relatório de vendas concluídas (PAGO ou FINALIZADA).
+            Selecione o setor e o período para visualizar ou baixar o relatório. Entram as vendas já reconhecidas como receita (pagamento, pago, autorizado e finalizada), creditadas ao vendedor da venda.
           </DialogDescription>
         </DialogHeader>
 

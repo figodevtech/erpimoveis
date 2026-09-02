@@ -33,7 +33,7 @@ function signatureBytes(dataUrl: unknown) {
   return bytes;
 }
 
-async function normalizeAndValidateSignature(dataUrl: unknown) {
+export async function normalizeAndValidateSignature(dataUrl: unknown) {
   const source = signatureBytes(dataUrl);
   let raw: { data: Buffer; info: sharp.OutputInfo };
   try {
@@ -57,6 +57,21 @@ async function normalizeAndValidateSignature(dataUrl: unknown) {
   }
 
   return sharp(raw.data, { raw: raw.info }).png({ compressionLevel: 9 }).toBuffer();
+}
+
+export async function preserveChecklistSignature(dataUrl: unknown) {
+  const png = await normalizeAndValidateSignature(dataUrl);
+  const hash = sha256(png);
+  const path = `assinaturas/${hash}.png`;
+  const upload = await supabaseAdmin.storage.from(CHECKLIST_DOCUMENTOS_BUCKET).upload(path, png, {
+    contentType: "image/png",
+    cacheControl: "31536000",
+    upsert: false,
+  });
+  if (upload.error && !/already exists|duplicate|resource exists/i.test(String(upload.error.message ?? ""))) {
+    throw upload.error;
+  }
+  return { png, hash, path };
 }
 
 export async function signChecklistDocumento(args: {
@@ -98,15 +113,9 @@ export async function signChecklistDocumento(args: {
     throw new ChecklistDocumentoError("Esta versão já foi assinada.", 409, "ASSINATURA_DUPLICADA");
   }
 
-  const signaturePng = await normalizeAndValidateSignature(args.assinaturaDataUrl);
-  const signatureHash = sha256(signaturePng);
-  const signaturePath = `assinaturas/${signatureHash}.png`;
-  const upload = await supabaseAdmin.storage.from(CHECKLIST_DOCUMENTOS_BUCKET).upload(signaturePath, signaturePng, {
-    contentType: "image/png",
-    cacheControl: "31536000",
-    upsert: false,
-  });
-  if (upload.error && !/already exists|duplicate|resource exists/i.test(String(upload.error.message ?? ""))) throw upload.error;
+  const preservedSignature = await preserveChecklistSignature(args.assinaturaDataUrl);
+  const signatureHash = preservedSignature.hash;
+  const signaturePath = preservedSignature.path;
 
   const signedAt = new Date().toISOString();
   const declarationHash = sha256(CHECKLIST_DECLARACAO);

@@ -268,6 +268,17 @@ export async function GET(req: Request) {
     // Allowlist: o nome vai direto para o ORDER BY, então nada de valor cru.
     const ordenarPorRaw = (searchParams.get("ordenarPor") ?? "data").trim();
     const ordenarPor = ORDENAVEIS.has(ordenarPorRaw) ? ordenarPorRaw : "data";
+    /*
+     * Ordenar por "data" é ordenar pelo DIA do movimento, não pelo instante.
+     *
+     * `data` é timestamptz, e cada caminho de escrita grava uma hora diferente
+     * para o mesmo dia: o lançamento avulso cai na meia-noite local, a baixa e a
+     * transferência no meio-dia, a entrada à vista no instante real. Ordenando
+     * pela coluna crua, um lançamento feito às 18h afundava para baixo de todas
+     * as baixas daquele dia. `data_dia` achata as três no mesmo dia e deixa a
+     * ordem de dentro do dia para o desempate, que é o registro.
+     */
+    const colunaDeOrdem = ordenarPor === "data" ? "data_dia" : ordenarPor;
 
     const from = (page - 1) * limit;
     const to = from + limit - 1;
@@ -290,7 +301,16 @@ export async function GET(req: Request) {
       .eq("is_deleted", false)
       // nullsFirst: false mantém linha sem competência sempre no fim, nos dois
       // sentidos — o padrão do Postgres inverte junto com a direção.
-      .order(ordenarPor, { ascending, nullsFirst: false })
+      .order(colunaDeOrdem, { ascending, nullsFirst: false })
+      /*
+       * Dentro do dia, a ordem é a de realização: o que foi registrado por
+       * último aparece por primeiro.
+       *
+       * O desempate por `id` sozinho não dizia isso. Numa baixa, `id` é o do
+       * TÍTULO, criado quando a venda ou a OS nasceu — dar baixa hoje num título
+       * do mês passado jogava a linha para o fim do dia de hoje.
+       */
+      .order("movimento_registrado_em", { ascending })
       // Desempate estável: sem ele, duas linhas do mesmo dia podem trocar de
       // lugar entre páginas e sumir/repetir na paginação.
       .order("id", { ascending })

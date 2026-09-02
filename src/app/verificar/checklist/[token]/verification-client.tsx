@@ -14,6 +14,7 @@ type VerificationData = {
   codigo: string;
   criadoEm: string;
   assinadoEm: string | null;
+  metodoAssinatura: "PRESENCIAL_DESENHADA" | "REMOTA_DESENHADA" | null;
   snapshotHash: string;
   conteudoHash: string;
   pdfHash: string | null;
@@ -113,7 +114,7 @@ export function ChecklistVerification({ token }: { token: string }) {
           </div>
           {data.pdfDisponivel ? <div className="space-y-3 rounded-lg border p-4"><div className="flex items-center gap-2 font-semibold"><FileCheck2 className="h-5 w-5 text-emerald-700" />Baixar o PDF oficial preservado</div><p className="text-sm text-slate-600">Para proteger os dados pessoais do documento, informe o CPF/CNPJ completo usado na assinatura. As tentativas são limitadas.</p><div className="flex flex-col gap-2 sm:flex-row"><Input value={documentNumber} onChange={(event) => setDocumentNumber(event.target.value)} placeholder="CPF ou CNPJ completo" inputMode="numeric" /><Button onClick={() => void download()} disabled={downloading || !documentNumber.trim()}>{downloading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}Baixar PDF</Button></div></div> : <div className="flex gap-2 rounded-lg border bg-slate-50 p-4 text-sm text-slate-600"><CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-700" />O registro existe, mas o PDF oficial ainda não está disponível.</div>}
           {error && <p className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
-          <p className="text-xs leading-relaxed text-slate-500">A assinatura registrada é eletrônica simples presencial. Esta página confirma a integridade técnica dos arquivos e não declara certificação ICP-Brasil.</p>
+          <p className="text-xs leading-relaxed text-slate-500">A assinatura registrada é eletrônica simples {data.metodoAssinatura === "REMOTA_DESENHADA" ? "remota, autenticada por link secreto, CPF e senha" : "presencial"}. Esta página confirma a integridade técnica dos arquivos e não declara certificação ICP-Brasil.</p>
         </div>
       </section>
     </main>

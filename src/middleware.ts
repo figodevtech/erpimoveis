@@ -15,6 +15,7 @@ const PUBLIC_PATHS = [
   "/os",
   "/venda",
   "/verificar/checklist",
+  "/assinar/checklist",
   // NextAuth
   "/api/auth",
 ];
@@ -28,6 +29,7 @@ const PUBLIC_API_PREFIXES = [
   "/api/ordens/aprovacao",
   "/api/venda/aprovacao",
   "/api/verificar/checklist",
+  "/api/assinar/checklist",
   "/api/site/agendamentos",
   // Chamadas servidor-servidor. Cada rota aplica sua propria validacao.
   "/api/integracoes/mercadolivre/cron",
@@ -299,7 +301,16 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
   // Rotas públicas não dependem da consulta adicional ao Supabase. Isso evita
   // que uma oscilação do banco interrompa login, sessão e recuperação.
   if (isApi && isPublicApi(pathname)) return NextResponse.next();
-  if (!isApi && isPublicPath(pathname)) return NextResponse.next();
+  if (!isApi && isPublicPath(pathname)) {
+    const response = NextResponse.next();
+    if (pathname === "/assinar/checklist" || pathname.startsWith("/assinar/checklist/")) {
+      response.headers.set("Cache-Control", "private, no-store");
+      response.headers.set("Referrer-Policy", "no-referrer");
+      response.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
+      response.headers.set("X-Frame-Options", "DENY");
+    }
+    return response;
+  }
 
   const session = req.auth;
   const user = session?.user;

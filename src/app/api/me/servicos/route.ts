@@ -29,19 +29,28 @@ import {
  * O `!inner` em cada nivel transforma o embed em join, o que permite filtrar,
  * contar e paginar no banco em uma unica consulta.
  *
- * Nao expomos `valor_base` / `valor_comissao`: a Central mostra o valor do
- * servico, nao o calculo de comissao.
+ * A comissao entra na resposta a pedido do balcao: o realizador precisa ver o
+ * quanto ganhou, nao so o quanto o servico valeu. Vem sempre do que esta
+ * gravado em `osservico_realizador` — `valor_base` e `valor_comissao` —, nunca
+ * de um calculo refeito aqui, para o que a Central mostra nunca divergir do que
+ * o relatorio de comissao paga.
+ *
+ * Junto vao os corealizadores: quando duas pessoas dividem o mesmo servico, a
+ * linha precisa dizer com quem foi dividido e quanto coube a cada um, senao o
+ * valor cheio na coluna e a comissao pela metade parecem contradicao.
  */
 const SELECT = `
   ordemservicoid,
   servicoid,
   observacao_execucao,
+  valor_base,
+  valor_comissao,
   item:osservico!inner (
     descricao,
     quantidade,
     precounitario,
     subtotal,
-    servico:servicoid ( id, codigo, descricao ),
+    servico:servicoid ( id, codigo, descricao, gera_comissao ),
     ordem:ordemservicoid!inner (
       id,
       status,
@@ -97,6 +106,33 @@ export async function GET(req: Request) {
 
     if (error) throw error;
 
+    /*
+     * Os corealizadores de cada servico da pagina.
+     *
+     * A chave de `osservico_realizador` e composta (OS + servico), e o
+     * PostgREST nao filtra por tupla — entao a busca vai pelos ids de OS da
+     * pagina, que sao no maximo `limit`, e o pareamento por servico acontece
+     * aqui. Uma consulta a mais por pagina, e so.
+     */
+    const idsDeOs = [...new Set((data ?? []).map((row) => Number((row as any).ordemservicoid)))].filter(
+      Number.isFinite,
+    );
+
+    const porServico = new Map<string, Array<Record<string, unknown>>>();
+    if (idsDeOs.length) {
+      const { data: vinculos, error: erroVinculos } = await supabaseAdmin
+        .from("osservico_realizador")
+        .select("ordemservicoid, servicoid, usuarioid, valor_base, valor_comissao, usuario:usuarioid ( id, nome, email )")
+        .in("ordemservicoid", idsDeOs);
+      if (erroVinculos) throw erroVinculos;
+
+      for (const vinculo of vinculos ?? []) {
+        const registro = vinculo as unknown as Record<string, unknown>;
+        const chave = `${registro.ordemservicoid}::${registro.servicoid}`;
+        porServico.set(chave, [...(porServico.get(chave) ?? []), registro]);
+      }
+    }
+
     const items = (data ?? []).map((row) => {
       const linha = row as unknown as Record<string, unknown>;
       const item = primeiro(linha.item);
@@ -115,10 +151,26 @@ export async function GET(req: Request) {
         descricao: textos.descricao,
         subdescricao: textos.subdescricao,
         codigo: texto(servicoBruto?.codigo),
+        // A flag de hoje, do cadastro do servico. Servico apagado segue o
+        // default da coluna, que e gerar comissao.
+        geraComissao: (servicoBruto as { gera_comissao?: boolean } | null)?.gera_comissao !== false,
         quantidade: num(item?.quantidade) || 1,
         valorUnitario: num(item?.precounitario),
         subtotal: num(item?.subtotal),
         observacao: texto(linha.observacao_execucao),
+        // O que este realizador ganhou nesta linha, como esta gravado.
+        valorBase: num(linha.valor_base),
+        valorComissao: num(linha.valor_comissao),
+        realizadores: (porServico.get(`${linha.ordemservicoid}::${linha.servicoid}`) ?? []).map((vinculo) => {
+          const usuario = primeiro(vinculo.usuario);
+          return {
+            usuarioId: String(vinculo.usuarioid ?? ""),
+            nome: texto(usuario?.nome) || texto(usuario?.email) || "Realizador",
+            valorBase: num(vinculo.valor_base),
+            valorComissao: num(vinculo.valor_comissao),
+            euMesmo: String(vinculo.usuarioid ?? "") === userId,
+          };
+        }),
         ordem: {
           status: texto(ordem?.status),
           dataEntrada: texto(ordem?.dataentrada),

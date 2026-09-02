@@ -76,7 +76,7 @@ export function apenasDigitos(value: unknown) {
 /** O vínculo do catálogo depende do destino: cada um tem a sua própria coluna. */
 export function linhaVinculada(linha: LinhaFiscal) {
   if (linha.destino === "ESTOQUE") return Boolean(linha.produtoReferenciaId);
-  if (linha.destino === "USOCONSUMO") return Boolean(linha.itemReferenciaId);
+  if (ehEstoqueSimples(linha.destino)) return Boolean(linha.itemReferenciaId);
   return false;
 }
 
@@ -86,10 +86,10 @@ export function rotuloVinculo(linha: LinhaFiscal) {
       ? `Produto vinculado: ${linha.produtoReferencia?.titulo ?? `#${linha.produtoReferenciaId}`}`
       : "Produto não vinculado ao estoque";
   }
-  if (linha.destino === "USOCONSUMO") {
+  if (ehEstoqueSimples(linha.destino)) {
     return linha.itemReferenciaId
       ? `Item vinculado: ${linha.itemReferencia?.titulo ?? `#${linha.itemReferenciaId}`}`
-      : "Item não vinculado ao uso e consumo";
+      : `Item não vinculado ao ${DESTINO_LABEL[linha.destino].toLocaleLowerCase("pt-BR")}`;
   }
   return "Escolha o destino para vincular";
 }

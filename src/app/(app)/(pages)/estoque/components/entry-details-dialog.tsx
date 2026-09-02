@@ -47,7 +47,17 @@ type EntryTransaction = {
 
 type FiscalCustomization = {
   destino: "ESTOQUE" | "USOCONSUMO" | "GERAL";
+  modalidade: "INTEGRAL" | "HIBRIDA";
   custoTotalEstoque: number;
+  custoUnitario: number | null;
+  quantidadePersonalizada: number | null;
+  valorFiscalDocumento: number | null;
+  itemDestino: {
+    id: number | null;
+    titulo: string | null;
+    referencia: string | null;
+    unidade: string | null;
+  } | null;
   createdAt: string;
   itensOriginais: Array<{
     numeroItem: number;
@@ -227,12 +237,22 @@ export function EntryDetailsDialog({ entryId, inventory, open, onOpenChange }: P
   const customization = entry?.personalizacaoFiscal ?? null;
   const customizedItem = items[0];
   const customizedRelatedItem = customizedItem?.produto || customizedItem?.item;
-  const customizedItemTitle = customizedItem
-    ? customizedItem.titulo ||
+  const customizedItemTitle =
+    customization?.itemDestino?.titulo ||
+    (customizedItem
+      ? customizedItem.titulo ||
       customizedRelatedItem?.titulo ||
       `Item #${customizedItem.produto_id || customizedItem.item_id || customizedItem.id}`
-    : "item não identificado";
-  const customizedUnit = customizedItem?.unidade || customizedItem?.item?.unidade || "UN";
+      : "item não identificado");
+  const customizedUnit =
+    customization?.itemDestino?.unidade ||
+    customizedItem?.unidade ||
+    customizedItem?.item?.unidade ||
+    "UN";
+  const customizedQuantity =
+    customization?.quantidadePersonalizada ?? numberValue(customizedItem?.quantidade);
+  const customizedFiscalValue =
+    customization?.valorFiscalDocumento ?? entryTotal;
 
   function handleVerNfe() {
     onOpenChange(false);
@@ -358,27 +378,33 @@ export function EntryDetailsDialog({ entryId, inventory, open, onOpenChange }: P
             </div>
           ) : null}
 
-          {customization && customizedItem ? (
+          {customization && (customization.itemDestino || customizedItem) ? (
             <div className="overflow-hidden rounded-lg border border-amber-400/60 bg-amber-50/70 dark:bg-amber-950/15">
               <div className="flex items-start gap-3 border-b border-amber-400/40 p-4">
                 <TriangleAlert className="mt-0.5 size-5 shrink-0 text-amber-700 dark:text-amber-300" />
                 <div className="min-w-0 space-y-1">
                   <p className="font-semibold text-amber-950 dark:text-amber-100">
-                    Entrada fiscal personalizada
+                    {customization.modalidade === "HIBRIDA"
+                      ? "Entrada fiscal híbrida"
+                      : "Entrada fiscal personalizada"}
                   </p>
                   <p className="text-sm leading-relaxed text-amber-900 dark:text-amber-200">
-                    Os {customization.itensOriginais.length} itens originais da NF-e
-                    foram consolidados em{" "}
+                    {customization.modalidade === "HIBRIDA"
+                      ? `As ${customization.itensOriginais.length} linhas desmarcadas da NF-e foram consolidadas em `
+                      : `Os ${customization.itensOriginais.length} itens originais da NF-e foram consolidados em `}
                     <span className="font-semibold">
-                      {numberValue(customizedItem.quantidade).toLocaleString("pt-BR")} {customizedUnit} de {customizedItemTitle}
+                      {numberValue(customizedQuantity).toLocaleString("pt-BR")} {customizedUnit} de {customizedItemTitle}
                     </span>{" "}
                     no {customizationDestinationLabel(customization.destino)}.
                   </p>
                   <p className="text-xs leading-relaxed text-amber-800 dark:text-amber-300">
-                    Custo incorporado ao estoque: {formatarEmReal(customization.custoTotalEstoque)}.
+                    Custo incorporado ao estoque: {formatarEmReal(customization.custoTotalEstoque)}
+                    {customization.custoUnitario != null
+                      ? ` (${formatarEmReal(customization.custoUnitario)} por ${customizedUnit}).`
+                      : "."}
                     {transactions.length
-                      ? ` O financeiro permaneceu pelo valor fiscal integral de ${formatarEmReal(entryTotal)}.`
-                      : ` O valor fiscal da entrada permaneceu em ${formatarEmReal(entryTotal)}, sem lançamento financeiro.`}
+                      ? ` O financeiro permaneceu pelo valor fiscal integral de ${formatarEmReal(customizedFiscalValue)}.`
+                      : ` O valor fiscal da entrada permaneceu em ${formatarEmReal(customizedFiscalValue)}, sem lançamento financeiro.`}
                   </p>
                 </div>
               </div>
