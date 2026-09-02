@@ -88,7 +88,7 @@ const STATUS_MESSAGE: Record<Exclude<ChecklistConviteStatus, "ATIVO">, string> =
 // usando o tema escuro. Classes explícitas evitam que os tokens globais do tema
 // deixem campos e botões sem contraste na experiência pública de assinatura.
 const LIGHT_INPUT_CLASS =
-  "border-slate-300 bg-white text-slate-950 placeholder:text-slate-400 focus-visible:border-blue-500 focus-visible:ring-blue-500/25";
+  "select-text border-slate-300 bg-white text-slate-950 placeholder:text-slate-400 focus-visible:border-blue-500 focus-visible:ring-blue-500/25";
 const LIGHT_SELECT_CLASS =
   "h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/25";
 const LIGHT_PRIMARY_BUTTON_CLASS =
@@ -97,6 +97,10 @@ const LIGHT_OUTLINE_BUTTON_CLASS =
   "border-slate-300 bg-white text-slate-900 hover:bg-slate-100 hover:text-slate-950";
 const LIGHT_GHOST_BUTTON_CLASS =
   "text-slate-700 hover:bg-slate-100 hover:text-slate-950";
+
+function preventPageSelection(event: Event) {
+  event.preventDefault();
+}
 
 function date(value: string | null | undefined) {
   if (!value) return "Não informado";
@@ -233,6 +237,12 @@ function ReviewDocument({ token, content }: { token: string; content: PublicCont
 export function ChecklistOnlineSigning({ token }: { token: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingRef = useRef(false);
+  const selectionLockRef = useRef<{
+    rootUserSelect: string;
+    rootWebkitUserSelect: string;
+    bodyUserSelect: string;
+    bodyWebkitUserSelect: string;
+  } | null>(null);
   const [stage, setStage] = useState<Stage>("ACCESS");
   const [status, setStatus] = useState<ChecklistConviteStatus | null>(null);
   const [content, setContent] = useState<PublicContent | null>(null);
@@ -310,7 +320,26 @@ export function ChecklistOnlineSigning({ token }: { token: string }) {
   useEffect(() => {
     if (stage !== "SIGN") return;
     const frame = requestAnimationFrame(prepareCanvas);
-    return () => cancelAnimationFrame(frame);
+    const canvas = canvasRef.current;
+    const preventNativeGesture = (event: Event) => event.preventDefault();
+    canvas?.addEventListener("pointerdown", preventNativeGesture, { passive: false });
+    canvas?.addEventListener("pointermove", preventNativeGesture, { passive: false });
+    canvas?.addEventListener("touchstart", preventNativeGesture, { passive: false });
+    canvas?.addEventListener("touchmove", preventNativeGesture, { passive: false });
+    canvas?.addEventListener("selectstart", preventNativeGesture);
+    canvas?.addEventListener("contextmenu", preventNativeGesture);
+    canvas?.addEventListener("dragstart", preventNativeGesture);
+    return () => {
+      cancelAnimationFrame(frame);
+      canvas?.removeEventListener("pointerdown", preventNativeGesture);
+      canvas?.removeEventListener("pointermove", preventNativeGesture);
+      canvas?.removeEventListener("touchstart", preventNativeGesture);
+      canvas?.removeEventListener("touchmove", preventNativeGesture);
+      canvas?.removeEventListener("selectstart", preventNativeGesture);
+      canvas?.removeEventListener("contextmenu", preventNativeGesture);
+      canvas?.removeEventListener("dragstart", preventNativeGesture);
+      unlockPageSelection();
+    };
   }, [stage]);
 
   function pointer(event: ReactPointerEvent<HTMLCanvasElement>) {
@@ -318,8 +347,44 @@ export function ChecklistOnlineSigning({ token }: { token: string }) {
     return { x: event.clientX - rect.left, y: event.clientY - rect.top };
   }
 
+  function lockPageSelection() {
+    if (selectionLockRef.current) return;
+    const root = document.documentElement;
+    const body = document.body;
+    selectionLockRef.current = {
+      rootUserSelect: root.style.userSelect,
+      rootWebkitUserSelect: root.style.getPropertyValue("-webkit-user-select"),
+      bodyUserSelect: body.style.userSelect,
+      bodyWebkitUserSelect: body.style.getPropertyValue("-webkit-user-select"),
+    };
+    root.style.userSelect = "none";
+    root.style.setProperty("-webkit-user-select", "none");
+    body.style.userSelect = "none";
+    body.style.setProperty("-webkit-user-select", "none");
+    document.addEventListener("selectstart", preventPageSelection, true);
+    document.addEventListener("dragstart", preventPageSelection, true);
+  }
+
+  function unlockPageSelection() {
+    const previous = selectionLockRef.current;
+    if (!previous) return;
+    const root = document.documentElement;
+    const body = document.body;
+    root.style.userSelect = previous.rootUserSelect;
+    body.style.userSelect = previous.bodyUserSelect;
+    if (previous.rootWebkitUserSelect) root.style.setProperty("-webkit-user-select", previous.rootWebkitUserSelect);
+    else root.style.removeProperty("-webkit-user-select");
+    if (previous.bodyWebkitUserSelect) body.style.setProperty("-webkit-user-select", previous.bodyWebkitUserSelect);
+    else body.style.removeProperty("-webkit-user-select");
+    document.removeEventListener("selectstart", preventPageSelection, true);
+    document.removeEventListener("dragstart", preventPageSelection, true);
+    selectionLockRef.current = null;
+  }
+
   function startDrawing(event: ReactPointerEvent<HTMLCanvasElement>) {
     event.preventDefault();
+    if (!event.isPrimary || event.button !== 0) return;
+    lockPageSelection();
     window.getSelection()?.removeAllRanges();
     const context = event.currentTarget.getContext("2d");
     if (!context) return;
@@ -342,11 +407,13 @@ export function ChecklistOnlineSigning({ token }: { token: string }) {
 
   function finishDrawing(event: ReactPointerEvent<HTMLCanvasElement>) {
     event.preventDefault();
+    if (!event.isPrimary) return;
     drawingRef.current = false;
     event.currentTarget.getContext("2d")?.closePath();
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
+    unlockPageSelection();
   }
 
   async function authenticate() {
@@ -429,7 +496,7 @@ export function ChecklistOnlineSigning({ token }: { token: string }) {
         )}
 
         {stage === "ACCESS" && !unavailable && status === "ATIVO" && (
-          <section className="mx-auto w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200 sm:p-8">
+          <section className="mx-auto w-full max-w-lg select-none rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200 sm:p-8">
             <LockKeyhole className="mb-4 h-10 w-10 text-blue-600" />
             <h2 className="text-xl font-bold">Confirme sua identidade</h2>
             <p className="mt-2 text-sm leading-relaxed text-slate-600">Informe o CPF indicado pela oficina e a senha numérica recebida em mensagem separada.</p>
@@ -460,7 +527,7 @@ export function ChecklistOnlineSigning({ token }: { token: string }) {
         </>}
 
         {stage === "SIGN" && content && (
-          <section className="mx-auto w-full max-w-3xl rounded-2xl bg-white p-5 shadow-xl ring-1 ring-slate-200 sm:p-8">
+          <section className="mx-auto w-full max-w-3xl select-none rounded-2xl bg-white p-5 shadow-xl ring-1 ring-slate-200 sm:p-8">
             <h2 className="text-xl font-bold">Identificação e assinatura</h2>
             <p className="mt-2 text-sm text-slate-600">O CPF foi validado no acesso e está bloqueado para esta assinatura.</p>
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
@@ -480,7 +547,7 @@ export function ChecklistOnlineSigning({ token }: { token: string }) {
                 onPointerMove={draw}
                 onPointerUp={finishDrawing}
                 onPointerCancel={finishDrawing}
-                onLostPointerCapture={() => { drawingRef.current = false; }}
+                onLostPointerCapture={(event) => { if (!event.isPrimary) return; drawingRef.current = false; unlockPageSelection(); }}
               />
             </div>
             <label className="mt-5 flex items-start gap-3 rounded-xl border bg-slate-50 p-4 text-sm leading-relaxed"><input className="mt-1 h-4 w-4 shrink-0 accent-blue-600" type="checkbox" checked={aware} onChange={(event) => setAware(event.target.checked)} /><span>{content.declaracao}</span></label>
