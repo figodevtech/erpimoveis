@@ -461,6 +461,10 @@ export async function signChecklistRemotely(args: {
     p_user_agent: args.audit.userAgent,
   });
   if (result.error) {
+    console.error("assinar_checklist_remotamente falhou", {
+      code: result.error.code,
+      message: result.error.message,
+    });
     const conflict = ["23505", "55000", "P0002"].includes(result.error.code);
     throw new ChecklistDocumentoError(
       conflict ? "Este convite não está mais disponível ou a versão já foi assinada." : "Não foi possível registrar a assinatura.",

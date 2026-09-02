@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+
+import { hasOSEventosFinanceiros } from "@/app/api/_authz/perms";
 import { OrdemListReportView } from "./ordem-list-report-view";
 
 export const metadata: Metadata = { title: "Relação de ordens de serviço" };
@@ -16,5 +18,10 @@ export default async function OrdemListReportPage({
     notFound();
   }
 
-  return <OrdemListReportView endpoint={endpoint} />;
+  // Custo e lucro têm permissão própria. Decidir aqui, no servidor, faz a opção
+  // simplesmente não existir para quem não pode vê-la — melhor que oferecê-la e
+  // responder 403 quando for marcada.
+  const podeVerEventos = await hasOSEventosFinanceiros();
+
+  return <OrdemListReportView endpoint={endpoint} podeVerEventos={podeVerEventos} />;
 }

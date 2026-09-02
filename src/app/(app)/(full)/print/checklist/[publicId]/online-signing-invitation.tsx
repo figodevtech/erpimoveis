@@ -23,6 +23,15 @@ const STATUS_LABEL: Record<ChecklistConviteStatus, string> = {
   SUPERADO: "Superado",
 };
 
+const DARK_INPUT_CLASS =
+  "dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500";
+const DARK_SELECT_CLASS =
+  "border-input bg-background text-foreground h-9 w-full rounded-md border px-3 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:[color-scheme:dark]";
+const DARK_OUTLINE_BUTTON_CLASS =
+  "dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:hover:text-white";
+const DARK_PRIMARY_BUTTON_CLASS =
+  "dark:bg-violet-600 dark:text-white dark:hover:bg-violet-500";
+
 function date(value: string | null | undefined) {
   if (!value) return "Não informado";
   const parsed = new Date(value);
@@ -148,6 +157,7 @@ export function ChecklistOnlineSigningInvitation({
       type="button"
       variant="outline"
       size="sm"
+      className={DARK_OUTLINE_BUTTON_CLASS}
       onClick={() => { setOpen(true); void load(); }}
       disabled={!canManage || !latest}
       title={!latest ? "Somente a versão mais recente pode ser enviada para assinatura." : undefined}
@@ -156,7 +166,7 @@ export function ChecklistOnlineSigningInvitation({
       {invitation && <span className={`ml-2 rounded-full px-1.5 py-0.5 text-[10px] ${active ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"}`}>{STATUS_LABEL[invitation.status]}</span>}
     </Button>
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="max-h-[94vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="max-h-[94vh] overflow-y-auto text-foreground sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><Link2 className="h-5 w-5 text-primary" />Assinatura online</DialogTitle>
           <DialogDescription>O link e a senha devem ser enviados separadamente ao responsável.</DialogDescription>
@@ -165,12 +175,12 @@ export function ChecklistOnlineSigningInvitation({
         {loading ? <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin" /></div> : <div className="space-y-5">
           {invitation && (
             <section className="space-y-3 rounded-xl border bg-muted/25 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2"><b>Convite {STATUS_LABEL[invitation.status].toLowerCase()}</b><span className="rounded-full bg-background px-2.5 py-1 text-xs font-semibold ring-1 ring-border">{STATUS_LABEL[invitation.status]}</span></div>
+              <div className="flex flex-wrap items-center justify-between gap-2"><b>Convite {STATUS_LABEL[invitation.status].toLowerCase()}</b><span className="rounded-full bg-background px-2.5 py-1 text-xs font-semibold text-foreground ring-1 ring-border">{STATUS_LABEL[invitation.status]}</span></div>
               <div className="grid gap-2 text-sm sm:grid-cols-2"><p><b>Criado em:</b> {date(invitation.criadoEm)}</p><p><b>Vencimento:</b> {date(invitation.expiraEm)}</p>{invitation.ultimoAcessoEm && <p><b>Último acesso:</b> {date(invitation.ultimoAcessoEm)}</p>}{invitation.consumidoEm && <p><b>Utilizado em:</b> {date(invitation.consumidoEm)}</p>}</div>
               {active && invitation.url && <>
-                <div className="flex flex-col gap-2 sm:flex-row"><Input className="font-mono text-xs" value={invitation.url} readOnly /><Button variant="outline" onClick={() => void copy(invitation.url!, "Link copiado.")}><Copy className="mr-2 h-4 w-4" />Copiar link</Button></div>
-                <div className="flex flex-wrap gap-2"><Button onClick={shareWhatsapp}><MessageCircleMore className="mr-2 h-4 w-4" />Compartilhar link no WhatsApp</Button>{newPassword ? <Button variant="outline" onClick={() => void copy(newPassword, "Senha copiada.")}><KeyRound className="mr-2 h-4 w-4" />Copiar senha</Button> : <p className="self-center text-xs text-muted-foreground">A senha não é recuperável. Gere outro convite se ela foi perdida.</p>}</div>
-                <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => { setShowForm(true); setNewPassword(null); }}><RefreshCw className="mr-2 h-4 w-4" />Gerar novo convite</Button><Button variant="destructive" onClick={() => void revoke()} disabled={saving}><Trash2 className="mr-2 h-4 w-4" />Revogar</Button></div>
+                <div className="flex flex-col gap-2 sm:flex-row"><Input className={`font-mono text-xs ${DARK_INPUT_CLASS}`} value={invitation.url} readOnly /><Button className={DARK_OUTLINE_BUTTON_CLASS} variant="outline" onClick={() => void copy(invitation.url!, "Link copiado.")}><Copy className="mr-2 h-4 w-4" />Copiar link</Button></div>
+                <div className="flex flex-wrap gap-2"><Button className={DARK_PRIMARY_BUTTON_CLASS} onClick={shareWhatsapp}><MessageCircleMore className="mr-2 h-4 w-4" />Compartilhar link no WhatsApp</Button>{newPassword ? <Button className={DARK_OUTLINE_BUTTON_CLASS} variant="outline" onClick={() => void copy(newPassword, "Senha copiada.")}><KeyRound className="mr-2 h-4 w-4" />Copiar senha</Button> : <p className="self-center text-xs text-muted-foreground">A senha não é recuperável. Gere outro convite se ela foi perdida.</p>}</div>
+                <div className="flex flex-wrap gap-2"><Button className={DARK_OUTLINE_BUTTON_CLASS} variant="outline" onClick={() => { setShowForm(true); setNewPassword(null); }}><RefreshCw className="mr-2 h-4 w-4" />Gerar novo convite</Button><Button variant="destructive" onClick={() => void revoke()} disabled={saving}><Trash2 className="mr-2 h-4 w-4" />Revogar</Button></div>
               </>}
             </section>
           )}
@@ -179,18 +189,18 @@ export function ChecklistOnlineSigningInvitation({
             <section className="space-y-4 bg-card p-4 rounded-xl">
               {active && <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">Ao gerar, o convite ativo será revogado imediatamente.</p>}
               <div className="grid gap-4 sm:grid-cols-2">
-                <label className="space-y-1.5 text-sm sm:col-span-2"><span className="font-medium">CPF do responsável</span><Input value={cpf} onChange={(event) => setCpf(event.target.value)} inputMode="numeric" placeholder="000.000.000-00" /></label>
-                <label className="space-y-1.5 text-sm"><span className="font-medium">Senha numérica</span><Input type="password" value={password} onChange={(event) => setPassword(event.target.value.replace(/\D/g, "").slice(0, 8))} inputMode="numeric" minLength={4} maxLength={8} /></label>
-                <label className="space-y-1.5 text-sm"><span className="font-medium">Confirmar senha</span><Input type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value.replace(/\D/g, "").slice(0, 8))} inputMode="numeric" minLength={4} maxLength={8} /></label>
-                <label className="space-y-1.5 text-sm sm:col-span-2"><span className="font-medium">Validade</span><select className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm" value={duration} onChange={(event) => setDuration(event.target.value)}><option value="24">24 horas</option><option value="48">48 horas</option><option value="72">72 horas</option><option value="168">7 dias</option></select></label>
+                <label className="space-y-1.5 text-sm sm:col-span-2"><span className="font-medium">CPF do responsável</span><Input className={DARK_INPUT_CLASS} name="checklist-signing-recipient" value={cpf} onChange={(event) => setCpf(event.target.value)} inputMode="numeric" autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} aria-autocomplete="none" placeholder="000.000.000-00" /></label>
+                <label className="space-y-1.5 text-sm"><span className="font-medium">Senha numérica</span><Input className={DARK_INPUT_CLASS} name="checklist-invitation-new-code" type="password" value={password} onChange={(event) => setPassword(event.target.value.replace(/\D/g, "").slice(0, 8))} inputMode="numeric" autoComplete="new-password" autoCapitalize="none" autoCorrect="off" spellCheck={false} aria-autocomplete="none" minLength={4} maxLength={8} /></label>
+                <label className="space-y-1.5 text-sm"><span className="font-medium">Confirmar senha</span><Input className={DARK_INPUT_CLASS} name="checklist-invitation-confirm-code" type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value.replace(/\D/g, "").slice(0, 8))} inputMode="numeric" autoComplete="new-password" autoCapitalize="none" autoCorrect="off" spellCheck={false} aria-autocomplete="none" minLength={4} maxLength={8} /></label>
+                <label className="space-y-1.5 text-sm sm:col-span-2"><span className="font-medium">Validade</span><select className={DARK_SELECT_CLASS} value={duration} onChange={(event) => setDuration(event.target.value)}><option value="24">24 horas</option><option value="48">48 horas</option><option value="72">72 horas</option><option value="168">7 dias</option></select></label>
               </div>
             </section>
           )}
         </div>}
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>Fechar</Button>
-          {showForm && <Button onClick={() => void create()} disabled={saving || password.length < 4 || password !== confirmation}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}Gerar convite</Button>}
+          <Button className={DARK_OUTLINE_BUTTON_CLASS} variant="outline" onClick={() => setOpen(false)}>Fechar</Button>
+          {showForm && <Button className={DARK_PRIMARY_BUTTON_CLASS} onClick={() => void create()} disabled={saving || password.length < 4 || password !== confirmation}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}Gerar convite</Button>}
         </DialogFooter>
       </DialogContent>
     </Dialog>

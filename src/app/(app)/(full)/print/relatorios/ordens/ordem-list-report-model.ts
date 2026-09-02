@@ -25,22 +25,25 @@ export type OrderRow = {
   surcharge: number;
 };
 
-export type ItemDaOrdem = {
-  /** Chave de render estável: a OS não tem id próprio por item em toda fonte. */
-  chave: string;
-  tipo: "PRODUTO" | "SERVICO";
-  codigo: string;
-  descricao: string;
-  unidade: string;
-  quantidade: number;
-  precoUnitario: number;
-  /** Em reais, já resolvido pela rota — nunca negativo. */
-  descontoItem: number;
-  /** Líquido do desconto do próprio item, como está gravado. */
-  subtotal: number;
+/**
+ * A linha que abre sob uma ordem. O modelo não precisa saber se é um item do
+ * orçamento ou um evento financeiro: as duas ocupam a mesma altura, e o que
+ * muda é só o que a folha desenha dentro delas.
+ */
+export type LinhaDaOrdem = { chave: string };
+
+export type OrdemComLinhas<L extends LinhaDaOrdem = LinhaDaOrdem> = {
+  ordem: OrderRow;
+  linhas: L[];
 };
 
-export type OrdemComItens = { ordem: OrderRow; itens: ItemDaOrdem[] };
+/**
+ * O que a folha abre sob cada ordem.
+ *
+ * `eventos` muda o fechamento: em vez das parcelas do orçamento, saem receita e
+ * custo de produto e de serviço mais o lucro real.
+ */
+export type ModoDaFolha = "simples" | "itens" | "eventos";
 
 /* -------------------------------------------------------------------------
  * Orçamento de altura da folha, em milímetros.
@@ -86,24 +89,35 @@ export const MM_ESPACO_ORDEM = 1.5;
  * repetir nove rótulos acima de cada ordem queimaria 4mm vezes o número delas.
  */
 export const MM_CABECALHO_ITENS = 4.5;
+/**
+ * Uma fileira de cards do painel, com o vão que a antecede.
+ *
+ * `MM_TOPO_PRIMEIRA` já conta duas fileiras, que é o caso normal. Cada fileira
+ * além disso soma este valor: o painel cresce quando o recorte tem comissão,
+ * desconto, frete e o que mais existir, e a grade não pode passar de cinco
+ * colunas — medido, o rótulo mais longo tem 28mm e a sexta coluna o cortaria.
+ */
+export const MM_FILEIRA_PAINEL = 12.5;
+export const COLUNAS_MAXIMAS_DO_PAINEL = 5;
 
-export function capacidadeDaFolha(indice: number, detalhado: boolean) {
-  const topo = indice === 0 ? MM_TOPO_PRIMEIRA : MM_TOPO_DEMAIS;
-  return MM_FOLHA_UTIL - topo - MM_RODAPE_TOTAL - (detalhado ? MM_CABECALHO_ITENS : 0);
+export function capacidadeDaFolha(indice: number, modo: ModoDaFolha, fileirasDoPainel = 2) {
+  const painel = indice === 0 ? Math.max(0, fileirasDoPainel - 2) * MM_FILEIRA_PAINEL : 0;
+  const topo = (indice === 0 ? MM_TOPO_PRIMEIRA : MM_TOPO_DEMAIS) + painel;
+  return MM_FOLHA_UTIL - topo - MM_RODAPE_TOTAL - (modo === "simples" ? 0 : MM_CABECALHO_ITENS);
 }
 
 /**
  * Uma OS pode ocupar mais de uma folha; cada fatia sabe o que imprimir.
  *
  * Contrato do render, tudo derivável do que está aqui:
- * - `itens` cheio ......................... imprime essas linhas;
- * - vazio e `continuacao` falso ........... a OS não tem item: imprime o aviso;
+ * - `linhas` cheio ........................ imprime essas linhas;
+ * - vazio e `continuacao` falso ........... nada lançado: imprime o aviso;
  * - vazio e `continuacao` verdadeiro ...... só o fechamento, que não coubera.
  */
-export type FatiaOrdem = {
+export type FatiaOrdem<L extends LinhaDaOrdem = LinhaDaOrdem> = {
   ordem: OrderRow;
-  /** Vazio quando `detalhado` é falso — a folha imprime só o bloco da ordem. */
-  itens: ItemDaOrdem[];
+  /** Vazio no modo simples — a folha imprime só o bloco da ordem. */
+  linhas: L[];
   continuacao: boolean;
   /** Só a fatia que fecha a OS imprime a linha de composição do valor. */
   fecha: boolean;
@@ -111,14 +125,15 @@ export type FatiaOrdem = {
   primeiroIndice: number;
 };
 
-/** Sem itens e sem valor nenhum não há o que compor: o fechamento não sai. */
-function temFechamento(ordem: OrderRow, itens: ItemDaOrdem[]) {
-  return (
-    itens.length > 0 ||
-    ordem.budget !== 0 ||
-    ordem.freight !== 0 ||
-    ordem.surcharge !== 0
-  );
+/**
+ * Sem nada lançado e sem valor nenhum não há o que compor.
+ *
+ * No modo de eventos o fechamento sai sempre que houver evento: uma OS pode ter
+ * custo sem ter orçamento, e é justamente aí que o lucro real interessa.
+ */
+function temFechamento(ordem: OrderRow, linhas: LinhaDaOrdem[], modo: ModoDaFolha) {
+  if (modo === "eventos") return linhas.length > 0;
+  return linhas.length > 0 || ordem.budget !== 0 || ordem.freight !== 0 || ordem.surcharge !== 0;
 }
 
 /**
@@ -133,14 +148,29 @@ export function contarParcelasDoFechamento(ordem: OrderRow) {
 /**
  * Altura da linha de fechamento. Sai daqui e não do componente para o modelo e
  * o render nunca discordarem: quem mede e quem desenha leem a mesma conta.
+ *
+ * No modo de eventos são sempre oito entradas — receita e custo de produto e de
+ * serviço, descontos, comissões, frete e o lucro real —, e com elas a conta
+ * fecha: somando as sete com o sinal de cada uma chega-se ao lucro.
+ *
+ * Oito não cabem numa linha: medidas, somam 226mm numa OS comum e 248mm com
+ * valores altos, contra 176mm de folha. Quebram em duas, e duas linhas medem
+ * 5,66mm. Por isso o modo de eventos reserva sempre o fechamento duplo — não
+ * depende do tamanho dos números, então não há caso extremo a adivinhar.
  */
-export function alturaDoFechamento(ordem: OrderRow) {
+export function alturaDoFechamento(ordem: OrderRow, modo: ModoDaFolha) {
+  if (modo === "eventos") return MM_FECHAMENTO_DUPLO;
   return contarParcelasDoFechamento(ordem) >= 5 ? MM_FECHAMENTO_DUPLO : MM_FECHAMENTO;
 }
 
-export function paginarOrdens(ordens: OrdemComItens[], detalhado: boolean): FatiaOrdem[][] {
-  const folhas: FatiaOrdem[][] = [];
-  let folha: FatiaOrdem[] = [];
+export function paginarOrdens<L extends LinhaDaOrdem>(
+  ordens: OrdemComLinhas<L>[],
+  modo: ModoDaFolha,
+  /** Quantas fileiras de cards a primeira folha vai imprimir. */
+  fileirasDoPainel = 2,
+): FatiaOrdem<L>[][] {
+  const folhas: FatiaOrdem<L>[][] = [];
+  let folha: FatiaOrdem<L>[] = [];
   let usado = 0;
 
   const fechar = () => {
@@ -148,22 +178,22 @@ export function paginarOrdens(ordens: OrdemComItens[], detalhado: boolean): Fati
     folha = [];
     usado = 0;
   };
-  const limite = () => capacidadeDaFolha(folhas.length, detalhado);
+  const limite = () => capacidadeDaFolha(folhas.length, modo, fileirasDoPainel);
 
-  for (const { ordem, itens } of ordens) {
+  for (const { ordem, linhas: itens } of ordens) {
     // Caminho simples: uma fatia por OS, custando exatamente MM_ORDEM — 15
     // ordens na primeira folha e 19 nas demais.
-    if (!detalhado) {
+    if (modo === "simples") {
       if (usado + MM_ORDEM > limite() && folha.length) fechar();
-      folha.push({ ordem, itens: [], continuacao: false, fecha: false, primeiroIndice: 0 });
+      folha.push({ ordem, linhas: [], continuacao: false, fecha: false, primeiroIndice: 0 });
       usado += MM_ORDEM;
       continue;
     }
 
-    // A OS sem item ocupa uma linha assim mesmo: a do aviso. Sem ela o leitor
-    // não distingue uma ordem sem lançamento de uma opção que não funcionou.
+    // A OS sem lançamento ocupa uma linha assim mesmo: a do aviso. Sem ela o
+    // leitor não distingue uma ordem vazia de uma opção que não funcionou.
     const totalLinhas = Math.max(1, itens.length);
-    const custoFechamento = temFechamento(ordem, itens) ? alturaDoFechamento(ordem) : 0;
+    const custoFechamento = temFechamento(ordem, itens, modo) ? alturaDoFechamento(ordem, modo) : 0;
     let cursor = 0;
     let continuacao = false;
     let fechamentoImpresso = custoFechamento === 0;
@@ -209,7 +239,7 @@ export function paginarOrdens(ordens: OrdemComItens[], detalhado: boolean): Fati
 
       folha.push({
         ordem,
-        itens: itens.slice(cursor, cursor + cabem),
+        linhas: itens.slice(cursor, cursor + cabem),
         continuacao,
         fecha: levaFechamento,
         primeiroIndice: cursor,
@@ -226,9 +256,9 @@ export function paginarOrdens(ordens: OrdemComItens[], detalhado: boolean): Fati
     // Os itens fecharam a folha exatamente e o fechamento não coube: ele sai
     // sozinho na folha seguinte, sob o cabeçalho de continuação.
     if (!fechamentoImpresso) {
-      const custo = MM_ORDEM_CONTINUACAO + alturaDoFechamento(ordem) + MM_ESPACO_ORDEM;
+      const custo = MM_ORDEM_CONTINUACAO + alturaDoFechamento(ordem, modo) + MM_ESPACO_ORDEM;
       if (usado + custo > limite() && folha.length) fechar();
-      folha.push({ ordem, itens: [], continuacao: true, fecha: true, primeiroIndice: totalLinhas });
+      folha.push({ ordem, linhas: [], continuacao: true, fecha: true, primeiroIndice: totalLinhas });
       usado += custo;
     }
   }

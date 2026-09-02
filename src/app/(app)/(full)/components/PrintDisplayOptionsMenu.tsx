@@ -25,6 +25,12 @@ export type PrintDisplayOption = {
    * render, e disparar dali refaria o ciclo sozinho.
    */
   onCheckedChange?: (checked: boolean) => void;
+  /**
+   * Marcação controlada pelo pai. Sem isto o menu é dono do estado de cada
+   * checkbox, e duas opções não teriam como se excluir — marcar uma não
+   * conseguiria desmarcar a outra.
+   */
+  checked?: boolean;
 };
 
 function OptionCheckboxItem({
@@ -72,11 +78,15 @@ export function PrintDisplayOptionsMenu({
     ),
   );
 
+  /** Controlada vence a interna; é o que permite uma opção desmarcar a outra. */
+  const estaMarcada = (option: PrintDisplayOption) =>
+    option.checked ?? Boolean(checkedByAttribute[option.attribute]);
+
   useEffect(() => {
     const html = document.documentElement;
 
     for (const option of options) {
-      if (checkedByAttribute[option.attribute]) {
+      if (option.checked ?? checkedByAttribute[option.attribute]) {
         html.setAttribute(option.attribute, "1");
       } else {
         html.removeAttribute(option.attribute);
@@ -108,7 +118,7 @@ export function PrintDisplayOptionsMenu({
           <OptionCheckboxItem
             key={option.attribute}
             option={option}
-            checked={Boolean(checkedByAttribute[option.attribute])}
+            checked={estaMarcada(option)}
             onCheckedChange={(checked) => {
               setCheckedByAttribute((current) => ({
                 ...current,

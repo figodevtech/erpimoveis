@@ -7,6 +7,11 @@ import { A4PdfActions } from "@/app/(app)/(full)/components/A4PdfActions";
 import { PrintDisplayOptionsMenu } from "@/app/(app)/(full)/components/PrintDisplayOptionsMenu";
 import { toast } from "@/lib/toast";
 import {
+  outrasOrigensDaOs,
+  somarEventosDaOs,
+  type TotaisDosEventos,
+} from "@/lib/ordens/eventos-financeiros";
+import {
   alturaDoFechamento,
   MM_CABECALHO_ITENS,
   MM_ESPACO_ORDEM,
@@ -15,7 +20,7 @@ import {
   MM_ORDEM_CONTINUACAO,
   paginarOrdens,
   type FatiaOrdem,
-  type ItemDaOrdem,
+  type ModoDaFolha,
   type OrderRow,
 } from "./ordem-list-report-model";
 
@@ -32,11 +37,15 @@ import {
  * de coluna. É a convenção das outras folhas de impressão: uma fonte só para o
  * arquivo e para o papel, sem uma segunda rota que possa divergir.
  *
- * A opção "Exibir itens das OS" abre cada ordem na lista de itens que formou o
- * valor dela. Os itens saem da mesma exportação, numa segunda aba pedida só
- * quando a opção é marcada — o relatório padrão não paga por eles. Como o bloco
- * de cada ordem passa a ter altura variável, a paginação vive em
- * `ordem-list-report-model.ts`, medida em milímetros e testada à parte.
+ * Duas opções abrem cada ordem, e uma exclui a outra: "Exibir itens das OS"
+ * mostra o que formou o orçamento, e "Exibir eventos financeiros" mostra o que
+ * de fato entrou e saiu, até o lucro real. As duas saem da mesma exportação, em
+ * abas pedidas só quando a opção é marcada — o relatório padrão não paga por
+ * elas. Como o bloco de cada ordem passa a ter altura variável, a paginação
+ * vive em `ordem-list-report-model.ts`, medida em milímetros e testada à parte.
+ *
+ * A regra dos eventos — quais contam, em que ordem e como viram lucro — vem de
+ * `@/lib/ordens/eventos-financeiros`, a mesma que o painel do dialog usa.
  */
 
 type Cell = string | number | boolean | null;
@@ -47,6 +56,9 @@ type Cell = string | number | boolean | null;
  * aviso fica na barra, nunca no papel, e não bloqueia nada.
  */
 const FOLHAS_PARA_AVISAR = 60;
+
+/** Doze divide por três e por quatro, que são as duas larguras de fileira. */
+const COLUNAS_DO_PAINEL = 12;
 
 const STATUS_LABEL: Record<string, string> = {
   AGUARDANDO_CHECKLIST: "Aguardando checklist",
@@ -89,6 +101,16 @@ const TOM_ITEM = {
   PRODUTO: "bg-sky-50 text-sky-800",
   SERVICO: "bg-violet-50 text-violet-800",
 } as const;
+
+const TOM_ORIGEM: Record<string, string> = {
+  PRODUTO: "bg-sky-50 text-sky-800",
+  SERVICO: "bg-violet-50 text-violet-800",
+  COMISSAO: "bg-amber-50 text-amber-800",
+  FRETE: "bg-sky-50 text-sky-800",
+  DESCONTO: "bg-neutral-100 text-neutral-700",
+  AVULSO: "bg-neutral-100 text-neutral-700",
+  ENTRADA_FISCAL: "bg-neutral-100 text-neutral-700",
+};
 
 const PRIORIDADE_LABEL: Record<string, string> = {
   ALTA: "Alta",
@@ -140,6 +162,31 @@ function signedMoney(value: number, sinal: 1 | -1) {
   return `${sinal < 0 ? "−" : "+"}${money(Math.abs(value))}`;
 }
 
+type ItemDaOrdem = {
+  /** Chave de render estável: a OS não tem id próprio por item em toda fonte. */
+  chave: string;
+  tipo: "PRODUTO" | "SERVICO";
+  codigo: string;
+  descricao: string;
+  unidade: string;
+  quantidade: number;
+  precoUnitario: number;
+  /** Em reais, já resolvido pela rota — nunca negativo. */
+  descontoItem: number;
+  /** Líquido do desconto do próprio item, como está gravado. */
+  subtotal: number;
+};
+
+type EventoDaOrdem = {
+  chave: string;
+  origem: string;
+  natureza: "RECEITA" | "DESPESA";
+  status: string;
+  descricao: string;
+  detalhe: string;
+  valor: number;
+};
+
 type CardFechamento = {
   chave: string;
   label: string;
@@ -147,6 +194,8 @@ type CardFechamento = {
   valor: number;
   tone?: string;
   destaque?: boolean;
+  /** Colunas ocupadas na grade de doze — 4 para as fileiras de três, 3 para a de quatro. */
+  span: number;
 };
 
 /** "12/03/2026, 14:20" -> "12/03/2026": a hora não cabe e não decide nada aqui. */
@@ -239,30 +288,65 @@ function filtrosAplicados(endpoint: string, rows: OrderRow[]) {
   return chips;
 }
 
-export function OrdemListReportView({ endpoint }: { endpoint: string }) {
+export function OrdemListReportView({
+  endpoint,
+  podeVerEventos = false,
+}: {
+  endpoint: string;
+  /** Decidido no servidor: custo e lucro têm permissão própria. */
+  podeVerEventos?: boolean;
+}) {
   const [rows, setRows] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const [detalhado, setDetalhado] = useState(false);
-  const [cacheDeItens, setCacheDeItens] = useState<{ endpoint: string; itens: Map<string, ItemDaOrdem[]> } | null>(null);
+  // Um modo só, em vez de um booleano por opção: a exclusão mútua entre "itens"
+  // e "eventos" fica garantida pelo tipo, sem dois estados podendo divergir.
+  const [modo, setModo] = useState<ModoDaFolha>("simples");
+  const [cacheDeItens, setCacheDeItens] = useState<{ endpoint: string; linhas: Map<string, ItemDaOrdem[]> } | null>(null);
+  const [cacheDeEventos, setCacheDeEventos] = useState<{ endpoint: string; linhas: Map<string, EventoDaOrdem[]> } | null>(null);
   const [enderecoComFalha, setEnderecoComFalha] = useState<string | null>(null);
   const [carregandoItens, setCarregandoItens] = useState(false);
 
   // O cache pertence ao recorte que o gerou: mudou o endereço, ele não vale
   // mais. Derivar isso no render dispensa um efeito de limpeza, que existiria
   // só para zerar estado — e renderizaria em cascata para isso.
-  const itensPorOs = cacheDeItens?.endpoint === endpoint ? cacheDeItens.itens : null;
-  const erroItens = enderecoComFalha === endpoint;
+  const itensPorOs = cacheDeItens?.endpoint === endpoint ? cacheDeItens.linhas : null;
+  const eventosPorOs = cacheDeEventos?.endpoint === endpoint ? cacheDeEventos.linhas : null;
+  const erroAoAbrir = enderecoComFalha === endpoint;
 
   useEffect(() => {
     let active = true;
-    fetch(endpoint)
+    // Os eventos vêm já na primeira chamada, e não sob demanda: o painel de
+    // cards é sempre o mesmo, em qualquer modo, e ele precisa de custo e lucro
+    // para existir. Quem não tem permissão para vê-los recebe a folha sem eles.
+    const separador = endpoint.includes("?") ? "&" : "?";
+    fetch(podeVerEventos ? `${endpoint}${separador}eventos=1` : endpoint)
       .then(respostaEmBuffer)
       .then(async (buffer) => {
         const aba = await lerAba(buffer, 0);
         if (!aba) throw new Error("A planilha do relatório veio vazia.");
         const { rows: matrix, read } = aba;
+
+        if (podeVerEventos) {
+          const abaEventos = await lerAba(buffer, "Eventos");
+          const agrupados = new Map<string, EventoDaOrdem[]>();
+          (abaEventos?.rows ?? []).forEach((row, indice) => {
+            const osId = text(abaEventos!.read(row, "OS"));
+            const lista = agrupados.get(osId) ?? [];
+            lista.push({
+              chave: `${osId}-${indice}`,
+              origem: String(abaEventos!.read(row, "Origem") ?? "").trim(),
+              natureza: String(abaEventos!.read(row, "Natureza") ?? "").trim() === "DESPESA" ? "DESPESA" : "RECEITA",
+              status: String(abaEventos!.read(row, "Situação") ?? "").trim(),
+              descricao: String(abaEventos!.read(row, "Descrição") ?? "").trim(),
+              detalhe: String(abaEventos!.read(row, "Detalhe") ?? "").trim(),
+              valor: number(abaEventos!.read(row, "Valor (R$)")),
+            });
+            agrupados.set(osId, lista);
+          });
+          if (active) setCacheDeEventos({ endpoint, linhas: agrupados });
+        }
 
         const parsed = matrix.map((row) => ({
           id: text(read(row, "OS")),
@@ -295,7 +379,7 @@ export function OrdemListReportView({ endpoint }: { endpoint: string }) {
       })
       .finally(() => active && setLoading(false));
     return () => { active = false; };
-  }, [endpoint]);
+  }, [endpoint, podeVerEventos]);
 
   /**
    * Os itens vêm numa segunda chamada, disparada no clique — evento, e não
@@ -340,7 +424,7 @@ export function OrdemListReportView({ endpoint }: { endpoint: string }) {
           agrupados.set(osId, lista);
         });
 
-        setCacheDeItens({ endpoint, itens: agrupados });
+        setCacheDeItens({ endpoint, linhas: agrupados });
       })
       .catch((caught) => {
         const message = caught instanceof Error ? caught.message : "Não foi possível carregar os itens.";
@@ -354,31 +438,39 @@ export function OrdemListReportView({ endpoint }: { endpoint: string }) {
   const opcoesDeExibicao = useMemo(
     () => [
       {
-        // Nenhum CSS lê este atributo — quem comanda o layout é o `detalhado`
-        // abaixo. Ele existe porque o menu grava um atributo por opção.
+        // Nenhum CSS lê estes atributos — quem comanda o layout é o `modo`. Eles
+        // existem porque o menu grava um atributo por opção. `checked` é o que
+        // permite uma opção desmarcar a outra.
         attribute: "data-os-itens",
         label: "Exibir itens das OS",
+        checked: modo === "itens",
         onCheckedChange: (marcado: boolean) => {
-          setDetalhado(marcado);
+          setModo(marcado ? "itens" : "simples");
           if (marcado) carregarItens();
         },
       },
+      ...(podeVerEventos
+        ? [
+            {
+              attribute: "data-os-eventos",
+              label: "Exibir eventos financeiros",
+              checked: modo === "eventos",
+              onCheckedChange: (marcado: boolean) => {
+                setModo(marcado ? "eventos" : "simples");
+                // Os eventos já vieram na busca inicial; aqui só muda o modo.
+              },
+            },
+          ]
+        : []),
     ],
-    [carregarItens],
+    [carregarItens, modo, podeVerEventos],
   );
 
-  // A folha só entra no modo detalhado com os itens em mãos: durante a busca
-  // ela continua exatamente como está, e reflui de uma vez só.
-  const detalhadoEfetivo = detalhado && itensPorOs !== null;
-
-  const pages = useMemo(
-    () =>
-      paginarOrdens(
-        rows.map((ordem) => ({ ordem, itens: itensPorOs?.get(ordem.id) ?? [] })),
-        detalhadoEfetivo,
-      ),
-    [rows, itensPorOs, detalhadoEfetivo],
-  );
+  // A folha só muda de modo com as linhas em mãos: durante a busca ela continua
+  // exatamente como está, e reflui de uma vez só.
+  const linhasPorOs = modo === "itens" ? itensPorOs : modo === "eventos" ? eventosPorOs : null;
+  const modoEfetivo: ModoDaFolha = linhasPorOs ? modo : "simples";
+  const temEventos = eventosPorOs !== null;
 
   const periodo = useMemo(() => periodLabel(endpoint), [endpoint]);
   const eixo = useMemo(() => periodAxisLabel(endpoint), [endpoint]);
@@ -396,41 +488,62 @@ export function OrdemListReportView({ endpoint }: { endpoint: string }) {
    * como erro de conta; com todas as parcelas na folha, o total se reconstrói
    * pelo mesmo caminho que o sistema faz.
    *
-   * Card zerado não entra: numa oficina que não cobra frete, um "+R$ 0,00" fixo
-   * na folha só ocupa a fileira e faz procurar um valor que não existe.
+   * Toda parcela sai, inclusive a zerada. Um frete em R$ 0,00 é informação —
+   * diz que aquele recorte não cobrou frete —, e com a lista fixa os cards
+   * ficam sempre nas mesmas posições de um relatório para o outro, o que é o
+   * que permite comparar duas folhas lado a lado.
    */
-  const cards = useMemo(() => {
-    const somar = (pegar: (row: OrderRow) => number) => rows.reduce((soma, row) => soma + pegar(row), 0);
-    const receitaProdutos = somar((row) => row.products);
-    const receitaServicos = somar((row) => row.services);
-    const descontos = somar((row) => row.discount);
-    const frete = somar((row) => row.freight);
-    const acrescimo = somar((row) => row.surcharge);
+  /** Os totais dos eventos do recorte, pela mesma conta do painel da tela. */
+  const totaisDosEventos = useMemo(
+    () => somarEventosDaOs([...(eventosPorOs?.values() ?? [])].flat()),
+    [eventosPorOs],
+  );
 
-    const lista: CardFechamento[] = [
-      { chave: "ordens", label: "Ordens no recorte", value: String(rows.length), valor: rows.length },
-      { chave: "orcamento", label: "Orçamento total", value: money(total), destaque: true, valor: total },
-      { chave: "ticket", label: "Média por ordem", value: money(ticket), valor: ticket },
-      { chave: "produtos", label: "+ Receita de produtos", value: signedMoney(receitaProdutos, 1), tone: TOM_SOMA, valor: receitaProdutos },
-      { chave: "servicos", label: "+ Receita de serviços", value: signedMoney(receitaServicos, 1), tone: TOM_SOMA, valor: receitaServicos },
-      { chave: "frete", label: "+ Frete", value: signedMoney(frete, 1), tone: TOM_SOMA, valor: frete },
-      { chave: "acrescimo", label: "+ Acréscimo fin.", value: signedMoney(acrescimo, 1), tone: TOM_SOMA, valor: acrescimo },
-      { chave: "descontos", label: "− Descontos aplicados", value: signedMoney(descontos, -1), tone: TOM_SUBTRACAO, valor: descontos },
-    ];
-
-    return lista.filter((card) => card.valor > 0);
-  }, [rows, total, ticket]);
+  /** Comissão, desconto, frete — o que entra no lucro fora dos quatro. */
+  const outrasOrigens = useMemo(
+    () => outrasOrigensDaOs([...(eventosPorOs?.values() ?? [])].flat()),
+    [eventosPorOs],
+  );
 
   /**
-   * Largura da grade do painel.
+   * O painel é o mesmo em qualquer modo — quatro fileiras fixas, sempre nas
+   * mesmas posições. Não depende da opção marcada, e por isso os eventos vêm
+   * já na busca inicial.
    *
-   * Com um número par de cards as duas fileiras saem do mesmo tamanho; com
-   * ímpar, a de cima leva o card a mais. Sai por `style` e não por
-   * `grid-cols-N` do Tailwind porque N só existe em tempo de execução — a
-   * classe montada em string seria descartada na purga do CSS e a grade
-   * perderia as colunas.
+   * Sem permissão para ver custo e lucro não há painel de eventos: sobra o do
+   * orçamento, que é o que essa pessoa pode ver.
    */
-  const colunasDoPainel = Math.max(1, Math.ceil(cards.length / 2));
+  const cards = useMemo(
+    () =>
+      temEventos
+        ? cardsDoResultado(rows.length, ticket, totaisDosEventos, outrasOrigens)
+        : cardsDoOrcamento(rows, total, ticket),
+    [outrasOrigens, rows, temEventos, ticket, total, totaisDosEventos],
+  );
+
+  /**
+   * O painel é uma grade de doze colunas, e cada card diz quantas ocupa: 4 nas
+   * fileiras de três cards, 3 na de quatro. Doze divide pelos dois, que é o que
+   * permite fileiras de tamanhos diferentes sem desalinhar as bordas.
+   *
+   * As fileiras saem da soma dos spans, e não de uma contagem — quem define o
+   * desenho é a lista de cards, e a paginação desconta da folha cada fileira
+   * além da segunda. Sem isso a última ordem sairia cortada.
+   */
+  const fileirasDoPainel = Math.max(
+    1,
+    Math.ceil(cards.reduce((soma, card) => soma + card.span, 0) / COLUNAS_DO_PAINEL),
+  );
+
+  const pages = useMemo(
+    () =>
+      paginarOrdens<ItemDaOrdem | EventoDaOrdem>(
+        rows.map((ordem) => ({ ordem, linhas: linhasPorOs?.get(ordem.id) ?? [] })),
+        modoEfetivo,
+        fileirasDoPainel,
+      ),
+    [rows, linhasPorOs, modoEfetivo, fileirasDoPainel],
+  );
 
   /** Distribuição por status, do mais frequente ao menos — só o que couber. */
   const distribuicao = useMemo(() => {
@@ -474,12 +587,12 @@ export function OrdemListReportView({ endpoint }: { endpoint: string }) {
                 <Loader2 className="h-3 w-3 animate-spin" />Carregando itens...
               </span>
             )}
-            {erroItens && !carregandoItens && (
+            {erroAoAbrir && !carregandoItens && (
               <span className="text-xs text-red-700">
-                Não foi possível carregar os itens. Marque de novo para tentar.
+                Não foi possível carregar. Marque de novo para tentar.
               </span>
             )}
-            {detalhadoEfetivo && pages.length > FOLHAS_PARA_AVISAR && (
+            {modoEfetivo !== "simples" && pages.length > FOLHAS_PARA_AVISAR && (
               <span className="flex items-center gap-1 text-xs text-amber-700">
                 <TriangleAlert className="h-3 w-3" />
                 {pages.length} folhas — baixar em PDF vai demorar.
@@ -519,16 +632,26 @@ export function OrdemListReportView({ endpoint }: { endpoint: string }) {
                     </div>
                   )}
 
-                  {/* A ordem sai pronta do memo — recorte, orçamento, média, o que soma e
-                      o que abate. Como as zeradas caem fora, o painel é sempre duas fileiras
-                      do tamanho do que sobrou. */}
+                  {/* A ordem sai pronta do memo — recorte, os totais, e depois o que soma e
+                      o que abate. Nenhuma parcela é omitida por estar zerada: a lista fixa é
+                      o que deixa duas folhas comparáveis card a card. */}
                   {cards.length > 0 && (
                     <div
                       className="mt-2 grid gap-2"
-                      style={{ gridTemplateColumns: `repeat(${colunasDoPainel}, minmax(0, 1fr))` }}
+                      /* Sai por `style` e não por `grid-cols-12` do Tailwind porque o span de
+                         cada card é montado em tempo de execução, e uma classe em string
+                         seria descartada na purga do CSS. */
+                      style={{ gridTemplateColumns: `repeat(${COLUNAS_DO_PAINEL}, minmax(0, 1fr))` }}
                     >
                       {cards.map((card) => (
-                        <Kpi key={card.chave} label={card.label} value={card.value} tone={card.tone} destaque={card.destaque} />
+                        <Kpi
+                          key={card.chave}
+                          label={card.label}
+                          value={card.value}
+                          tone={card.tone}
+                          destaque={card.destaque}
+                          span={card.span}
+                        />
                       ))}
                     </div>
                   )}
@@ -556,17 +679,27 @@ export function OrdemListReportView({ endpoint }: { endpoint: string }) {
                 <span className="w-[26mm] text-right">Orçamento</span>
               </div>
 
-              {/* Os rótulos dos itens saem uma vez por folha, e não acima de
-                  cada ordem: repetidos, queimariam 4,5mm vezes o número de OS. */}
-              {detalhadoEfetivo && (
+              {/* Os rótulos saem uma vez por folha, e não acima de cada ordem:
+                  repetidos, queimariam 4,5mm vezes o número de OS. */}
+              {modoEfetivo !== "simples" && (
                 <div
                   className="flex items-center gap-2 border-b border-neutral-200 pb-[2px] pl-[14mm] pt-1 text-[7px] uppercase text-neutral-400"
                   style={{ height: `${MM_CABECALHO_ITENS}mm` }}
                 >
-                  <span className="flex-1">Item</span>
-                  <span className="w-[22mm] text-right">Qtd. × unitário</span>
-                  <span className="w-[16mm] text-right">Desconto</span>
-                  <span className="w-[20mm] text-right">Subtotal</span>
+                  {modoEfetivo === "eventos" ? (
+                    <>
+                      <span className="flex-1">Evento</span>
+                      <span className="w-[40mm]">Detalhe</span>
+                      <span className="w-[24mm] text-right">Valor</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="flex-1">Item</span>
+                      <span className="w-[22mm] text-right">Qtd. × unitário</span>
+                      <span className="w-[16mm] text-right">Desconto</span>
+                      <span className="w-[20mm] text-right">Subtotal</span>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -576,7 +709,7 @@ export function OrdemListReportView({ endpoint }: { endpoint: string }) {
                     <FatiaDaOrdem
                       key={`${fatia.ordem.id}-${fatia.continuacao ? fatia.primeiroIndice : "abre"}`}
                       fatia={fatia}
-                      detalhado={detalhadoEfetivo}
+                      modo={modoEfetivo}
                       listrada={index % 2 === 1}
                     />
                   ))
@@ -611,15 +744,18 @@ function Kpi({
   value,
   tone,
   destaque,
+  span,
 }: {
   label: string;
   value: string;
   tone?: string;
   destaque?: boolean;
+  span: number;
 }) {
   return (
     <div
       className={`rounded border px-2 py-1.5 ${destaque ? "border-black bg-white" : "border-neutral-300 bg-neutral-50"}`}
+      style={{ gridColumn: `span ${span} / span ${span}` }}
     >
       <p className="text-[8px] font-semibold uppercase text-neutral-700">{label}</p>
       <p className={`text-[12px] font-bold tabular-nums ${tone ?? ""}`}>{value}</p>
@@ -676,18 +812,19 @@ function OrderLine({ row, listrada }: { row: OrderRow; listrada: boolean }) {
  */
 function FatiaDaOrdem({
   fatia,
-  detalhado,
+  modo,
   listrada,
 }: {
-  fatia: FatiaOrdem;
-  detalhado: boolean;
+  fatia: FatiaOrdem<ItemDaOrdem | EventoDaOrdem>;
+  modo: ModoDaFolha;
   listrada: boolean;
 }) {
-  if (!detalhado) return <OrderLine row={fatia.ordem} listrada={listrada} />;
+  if (modo === "simples") return <OrderLine row={fatia.ordem} listrada={listrada} />;
 
-  // Fatia sem item ou é a ordem sem lançamento nenhum, ou é o fechamento que
+  const eventos = modo === "eventos";
+  // Fatia sem linha ou é a ordem sem lançamento nenhum, ou é o fechamento que
   // não coubera na folha anterior — o contrato está em `FatiaOrdem`.
-  const semItens = fatia.itens.length === 0 && !fatia.continuacao;
+  const semLinhas = fatia.linhas.length === 0 && !fatia.continuacao;
 
   return (
     // O respiro entre ordens vai como padding, e não margem: margens irmãs
@@ -699,26 +836,199 @@ function FatiaDaOrdem({
         <OrderLine row={fatia.ordem} listrada={false} />
       )}
 
-      {semItens && (
+      {semLinhas && (
         <p
           className="flex items-center pl-[14mm] text-[9px] italic text-neutral-500"
           style={{ height: `${MM_ITEM}mm` }}
         >
-          Sem itens lançados
+          {eventos ? "Sem eventos financeiros" : "Sem itens lançados"}
         </p>
       )}
 
-      {fatia.itens.map((item, indice) => (
-        <LinhaDeItem
-          key={item.chave}
-          item={item}
-          listrada={(fatia.primeiroIndice + indice) % 2 === 1}
-        />
-      ))}
+      {fatia.linhas.map((linha, indice) => {
+        const listra = (fatia.primeiroIndice + indice) % 2 === 1;
+        return "natureza" in linha ? (
+          <LinhaDeEvento key={linha.chave} evento={linha} listrada={listra} />
+        ) : (
+          <LinhaDeItem key={linha.chave} item={linha} listrada={listra} />
+        );
+      })}
 
-      {fatia.fecha && <FechamentoDaOrdem row={fatia.ordem} />}
+      {fatia.fecha &&
+        (eventos ? (
+          <FechamentoDeEventos linhas={fatia.linhas as EventoDaOrdem[]} row={fatia.ordem} />
+        ) : (
+          <FechamentoDaOrdem row={fatia.ordem} />
+        ))}
     </div>
   );
+}
+
+function LinhaDeEvento({ evento, listrada }: { evento: EventoDaOrdem; listrada: boolean }) {
+  const receita = evento.natureza === "RECEITA";
+
+  return (
+    <div
+      className={`flex items-center gap-2 pl-[14mm] text-[9px] ${listrada ? "bg-neutral-50" : ""}`}
+      style={{ height: `${MM_ITEM}mm` }}
+    >
+      <span
+        className={`w-[16mm] shrink-0 rounded px-1 py-[1px] text-center text-[7px] font-semibold uppercase ${
+          TOM_ORIGEM[evento.origem] ?? "bg-neutral-100 text-neutral-700"
+        }`}
+      >
+        {evento.origem}
+      </span>
+      <span className="min-w-0 flex-1 truncate">{evento.descricao || "Sem descrição"}</span>
+      <span className="w-[40mm] shrink-0 truncate text-neutral-500">{evento.detalhe}</span>
+      <span className={`w-[24mm] shrink-0 text-right font-semibold tabular-nums ${receita ? TOM_SOMA : TOM_SUBTRACAO}`}>
+        {signedMoney(evento.valor, receita ? 1 : -1)}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * O fechamento de uma OS pelos eventos.
+ *
+ * Oito entradas, e com elas a conta **fecha**: receita de produtos e serviços,
+ * menos os custos de cada um, menos descontos e comissões, mais frete, é o
+ * lucro real. Por isso o lucro leva `=` — antes ele mostrava só quatro
+ * parcelas, que não somavam, e o `=` teria sido uma afirmação falsa.
+ *
+ * As oito saem sempre, mesmo zeradas: mantêm a largura previsível e dizem o que
+ * não houve. Elas ocupam duas linhas em qualquer cenário — medidas, somam 226mm
+ * numa OS comum contra 176mm de folha —, e o modelo reserva essa altura.
+ *
+ * Fica de fora o que não é nenhuma dessas origens (avulso, entrada fiscal). Se
+ * um dia aparecer numa OS, ela entra no lucro sem ter entrada própria e a conta
+ * deixa de fechar. Hoje o banco só gera as seis daqui.
+ */
+function FechamentoDeEventos({ linhas, row }: { linhas: EventoDaOrdem[]; row: OrderRow }) {
+  const totais = somarEventosDaOs(linhas);
+  const outras = outrasOrigensDaOs(linhas);
+  const porOrigem = (origem: string) =>
+    outras
+      .filter((linha) => linha.origem === origem)
+      .reduce((soma, linha) => soma + linha.total, 0);
+
+  const parcelas = [
+    { chave: "receitaProdutos", label: "Receita produtos", valor: totais.receitaProdutos, sinal: 1 as const },
+    { chave: "custoProdutos", label: "Custo produtos", valor: totais.despesaProdutos, sinal: -1 as const },
+    { chave: "receitaServicos", label: "Receita serviços", valor: totais.receitaServicos, sinal: 1 as const },
+    { chave: "custoServicos", label: "Custo serviços", valor: totais.despesaServicos, sinal: -1 as const },
+    { chave: "descontos", label: "Descontos", valor: porOrigem("DESCONTO"), sinal: -1 as const },
+    { chave: "comissoes", label: "Comissões", valor: porOrigem("COMISSAO"), sinal: -1 as const },
+    { chave: "frete", label: "Frete", valor: porOrigem("FRETE"), sinal: 1 as const },
+  ];
+
+  return (
+    <div
+      className="flex flex-wrap items-center justify-end gap-x-3 border-t border-neutral-200 pl-[14mm] text-[8px]"
+      style={{ height: `${alturaDoFechamento(row, "eventos")}mm` }}
+    >
+      {parcelas.map((parcela) => (
+        <span key={parcela.chave} className="flex items-center gap-1">
+          <span className="text-neutral-500">{parcela.sinal < 0 ? "−" : "+"} {parcela.label}</span>
+          <span className={`tabular-nums ${parcela.sinal < 0 ? TOM_SUBTRACAO : TOM_SOMA}`}>
+            {signedMoney(parcela.valor, parcela.sinal)}
+          </span>
+        </span>
+      ))}
+      <span className="flex items-center gap-1">
+        <span className="uppercase text-neutral-500">= Lucro real</span>
+        <strong className={`text-[9px] tabular-nums ${totais.lucroReal < 0 ? TOM_SUBTRACAO : "text-primary"}`}>
+          {money(totais.lucroReal)}
+        </strong>
+      </span>
+    </div>
+  );
+}
+
+/**
+ * O painel de resultado — quatro fileiras fixas, sempre as mesmas.
+ *
+ *   recorte        · receita bruta   · média por ordem
+ *   receita produtos · custo produtos · líquido de produtos
+ *   receita serviços · custo serviços · líquido de serviços
+ *   descontos · comissões · frete · lucro real
+ *
+ * Fixo de propósito: as posições não mudam de um relatório para o outro, então
+ * duas folhas se comparam card a card. Nada é omitido por estar zerado — um
+ * frete em R$ 0,00 diz que não houve frete, e um lucro negativo é justamente o
+ * número que o relatório existe para mostrar.
+ *
+ * Os líquidos por bloco são a conta local (receita menos custo daquele bloco), e
+ * não fatias do lucro real: comissão, desconto e frete ficam fora deles e por
+ * isso aparecem na última fileira. Somando as duas fileiras do meio com a
+ * última, chega-se ao lucro real — desde que não exista origem além dessas três,
+ * caso em que ela entraria no lucro sem ter card. Hoje só existem estas.
+ */
+function cardsDoResultado(
+  quantasOrdens: number,
+  ticket: number,
+  totais: TotaisDosEventos,
+  outras: ReturnType<typeof outrasOrigensDaOs>,
+): CardFechamento[] {
+  const liquidoProdutos = totais.receitaProdutos - totais.despesaProdutos;
+  const liquidoServicos = totais.receitaServicos - totais.despesaServicos;
+  const porOrigem = (origem: string) =>
+    outras
+      .filter((linha) => linha.origem === origem)
+      .reduce((soma, linha) => soma + (linha.natureza === "RECEITA" ? linha.total : -linha.total), 0);
+
+  const descontos = porOrigem("DESCONTO");
+  const comissoes = porOrigem("COMISSAO");
+  const frete = porOrigem("FRETE");
+  const tomDoLiquido = (valor: number) => (valor < 0 ? TOM_SUBTRACAO : TOM_SOMA);
+
+  return [
+    { chave: "ordens", label: "Ordens no recorte", value: String(quantasOrdens), valor: quantasOrdens, span: 4 },
+    { chave: "receitaBruta", label: "Receita bruta", value: money(totais.receita), destaque: true, valor: totais.receita, span: 4 },
+    { chave: "ticket", label: "Média por ordem", value: money(ticket), valor: ticket, span: 4 },
+
+    { chave: "receitaProdutos", label: "+ Receita de produtos", value: signedMoney(totais.receitaProdutos, 1), tone: TOM_SOMA, valor: totais.receitaProdutos, span: 4 },
+    { chave: "custoProdutos", label: "− Custo de produtos", value: signedMoney(totais.despesaProdutos, -1), tone: TOM_SUBTRACAO, valor: totais.despesaProdutos, span: 4 },
+    { chave: "liquidoProdutos", label: "= Líquido de produtos", value: money(liquidoProdutos), tone: tomDoLiquido(liquidoProdutos), valor: liquidoProdutos, span: 4 },
+
+    { chave: "receitaServicos", label: "+ Receita de serviços", value: signedMoney(totais.receitaServicos, 1), tone: TOM_SOMA, valor: totais.receitaServicos, span: 4 },
+    { chave: "custoServicos", label: "− Custo de serviços", value: signedMoney(totais.despesaServicos, -1), tone: TOM_SUBTRACAO, valor: totais.despesaServicos, span: 4 },
+    { chave: "liquidoServicos", label: "= Líquido de serviços", value: money(liquidoServicos), tone: tomDoLiquido(liquidoServicos), valor: liquidoServicos, span: 4 },
+
+    // Os três sinais já vêm resolvidos por `porOrigem`: desconto e comissão são
+    // despesa e chegam negativos, frete é receita e chega positivo.
+    { chave: "descontos", label: "Descontos concedidos", value: money(descontos), tone: tomDoLiquido(descontos), valor: descontos, span: 3 },
+    { chave: "comissoes", label: "Comissões", value: money(comissoes), tone: tomDoLiquido(comissoes), valor: comissoes, span: 3 },
+    { chave: "frete", label: "Frete", value: money(frete), tone: tomDoLiquido(frete), valor: frete, span: 3 },
+    { chave: "lucro", label: "Lucro real", value: money(totais.lucroReal), tone: "text-primary", destaque: true, valor: totais.lucroReal, span: 3 },
+  ];
+}
+
+/**
+ * O painel de quem não pode ver custo e lucro.
+ *
+ * Sem a permissão de eventos financeiros não há como montar o de resultado, e
+ * mostrar receita sem custo daria um painel que promete uma conta que não pode
+ * fechar. Sobra o do orçamento: o que foi cobrado, que é o que essa pessoa vê.
+ */
+function cardsDoOrcamento(rows: OrderRow[], total: number, ticket: number): CardFechamento[] {
+  const somar = (pegar: (row: OrderRow) => number) => rows.reduce((soma, row) => soma + pegar(row), 0);
+  const receitaProdutos = somar((row) => row.products);
+  const receitaServicos = somar((row) => row.services);
+  const descontos = somar((row) => row.discount);
+  const frete = somar((row) => row.freight);
+  const acrescimo = somar((row) => row.surcharge);
+
+  return [
+    { chave: "ordens", label: "Ordens no recorte", value: String(rows.length), valor: rows.length, span: 3 },
+    { chave: "orcamento", label: "Orçamento total", value: money(total), destaque: true, valor: total, span: 3 },
+    { chave: "ticket", label: "Média por ordem", value: money(ticket), valor: ticket, span: 3 },
+    { chave: "produtos", label: "+ Receita de produtos", value: signedMoney(receitaProdutos, 1), tone: TOM_SOMA, valor: receitaProdutos, span: 3 },
+    { chave: "servicos", label: "+ Receita de serviços", value: signedMoney(receitaServicos, 1), tone: TOM_SOMA, valor: receitaServicos, span: 3 },
+    { chave: "frete", label: "+ Frete", value: signedMoney(frete, 1), tone: TOM_SOMA, valor: frete, span: 3 },
+    { chave: "acrescimo", label: "+ Acréscimo fin.", value: signedMoney(acrescimo, 1), tone: TOM_SOMA, valor: acrescimo, span: 3 },
+    { chave: "descontos", label: "− Descontos aplicados", value: signedMoney(descontos, -1), tone: TOM_SUBTRACAO, valor: descontos, span: 3 },
+  ];
 }
 
 /** Cabeçalho condensado da ordem que atravessou a virada de folha. */
@@ -796,7 +1106,7 @@ function FechamentoDaOrdem({ row }: { row: OrderRow }) {
   return (
     <div
       className="flex flex-wrap items-center justify-end gap-x-3 border-t border-neutral-200 pl-[14mm] text-[8px]"
-      style={{ height: `${alturaDoFechamento(row)}mm` }}
+      style={{ height: `${alturaDoFechamento(row, "itens")}mm` }}
     >
       {parcelas.map((parcela) => (
         <span key={parcela.chave} className="flex items-center gap-1">

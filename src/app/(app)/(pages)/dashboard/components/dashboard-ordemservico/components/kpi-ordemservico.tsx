@@ -1,9 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Info } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+
+import Dica from "./dica";
 
 export type KpiProps = {
   label: string;
@@ -21,22 +21,9 @@ export default function Kpi({ label, value, icon: Icon, hint, className }: KpiPr
     <div className={cn("dashboard-kpi min-h-20 p-3 sm:min-h-24 sm:p-3.5", className)}>
       <div className="flex items-start justify-between gap-2">
         {hint ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              {/* botão, e não só hover, para o tooltip abrir também no toque */}
-              <button
-                type="button"
-                aria-label={`Como "${label}" é calculado`}
-                className="flex min-w-0 items-start gap-1 text-left hover:cursor-help focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:rounded-sm"
-              >
-                {rotulo}
-                <Info className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/70" aria-hidden="true" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="max-w-72 text-xs leading-relaxed">
-              {hint}
-            </TooltipContent>
-          </Tooltip>
+          <Dica rotulo={label} conteudo={hint}>
+            {rotulo}
+          </Dica>
         ) : (
           rotulo
         )}

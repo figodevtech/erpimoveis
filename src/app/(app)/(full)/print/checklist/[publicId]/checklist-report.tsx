@@ -130,6 +130,8 @@ function SignatureDialog({ publicId, open, onOpenChange }: { publicId: string; o
   }
 
   function startDrawing(event: ReactPointerEvent<HTMLCanvasElement>) {
+    event.preventDefault();
+    window.getSelection()?.removeAllRanges();
     const context = canvasRef.current?.getContext("2d");
     if (!context) return;
     drawingRef.current = true;
@@ -141,11 +143,21 @@ function SignatureDialog({ publicId, open, onOpenChange }: { publicId: string; o
 
   function draw(event: ReactPointerEvent<HTMLCanvasElement>) {
     if (!drawingRef.current) return;
+    event.preventDefault();
     const context = canvasRef.current?.getContext("2d");
     if (!context) return;
     const current = point(event);
     context.lineTo(current.x, current.y);
     context.stroke();
+  }
+
+  function finishDrawing(event: ReactPointerEvent<HTMLCanvasElement>) {
+    event.preventDefault();
+    drawingRef.current = false;
+    canvasRef.current?.getContext("2d")?.closePath();
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
   }
 
   async function submit() {
@@ -210,18 +222,22 @@ function SignatureDialog({ publicId, open, onOpenChange }: { publicId: string; o
             </label>
           )}
         </div>
-        <div className="space-y-2">
+        <div className="space-y-2 select-none [-webkit-touch-callout:none]">
           <div className="flex items-center justify-between gap-3">
             <span className="text-sm font-medium">Assinatura desenhada</span>
             <Button type="button" variant="ghost" size="sm" onClick={prepareCanvas}><RotateCcw className="mr-1.5 h-4 w-4" />Limpar</Button>
           </div>
           <canvas
             ref={canvasRef}
-            className="h-48 w-full touch-none rounded-md border bg-white"
+            className="h-48 w-full cursor-crosshair touch-none select-none rounded-md border bg-white [-webkit-touch-callout:none]"
+            draggable={false}
+            onContextMenu={(event) => event.preventDefault()}
+            onDragStart={(event) => event.preventDefault()}
             onPointerDown={startDrawing}
             onPointerMove={draw}
-            onPointerUp={() => { drawingRef.current = false; }}
-            onPointerCancel={() => { drawingRef.current = false; }}
+            onPointerUp={finishDrawing}
+            onPointerCancel={finishDrawing}
+            onLostPointerCapture={() => { drawingRef.current = false; }}
           />
         </div>
         <label className="flex items-start gap-3 rounded-md border bg-muted/30 p-3 text-sm leading-relaxed">

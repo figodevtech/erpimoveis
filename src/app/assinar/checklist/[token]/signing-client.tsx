@@ -84,6 +84,20 @@ const STATUS_MESSAGE: Record<Exclude<ChecklistConviteStatus, "ATIVO">, string> =
   SUPERADO: "Existe uma versão mais recente deste checklist. Solicite um novo link à oficina.",
 };
 
+// Esta página é deliberadamente clara, mesmo quando o ERP ou o dispositivo está
+// usando o tema escuro. Classes explícitas evitam que os tokens globais do tema
+// deixem campos e botões sem contraste na experiência pública de assinatura.
+const LIGHT_INPUT_CLASS =
+  "border-slate-300 bg-white text-slate-950 placeholder:text-slate-400 focus-visible:border-blue-500 focus-visible:ring-blue-500/25";
+const LIGHT_SELECT_CLASS =
+  "h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/25";
+const LIGHT_PRIMARY_BUTTON_CLASS =
+  "bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-500/30";
+const LIGHT_OUTLINE_BUTTON_CLASS =
+  "border-slate-300 bg-white text-slate-900 hover:bg-slate-100 hover:text-slate-950";
+const LIGHT_GHOST_BUTTON_CLASS =
+  "text-slate-700 hover:bg-slate-100 hover:text-slate-950";
+
 function date(value: string | null | undefined) {
   if (!value) return "Não informado";
   const parsed = new Date(value);
@@ -304,6 +318,37 @@ export function ChecklistOnlineSigning({ token }: { token: string }) {
     return { x: event.clientX - rect.left, y: event.clientY - rect.top };
   }
 
+  function startDrawing(event: ReactPointerEvent<HTMLCanvasElement>) {
+    event.preventDefault();
+    window.getSelection()?.removeAllRanges();
+    const context = event.currentTarget.getContext("2d");
+    if (!context) return;
+    drawingRef.current = true;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const current = pointer(event);
+    context.beginPath();
+    context.moveTo(current.x, current.y);
+  }
+
+  function draw(event: ReactPointerEvent<HTMLCanvasElement>) {
+    if (!drawingRef.current) return;
+    event.preventDefault();
+    const context = event.currentTarget.getContext("2d");
+    if (!context) return;
+    const current = pointer(event);
+    context.lineTo(current.x, current.y);
+    context.stroke();
+  }
+
+  function finishDrawing(event: ReactPointerEvent<HTMLCanvasElement>) {
+    event.preventDefault();
+    drawingRef.current = false;
+    event.currentTarget.getContext("2d")?.closePath();
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
   async function authenticate() {
     setSubmitting(true);
     setError(null);
@@ -366,7 +411,7 @@ export function ChecklistOnlineSigning({ token }: { token: string }) {
 
   const unavailable = status && status !== "ATIVO" && status !== "UTILIZADO";
   return (
-    <main className="min-h-screen bg-slate-100 px-3 py-5 text-slate-950 sm:px-6 sm:py-9">
+    <main className="min-h-screen bg-slate-100 px-3 py-5 text-slate-950 [color-scheme:light] sm:px-6 sm:py-9">
       <div className="mx-auto w-full max-w-6xl space-y-5">
         <header className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 sm:p-5">
           <div className="mb-4 flex items-center gap-3">
@@ -389,9 +434,9 @@ export function ChecklistOnlineSigning({ token }: { token: string }) {
             <h2 className="text-xl font-bold">Confirme sua identidade</h2>
             <p className="mt-2 text-sm leading-relaxed text-slate-600">Informe o CPF indicado pela oficina e a senha numérica recebida em mensagem separada.</p>
             <div className="mt-6 space-y-4">
-              <label className="block space-y-1.5 text-sm"><span className="font-medium">CPF do responsável</span><Input value={cpf} onChange={(event) => setCpf(event.target.value)} inputMode="numeric" autoComplete="username" placeholder="000.000.000-00" /></label>
-              <label className="block space-y-1.5 text-sm"><span className="font-medium">Senha numérica</span><Input value={password} onChange={(event) => setPassword(event.target.value.replace(/\D/g, "").slice(0, 8))} type="password" inputMode="numeric" autoComplete="current-password" maxLength={8} /></label>
-              <Button className="w-full" onClick={() => void authenticate()} disabled={submitting || !cpf.trim() || password.length < 4}>
+              <label className="block space-y-1.5 text-sm"><span className="font-medium">CPF do responsável</span><Input className={LIGHT_INPUT_CLASS} name="checklist-document-holder" value={cpf} onChange={(event) => setCpf(event.target.value)} inputMode="numeric" autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} aria-autocomplete="none" placeholder="000.000.000-00" /></label>
+              <label className="block space-y-1.5 text-sm"><span className="font-medium">Senha numérica</span><Input className={LIGHT_INPUT_CLASS} name="checklist-invite-access-code" value={password} onChange={(event) => setPassword(event.target.value.replace(/\D/g, "").slice(0, 8))} type="password" inputMode="numeric" autoComplete="one-time-code" autoCapitalize="none" autoCorrect="off" spellCheck={false} aria-autocomplete="none" maxLength={8} /></label>
+              <Button className={`w-full ${LIGHT_PRIMARY_BUTTON_CLASS}`} onClick={() => void authenticate()} disabled={submitting || !cpf.trim() || password.length < 4}>
                 {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowRight className="mr-2 h-4 w-4" />}Acessar checklist
               </Button>
             </div>
@@ -410,7 +455,7 @@ export function ChecklistOnlineSigning({ token }: { token: string }) {
         {stage === "REVIEW" && content && <>
           <ReviewDocument token={token} content={content} />
           <div className="sticky bottom-3 z-20 flex justify-end rounded-xl border bg-white/95 p-3 shadow-xl backdrop-blur">
-            <Button onClick={() => setStage("SIGN")}><PenLine className="mr-2 h-4 w-4" />Li o checklist e quero assinar</Button>
+            <Button className={LIGHT_PRIMARY_BUTTON_CLASS} onClick={() => setStage("SIGN")}><PenLine className="mr-2 h-4 w-4" />Li o checklist e quero assinar</Button>
           </div>
         </>}
 
@@ -419,26 +464,30 @@ export function ChecklistOnlineSigning({ token }: { token: string }) {
             <h2 className="text-xl font-bold">Identificação e assinatura</h2>
             <p className="mt-2 text-sm text-slate-600">O CPF foi validado no acesso e está bloqueado para esta assinatura.</p>
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              <label className="space-y-1.5 text-sm"><span className="font-medium">Nome completo</span><Input value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" /></label>
-              <label className="space-y-1.5 text-sm"><span className="font-medium">Função</span><select className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm" value={quality} onChange={(event) => setQuality(event.target.value as ChecklistSignatarioQualidade)}>{Object.entries(CHECKLIST_QUALIDADE_LABEL).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-              {quality === "OUTRO" && <label className="space-y-1.5 text-sm sm:col-span-2"><span className="font-medium">Descreva a função</span><Input value={qualityOther} onChange={(event) => setQualityOther(event.target.value)} /></label>}
+              <label className="space-y-1.5 text-sm"><span className="font-medium">Nome completo</span><Input className={LIGHT_INPUT_CLASS} value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" /></label>
+              <label className="space-y-1.5 text-sm"><span className="font-medium">Função</span><select className={LIGHT_SELECT_CLASS} value={quality} onChange={(event) => setQuality(event.target.value as ChecklistSignatarioQualidade)}>{Object.entries(CHECKLIST_QUALIDADE_LABEL).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+              {quality === "OUTRO" && <label className="space-y-1.5 text-sm sm:col-span-2"><span className="font-medium">Descreva a função</span><Input className={LIGHT_INPUT_CLASS} value={qualityOther} onChange={(event) => setQualityOther(event.target.value)} /></label>}
             </div>
-            <div className="mt-6 space-y-2">
-              <div className="flex items-center justify-between"><span className="text-sm font-medium">Assinatura desenhada</span><Button variant="ghost" size="sm" onClick={prepareCanvas}><RotateCcw className="mr-1.5 h-4 w-4" />Limpar</Button></div>
+            <div className="mt-6 space-y-2 select-none [-webkit-touch-callout:none]">
+              <div className="flex items-center justify-between"><span className="text-sm font-medium">Assinatura desenhada</span><Button className={LIGHT_GHOST_BUTTON_CLASS} variant="ghost" size="sm" onClick={prepareCanvas}><RotateCcw className="mr-1.5 h-4 w-4" />Limpar</Button></div>
               <canvas
                 ref={canvasRef}
-                className="h-52 w-full touch-none rounded-lg border-2 border-slate-300 bg-white"
-                onPointerDown={(event) => { const context = event.currentTarget.getContext("2d"); if (!context) return; drawingRef.current = true; event.currentTarget.setPointerCapture(event.pointerId); const current = pointer(event); context.beginPath(); context.moveTo(current.x, current.y); }}
-                onPointerMove={(event) => { if (!drawingRef.current) return; const context = event.currentTarget.getContext("2d"); if (!context) return; const current = pointer(event); context.lineTo(current.x, current.y); context.stroke(); }}
-                onPointerUp={() => { drawingRef.current = false; }}
-                onPointerCancel={() => { drawingRef.current = false; }}
+                className="h-52 w-full cursor-crosshair touch-none select-none rounded-lg border-2 border-slate-300 bg-white [-webkit-touch-callout:none]"
+                draggable={false}
+                onContextMenu={(event) => event.preventDefault()}
+                onDragStart={(event) => event.preventDefault()}
+                onPointerDown={startDrawing}
+                onPointerMove={draw}
+                onPointerUp={finishDrawing}
+                onPointerCancel={finishDrawing}
+                onLostPointerCapture={() => { drawingRef.current = false; }}
               />
             </div>
-            <label className="mt-5 flex items-start gap-3 rounded-xl border bg-slate-50 p-4 text-sm leading-relaxed"><input className="mt-1 h-4 w-4 shrink-0" type="checkbox" checked={aware} onChange={(event) => setAware(event.target.checked)} /><span>{content.declaracao}</span></label>
+            <label className="mt-5 flex items-start gap-3 rounded-xl border bg-slate-50 p-4 text-sm leading-relaxed"><input className="mt-1 h-4 w-4 shrink-0 accent-blue-600" type="checkbox" checked={aware} onChange={(event) => setAware(event.target.checked)} /><span>{content.declaracao}</span></label>
             <p className="mt-3 text-xs text-slate-500">Método: assinatura eletrônica simples remota — link secreto, CPF e senha. Este fluxo não declara certificação ICP-Brasil.</p>
             <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
-              <Button variant="outline" onClick={() => setStage("REVIEW")} disabled={submitting}><ArrowLeft className="mr-2 h-4 w-4" />Voltar à revisão</Button>
-              <Button onClick={() => void sign()} disabled={submitting || !aware || name.trim().length < 3}>{submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PenLine className="mr-2 h-4 w-4" />}Confirmar assinatura</Button>
+              <Button className={LIGHT_OUTLINE_BUTTON_CLASS} variant="outline" onClick={() => setStage("REVIEW")} disabled={submitting}><ArrowLeft className="mr-2 h-4 w-4" />Voltar à revisão</Button>
+              <Button className={LIGHT_PRIMARY_BUTTON_CLASS} onClick={() => void sign()} disabled={submitting || !aware || name.trim().length < 3}>{submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PenLine className="mr-2 h-4 w-4" />}Confirmar assinatura</Button>
             </div>
           </section>
         )}
@@ -452,9 +501,9 @@ export function ChecklistOnlineSigning({ token }: { token: string }) {
             {result.pdfPendente ? (
               <div className="mt-5 flex items-center justify-center gap-2 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"><Loader2 className="h-4 w-4 animate-spin" />PDF oficial em processamento. Esta página atualizará automaticamente.</div>
             ) : (
-              <Button className="mt-5" asChild><a href={result.pdfUrl || `${apiBase}/pdf`} download><Download className="mr-2 h-4 w-4" />Baixar PDF oficial</a></Button>
+              <Button className={`mt-5 ${LIGHT_PRIMARY_BUTTON_CLASS}`} asChild><a href={result.pdfUrl || `${apiBase}/pdf`} download><Download className="mr-2 h-4 w-4" />Baixar PDF oficial</a></Button>
             )}
-            <div className="mt-4"><Button variant="outline" asChild><a href={result.verificacaoUrl} target="_blank" rel="noreferrer"><FileCheck2 className="mr-2 h-4 w-4" />Verificar autenticidade</a></Button></div>
+            <div className="mt-4"><Button className={LIGHT_OUTLINE_BUTTON_CLASS} variant="outline" asChild><a href={result.verificacaoUrl} target="_blank" rel="noreferrer"><FileCheck2 className="mr-2 h-4 w-4" />Verificar autenticidade</a></Button></div>
             <p className="mt-6 text-xs leading-relaxed text-slate-500">Quando esta sessão terminar, o PDF continuará disponível na página permanente de verificação mediante informação do CPF completo usado na assinatura.</p>
           </section>
         )}

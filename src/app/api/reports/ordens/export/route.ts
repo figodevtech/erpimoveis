@@ -4,7 +4,12 @@ import { NextResponse } from "next/server";
 import { carregarFatiasRateadas, fatiaComoTransacao } from "@/lib/financeiro/rateio-documentos";
 import * as XLSX from "xlsx";
 
-import { requireRelatoriosAccess } from "@/app/api/_authz/perms";
+import { requireOSEventosFinanceiros, requireRelatoriosAccess } from "@/app/api/_authz/perms";
+import {
+  eventosAtivos,
+  ordenarEventosDaOs,
+  type EventoFinanceiroOs,
+} from "@/lib/ordens/eventos-financeiros";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { arredondarMoeda } from "@/lib/ordens/desconto";
 import { inferirDescontoGeralOs, sanitizarValorFrete } from "@/lib/ordens/totais";
@@ -289,6 +294,46 @@ function descontoDoItem(item: LinhaItemOs) {
   return Math.max(0, arredondarMoeda(item.quantidade * item.precoUnitario - item.subtotal));
 }
 
+type LinhaEventoOs = EventoFinanceiroOs & {
+  ordemservicoid: number;
+  descricao: string | null;
+  detalhe: string | null;
+};
+
+/**
+ * Os eventos financeiros de cada OS, já sem os cancelados e na ordem em que o
+ * painel da tela os mostra.
+ *
+ * Ordenar aqui, e não na folha, é o que mantém o papel e a planilha contando a
+ * mesma história — a mesma escolha feita para os itens. A regra vive em
+ * `@/lib/ordens/eventos-financeiros`, junto da que o dialog usa.
+ */
+async function carregarEventosPorOs(ids: number[]) {
+  const porOs = new Map<number, LinhaEventoOs[]>();
+  if (!ids.length) return porOs;
+
+  const linhas = await fetchAllSupabaseRowsByChunks<LinhaEventoOs, number>(ids, (chunk) =>
+    supabaseAdmin
+      .from("eventos_financeiros")
+      .select("id, ordemservicoid, origem, natureza, status, descricao, detalhe, valor, produtoid, servicoid, chave_origem")
+      .in("ordemservicoid", chunk)
+      .order("ordemservicoid", { ascending: true })
+      .order("id", { ascending: true }),
+  );
+
+  for (const linha of eventosAtivos(linhas)) {
+    const osId = Number(linha.ordemservicoid);
+    if (!Number.isFinite(osId)) continue;
+    const atual = porOs.get(osId) ?? [];
+    atual.push(linha);
+    porOs.set(osId, atual);
+  }
+
+  for (const [osId, eventos] of porOs) porOs.set(osId, ordenarEventosDaOs(eventos));
+
+  return porOs;
+}
+
 /**
  * As parcelas que fecham a OS, na ordem da regra única de `calcularTotaisOs`:
  * itens − desconto + frete = orçamento. O acréscimo financeiro sai à parte por
@@ -335,9 +380,14 @@ export async function GET(request: Request) {
     await requireRelatoriosAccess();
     const { searchParams } = new URL(request.url);
     const mode = searchParams.get("mode") === "financeiro" ? "financeiro" : "simples";
-    // Só a folha de impressão pede os itens, e só quando o usuário marca a
-    // opção; o download pela tela de relatórios continua com uma aba só.
+    // Só a folha de impressão pede os itens e os eventos, e só quando o usuário
+    // marca a opção; o download pela tela de relatórios continua com uma aba só.
     const incluirItens = searchParams.get("itens") === "1";
+    const incluirEventos = searchParams.get("eventos") === "1";
+    // Custo e lucro moram atrás de uma permissão própria — a mesma que esconde
+    // o painel de eventos no dialog da OS. Um relatório não pode ser a porta
+    // dos fundos para o que a tela protege.
+    if (incluirEventos) await requireOSEventosFinanceiros();
     const status = statusSelecionados(searchParams.get("status"));
     const prioridadeParam = safeText(searchParams.get("prioridade"), 20).toUpperCase();
     const prioridade = PRIORIDADES.has(prioridadeParam) ? prioridadeParam : "";
@@ -455,6 +505,27 @@ export async function GET(request: Request) {
           headers: ["OS", "Origem", "Tipo", "Código", "Descrição", "Unidade", "Quantidade", "Preço unitário (R$)", "Desconto do item (R$)", "Subtotal (R$)"],
           rows: linhasDeItens,
           widths: [9, 12, 12, 16, 45, 10, 12, 18, 20, 16],
+        });
+      }
+
+      if (incluirEventos) {
+        const eventosPorOs = await carregarEventosPorOs(ordens.map((os) => Number(os.id)));
+        const linhasDeEventos = ordens.flatMap((os) =>
+          (eventosPorOs.get(Number(os.id)) ?? []).map((evento) => [
+            os.id,
+            evento.origem,
+            evento.natureza,
+            evento.status,
+            texto(evento.descricao),
+            texto(evento.detalhe),
+            arredondarMoeda(Number(evento.valor ?? 0)),
+          ]),
+        );
+        abas.push({
+          name: "Eventos",
+          headers: ["OS", "Origem", "Natureza", "Situação", "Descrição", "Detalhe", "Valor (R$)"],
+          rows: linhasDeEventos,
+          widths: [9, 16, 12, 14, 45, 32, 16],
         });
       }
 

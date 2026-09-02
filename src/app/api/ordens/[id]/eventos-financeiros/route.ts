@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireOSAccess, requireOSEdit, requireOSEventosFinanceiros } from "@/app/api/_authz/perms";
+import { somarEventosDaOs } from "@/lib/ordens/eventos-financeiros";
 
 type Params = { id: string };
 
@@ -51,30 +52,12 @@ export async function GET(_: NextRequest, { params }: { params: Promise<Params> 
         : null,
     }));
 
-    const ativos = eventos.filter((evento: any) => evento.status !== "CANCELADO");
-    const receita = ativos
-      .filter((evento: any) => evento.natureza === "RECEITA")
-      .reduce((soma: number, evento: any) => soma + Number(evento.valor ?? 0), 0);
-    const despesa = ativos
-      .filter((evento: any) => evento.natureza === "DESPESA")
-      .reduce((soma: number, evento: any) => soma + Number(evento.valor ?? 0), 0);
-    const somarPorTipo = (natureza: "RECEITA" | "DESPESA", origem: "PRODUTO" | "SERVICO") =>
-      ativos
-        .filter((evento: any) => evento.natureza === natureza && evento.origem === origem)
-        .reduce((soma: number, evento: any) => soma + Number(evento.valor ?? 0), 0);
+    // A conta vem de `@/lib/ordens/eventos-financeiros`, a mesma que a relação
+    // de ordens impressa usa. `liquido` fica com o nome antigo porque é o que a
+    // tela já consome; na lib ele se chama `lucroReal`.
+    const { lucroReal, ...totais } = somarEventosDaOs(eventos as any);
 
-    return NextResponse.json({
-      eventos,
-      totais: {
-        receita,
-        despesa,
-        liquido: receita - despesa,
-        receitaProdutos: somarPorTipo("RECEITA", "PRODUTO"),
-        receitaServicos: somarPorTipo("RECEITA", "SERVICO"),
-        despesaProdutos: somarPorTipo("DESPESA", "PRODUTO"),
-        despesaServicos: somarPorTipo("DESPESA", "SERVICO"),
-      },
-    });
+    return NextResponse.json({ eventos, totais: { ...totais, liquido: lucroReal } });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || "Erro ao carregar eventos financeiros." }, { status: error?.statusCode || 500 });
   }
