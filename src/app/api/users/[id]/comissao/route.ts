@@ -51,7 +51,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     // Linhas já calculadas (snapshot)
     const { data: relRows, error: relErr } = await supabaseAdmin
       .from("osservico_realizador")
-      .select("ordemservicoid, servicoid, valor_base, valor_comissao, comissao_percent_aplicada")
+      .select("ordemservicoid, servicoid, valor_base, valor_comissao, comissao_percent_aplicada, comissao_percent_efetiva")
       .eq("usuarioid", userId);
 
     if (relErr) throw relErr;
@@ -61,7 +61,12 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
       servicoid: Number(r.servicoid),
       valor_base: num(r.valor_base),
       valor_comissao: num(r.valor_comissao),
-      comissao_percent_aplicada: num(r.comissao_percent_aplicada),
+      // Quem pagou a linha é a taxa efetiva; a individual só volta como
+      // reserva para vínculo anterior à regra do maior percentual.
+      comissao_percent_aplicada:
+        r.comissao_percent_efetiva == null
+          ? num(r.comissao_percent_aplicada)
+          : num(r.comissao_percent_efetiva),
     }));
 
     if (rel.length === 0) {

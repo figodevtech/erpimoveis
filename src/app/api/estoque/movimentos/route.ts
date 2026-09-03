@@ -159,6 +159,9 @@ function paraMovimento(
           motivo: linha.saida_motivo,
           motivo_nome: linha.saida_motivo_nome,
           observacao: linha.saida_observacao,
+          // Saida de consumo carrega a OS: e por ela que o estorno passa, e a
+          // tela usa isso para avisar antes de o usuario esbarrar na trava.
+          ordemservicoid: linha.saida_ordemservicoid ?? null,
         }
       : null,
     criador: linha.created_by ? { id: linha.created_by, nome: linha.criador_nome } : null,

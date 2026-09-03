@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireOSAccess, requireOSEdit, requireOSEventosFinanceiros } from "@/app/api/_authz/perms";
 import { somarEventosDaOs } from "@/lib/ordens/eventos-financeiros";
+import { bloqueioDeStatusParaEventos } from "./_lib/status-os";
 
 type Params = { id: string };
 
@@ -77,12 +78,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<Param
       .maybeSingle();
     if (osError) throw osError;
     if (!os) return NextResponse.json({ error: "OS não encontrada." }, { status: 404 });
-    if (["CONCLUIDO", "SEM_COBRANCA", "CANCELADO"].includes(String(os.status))) {
-      return NextResponse.json({ error: "Não é possível inserir eventos financeiros em uma OS finalizada." }, { status: 409 });
-    }
-
     const body = await req.json();
     const natureza = String(body?.natureza ?? "").toUpperCase();
+
+    // OS concluída e sem cobrança seguem aceitando lançamento: despesa que
+    // chega depois do fechamento é caso comum, e o evento nasce com a
+    // competência da execução, recalculando a DRE daquele mês.
+    const bloqueio = bloqueioDeStatusParaEventos(os.status, { natureza });
+    if (bloqueio) return NextResponse.json({ error: bloqueio }, { status: 409 });
     const descricao = String(body?.descricao ?? "").trim();
     const detalhe = String(body?.detalhe ?? "").trim() || null;
     const valor = Number(body?.valor);
@@ -102,8 +105,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<Param
     ) {
       return NextResponse.json({ error: "A receita de serviço informada é inválida." }, { status: 400 });
     }
-    if (!eventoReceitaServicoInformado && !["PRODUTO", "SERVICO"].includes(tipoEvento)) {
-      return NextResponse.json({ error: "Informe se o lançamento é de Produto ou Serviço." }, { status: 400 });
+    // CONSUMO é o material gasto na OS sem repasse ao cliente. Aqui ele entra
+    // sem passar pelo estoque — a fita comprada na hora para esta ordem. O
+    // caminho com baixa é `/consumo-estoque`, que além do evento cria a saída.
+    if (!eventoReceitaServicoInformado && !["PRODUTO", "SERVICO", "CONSUMO"].includes(tipoEvento)) {
+      return NextResponse.json({ error: "Informe se o lançamento é de Produto, Serviço ou Consumo." }, { status: 400 });
+    }
+    // Só existe `CONSUMO:DESPESA` na DRE (linha 4.4, Materiais aplicados).
+    // Uma receita de consumo não teria para onde ir e ficaria em pendência.
+    if (tipoEvento === "CONSUMO" && natureza !== "DESPESA") {
+      return NextResponse.json({ error: "Um lançamento de consumo é sempre uma despesa." }, { status: 400 });
     }
 
     const session = await auth();
@@ -180,6 +191,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<Param
         dados_snapshot: {
           lancamento_avulso_manual: true,
           tipo_informado: tipoEvento,
+          // Consumo lançado por aqui não tem saída de estoque atrás dele. A
+          // marca separa os dois casos para quem lê o evento depois — o
+          // estorno e o painel de impacto do cancelamento dependem disso.
+          ...(tipoEvento === "CONSUMO" ? { consumo_de_estoque: false } : {}),
         },
         created_by: usuarioId,
       })

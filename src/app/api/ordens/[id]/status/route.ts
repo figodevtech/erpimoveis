@@ -12,6 +12,12 @@ import {
   statusExcluiTransacoesFinanceirasOs,
   validarSnapshotTransacoesDaOs,
 } from "@/app/api/ordens/_lib/exclusao-financeira";
+import {
+  CODIGO_REALIZADORES_PENDENTES,
+  mensagemRealizadoresPendentes,
+  type AcaoRealizadores,
+} from "@/lib/ordens/realizadores";
+import { buscarServicosSemRealizador } from "@/lib/ordens/realizadores-server";
 
 type DBStatusOS =
   | "AGUARDANDO_CHECKLIST"
@@ -102,6 +108,36 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
             error: `Existem ${pendentes} produto(s) avulso(s) pendente(s). Vincule ou cadastre esses produtos antes de iniciar ou finalizar a OS.`,
             codigo: "PRODUTOS_AVULSOS_PENDENTES",
             quantidade: pendentes,
+          },
+          { status: 409 },
+        );
+      }
+    }
+
+    // Realizador de serviço é cobrado em dois momentos: ao iniciar a OS pelo
+    // fluxo normal e ao fechar a execução. No meio do caminho ele pode faltar,
+    // porque o módulo de execução deixa o próprio mecânico se atribuir — quem
+    // segura essa OS é a trava do pagamento.
+    //
+    // SEM_COBRANCA fica de fora de propósito: ali o total vai a zero e a
+    // comissão junto, então o realizador não muda nada financeiro e travar só
+    // prenderia OS que precisam ser baixadas.
+    const acaoRealizadores: AcaoRealizadores | null = semCobranca
+      ? null
+      : status === "EM_ANDAMENTO"
+        ? "iniciar"
+        : status === "PAGAMENTO" || status === "CONCLUIDO"
+          ? "pagamento"
+          : null;
+
+    if (acaoRealizadores) {
+      const pendentes = await buscarServicosSemRealizador(osId);
+      if (pendentes.length > 0) {
+        return NextResponse.json(
+          {
+            error: mensagemRealizadoresPendentes(pendentes, acaoRealizadores),
+            codigo: CODIGO_REALIZADORES_PENDENTES,
+            servicos: pendentes,
           },
           { status: 409 },
         );
@@ -273,26 +309,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
     }
 
     if (status === "EM_ANDAMENTO") {
-      const { data: servicos, error: servicosError } = await supabaseAdmin
-        .from("osservico")
-        .select("servicoid")
-        .eq("ordemservicoid", osId);
-      if (servicosError) throw servicosError;
-
-      const { data: realizadores, error: realizadoresError } = await supabaseAdmin
-        .from("osservico_realizador")
-        .select("servicoid")
-        .eq("ordemservicoid", osId);
-      if (realizadoresError) throw realizadoresError;
-      const servicosComRealizador = new Set((realizadores ?? []).map((item: any) => Number(item.servicoid)));
-      const semRealizador = (servicos ?? []).filter((item: any) => !servicosComRealizador.has(Number(item.servicoid)));
-      if (semRealizador.length > 0) {
-        return NextResponse.json(
-          { error: "Defina os realizadores de todos os serviços antes de iniciar a OS." },
-          { status: 409 },
-        );
-      }
-
       const modoBaixa = await buscarModoBaixaEstoqueOS();
       if (modoBaixa === "EXECUCAO") {
         const baixa = await consumirEstoqueOS(osId);

@@ -159,3 +159,37 @@ test("origem nova aparece sozinha em vez de sumir na conta", () => {
   ]);
   assert.deepEqual(outras, [{ origem: "ENTRADA_FISCAL", natureza: "DESPESA", total: 90 }]);
 });
+
+test("consumo entra nas deduções — a regressão que a OS #72 revelou", () => {
+  // Espelha a OS #72 do banco de demonstração: dois consumos, um vindo de baixa
+  // de estoque (CONSUMO:7) e um lançado à mão (MANUAL:...), somando R$ 3,00.
+  const eventos = [
+    evento({ id: 1312, origem: "PRODUTO", natureza: "RECEITA", produtoid: 102, valor: 5 }),
+    evento({ id: 1313, origem: "PRODUTO", natureza: "DESPESA", produtoid: 102, valor: 2 }),
+    evento({ id: 1314, origem: "SERVICO", natureza: "RECEITA", servicoid: 2, valor: 350 }),
+    evento({ id: 1318, origem: "COMISSAO", natureza: "DESPESA", servicoid: 2, valor: 17.5 }),
+    evento({ id: 1319, origem: "COMISSAO", natureza: "DESPESA", servicoid: 2, valor: 17.5 }),
+    evento({ id: 1320, origem: "CONSUMO", natureza: "DESPESA", chave_origem: "CONSUMO:7", valor: 1 }),
+    evento({ id: 1324, origem: "SERVICO", natureza: "RECEITA", servicoid: 9, valor: 190 }),
+    evento({ id: 1327, origem: "CONSUMO", natureza: "DESPESA", chave_origem: "MANUAL:0d11", valor: 2 }),
+  ];
+
+  const totais = somarEventosDaOs(eventos);
+  assert.equal(totais.lucroReal, 505);
+
+  const outras = outrasOrigensDaOs(eventos);
+  const consumo = outras.find((o) => o.origem === "CONSUMO");
+  assert.ok(consumo, "consumo tem que aparecer entre as deduções");
+  // Os dois consumos somam num único par origem/natureza, apesar das chaves
+  // diferentes: para o resultado, baixa de estoque e lançamento à mão custam igual.
+  assert.equal(consumo.total, 3);
+
+  // Sem a dedução de consumo a conta errava por R$ 3,00 — era o bug.
+  const quatro = totais.receitaProdutos + totais.receitaServicos - totais.despesaProdutos - totais.despesaServicos;
+  const semConsumo = outras.filter((o) => o.origem !== "CONSUMO");
+  const efeito = (lista: typeof outras) =>
+    lista.reduce((soma, o) => soma + (o.natureza === "RECEITA" ? -o.total : o.total), 0);
+
+  assert.equal(quatro - efeito(semConsumo), 508);
+  assert.equal(quatro - efeito(outras), totais.lucroReal);
+});

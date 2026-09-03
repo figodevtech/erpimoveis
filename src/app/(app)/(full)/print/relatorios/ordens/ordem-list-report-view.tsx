@@ -57,9 +57,6 @@ type Cell = string | number | boolean | null;
  */
 const FOLHAS_PARA_AVISAR = 60;
 
-/** Doze divide por três e por quatro, que são as duas larguras de fileira. */
-const COLUNAS_DO_PAINEL = 12;
-
 const STATUS_LABEL: Record<string, string> = {
   AGUARDANDO_CHECKLIST: "Aguardando checklist",
   ORCAMENTO: "Em orçamento",
@@ -102,11 +99,81 @@ const TOM_ITEM = {
   SERVICO: "bg-violet-50 text-violet-800",
 } as const;
 
+/**
+ * As origens que não são produto nem serviço, na ordem em que saem na folha.
+ *
+ * `CONSUMO` é o material que a OS gastou sem revender — a abraçadeira, a fita.
+ * Entrou no livro depois das outras e é despesa pura, como desconto e comissão.
+ *
+ * Uma origem fora desta lista não some: cai no fim, com o rótulo em caixa. É o
+ * que impede a conta de parar de fechar quando o banco ganhar a próxima.
+ */
+const ORIGENS_DA_DEDUCAO = ["DESCONTO", "COMISSAO", "CONSUMO", "FRETE"] as const;
+
+const ROTULO_ORIGEM: Record<string, string> = {
+  DESCONTO: "Descontos",
+  COMISSAO: "Comissões",
+  CONSUMO: "Consumo",
+  FRETE: "Frete",
+  AVULSO: "Avulsos",
+  ENTRADA_FISCAL: "Entrada fiscal",
+};
+
+/** Frete soma; desconto, comissão e consumo abatem. */
+const SINAL_DA_ORIGEM: Record<string, 1 | -1> = {
+  DESCONTO: -1,
+  COMISSAO: -1,
+  CONSUMO: -1,
+  FRETE: 1,
+};
+
+/**
+ * As deduções de um conjunto de eventos, sempre nas mesmas posições e mesmo
+ * zeradas — é o que mantém a largura previsível e diz o que não houve.
+ */
+function deducoesDosEventos(linhas: EventoDaOrdem[]) {
+  const outras = outrasOrigensDaOs(linhas);
+  const somaDe = (origem: string) =>
+    outras
+      .filter((linha) => linha.origem === origem)
+      .reduce((soma, linha) => soma + linha.total, 0);
+
+  const conhecidas = ORIGENS_DA_DEDUCAO.map((origem) => ({
+    chave: `origem-${origem}`,
+    label: ROTULO_ORIGEM[origem] ?? origem,
+    valor: somaDe(origem),
+    sinal: SINAL_DA_ORIGEM[origem] ?? -1,
+  }));
+
+  // Origem que ainda não tem lugar próprio: entra assim mesmo, com o sinal
+  // vindo da natureza, para o lucro nunca ter uma parcela invisível.
+  const resto = outras
+    .filter((linha) => !ORIGENS_DA_DEDUCAO.includes(linha.origem as (typeof ORIGENS_DA_DEDUCAO)[number]))
+    .map((linha) => ({
+      chave: `origem-${linha.origem}-${linha.natureza}`,
+      label: ROTULO_ORIGEM[linha.origem] ?? linha.origem,
+      valor: linha.total,
+      sinal: (linha.natureza === "RECEITA" ? 1 : -1) as 1 | -1,
+    }));
+
+  return [...conhecidas, ...resto];
+}
+
+/**
+ * Selo de cada origem. Verde e vermelho ficam de fora: já significam soma e
+ * abatimento nos valores, e repeti-los aqui tornaria a convenção ambígua.
+ *
+ * Consumo e comissão andam juntos numa OS, então não podem dividir a família de
+ * cor. Consumo leva laranja num tom mais forte que o âmbar da comissão — hue
+ * diferente e peso diferente, para separar mesmo em corpo 7 e em preto e
+ * branco, onde só resta a densidade.
+ */
 const TOM_ORIGEM: Record<string, string> = {
   PRODUTO: "bg-sky-50 text-sky-800",
   SERVICO: "bg-violet-50 text-violet-800",
   COMISSAO: "bg-amber-50 text-amber-800",
-  FRETE: "bg-sky-50 text-sky-800",
+  CONSUMO: "bg-orange-100 text-orange-900",
+  FRETE: "bg-cyan-50 text-cyan-900",
   DESCONTO: "bg-neutral-100 text-neutral-700",
   AVULSO: "bg-neutral-100 text-neutral-700",
   ENTRADA_FISCAL: "bg-neutral-100 text-neutral-700",
@@ -194,8 +261,6 @@ type CardFechamento = {
   valor: number;
   tone?: string;
   destaque?: boolean;
-  /** Colunas ocupadas na grade de doze — 4 para as fileiras de três, 3 para a de quatro. */
-  span: number;
 };
 
 /** "12/03/2026, 14:20" -> "12/03/2026": a hora não cabe e não decide nada aqui. */
@@ -499,9 +564,9 @@ export function OrdemListReportView({
     [eventosPorOs],
   );
 
-  /** Comissão, desconto, frete — o que entra no lucro fora dos quatro. */
-  const outrasOrigens = useMemo(
-    () => outrasOrigensDaOs([...(eventosPorOs?.values() ?? [])].flat()),
+  /** Desconto, comissão, consumo, frete — o que entra no lucro fora dos quatro. */
+  const deducoesDoRecorte = useMemo(
+    () => deducoesDosEventos([...(eventosPorOs?.values() ?? [])].flat()),
     [eventosPorOs],
   );
 
@@ -516,24 +581,21 @@ export function OrdemListReportView({
   const cards = useMemo(
     () =>
       temEventos
-        ? cardsDoResultado(rows.length, ticket, totaisDosEventos, outrasOrigens)
+        ? cardsDoResultado(rows.length, ticket, totaisDosEventos, deducoesDoRecorte)
         : cardsDoOrcamento(rows, total, ticket),
-    [outrasOrigens, rows, temEventos, ticket, total, totaisDosEventos],
+    [deducoesDoRecorte, rows, temEventos, ticket, total, totaisDosEventos],
   );
 
   /**
-   * O painel é uma grade de doze colunas, e cada card diz quantas ocupa: 4 nas
-   * fileiras de três cards, 3 na de quatro. Doze divide pelos dois, que é o que
-   * permite fileiras de tamanhos diferentes sem desalinhar as bordas.
+   * Cada fileira do painel é a sua própria grade, com tantas colunas quantos
+   * cards ela tem. É o que deixa uma fileira de cinco conviver com as de três
+   * sem depender de um múltiplo comum de colunas — e o vão entre cards continua
+   * sendo um só, porque o `gap` é por grade.
    *
-   * As fileiras saem da soma dos spans, e não de uma contagem — quem define o
-   * desenho é a lista de cards, e a paginação desconta da folha cada fileira
-   * além da segunda. Sem isso a última ordem sairia cortada.
+   * A paginação desconta da folha cada fileira além da segunda; sem isso a
+   * última ordem sairia cortada.
    */
-  const fileirasDoPainel = Math.max(
-    1,
-    Math.ceil(cards.reduce((soma, card) => soma + card.span, 0) / COLUNAS_DO_PAINEL),
-  );
+  const fileirasDoPainel = Math.max(1, cards.length);
 
   const pages = useMemo(
     () =>
@@ -636,22 +698,20 @@ export function OrdemListReportView({
                       o que abate. Nenhuma parcela é omitida por estar zerada: a lista fixa é
                       o que deixa duas folhas comparáveis card a card. */}
                   {cards.length > 0 && (
-                    <div
-                      className="mt-2 grid gap-2"
-                      /* Sai por `style` e não por `grid-cols-12` do Tailwind porque o span de
-                         cada card é montado em tempo de execução, e uma classe em string
-                         seria descartada na purga do CSS. */
-                      style={{ gridTemplateColumns: `repeat(${COLUNAS_DO_PAINEL}, minmax(0, 1fr))` }}
-                    >
-                      {cards.map((card) => (
-                        <Kpi
-                          key={card.chave}
-                          label={card.label}
-                          value={card.value}
-                          tone={card.tone}
-                          destaque={card.destaque}
-                          span={card.span}
-                        />
+                    <div className="mt-2 flex flex-col gap-2">
+                      {cards.map((fileira, indice) => (
+                        <div
+                          key={fileira.map((card) => card.chave).join("|") || indice}
+                          className="grid gap-2"
+                          /* Sai por `style` e não por `grid-cols-N` do Tailwind porque N só
+                             existe em tempo de execução, e a classe montada em string seria
+                             descartada na purga do CSS. */
+                          style={{ gridTemplateColumns: `repeat(${fileira.length}, minmax(0, 1fr))` }}
+                        >
+                          {fileira.map((card) => (
+                            <Kpi key={card.chave} label={card.label} value={card.value} tone={card.tone} destaque={card.destaque} />
+                          ))}
+                        </div>
                       ))}
                     </div>
                   )}
@@ -744,18 +804,15 @@ function Kpi({
   value,
   tone,
   destaque,
-  span,
 }: {
   label: string;
   value: string;
   tone?: string;
   destaque?: boolean;
-  span: number;
 }) {
   return (
     <div
       className={`rounded border px-2 py-1.5 ${destaque ? "border-black bg-white" : "border-neutral-300 bg-neutral-50"}`}
-      style={{ gridColumn: `span ${span} / span ${span}` }}
     >
       <p className="text-[8px] font-semibold uppercase text-neutral-700">{label}</p>
       <p className={`text-[12px] font-bold tabular-nums ${tone ?? ""}`}>{value}</p>
@@ -891,35 +948,26 @@ function LinhaDeEvento({ evento, listrada }: { evento: EventoDaOrdem; listrada: 
 /**
  * O fechamento de uma OS pelos eventos.
  *
- * Oito entradas, e com elas a conta **fecha**: receita de produtos e serviços,
- * menos os custos de cada um, menos descontos e comissões, mais frete, é o
- * lucro real. Por isso o lucro leva `=` — antes ele mostrava só quatro
- * parcelas, que não somavam, e o `=` teria sido uma afirmação falsa.
+ * As quatro parcelas de produto e serviço, mais as deduções, mais o lucro — e
+ * com elas a conta **fecha**, que é o que justifica o `=` no lucro.
  *
- * As oito saem sempre, mesmo zeradas: mantêm a largura previsível e dizem o que
- * não houve. Elas ocupam duas linhas em qualquer cenário — medidas, somam 226mm
- * numa OS comum contra 176mm de folha —, e o modelo reserva essa altura.
+ * As deduções vêm de `deducoesDosEventos`, e não de uma lista escrita à mão:
+ * quando `CONSUMO` entrou no livro de eventos, a lista fixa passou a errar o
+ * lucro de toda OS que consumiu material. Agora uma origem nova aparece
+ * sozinha, com o sinal da natureza, em vez de sumir dentro do total.
  *
- * Fica de fora o que não é nenhuma dessas origens (avulso, entrada fiscal). Se
- * um dia aparecer numa OS, ela entra no lucro sem ter entrada própria e a conta
- * deixa de fechar. Hoje o banco só gera as seis daqui.
+ * Tudo sai mesmo zerado: mantém a largura previsível e diz o que não houve. As
+ * entradas ocupam duas linhas em qualquer cenário — medidas, passam de 226mm
+ * contra 176mm de folha —, e o modelo reserva essa altura.
  */
 function FechamentoDeEventos({ linhas, row }: { linhas: EventoDaOrdem[]; row: OrderRow }) {
   const totais = somarEventosDaOs(linhas);
-  const outras = outrasOrigensDaOs(linhas);
-  const porOrigem = (origem: string) =>
-    outras
-      .filter((linha) => linha.origem === origem)
-      .reduce((soma, linha) => soma + linha.total, 0);
-
   const parcelas = [
     { chave: "receitaProdutos", label: "Receita produtos", valor: totais.receitaProdutos, sinal: 1 as const },
     { chave: "custoProdutos", label: "Custo produtos", valor: totais.despesaProdutos, sinal: -1 as const },
     { chave: "receitaServicos", label: "Receita serviços", valor: totais.receitaServicos, sinal: 1 as const },
     { chave: "custoServicos", label: "Custo serviços", valor: totais.despesaServicos, sinal: -1 as const },
-    { chave: "descontos", label: "Descontos", valor: porOrigem("DESCONTO"), sinal: -1 as const },
-    { chave: "comissoes", label: "Comissões", valor: porOrigem("COMISSAO"), sinal: -1 as const },
-    { chave: "frete", label: "Frete", valor: porOrigem("FRETE"), sinal: 1 as const },
+    ...deducoesDosEventos(linhas),
   ];
 
   return (
@@ -946,61 +994,60 @@ function FechamentoDeEventos({ linhas, row }: { linhas: EventoDaOrdem[]; row: Or
 }
 
 /**
- * O painel de resultado — quatro fileiras fixas, sempre as mesmas.
+ * O painel de resultado — quatro fileiras, sempre as mesmas.
  *
- *   recorte        · receita bruta   · média por ordem
- *   receita produtos · custo produtos · líquido de produtos
- *   receita serviços · custo serviços · líquido de serviços
- *   descontos · comissões · frete · lucro real
+ *   recorte          · receita bruta   · média por ordem
+ *   receita produtos · custo produtos  · líquido de produtos
+ *   receita serviços · custo serviços  · líquido de serviços
+ *   descontos · comissões · consumo · frete · lucro real
  *
- * Fixo de propósito: as posições não mudam de um relatório para o outro, então
- * duas folhas se comparam card a card. Nada é omitido por estar zerado — um
- * frete em R$ 0,00 diz que não houve frete, e um lucro negativo é justamente o
+ * Cada fileira é a sua própria grade, então a última pode ter cinco cards sem
+ * obrigar as outras a nada. Nada é omitido por estar zerado: um consumo em
+ * R$ 0,00 diz que a OS não gastou material, e um lucro negativo é justamente o
  * número que o relatório existe para mostrar.
  *
- * Os líquidos por bloco são a conta local (receita menos custo daquele bloco), e
- * não fatias do lucro real: comissão, desconto e frete ficam fora deles e por
- * isso aparecem na última fileira. Somando as duas fileiras do meio com a
- * última, chega-se ao lucro real — desde que não exista origem além dessas três,
- * caso em que ela entraria no lucro sem ter card. Hoje só existem estas.
+ * A última fileira é a que fecha a conta. Somando as três deduções e o frete às
+ * duas fileiras do meio chega-se ao lucro real — e as deduções vêm de
+ * `deducoesDosEventos`, que inclui qualquer origem nova em vez de deixá-la
+ * invisível. Foi o que aconteceu quando `CONSUMO` entrou no livro: sete
+ * entradas fixas paravam de fechar por R$ 3,00 numa OS que consumiu material.
  */
 function cardsDoResultado(
   quantasOrdens: number,
   ticket: number,
   totais: TotaisDosEventos,
-  outras: ReturnType<typeof outrasOrigensDaOs>,
-): CardFechamento[] {
+  deducoes: ReturnType<typeof deducoesDosEventos>,
+): CardFechamento[][] {
   const liquidoProdutos = totais.receitaProdutos - totais.despesaProdutos;
   const liquidoServicos = totais.receitaServicos - totais.despesaServicos;
-  const porOrigem = (origem: string) =>
-    outras
-      .filter((linha) => linha.origem === origem)
-      .reduce((soma, linha) => soma + (linha.natureza === "RECEITA" ? linha.total : -linha.total), 0);
-
-  const descontos = porOrigem("DESCONTO");
-  const comissoes = porOrigem("COMISSAO");
-  const frete = porOrigem("FRETE");
-  const tomDoLiquido = (valor: number) => (valor < 0 ? TOM_SUBTRACAO : TOM_SOMA);
+  const tom = (valor: number) => (valor < 0 ? TOM_SUBTRACAO : TOM_SOMA);
 
   return [
-    { chave: "ordens", label: "Ordens no recorte", value: String(quantasOrdens), valor: quantasOrdens, span: 4 },
-    { chave: "receitaBruta", label: "Receita bruta", value: money(totais.receita), destaque: true, valor: totais.receita, span: 4 },
-    { chave: "ticket", label: "Média por ordem", value: money(ticket), valor: ticket, span: 4 },
-
-    { chave: "receitaProdutos", label: "+ Receita de produtos", value: signedMoney(totais.receitaProdutos, 1), tone: TOM_SOMA, valor: totais.receitaProdutos, span: 4 },
-    { chave: "custoProdutos", label: "− Custo de produtos", value: signedMoney(totais.despesaProdutos, -1), tone: TOM_SUBTRACAO, valor: totais.despesaProdutos, span: 4 },
-    { chave: "liquidoProdutos", label: "= Líquido de produtos", value: money(liquidoProdutos), tone: tomDoLiquido(liquidoProdutos), valor: liquidoProdutos, span: 4 },
-
-    { chave: "receitaServicos", label: "+ Receita de serviços", value: signedMoney(totais.receitaServicos, 1), tone: TOM_SOMA, valor: totais.receitaServicos, span: 4 },
-    { chave: "custoServicos", label: "− Custo de serviços", value: signedMoney(totais.despesaServicos, -1), tone: TOM_SUBTRACAO, valor: totais.despesaServicos, span: 4 },
-    { chave: "liquidoServicos", label: "= Líquido de serviços", value: money(liquidoServicos), tone: tomDoLiquido(liquidoServicos), valor: liquidoServicos, span: 4 },
-
-    // Os três sinais já vêm resolvidos por `porOrigem`: desconto e comissão são
-    // despesa e chegam negativos, frete é receita e chega positivo.
-    { chave: "descontos", label: "Descontos concedidos", value: money(descontos), tone: tomDoLiquido(descontos), valor: descontos, span: 3 },
-    { chave: "comissoes", label: "Comissões", value: money(comissoes), tone: tomDoLiquido(comissoes), valor: comissoes, span: 3 },
-    { chave: "frete", label: "Frete", value: money(frete), tone: tomDoLiquido(frete), valor: frete, span: 3 },
-    { chave: "lucro", label: "Lucro real", value: money(totais.lucroReal), tone: "text-primary", destaque: true, valor: totais.lucroReal, span: 3 },
+    [
+      { chave: "ordens", label: "Ordens no recorte", value: String(quantasOrdens), valor: quantasOrdens },
+      { chave: "receitaBruta", label: "Receita bruta", value: money(totais.receita), destaque: true, valor: totais.receita },
+      { chave: "ticket", label: "Média por ordem", value: money(ticket), valor: ticket },
+    ],
+    [
+      { chave: "receitaProdutos", label: "+ Receita de produtos", value: signedMoney(totais.receitaProdutos, 1), tone: TOM_SOMA, valor: totais.receitaProdutos },
+      { chave: "custoProdutos", label: "− Custo de produtos", value: signedMoney(totais.despesaProdutos, -1), tone: TOM_SUBTRACAO, valor: totais.despesaProdutos },
+      { chave: "liquidoProdutos", label: "= Líquido de produtos", value: money(liquidoProdutos), tone: tom(liquidoProdutos), valor: liquidoProdutos },
+    ],
+    [
+      { chave: "receitaServicos", label: "+ Receita de serviços", value: signedMoney(totais.receitaServicos, 1), tone: TOM_SOMA, valor: totais.receitaServicos },
+      { chave: "custoServicos", label: "− Custo de serviços", value: signedMoney(totais.despesaServicos, -1), tone: TOM_SUBTRACAO, valor: totais.despesaServicos },
+      { chave: "liquidoServicos", label: "= Líquido de serviços", value: money(liquidoServicos), tone: tom(liquidoServicos), valor: liquidoServicos },
+    ],
+    [
+      ...deducoes.map((deducao) => ({
+        chave: deducao.chave,
+        label: `${deducao.sinal < 0 ? "−" : "+"} ${deducao.label}`,
+        value: signedMoney(deducao.valor, deducao.sinal),
+        tone: deducao.sinal < 0 ? TOM_SUBTRACAO : TOM_SOMA,
+        valor: deducao.valor,
+      })),
+      { chave: "lucro", label: "= Lucro real", value: money(totais.lucroReal), tone: "text-primary", destaque: true, valor: totais.lucroReal },
+    ],
   ];
 }
 
@@ -1011,7 +1058,7 @@ function cardsDoResultado(
  * mostrar receita sem custo daria um painel que promete uma conta que não pode
  * fechar. Sobra o do orçamento: o que foi cobrado, que é o que essa pessoa vê.
  */
-function cardsDoOrcamento(rows: OrderRow[], total: number, ticket: number): CardFechamento[] {
+function cardsDoOrcamento(rows: OrderRow[], total: number, ticket: number): CardFechamento[][] {
   const somar = (pegar: (row: OrderRow) => number) => rows.reduce((soma, row) => soma + pegar(row), 0);
   const receitaProdutos = somar((row) => row.products);
   const receitaServicos = somar((row) => row.services);
@@ -1020,14 +1067,18 @@ function cardsDoOrcamento(rows: OrderRow[], total: number, ticket: number): Card
   const acrescimo = somar((row) => row.surcharge);
 
   return [
-    { chave: "ordens", label: "Ordens no recorte", value: String(rows.length), valor: rows.length, span: 3 },
-    { chave: "orcamento", label: "Orçamento total", value: money(total), destaque: true, valor: total, span: 3 },
-    { chave: "ticket", label: "Média por ordem", value: money(ticket), valor: ticket, span: 3 },
-    { chave: "produtos", label: "+ Receita de produtos", value: signedMoney(receitaProdutos, 1), tone: TOM_SOMA, valor: receitaProdutos, span: 3 },
-    { chave: "servicos", label: "+ Receita de serviços", value: signedMoney(receitaServicos, 1), tone: TOM_SOMA, valor: receitaServicos, span: 3 },
-    { chave: "frete", label: "+ Frete", value: signedMoney(frete, 1), tone: TOM_SOMA, valor: frete, span: 3 },
-    { chave: "acrescimo", label: "+ Acréscimo fin.", value: signedMoney(acrescimo, 1), tone: TOM_SOMA, valor: acrescimo, span: 3 },
-    { chave: "descontos", label: "− Descontos aplicados", value: signedMoney(descontos, -1), tone: TOM_SUBTRACAO, valor: descontos, span: 3 },
+    [
+      { chave: "ordens", label: "Ordens no recorte", value: String(rows.length), valor: rows.length },
+      { chave: "orcamento", label: "Orçamento total", value: money(total), destaque: true, valor: total },
+      { chave: "ticket", label: "Média por ordem", value: money(ticket), valor: ticket },
+    ],
+    [
+      { chave: "produtos", label: "+ Receita de produtos", value: signedMoney(receitaProdutos, 1), tone: TOM_SOMA, valor: receitaProdutos },
+      { chave: "servicos", label: "+ Receita de serviços", value: signedMoney(receitaServicos, 1), tone: TOM_SOMA, valor: receitaServicos },
+      { chave: "frete", label: "+ Frete", value: signedMoney(frete, 1), tone: TOM_SOMA, valor: frete },
+      { chave: "acrescimo", label: "+ Acréscimo fin.", value: signedMoney(acrescimo, 1), tone: TOM_SOMA, valor: acrescimo },
+      { chave: "descontos", label: "− Descontos aplicados", value: signedMoney(descontos, -1), tone: TOM_SUBTRACAO, valor: descontos },
+    ],
   ];
 }
 

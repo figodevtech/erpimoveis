@@ -15,7 +15,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     const { data, error } = await supabaseAdmin
       .from("usoconsumo_saida")
       .select(
-        "id,escopo,motivo,observacao,setor,funcionario,status,created_by,created_at,cancelada_at,cancelada_by,motivo_cancelamento," +
+        "id,escopo,motivo,observacao,setor,funcionario,status,ordemservicoid,created_by,created_at,cancelada_at,cancelada_by,motivo_cancelamento," +
           "centro_custo:centrosdecusto(id,nome)," +
           "itens:usoconsumo_saida_item(id,item_id,quantidade,saldo_anterior,saldo_resultante,valor_custo_aplicado,created_at,item:usoconsumo_item(id,titulo,referencia,unidade))",
       )

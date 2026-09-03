@@ -8,7 +8,13 @@ import { Separator } from "@/components/ui/separator";
 import { Plus, Wrench } from "lucide-react";
 import { toast } from "@/lib/toast";
 
-import { OrcamentoFormHandle, OrcamentoFormProps, ProdutoBusca, ServicoBusca } from "./tipos";
+import {
+  OrcamentoFormHandle,
+  OrcamentoFormProps,
+  ProdutoBusca,
+  ResultadoSalvarOrcamento,
+  ServicoBusca,
+} from "./tipos";
 
 import { useCarrinhoOrcamento } from "./ganchos/use-carrinho-orcamento";
 import {
@@ -120,7 +126,7 @@ export const OrcamentoForm = forwardRef<OrcamentoFormHandle, OrcamentoFormProps>
     };
   }, [osId, carregarItens, onLoadingChange]);
 
-  const salvarOrcamento = useCallback(async () => {
+  const salvarOrcamento = useCallback(async (): Promise<ResultadoSalvarOrcamento> => {
     if (!osId) {
       const err = new Error("OS inválida para salvar orçamento");
       toast.error(err.message);
@@ -143,6 +149,8 @@ export const OrcamentoForm = forwardRef<OrcamentoFormHandle, OrcamentoFormProps>
       // e fica mais tempo em tela, porque exige conferência.
       if (resposta?.aviso) toast.warning(resposta.aviso, { duration: 10000 });
       window.dispatchEvent(new Event("os:refresh"));
+
+      return { servicosSemRealizador: resposta?.servicosSemRealizador ?? [] };
     } catch (e: any) {
       if (e instanceof EstoqueInsuficienteError || e?.name === "EstoqueInsuficienteError") {
         const faltas = (e.itens ?? []) as Array<{

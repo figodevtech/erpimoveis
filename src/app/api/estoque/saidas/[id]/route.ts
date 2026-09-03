@@ -8,7 +8,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 type Params = { params: Promise<{ id: string }> };
 
 const SELECT_SAIDA = `
-  id, motivo, observacao, status, created_by, created_at,
+  id, motivo, observacao, status, ordemservicoid, created_by, created_at,
   cancelada_at, cancelada_by, motivo_cancelamento,
   itens:estoque_saida_item(
     id, produto_id, quantidade, saldo_anterior, saldo_resultante,

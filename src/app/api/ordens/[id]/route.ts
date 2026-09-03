@@ -517,6 +517,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
           servicoid,
           usuarioid,
           comissao_percent_aplicada,
+          comissao_percent_efetiva,
           valor_base,
           valor_comissao,
           usuario:usuarioid (id, nome)
@@ -532,7 +533,10 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       Array<{
         usuarioid: string;
         nome: string | null;
+        /** O que pagou a linha: o maior percentual entre os realizadores. */
         percentual: number;
+        /** A taxa do próprio realizador, preservada como histórico. */
+        percentualProprio: number;
         valorBase: number;
         valorComissao: number;
       }>
@@ -555,10 +559,19 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       realizadoresByServico.set(sid, arr);
 
       const comissoes = comissoesByServico.get(sid) ?? [];
+      // `efetiva` é nula em vínculo anterior à regra do maior percentual; lá a
+      // taxa individual era mesmo a que pagava.
+      const percentualProprio = toNum((rr as any).comissao_percent_aplicada);
+      const percentualEfetivo =
+        (rr as any).comissao_percent_efetiva == null
+          ? percentualProprio
+          : toNum((rr as any).comissao_percent_efetiva);
+
       comissoes.push({
         usuarioid: idRealizador,
         nome: nomeRealizador,
-        percentual: toNum((rr as any).comissao_percent_aplicada),
+        percentual: percentualEfetivo,
+        percentualProprio,
         valorBase: toNum((rr as any).valor_base),
         valorComissao: toNum((rr as any).valor_comissao),
       });

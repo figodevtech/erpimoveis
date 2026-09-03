@@ -1,12 +1,13 @@
 "use client";
 
-import { AlertTriangle, Clock3, Loader2, RefreshCw, WalletCards } from "lucide-react";
+import { AlertTriangle, Clock3, Loader2, PackageMinus, RefreshCw, Undo2, WalletCards } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatPaymentMethodLabel } from "@/lib/payment-methods";
 import formatarEmReal from "@/utils/formatarEmReal";
+import type { ConsumosDaOs } from "@/lib/ordens/consumo-estoque";
 
 export type TransacaoExcluidaComOs = {
   id: string;
@@ -33,6 +34,8 @@ type ImpactoExclusao = {
   loading: boolean;
   error: string | null;
   transacoes: TransacaoExcluidaComOs[];
+  /** O que o cancelamento devolve ao estoque, e o que fica retido. */
+  consumos: ConsumosDaOs;
   resumo: {
     quantidade: number;
     valorRecebido: number;
@@ -47,6 +50,7 @@ const estadoVazio: ImpactoExclusao = {
   loading: false,
   error: null,
   transacoes: [],
+  consumos: { estornaveis: [], retidos: [] },
   resumo: {
     quantidade: 0,
     valorRecebido: 0,
@@ -86,6 +90,7 @@ export function useImpactoExclusaoFinanceiraOs(osId?: number | null) {
           loading: false,
           error: null,
           transacoes: payload?.transacoes ?? [],
+          consumos: payload?.consumos ?? estadoVazio.consumos,
           resumo: payload?.resumo ?? estadoVazio.resumo,
         });
       })
@@ -121,8 +126,18 @@ export function useImpactoExclusaoFinanceiraOs(osId?: number | null) {
 
 export function ImpactoExclusaoFinanceiraOs({
   impacto,
+  estornaConsumos = false,
 }: {
   impacto: ReturnType<typeof useImpactoExclusaoFinanceiraOs>;
+  /**
+   * Se esta operacao devolve consumo de estoque ao inventario.
+   *
+   * So o cancelamento e a recusa do orcamento devolvem — e o gatilho
+   * `trg_os_status_estornar` que faz isso. Reiniciar a OS e finalizar sem
+   * cobranca deixam o consumo de pe: o material foi usado de verdade, e
+   * SEM_COBRANCA existe justamente para manter os custos e zerar a receita.
+   */
+  estornaConsumos?: boolean;
 }) {
   if (impacto.loading || impacto.osId == null) {
     return (
@@ -143,10 +158,20 @@ export function ImpactoExclusaoFinanceiraOs({
     );
   }
 
-  if (impacto.transacoes.length === 0) return null;
+  const todosOsConsumos = [...impacto.consumos.estornaveis, ...impacto.consumos.retidos];
+  const estornaveis = estornaConsumos ? impacto.consumos.estornaveis : [];
+  const retidos = estornaConsumos
+    ? impacto.consumos.retidos
+    : todosOsConsumos.map((consumo) => ({
+        ...consumo,
+        motivoRetencao: "Esta operação não devolve o material ao estoque.",
+      }));
+  const temConsumo = todosOsConsumos.length > 0;
+  if (impacto.transacoes.length === 0 && !temConsumo) return null;
 
   return (
     <div className="space-y-3">
+      {impacto.transacoes.length > 0 ? (
       <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-200">
         <p className="flex items-start gap-2 font-semibold">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" />
@@ -156,7 +181,9 @@ export function ImpactoExclusaoFinanceiraOs({
           Pagamentos recebidos representam movimentações reais de caixa e títulos pendentes representam compromissos de cobrança. Excluí-los remove a rastreabilidade financeira da OS e pode causar divergência de caixa, conciliação ou cobrança. Se houve recebimento, confirme antes se a devolução ou o ajuste correspondente já foi tratado.
         </p>
       </div>
+      ) : null}
 
+      {impacto.transacoes.length > 0 ? (
       <div className="overflow-hidden rounded-lg border">
           <div className="border-b bg-muted/40 p-3 text-sm">
             <p className="font-semibold">
@@ -215,6 +242,53 @@ export function ImpactoExclusaoFinanceiraOs({
             ))}
           </div>
       </div>
+      ) : null}
+
+      {/* O cancelamento tambem mexe no inventario. Sem isto, o item so
+          reaparece no estoque depois — e o que NAO volta nunca apareceria. */}
+      {temConsumo ? (
+        <div className="overflow-hidden rounded-lg border">
+          <div className="border-b bg-muted/40 p-3 text-sm">
+            <p className="font-semibold">Consumos de estoque desta OS</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {estornaveis.length} volta(m) ao estoque · {retidos.length} permanece(m) fora
+            </p>
+          </div>
+          <div className="max-h-56 divide-y overflow-y-auto">
+            {estornaveis.map((consumo) => (
+              <div key={consumo.eventoId} className="grid gap-2 p-3 text-sm sm:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="min-w-0">
+                  <Badge variant="outline" className="gap-1">
+                    <Undo2 className="size-3" /> Volta ao estoque
+                  </Badge>
+                  <p className="mt-1 truncate font-medium">{consumo.descricao}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {consumo.quantidade} {consumo.unidade ?? "UN"}
+                    {consumo.itemTitulo ? ` · ${consumo.itemTitulo}` : ""}
+                  </p>
+                </div>
+                <p className="font-semibold tabular-nums sm:text-right">
+                  {formatarEmReal(consumo.valor)}
+                </p>
+              </div>
+            ))}
+            {retidos.map((consumo) => (
+              <div key={consumo.eventoId} className="grid gap-2 p-3 text-sm sm:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="min-w-0">
+                  <Badge variant="default" className="gap-1">
+                    <PackageMinus className="size-3" /> Permanece fora do estoque
+                  </Badge>
+                  <p className="mt-1 truncate font-medium">{consumo.descricao}</p>
+                  <p className="text-xs text-muted-foreground">{consumo.motivoRetencao}</p>
+                </div>
+                <p className="font-semibold tabular-nums sm:text-right">
+                  {formatarEmReal(consumo.valor)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

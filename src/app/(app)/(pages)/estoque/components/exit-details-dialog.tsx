@@ -30,6 +30,8 @@ type ExitDetails = {
   funcionario?: string | null;
   /** Só vem nas saídas dos estoques simples. */
   escopo?: UsoConsumoEscopo | null;
+  /** OS que registrou o consumo; o estorno acontece lá, não aqui. */
+  ordemservicoid?: number | null;
   created_at?: string;
   cancelada_at?: string | null;
   motivo_cancelamento?: string | null;
@@ -215,6 +217,14 @@ export function ExitDetailsDialog({ exitId, inventory, open, onOpenChange }: Pro
               <Field label="Registrado em">{formatDateTime(exit.created_at)}</Field>
               <Field label="Registrado por">{autor || "Não informado"}</Field>
               <Field label="Situação">{formatEnum(exit.status)}</Field>
+              {exit.ordemservicoid ? (
+                <Field label="Consumo da OS">
+                  OS #{exit.ordemservicoid}
+                  <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                    O estorno é feito na ordem, cancelando a despesa registrada.
+                  </span>
+                </Field>
+              ) : null}
               {exit.cancelada_at ? <Field label="Cancelada em">{formatDateTime(exit.cancelada_at)}</Field> : null}
               {exit.observacao ? (
                 <Field label="Observação" className="sm:col-span-2 lg:col-span-4">

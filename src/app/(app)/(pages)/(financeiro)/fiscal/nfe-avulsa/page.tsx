@@ -63,7 +63,9 @@ import {
   type UsoConsumoItemOption,
 } from "@/app/(app)/(pages)/usoconsumo/components/item-select-dialog";
 import {
+  ehEstoqueSimples,
   escopoDaOrigemNfe as escopoDaOrigem,
+  ESCOPO_PADRAO,
   PREFIXO_ORIGEM_NFE as PREFIXO_ORIGEM,
   rotuloDeEscopo,
 } from "@/lib/usoconsumo/escopo";
@@ -1443,7 +1445,11 @@ export default function NFeAvulsaPage() {
         {
           ...emptyItem,
           produtoId: null,
-          sourceItemId: `${PREFIXO_ORIGEM[item.escopo ?? "USOCONSUMO"]}:${item.id}`,
+          // O seletor cobre os tres estoques, mas a NF-e avulsa so oferece os
+          // dois simples (nao passa `escopos`). O estreitamento existe para o
+          // dia em que alguem ligar o terceiro aqui sem lembrar que
+          // `nfe_item.produtoid` tem FK propria para produto.
+          sourceItemId: `${PREFIXO_ORIGEM[ehEstoqueSimples(item.escopo) ? item.escopo : ESCOPO_PADRAO]}:${item.id}`,
           // Vira o cProd do XML. Referência em branco cairia no número da linha
           // lá no serviço, e aí a nota não diria mais de qual item ela saiu.
           codigo:

@@ -66,6 +66,13 @@ export type OrcamentoFormProps = {
   onLoadingChange?: (loading: boolean) => void;
 };
 
+/** Serviço que ficou sem realizador depois de salvar o orçamento. */
+export type ServicoSemRealizador = { servicoid: number; descricao: string };
+
+export type ResultadoSalvarOrcamento = {
+  servicosSemRealizador: ServicoSemRealizador[];
+};
+
 export type OrcamentoFormHandle = {
-  salvarOrcamento: (opts?: { baixarEstoque?: boolean }) => Promise<void>;
+  salvarOrcamento: (opts?: { baixarEstoque?: boolean }) => Promise<ResultadoSalvarOrcamento>;
 };

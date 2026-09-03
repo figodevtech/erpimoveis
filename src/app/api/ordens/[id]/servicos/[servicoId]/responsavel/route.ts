@@ -4,9 +4,48 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
+import { CODIGO_REALIZADORES_PENDENTES } from "@/lib/ordens/realizadores";
+import { mesesDeCompetenciaFechada } from "../../../eventos-financeiros/_lib/competencia";
 
 function uniq(arr: string[]) {
   return [...new Set(arr)];
+}
+
+/**
+ * Publica (ou encerra) o evento financeiro de comissão dos realizadores.
+ *
+ * O gatilho `trg_recalc_comissao_realizadores` recalcula o snapshot da linha em
+ * `osservico_realizador`, mas quem escreve em `eventos_financeiros` é a
+ * reconciliação — e ela só rodava ao salvar o orçamento ou ao encerrar a OS.
+ * Resultado: realizador definido depois disso ficava sem evento de comissão até
+ * a conclusão, enquanto os serviços já atribuídos na última reconciliação
+ * tinham o seu. A condição aqui é a mesma que o orçamento usa.
+ */
+async function reconciliarComissoes(ordemservicoid: number, status: string) {
+  if (!["EM_ANDAMENTO", "PAGAMENTO"].includes(status)) return null;
+
+  const { data: competencias, error: competenciasError } = await supabase
+    .from("eventos_financeiros")
+    .select("competencia_em")
+    .eq("ordemservicoid", ordemservicoid)
+    .neq("status", "CANCELADO")
+    .not("competencia_em", "is", null);
+  if (competenciasError) throw competenciasError;
+
+  const mesesAfetados = mesesDeCompetenciaFechada(
+    (competencias ?? []).map((row: any) => row.competencia_em),
+  );
+
+  const { error } = await supabase.rpc("reconciliar_eventos_financeiros_os", {
+    p_ordemservicoid: ordemservicoid,
+    p_incluir_comissoes: true,
+  });
+  if (error) throw error;
+
+  return mesesAfetados.length
+    ? `Esta OS tem lançamentos com competência em ${mesesAfetados.join(", ")}. ` +
+      `A DRE desse período foi recalculada com a comissão atualizada.`
+    : null;
 }
 
 export async function PUT(
@@ -75,6 +114,29 @@ export async function PUT(
 
     // 3) se vier vazio, remove realizadores
     if (usuarioIds.length === 0) {
+      // Com a OS em andamento, tirar o último realizador devolve o serviço ao
+      // estado que a validação de início existe para impedir. Trocar continua
+      // livre: o bloqueio é só para a lista terminar vazia.
+      if (status === "EM_ANDAMENTO") {
+        const { count: vinculados, error: vinculadosError } = await supabase
+          .from("osservico_realizador")
+          .select("usuarioid", { count: "exact", head: true })
+          .eq("ordemservicoid", ordemservicoid)
+          .eq("servicoid", servicoid);
+
+        if (vinculadosError) throw vinculadosError;
+        if ((vinculados ?? 0) > 0) {
+          return NextResponse.json(
+            {
+              error:
+                "Não é possível deixar um serviço sem realizador com a OS em andamento. Troque o realizador em vez de remover.",
+              codigo: CODIGO_REALIZADORES_PENDENTES,
+            },
+            { status: 409 },
+          );
+        }
+      }
+
       const del_res = await supabase
         .from("osservico_realizador")
         .delete()
@@ -83,12 +145,15 @@ export async function PUT(
 
       if (del_res.error) throw del_res.error;
 
+      const aviso = await reconciliarComissoes(ordemservicoid, status);
+
       return NextResponse.json({
         ordemservicoid,
         servicoid,
         usuarioIds: [],
         idusuariorealizador: null,
         realizadores: [],
+        aviso,
       });
     }
 
@@ -145,6 +210,11 @@ export async function PUT(
       if (insRes.error) throw insRes.error;
     }
 
+    // Entrar ou sair realizador redivide a comissão do serviço; a reconciliação
+    // precisa rodar mesmo quando ninguém foi inserido nem removido de fato, para
+    // o evento acompanhar o snapshot que o gatilho acabou de reescrever.
+    const aviso = await reconciliarComissoes(ordemservicoid, status);
+
     return NextResponse.json({
       ordemservicoid,
       servicoid,
@@ -154,9 +224,18 @@ export async function PUT(
         id: uid,
         nome: map.get(uid)?.nome ?? null,
       })),
+      aviso,
     });
   } catch (e: any) {
     console.error("PUT /api/ordens/[id]/servicos/[servicoId]/responsavel", e);
-    return NextResponse.json({ error: e?.message ?? "Erro ao atualizar responsáveis" }, { status: 500 });
+
+    // A reconciliação recusa mexer em evento que já virou transação: é conflito
+    // de estado do usuário, não falha do servidor.
+    const conflito = String(e?.message ?? "").includes("eventos convertidos divergentes");
+
+    return NextResponse.json(
+      { error: e?.message ?? "Erro ao atualizar responsáveis" },
+      { status: conflito ? 409 : 500 },
+    );
   }
 }

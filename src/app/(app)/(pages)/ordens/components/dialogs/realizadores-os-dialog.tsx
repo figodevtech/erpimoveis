@@ -1,7 +1,7 @@
 // ./src/app/(app)/(pages)/ordens/components/dialogs/realizadores-os-dialog.tsx
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "@/lib/toast";
 import {
   AlertTriangle,
@@ -47,16 +47,35 @@ import {
   type ServicoLinha,
 } from "./realizadores/types";
 
+export type AcaoRealizadoresOSDialog = {
+  /** Rótulo do botão principal quando não há nada pendente de salvar. */
+  rotulo: string;
+  /** Rótulo quando há alteração pendente — o clique salva e executa. */
+  rotuloComPendencias: string;
+  icone?: React.ReactNode;
+  /** Mensagem exibida quando falta realizador obrigatório. */
+  aviso: string;
+  executar: () => Promise<boolean>;
+};
+
 export function RealizadoresOSDialog({
   open,
   onOpenChange,
   osId,
-  onStart,
+  acao,
+  servicosObrigatorios,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   osId: number | null;
-  onStart: () => Promise<boolean>;
+  acao: AcaoRealizadoresOSDialog;
+  /**
+   * Quando informado, só estes serviços bloqueiam a ação principal. Serve para
+   * a edição do orçamento, onde apenas o serviço recém-incluído precisa de
+   * realizador — os demais podem estar esperando o mecânico se atribuir pelo
+   * módulo de execução.
+   */
+  servicosObrigatorios?: number[] | null;
 }) {
   const isDesktop = useMediaQuery("(min-width: 1024px)");
 
@@ -133,6 +152,11 @@ export function RealizadoresOSDialog({
     setBuscaServico("");
   }, [open]);
 
+  const escopoObrigatorio = useMemo(
+    () => (servicosObrigatorios ? new Set(servicosObrigatorios.map(Number)) : null),
+    [servicosObrigatorios],
+  );
+
   const servicos = useMemo<ServicoLinha[]>(() => {
     return itensServico.map((it) => {
       const key = servicoKey(it);
@@ -146,10 +170,11 @@ export function RealizadoresOSDialog({
         ids,
         pendenteSalvar: !sameIds(ids, origSelecionados[key] ?? []),
         semRealizador: ids.length === 0,
+        obrigatorio: escopoObrigatorio ? escopoObrigatorio.has(Number(it.servicoid)) : true,
         erroSalvar: errosSalvar[key] ?? null,
       };
     });
-  }, [itensServico, selecionados, origSelecionados, errosSalvar]);
+  }, [itensServico, selecionados, origSelecionados, errosSalvar, escopoObrigatorio]);
 
   const servicosView = useMemo(() => {
     const q = buscaServico.trim().toLowerCase();
@@ -158,7 +183,14 @@ export function RealizadoresOSDialog({
   }, [servicos, buscaServico]);
 
   const pendentesCount = useMemo(() => servicos.filter((s) => s.pendenteSalvar).length, [servicos]);
-  const semRealizadorCount = useMemo(() => servicos.filter((s) => s.semRealizador).length, [servicos]);
+  const semRealizadorCount = useMemo(
+    () => servicos.filter((s) => s.semRealizador && s.obrigatorio).length,
+    [servicos],
+  );
+  const aguardandoExecucaoCount = useMemo(
+    () => servicos.filter((s) => s.semRealizador && !s.obrigatorio).length,
+    [servicos],
+  );
 
   const active = useMemo(() => servicos.find((s) => s.key === activeKey) ?? null, [servicos, activeKey]);
   const emEdicao = useMemo(() => servicos.find((s) => s.key === pickerKey) ?? null, [servicos, pickerKey]);
@@ -221,23 +253,23 @@ export function RealizadoresOSDialog({
     setGeralIds((prev) => (prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]));
   }, []);
 
-  async function salvarTodos(iniciar: boolean) {
+  async function salvarTodos(confirmar: boolean) {
     if (!osId || busy) return;
 
-    const primeiroSemRealizador = servicos.find((s) => s.semRealizador);
-    if (iniciar && primeiroSemRealizador) {
+    const primeiroSemRealizador = servicos.find((s) => s.semRealizador && s.obrigatorio);
+    if (confirmar && primeiroSemRealizador) {
       focarServico(primeiroSemRealizador.key);
-      toast.error("Selecione ao menos um executor para todos os serviços antes de iniciar a OS.");
+      toast.error(acao.aviso);
       return;
     }
 
     const alterados = servicos.filter((s) => s.pendenteSalvar);
-    if (!iniciar && alterados.length === 0) {
+    if (!confirmar && alterados.length === 0) {
       toast.info("Nenhuma alteração pendente para salvar.");
       return;
     }
 
-    setSavingAction(iniciar ? "start" : "save");
+    setSavingAction(confirmar ? "start" : "save");
 
     try {
       const resultados = await Promise.all(
@@ -294,14 +326,18 @@ export function RealizadoresOSDialog({
         return;
       }
 
-      if (!iniciar) {
+      // A reconciliação pode ter alcançado mês já fechado na DRE; o aviso vem
+      // por serviço, mas basta mostrar uma vez.
+      const avisoDre = salvos.find((s) => s.response?.aviso)?.response?.aviso;
+      if (avisoDre) toast.warning(avisoDre, { duration: 10000 });
+
+      if (!confirmar) {
         toast.success("Executores atualizados.");
         return;
       }
 
-      if (alterados.length > 0) toast.success("Executores salvos. Iniciando a OS...");
-      const iniciou = await onStart();
-      if (iniciou) onOpenChange(false);
+      const concluiu = await acao.executar();
+      if (concluiu) onOpenChange(false);
     } finally {
       setSavingAction(null);
     }
@@ -312,7 +348,9 @@ export function RealizadoresOSDialog({
       ? `${semRealizadorCount} serviço(s) sem executor`
       : pendentesCount > 0
         ? `${pendentesCount} serviço(s) com alterações pendentes`
-        : "Tudo salvo";
+        : aguardandoExecucaoCount > 0
+          ? `Tudo salvo • ${aguardandoExecucaoCount} serviço(s) aguardando quem vai assumir na execução`
+          : "Tudo salvo";
 
   return (
     <>
@@ -473,9 +511,9 @@ export function RealizadoresOSDialog({
                   {savingAction === "start" ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
-                    <Play className="mr-2 h-4 w-4" />
+                    acao.icone ?? <Play className="mr-2 h-4 w-4" />
                   )}
-                  {pendentesCount > 0 ? "Salvar e iniciar" : "Iniciar OS"}
+                  {pendentesCount > 0 ? acao.rotuloComPendencias : acao.rotulo}
                 </Button>
               </div>
             </div>
@@ -597,7 +635,7 @@ function ListaServicos({
                     isMobile ? "py-3.5" : "py-2.5",
                     isActive
                       ? "bg-primary/10 ring-1 ring-primary/30"
-                      : s.semRealizador
+                      : s.semRealizador && s.obrigatorio
                         ? "bg-background/75 ring-1 ring-destructive/25 hover:bg-background"
                         : "bg-background/75 hover:bg-background",
                   )}
@@ -608,9 +646,14 @@ function ListaServicos({
 
                       <div className="mt-0.5 flex items-center gap-1.5 text-xs">
                         {s.semRealizador ? (
-                          <span className="inline-flex items-center gap-1 font-medium text-destructive">
+                          <span
+                            className={cn(
+                              "inline-flex items-center gap-1",
+                              s.obrigatorio ? "font-medium text-destructive" : "text-muted-foreground",
+                            )}
+                          >
                             <UserPlus className="h-3.5 w-3.5" />
-                            Definir executor
+                            {s.obrigatorio ? "Definir executor" : "Aguardando quem vai assumir"}
                           </span>
                         ) : (
                           <span className="truncate text-muted-foreground">{nomes}</span>
@@ -625,8 +668,12 @@ function ListaServicos({
                         <Badge variant="destructive" className="text-[11px]">
                           falhou
                         </Badge>
-                      ) : s.semRealizador ? (
+                      ) : s.semRealizador && s.obrigatorio ? (
                         <XCircle className="h-4 w-4 text-destructive" />
+                      ) : s.semRealizador ? (
+                        <Badge variant="outline" className="text-[11px]">
+                          execução
+                        </Badge>
                       ) : s.pendenteSalvar ? (
                         <Badge variant="secondary" className="text-[11px]">
                           pendente

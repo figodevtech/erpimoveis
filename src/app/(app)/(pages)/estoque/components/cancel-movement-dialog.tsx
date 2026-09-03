@@ -21,6 +21,14 @@ export type CancelTarget = {
   /** entrada/saida define o texto e o endpoint chamado pelo componente pai. */
   kind: "entrada" | "saida";
   inventory: "produto" | "usoconsumo";
+  /**
+   * OS que gerou a saida, quando ela veio de um consumo registrado na ordem.
+   *
+   * Preenchida, o dialogo deixa de oferecer o cancelamento: o banco recusa por
+   * aqui, porque devolver o saldo sem encerrar a despesa deixaria a OS com um
+   * custo de um movimento que nao existe mais. O caminho e a propria OS.
+   */
+  ordemServicoId?: number | null;
 };
 
 const MOTIVO_MIN = 3;
@@ -51,7 +59,9 @@ export function CancelMovementDialog({
     <AlertDialog open={target !== null} onOpenChange={(open) => !open && !canceling && onOpenChange(false)}>
       {/* A `key` remonta o formulario a cada alvo, zerando o motivo digitado sem
           precisar de um efeito de reset (regra react-hooks/set-state-in-effect). */}
-      {target ? (
+      {target && target.ordemServicoId ? (
+        <ConsumoDeOsAviso ordemServicoId={target.ordemServicoId} />
+      ) : target ? (
         <CancelForm key={`${target.inventory}-${target.kind}-${target.id}`} kind={target.kind} onConfirm={onConfirm} canceling={canceling} />
       ) : null}
     </AlertDialog>
@@ -123,6 +133,31 @@ function CancelForm({
             {canceling ? "Cancelando..." : `Cancelar ${rotulo}`}
           </AlertDialogAction>
         </AlertDialogFooter>
+    </AlertDialogContent>
+  );
+}
+
+/**
+ * Saida que nasceu de um consumo de OS: o cancelamento mora la, nao aqui.
+ *
+ * A trava de verdade e a RPC `cancelar_saida_estoque`, que recusa qualquer
+ * chamador sem o portao aberto. Este aviso existe so para o operador nao
+ * descobrir a regra esbarrando num erro.
+ */
+function ConsumoDeOsAviso({ ordemServicoId }: { ordemServicoId: number }) {
+  return (
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <AlertDialogTitle>Esta saída pertence à OS #{ordemServicoId}</AlertDialogTitle>
+        <AlertDialogDescription>
+          Ela foi gerada pelo consumo registrado na ordem de serviço. Para devolver o item ao
+          estoque, cancele a despesa na OS — assim o saldo volta e o custo sai da ordem no
+          mesmo passo. Cancelar por aqui devolveria o saldo e deixaria a despesa viva na OS.
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel>Entendi</AlertDialogCancel>
+      </AlertDialogFooter>
     </AlertDialogContent>
   );
 }

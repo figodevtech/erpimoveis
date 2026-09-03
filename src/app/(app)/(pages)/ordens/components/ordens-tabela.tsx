@@ -62,7 +62,10 @@ import { OSDetalhesDialog } from "./dialogs/detalhes-os-dialog";
 import { ChecklistDialog } from "./dialogs/checklist-dialog";
 import { ChecklistEditDialog } from "./dialogs/checklist-edit-dialog";
 import { RegistrarSaidaDialog } from "./dialogs/registrar-saida-dialog";
-import { RealizadoresOSDialog } from "./dialogs/realizadores-os-dialog";
+import {
+  RealizadoresOSDialog,
+  type AcaoRealizadoresOSDialog,
+} from "./dialogs/realizadores-os-dialog";
 import { statusClasses, prioClasses, fmtDate, fmtDuration, useNowTick, safeStatus } from "./ordens-utils";
 import { estiloDestaque } from "@/lib/ordens/destaque";
 import { useConfig } from "../../config-context";
@@ -706,8 +709,15 @@ export function OrdensTabela({
     };
   }, [approvalToastId]);
 
-  const [realizadoresOpen, setRealizadoresOpen] = useState(false);
-  const [realizadoresOsId, setRealizadoresOsId] = useState<number | null>(null);
+  // Guarda a OS e o que fazer depois que os executores forem definidos, para o
+  // envio retomar de onde parou (inclusive com os pagamentos já informados).
+  const [pendenciaRealizadores, setPendenciaRealizadores] = useState<{
+    osId: number;
+    acao: AcaoRealizadoresOSDialog;
+  } | null>(null);
+  // O dialog de pagamento precisa saber se foi a falta de executor que barrou o
+  // envio: nesse caso ele sai da frente do seletor, em vez de manter o form.
+  const barradoPorRealizadorRef = useRef(false);
   const [estoqueDialog, setEstoqueDialog] = useState<EstoqueInsuficienteDialog | null>(null);
 
   // ✅ Reset (confirm)
@@ -740,30 +750,63 @@ export function OrdensTabela({
     }
   };
 
+  type ExtrasStatusOS = {
+    formaPagamento?: PaymentMethodOption | null;
+    parcelasPagamento?: number | null;
+    pagamentosPrevistos?: PlannedPayment[];
+    descricaoFinanceiro?: string | null;
+    garantia?: string | null;
+  };
+
+  /**
+   * Descreve a ação a retomar depois que os executores forem definidos.
+   * `EM_ANDAMENTO` exige todos os serviços; `PAGAMENTO` também, porque é a
+   * trava final das OS iniciadas pelo módulo de execução, onde o serviço fica
+   * legitimamente sem realizador até o mecânico assumir.
+   */
+  function acaoRealizadoresPara(
+    id: number,
+    status: StatusOS,
+    extras?: ExtrasStatusOS,
+  ): AcaoRealizadoresOSDialog {
+    const paraPagamento = status === "PAGAMENTO";
+
+    return {
+      rotulo: paraPagamento ? "Enviar para pagamento" : "Iniciar OS",
+      rotuloComPendencias: paraPagamento ? "Salvar e enviar" : "Salvar e iniciar",
+      aviso: paraPagamento
+        ? "Selecione ao menos um executor para todos os serviços antes de enviar a OS para pagamento."
+        : "Selecione ao menos um executor para todos os serviços antes de iniciar a OS.",
+      executar: () => setStatus(id, status, extras),
+    };
+  }
+
   async function setStatus(
     id: number,
     status: StatusOS,
-    extras?: {
-      formaPagamento?: PaymentMethodOption | null;
-      parcelasPagamento?: number | null;
-      pagamentosPrevistos?: PlannedPayment[];
-      descricaoFinanceiro?: string | null;
-      garantia?: string | null;
-    },
+    extras?: ExtrasStatusOS,
   ): Promise<boolean> {
-    const loadingToastId =
-      status === "EM_ANDAMENTO"
-        ? toast.loading("Preparando atribuição de realizadores...", {
-            description: "Verificando serviços da OS antes de iniciar.",
-            duration: Infinity,
-          })
-        : null;
+    const exigeRealizadores = status === "EM_ANDAMENTO" || status === "PAGAMENTO";
+
+    const loadingToastId = exigeRealizadores
+      ? toast.loading("Preparando atribuição de realizadores...", {
+          description: "Verificando serviços da OS antes de continuar.",
+          duration: Infinity,
+        })
+      : null;
 
     const closeLoading = () => {
       if (loadingToastId != null) toast.dismiss(loadingToastId);
     };
 
-    if (status === "EM_ANDAMENTO") {
+    const abrirSelecaoDeRealizadores = () => {
+      barradoPorRealizadorRef.current = true;
+      setPendenciaRealizadores({ osId: id, acao: acaoRealizadoresPara(id, status, extras) });
+    };
+
+    barradoPorRealizadorRef.current = false;
+
+    if (exigeRealizadores) {
       try {
         const r = await fetch(`/api/ordens/${id}`, { cache: "no-store" });
         const j = await r.json().catch(() => ({} as any));
@@ -780,20 +823,20 @@ export function OrdensTabela({
         });
 
         if (temSemRealizador) {
-          setRealizadoresOsId(id);
-          setRealizadoresOpen(true);
+          abrirSelecaoDeRealizadores();
 
-          toast.error("Antes de iniciar, selecione ao menos 1 realizador para todos os serviços da OS.", {
-            id: loadingToastId ?? undefined,
-            duration: 4000,
-          });
+          toast.error(
+            status === "PAGAMENTO"
+              ? "Antes de enviar para pagamento, selecione ao menos 1 realizador para todos os serviços da OS."
+              : "Antes de iniciar, selecione ao menos 1 realizador para todos os serviços da OS.",
+            { id: loadingToastId ?? undefined, duration: 4000 },
+          );
           return false;
         }
 
         closeLoading();
       } catch (err: any) {
-        setRealizadoresOsId(id);
-        setRealizadoresOpen(true);
+        abrirSelecaoDeRealizadores();
 
         toast.error(err?.message || "Não foi possível verificar os realizadores. Abra a seleção para conferir.", {
           id: loadingToastId ?? undefined,
@@ -813,6 +856,11 @@ export function OrdensTabela({
       if (!r.ok) {
         const j = await r.json().catch(() => ({} as any));
         closeLoading();
+        if (r.status === 409 && j?.codigo === "REALIZADORES_PENDENTES") {
+          abrirSelecaoDeRealizadores();
+          toast.error(j?.error || "Defina os realizadores dos serviços da OS.", { duration: 5000 });
+          return false;
+        }
         if (r.status === 409 && Array.isArray(j?.itens)) {
           setEstoqueDialog({
             osId: id,
@@ -2102,7 +2150,10 @@ export function OrdensTabela({
                       confirmDescricaoFinanceiro.trim() || null,
                     garantia: confirmGarantia.trim() || null,
                   });
-                  if (updated) setConfirmOpen(false);
+                  // Falta de executor abre o seletor por cima deste dialog: sai
+                  // da frente, que a ação guardada retoma o envio com estes
+                  // mesmos pagamentos. Outros erros mantêm o form preenchido.
+                  if (updated || barradoPorRealizadorRef.current) setConfirmOpen(false);
                 }}
               >
                 Enviar p/ pagamento
@@ -2212,7 +2263,7 @@ export function OrdensTabela({
               </AlertDialogDescription>
             </AlertDialogHeader>
 
-            <ImpactoExclusaoFinanceiraOs impacto={impactoCancelamento} />
+            <ImpactoExclusaoFinanceiraOs impacto={impactoCancelamento} estornaConsumos />
 
             <div className="mt-2 space-y-2">
               <Label className="">Motivo</Label>
@@ -2364,16 +2415,19 @@ export function OrdensTabela({
         />
 
         <RealizadoresOSDialog
-          open={realizadoresOpen}
+          open={pendenciaRealizadores !== null}
           onOpenChange={(v) => {
-            setRealizadoresOpen(v);
-            if (!v) setRealizadoresOsId(null);
+            if (!v) setPendenciaRealizadores(null);
           }}
-          osId={realizadoresOsId}
-          onStart={async () => {
-            if (!realizadoresOsId) return false;
-            return setStatus(realizadoresOsId, "EM_ANDAMENTO");
-          }}
+          osId={pendenciaRealizadores?.osId ?? null}
+          acao={
+            pendenciaRealizadores?.acao ?? {
+              rotulo: "Iniciar OS",
+              rotuloComPendencias: "Salvar e iniciar",
+              aviso: "Selecione ao menos um executor para todos os serviços antes de iniciar a OS.",
+              executar: async () => false,
+            }
+          }
         />
 
         <AlertDialog open={!!estoqueDialog} onOpenChange={(open) => !open && setEstoqueDialog(null)}>

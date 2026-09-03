@@ -94,7 +94,7 @@ export function ReportsGrid() {
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <DialogRelatorioOrdens mode="simples" />
-          <DialogRelatorioOrdens mode="financeiro" />
+          {/* <DialogRelatorioOrdens mode="financeiro" /> */}
         </div>
       </Card>
 

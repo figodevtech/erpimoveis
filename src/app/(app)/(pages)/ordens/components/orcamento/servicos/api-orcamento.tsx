@@ -190,7 +190,17 @@ export async function salvarOrcamentoAPI(
     throw new Error(j?.error || "Falha ao salvar orçamento");
   }
 
-  return j as { ok: true; totalGeral: number; aviso?: string | null };
+  return j as {
+    ok: true;
+    totalGeral: number;
+    aviso?: string | null;
+    /**
+     * Serviços incluídos neste salvamento que ficaram sem realizador. Só vem
+     * preenchido com a OS em andamento — a tela cobra a atribuição antes de
+     * fechar a edição.
+     */
+    servicosSemRealizador?: Array<{ servicoid: number; descricao: string }>;
+  };
 }
 
 export async function vincularProdutoAvulsoAPI(osId: number, avulsoId: number, produtoId: number) {

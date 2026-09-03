@@ -108,6 +108,8 @@ export type AtualizarResponsaveisServicoResponse = {
   usuarioIds: string[];
   idusuariorealizador: string | null;
   realizadores: Array<{ id: string; nome: string | null }>;
+  /** A comissão recalculada alcançou mês já fechado na DRE. */
+  aviso?: string | null;
 };
 
 /**

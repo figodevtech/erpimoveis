@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { requireOSEdit } from "@/app/api/_authz/perms";
 import { filtrarTransacoesExcluiveisDaOs } from "@/app/api/ordens/_lib/exclusao-financeira";
 import { valorDeFace } from "@/lib/financeiro/transacao";
+import { listarConsumosDaOs } from "@/lib/ordens/consumo-estoque";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 type Params = { params: Promise<{ id: string }> };
@@ -65,10 +66,16 @@ export async function GET(_: Request, { params }: Params) {
       .filter((transacao: any) => transacao.pendente)
       .reduce((total: number, transacao: any) => total + transacao.valorFace, 0);
 
+    // O cancelamento tambem devolve consumo de estoque ao inventario. Quem vai
+    // cancelar precisa ver isso na mesma tela em que ve as transacoes — inclusive
+    // o que NAO volta, por ja ter transacao vinculada.
+    const consumos = await listarConsumosDaOs(osId);
+
     return NextResponse.json(
       {
         osId,
         transacoes,
+        consumos,
         resumo: {
           quantidade: transacoes.length,
           valorRecebido: Math.round(valorRecebido * 100) / 100,

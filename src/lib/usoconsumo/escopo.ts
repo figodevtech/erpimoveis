@@ -121,3 +121,50 @@ export function escopoDaOrigemNfe(sourceItemId: string | null | undefined): UsoC
     ESCOPOS_USOCONSUMO.find((escopo) => PREFIXO_ORIGEM_NFE[escopo] === prefixo) ?? null
   );
 }
+
+/**
+ * Os TRÊS estoques do ERP, para quando a tela precisa escolher um item de
+ * qualquer um deles.
+ *
+ * `UsoConsumoEscopo` é coluna de banco: vale para `usoconsumo_item.escopo` e é
+ * o que a check constraint aceita. `EscopoDeEstoque` é conceito de tela, e
+ * acrescenta o estoque de venda, que mora em `produto` e tem rota própria.
+ * Os dois tipos são separados de propósito — deixar `PRODUTO` entrar no
+ * primeiro faria a API aceitar um escopo que o banco recusa.
+ *
+ * Mora aqui, e não num módulo novo, porque este arquivo já é a única fonte dos
+ * nomes de estoque; espalhar "Produtos"/"Uso e consumo" por mais um lugar é
+ * exatamente o que ele existe para evitar.
+ */
+export const ESCOPO_PRODUTO = "PRODUTO" as const;
+export const ESCOPOS_DE_ESTOQUE = [ESCOPO_PRODUTO, ...ESCOPOS_USOCONSUMO] as const;
+export type EscopoDeEstoque = (typeof ESCOPOS_DE_ESTOQUE)[number];
+
+export const ROTULOS_ESTOQUE: Record<EscopoDeEstoque, RotuloDeEscopo> = {
+  ...ROTULOS_ESCOPO,
+  PRODUTO: {
+    nome: "Produtos",
+    curto: "Produtos",
+    item: "produto do estoque de venda",
+    planilha: "Produtos",
+    compra: "Compra de mercadoria para revenda",
+    slug: "produtos",
+  },
+};
+
+export function rotuloDeEstoque(escopo: EscopoDeEstoque) {
+  return ROTULOS_ESTOQUE[escopo] ?? ROTULOS_ESTOQUE[ESCOPO_PADRAO];
+}
+
+/** Distingue o que vive em `usoconsumo_item` do que vive em `produto`. */
+export function ehEstoqueSimples(valor: unknown): valor is UsoConsumoEscopo {
+  return (ESCOPOS_USOCONSUMO as readonly string[]).includes(String(valor ?? ""));
+}
+
+/** Aceita os três escopos; qualquer outra coisa cai em uso e consumo. */
+export function parseEscopoDeEstoque(valor: unknown): EscopoDeEstoque {
+  const normalizado = String(valor ?? "").trim().toUpperCase();
+  return (ESCOPOS_DE_ESTOQUE as readonly string[]).includes(normalizado)
+    ? (normalizado as EscopoDeEstoque)
+    : ESCOPO_PADRAO;
+}

@@ -38,6 +38,7 @@ import {
   ListTree,
   Loader2,
   Package,
+  PackageMinus,
   Paperclip,
   Pencil,
   Printer,
@@ -46,6 +47,7 @@ import {
   MoreHorizontal,
   StickyNote,
   Trash2,
+  Undo2,
   Upload,
   User2,
   Users,
@@ -101,6 +103,8 @@ import ConcluidoAlert from "../../../(financeiro)/fluxodecaixa/components/conclu
 import TransactionDialog from "../../../(financeiro)/fluxodecaixa/components/transactionDialog/transactionDialog";
 import ValueInput from "../../../(financeiro)/fluxodecaixa/components/transactionDialog/valueInput";
 import { DialogProduto } from "../../../estoque/components/dialog-produto/dialog-produto";
+import { CancelMovementDialog } from "../../../estoque/components/cancel-movement-dialog";
+import { ConsumoEstoqueOsDialog } from "./consumo-estoque-os-dialog";
 import { Tipo_transacao, type Transaction } from "../../../(financeiro)/fluxodecaixa/types";
 import { formatPaymentMethodLabel, type PlannedPayment } from "@/lib/payment-methods";
 import { ChecklistImagePreview } from "./checklist-image-preview";
@@ -485,7 +489,11 @@ type OSDetalhesResponse = {
   auditoriaResumo?: AuditoriaResumoItem[];
   eventosFinanceiros?: Array<{
     id: number;
-    origem: "PRODUTO" | "SERVICO" | "COMISSAO" | "AVULSO" | "DESCONTO" | "FRETE";
+    // Texto livre, e nao uniao fechada, pelo mesmo motivo de
+    // `EventoFinanceiroOs` em src/lib/ordens/eventos-financeiros.ts: o banco
+    // aceita origens que esta tela nao precisa conhecer (ENTRADA_FISCAL, por
+    // exemplo), e uma origem nova nao pode quebrar a leitura do painel.
+    origem: string;
     natureza: "RECEITA" | "DESPESA";
     status: "ATIVO" | "CANCELADO" | "CONVERTIDO";
     descricao: string;
@@ -494,6 +502,16 @@ type OSDetalhesResponse = {
     chave_origem?: string | null;
     produtoid?: number | null;
     servicoid?: number | null;
+    /**
+     * Saída de estoque que originou o consumo, quando existe.
+     *
+     * Separa os dois consumos que compartilham a origem `CONSUMO`: o que deu
+     * baixa no inventário e o lançado à mão (a fita comprada na hora). Só o
+     * primeiro tem estorno para oferecer.
+     */
+    consumo_saida_id?: number | null;
+    consumo_usoconsumo_saida_id?: number | null;
+    dados_snapshot?: Record<string, unknown> | null;
     is_manual?: boolean;
     created_by?: string | null;
     criado_por?: { id: string; nome: string } | null;
@@ -570,7 +588,10 @@ type OSDetalhesResponse = {
       realizadores: Array<{
         usuarioid: string;
         nome: string | null;
+        /** O que pagou a linha: o maior percentual entre os realizadores. */
         percentual: number;
+        /** A taxa do próprio realizador, quando difere da que pagou. */
+        percentualProprio: number;
         valorBase: number;
         valorComissao: number;
       }>;
@@ -603,6 +624,8 @@ async function putRealizadores(ordemservicoid: number, servicoid: number, usuari
     usuarioIds: string[];
     idusuariorealizador: string | null;
     realizadores: RealizadorLite[];
+    /** A comissão recalculada alcançou mês já fechado na DRE. */
+    aviso?: string | null;
   };
 }
 
@@ -924,7 +947,7 @@ export function OSDetalhesDialog({
   const [currentTab, setCurrentTab] = useState("resumo");
   const [eventoDialogOpen, setEventoDialogOpen] = useState(false);
   const [eventoNatureza, setEventoNatureza] = useState<"RECEITA" | "DESPESA">("DESPESA");
-  const [eventoTipo, setEventoTipo] = useState<"" | "PRODUTO" | "SERVICO">("");
+  const [eventoTipo, setEventoTipo] = useState<"" | "PRODUTO" | "SERVICO" | "CONSUMO">("");
   const [eventoDescricao, setEventoDescricao] = useState("");
   const [eventoDetalhe, setEventoDetalhe] = useState("");
   const [eventoValor, setEventoValor] = useState(0);
@@ -944,6 +967,8 @@ export function OSDetalhesDialog({
     detalhe: string;
     valor: number;
     natureza: "RECEITA" | "DESPESA";
+    /** Muda o texto do diálogo: comissão avisa que sai do recálculo. */
+    origem: string;
   } | null>(null);
   const [tituloEventoEdicao, setTituloEventoEdicao] = useState("");
   const [detalheEventoEdicao, setDetalheEventoEdicao] = useState("");
@@ -954,6 +979,7 @@ export function OSDetalhesDialog({
     detalhe: string;
     valor: number;
     natureza: "RECEITA" | "DESPESA";
+    origem: string;
     /** Um dos dois vem preenchido: transação avulsa ou boleto em grupo. */
     transacaoId: number | null;
     lancamentoId: number | null;
@@ -975,6 +1001,10 @@ export function OSDetalhesDialog({
     descricao: string;
     valor: number;
   } | null>(null);
+  const [consumoDialogOpen, setConsumoDialogOpen] = useState(false);
+  /** Consumo escolhido para estorno; alimenta o CancelMovementDialog do estoque. */
+  const [consumoParaCancelar, setConsumoParaCancelar] = useState<number | null>(null);
+  const [cancelandoConsumo, setCancelandoConsumo] = useState(false);
   const [modoSelecaoEventos, setModoSelecaoEventos] = useState(false);
   const [eventosSelecionados, setEventosSelecionados] = useState<Set<number>>(new Set());
   const [anexos, setAnexos] = useState<OsAnexo[]>([]);
@@ -996,6 +1026,17 @@ export function OSDetalhesDialog({
 
   const statusUpper = (data?.os?.status || "").toUpperCase();
   const osFinalizada = ["CONCLUIDO", "SEM_COBRANCA", "CANCELADO"].includes(statusUpper);
+  /**
+   * Só a OS cancelada fecha os eventos financeiros.
+   *
+   * `osFinalizada` continua valendo para a leitura do painel (Lucro Real vs.
+   * Resultado Previsto) e para o consumo de estoque, que mexe em saldo. Mas
+   * lançar e ajustar evento segue liberado em OS concluída e sem cobrança: a
+   * despesa que chega atrasada e a comissão errada precisam de conserto, e
+   * reabrir a ordem apagaria os pagamentos dela. Ver
+   * `_lib/status-os.ts`, que é quem manda de verdade.
+   */
+  const osAceitaEventos = statusUpper !== "CANCELADO";
   const osHistorica = Boolean(data?.os?.migracaoReferencia);
   const podeExibirRentabilidade = podeVerRentabilidade && !osHistorica;
   const podeExibirEventosFinanceiros = podeVerEventosFinanceiros && !osHistorica;
@@ -1274,6 +1315,14 @@ export function OSDetalhesDialog({
         produtoid: evento.produtoid ?? null,
         servicoid: evento.servicoid ?? null,
         isManual: evento.is_manual === true,
+        temBaixaDeEstoque:
+          evento.consumo_saida_id != null || evento.consumo_usoconsumo_saida_id != null,
+        // Comissão corrigida à mão para de seguir o recálculo automático; a
+        // linha precisa dizer isso, senão o número parece divergir do cadastro
+        // sem explicação.
+        comissaoAjustada:
+          evento.origem === "COMISSAO"
+          && (evento.dados_snapshot as Record<string, unknown> | null)?.comissao_ajustada_a_mao === true,
         criadoPorNome: evento.criado_por?.nome ?? null,
         podeGerarTransacao: evento.pode_gerar_transacao,
         competenciaFechada: competenciaEmMesFechado(evento.competencia_em),
@@ -1411,6 +1460,37 @@ export function OSDetalhesDialog({
     finally { setSalvandoEvento(false); }
   }
 
+  /**
+   * Estorno do consumo: devolve o item ao estoque e encerra a despesa.
+   *
+   * Este e o unico caminho de volta — cancelar a saida pelo historico de
+   * estoque e recusado pelo banco, porque devolveria o saldo e deixaria a
+   * despesa viva aqui.
+   */
+  async function cancelarConsumo(motivo: string) {
+    if (!osId || consumoParaCancelar == null) return;
+    setCancelandoConsumo(true);
+    try {
+      const response = await fetch(
+        `/api/ordens/${osId}/consumo-estoque/${consumoParaCancelar}/cancelar`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ motivo }),
+        },
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Erro ao cancelar o consumo");
+      setConsumoParaCancelar(null);
+      toast.success("Consumo cancelado e item devolvido ao estoque.");
+      await recarregarDetalhes();
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao cancelar o consumo");
+    } finally {
+      setCancelandoConsumo(false);
+    }
+  }
+
   function abrirDespesaServico(lancamento: { id: number; servicoid: number; descricao: string }) {
     const nomeServico = lancamento.descricao.replace(/^Serviço\s*-\s*/i, "").trim();
     setReceitaServicoParaDespesa(lancamento);
@@ -1479,6 +1559,7 @@ export function OSDetalhesDialog({
     valor: number,
     natureza: "RECEITA" | "DESPESA",
     status: string,
+    origem: string,
     vinculo?: { transacaoId: number | null; lancamentoId: number | null; parcelas: number },
   ) {
     if (status === "CONVERTIDO") {
@@ -1492,13 +1573,14 @@ export function OSDetalhesDialog({
         detalhe,
         valor,
         natureza,
+        origem,
         transacaoId: vinculo.transacaoId,
         lancamentoId: vinculo.lancamentoId,
         parcelas: vinculo.parcelas,
       });
       return;
     }
-    setEventoEdicao({ id, descricao, detalhe, valor, natureza });
+    setEventoEdicao({ id, descricao, detalhe, valor, natureza, origem });
     setTituloEventoEdicao(descricao);
     setDetalheEventoEdicao(detalhe);
     setValorSnapshotEdicao(valor);
@@ -1524,6 +1606,7 @@ export function OSDetalhesDialog({
         descricao: evento.descricao,
         detalhe: evento.detalhe,
         valor: evento.valor,
+        origem: evento.origem,
         natureza: evento.natureza,
       });
       setTituloEventoEdicao(evento.descricao);
@@ -1547,7 +1630,11 @@ export function OSDetalhesDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           valor: valorSnapshotEdicao,
-          ...(eventoEdicao.natureza === "DESPESA" ? {
+          // Comissão manda só o valor: título e detalhe dela são gerados pela
+          // sincronização ("Comissao - <serviço>" e o nome do realizador), e o
+          // diálogo nem oferece os campos. Reenviá-los gravaria o texto achatado
+          // que a lista usa por padrão quando o detalhe é nulo.
+          ...(eventoEdicao.natureza === "DESPESA" && eventoEdicao.origem !== "COMISSAO" ? {
             descricao: tituloEventoEdicao,
             detalhe: detalheEventoEdicao,
           } : {}),
@@ -1556,7 +1643,12 @@ export function OSDetalhesDialog({
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || "Erro ao alterar snapshot");
       setEventoEdicao(null);
-      toast.success(eventoEdicao.natureza === "DESPESA" ? "Despesa atualizada." : "Valor do snapshot atualizado.");
+      // O aviso vem do servidor quando a competência do evento é de um mês já
+      // encerrado: a alteração recalculou a DRE daquele período.
+      toast.success(eventoEdicao.natureza === "DESPESA" ? "Despesa atualizada." : "Valor do snapshot atualizado.", {
+        description: payload?.aviso || undefined,
+        duration: payload?.aviso ? 8000 : undefined,
+      });
       await recarregarDetalhes();
     } catch (error: any) { toast.error(error?.message || "Erro ao alterar snapshot"); }
     finally { setSalvandoSnapshot(false); }
@@ -1594,14 +1686,19 @@ export function OSDetalhesDialog({
     return undefined;
   }
 
-  function podeAlterarValor(lancamento: { competenciaFechada: boolean }) {
-    return !osFinalizada && podeEditarEventosFinanceiros && !lancamento.competenciaFechada;
+  /**
+   * A competência fechada não trava mais: alterar recalcula a DRE daquele mês,
+   * que é a regra escolhida. A linha continua marcada com o badge para o
+   * operador saber que está mexendo em período já publicado.
+   */
+  function podeAlterarValor() {
+    return osAceitaEventos && podeEditarEventosFinanceiros;
   }
 
   /** Além disso, só snapshot de produto ainda não lançado: a transação
    * vinculada não acompanharia o novo valor. */
   function podeSincronizar(lancamento: { origem: string; status: string; competenciaFechada: boolean; produtoid?: number | null }) {
-    return podeAlterarValor(lancamento)
+    return podeAlterarValor()
       && lancamento.origem === "PRODUTO"
       && lancamento.status === "ATIVO"
       && Boolean(lancamento.produtoid);
@@ -1677,6 +1774,15 @@ export function OSDetalhesDialog({
     const otimista = buildRealizadoresFromIds(ids, responsaveis);
     const principal = ids[0] ?? null;
 
+    // Guarda o vínculo atual: a API recusa deixar um serviço sem realizador com
+    // a OS em andamento, e sem desfazer a tela mostraria um serviço órfão que
+    // no banco continua atribuído.
+    const anterior = {
+      realizadores: item.realizadores ?? null,
+      idusuariorealizador: item.idusuariorealizador ?? null,
+      realizador: item.realizador ?? null,
+    };
+
     setData((prev) =>
       !prev
         ? prev
@@ -1722,7 +1828,21 @@ export function OSDetalhesDialog({
       );
 
       toast.success("Realizadores atualizados");
+      if (resp.aviso) toast.warning(resp.aviso, { duration: 10000 });
     } catch (e: any) {
+      setData((prev) =>
+        !prev
+          ? prev
+          : {
+            ...prev,
+            itensServico: prev.itensServico.map((s) =>
+              s.ordemservicoid === item.ordemservicoid && s.servicoid === item.servicoid
+                ? { ...s, ...anterior }
+                : s
+            ),
+          }
+      );
+
       toast.error(e?.message || "Erro ao atualizar realizadores");
     } finally {
       setSavingResponsavelKey(null);
@@ -2891,7 +3011,15 @@ export function OSDetalhesDialog({
                                           Comissões calculadas
                                         </p>
                                         <div className="space-y-1.5">
-                                          {servico.realizadores.map((realizador) => (
+                                          {servico.realizadores.map((realizador) => {
+                                            // Com mais de um realizador vale o maior percentual do
+                                            // grupo sobre a base dividida. Sem dizer isso, a linha de
+                                            // quem tem taxa menor parece pagar acima do combinado.
+                                            const divisao = servico.realizadores.length;
+                                            const taxaPropriaDiferente =
+                                              realizador.percentualProprio !== realizador.percentual;
+
+                                            return (
                                             <div
                                               key={realizador.usuarioid}
                                               className="flex flex-col gap-1 rounded-md bg-muted/35 px-2.5 py-1.5 sm:flex-row sm:items-center sm:justify-between"
@@ -2900,10 +3028,24 @@ export function OSDetalhesDialog({
                                                 <p className="truncate text-sm font-medium">{realizador.nome || "Realizador"}</p>
                                                 <p className="text-xs text-muted-foreground">
                                                   Base de cálculo: {fmtMoney(realizador.valorBase)}
+                                                  {divisao > 1 ? ` · 1/${divisao} do serviço` : ""}
                                                 </p>
+                                                {taxaPropriaDiferente ? (
+                                                  <p className="text-[11px] text-muted-foreground/80">
+                                                    Taxa própria {fmtPercent(realizador.percentualProprio)}% — aplicada a maior entre os {divisao} realizadores
+                                                  </p>
+                                                ) : null}
                                               </div>
                                               <div className="flex items-center justify-between gap-3 sm:justify-end">
-                                                <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary">
+                                                <Badge
+                                                  variant="outline"
+                                                  className="border-primary/20 bg-primary/5 text-primary"
+                                                  title={
+                                                    divisao > 1
+                                                      ? `Maior percentual entre os ${divisao} realizadores do serviço`
+                                                      : undefined
+                                                  }
+                                                >
                                                   {fmtPercent(realizador.percentual)}%
                                                 </Badge>
                                                 <div className="text-right">
@@ -2912,7 +3054,8 @@ export function OSDetalhesDialog({
                                                 </div>
                                               </div>
                                             </div>
-                                          ))}
+                                            );
+                                          })}
                                         </div>
                                       </div>
                                     ) : null}
@@ -3106,7 +3249,7 @@ export function OSDetalhesDialog({
                       </div>
                     </div>
 
-                    {!osFinalizada && podeEditarEventosFinanceiros ? (
+                    {osAceitaEventos && podeEditarEventosFinanceiros ? (
                       <div className="flex flex-wrap items-center justify-end gap-2">
                         {modoSelecaoEventos ? (
                           <>
@@ -3152,6 +3295,19 @@ export function OSDetalhesDialog({
                             >
                               <ListChecks /> Selecionar
                             </Button>
+                            {/* Baixa de estoque continua fora da OS finalizada:
+                                ajustar dinheiro é uma coisa, mexer em saldo de
+                                inventário de uma ordem encerrada é outra. */}
+                            {!osFinalizada ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setConsumoDialogOpen(true)}
+                              >
+                                <PackageMinus /> Consumo de estoque
+                              </Button>
+                            ) : null}
                             <Button type="button" size="sm" onClick={() => setEventoDialogOpen(true)}>
                               Novo lançamento
                             </Button>
@@ -3204,11 +3360,42 @@ export function OSDetalhesDialog({
                                   <div className="flex flex-wrap items-center gap-2">
                                     <p className="truncate text-sm font-medium">{lancamento.descricao}</p>
                                     <Badge variant="outline">{lancamento.origem}</Badge>
-                                    {lancamento.status === "CONVERTIDO" ? <Badge variant="secondary">Lançado</Badge> : null}
+                                    {/*
+                                      Azul e âmbar formam um par e só aparecem em
+                                      quem de fato pode virar transação. Evento
+                                      automático — custo de produto, desconto — não
+                                      gera lançamento nenhum, então um badge ali só
+                                      sugeriria uma pendência que não existe.
+                                    */}
+                                    {lancamento.status === "CONVERTIDO" ? (
+                                      <Badge
+                                        variant="outline"
+                                        className="border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-400"
+                                        title="Já virou transação no financeiro."
+                                      >
+                                        Lançado
+                                      </Badge>
+                                    ) : lancamento.podeGerarTransacao ? (
+                                      <Badge
+                                        variant="outline"
+                                        className="border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                                        title="Ainda não foi lançado no financeiro."
+                                      >
+                                        Não lançado
+                                      </Badge>
+                                    ) : null}
+                                    {lancamento.comissaoAjustada ? (
+                                      <Badge
+                                        variant="outline"
+                                        title="O valor desta comissão foi corrigido à mão e não acompanha mais o recálculo automático."
+                                      >
+                                        Comissão ajustada
+                                      </Badge>
+                                    ) : null}
                                     {lancamento.competenciaFechada ? (
                                       <Badge
                                         variant="outline"
-                                        title="A competência deste lançamento é de um mês anterior. O valor está travado para não reescrever a DRE daquele período."
+                                        title="A competência deste lançamento é de um mês anterior. Alterar o valor recalcula a DRE daquele período."
                                       >
                                         Mês fechado
                                       </Badge>
@@ -3241,8 +3428,12 @@ export function OSDetalhesDialog({
                                     </Button>
                                   </DropdownMenuTrigger>
                                   <DropdownMenuContent align="end" className="w-60">
-                                    {podeAlterarValor(lancamento)
-                                      && (lancamento.tipo === "ENTRADA" || lancamento.isManual) ? (
+                                    {podeAlterarValor()
+                                      && (lancamento.tipo === "ENTRADA"
+                                        || lancamento.isManual
+                                        // Comissão não tem origem corrigível: a taxa vem do
+                                        // perfil e o valor é derivado. É por aqui ou lugar nenhum.
+                                        || lancamento.origem === "COMISSAO") ? (
                                       <DropdownMenuItem onSelect={() => abrirEdicaoSnapshot(
                                         lancamento.id,
                                         lancamento.descricao,
@@ -3250,9 +3441,15 @@ export function OSDetalhesDialog({
                                         lancamento.valor,
                                         lancamento.tipo === "ENTRADA" ? "RECEITA" : "DESPESA",
                                         lancamento.status,
+                                        lancamento.origem,
                                         vinculoDoEvento(lancamento.id),
                                       )}>
-                                        <Pencil /> {lancamento.tipo === "SAIDA" ? "Editar despesa" : "Editar valor do lançamento"}
+                                        <Pencil />{" "}
+                                        {lancamento.origem === "COMISSAO"
+                                          ? "Corrigir valor da comissão"
+                                          : lancamento.tipo === "SAIDA"
+                                            ? "Editar despesa"
+                                            : "Editar valor do lançamento"}
                                       </DropdownMenuItem>
                                     ) : null}
                                     {lancamento.produtoid ? (
@@ -3260,7 +3457,7 @@ export function OSDetalhesDialog({
                                         <Eye /> Visualizar produto
                                       </DropdownMenuItem>
                                     ) : null}
-                                    {podeAlterarValor(lancamento)
+                                    {podeAlterarValor()
                                       && lancamento.origem === "SERVICO"
                                       && lancamento.tipo === "ENTRADA"
                                       && lancamento.status === "ATIVO"
@@ -3293,6 +3490,14 @@ export function OSDetalhesDialog({
                                         valor: lancamento.valor,
                                       })}>
                                         Lançar no financeiro
+                                      </DropdownMenuItem>
+                                    ) : null}
+                                    {lancamento.origem === "CONSUMO"
+                                      && lancamento.temBaixaDeEstoque
+                                      && lancamento.status === "ATIVO"
+                                      && !osFinalizada ? (
+                                      <DropdownMenuItem onSelect={() => setConsumoParaCancelar(lancamento.id)}>
+                                        <Undo2 /> Cancelar consumo e devolver ao estoque
                                       </DropdownMenuItem>
                                     ) : null}
                                   </DropdownMenuContent>
@@ -3344,6 +3549,24 @@ export function OSDetalhesDialog({
                       />
                     ) : null}
 
+                    <ConsumoEstoqueOsDialog
+                      open={consumoDialogOpen}
+                      onOpenChange={setConsumoDialogOpen}
+                      osId={data.os.id}
+                      onSuccess={() => void recarregarDetalhes()}
+                    />
+
+                    <CancelMovementDialog
+                      target={
+                        consumoParaCancelar == null
+                          ? null
+                          : { id: consumoParaCancelar, kind: "saida", inventory: "produto" }
+                      }
+                      onOpenChange={(aberto) => !aberto && setConsumoParaCancelar(null)}
+                      onConfirm={(motivo) => void cancelarConsumo(motivo)}
+                      canceling={cancelandoConsumo}
+                    />
+
                     <DialogProduto
                       productId={produtoDialogId}
                       isOpen={produtoDialogOpen}
@@ -3356,22 +3579,42 @@ export function OSDetalhesDialog({
                       <DialogContent className="sm:max-w-md">
                         <DialogHeader>
                           <DialogTitle>Novo evento financeiro</DialogTitle>
-                          <DialogDescription>Registre uma receita ou despesa manual e classifique-a como Produto ou Serviço.</DialogDescription>
+                          <DialogDescription>Registre uma receita ou despesa manual e classifique-a como Produto, Serviço ou Consumo.</DialogDescription>
                         </DialogHeader>
                         <div className="space-y-3 p-4 bg-card rounded-2xl">
                           <label className="block text-sm font-medium">Tipo
                             <select
                               className="mt-1 h-10 w-full rounded-md border bg-background px-3"
                               value={eventoTipo}
-                              onChange={(event) => setEventoTipo(event.target.value as "" | "PRODUTO" | "SERVICO")}
+                              onChange={(event) => {
+                                const proximo = event.target.value as "" | "PRODUTO" | "SERVICO" | "CONSUMO";
+                                setEventoTipo(proximo);
+                                // Só existe CONSUMO:DESPESA na DRE (linha 4.4,
+                                // Materiais aplicados). Consumo que rende receita
+                                // não é consumo.
+                                if (proximo === "CONSUMO") setEventoNatureza("DESPESA");
+                              }}
                             >
                               <option value="" disabled>Selecione o tipo</option>
                               <option value="PRODUTO">Produto</option>
                               <option value="SERVICO">Serviço</option>
+                              <option value="CONSUMO">Consumo (material de uso)</option>
                             </select>
+                            {eventoTipo === "CONSUMO" ? (
+                              <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                                Material gasto na OS sem repasse ao cliente e sem passar pelo estoque —
+                                a fita ou o desengripante comprados para esta ordem. Para dar baixa em
+                                item que já está no estoque, use &quot;Consumo de estoque&quot;.
+                              </span>
+                            ) : null}
                           </label>
                           <label className="block text-sm font-medium">Natureza
-                            <select className="mt-1 h-10 w-full rounded-md border bg-background px-3" value={eventoNatureza} onChange={(e) => setEventoNatureza(e.target.value as "RECEITA" | "DESPESA")}>
+                            <select
+                              className="mt-1 h-10 w-full rounded-md border bg-background px-3 disabled:opacity-60"
+                              value={eventoNatureza}
+                              disabled={eventoTipo === "CONSUMO"}
+                              onChange={(e) => setEventoNatureza(e.target.value as "RECEITA" | "DESPESA")}
+                            >
                               <option value="DESPESA">Despesa</option><option value="RECEITA">Receita</option>
                             </select>
                           </label>
@@ -3443,15 +3686,31 @@ export function OSDetalhesDialog({
                     <Dialog open={Boolean(eventoEdicao)} onOpenChange={(nextOpen) => { if (!nextOpen) setEventoEdicao(null); }}>
                       <DialogContent className="sm:max-w-md">
                         <DialogHeader>
-                          <DialogTitle>{eventoEdicao?.natureza === "DESPESA" ? "Editar despesa" : "Editar valor do lançamento"}</DialogTitle>
+                          <DialogTitle>
+                            {eventoEdicao?.origem === "COMISSAO"
+                              ? "Corrigir valor da comissão"
+                              : eventoEdicao?.natureza === "DESPESA"
+                                ? "Editar despesa"
+                                : "Editar valor do lançamento"}
+                          </DialogTitle>
                           <DialogDescription>
-                            {eventoEdicao?.natureza === "DESPESA"
-                              ? "Altere o título, a descrição e o valor desta despesa."
-                              : eventoEdicao?.descricao}
+                            {eventoEdicao?.origem === "COMISSAO"
+                              ? eventoEdicao?.descricao
+                              : eventoEdicao?.natureza === "DESPESA"
+                                ? "Altere o título, a descrição e o valor desta despesa."
+                                : eventoEdicao?.descricao}
                           </DialogDescription>
                         </DialogHeader>
                         <div className="space-y-4">
-                          {eventoEdicao?.natureza === "DESPESA" ? (
+                          {eventoEdicao?.origem === "COMISSAO" ? (
+                            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs leading-relaxed text-amber-900 dark:text-amber-200">
+                              O valor da comissão é calculado pelo sistema (base do serviço × percentual do
+                              realizador). Corrigi-lo aqui congela o número: ele deixa de acompanhar o
+                              recálculo automático, e mudar o orçamento ou os realizadores depois não o
+                              atualiza mais. A linha fica marcada como &quot;Comissão ajustada&quot;.
+                            </div>
+                          ) : null}
+                          {eventoEdicao?.natureza === "DESPESA" && eventoEdicao?.origem !== "COMISSAO" ? (
                             <>
                               <label className="block text-sm font-medium">Título
                                 <input
@@ -3477,12 +3736,14 @@ export function OSDetalhesDialog({
                           </label>
                           <Button
                             className="w-full"
-                            disabled={salvandoSnapshot || (eventoEdicao?.natureza === "DESPESA" && !tituloEventoEdicao.trim())}
+                            disabled={salvandoSnapshot || (eventoEdicao?.natureza === "DESPESA" && eventoEdicao?.origem !== "COMISSAO" && !tituloEventoEdicao.trim())}
                             onClick={() => void salvarSnapshot()}
                           >
                             {salvandoSnapshot
                               ? "Salvando..."
-                              : eventoEdicao?.natureza === "DESPESA" ? "Salvar alterações" : "Salvar novo valor"}
+                              : eventoEdicao?.origem === "COMISSAO"
+                                ? "Corrigir comissão"
+                                : eventoEdicao?.natureza === "DESPESA" ? "Salvar alterações" : "Salvar novo valor"}
                           </Button>
                         </div>
                       </DialogContent>

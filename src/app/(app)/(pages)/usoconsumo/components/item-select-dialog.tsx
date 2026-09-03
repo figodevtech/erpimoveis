@@ -51,14 +51,24 @@ import {
 import { SelectSearchInput } from "@/app/(app)/components/select-search-input";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
-import { ESCOPOS_USOCONSUMO, rotuloDeEscopo, type UsoConsumoEscopo } from "@/lib/usoconsumo/escopo";
+import {
+  ehEstoqueSimples,
+  ESCOPOS_USOCONSUMO,
+  rotuloDeEstoque,
+  type EscopoDeEstoque,
+} from "@/lib/usoconsumo/escopo";
 import type { UsoConsumoGrupo } from "@/types/usoconsumo";
 import { ItemDialog } from "./item-dialog";
 
-export type UsoConsumoItemOption = {
+export type ItemDeEstoqueOption = {
   id: number;
-  /** De qual dos dois estoques simples o item veio. */
-  escopo?: UsoConsumoEscopo;
+  /**
+   * De qual dos tres estoques o item veio.
+   *
+   * `PRODUTO` so chega para quem pediu esse estoque em `escopos`; quem nao
+   * pediu continua recebendo apenas os dois simples.
+   */
+  escopo?: EscopoDeEstoque;
   titulo: string;
   descricao?: string | null;
   referencia?: string | null;
@@ -99,21 +109,54 @@ export type UsoConsumoItemOption = {
   aliquota_cbs?: number | null;
 };
 
+/**
+ * Nome antigo, de quando o seletor cobria so uso e consumo. Mantido porque
+ * outras telas o importam e o formato do objeto nao mudou.
+ */
+export type UsoConsumoItemOption = ItemDeEstoqueOption;
+
+/**
+ * O produto do estoque de venda chega de `/api/products` com nome proprio em
+ * dois campos: `imgUrl` e `cfop`. Traduzir aqui e o que permite o resto do
+ * dialog tratar os tres estoques como uma coisa so.
+ *
+ * `cfop` ocupa o lugar de `cfop_entrada` e vale o mesmo aviso: fluxo de saida
+ * calcula o CFOP da operacao e ignora este.
+ */
+function produtoComoItem(linha: Record<string, any>): ItemDeEstoqueOption {
+  const { imgUrl, cfop, ...resto } = linha;
+  return {
+    ...(resto as ItemDeEstoqueOption),
+    escopo: "PRODUTO",
+    img_url: imgUrl ?? null,
+    cfop_entrada: cfop ?? null,
+  };
+}
+
 type ItemPagination = { total: number; page: number; limit: number; totalPages: number };
 
 type Props = {
   open: boolean;
   setOpen: (open: boolean) => void;
-  onSelect: (item: UsoConsumoItemOption) => void;
+  onSelect: (item: ItemDeEstoqueOption) => void;
   children: ReactNode;
   /** Estoque em que a busca comeca. */
-  escopo?: UsoConsumoEscopo;
+  escopo?: EscopoDeEstoque;
   /**
    * Mostra o filtro para alternar de estoque sem fechar o dialog. A NF-e avulsa
    * liga isso: la o operador escolhe item de qualquer um dos dois, e um filtro
    * so evita duplicar o botao na barra de acoes.
    */
   permitirTrocaDeEscopo?: boolean;
+  /**
+   * Quais estoques o filtro oferece. O padrao sao os dois simples, que era
+   * tudo o que este seletor cobria — nenhuma tela existente muda de
+   * comportamento. Quem precisa dos tres passa `ESCOPOS_DE_ESTOQUE`.
+   *
+   * Fica separado de `escopo` porque um e onde a busca comeca e o outro e o
+   * que o operador pode alcancar sem fechar o dialog.
+   */
+  escopos?: readonly EscopoDeEstoque[];
   /** Permite abrir o cadastro sem sair do seletor. */
   permitirCriacao?: boolean;
 };
@@ -125,6 +168,7 @@ export function ItemSelectDialog({
   children,
   escopo = "USOCONSUMO",
   permitirTrocaDeEscopo = false,
+  escopos = ESCOPOS_USOCONSUMO,
   permitirCriacao = true,
 }: Props) {
   const { data: session } = useSession();
@@ -133,7 +177,10 @@ export function ItemSelectDialog({
     PERMS.USOCONSUMO_CRIAR,
   );
 
-  const [escopoAtivo, setEscopoAtivo] = useState<UsoConsumoEscopo>(escopo);
+  const [escopoAtivo, setEscopoAtivo] = useState<EscopoDeEstoque>(escopo);
+  // Cadastrar item pelo seletor so existe para os estoques simples: o
+  // `ItemDialog` grava em `usoconsumo_item`. Produto tem cadastro proprio.
+  const escopoSimples = ehEstoqueSimples(escopoAtivo) ? escopoAtivo : null;
   const [isLoading, setIsLoading] = useState(false);
   const [pagination, setPagination] = useState<ItemPagination>({
     total: 0,
@@ -142,7 +189,7 @@ export function ItemSelectDialog({
     totalPages: 0,
   });
 
-  const [items, setItems] = useState<UsoConsumoItemOption[]>([]);
+  const [items, setItems] = useState<ItemDeEstoqueOption[]>([]);
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
@@ -158,7 +205,7 @@ export function ItemSelectDialog({
     pageNumber?: number,
     limit?: number,
     searchText?: string,
-    escopoBusca?: UsoConsumoEscopo,
+    escopoBusca?: EscopoDeEstoque,
   ) => {
     const requestId = ++requestSequence.current;
     requestController.current?.abort();
@@ -166,20 +213,27 @@ export function ItemSelectDialog({
     requestController.current = controller;
     setIsLoading(true);
 
+    const alvo = escopoBusca ?? escopoAtivo;
+    // Dois estoques, duas rotas: `produto` e `usoconsumo_item` sao tabelas
+    // diferentes, com permissao e paginacao proprias. O que a tela ve e a
+    // mesma lista porque `produtoComoItem` alinha os nomes dos campos.
+    const usaProduto = alvo === "PRODUTO";
+
     try {
-      const response = await axios.get("/api/usoconsumo/itens/select", {
+      const response = await axios.get(usaProduto ? "/api/products" : "/api/usoconsumo/itens/select", {
         signal: controller.signal,
         params: {
           page: pageNumber || 1,
           limit: limit || pagination.limit,
           search: searchText !== undefined ? searchText : search,
-          escopo: escopoBusca ?? escopoAtivo,
+          ...(usaProduto ? {} : { escopo: alvo }),
         },
       });
 
       if (response.status === 200 && requestId === requestSequence.current) {
         const { data } = response;
-        setItems(data.data || []);
+        const linhas: Record<string, any>[] = data.data || [];
+        setItems(usaProduto ? linhas.map(produtoComoItem) : (linhas as ItemDeEstoqueOption[]));
         setPagination(data.pagination || { total: 0, page: 1, limit: 20, totalPages: 0 });
       }
     } catch (error) {
@@ -217,8 +271,8 @@ export function ItemSelectDialog({
   }, [open, search, escopoAtivo]);
 
   useEffect(() => {
-    if (open && permitirCriacao && canCreateItem) void loadGroups();
-  }, [open, permitirCriacao, canCreateItem]);
+    if (open && permitirCriacao && canCreateItem && escopoSimples) void loadGroups();
+  }, [open, permitirCriacao, canCreateItem, escopoSimples]);
 
   useEffect(() => () => requestController.current?.abort(), []);
 
@@ -240,7 +294,7 @@ export function ItemSelectDialog({
     }
   };
 
-  const handleSelectItem = (item: UsoConsumoItemOption) => {
+  const handleSelectItem = (item: ItemDeEstoqueOption) => {
     onSelect(item);
     setOpen(false);
     setSearchInput("");
@@ -253,7 +307,7 @@ export function ItemSelectDialog({
     return true;
   });
 
-  const rotulo = rotuloDeEscopo(escopoAtivo);
+  const rotulo = rotuloDeEstoque(escopoAtivo);
 
   return (
     <Dialog
@@ -302,7 +356,7 @@ export function ItemSelectDialog({
               </div>
             </div>
 
-            {permitirCriacao && canCreateItem && (
+            {permitirCriacao && canCreateItem && escopoSimples && (
               <div className="flex items-center gap-2">
                 <Button
                   type="button"
@@ -318,7 +372,7 @@ export function ItemSelectDialog({
                   open={openItemDialog}
                   item={null}
                   grupos={groups}
-                  escopo={escopoAtivo}
+                  escopo={escopoSimples}
                   onOpenChange={setOpenItemDialog}
                   onSaved={async () => {
                     await handleGetItems(1, pagination.limit, search, escopoAtivo);
@@ -352,25 +406,30 @@ export function ItemSelectDialog({
                 <span className="font-semibold text-primary">Dicas:</span>
                 <span><code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-bold text-foreground">#12</code> ID exato</span>
                 <span>•</span>
-                <span><code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-bold text-foreground">USC-000123</code> Busca por Etiqueta</span>
+                <span>
+                  {escopoSimples ? (
+                    <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-bold text-foreground">USC-000123</code>
+                  ) : null}
+                  {escopoSimples ? " Busca por Etiqueta" : "Etiqueta e código de barras também são aceitos"}
+                </span>
               </div>
             </div>
 
             {/* Controles de Visualização & Filtros */}
             <div className="flex flex-wrap items-center gap-2 shrink-0">
-              {permitirTrocaDeEscopo && (
+              {permitirTrocaDeEscopo && escopos.length > 1 && (
                 <Select
                   value={escopoAtivo}
-                  onValueChange={(val) => setEscopoAtivo(val as UsoConsumoEscopo)}
+                  onValueChange={(val) => setEscopoAtivo(val as EscopoDeEstoque)}
                 >
                   <SelectTrigger className="h-9 text-xs rounded-xl w-40 bg-card">
                     <Filter className="size-3.5 mr-1.5 text-muted-foreground" />
                     <SelectValue placeholder="Estoque" />
                   </SelectTrigger>
                   <SelectContent>
-                    {ESCOPOS_USOCONSUMO.map((opcao) => (
+                    {escopos.map((opcao) => (
                       <SelectItem key={opcao} value={opcao}>
-                        {rotuloDeEscopo(opcao).nome}
+                        {rotuloDeEstoque(opcao).nome}
                       </SelectItem>
                     ))}
                   </SelectContent>

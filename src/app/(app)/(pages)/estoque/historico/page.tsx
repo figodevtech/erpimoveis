@@ -140,6 +140,8 @@ type RawLedgerMovement = {
     motivo?: string | null;
     motivo_nome?: string | null;
     observacao?: string | null;
+    /** Preenchida quando a saida veio de um consumo registrado na OS. */
+    ordemservicoid?: number | null;
   } | null;
 };
 
@@ -165,6 +167,8 @@ type RawUsoConsumoMovement = {
   criador_nome: string | null;
   /** `MISTO` quando a entrada tem item dos dois estoques simples. */
   escopo: EscopoDeEntrada | null;
+  /** Preenchida quando a saida veio de um consumo registrado na OS. */
+  saida_ordemservicoid: number | null;
 };
 
 type Movement = {
@@ -191,6 +195,12 @@ type Movement = {
   reconstruido?: boolean;
   /** Entrada com item dos dois estoques simples: aparece nas duas abas. */
   mista?: boolean;
+  /**
+   * OS que consumiu o item. Preenchida, o cancelamento nao acontece aqui: o
+   * banco recusa, porque devolver o saldo sem encerrar a despesa deixaria a
+   * ordem com custo de um movimento inexistente.
+   */
+  ordemServicoId?: number | null;
 };
 
 type Pagination = { page?: number; limit?: number; total?: number; totalPages?: number };
@@ -321,6 +331,7 @@ function normalizeLedgerMovement(raw: RawLedgerMovement): Movement {
     documentKind,
     documentId,
     reconstruido: raw.reconstruido,
+    ordemServicoId: raw.saida?.ordemservicoid ?? null,
   };
 }
 
@@ -354,6 +365,7 @@ function normalizeUsoConsumoMovement(raw: RawUsoConsumoMovement, aba: InventoryK
     numeroNota: raw.numero_nota ?? null,
     documentKind: raw.sentido,
     documentId: raw.id,
+    ordemServicoId: raw.saida_ordemservicoid ?? null,
   };
 }
 
@@ -432,6 +444,17 @@ function MovementRow({
                   title={isEntrada ? "Motivo da entrada" : "Motivo da saída"}
                 >
                   {movement.motivo}
+                </Badge>
+              ) : null}
+              {/* A OS do consumo. Alem de identificar a linha, avisa de onde
+                  sai o estorno: por aqui o cancelamento e recusado. */}
+              {movement.ordemServicoId ? (
+                <Badge
+                  variant="outline"
+                  className="shrink-0 px-1.5 py-0 text-[10px] font-normal border-violet-500/20 bg-violet-500/10 text-violet-700 dark:text-violet-400"
+                  title="Consumo registrado nesta ordem de serviço. O estorno é feito na OS, cancelando a despesa."
+                >
+                  OS #{movement.ordemServicoId}
                 </Badge>
               ) : null}
               {/* Sem isto a mesma nota aparece nas duas abas sem explicacao. */}
@@ -1545,6 +1568,7 @@ export default function HistoricoEstoquePage() {
               id: documentId,
               kind,
               inventory: movement.inventory !== "produtos" ? "usoconsumo" : "produto",
+              ordemServicoId: movement.ordemServicoId ?? null,
             },
           });
         }}

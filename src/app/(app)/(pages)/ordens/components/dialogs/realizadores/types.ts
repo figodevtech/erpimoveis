@@ -25,6 +25,8 @@ export type ServicoLinha = {
   ids: string[];
   pendenteSalvar: boolean;
   semRealizador: boolean;
+  /** Se a falta de realizador neste serviço bloqueia a ação principal. */
+  obrigatorio: boolean;
   erroSalvar: string | null;
 };
 

@@ -102,6 +102,11 @@ export type LinhaDeComissao = {
   precoUnitario: number;
   subtotalServico: number;
   valorBase: number;
+  /**
+   * A taxa que de fato pagou a linha. Em serviço com mais de um realizador é o
+   * maior percentual do grupo, não a taxa individual de quem recebeu — é o que
+   * faz `valorBase × percentualAplicado` fechar com `valorComissao`.
+   */
   percentualAplicado: number;
   valorComissao: number;
   osStatus: string;
@@ -160,6 +165,7 @@ const SELECT = `
   valor_base,
   valor_comissao,
   comissao_percent_aplicada,
+  comissao_percent_efetiva,
   item:osservico!inner (
     descricao,
     quantidade,
@@ -258,7 +264,10 @@ export async function carregarComissoes(filtro: FiltroDeComissoes): Promise<Rela
       precoUnitario: num(item?.precounitario),
       subtotalServico: num(item?.subtotal),
       valorBase: num(registro.valor_base),
-      percentualAplicado: num(registro.comissao_percent_aplicada),
+      percentualAplicado:
+        registro.comissao_percent_efetiva == null
+          ? num(registro.comissao_percent_aplicada)
+          : num(registro.comissao_percent_efetiva),
       valorComissao: num(registro.valor_comissao),
       osStatus: texto(ordem?.status),
       osEntrada: formatarDataHora(ordem?.dataentrada),

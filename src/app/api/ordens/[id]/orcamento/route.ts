@@ -16,6 +16,7 @@ import {
 import { calcularTotaisOs, sanitizarValorFrete } from "@/lib/ordens/totais";
 import { valorDeFace } from "@/lib/financeiro/transacao";
 import { mesesDeCompetenciaFechada } from "../eventos-financeiros/_lib/competencia";
+import { buscarServicosSemRealizador } from "@/lib/ordens/realizadores-server";
 
 type Num = number;
 const toNum = (v: unknown): number => {
@@ -520,6 +521,7 @@ export async function PUT(
     }
 
     // 3) Serviços: estratégia simples — limpar e inserir (não afetam estoque)
+    let servicoIdsInseridos: number[] = [];
     {
       const { data: atuaisServicosRows, error: atuaisServicosErr } = await supabase
         .from("osservico")
@@ -553,11 +555,30 @@ export async function PUT(
         .filter((s) => s.servicoid > 0 && s.quantidade > 0);
 
       const idsServicosParaManter = new Set(servicosNormalizados.map((s) => s.servicoid));
-      const idsServicosParaRemover = (atuaisServicosRows ?? [])
-        .map((s: any) => toNum(s.servicoid))
-        .filter((servicoid) => !idsServicosParaManter.has(servicoid));
+      const idsServicosAtuais = new Set(
+        (atuaisServicosRows ?? []).map((s: any) => toNum(s.servicoid)),
+      );
+      const idsServicosParaRemover = [...idsServicosAtuais].filter(
+        (servicoid) => !idsServicosParaManter.has(servicoid),
+      );
+
+      // Serviço novo entra sem realizador. A tela precisa saber quais são para
+      // pedir a atribuição antes de fechar a edição do orçamento.
+      servicoIdsInseridos = servicosNormalizados
+        .map((s) => s.servicoid)
+        .filter((servicoid) => !idsServicosAtuais.has(servicoid));
 
       if (idsServicosParaRemover.length) {
+        // Não existe FK de osservico_realizador para osservico: sem esta
+        // limpeza o vínculo fica órfão e reaparece colado se o mesmo serviço
+        // for readicionado, passando por qualquer validação de realizador.
+        const delR = await supabase
+          .from("osservico_realizador")
+          .delete()
+          .eq("ordemservicoid", osId)
+          .in("servicoid", idsServicosParaRemover);
+        if (delR.error) throw delR.error;
+
         const delS = await supabase
           .from("osservico")
           .delete()
@@ -716,12 +737,26 @@ export async function PUT(
       }
     }
 
+    // Com a OS já em execução, serviço acrescentado agora precisa de realizador
+    // para não repetir o buraco que deixou OS presas. Vale também em PAGAMENTO:
+    // a trava de status já ficou para trás e a comissão desse serviço entra na
+    // reconciliação logo acima.
+    //
+    // Recusar o salvamento não resolveria: o vínculo do realizador só existe
+    // depois que a linha entra em osservico. Então salva, avisa quais ficaram
+    // pendentes e a tela cobra a atribuição antes de fechar.
+    const servicosSemRealizador =
+      osEmExecucao && servicoIdsInseridos.length > 0
+        ? await buscarServicosSemRealizador(osId, servicoIdsInseridos)
+        : [];
+
     return NextResponse.json({
       ok: true,
       totalGeral,
       valorFrete: totais.valorFrete,
       totalFinanceiro,
       aviso,
+      servicosSemRealizador,
     });
   } catch (err: any) {
     console.error("PUT /api/ordens/[id]/orcamento", err);
