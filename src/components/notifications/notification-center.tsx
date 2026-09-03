@@ -44,6 +44,7 @@ export function NotificationCenter() {
   const [clearing, setClearing] = React.useState(false);
   const [confirmClearOpen, setConfirmClearOpen] = React.useState(false);
   const [dismissingIds, setDismissingIds] = React.useState<Set<string>>(new Set());
+  const knownNotificationIdsRef = React.useRef<Set<string>>(new Set());
   const failedLoadsRef = React.useRef(0);
   const retryAfterRef = React.useRef(0);
 
@@ -53,7 +54,9 @@ export function NotificationCenter() {
       const response = await fetch("/api/notifications?limit=50", { cache: "no-store", signal });
       if (!response.ok) throw new Error(`Notificações indisponíveis (${response.status}).`);
       const data = await response.json() as NotificationResponse;
-      setNotifications(Array.isArray(data.notifications) ? data.notifications : []);
+      const nextNotifications = Array.isArray(data.notifications) ? data.notifications : [];
+      knownNotificationIdsRef.current = new Set(nextNotifications.map((notification) => notification.id));
+      setNotifications(nextNotifications);
       setUnreadCount(Math.max(Number(data.unreadCount ?? 0), 0));
       failedLoadsRef.current = 0;
       retryAfterRef.current = 0;
@@ -108,6 +111,12 @@ export function NotificationCenter() {
             { event: "INSERT", schema: "public", table: "system_notification" },
             (payload) => {
               const row = payload.new as Record<string, unknown>;
+              const incoming = realtimeNotification(row);
+              if (incoming && !knownNotificationIdsRef.current.has(incoming.id)) {
+                knownNotificationIdsRef.current.add(incoming.id);
+                setNotifications((current) => [incoming, ...current].slice(0, 50));
+                if (!incoming.readAt) setUnreadCount((current) => current + 1);
+              }
               void load(undefined, true);
               window.dispatchEvent(new CustomEvent("erp:system-notification", { detail: row }));
             },
@@ -159,10 +168,15 @@ export function NotificationCenter() {
     setClearing(true);
     const previous = notifications;
     const previousUnreadCount = unreadCount;
+    const visibleIds = notifications.map((notification) => notification.id);
     setNotifications([]);
     setUnreadCount(0);
     try {
-      const response = await fetch("/api/notifications", { method: "DELETE" });
+      const response = await fetch("/api/notifications", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: visibleIds }),
+      });
       if (!response.ok) {
         setNotifications(previous);
         setUnreadCount(previousUnreadCount);
@@ -365,4 +379,27 @@ function safeRelativeDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return formatDistanceToNow(date, { addSuffix: true, locale: ptBR });
+}
+
+function realtimeNotification(row: Record<string, unknown>): SystemNotification | null {
+  const id = String(row.id ?? "");
+  const title = String(row.title ?? "").trim();
+  const message = String(row.message ?? "").trim();
+  if (!id || !title || !message) return null;
+  const metadata = row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+    ? row.metadata as Record<string, unknown>
+    : {};
+  if (metadata.dismissed === true) return null;
+  return {
+    id,
+    category: (row.category ?? "SYSTEM") as SystemNotification["category"],
+    priority: (row.priority ?? "INFO") as SystemNotification["priority"],
+    title,
+    message,
+    href: row.href ? String(row.href) : null,
+    source: String(row.source ?? "SYSTEM"),
+    metadata,
+    readAt: row.read_at ? String(row.read_at) : null,
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+  };
 }

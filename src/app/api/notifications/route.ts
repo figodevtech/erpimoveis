@@ -53,15 +53,33 @@ export async function GET(request: Request) {
   }
 }
 
-export async function DELETE() {
+export async function DELETE(request: Request) {
   try {
     const { userId } = await requireNotificationUser();
+    const body = await request.json().catch(() => ({}));
+    const requestedIds = Array.isArray(body?.ids)
+      ? body.ids.map((value: unknown) => String(value)).filter((value: string) => /^\d+$/.test(value)).slice(0, 100)
+      : [];
+    let ids = requestedIds;
+    if (!ids.length) {
+      const { data: visible, error: visibleError } = await supabaseAdmin
+        .from("system_notification")
+        .select("id")
+        .eq("usuario_id", userId)
+        .or("metadata->>dismissed.is.null,metadata->>dismissed.neq.true")
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (visibleError) throw visibleError;
+      ids = (visible ?? []).map((item) => String(item.id));
+    }
+    if (!ids.length) return notificationJson({ ok: true, unreadCount: 0 });
+
     const now = new Date().toISOString();
     const { error } = await supabaseAdmin
       .from("system_notification")
       .update({ metadata: { dismissed: true }, read_at: now })
       .eq("usuario_id", userId)
-      .or("metadata->>dismissed.is.null,metadata->>dismissed.neq.true");
+      .in("id", ids);
     if (error) throw error;
     return notificationJson({ ok: true, unreadCount: 0 });
   } catch (error) {
