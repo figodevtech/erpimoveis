@@ -123,6 +123,7 @@ export function TabelaMeusServicos({ periodo, ativo, usuarioId }: { periodo: Per
                       <DivisaoDoServico
                         realizadores={servico.realizadores}
                         valorDoServico={servico.subtotal}
+                        valorBase={servico.valorBase}
                       />
                     </span>
                   </div>

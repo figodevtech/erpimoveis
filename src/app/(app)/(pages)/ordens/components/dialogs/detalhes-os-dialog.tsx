@@ -47,7 +47,6 @@ import {
   MoreHorizontal,
   StickyNote,
   Trash2,
-  Undo2,
   Upload,
   User2,
   Users,
@@ -103,7 +102,6 @@ import ConcluidoAlert from "../../../(financeiro)/fluxodecaixa/components/conclu
 import TransactionDialog from "../../../(financeiro)/fluxodecaixa/components/transactionDialog/transactionDialog";
 import ValueInput from "../../../(financeiro)/fluxodecaixa/components/transactionDialog/valueInput";
 import { DialogProduto } from "../../../estoque/components/dialog-produto/dialog-produto";
-import { CancelMovementDialog } from "../../../estoque/components/cancel-movement-dialog";
 import { ConsumoEstoqueOsDialog } from "./consumo-estoque-os-dialog";
 import { Tipo_transacao, type Transaction } from "../../../(financeiro)/fluxodecaixa/types";
 import { formatPaymentMethodLabel, type PlannedPayment } from "@/lib/payment-methods";
@@ -121,6 +119,11 @@ import {
   resolverNomeRealizador,
   type RealizadorLite,
 } from "./realizadores-servico";
+import { explicarBaseDaComissao } from "@/lib/ordens/comissao-explicacao";
+import {
+  eventoTemProvenienciaExcluivel,
+  type ImpactoExclusaoEvento,
+} from "@/lib/ordens/exclusao-evento-financeiro";
 import { ClienteResumoCard } from "@/components/cliente/cliente-resumo-card";
 import { TrocarClienteOsButton } from "./trocar-cliente-os-dialog";
 import type {
@@ -565,6 +568,8 @@ type OSDetalhesResponse = {
     comissoesServicos: Array<{
       servicoid: number;
       descricao: string;
+      /** `servico.gera_comissao` como está hoje — explica a linha zerada. */
+      geraComissao: boolean;
       valorServico: number;
       receitaLiquida: number;
       valorComissao: number;
@@ -952,15 +957,16 @@ export function OSDetalhesDialog({
   const [eventoDetalhe, setEventoDetalhe] = useState("");
   const [eventoValor, setEventoValor] = useState(0);
   const [salvandoEvento, setSalvandoEvento] = useState(false);
-  const [receitaServicoParaDespesa, setReceitaServicoParaDespesa] = useState<{
+  const [receitaParaDespesa, setReceitaParaDespesa] = useState<{
     id: number;
-    servicoid: number;
+    origem: "SERVICO" | "FRETE";
+    servicoid?: number | null;
     descricao: string;
   } | null>(null);
-  const [despesaServicoTitulo, setDespesaServicoTitulo] = useState("");
-  const [despesaServicoDetalhe, setDespesaServicoDetalhe] = useState("");
-  const [despesaServicoValor, setDespesaServicoValor] = useState(0);
-  const [salvandoDespesaServico, setSalvandoDespesaServico] = useState(false);
+  const [despesaVinculadaTitulo, setDespesaVinculadaTitulo] = useState("");
+  const [despesaVinculadaDetalhe, setDespesaVinculadaDetalhe] = useState("");
+  const [despesaVinculadaValor, setDespesaVinculadaValor] = useState(0);
+  const [salvandoDespesaVinculada, setSalvandoDespesaVinculada] = useState(false);
   const [eventoEdicao, setEventoEdicao] = useState<{
     id: number;
     descricao: string;
@@ -1001,10 +1007,28 @@ export function OSDetalhesDialog({
     descricao: string;
     valor: number;
   } | null>(null);
+  const [transacaoEventoId, setTransacaoEventoId] = useState<number>();
+  const [transacaoEventoDialogOpen, setTransacaoEventoDialogOpen] = useState(false);
+  const [carregandoTransacaoEventoId, setCarregandoTransacaoEventoId] = useState<number | null>(null);
+  const [parcelasDoEvento, setParcelasDoEvento] = useState<{
+    lancamentoId: number;
+    descricao: string;
+    parcelas: Array<{
+      id: number;
+      descricao: string;
+      valor: number;
+      data: string;
+      vencimento_em?: string | null;
+      pendente: boolean;
+      pago_em?: string | null;
+    }>;
+  } | null>(null);
   const [consumoDialogOpen, setConsumoDialogOpen] = useState(false);
-  /** Consumo escolhido para estorno; alimenta o CancelMovementDialog do estoque. */
-  const [consumoParaCancelar, setConsumoParaCancelar] = useState<number | null>(null);
-  const [cancelandoConsumo, setCancelandoConsumo] = useState(false);
+  const [eventoExclusaoId, setEventoExclusaoId] = useState<number | null>(null);
+  const [impactoExclusao, setImpactoExclusao] = useState<ImpactoExclusaoEvento | null>(null);
+  const [carregandoImpactoExclusao, setCarregandoImpactoExclusao] = useState(false);
+  const [excluindoEvento, setExcluindoEvento] = useState(false);
+  const [motivoExclusao, setMotivoExclusao] = useState("");
   const [modoSelecaoEventos, setModoSelecaoEventos] = useState(false);
   const [eventosSelecionados, setEventosSelecionados] = useState<Set<number>>(new Set());
   const [anexos, setAnexos] = useState<OsAnexo[]>([]);
@@ -1311,10 +1335,14 @@ export function OSDetalhesDialog({
         detalhe: evento.detalhe || evento.origem,
         valor: Number(evento.valor || 0),
         origem: evento.origem,
+        natureza: evento.natureza,
         status: evento.status,
         produtoid: evento.produtoid ?? null,
         servicoid: evento.servicoid ?? null,
+        chaveOrigem: evento.chave_origem ?? null,
         isManual: evento.is_manual === true,
+        consumoSaidaId: evento.consumo_saida_id ?? null,
+        consumoUsoConsumoSaidaId: evento.consumo_usoconsumo_saida_id ?? null,
         temBaixaDeEstoque:
           evento.consumo_saida_id != null || evento.consumo_usoconsumo_saida_id != null,
         // Comissão corrigida à mão para de seguir o recálculo automático; a
@@ -1331,13 +1359,17 @@ export function OSDetalhesDialog({
             ? `0-produto-${evento.produtoid ?? evento.chave_origem ?? evento.id}`
             : evento.origem === "SERVICO" || evento.origem === "COMISSAO"
               ? `1-servico-${evento.servicoid ?? evento.chave_origem?.split(":")[0] ?? evento.id}`
-              : `2-avulso-${String(evento.id).padStart(12, "0")}`,
+              : evento.origem === "FRETE"
+                ? "2-frete"
+                : `3-avulso-${String(evento.id).padStart(12, "0")}`,
         ordemNoGrupo:
           evento.origem === "PRODUTO"
             ? evento.natureza === "DESPESA" ? 0 : 1
             : evento.origem === "SERVICO"
               ? evento.natureza === "RECEITA" ? 0 : 1
-              : evento.origem === "COMISSAO" ? 2 : 0,
+              : evento.origem === "COMISSAO"
+                ? 2
+                : evento.origem === "FRETE" ? evento.natureza === "RECEITA" ? 0 : 1 : 0,
       }));
 
     return lancamentos.sort((a, b) => a.grupo.localeCompare(b.grupo, "pt-BR", { numeric: true }) || a.ordemNoGrupo - b.ordemNoGrupo || a.id - b.id);
@@ -1460,72 +1492,112 @@ export function OSDetalhesDialog({
     finally { setSalvandoEvento(false); }
   }
 
-  /**
-   * Estorno do consumo: devolve o item ao estoque e encerra a despesa.
-   *
-   * Este e o unico caminho de volta — cancelar a saida pelo historico de
-   * estoque e recusado pelo banco, porque devolveria o saldo e deixaria a
-   * despesa viva aqui.
-   */
-  async function cancelarConsumo(motivo: string) {
-    if (!osId || consumoParaCancelar == null) return;
-    setCancelandoConsumo(true);
-    try {
-      const response = await fetch(
-        `/api/ordens/${osId}/consumo-estoque/${consumoParaCancelar}/cancelar`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ motivo }),
-        },
-      );
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload?.error || "Erro ao cancelar o consumo");
-      setConsumoParaCancelar(null);
-      toast.success("Consumo cancelado e item devolvido ao estoque.");
-      await recarregarDetalhes();
-    } catch (error: any) {
-      toast.error(error?.message || "Erro ao cancelar o consumo");
-    } finally {
-      setCancelandoConsumo(false);
+  function abrirDespesaVinculada(lancamento: {
+    id: number;
+    origem: "SERVICO" | "FRETE";
+    servicoid?: number | null;
+    descricao: string;
+  }) {
+    setReceitaParaDespesa(lancamento);
+    if (lancamento.origem === "FRETE") {
+      setDespesaVinculadaTitulo("Despesa de frete");
+    } else {
+      const nomeServico = lancamento.descricao.replace(/^Serviço\s*-\s*/i, "").trim();
+      setDespesaVinculadaTitulo(nomeServico ? `Despesa - ${nomeServico}` : "Despesa do serviço");
     }
+    setDespesaVinculadaDetalhe("");
+    setDespesaVinculadaValor(0);
   }
 
-  function abrirDespesaServico(lancamento: { id: number; servicoid: number; descricao: string }) {
-    const nomeServico = lancamento.descricao.replace(/^Serviço\s*-\s*/i, "").trim();
-    setReceitaServicoParaDespesa(lancamento);
-    setDespesaServicoTitulo(nomeServico ? `Despesa - ${nomeServico}` : "Despesa do serviço");
-    setDespesaServicoDetalhe("");
-    setDespesaServicoValor(0);
-  }
-
-  async function adicionarDespesaServico() {
-    if (!osId || !receitaServicoParaDespesa) return;
-    setSalvandoDespesaServico(true);
+  async function adicionarDespesaVinculada() {
+    if (!osId || !receitaParaDespesa) return;
+    setSalvandoDespesaVinculada(true);
     try {
       const response = await fetch(`/api/ordens/${osId}/eventos-financeiros`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           natureza: "DESPESA",
-          descricao: despesaServicoTitulo,
-          detalhe: despesaServicoDetalhe,
-          valor: despesaServicoValor,
-          eventoReceitaServicoId: receitaServicoParaDespesa.id,
+          descricao: despesaVinculadaTitulo,
+          detalhe: despesaVinculadaDetalhe,
+          valor: despesaVinculadaValor,
+          eventoReceitaId: receitaParaDespesa.id,
         }),
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload?.error || "Erro ao adicionar despesa ao serviço");
-      setReceitaServicoParaDespesa(null);
-      setDespesaServicoTitulo("");
-      setDespesaServicoDetalhe("");
-      setDespesaServicoValor(0);
-      toast.success("Despesa vinculada ao serviço.");
+      const origem = receitaParaDespesa.origem === "FRETE" ? "frete" : "serviço";
+      if (!response.ok) throw new Error(payload?.error || `Erro ao adicionar despesa ao ${origem}`);
+      setReceitaParaDespesa(null);
+      setDespesaVinculadaTitulo("");
+      setDespesaVinculadaDetalhe("");
+      setDespesaVinculadaValor(0);
+      toast.success(`Despesa vinculada ao ${origem}.`);
       await recarregarDetalhes();
     } catch (error: any) {
-      toast.error(error?.message || "Erro ao adicionar despesa ao serviço");
+      toast.error(error?.message || "Erro ao adicionar despesa vinculada");
     } finally {
-      setSalvandoDespesaServico(false);
+      setSalvandoDespesaVinculada(false);
+    }
+  }
+
+  function fecharExclusaoEvento() {
+    if (excluindoEvento) return;
+    setEventoExclusaoId(null);
+    setImpactoExclusao(null);
+    setMotivoExclusao("");
+    setCarregandoImpactoExclusao(false);
+  }
+
+  async function abrirExclusaoEvento(eventoId: number) {
+    if (!osId) return;
+    setEventoExclusaoId(eventoId);
+    setImpactoExclusao(null);
+    setMotivoExclusao("");
+    setCarregandoImpactoExclusao(true);
+    try {
+      const response = await fetch(`/api/ordens/${osId}/eventos-financeiros/${eventoId}`, {
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Erro ao analisar a exclusão");
+      setImpactoExclusao(payload.impacto as ImpactoExclusaoEvento);
+    } catch (error: any) {
+      fecharExclusaoEvento();
+      toast.error(error?.message || "Erro ao analisar a exclusão do evento");
+    } finally {
+      setCarregandoImpactoExclusao(false);
+    }
+  }
+
+  async function excluirEventoFinanceiro() {
+    if (!osId || eventoExclusaoId == null || !impactoExclusao?.podeExcluir) return;
+    setExcluindoEvento(true);
+    try {
+      const response = await fetch(`/api/ordens/${osId}/eventos-financeiros/${eventoExclusaoId}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ motivo: motivoExclusao }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if (payload?.impacto) setImpactoExclusao(payload.impacto as ImpactoExclusaoEvento);
+        throw new Error(payload?.error || "Erro ao excluir evento financeiro");
+      }
+      const devolveuEstoque = payload?.resultado?.estoque_devolvido === true;
+      setEventoExclusaoId(null);
+      setImpactoExclusao(null);
+      setMotivoExclusao("");
+      toast.success(
+        devolveuEstoque
+          ? "Evento excluído e item devolvido ao estoque."
+          : "Evento financeiro excluído.",
+      );
+      if (payload?.aviso) toast.info(payload.aviso);
+      await recarregarDetalhes();
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao excluir evento financeiro");
+    } finally {
+      setExcluindoEvento(false);
     }
   }
 
@@ -1550,6 +1622,69 @@ export function OSDetalhesDialog({
       lancamentoId: evento?.lancamento_id == null ? null : Number(evento.lancamento_id),
       parcelas,
     };
+  }
+
+  function abrirTransacaoDoEvento(transacaoId: number) {
+    setParcelasDoEvento(null);
+    setTransacaoEventoId(transacaoId);
+    setTransacaoEventoDialogOpen(true);
+  }
+
+  async function visualizarTransacaoDoEvento(eventoId: number) {
+    const vinculo = vinculoDoEvento(eventoId);
+
+    if (vinculo.transacaoId != null) {
+      abrirTransacaoDoEvento(vinculo.transacaoId);
+      return;
+    }
+
+    if (vinculo.lancamentoId == null) {
+      toast.error("Este evento consta como lançado, mas não possui uma transação financeira vinculada.");
+      return;
+    }
+
+    setCarregandoTransacaoEventoId(eventoId);
+    try {
+      const response = await fetch(`/api/lancamento-de-eventos/${vinculo.lancamentoId}`, {
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.error || "Não foi possível localizar a transação financeira vinculada.");
+      }
+
+      const parcelas = Array.isArray(payload?.data?.parcelas)
+        ? payload.data.parcelas
+            .map((parcela: any) => ({
+              id: Number(parcela.id),
+              descricao: String(parcela.descricao || `Transação #${parcela.id}`),
+              valor: Number(parcela.valor || 0),
+              data: String(parcela.data || ""),
+              vencimento_em: parcela.vencimento_em ? String(parcela.vencimento_em) : null,
+              pendente: Boolean(parcela.pendente),
+              pago_em: parcela.pago_em ? String(parcela.pago_em) : null,
+            }))
+            .filter((parcela: { id: number }) => Number.isSafeInteger(parcela.id) && parcela.id > 0)
+        : [];
+
+      if (parcelas.length === 0) {
+        throw new Error("O lançamento vinculado não possui transações financeiras ativas.");
+      }
+      if (parcelas.length === 1) {
+        abrirTransacaoDoEvento(parcelas[0].id);
+        return;
+      }
+
+      setParcelasDoEvento({
+        lancamentoId: vinculo.lancamentoId,
+        descricao: String(payload?.data?.descricao || `Lançamento #${vinculo.lancamentoId}`),
+        parcelas,
+      });
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao visualizar a transação financeira");
+    } finally {
+      setCarregandoTransacaoEventoId(null);
+    }
   }
 
   function abrirEdicaoSnapshot(
@@ -1693,6 +1828,32 @@ export function OSDetalhesDialog({
    */
   function podeAlterarValor() {
     return osAceitaEventos && podeEditarEventosFinanceiros;
+  }
+
+  function podeOferecerExclusao(lancamento: {
+    id: number;
+    origem: string;
+    natureza: "RECEITA" | "DESPESA";
+    status: string;
+    descricao: string;
+    valor: number;
+    chaveOrigem?: string | null;
+    isManual: boolean;
+    consumoSaidaId?: number | null;
+    consumoUsoConsumoSaidaId?: number | null;
+  }) {
+    return podeAlterarValor() && eventoTemProvenienciaExcluivel({
+      id: lancamento.id,
+      origem: lancamento.origem,
+      natureza: lancamento.natureza,
+      status: lancamento.status,
+      descricao: lancamento.descricao,
+      valor: lancamento.valor,
+      chave_origem: lancamento.chaveOrigem,
+      is_manual: lancamento.isManual,
+      consumo_saida_id: lancamento.consumoSaidaId,
+      consumo_usoconsumo_saida_id: lancamento.consumoUsoConsumoSaidaId,
+    });
   }
 
   /** Além disso, só snapshot de produto ainda não lançado: a transação
@@ -3007,9 +3168,18 @@ export function OSDetalhesDialog({
 
                                     {servico.realizadores.length > 0 ? (
                                       <div className="border-t px-3 py-2">
-                                        <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                                          Comissões calculadas
-                                        </p>
+                                        <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                                          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                            Comissões calculadas
+                                          </p>
+                                          {/* A linha em R$ 0,00 fica no histórico de propósito; sem o
+                                              selo ela pareceria comissão esquecida. */}
+                                          {!servico.geraComissao ? (
+                                            <Badge variant="outline" className="text-[10px] font-normal">
+                                              Serviço não gera comissão
+                                            </Badge>
+                                          ) : null}
+                                        </div>
                                         <div className="space-y-1.5">
                                           {servico.realizadores.map((realizador) => {
                                             // Com mais de um realizador vale o maior percentual do
@@ -3018,6 +3188,11 @@ export function OSDetalhesDialog({
                                             const divisao = servico.realizadores.length;
                                             const taxaPropriaDiferente =
                                               realizador.percentualProprio !== realizador.percentual;
+                                            const explicacaoBase = explicarBaseDaComissao({
+                                              subtotalServico: servico.valorServico,
+                                              valorBase: realizador.valorBase,
+                                              realizadores: divisao,
+                                            });
 
                                             return (
                                             <div
@@ -3027,9 +3202,19 @@ export function OSDetalhesDialog({
                                               <div className="min-w-0">
                                                 <p className="truncate text-sm font-medium">{realizador.nome || "Realizador"}</p>
                                                 <p className="text-xs text-muted-foreground">
-                                                  Base de cálculo: {fmtMoney(realizador.valorBase)}
-                                                  {divisao > 1 ? ` · 1/${divisao} do serviço` : ""}
+                                                  {servico.geraComissao
+                                                    ? `Base de cálculo: ${fmtMoney(realizador.valorBase)}`
+                                                    : "Executou o serviço; sem comissão a pagar"}
+                                                  {servico.geraComissao && explicacaoBase.texto
+                                                    ? ` · ${explicacaoBase.texto}`
+                                                    : ""}
                                                 </p>
+                                                {servico.geraComissao && explicacaoBase.descontoAplicado ? (
+                                                  <p className="text-[11px] text-muted-foreground/80">
+                                                    O serviço vale {fmtMoney(servico.valorServico)}; a comissão sai do
+                                                    líquido, com o desconto da OS rateado entre os itens.
+                                                  </p>
+                                                ) : null}
                                                 {taxaPropriaDiferente ? (
                                                   <p className="text-[11px] text-muted-foreground/80">
                                                     Taxa própria {fmtPercent(realizador.percentualProprio)}% — aplicada a maior entre os {divisao} realizadores
@@ -3039,14 +3224,20 @@ export function OSDetalhesDialog({
                                               <div className="flex items-center justify-between gap-3 sm:justify-end">
                                                 <Badge
                                                   variant="outline"
-                                                  className="border-primary/20 bg-primary/5 text-primary"
+                                                  className={
+                                                    servico.geraComissao
+                                                      ? "border-primary/20 bg-primary/5 text-primary"
+                                                      : "text-muted-foreground"
+                                                  }
                                                   title={
-                                                    divisao > 1
-                                                      ? `Maior percentual entre os ${divisao} realizadores do serviço`
-                                                      : undefined
+                                                    !servico.geraComissao
+                                                      ? "O serviço está marcado como não comissionável no cadastro"
+                                                      : divisao > 1
+                                                        ? `Maior percentual entre os ${divisao} realizadores do serviço`
+                                                        : undefined
                                                   }
                                                 >
-                                                  {fmtPercent(realizador.percentual)}%
+                                                  {servico.geraComissao ? `${fmtPercent(realizador.percentual)}%` : "sem comissão"}
                                                 </Badge>
                                                 <div className="text-right">
                                                   <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Comissão</p>
@@ -3457,18 +3648,45 @@ export function OSDetalhesDialog({
                                         <Eye /> Visualizar produto
                                       </DropdownMenuItem>
                                     ) : null}
+                                    {/*
+                                      "Lançado" é o único estado em que existe transação para
+                                      abrir. O vínculo pode ser direto (transacaoid) ou pelo
+                                      grupo do boleto (lancamento_id) — quem resolve isso é
+                                      `visualizarTransacaoDoEvento`.
+                                    */}
+                                    {lancamento.status === "CONVERTIDO" ? (
+                                      <DropdownMenuItem
+                                        disabled={carregandoTransacaoEventoId === lancamento.id}
+                                        onSelect={() => void visualizarTransacaoDoEvento(lancamento.id)}
+                                      >
+                                        {carregandoTransacaoEventoId === lancamento.id ? (
+                                          <Loader2 className="animate-spin" />
+                                        ) : (
+                                          <ExternalLink />
+                                        )}
+                                        Visualizar transação
+                                      </DropdownMenuItem>
+                                    ) : null}
                                     {podeAlterarValor()
-                                      && lancamento.origem === "SERVICO"
+                                      && (lancamento.origem === "SERVICO" || lancamento.origem === "FRETE")
                                       && lancamento.tipo === "ENTRADA"
                                       && lancamento.status === "ATIVO"
-                                      && lancamento.servicoid ? (
-                                      <DropdownMenuItem onSelect={() => abrirDespesaServico({
+                                      && (lancamento.origem === "FRETE" || lancamento.servicoid) ? (
+                                      <DropdownMenuItem onSelect={() => abrirDespesaVinculada({
                                         id: lancamento.id,
-                                        servicoid: lancamento.servicoid!,
+                                        origem: lancamento.origem === "FRETE" ? "FRETE" : "SERVICO",
+                                        servicoid: lancamento.servicoid,
                                         descricao: lancamento.descricao,
                                       })}>
-                                        <ArrowDown /> Adicionar despesa ao serviço
+                                        <ArrowDown /> {lancamento.origem === "FRETE"
+                                          ? "Adicionar despesa de frete"
+                                          : "Adicionar despesa ao serviço"}
                                       </DropdownMenuItem>
+                                    ) : null}
+                                    {lancamento.origem === "FRETE" && lancamento.tipo === "ENTRADA" ? (
+                                      <DropdownMenuLabel className="whitespace-normal text-xs font-normal text-muted-foreground">
+                                        Para remover esta receita, edite o orçamento da OS e zere o frete.
+                                      </DropdownMenuLabel>
                                     ) : null}
                                     {podeSincronizar(lancamento) && lancamento.tipo === "SAIDA" ? (
                                       <DropdownMenuItem disabled={sincronizandoCustoId === lancamento.id} onSelect={() => void sincronizarUltimoCusto(lancamento.id)}>
@@ -3492,12 +3710,12 @@ export function OSDetalhesDialog({
                                         Lançar no financeiro
                                       </DropdownMenuItem>
                                     ) : null}
-                                    {lancamento.origem === "CONSUMO"
-                                      && lancamento.temBaixaDeEstoque
-                                      && lancamento.status === "ATIVO"
-                                      && !osFinalizada ? (
-                                      <DropdownMenuItem onSelect={() => setConsumoParaCancelar(lancamento.id)}>
-                                        <Undo2 /> Cancelar consumo e devolver ao estoque
+                                    {podeOferecerExclusao(lancamento) ? (
+                                      <DropdownMenuItem
+                                        className="text-destructive focus:text-destructive"
+                                        onSelect={() => void abrirExclusaoEvento(lancamento.id)}
+                                      >
+                                        <Trash2 /> Excluir evento
                                       </DropdownMenuItem>
                                     ) : null}
                                   </DropdownMenuContent>
@@ -3549,6 +3767,76 @@ export function OSDetalhesDialog({
                       />
                     ) : null}
 
+                    {/*
+                      Sem `editable`, o mesmo diálogo do fluxo de caixa abre em
+                      consulta, com o selo "Somente leitura" — evita uma segunda
+                      tela de transação só para olhar.
+                    */}
+                    {transacaoEventoDialogOpen && transacaoEventoId != null ? (
+                      <TransactionDialog
+                        key={`transacao-do-evento-${transacaoEventoId}`}
+                        open
+                        setOpen={(nextOpen) => {
+                          if (nextOpen) return;
+                          setTransacaoEventoDialogOpen(false);
+                          setTransacaoEventoId(undefined);
+                        }}
+                        selectedTransactionId={transacaoEventoId}
+                        setSelectedTransactionId={setTransacaoEventoId}
+                        handleGetTransactions={() => void recarregarDetalhes()}
+                      />
+                    ) : null}
+
+                    {/*
+                      Boleto parcelado do terceirizado: o evento aponta para o
+                      grupo, não para uma parcela. Abrir uma delas por conta
+                      própria mostraria um valor que não é o da despesa.
+                    */}
+                    <Dialog
+                      open={parcelasDoEvento != null}
+                      onOpenChange={(aberto) => !aberto && setParcelasDoEvento(null)}
+                    >
+                      <DialogContent className="sm:max-w-lg">
+                        <DialogHeader>
+                          <DialogTitle>Transações deste lançamento</DialogTitle>
+                          <DialogDescription>
+                            {parcelasDoEvento?.descricao} — {parcelasDoEvento?.parcelas.length} parcela(s).
+                            Escolha qual abrir.
+                          </DialogDescription>
+                        </DialogHeader>
+
+                        <div className="max-h-80 space-y-2 overflow-y-auto">
+                          {(parcelasDoEvento?.parcelas ?? []).map((parcela, indice) => (
+                            <button
+                              key={parcela.id}
+                              type="button"
+                              onClick={() => abrirTransacaoDoEvento(parcela.id)}
+                              className="flex w-full items-center justify-between gap-3 rounded-md border bg-card px-3 py-2 text-left transition hover:bg-muted/50"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium">
+                                  {indice + 1}/{parcelasDoEvento?.parcelas.length} · {parcela.descricao}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {parcela.vencimento_em
+                                    ? `Vence em ${fmtDate(parcela.vencimento_em)}`
+                                    : parcela.data
+                                      ? fmtDate(parcela.data)
+                                      : "Sem data"}
+                                </p>
+                              </div>
+                              <div className="shrink-0 text-right">
+                                <p className="text-sm font-semibold tabular-nums">{fmtMoney(parcela.valor)}</p>
+                                <Badge variant="outline" className="mt-0.5 text-[10px]">
+                                  {parcela.pendente ? "Em aberto" : "Baixada"}
+                                </Badge>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+
                     <ConsumoEstoqueOsDialog
                       open={consumoDialogOpen}
                       onOpenChange={setConsumoDialogOpen}
@@ -3556,16 +3844,99 @@ export function OSDetalhesDialog({
                       onSuccess={() => void recarregarDetalhes()}
                     />
 
-                    <CancelMovementDialog
-                      target={
-                        consumoParaCancelar == null
-                          ? null
-                          : { id: consumoParaCancelar, kind: "saida", inventory: "produto" }
-                      }
-                      onOpenChange={(aberto) => !aberto && setConsumoParaCancelar(null)}
-                      onConfirm={(motivo) => void cancelarConsumo(motivo)}
-                      canceling={cancelandoConsumo}
-                    />
+                    <AlertDialog
+                      open={eventoExclusaoId != null}
+                      onOpenChange={(aberto) => !aberto && fecharExclusaoEvento()}
+                    >
+                      <AlertDialogContent className="sm:max-w-xl">
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            {carregandoImpactoExclusao
+                              ? "Analisando a exclusão..."
+                              : impactoExclusao?.podeExcluir
+                                ? "Excluir este evento financeiro?"
+                                : "Este evento não pode ser excluído"}
+                          </AlertDialogTitle>
+                          <AlertDialogDescription asChild>
+                            <div className="space-y-4 text-left">
+                              {carregandoImpactoExclusao ? (
+                                <div className="flex items-center gap-2 py-4">
+                                  <Loader2 className="size-4 animate-spin" />
+                                  Verificando estoque, DRE e vínculos financeiros.
+                                </div>
+                              ) : impactoExclusao ? (
+                                <>
+                                  <div className="grid gap-2 rounded-lg border bg-muted/30 p-3 text-xs sm:grid-cols-2">
+                                    <span><strong className="text-foreground">Evento:</strong> {impactoExclusao.descricao}</span>
+                                    <span><strong className="text-foreground">Valor:</strong> {fmtMoney(impactoExclusao.valor)}</span>
+                                    <span>
+                                      <strong className="text-foreground">Origem/Natureza:</strong>{" "}
+                                      {impactoExclusao.origem} · {impactoExclusao.natureza === "RECEITA" ? "Receita" : "Despesa"}
+                                    </span>
+                                    <span>
+                                      <strong className="text-foreground">Competência:</strong>{" "}
+                                      {impactoExclusao.competenciaEm ? fmtDate(impactoExclusao.competenciaEm) : "Ainda não definida"}
+                                    </span>
+                                  </div>
+                                  {impactoExclusao.bloqueio ? (
+                                    <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-amber-900 dark:text-amber-200">
+                                      {impactoExclusao.bloqueio}
+                                    </div>
+                                  ) : null}
+                                  <div>
+                                    <p className="font-medium text-foreground">O que acontecerá:</p>
+                                    <ul className="mt-2 list-disc space-y-1 pl-5">
+                                      {impactoExclusao.efeitos.map((efeito) => (
+                                        <li key={efeito}>{efeito}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                  {impactoExclusao.exigeMotivo && impactoExclusao.podeExcluir ? (
+                                    <label className="block font-medium text-foreground">
+                                      Motivo da devolução ao estoque
+                                      <textarea
+                                        className="mt-1 min-h-20 w-full resize-y rounded-md border bg-background px-3 py-2 text-sm font-normal"
+                                        value={motivoExclusao}
+                                        onChange={(evento) => setMotivoExclusao(evento.target.value)}
+                                        placeholder="Explique por que este consumo está sendo excluído"
+                                        disabled={excluindoEvento}
+                                      />
+                                    </label>
+                                  ) : null}
+                                </>
+                              ) : null}
+                            </div>
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel disabled={excluindoEvento}>
+                            {impactoExclusao?.podeExcluir ? "Cancelar" : "Fechar"}
+                          </AlertDialogCancel>
+                          {impactoExclusao?.podeExcluir ? (
+                            <AlertDialogAction
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              disabled={
+                                excluindoEvento
+                                || (impactoExclusao.exigeMotivo && !motivoExclusao.trim())
+                              }
+                              onClick={(evento) => {
+                                evento.preventDefault();
+                                void excluirEventoFinanceiro();
+                              }}
+                            >
+                              {excluindoEvento ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Trash2 className="mr-2 size-4" />}
+                              Excluir definitivamente
+                            </AlertDialogAction>
+                          ) : impactoExclusao
+                            && (impactoExclusao.transacaoId != null || impactoExclusao.lancamentoId != null)
+                            && podeVerFinanceiro ? (
+                            <AlertDialogAction onClick={() => setCurrentTab("financeiro")}>
+                              Ir para o Financeiro
+                            </AlertDialogAction>
+                          ) : null}
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
 
                     <DialogProduto
                       productId={produtoDialogId}
@@ -3638,47 +4009,59 @@ export function OSDetalhesDialog({
                       </DialogContent>
                     </Dialog>
                     <Dialog
-                      open={Boolean(receitaServicoParaDespesa)}
+                      open={Boolean(receitaParaDespesa)}
                       onOpenChange={(nextOpen) => {
-                        if (!nextOpen && !salvandoDespesaServico) setReceitaServicoParaDespesa(null);
+                        if (!nextOpen && !salvandoDespesaVinculada) setReceitaParaDespesa(null);
                       }}
                     >
                       <DialogContent className="sm:max-w-md">
                         <DialogHeader>
-                          <DialogTitle>Adicionar despesa ao serviço</DialogTitle>
+                          <DialogTitle>
+                            {receitaParaDespesa?.origem === "FRETE"
+                              ? "Adicionar despesa de frete"
+                              : "Adicionar despesa ao serviço"}
+                          </DialogTitle>
                           <DialogDescription>
-                            Esta despesa ficará vinculada a {receitaServicoParaDespesa?.descricao ?? "este serviço"} e será separada da comissão automática.
+                            {receitaParaDespesa?.origem === "FRETE"
+                              ? "Registre o custo pago à transportadora. A receita de frete e o valor cobrado do cliente não serão alterados."
+                              : `Esta despesa ficará vinculada a ${receitaParaDespesa?.descricao ?? "este serviço"} e será separada da comissão automática.`}
                           </DialogDescription>
                         </DialogHeader>
                         <div className="space-y-3 rounded-2xl bg-card p-4">
                           <label className="block text-sm font-medium">Título da despesa
                             <input
                               className="mt-1 h-10 w-full rounded-md border bg-background px-3"
-                              value={despesaServicoTitulo}
-                              onChange={(event) => setDespesaServicoTitulo(event.target.value)}
-                              placeholder="Ex.: Serviço terceirizado"
+                              value={despesaVinculadaTitulo}
+                              onChange={(event) => setDespesaVinculadaTitulo(event.target.value)}
+                              placeholder={receitaParaDespesa?.origem === "FRETE" ? "Ex.: Transportadora" : "Ex.: Serviço terceirizado"}
                             />
                           </label>
                           <label className="block text-sm font-medium">Detalhes
                             <input
                               className="mt-1 h-10 w-full rounded-md border bg-background px-3"
-                              value={despesaServicoDetalhe}
-                              onChange={(event) => setDespesaServicoDetalhe(event.target.value)}
+                              value={despesaVinculadaDetalhe}
+                              onChange={(event) => setDespesaVinculadaDetalhe(event.target.value)}
                               placeholder="Informação complementar (opcional)"
                             />
                           </label>
                           <label className="block text-sm font-medium">Valor
-                            <ValueInput price={despesaServicoValor} setPrice={setDespesaServicoValor} className="mt-1 h-10 w-full" />
+                            <ValueInput price={despesaVinculadaValor} setPrice={setDespesaVinculadaValor} className="mt-1 h-10 w-full" />
                           </label>
                           <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                            Tipo: Serviço · Natureza: Despesa · DRE: Custo dos serviços prestados
+                            {receitaParaDespesa?.origem === "FRETE"
+                              ? "Tipo: Frete · Natureza: Despesa · DRE: 4.6 — Serviços terceirizados diretos"
+                              : "Tipo: Serviço · Natureza: Despesa · DRE: Custo dos serviços prestados"}
                           </div>
                           <Button
                             className="w-full"
-                            disabled={salvandoDespesaServico || !despesaServicoTitulo.trim() || despesaServicoValor <= 0}
-                            onClick={() => void adicionarDespesaServico()}
+                            disabled={salvandoDespesaVinculada || !despesaVinculadaTitulo.trim() || despesaVinculadaValor <= 0}
+                            onClick={() => void adicionarDespesaVinculada()}
                           >
-                            {salvandoDespesaServico ? "Salvando..." : "Registrar despesa do serviço"}
+                            {salvandoDespesaVinculada
+                              ? "Salvando..."
+                              : receitaParaDespesa?.origem === "FRETE"
+                                ? "Registrar despesa de frete"
+                                : "Registrar despesa do serviço"}
                           </Button>
                         </div>
                       </DialogContent>

@@ -4,8 +4,134 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireOSEdit, requireOSEventosFinanceiros } from "@/app/api/_authz/perms";
 import { mesesDeCompetenciaFechada } from "../_lib/competencia";
 import { bloqueioDeStatusParaEventos } from "../_lib/status-os";
+import { analisarExclusaoEventoFinanceiro } from "@/lib/ordens/exclusao-evento-financeiro";
 
 type Params = { id: string; eventoId: string };
+
+function idsDosParametros({ id, eventoId }: Params) {
+  const osId = Number(id);
+  const eventId = Number(eventoId);
+  return Number.isInteger(osId) && Number.isInteger(eventId) && osId > 0 && eventId > 0
+    ? { osId, eventId }
+    : null;
+}
+
+const EVENTO_EXCLUSAO_SELECT =
+  "id, origem, natureza, status, descricao, valor, chave_origem, is_manual, transacaoid, lancamento_id, competencia_em, quantidade_snapshot, consumo_saida_id, consumo_usoconsumo_saida_id, dados_snapshot";
+
+async function carregarImpactoExclusao(parametros: Params) {
+  const ids = idsDosParametros(parametros);
+  if (!ids) return { erro: "Identificador inválido.", status: 400 as const };
+
+  const [{ data: os, error: osError }, { data: evento, error: eventoError }] = await Promise.all([
+    supabaseAdmin
+      .from("ordemservico")
+      .select("id, status")
+      .eq("id", ids.osId)
+      .eq("is_deleted", false)
+      .maybeSingle(),
+    supabaseAdmin
+      .from("eventos_financeiros")
+      .select(EVENTO_EXCLUSAO_SELECT)
+      .eq("id", ids.eventId)
+      .eq("ordemservicoid", ids.osId)
+      .maybeSingle(),
+  ]);
+  if (osError) throw osError;
+  if (eventoError) throw eventoError;
+  if (!os) return { erro: "OS não encontrada.", status: 404 as const };
+  if (!evento) return { erro: "Evento financeiro não encontrado.", status: 404 as const };
+
+  const mesesFechados = mesesDeCompetenciaFechada([evento.competencia_em]);
+  return {
+    ids,
+    impacto: analisarExclusaoEventoFinanceiro(evento as any, {
+      statusOs: os.status,
+      mesesFechados,
+    }),
+    mesesFechados,
+  };
+}
+
+export async function GET(_: NextRequest, { params }: { params: Promise<Params> }) {
+  try {
+    await requireOSEdit();
+    await requireOSEventosFinanceiros();
+    const contexto = await carregarImpactoExclusao(await params);
+    if ("erro" in contexto) {
+      return NextResponse.json({ error: contexto.erro }, { status: contexto.status });
+    }
+    return NextResponse.json({ impacto: contexto.impacto });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error?.message || "Erro ao analisar a exclusão do evento financeiro." },
+      { status: error?.statusCode || 500 },
+    );
+  }
+}
+
+export async function DELETE(req: NextRequest, { params }: { params: Promise<Params> }) {
+  try {
+    await requireOSEdit();
+    await requireOSEventosFinanceiros();
+    const contexto = await carregarImpactoExclusao(await params);
+    if ("erro" in contexto) {
+      return NextResponse.json({ error: contexto.erro }, { status: contexto.status });
+    }
+    if (!contexto.impacto.podeExcluir) {
+      return NextResponse.json(
+        { error: contexto.impacto.bloqueio, impacto: contexto.impacto },
+        { status: 409 },
+      );
+    }
+
+    const body = await req.json().catch(() => ({}));
+    const motivo = String(body?.motivo ?? "").trim();
+    if (contexto.impacto.exigeMotivo && !motivo) {
+      return NextResponse.json(
+        { error: "Informe o motivo para devolver o item ao estoque." },
+        { status: 400 },
+      );
+    }
+
+    const session = await auth();
+    const usuarioId = (session?.user as any)?.id ?? null;
+    const { data, error } = await supabaseAdmin.rpc("excluir_evento_financeiro_manual_os", {
+      p_ordemservico_id: contexto.ids.osId,
+      p_evento_id: contexto.ids.eventId,
+      p_motivo: motivo || null,
+      p_usuario: usuarioId,
+    });
+    if (error) {
+      const mensagem = String(error.message || "");
+      const impactoAtualizado = await carregarImpactoExclusao({
+        id: String(contexto.ids.osId),
+        eventoId: String(contexto.ids.eventId),
+      });
+      const status = /n[aã]o encontrad/i.test(mensagem) ? 404 : 409;
+      return NextResponse.json({
+        error: mensagem || "Não foi possível excluir o evento financeiro.",
+        ...(impactoAtualizado && "impacto" in impactoAtualizado
+          ? { impacto: impactoAtualizado.impacto }
+          : {}),
+      }, { status });
+    }
+
+    return NextResponse.json({
+      excluido: true,
+      resultado: data,
+      impacto: contexto.impacto,
+      aviso: contexto.mesesFechados.length
+        ? `A DRE de ${contexto.mesesFechados.join(", ")} foi recalculada.`
+        : null,
+    });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error?.message || "Erro ao excluir evento financeiro." },
+      { status: error?.statusCode || 500 },
+    );
+  }
+}
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<Params> }) {
   try {

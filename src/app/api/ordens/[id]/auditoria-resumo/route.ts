@@ -693,7 +693,6 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
         const manual = Boolean(
           valor(novo, "is_manual") ?? valor(anterior, "is_manual") ?? atual?.is_manual,
         );
-        if (natureza !== "DESPESA") continue;
 
         const origemEvento = String(
           valor(novo, "origem") ?? valor(anterior, "origem") ?? atual?.origem ?? "AVULSO",
@@ -703,11 +702,24 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
             ? "Serviço"
             : origemEvento === "PRODUTO"
               ? "Produto"
-              : origemEvento === "COMISSAO" ? "Comissão" : "Avulsa";
+              : origemEvento === "COMISSAO"
+                ? "Comissão"
+                : origemEvento === "FRETE" ? "Frete" : "Avulsa";
         const descricaoAtual = String(
           valor(novo, "descricao") ?? valor(anterior, "descricao") ?? atual?.descricao ?? "Despesa",
         );
         const valorAtual = valor(novo, "valor") ?? valor(anterior, "valor") ?? atual?.valor;
+
+        if (evento.operacao === "DELETE" && manual) {
+          adicionar(evento, {
+            tipo: "financeiro",
+            titulo: `Excluiu uma ${natureza === "RECEITA" ? "receita" : "despesa"} dos eventos financeiros`,
+            detalhe: `${descricaoAtual} • ${moedaFormatada(valorAtual)} • Tipo: ${tipoEvento}`,
+          });
+          continue;
+        }
+
+        if (natureza !== "DESPESA") continue;
 
         if (evento.operacao === "INSERT" && manual) {
           adicionar(evento, {
@@ -1003,6 +1015,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
       const criadoManualmente =
         evento.origem === "AVULSO"
         || snapshot?.despesa_servico_manual === true
+        || snapshot?.despesa_frete_manual === true
         || snapshot?.lancamento_avulso_manual === true;
       if (
         evento.natureza !== "DESPESA"
@@ -1017,7 +1030,9 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
           ? "Serviço"
           : origemEvento === "PRODUTO"
             ? "Produto"
-            : origemEvento === "COMISSAO" ? "Comissão" : "Avulsa";
+            : origemEvento === "COMISSAO"
+              ? "Comissão"
+              : origemEvento === "FRETE" ? "Frete" : "Avulsa";
       const usuarioId = evento.created_by ? String(evento.created_by) : null;
       itens.push({
         id: `evento-financeiro-${evento.id}`,

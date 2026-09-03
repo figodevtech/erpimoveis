@@ -501,7 +501,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
           subtotal,
           desconto_tipo,
           desconto,
-          servico:servicoid (id, codigo, descricao, precohora)
+          servico:servicoid (id, codigo, descricao, precohora, gera_comissao)
         `
       )
       .eq("ordemservicoid", osId);
@@ -783,6 +783,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       return {
         servicoid: item.servicoid,
         descricao: item.descricaoServico || item.servico?.descricao || "Serviço",
+        // A comissão zerada precisa se explicar: sem a flag, a linha em R$ 0,00
+        // não diz se ninguém executou ou se o serviço simplesmente não paga.
+        geraComissao: item.servico?.gera_comissao !== false,
         valorServico: item.subtotal,
         receitaLiquida,
         valorComissao,

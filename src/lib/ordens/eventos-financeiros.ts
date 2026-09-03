@@ -49,7 +49,11 @@ function grupoDoEvento(evento: EventoFinanceiroOs) {
   if (evento.origem === "SERVICO" || evento.origem === "COMISSAO") {
     return `1-servico-${evento.servicoid ?? evento.chave_origem?.split(":")[0] ?? evento.id}`;
   }
-  return `2-avulso-${String(evento.id).padStart(12, "0")}`;
+  // Ha uma unica receita de frete por OS e podem existir varios custos manuais
+  // de transportadora. Todos formam o mesmo bloco, independentemente da chave
+  // MANUAL de cada despesa.
+  if (evento.origem === "FRETE") return "2-frete";
+  return `3-avulso-${String(evento.id).padStart(12, "0")}`;
 }
 
 /**
@@ -63,6 +67,7 @@ function ordemNoGrupo(evento: EventoFinanceiroOs) {
   if (evento.origem === "PRODUTO") return evento.natureza === "DESPESA" ? 0 : 1;
   if (evento.origem === "SERVICO") return evento.natureza === "RECEITA" ? 0 : 1;
   if (evento.origem === "COMISSAO") return 2;
+  if (evento.origem === "FRETE") return evento.natureza === "RECEITA" ? 0 : 1;
   return 0;
 }
 
@@ -149,6 +154,69 @@ export function outrasOrigensDaOs(eventos: EventoSomavel[]) {
   }
 
   return [...porChave.values()].sort((a, b) => b.total - a.total);
+}
+
+export type DeducaoDaOs = { origem: string; valor: number };
+
+/**
+ * As quatro origens que hoje aparecem em cards fixos no relatório, nesta
+ * ordem. Uma origem fora desta lista não é descartada — ver `deducoesDaOs`.
+ */
+const ORDEM_DAS_DEDUCOES_CONHECIDAS = ["DESCONTO", "COMISSAO", "CONSUMO", "FRETE"] as const;
+
+/**
+ * O que falta, origem por origem, para os quatro subtotais de produto e
+ * serviço chegarem ao lucro real: `quatro + Σ valor = lucroReal`.
+ *
+ * Cada valor é **líquido** — receita menos despesa daquela origem — e não um
+ * total bruto com um sinal fixo por tipo. Essa era a conta antiga, e ela só
+ * funcionava enquanto cada origem só gerava receita OU só despesa: comissão e
+ * consumo são sempre despesa, desconto sempre despesa, e frete, até então, só
+ * gerava receita. Quando o livro passou a lançar despesa de frete (frete
+ * terceirizado), um sinal fixo positivo somava a despesa como se fosse
+ * receita — dobrando o erro no lucro. Líquido por origem não tem esse
+ * problema: funciona em qualquer combinação de natureza.
+ */
+export function deducoesDaOs(eventos: EventoSomavel[]): DeducaoDaOs[] {
+  const porOrigem = new Map<string, number>();
+
+  for (const evento of eventosAtivos(eventos)) {
+    if (evento.origem === "PRODUTO" || evento.origem === "SERVICO") continue;
+    const valor = Number(evento.valor ?? 0);
+    const efeito = evento.natureza === "RECEITA" ? valor : -valor;
+    porOrigem.set(evento.origem, (porOrigem.get(evento.origem) ?? 0) + efeito);
+  }
+
+  const conhecidas = ORDEM_DAS_DEDUCOES_CONHECIDAS.map((origem) => ({
+    origem,
+    valor: porOrigem.get(origem) ?? 0,
+  }));
+
+  const restantes = [...porOrigem.entries()]
+    .filter(([origem]) => !(ORDEM_DAS_DEDUCOES_CONHECIDAS as readonly string[]).includes(origem))
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+    .map(([origem, valor]) => ({ origem, valor }));
+
+  return [...conhecidas, ...restantes];
+}
+
+/**
+ * Soma bruta (não líquida) dos eventos ativos de uma origem e natureza
+ * específicas. Zero quando não há nenhum evento daquele par — nunca `NaN` nem
+ * `undefined`, então o chamador não precisa de um `?? 0` próprio.
+ *
+ * É o que sustenta um card como "Receita de frete" separado de "Despesa de
+ * frete": `deducoesDaOs` devolve o líquido de uma origem, que é o número certo
+ * para fechar a conta, mas às vezes a exibição quer os dois lados brutos.
+ */
+export function somaOrigemNatureza(
+  eventos: EventoSomavel[],
+  origem: string,
+  natureza: "RECEITA" | "DESPESA",
+) {
+  return eventosAtivos(eventos)
+    .filter((evento) => evento.origem === origem && evento.natureza === natureza)
+    .reduce((soma, evento) => soma + Number(evento.valor ?? 0), 0);
 }
 
 /** Margem do lucro sobre a receita, em porcento. Sem receita não há margem. */

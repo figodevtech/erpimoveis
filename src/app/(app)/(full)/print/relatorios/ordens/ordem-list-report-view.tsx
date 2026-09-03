@@ -7,7 +7,8 @@ import { A4PdfActions } from "@/app/(app)/(full)/components/A4PdfActions";
 import { PrintDisplayOptionsMenu } from "@/app/(app)/(full)/components/PrintDisplayOptionsMenu";
 import { toast } from "@/lib/toast";
 import {
-  outrasOrigensDaOs,
+  deducoesDaOs,
+  somaOrigemNatureza,
   somarEventosDaOs,
   type TotaisDosEventos,
 } from "@/lib/ordens/eventos-financeiros";
@@ -99,17 +100,6 @@ const TOM_ITEM = {
   SERVICO: "bg-violet-50 text-violet-800",
 } as const;
 
-/**
- * As origens que não são produto nem serviço, na ordem em que saem na folha.
- *
- * `CONSUMO` é o material que a OS gastou sem revender — a abraçadeira, a fita.
- * Entrou no livro depois das outras e é despesa pura, como desconto e comissão.
- *
- * Uma origem fora desta lista não some: cai no fim, com o rótulo em caixa. É o
- * que impede a conta de parar de fechar quando o banco ganhar a próxima.
- */
-const ORIGENS_DA_DEDUCAO = ["DESCONTO", "COMISSAO", "CONSUMO", "FRETE"] as const;
-
 const ROTULO_ORIGEM: Record<string, string> = {
   DESCONTO: "Descontos",
   COMISSAO: "Comissões",
@@ -119,44 +109,25 @@ const ROTULO_ORIGEM: Record<string, string> = {
   ENTRADA_FISCAL: "Entrada fiscal",
 };
 
-/** Frete soma; desconto, comissão e consumo abatem. */
-const SINAL_DA_ORIGEM: Record<string, 1 | -1> = {
-  DESCONTO: -1,
-  COMISSAO: -1,
-  CONSUMO: -1,
-  FRETE: 1,
-};
-
 /**
- * As deduções de um conjunto de eventos, sempre nas mesmas posições e mesmo
- * zeradas — é o que mantém a largura previsível e diz o que não houve.
+ * As deduções de um conjunto de eventos, prontas para exibir: sempre nas
+ * mesmas posições e mesmo zeradas — é o que mantém a largura previsível e diz
+ * o que não houve.
+ *
+ * O sinal de cada uma vem do próprio valor líquido (`deducoesDaOs`), e não de
+ * uma tabela fixa por origem — é o que permite frete gerar receita OU despesa
+ * sem a conta desandar. Valor zero mostra "+", só para ter um sinal.
  */
-function deducoesDosEventos(linhas: EventoDaOrdem[]) {
-  const outras = outrasOrigensDaOs(linhas);
-  const somaDe = (origem: string) =>
-    outras
-      .filter((linha) => linha.origem === origem)
-      .reduce((soma, linha) => soma + linha.total, 0);
-
-  const conhecidas = ORIGENS_DA_DEDUCAO.map((origem) => ({
-    chave: `origem-${origem}`,
-    label: ROTULO_ORIGEM[origem] ?? origem,
-    valor: somaDe(origem),
-    sinal: SINAL_DA_ORIGEM[origem] ?? -1,
-  }));
-
-  // Origem que ainda não tem lugar próprio: entra assim mesmo, com o sinal
-  // vindo da natureza, para o lucro nunca ter uma parcela invisível.
-  const resto = outras
-    .filter((linha) => !ORIGENS_DA_DEDUCAO.includes(linha.origem as (typeof ORIGENS_DA_DEDUCAO)[number]))
-    .map((linha) => ({
-      chave: `origem-${linha.origem}-${linha.natureza}`,
-      label: ROTULO_ORIGEM[linha.origem] ?? linha.origem,
-      valor: linha.total,
-      sinal: (linha.natureza === "RECEITA" ? 1 : -1) as 1 | -1,
-    }));
-
-  return [...conhecidas, ...resto];
+function parcelasDasDeducoes(linhas: EventoDaOrdem[]) {
+  return deducoesDaOs(linhas).map(({ origem, valor }) => {
+    const sinal: 1 | -1 = valor < 0 ? -1 : 1;
+    return {
+      chave: `origem-${origem}`,
+      label: ROTULO_ORIGEM[origem] ?? origem,
+      valor,
+      sinal,
+    };
+  });
 }
 
 /**
@@ -564,11 +535,8 @@ export function OrdemListReportView({
     [eventosPorOs],
   );
 
-  /** Desconto, comissão, consumo, frete — o que entra no lucro fora dos quatro. */
-  const deducoesDoRecorte = useMemo(
-    () => deducoesDosEventos([...(eventosPorOs?.values() ?? [])].flat()),
-    [eventosPorOs],
-  );
+  /** Os eventos financeiros do recorte inteiro, para montar o painel. */
+  const eventosDoRecorte = useMemo(() => [...(eventosPorOs?.values() ?? [])].flat(), [eventosPorOs]);
 
   /**
    * O painel é o mesmo em qualquer modo — quatro fileiras fixas, sempre nas
@@ -581,9 +549,9 @@ export function OrdemListReportView({
   const cards = useMemo(
     () =>
       temEventos
-        ? cardsDoResultado(rows.length, ticket, totaisDosEventos, deducoesDoRecorte)
+        ? cardsDoResultado(rows.length, ticket, totaisDosEventos, eventosDoRecorte)
         : cardsDoOrcamento(rows, total, ticket),
-    [deducoesDoRecorte, rows, temEventos, ticket, total, totaisDosEventos],
+    [eventosDoRecorte, rows, temEventos, ticket, total, totaisDosEventos],
   );
 
   /**
@@ -951,10 +919,12 @@ function LinhaDeEvento({ evento, listrada }: { evento: EventoDaOrdem; listrada: 
  * As quatro parcelas de produto e serviço, mais as deduções, mais o lucro — e
  * com elas a conta **fecha**, que é o que justifica o `=` no lucro.
  *
- * As deduções vêm de `deducoesDosEventos`, e não de uma lista escrita à mão:
- * quando `CONSUMO` entrou no livro de eventos, a lista fixa passou a errar o
- * lucro de toda OS que consumiu material. Agora uma origem nova aparece
- * sozinha, com o sinal da natureza, em vez de sumir dentro do total.
+ * As deduções vêm de `parcelasDasDeducoes`/`deducoesDaOs`, e não de uma lista
+ * escrita à mão nem de um sinal fixo por origem. Duas vezes essa suposição
+ * quebrou: quando `CONSUMO` entrou no livro sem ter card nenhum, e quando
+ * `FRETE` passou a gerar despesa além de receita — um sinal fixo positivo
+ * somava a despesa como receita, dobrando o erro no lucro. Líquido por
+ * origem resolve as duas classes de bug de uma vez.
  *
  * Tudo sai mesmo zerado: mantém a largura previsível e diz o que não houve. As
  * entradas ocupam duas linhas em qualquer cenário — medidas, passam de 226mm
@@ -967,7 +937,7 @@ function FechamentoDeEventos({ linhas, row }: { linhas: EventoDaOrdem[]; row: Or
     { chave: "custoProdutos", label: "Custo produtos", valor: totais.despesaProdutos, sinal: -1 as const },
     { chave: "receitaServicos", label: "Receita serviços", valor: totais.receitaServicos, sinal: 1 as const },
     { chave: "custoServicos", label: "Custo serviços", valor: totais.despesaServicos, sinal: -1 as const },
-    ...deducoesDosEventos(linhas),
+    ...parcelasDasDeducoes(linhas),
   ];
 
   return (
@@ -1006,21 +976,44 @@ function FechamentoDeEventos({ linhas, row }: { linhas: EventoDaOrdem[]; row: Or
  * R$ 0,00 diz que a OS não gastou material, e um lucro negativo é justamente o
  * número que o relatório existe para mostrar.
  *
- * A última fileira é a que fecha a conta. Somando as três deduções e o frete às
- * duas fileiras do meio chega-se ao lucro real — e as deduções vêm de
- * `deducoesDosEventos`, que inclui qualquer origem nova em vez de deixá-la
- * invisível. Foi o que aconteceu quando `CONSUMO` entrou no livro: sete
- * entradas fixas paravam de fechar por R$ 3,00 numa OS que consumiu material.
+ * A última fileira é a que fecha a conta. Somando as quatro deduções às duas
+ * fileiras do meio chega-se ao lucro real — e cada uma é líquida (receita menos
+ * despesa daquela origem), não um total bruto com sinal fixo. As duas classes
+ * de bug já apareceram aqui: `CONSUMO` sem card nenhum, e depois `FRETE` com
+ * despesa somada como se fosse receita.
+ */
+/**
+ * A comissão sai da última fileira e passa a compor a liquidez de serviços: é
+ * mão de obra do serviço prestado, não uma dedução solta como desconto ou
+ * frete. `deducoesDaOs` continua sendo a fonte — nunca uma lista escrita à
+ * mão — para uma origem nova não desaparecer da conta outra vez.
+ *
+ * O frete deixa de ser uma única entrada líquida e vira duas, receita e
+ * despesa, para mostrar o que a OS cobrou e o que pagou à transportadora. Como
+ * as duas se leem em separado, não corre o risco que fez a despesa de frete
+ * ser somada como receita: aqui não existe um `-` a aplicar por fora.
  */
 function cardsDoResultado(
   quantasOrdens: number,
   ticket: number,
   totais: TotaisDosEventos,
-  deducoes: ReturnType<typeof deducoesDosEventos>,
+  eventos: EventoDaOrdem[],
 ): CardFechamento[][] {
   const liquidoProdutos = totais.receitaProdutos - totais.despesaProdutos;
-  const liquidoServicos = totais.receitaServicos - totais.despesaServicos;
+
+  const deducoes = deducoesDaOs(eventos);
+  const comissoes = deducoes.find((deducao) => deducao.origem === "COMISSAO")?.valor ?? 0;
+  const liquidoServicos = totais.receitaServicos - totais.despesaServicos + comissoes;
+
+  const freteReceita = somaOrigemNatureza(eventos, "FRETE", "RECEITA");
+  const freteDespesa = somaOrigemNatureza(eventos, "FRETE", "DESPESA");
+  // O resto das deduções — Desconto, Consumo e qualquer origem que o banco
+  // ainda vier a criar — sem comissão, que subiu, e sem frete, que aqui sai
+  // em receita e despesa e não como líquido.
+  const outrasDeducoes = deducoes.filter((deducao) => deducao.origem !== "COMISSAO" && deducao.origem !== "FRETE");
+
   const tom = (valor: number) => (valor < 0 ? TOM_SUBTRACAO : TOM_SOMA);
+  const sinalDe = (valor: number): 1 | -1 => (valor < 0 ? -1 : 1);
 
   return [
     [
@@ -1036,16 +1029,22 @@ function cardsDoResultado(
     [
       { chave: "receitaServicos", label: "+ Receita de serviços", value: signedMoney(totais.receitaServicos, 1), tone: TOM_SOMA, valor: totais.receitaServicos },
       { chave: "custoServicos", label: "− Custo de serviços", value: signedMoney(totais.despesaServicos, -1), tone: TOM_SUBTRACAO, valor: totais.despesaServicos },
+      { chave: "comissoes", label: `${sinalDe(comissoes) < 0 ? "−" : "+"} Comissões`, value: signedMoney(comissoes, sinalDe(comissoes)), tone: tom(comissoes), valor: comissoes },
       { chave: "liquidoServicos", label: "= Líquido de serviços", value: money(liquidoServicos), tone: tom(liquidoServicos), valor: liquidoServicos },
     ],
     [
-      ...deducoes.map((deducao) => ({
-        chave: deducao.chave,
-        label: `${deducao.sinal < 0 ? "−" : "+"} ${deducao.label}`,
-        value: signedMoney(deducao.valor, deducao.sinal),
-        tone: deducao.sinal < 0 ? TOM_SUBTRACAO : TOM_SOMA,
-        valor: deducao.valor,
-      })),
+      ...outrasDeducoes.map((deducao) => {
+        const sinal = sinalDe(deducao.valor);
+        return {
+          chave: `origem-${deducao.origem}`,
+          label: `${sinal < 0 ? "−" : "+"} ${ROTULO_ORIGEM[deducao.origem] ?? deducao.origem}`,
+          value: signedMoney(deducao.valor, sinal),
+          tone: tom(deducao.valor),
+          valor: deducao.valor,
+        };
+      }),
+      { chave: "freteReceita", label: "+ Receita de frete", value: signedMoney(freteReceita, 1), tone: TOM_SOMA, valor: freteReceita },
+      { chave: "freteDespesa", label: "− Despesa de frete", value: signedMoney(freteDespesa, -1), tone: TOM_SUBTRACAO, valor: freteDespesa },
       { chave: "lucro", label: "= Lucro real", value: money(totais.lucroReal), tone: "text-primary", destaque: true, valor: totais.lucroReal },
     ],
   ];

@@ -89,8 +89,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<Param
     const descricao = String(body?.descricao ?? "").trim();
     const detalhe = String(body?.detalhe ?? "").trim() || null;
     const valor = Number(body?.valor);
-    const eventoReceitaServicoInformado = body?.eventoReceitaServicoId != null;
-    const eventoReceitaServicoId = Number(body?.eventoReceitaServicoId);
+    const eventoReceitaInformado = body?.eventoReceitaId != null;
+    const eventoReceitaServicoLegadoInformado = body?.eventoReceitaServicoId != null;
+    if (eventoReceitaInformado && eventoReceitaServicoLegadoInformado) {
+      return NextResponse.json(
+        { error: "Informe somente um vínculo de receita para esta despesa." },
+        { status: 400 },
+      );
+    }
+    const eventoReceitaVinculado = eventoReceitaInformado || eventoReceitaServicoLegadoInformado;
+    const eventoReceitaId = Number(
+      eventoReceitaInformado ? body?.eventoReceitaId : body?.eventoReceitaServicoId,
+    );
     const tipoEvento = String(body?.tipo ?? "").toUpperCase();
     if (!['RECEITA', 'DESPESA'].includes(natureza)) {
       return NextResponse.json({ error: "Informe se o evento é uma receita ou despesa." }, { status: 400 });
@@ -100,15 +110,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<Param
       return NextResponse.json({ error: "O valor deve ser maior que zero." }, { status: 400 });
     }
     if (
-      eventoReceitaServicoInformado
-      && (!Number.isInteger(eventoReceitaServicoId) || eventoReceitaServicoId <= 0)
+      eventoReceitaVinculado
+      && (!Number.isInteger(eventoReceitaId) || eventoReceitaId <= 0)
     ) {
-      return NextResponse.json({ error: "A receita de serviço informada é inválida." }, { status: 400 });
+      return NextResponse.json({ error: "A receita informada é inválida." }, { status: 400 });
     }
     // CONSUMO é o material gasto na OS sem repasse ao cliente. Aqui ele entra
     // sem passar pelo estoque — a fita comprada na hora para esta ordem. O
     // caminho com baixa é `/consumo-estoque`, que além do evento cria a saída.
-    if (!eventoReceitaServicoInformado && !["PRODUTO", "SERVICO", "CONSUMO"].includes(tipoEvento)) {
+    if (!eventoReceitaVinculado && !["PRODUTO", "SERVICO", "CONSUMO"].includes(tipoEvento)) {
       return NextResponse.json({ error: "Informe se o lançamento é de Produto, Serviço ou Consumo." }, { status: 400 });
     }
     // Só existe `CONSUMO:DESPESA` na DRE (linha 4.4, Materiais aplicados).
@@ -120,49 +130,65 @@ export async function POST(req: NextRequest, { params }: { params: Promise<Param
     const session = await auth();
     const usuarioId = (session?.user as any)?.id ?? null;
 
-    if (eventoReceitaServicoInformado) {
+    if (eventoReceitaVinculado) {
       if (natureza !== "DESPESA") {
-        return NextResponse.json({ error: "Um evento vinculado à receita de serviço deve ser uma despesa." }, { status: 400 });
+        return NextResponse.json({ error: "Um evento vinculado a uma receita deve ser uma despesa." }, { status: 400 });
       }
 
-      const { data: receitaServico, error: receitaServicoError } = await supabaseAdmin
+      const { data: receitaOrigem, error: receitaOrigemError } = await supabaseAdmin
         .from("eventos_financeiros")
-        .select("id, servicoid, descricao, valor, status")
-        .eq("id", eventoReceitaServicoId)
+        .select("id, origem, natureza, servicoid, descricao, valor, status")
+        .eq("id", eventoReceitaId)
         .eq("ordemservicoid", osId)
-        .eq("origem", "SERVICO")
-        .eq("natureza", "RECEITA")
         .maybeSingle();
-      if (receitaServicoError) throw receitaServicoError;
-      if (!receitaServico || !receitaServico.servicoid) {
-        return NextResponse.json({ error: "A receita de serviço não foi encontrada nesta OS." }, { status: 404 });
+      if (receitaOrigemError) throw receitaOrigemError;
+      if (!receitaOrigem) {
+        return NextResponse.json({ error: "A receita não foi encontrada nesta OS." }, { status: 404 });
       }
-      if (receitaServico.status !== "ATIVO") {
-        return NextResponse.json({ error: "A receita de serviço não está ativa." }, { status: 409 });
+      if (receitaOrigem.natureza !== "RECEITA" || !["SERVICO", "FRETE"].includes(receitaOrigem.origem)) {
+        return NextResponse.json(
+          { error: "Somente receitas de serviço ou frete podem receber uma despesa vinculada." },
+          { status: 400 },
+        );
+      }
+      if (receitaOrigem.origem === "SERVICO" && !receitaOrigem.servicoid) {
+        return NextResponse.json({ error: "A receita de serviço não possui um serviço vinculado." }, { status: 409 });
+      }
+      if (receitaOrigem.status !== "ATIVO") {
+        return NextResponse.json({ error: "A receita informada não está ativa." }, { status: 409 });
       }
 
       const criadoEm = new Date().toISOString();
+      const despesaDeFrete = receitaOrigem.origem === "FRETE";
       const { data, error } = await supabaseAdmin
         .from("eventos_financeiros")
         .insert({
           ordemservicoid: osId,
           source_type: "ORDEM_SERVICO",
           source_id: osId,
-          source_item_id: receitaServico.servicoid,
-          origem: "SERVICO",
+          source_item_id: despesaDeFrete ? receitaOrigem.id : receitaOrigem.servicoid,
+          origem: receitaOrigem.origem,
           natureza: "DESPESA",
           natureza_dre: "CUSTO",
           chave_origem: `MANUAL:${randomUUID()}`,
           descricao,
-          detalhe: detalhe || `Vinculada a ${receitaServico.descricao}`,
+          detalhe: detalhe || `Vinculada a ${receitaOrigem.descricao}`,
           valor: Math.round(valor * 100) / 100,
-          servicoid: receitaServico.servicoid,
+          servicoid: despesaDeFrete ? null : receitaOrigem.servicoid,
           is_manual: true,
           pode_gerar_transacao: true,
           dados_snapshot: {
-            despesa_servico_manual: true,
-            evento_receita_origem_id: receitaServico.id,
-            receita_servico_valor: Number(receitaServico.valor ?? 0),
+            ...(despesaDeFrete
+              ? {
+                  despesa_frete_manual: true,
+                  receita_frete_valor: Number(receitaOrigem.valor ?? 0),
+                  dre_linha_codigo: "4.6",
+                }
+              : {
+                  despesa_servico_manual: true,
+                  receita_servico_valor: Number(receitaOrigem.valor ?? 0),
+                }),
+            evento_receita_origem_id: receitaOrigem.id,
             criado_em: criadoEm,
           },
           created_by: usuarioId,
