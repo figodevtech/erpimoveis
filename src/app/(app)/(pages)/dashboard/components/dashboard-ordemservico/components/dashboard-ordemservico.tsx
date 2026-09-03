@@ -80,6 +80,10 @@ const ROTULOS_STATUS_OS: Record<string, string> = {
   CANCELADO: "Cancelado",
 };
 
+// Fim de fluxo: são a maior parte da base e achatavam a escala, escondendo
+// justamente as filas que alguém olha o gráfico para ver.
+const STATUS_FORA_DO_GRAFICO = new Set(["CONCLUIDO", "CANCELADO", "SEM_COBRANCA"]);
+
 const ROTULOS_PRIORIDADE: Record<string, string> = {
   URGENTE: "Urgente",
   ALTA: "Alta",
@@ -245,7 +249,7 @@ export default function ServiceOrdersDashboard({
   const statusItems = React.useMemo(
     () =>
       Object.entries(data?.countsByStatusGeral ?? {})
-        .filter(([, quantidade]) => Number(quantidade) > 0)
+        .filter(([status, quantidade]) => Number(quantidade) > 0 && !STATUS_FORA_DO_GRAFICO.has(status))
         .map(([status, quantidade]) => ({
           name: formatarStatusOS(status),
           value: Number(quantidade) || 0,
@@ -549,9 +553,9 @@ export default function ServiceOrdersDashboard({
           {/* OS por status (muda orientação só no mobile) */}
           <ChartCard
             title="OS por status (geral)"
-            description="Distribuição atual"
+            description="Distribuição atual, sem os status de fim de fluxo"
             badge="Barras"
-            hint="Distribuição de todas as OS por status neste momento. Não segue o período filtrado. Status sem nenhuma OS ficam de fora."
+            hint="Distribuição das OS por status neste momento. Não segue o período filtrado. Concluído, Cancelado e Sem cobrança ficam de fora — são fim de fluxo, e o volume deles achatava a escala das filas que ainda estão abertas. Por isso as barras não somam o total de OS. Status sem nenhuma OS também não aparecem."
             className="md:col-span-2"
           >
             <div className="w-full" style={{ height: isMobile ? statusChartHeight : 280 }}>
