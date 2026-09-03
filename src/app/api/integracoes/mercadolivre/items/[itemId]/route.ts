@@ -137,11 +137,17 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       if (effectiveBody?.pictureUrl !== undefined && !capabilities.pictures) {
         throw fieldRestriction("images", "As imagens deste anúncio são controladas pelo catálogo do Mercado Livre.");
       }
-      const shippingMode = String(effectiveBody?.shippingMode ?? "").trim();
-      if (shippingMode === "me2") {
+      const shippingMode = String(effectiveBody?.shippingMode ?? currentItem?.shipping?.mode ?? "").trim();
+      const shippingSelectionChanged = hasOwn(effectiveBody, "shippingMode") || hasOwn(effectiveBody, "logisticType");
+      if (shippingSelectionChanged && shippingMode === "me2") {
         const categoryId = String(currentItem?.category_id ?? "").trim();
         if (!categoryId) throw new Error("O anúncio não possui categoria para validar o Mercado Envios.");
-        await validateMercadoLivreShippingSelection(account, categoryId, shippingMode, String(effectiveBody?.logisticType ?? ""));
+        await validateMercadoLivreShippingSelection(
+          account,
+          categoryId,
+          shippingMode,
+          String(effectiveBody?.logisticType ?? currentItem?.shipping?.logistic_type ?? ""),
+        );
       }
       const userProductEnabled = Boolean(currentItem?.family_name || currentItem?.user_product_id);
       payload = buildListingUpdatePayload(effectiveBody, userProductEnabled);
@@ -216,7 +222,9 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
         catalog_product_id: item?.catalog_product_id ?? userProduct?.catalog_product_id ?? null,
         user_product_enabled: Boolean(item?.family_name || item?.user_product_id),
         item_tags: Array.isArray(item?.tags) ? item.tags : [],
-        ...(action === "update_listing" ? packageDimensionSnapshot(effectiveBody) : {}),
+        ...(action === "update_listing" && hasPackageDimensionChange(effectiveBody)
+          ? packageDimensionSnapshot(effectiveBody)
+          : {}),
         raw_item: userProduct ? { ...item, _erp_user_product: userProduct } : item ?? {},
         updated_at: new Date().toISOString(),
       })
@@ -319,16 +327,30 @@ function normalizeItemForEdit(item: any, description: any, userProduct?: any, fa
     logisticType: shipping?.logistic_type ?? "",
     freeShipping: Boolean(shipping?.free_shipping),
     localPickup: Boolean(shipping?.local_pick_up),
-    widthCm: dimensions.widthCm || dynamicAttributes.SELLER_PACKAGE_WIDTH || numberText(link?.package_width_cm),
-    heightCm: dimensions.heightCm || dynamicAttributes.SELLER_PACKAGE_HEIGHT || numberText(link?.package_height_cm),
-    lengthCm: dimensions.lengthCm || dynamicAttributes.SELLER_PACKAGE_LENGTH || numberText(link?.package_length_cm),
-    weightGrams: dimensions.weightGrams || dynamicAttributes.SELLER_PACKAGE_WEIGHT || numberText(link?.package_weight_grams),
+    widthCm: dimensions.widthCm || measurementNumberText(dynamicAttributes.SELLER_PACKAGE_WIDTH) || numberText(link?.package_width_cm),
+    heightCm: dimensions.heightCm || measurementNumberText(dynamicAttributes.SELLER_PACKAGE_HEIGHT) || numberText(link?.package_height_cm),
+    lengthCm: dimensions.lengthCm || measurementNumberText(dynamicAttributes.SELLER_PACKAGE_LENGTH) || numberText(link?.package_length_cm),
+    weightGrams: dimensions.weightGrams || measurementNumberText(dynamicAttributes.SELLER_PACKAGE_WEIGHT) || numberText(link?.package_weight_grams),
   };
 }
 
 function numberText(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? String(number) : "";
+}
+
+function measurementNumberText(value: unknown) {
+  const match = String(value ?? "").trim().match(/-?\d+(?:[.,]\d+)?/);
+  if (!match) return "";
+  return numberText(match[0].replace(",", "."));
+}
+
+function hasOwn(value: unknown, key: string) {
+  return Boolean(value && typeof value === "object" && Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function hasPackageDimensionChange(body: unknown) {
+  return ["lengthCm", "widthCm", "heightCm", "weightGrams"].some((key) => hasOwn(body, key));
 }
 
 function packageDimensionSnapshot(body: any) {
@@ -372,20 +394,23 @@ function buildListingUpdatePayload(body: any, userProductEnabled: boolean) {
   const heightCm = Number(body?.heightCm);
   const lengthCm = Number(body?.lengthCm);
   const weightGrams = Math.trunc(Number(body?.weightGrams));
+  const shippingModeProvided = hasOwn(body, "shippingMode");
+  const logisticTypeProvided = hasOwn(body, "logisticType");
+  const packageDimensionsProvided = hasPackageDimensionChange(body);
 
   if (body?.videoUrl !== undefined) payload.video_id = normalizeMercadoLivreVideoId(body.videoUrl);
 
-  if (shippingMode && shippingMode !== "me2") {
-    throw new Error("O ERP mantém anúncios apenas com Mercado Envios habilitado.");
+  if (shippingModeProvided && shippingMode && shippingMode !== "me2") {
+    throw fieldRestriction("shippingMode", "O ERP mantém anúncios apenas com Mercado Envios habilitado.");
   }
-  if (shippingMode === "me2" && !logisticType) {
-    throw new Error("Selecione a logística do Mercado Envios.");
+  if ((shippingModeProvided || logisticTypeProvided) && shippingMode === "me2" && !logisticType) {
+    throw fieldRestriction("logisticType", "Selecione a logística do Mercado Envios.");
   }
   if (
-    shippingMode === "me2" &&
+    packageDimensionsProvided &&
     (![widthCm, heightCm, lengthCm].every((value) => Number.isFinite(value) && value > 0) || !Number.isInteger(weightGrams) || weightGrams <= 0)
   ) {
-    throw new Error("Informe dimensões e peso para calcular o Mercado Envios.");
+    throw fieldRestriction("shippingDimensions", "Informe dimensões e peso para calcular o Mercado Envios.");
   }
 
   if (title && !userProductEnabled) payload.title = title;
@@ -398,12 +423,11 @@ function buildListingUpdatePayload(body: any, userProductEnabled: boolean) {
   ].filter(Boolean);
   if (saleTerms.length) payload.sale_terms = saleTerms;
 
-  if (shippingMode) {
-    const shipping: Record<string, unknown> = {
-      mode: shippingMode,
-      free_shipping: freeShipping,
-      local_pick_up: false,
-    };
+  if (shippingModeProvided || hasOwn(body, "freeShipping") || hasOwn(body, "localPickup")) {
+    const shipping: Record<string, unknown> = {};
+    if (shippingModeProvided && shippingMode) shipping.mode = shippingMode;
+    if (hasOwn(body, "freeShipping")) shipping.free_shipping = freeShipping;
+    if (hasOwn(body, "localPickup")) shipping.local_pick_up = Boolean(body.localPickup);
     payload.shipping = shipping;
   }
 
@@ -427,14 +451,16 @@ function buildListingUpdatePayload(body: any, userProductEnabled: boolean) {
     attributesById.set(id, option?.id ? { id, value_id: option.id, value_name: option.name ?? valueName } : { id, value_name: valueName });
   }
 
-  const packageAttributes = buildMercadoLivrePackageAttributes({
-    shippingMode,
-    widthCm,
-    heightCm,
-    lengthCm,
-    weightGrams,
-  });
-  for (const attribute of packageAttributes) attributesById.set(attribute.id, attribute);
+  if (packageDimensionsProvided) {
+    const packageAttributes = buildMercadoLivrePackageAttributes({
+      shippingMode: shippingMode || "me2",
+      widthCm,
+      heightCm,
+      lengthCm,
+      weightGrams,
+    });
+    for (const attribute of packageAttributes) attributesById.set(attribute.id, attribute);
+  }
   if (attributesById.size) payload.attributes = Array.from(attributesById.values());
 
   return payload;

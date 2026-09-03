@@ -36,6 +36,7 @@ import {
   FileText,
   Grid2X2,
   ImageIcon,
+  Info,
   Link2,
   List,
   LayoutDashboard,
@@ -5393,7 +5394,7 @@ export default function MarketplacePage() {
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-3">
-                  <Label>{userProductSeller ? "Nome base do produto" : "Título do anúncio"}</Label>
+                  <Label>{userProductSeller ? "Título cadastrado no ERP" : "Título do anúncio"}</Label>
                     <span className="text-xs text-muted-foreground">{listingForm.title.length}/60</span>
                   </div>
                   <Input
@@ -5404,6 +5405,15 @@ export default function MarketplacePage() {
                     className={fieldClass("title")}
                   />
                   {listingFieldErrors.title && <p className="text-xs text-destructive">{listingFieldErrors.title}</p>}
+                  {userProductSeller && (
+                    <div className="flex gap-2 rounded-md border border-blue-500/25 bg-blue-500/10 px-3 py-2 text-xs leading-relaxed text-foreground">
+                      <Info className="mt-0.5 size-4 shrink-0 text-blue-600" />
+                      <p>
+                        Esta conta usa o modelo User Products. Este título identifica o produto no ERP, mas não é enviado como
+                        título final. O nome público será baseado na <strong>Família do produto</strong>, configurada na próxima etapa.
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-3">
@@ -5755,9 +5765,12 @@ export default function MarketplacePage() {
               </TabsContent>
 
               <TabsContent value="atributos" className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto pr-2">
-                {userProductSeller && <div className={`rounded-md border bg-background p-3 text-sm ${listingFieldErrors.family ? "border-destructive bg-destructive/10" : ""}`}>
+                {userProductSeller && <div className={`rounded-md border border-primary/30 bg-primary/[0.035] p-3 text-sm ${listingFieldErrors.family ? "border-destructive bg-destructive/10" : ""}`}>
                   <div className="flex items-center justify-between gap-3">
-                    <div className="font-medium">Família do produto</div>
+                    <div className="flex items-center gap-2 font-medium">
+                      Família do produto
+                      <Badge variant="secondary" className="text-[10px]">Define o título público</Badge>
+                    </div>
                     <span className="font-mono text-xs text-muted-foreground">{familyNamePreview.length}/60</span>
                   </div>
                   <Input
@@ -5767,9 +5780,15 @@ export default function MarketplacePage() {
                     className={`mt-2 ${fieldClass("family")}`}
                     placeholder={buildListingFamilyName({ ...listingForm, familyName: "" }) || "Ex.: Wega WO-120"}
                   />
-                  <div className="mt-2 text-xs text-muted-foreground">
-                    Deixe vazio para gerar por Marca + Modelo + Número da peça. Valor enviado:{" "}
-                    <span className="font-mono text-foreground">{familyNamePreview || "Não gerada"}</span>
+                  <div className="mt-2 space-y-1.5 text-xs leading-relaxed text-muted-foreground">
+                    <p>
+                      Este é o nome enviado ao Mercado Livre. Se ficar vazio, o ERP gera usando Marca + Modelo + Número da peça.
+                    </p>
+                    <p>
+                      <strong className="text-foreground">Nome que será enviado:</strong>{" "}
+                      <span className="font-mono text-foreground">{familyNamePreview || "Não gerada"}</span>
+                    </p>
+                    <p>O Mercado Livre ainda poderá padronizar letras maiúsculas, termos e ordem das palavras.</p>
                   </div>
                   {listingFieldErrors.family && <p className="mt-2 text-xs text-destructive">{listingFieldErrors.family}</p>}
                 </div>}
@@ -6113,10 +6132,20 @@ export default function MarketplacePage() {
 
                 <div className="grid gap-3 text-sm sm:grid-cols-2">
                   <div className="rounded-md border bg-background p-3">
-                    <div className="text-xs text-muted-foreground">Produto</div>
+                    <div className="text-xs text-muted-foreground">{userProductSeller ? "Título cadastrado no ERP" : "Produto"}</div>
                     <div className="font-medium">{listingForm.title || "-"}</div>
                     <div className="mt-1 text-xs text-muted-foreground">{listingForm.sku || "SKU não informado"}</div>
                   </div>
+                  {userProductSeller && (
+                    <div className="rounded-md border border-primary/30 bg-primary/[0.035] p-3">
+                      <div className="flex items-center gap-1.5 text-xs font-medium text-primary">
+                        <Info className="size-3.5" />
+                        Nome enviado ao Mercado Livre
+                      </div>
+                      <div className="mt-1 font-medium">{familyNamePreview || "-"}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">O título público será baseado nesta família e poderá ser padronizado pelo Mercado Livre.</div>
+                    </div>
+                  )}
                   <div className="rounded-md border bg-background p-3">
                     <div className="text-xs text-muted-foreground">Categoria</div>
                     <div className="font-medium">{listingForm.categoryName || listingForm.categoryId || "-"}</div>
@@ -6190,7 +6219,10 @@ export default function MarketplacePage() {
                 )}
                 <div className="space-y-3 p-4 pb-5">
                   <div>
-                    <div className="line-clamp-2 text-sm font-medium">{listingForm.title || "Título do anúncio"}</div>
+                    <div className="line-clamp-2 text-sm font-medium">
+                      {(userProductSeller ? familyNamePreview : listingForm.title) || "Título do anúncio"}
+                    </div>
+                    {userProductSeller && <div className="mt-1 text-[10px] text-muted-foreground">Prévia baseada na família do produto</div>}
                     <div className="mt-2 text-2xl font-semibold">{formatCurrency(parseCurrencyInput(listingForm.price))}</div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs">
