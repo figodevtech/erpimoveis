@@ -17,6 +17,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
@@ -29,8 +30,6 @@ import {
   CheckCheck,
   ChevronLeft,
   ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
   ChevronsUpDown,
   ClipboardList,
   ExternalLink,
@@ -92,8 +91,6 @@ type MarketplaceShippingAddress = {
   source?: "account_address" | "seller_profile" | "listing";
   partial?: boolean;
 };
-
-const PRODUCT_PAGE_SIZE_OPTIONS = [12, 24, 48];
 
 type MlOrder = {
   id: number;
@@ -1804,7 +1801,10 @@ export default function MarketplacePage() {
   const [questionStatusFilter, setQuestionStatusFilter] = useState("UNANSWERED");
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [productsPage, setProductsPage] = useState(1);
-  const [productsPageSize, setProductsPageSize] = useState(12);
+  const [productsPageSize, setProductsPageSize] = useState(20);
+  const [productsTotal, setProductsTotal] = useState(0);
+  const [productsTotalPages, setProductsTotalPages] = useState(1);
+  const [includeOutOfStock, setIncludeOutOfStock] = useState(false);
   const [listingsPage, setListingsPage] = useState(1);
   const [listingsPageSize, setListingsPageSize] = useState(20);
   const [listingsFilter, setListingsFilter] = useState("all");
@@ -2009,11 +2009,8 @@ export default function MarketplacePage() {
   const listingsTotalPages = Math.max(1, Math.ceil(filteredListingRows.length / listingsPageSize));
   const safeListingsPage = Math.min(listingsPage, listingsTotalPages);
   const paginatedListingRows = filteredListingRows.slice((safeListingsPage - 1) * listingsPageSize, safeListingsPage * listingsPageSize);
-  const productsTotalPages = Math.max(1, Math.ceil(products.length / productsPageSize));
   const safeProductsPage = Math.min(productsPage, productsTotalPages);
-  const productsPageStart = products.length === 0 ? 0 : (safeProductsPage - 1) * productsPageSize + 1;
-  const productsPageEnd = Math.min(safeProductsPage * productsPageSize, products.length);
-  const paginatedProducts = products.slice((safeProductsPage - 1) * productsPageSize, safeProductsPage * productsPageSize);
+  const paginatedProducts = products;
   const maxDailyVisits = Math.max(...performance.daily.map((day) => Number(day.visits ?? 0)), 1);
   const unansweredQuestions = questions.filter((question) => String(question.status ?? "").toUpperCase() === "UNANSWERED").length;
   const selectedChatConversation =
@@ -2270,7 +2267,7 @@ export default function MarketplacePage() {
     description: "Gerencie produtos, anúncios e pedidos.",
   };
   const tabResultLabel = activeTab === "products"
-    ? `${products.length} produto(s)`
+    ? `${productsTotal} produto(s)`
     : activeTab === "listings"
       ? `${filteredListingRows.length} anúncio(s)`
       : activeTab === "orders"
@@ -2501,16 +2498,25 @@ export default function MarketplacePage() {
     }
   }
 
-  async function loadProducts(searchText = search) {
+  async function loadProducts(
+    searchText = search,
+    options: { page?: number; limit?: number; includeOutOfStock?: boolean } = {},
+  ) {
     setLoadingProducts(true);
     try {
-      const params = new URLSearchParams({ limit: "120" });
+      const requestedPage = options.page ?? productsPage;
+      const requestedLimit = options.limit ?? productsPageSize;
+      const showOutOfStock = options.includeOutOfStock ?? includeOutOfStock;
+      const params = new URLSearchParams({ page: String(requestedPage), limit: String(requestedLimit) });
+      if (showOutOfStock) params.set("includeOutOfStock", "1");
       if (searchText.trim()) params.set("search", searchText.trim());
       const response = await fetch(`/api/integracoes/mercadolivre/products?${params.toString()}`, { cache: "no-store" });
       const json = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(json?.error || "Falha ao carregar produtos.");
       setProducts(json.data ?? []);
-      setProductsPage(1);
+      setProductsPage(Number(json.pagination?.page ?? requestedPage));
+      setProductsTotal(Number(json.pagination?.total ?? 0));
+      setProductsTotalPages(Number(json.pagination?.totalPages ?? 1));
     } catch (e: any) {
       toast.error("Erro ao carregar produtos", { description: marketplaceErrorMessage(e) });
     } finally {
@@ -4389,7 +4395,10 @@ export default function MarketplacePage() {
                         if (activeTab === "listings") setListingsPage(1);
                       }}
                       onKeyDown={(event) => {
-                        if (event.key === "Enter") loadProducts();
+                        if (event.key === "Enter" && activeTab === "products") {
+                          setProductsPage(1);
+                          void loadProducts(search, { page: 1 });
+                        }
                       }}
                       placeholder="Buscar produto ou anúncio..."
                       className="h-9 bg-background pl-8 pr-20"
@@ -4399,7 +4408,12 @@ export default function MarketplacePage() {
                       variant="ghost"
                       size="sm"
                       className="absolute right-0.5 top-1/2 h-8 -translate-y-1/2 px-2.5 text-xs"
-                      onClick={() => loadProducts()}
+                      onClick={() => {
+                        if (activeTab === "products") {
+                          setProductsPage(1);
+                          void loadProducts(search, { page: 1 });
+                        }
+                      }}
                       disabled={loadingProducts}
                     >
                       Buscar
@@ -4419,6 +4433,20 @@ export default function MarketplacePage() {
                       <SelectItem value="paused">Pausados</SelectItem>
                     </SelectContent>
                   </Select>
+                ) : null}
+                {activeTab === "products" ? (
+                  <label className="flex h-9 items-center gap-2 rounded-md border bg-background px-3 text-sm text-muted-foreground">
+                    <Switch
+                      checked={includeOutOfStock}
+                      disabled={loadingProducts}
+                      onCheckedChange={(checked) => {
+                        setIncludeOutOfStock(checked);
+                        setProductsPage(1);
+                        void loadProducts(search, { page: 1, includeOutOfStock: checked });
+                      }}
+                    />
+                    <span className="whitespace-nowrap">Exibir sem estoque</span>
+                  </label>
                 ) : null}
                 {activeTab === "orders" && (
                   <Button variant="outline" size="sm" onClick={syncOrders} disabled={!connected || syncing}>
@@ -4460,7 +4488,10 @@ export default function MarketplacePage() {
                     if (activeTab === "listings") setListingsPage(1);
                   }}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter") loadProducts();
+                    if (event.key === "Enter" && activeTab === "products") {
+                      setProductsPage(1);
+                      void loadProducts(search, { page: 1 });
+                    }
                   }}
                   placeholder="Buscar produto ou anúncio..."
                   className="h-9 bg-background pl-8 pr-20"
@@ -4470,7 +4501,12 @@ export default function MarketplacePage() {
                   variant="ghost"
                   size="sm"
                   className="absolute right-0.5 top-1/2 h-8 -translate-y-1/2 px-2.5 text-xs"
-                  onClick={() => loadProducts()}
+                  onClick={() => {
+                    if (activeTab === "products") {
+                      setProductsPage(1);
+                      void loadProducts(search, { page: 1 });
+                    }
+                  }}
                   disabled={loadingProducts}
                 >
                   Buscar
@@ -4484,7 +4520,7 @@ export default function MarketplacePage() {
           <MarketplaceSectionNav
             items={[
               { value: "overview", label: "Visão geral", icon: LayoutDashboard },
-              { value: "products", label: "Produtos", icon: PackageCheck, count: products.length },
+              { value: "products", label: "Produtos", icon: PackageCheck, count: productsTotal },
               { value: "listings", label: "Anúncios", icon: Store, count: publishedListings.length || linkedCount },
               { value: "orders", label: "Pedidos", icon: ClipboardList, count: orders.length },
               { value: "performance", label: "Desempenho", icon: TrendingUp },
@@ -4662,78 +4698,22 @@ export default function MarketplacePage() {
                   )}
                 </div>
               )}
-              {products.length > 0 && (
-                <div className="mt-4 flex items-center justify-between">
-                  <div className="flex flex-nowrap text-xs text-muted-foreground">
-                    <span>{productsPageStart}</span> - <span>{productsPageEnd}</span>
-                    <span className="ml-1 hidden sm:block">de {products.length}</span>
-                    <Loader2 className={cn("h-full w-4 animate-spin opacity-0 transition-all", loadingProducts && "opacity-100")} />
-                  </div>
-
-                  <div className="flex items-center justify-center space-x-1 sm:space-x-3">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="hover:cursor-pointer"
-                      onClick={() => setProductsPage(1)}
-                      disabled={safeProductsPage === 1}
-                    >
-                      <ChevronsLeft className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="hover:cursor-pointer"
-                      onClick={() => setProductsPage((current) => Math.max(1, current - 1))}
-                      disabled={safeProductsPage === 1}
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                    </Button>
-                    <span className="text-nowrap text-[10px] font-medium sm:text-xs">
-                      Pg. {safeProductsPage} de {productsTotalPages || 1}
-                    </span>
-                    <Button
-                      className="hover:cursor-pointer"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setProductsPage((current) => Math.min(productsTotalPages || 1, current + 1))}
-                      disabled={safeProductsPage === productsTotalPages || productsTotalPages === 0}
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      className="hover:cursor-pointer"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setProductsPage(productsTotalPages || 1)}
-                      disabled={safeProductsPage === productsTotalPages || productsTotalPages === 0}
-                    >
-                      <ChevronsRight className="h-4 w-4" />
-                    </Button>
-                  </div>
-
-                  <div>
-                    <Select
-                      value={String(productsPageSize)}
-                      onValueChange={(value) => {
-                        setProductsPageSize(Number(value));
-                        setProductsPage(1);
-                      }}
-                    >
-                      <SelectTrigger size="sm" className="ml-2 hover:cursor-pointer">
-                        <SelectValue placeholder={productsPageSize} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {PRODUCT_PAGE_SIZE_OPTIONS.map((option) => (
-                          <SelectItem key={option} className="hover:cursor-pointer" value={String(option)}>
-                            {option}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              )}
+              <MarketplacePagination
+                page={safeProductsPage}
+                totalPages={productsTotalPages}
+                pageSize={productsPageSize}
+                total={productsTotal}
+                visible={products.length}
+                onPageChange={(page) => {
+                  setProductsPage(page);
+                  void loadProducts(search, { page });
+                }}
+                onPageSizeChange={(limit) => {
+                  setProductsPageSize(limit);
+                  setProductsPage(1);
+                  void loadProducts(search, { page: 1, limit });
+                }}
+              />
             </TabsContent>
 
             <TabsContent value="listings" className="mt-0">

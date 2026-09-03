@@ -13,12 +13,13 @@ export async function GET(req: NextRequest) {
     const empresaId = await requireEmpresaId();
     const search = req.nextUrl.searchParams.get("search")?.trim() ?? "";
     const requestedProductId = req.nextUrl.searchParams.get("productId");
+    const includeOutOfStock = req.nextUrl.searchParams.get("includeOutOfStock") === "1";
     const productId = requestedProductId ? Number(requestedProductId) : null;
     if (requestedProductId && (!Number.isInteger(productId) || Number(productId) <= 0)) {
       return NextResponse.json({ error: "productId invalido." }, { status: 400 });
     }
     const page = Math.max(Number(req.nextUrl.searchParams.get("page") ?? 1), 1);
-    const limit = Math.min(Math.max(Number(req.nextUrl.searchParams.get("limit") ?? 20), 1), 50);
+    const limit = Math.min(Math.max(Number(req.nextUrl.searchParams.get("limit") ?? 20), 1), 100);
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
@@ -33,9 +34,16 @@ export async function GET(req: NextRequest) {
       .range(from, to);
 
     if (search) {
-      query = query.or(`titulo.ilike.%${search}%,referencia.ilike.%${search}%,tituloMarketplace.ilike.%${search}%`);
+      const term = search.replace(/[,%()]/g, " ").trim();
+      if (/^#?\d+$/.test(term)) {
+        const id = Number(term.replace("#", ""));
+        query = query.or(`id.eq.${id},titulo.ilike.%${term}%,referencia.ilike.%${term}%,codigobarras.ilike.%${term}%`);
+      } else {
+        query = query.or(`titulo.ilike.%${term}%,referencia.ilike.%${term}%,tituloMarketplace.ilike.%${term}%,fabricante.ilike.%${term}%,codigobarras.ilike.%${term}%`);
+      }
     }
     if (productId) query = query.eq("id", productId);
+    else if (!includeOutOfStock) query = query.gt("estoque", 0);
 
     const { data: products, error, count } = await query;
     if (error) throw error;
