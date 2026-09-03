@@ -4,7 +4,11 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
-import { CODIGO_REALIZADORES_PENDENTES } from "@/lib/ordens/realizadores";
+import {
+  CODIGO_REALIZADORES_PENDENTES,
+  podeEditarRealizadores,
+  podeFicarSemRealizador,
+} from "@/lib/ordens/realizadores";
 import { mesesDeCompetenciaFechada } from "../../../eventos-financeiros/_lib/competencia";
 
 function uniq(arr: string[]) {
@@ -91,11 +95,11 @@ export async function PUT(
     if (!os_res.data) return NextResponse.json({ error: "OS não encontrada" }, { status: 404 });
 
     const status = String(os_res.data.status || "").toUpperCase();
-    if (status !== "ORCAMENTO_APROVADO" && status !== "EM_ANDAMENTO") {
+    if (!podeEditarRealizadores(status)) {
       return NextResponse.json(
         {
           error:
-            "Só é possível definir responsáveis quando a OS está em ORCAMENTO_APROVADO ou EM_ANDAMENTO.",
+            "Os realizadores só podem ser alterados enquanto a OS não está finalizada.",
         },
         { status: 400 }
       );
@@ -117,7 +121,7 @@ export async function PUT(
       // Com a OS em andamento, tirar o último realizador devolve o serviço ao
       // estado que a validação de início existe para impedir. Trocar continua
       // livre: o bloqueio é só para a lista terminar vazia.
-      if (status === "EM_ANDAMENTO") {
+      if (!podeFicarSemRealizador(status)) {
         const { count: vinculados, error: vinculadosError } = await supabase
           .from("osservico_realizador")
           .select("usuarioid", { count: "exact", head: true })
@@ -129,7 +133,7 @@ export async function PUT(
           return NextResponse.json(
             {
               error:
-                "Não é possível deixar um serviço sem realizador com a OS em andamento. Troque o realizador em vez de remover.",
+                "Não é possível deixar um serviço sem realizador depois que a execução começou. Troque o realizador em vez de remover.",
               codigo: CODIGO_REALIZADORES_PENDENTES,
             },
             { status: 409 },

@@ -78,3 +78,35 @@ export function mensagemRealizadoresPendentes(
 }
 
 export const CODIGO_REALIZADORES_PENDENTES = "REALIZADORES_PENDENTES";
+
+/**
+ * Até quando dá para mexer em quem executou o serviço.
+ *
+ * Vale enquanto a OS não fechou. `PAGAMENTO` entra porque a execução acabou mas
+ * a ordem ainda não: OS que passou para lá antes da trava de realizador — ou que
+ * ganhou um serviço no caminho — só tem esta janela para ser acertada. Depois de
+ * `CONCLUIDO`, `SEM_COBRANCA` ou `CANCELADO` o valor é histórico e não se mexe.
+ *
+ * Antes da aprovação também não: o orçamento ainda pode trocar de serviço, e
+ * atribuir gente a um item que talvez nem exista só gera vínculo órfão.
+ */
+export const STATUS_EDITAM_REALIZADOR = [
+  "ORCAMENTO_APROVADO",
+  "EM_ANDAMENTO",
+  "PAGAMENTO",
+] as const;
+
+export function podeEditarRealizadores(status: unknown): boolean {
+  const atual = String(status ?? "").toUpperCase();
+  return (STATUS_EDITAM_REALIZADOR as readonly string[]).includes(atual);
+}
+
+/**
+ * Trocar o realizador é sempre permitido; deixar o serviço órfão, não — depois
+ * que a execução começou isso devolve a OS ao estado que a trava de início
+ * existe para impedir.
+ */
+export function podeFicarSemRealizador(status: unknown): boolean {
+  const atual = String(status ?? "").toUpperCase();
+  return atual !== "EM_ANDAMENTO" && atual !== "PAGAMENTO";
+}

@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   mensagemRealizadoresPendentes,
+  podeEditarRealizadores,
+  podeFicarSemRealizador,
   servicosSemRealizador,
 } from "./realizadores";
 
@@ -59,4 +61,19 @@ test("a mensagem nomeia os serviços e muda conforme a ação", () => {
   assert.match(mensagemRealizadoresPendentes(pendentes, "iniciar"), /iniciar a OS.*Alinhamento/);
   assert.match(mensagemRealizadoresPendentes(pendentes, "pagamento"), /para pagamento.*Alinhamento/);
   assert.match(mensagemRealizadoresPendentes(pendentes, "orcamento"), /orçamento: Alinhamento/);
+});
+
+test("realizador é editável da aprovação até o pagamento", () => {
+  for (const status of ["ORCAMENTO_APROVADO", "EM_ANDAMENTO", "PAGAMENTO"]) {
+    assert.equal(podeEditarRealizadores(status), true, status);
+  }
+  for (const status of ["ORCAMENTO", "APROVACAO_ORCAMENTO", "CONCLUIDO", "SEM_COBRANCA", "CANCELADO", "", null]) {
+    assert.equal(podeEditarRealizadores(status), false, String(status));
+  }
+});
+
+test("depois de iniciada, a lista não pode terminar vazia", () => {
+  assert.equal(podeFicarSemRealizador("EM_ANDAMENTO"), false);
+  assert.equal(podeFicarSemRealizador("PAGAMENTO"), false);
+  assert.equal(podeFicarSemRealizador("ORCAMENTO_APROVADO"), true);
 });

@@ -120,6 +120,7 @@ import {
   type RealizadorLite,
 } from "./realizadores-servico";
 import { explicarBaseDaComissao } from "@/lib/ordens/comissao-explicacao";
+import { podeEditarRealizadores } from "@/lib/ordens/realizadores";
 import {
   eventoTemProvenienciaExcluivel,
   type ImpactoExclusaoEvento,
@@ -1065,10 +1066,9 @@ export function OSDetalhesDialog({
   const podeExibirRentabilidade = podeVerRentabilidade && !osHistorica;
   const podeExibirEventosFinanceiros = podeVerEventosFinanceiros && !osHistorica;
 
-  const podeEditarResponsavel = useMemo(
-    () => statusUpper === "ORCAMENTO_APROVADO" || statusUpper === "EM_ANDAMENTO",
-    [statusUpper]
-  );
+  // A janela vai até a OS fechar: quem passou para PAGAMENTO antes da trava de
+  // realizador — ou ganhou um serviço no caminho — só tem aqui para acertar.
+  const podeEditarResponsavel = useMemo(() => podeEditarRealizadores(statusUpper), [statusUpper]);
 
   const temServicoSemResponsavel = useMemo(() => {
     return (data?.itensServico ?? []).some((s) => normalizarRealizadores(s).length === 0);
@@ -2323,12 +2323,30 @@ export function OSDetalhesDialog({
                     </span>
                     <span className="block text-xs font-semibold text-foreground">{fmtDate(data?.os?.dataentrada)}</span>
                   </span>
-                  <span className="rounded-md border bg-card px-2.5 py-1.5" title="Quando a OS entrou em um status final">
+                  {/*
+                    Duas colunas, dois marcos. `execucao_fim_em` é quando o
+                    serviço acabou — carimbado ao entrar em PAGAMENTO — e é o que
+                    a oficina chama de "finalizada". `finalizado_em` é o
+                    encerramento da OS, e o banco exige que seja nulo fora de
+                    CONCLUIDO/SEM_COBRANCA/CANCELADO (constraint
+                    `ordemservico_status_finalizado_em_consistente`), então
+                    sozinho ele deixava o campo vazio a OS inteira em pagamento.
+                    A execução manda; o encerramento entra como reserva para a OS
+                    que fechou sem passar por execução — cancelada, por exemplo.
+                  */}
+                  <span
+                    className="rounded-md border bg-card px-2.5 py-1.5"
+                    title={
+                      data?.os?.execucao_fim_em
+                        ? "Quando a execução dos serviços foi encerrada"
+                        : "A OS foi encerrada sem passar pela execução"
+                    }
+                  >
                     <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                       Finalizada
                     </span>
                     <span className="block text-xs font-semibold text-foreground">
-                      {fmtDate(data?.os?.finalizado_em)}
+                      {fmtDate(data?.os?.execucao_fim_em ?? data?.os?.finalizado_em)}
                     </span>
                   </span>
                   <span
@@ -2861,10 +2879,14 @@ export function OSDetalhesDialog({
                                     )}
                                   </div>
 
-                                  {podeEditarResponsavel && estaSemResponsavel && statusUpper === "ORCAMENTO_APROVADO" && (
+                                  {podeEditarResponsavel && estaSemResponsavel && (
                                     <span className="text-[11px] text-amber-400 flex items-center gap-1 ml-5">
                                       <AlertTriangle className="h-3 w-3" />
-                                      Selecione o responsável antes de iniciar a OS.
+                                      {statusUpper === "ORCAMENTO_APROVADO"
+                                        ? "Selecione o responsável antes de iniciar a OS."
+                                        : statusUpper === "PAGAMENTO"
+                                          ? "Serviço sem realizador: a comissão dele não foi apurada."
+                                          : "Serviço sem realizador — defina quem executou."}
                                     </span>
                                   )}
                                 </div>

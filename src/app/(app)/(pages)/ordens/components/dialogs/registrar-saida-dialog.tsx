@@ -217,7 +217,7 @@ export function RegistrarSaidaDialog({ open, onOpenChange, osId, onSuccess }: {
 
   return <>
     <Dialog open={open} onOpenChange={(value) => !saving && onOpenChange(value)}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="sm:max-w-xl" onInteractOutside={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><LogOut className="h-5 w-5" />Registrar saída da OS #{osId || "-"}</DialogTitle>
           <DialogDescription>A saída física é independente da conclusão do pagamento.</DialogDescription>
