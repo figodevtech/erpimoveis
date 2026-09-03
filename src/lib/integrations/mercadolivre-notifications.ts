@@ -371,7 +371,7 @@ async function processItem(
     : null;
   const { data: links, error: linksError } = await supabaseAdmin
     .from("mercadolivre_product_link")
-    .select("id, produto_id, raw_item, produto:produto(precovenda)")
+    .select("id, produto_id, title, available_quantity, raw_item, produto:produto(precovenda, titulo, tituloMarketplace)")
     .eq("empresa_id", account.empresa_id)
     .eq("ml_item_id", itemId);
   if (linksError) throw linksError;
@@ -414,7 +414,7 @@ async function processItem(
     .eq("empresa_id", account.empresa_id)
     .eq("ml_item_id", itemId);
   if (error) throw error;
-  return { item, userProduct };
+  return { item, userProduct, stockChange: resolveStockChange(links ?? [], item?.available_quantity) };
 }
 
 async function processUserProductFamily(account: Account, accessToken: string, resource: string) {
@@ -445,6 +445,13 @@ async function processUserProductStock(account: Account, accessToken: string, re
   if (!userProductId) throw new Error("Notificação de estoque sem user_product_id.");
 
   const availableQuantity = getUserProductAvailableQuantity(stock);
+  const { data: links, error: linksError } = await supabaseAdmin
+    .from("mercadolivre_product_link")
+    .select("id, ml_item_id, title, available_quantity, raw_item, produto:produto(titulo, tituloMarketplace)")
+    .eq("empresa_id", account.empresa_id)
+    .eq("user_product_id", decodeURIComponent(userProductId));
+  if (linksError) throw linksError;
+  const stockChange = resolveStockChange(links ?? [], availableQuantity, true);
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (availableQuantity != null) updates.available_quantity = availableQuantity;
 
@@ -454,7 +461,38 @@ async function processUserProductStock(account: Account, accessToken: string, re
     .eq("empresa_id", account.empresa_id)
     .eq("user_product_id", decodeURIComponent(userProductId));
   if (error) throw error;
-  return { stock };
+  return { stock, stockChange };
+}
+
+function resolveStockChange(links: any[], currentQuantityValue: unknown, includeUnchanged = false) {
+  const currentQuantity = finiteStockQuantity(currentQuantityValue);
+  if (currentQuantity == null) return null;
+
+  const link = links[0] ?? null;
+  const synchronized = link?.raw_item?._erp_stock_sync;
+  const synchronizedAt = Date.parse(String(synchronized?.synchronizedAt ?? ""));
+  const recentSynchronization = Number.isFinite(synchronizedAt) && Date.now() - synchronizedAt <= 60 * 60_000;
+  const synchronizedCurrent = finiteStockQuantity(synchronized?.currentQuantity);
+  const storedPrevious = finiteStockQuantity(link?.available_quantity);
+  const previousQuantity =
+    recentSynchronization && synchronizedCurrent === currentQuantity
+      ? finiteStockQuantity(synchronized?.previousQuantity)
+      : storedPrevious;
+  const product = Array.isArray(link?.produto) ? link.produto[0] : link?.produto;
+  if (!includeUnchanged && (previousQuantity == null || previousQuantity === currentQuantity)) return null;
+
+  return {
+    previousQuantity,
+    currentQuantity,
+    delta: previousQuantity == null ? null : currentQuantity - previousQuantity,
+    itemId: link?.ml_item_id ?? link?.raw_item?.id ?? null,
+    itemTitle: link?.title ?? product?.tituloMarketplace ?? product?.titulo ?? null,
+  };
+}
+
+function finiteStockQuantity(value: unknown) {
+  const quantity = Number(value);
+  return Number.isFinite(quantity) && quantity >= 0 ? Math.trunc(quantity) : null;
 }
 
 function getUserProductAvailableQuantity(stock: any) {

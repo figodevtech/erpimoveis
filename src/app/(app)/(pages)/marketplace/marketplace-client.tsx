@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -348,8 +349,40 @@ type MlClaim = {
   returnStatus?: string | null;
   returnTrackingNumber?: string | null;
   returnShipmentId?: number | null;
+  returnShipmentStatus?: string | null;
+  returnDestinationName?: string | null;
+  returnDestinationAddress?: string | null;
+  returnQuantity?: number | null;
+  returnTotalQuantity?: number | null;
   partialRefundOffers?: Array<{ amount?: number; percentage?: number }>;
   returnUpdatedAt?: string | null;
+  inventoryItems?: Array<{
+    produtoId: number;
+    title: string;
+    reference?: string | null;
+    unit?: string | null;
+    soldQuantity: number;
+    deductedQuantity: number;
+    currentStock: number;
+  }>;
+  inventoryDecisions?: Array<{
+    id: number;
+    produtoId: number;
+    disposition: "RESTOCK" | "DAMAGED" | "NOT_RETURNED";
+    quantity: number;
+    restoredQuantity: number;
+    stockBefore?: number | null;
+    stockAfter?: number | null;
+    note?: string | null;
+    processedAt?: string | null;
+  }>;
+};
+
+type ReturnInventoryForm = {
+  produtoId: string;
+  quantity: string;
+  disposition: "RESTOCK" | "DAMAGED" | "NOT_RETURNED";
+  note: string;
 };
 
 type MlQuestion = {
@@ -1348,6 +1381,13 @@ function getSupportedClaimActions(claim: MlClaim): SupportedClaimAction[] {
   return actions;
 }
 
+function returnInventoryDispositionLabel(disposition: string) {
+  if (disposition === "RESTOCK") return "Retornado ao estoque";
+  if (disposition === "DAMAGED") return "Produto avariado";
+  if (disposition === "NOT_RETURNED") return "Produto não retornado";
+  return rawStatusLabel(disposition);
+}
+
 function getOrderPackId(rawOrder: any) {
   return rawOrder?.pack_id || rawOrder?.pack?.id || null;
 }
@@ -1732,6 +1772,12 @@ function ProductImage({ product, showControls = false }: { product: ProductRow; 
 }
 
 export default function MarketplacePage() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const requestedProductAction = searchParams.get("ml_acao");
+  const requestedProductId = Number(searchParams.get("ml_produto_id"));
+  const handledProductActionRef = useRef<string | null>(null);
   const ordersRevisionRef = useRef<string | null>(null);
   const checkingOrdersRevisionRef = useRef(false);
   const claimsLoadedForAccountRef = useRef<number | null>(null);
@@ -1812,6 +1858,13 @@ export default function MarketplacePage() {
   const [compatibilityNote, setCompatibilityNote] = useState("");
   const [loadingEditListing, setLoadingEditListing] = useState(false);
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<MlOrder | null>(null);
+  const [returnInventoryClaim, setReturnInventoryClaim] = useState<MlClaim | null>(null);
+  const [returnInventoryForm, setReturnInventoryForm] = useState<ReturnInventoryForm>({
+    produtoId: "",
+    quantity: "1",
+    disposition: "RESTOCK",
+    note: "",
+  });
   const [orderToCancel, setOrderToCancel] = useState<MlOrder | null>(null);
   const [cancelSaleForm, setCancelSaleForm] = useState({ reason: "BUYER_REGRETS", message: "Venda não concretizada a pedido do comprador." });
   const [answeringQuestionId, setAnsweringQuestionId] = useState<number | null>(null);
@@ -2037,7 +2090,11 @@ export default function MarketplacePage() {
   });
   const missingShippingDimensions =
     listingForm.shippingMode === "me2" &&
-    (!listingForm.widthCm || !listingForm.heightCm || !listingForm.lengthCm || !listingForm.weightGrams);
+    (![listingForm.widthCm, listingForm.heightCm, listingForm.lengthCm]
+      .map((value) => Number(value.replace(",", ".")))
+      .every((value) => Number.isFinite(value) && value > 0) ||
+      !Number.isInteger(Number(listingForm.weightGrams)) ||
+      Number(listingForm.weightGrams) <= 0);
   const categoryShippingOptions = listingForm.categoryShippingOptions.map((option) => option.toLowerCase());
   const categorySupportsMercadoEnvios =
     !listingForm.categoryId || !shippingEligibility.loaded || categoryShippingOptions.includes("me2");
@@ -2086,7 +2143,7 @@ export default function MarketplacePage() {
     ...requiredMissingAttributes.map((attribute) => `Preencha o atributo obrigatório: ${attribute.name}.`),
     categoryShippingIssue,
     customShippingIssue,
-    missingShippingDimensions ? "Informe dimensões e peso para o envio Mercado Envios." : "",
+    missingShippingDimensions ? "Informe comprimento, largura e altura maiores que zero e o peso inteiro em gramas." : "",
     sellerListingIssue,
     listingTypeIssue,
   ].filter(Boolean);
@@ -2807,6 +2864,91 @@ export default function MarketplacePage() {
     }
   }
 
+  function openReturnInventoryDialog(claim: MlClaim) {
+    const processedByProduct = new Map<number, number>();
+    for (const decision of claim.inventoryDecisions ?? []) {
+      processedByProduct.set(decision.produtoId, (processedByProduct.get(decision.produtoId) ?? 0) + Number(decision.quantity));
+    }
+    const item = (claim.inventoryItems ?? []).find(
+      (candidate) => (processedByProduct.get(Number(candidate.produtoId)) ?? 0) < Number(candidate.soldQuantity),
+    );
+    if (!item) {
+      toast.info("Todos os produtos desta devolução já foram conferidos.");
+      return;
+    }
+    const remaining = Math.max(Number(item.soldQuantity) - (processedByProduct.get(Number(item.produtoId)) ?? 0), 1);
+    setReturnInventoryForm({
+      produtoId: String(item.produtoId),
+      quantity: String(Math.max(Math.min(remaining, Number(item.deductedQuantity) || remaining), 1)),
+      disposition: "RESTOCK",
+      note: "",
+    });
+    setSelectedOrderDetails(null);
+    setReturnInventoryClaim(claim);
+  }
+
+  async function processReturnInventory() {
+    if (!returnInventoryClaim) return;
+    const produtoId = Number(returnInventoryForm.produtoId);
+    const quantity = Math.trunc(Number(returnInventoryForm.quantity));
+    const item = (returnInventoryClaim.inventoryItems ?? []).find((candidate) => candidate.produtoId === produtoId);
+    if (!item) {
+      toast.error("Selecione o produto devolvido.");
+      return;
+    }
+    const processedQuantity = (returnInventoryClaim.inventoryDecisions ?? [])
+      .filter((decision) => decision.produtoId === produtoId)
+      .reduce((sum, decision) => sum + Number(decision.quantity), 0);
+    const remainingQuantity = Math.max(Number(item.soldQuantity) - processedQuantity, 0);
+    if (!Number.isInteger(quantity) || quantity <= 0 || quantity > remainingQuantity) {
+      toast.error(`Informe uma quantidade entre 1 e ${remainingQuantity}.`);
+      return;
+    }
+    if (returnInventoryForm.disposition !== "RESTOCK" && returnInventoryForm.note.trim().length < 3) {
+      toast.error("Explique por que o produto não voltará ao estoque.");
+      return;
+    }
+    if (!window.confirm(
+      returnInventoryForm.disposition === "RESTOCK"
+        ? `Confirmar o recebimento de ${quantity} unidade(s) e devolver ao estoque?`
+        : `Confirmar a conferência sem devolver ${quantity} unidade(s) ao estoque?`,
+    )) return;
+
+    const key = `return-inventory:${returnInventoryClaim.id}:${produtoId}`;
+    setActionKey(key);
+    try {
+      const response = await fetch("/api/integracoes/mercadolivre/claims", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          claimId: returnInventoryClaim.id,
+          action: "process_return_inventory",
+          requestKey: crypto.randomUUID(),
+          produtoId,
+          quantity,
+          disposition: returnInventoryForm.disposition,
+          note: returnInventoryForm.note,
+        }),
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json?.error || "Falha ao registrar a conferência da devolução.");
+      const restored = Number(json?.data?.restoredQuantity ?? 0);
+      toast.success("Conferência da devolução registrada.", {
+        description: returnInventoryForm.disposition === "RESTOCK"
+          ? restored > 0
+            ? `${restored} unidade(s) devolvida(s) ao estoque. Saldo: ${json?.data?.stockBefore ?? "-"} → ${json?.data?.stockAfter ?? "-"}.`
+            : "O estoque desta venda já havia sido restaurado; nenhuma quantidade foi somada novamente."
+          : "A quantidade foi registrada sem alterar o saldo do produto.",
+      });
+      setReturnInventoryClaim(null);
+      await Promise.all([loadClaims(), loadDashboard(), loadProducts()]);
+    } catch (error) {
+      toast.error("Erro ao conferir devolução", { description: marketplaceErrorMessage(error) });
+    } finally {
+      setActionKey(null);
+    }
+  }
+
   async function loadChatConversations(orderDbId?: number, options: { silent?: boolean } = {}) {
     if (!options.silent) setLoadingChat(true);
     try {
@@ -3073,13 +3215,18 @@ export default function MarketplacePage() {
     setShippingQuote(null);
   }
 
-  function openCreateListing() {
+  function openCreateListing(selectedProduct?: ProductRow | null) {
     if (!connected) {
       toast.error("Conecte uma conta Mercado Livre antes de criar anúncios.");
       return;
     }
 
-    fillListingForm(publishableProducts[0] ?? null);
+    if (selectedProduct?.mercadolivre) {
+      toast.info("Este produto já possui um anúncio vinculado. Use Editar anúncio para alterar a publicação existente.");
+      return;
+    }
+
+    fillListingForm(selectedProduct ?? publishableProducts[0] ?? null);
     setCreateDialogTab("dados");
     setListingFieldErrors({});
     setCreateDialogOpen(true);
@@ -3872,6 +4019,51 @@ export default function MarketplacePage() {
   }, []);
 
   useEffect(() => {
+    if (initialLoading || !["create", "link"].includes(String(requestedProductAction))) return;
+    if (!Number.isInteger(requestedProductId) || requestedProductId <= 0) return;
+    const commandKey = `${requestedProductAction}:${requestedProductId}`;
+    if (handledProductActionRef.current === commandKey) return;
+    handledProductActionRef.current = commandKey;
+
+    void (async () => {
+      let product = products.find((item) => item.id === requestedProductId) ?? null;
+      if (!product) {
+        try {
+          const response = await fetch(`/api/integracoes/mercadolivre/products?productId=${requestedProductId}&limit=1`, { cache: "no-store" });
+          const json = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(json?.error || "Falha ao carregar o produto selecionado.");
+          product = Array.isArray(json.data) ? json.data[0] ?? null : null;
+          if (product) {
+            const selectedProduct = product;
+            setProducts((current) => current.some((item) => item.id === selectedProduct.id) ? current : [selectedProduct, ...current]);
+          }
+        } catch (error: any) {
+          toast.error("Não foi possível abrir o produto no marketplace", { description: marketplaceErrorMessage(error) });
+        }
+      }
+
+      if (!product) {
+        toast.error("Produto não encontrado ou sem acesso para operar no marketplace.");
+      } else if (requestedProductAction === "create") {
+        openCreateListing(product);
+      } else if (product.mercadolivre) {
+        toast.info(`Produto já vinculado ao anúncio ${product.mercadolivre.ml_item_id}.`);
+      } else {
+        setLinkValue("");
+        setLinkingProductId(product.id);
+      }
+
+      const nextParams = new URLSearchParams(searchParams.toString());
+      nextParams.delete("ml_acao");
+      nextParams.delete("ml_produto_id");
+      const query = nextParams.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    })();
+    // O comando da URL deve ser consumido uma única vez ao abrir a tela.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialLoading, requestedProductAction, requestedProductId]);
+
+  useEffect(() => {
     if (!connected) {
       setQuestions([]);
       return;
@@ -3983,10 +4175,37 @@ export default function MarketplacePage() {
 
     if (!link) {
       return (
-        <Button size="sm" variant="outline" className="bg-transparent" onClick={() => setLinkingProductId(product.id)}>
-          <Link2 className="h-4 w-4" />
-          Vincular
-        </Button>
+        <div className="flex justify-end">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8"
+                aria-label={`Ações do produto ${product.tituloMarketplace || product.titulo}`}
+                title="Ações"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem onClick={() => openCreateListing(product)} disabled={!connected}>
+                <Plus className="mr-2 h-4 w-4" />
+                Criar anúncio
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  setLinkValue("");
+                  setLinkingProductId(product.id);
+                }}
+                disabled={!connected}
+              >
+                <Link2 className="mr-2 h-4 w-4" />
+                Vincular anúncio existente
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       );
     }
 
@@ -3996,9 +4215,15 @@ export default function MarketplacePage() {
       <div className={`flex ${compact ? "justify-end" : "justify-end"}`}>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button size="sm" variant="outline" className="h-8 bg-transparent px-2.5 text-xs" disabled={Boolean(busy)}>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8"
+              disabled={Boolean(busy)}
+              aria-label={`Ações do produto ${product.tituloMarketplace || product.titulo}`}
+              title="Ações"
+            >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
-              Ações
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
@@ -4217,7 +4442,7 @@ export default function MarketplacePage() {
                   </Button>
                 )}
                 {(activeTab === "products" || activeTab === "listings") && (
-                  <Button size="sm" onClick={openCreateListing} disabled={!connected}>
+                  <Button size="sm" onClick={() => openCreateListing()} disabled={!connected}>
                     <Plus className="h-4 w-4" />
                     Criar anúncio
                   </Button>
@@ -4298,15 +4523,15 @@ export default function MarketplacePage() {
             <TabsContent value="products" className="mt-0">
               {viewMode === "list" ? (
                 <div className="overflow-hidden rounded-md border">
-                <Table>
+                <Table className="table-fixed">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[46%]">Produto ERP</TableHead>
-                      <TableHead>Qtd. estoque</TableHead>
-                      <TableHead>Status estoque</TableHead>
-                      <TableHead>Preço</TableHead>
-                      <TableHead>Anúncio ML</TableHead>
-                      <TableHead className="text-right">Ações</TableHead>
+                      <TableHead className="w-[34%]">Produto ERP</TableHead>
+                      <TableHead className="w-[10%]">Qtd. estoque</TableHead>
+                      <TableHead className="w-[13%]">Status estoque</TableHead>
+                      <TableHead className="w-[11%]">Preço</TableHead>
+                      <TableHead className="w-[27%]">Anúncio ML</TableHead>
+                      <TableHead className="w-[5%] text-right">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -4314,14 +4539,16 @@ export default function MarketplacePage() {
                       const link = product.mercadolivre;
                       return (
                         <TableRow key={product.id}>
-                          <TableCell>
-                            <div className="flex items-center gap-3">
-                              <div className="h-12 w-12 overflow-hidden rounded-md border bg-muted">
+                          <TableCell className="max-w-0">
+                            <div className="flex min-w-0 items-center gap-3">
+                              <div className="h-12 w-12 shrink-0 overflow-hidden rounded-md border bg-muted">
                                 <ProductImage product={product} />
                               </div>
                               <div className="min-w-0">
-                                <div className="truncate font-medium">{product.tituloMarketplace || product.titulo}</div>
-                                <div className="text-xs text-muted-foreground">
+                                <div className="truncate font-medium" title={product.tituloMarketplace || product.titulo}>
+                                  {product.tituloMarketplace || product.titulo}
+                                </div>
+                                <div className="truncate text-xs text-muted-foreground">
                                   #{product.id} {product.referencia ? `- ${product.referencia}` : ""}
                                 </div>
                               </div>
@@ -7147,6 +7374,133 @@ export default function MarketplacePage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={Boolean(returnInventoryClaim)} onOpenChange={(open) => !open && !actionKey?.startsWith("return-inventory:") && setReturnInventoryClaim(null)}>
+        <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Conferir devolução #{returnInventoryClaim?.returnId}</DialogTitle>
+            <DialogDescription>
+              Registre o que aconteceu com a peça recebida. Esta decisão não executa um novo reembolso.
+            </DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="max-h-[65vh] pr-3">
+            <div className="space-y-4 py-1">
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-muted-foreground">
+                Selecione “Retornar ao estoque” somente depois da conferência física. O ERP impede que a mesma devolução reponha o produto duas vezes.
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="return-inventory-product">Produto devolvido</Label>
+                <Select
+                  value={returnInventoryForm.produtoId}
+                  onValueChange={(produtoId) => {
+                    const item = (returnInventoryClaim?.inventoryItems ?? []).find((candidate) => String(candidate.produtoId) === produtoId);
+                    const processed = (returnInventoryClaim?.inventoryDecisions ?? [])
+                      .filter((decision) => String(decision.produtoId) === produtoId)
+                      .reduce((sum, decision) => sum + Number(decision.quantity), 0);
+                    const remaining = Math.max(Number(item?.soldQuantity ?? 0) - processed, 1);
+                    setReturnInventoryForm((current) => ({
+                      ...current,
+                      produtoId,
+                      quantity: String(Math.max(Math.min(remaining, Number(item?.deductedQuantity) || remaining), 1)),
+                    }));
+                  }}
+                >
+                  <SelectTrigger id="return-inventory-product" className={listingFieldClassStatic}>
+                    <SelectValue placeholder="Selecione o produto" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(returnInventoryClaim?.inventoryItems ?? [])
+                      .filter((item) => {
+                        const processed = (returnInventoryClaim?.inventoryDecisions ?? [])
+                          .filter((decision) => decision.produtoId === item.produtoId)
+                          .reduce((sum, decision) => sum + Number(decision.quantity), 0);
+                        return processed < Number(item.soldQuantity);
+                      })
+                      .map((item) => (
+                        <SelectItem key={item.produtoId} value={String(item.produtoId)}>
+                          {item.title}{item.reference ? ` · ${item.reference}` : ""}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+                {(() => {
+                  const item = (returnInventoryClaim?.inventoryItems ?? []).find((candidate) => String(candidate.produtoId) === returnInventoryForm.produtoId);
+                  const processed = (returnInventoryClaim?.inventoryDecisions ?? [])
+                    .filter((decision) => String(decision.produtoId) === returnInventoryForm.produtoId)
+                    .reduce((sum, decision) => sum + Number(decision.quantity), 0);
+                  return item ? (
+                    <p className="text-xs text-muted-foreground">
+                      Vendido: {item.soldQuantity} {item.unit || "un."} · Já conferido: {processed} · Pendente: {Math.max(Number(item.soldQuantity) - processed, 0)} · Baixa ativa: {item.deductedQuantity} · Estoque atual: {item.currentStock}
+                    </p>
+                  ) : null;
+                })()}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="return-inventory-quantity">Quantidade conferida</Label>
+                <Input
+                  id="return-inventory-quantity"
+                  type="number"
+                  min="1"
+                  max={(() => {
+                    const item = (returnInventoryClaim?.inventoryItems ?? []).find((candidate) => String(candidate.produtoId) === returnInventoryForm.produtoId);
+                    const processed = (returnInventoryClaim?.inventoryDecisions ?? [])
+                      .filter((decision) => String(decision.produtoId) === returnInventoryForm.produtoId)
+                      .reduce((sum, decision) => sum + Number(decision.quantity), 0);
+                    return Math.max(Number(item?.soldQuantity ?? 1) - processed, 1);
+                  })()}
+                  value={returnInventoryForm.quantity}
+                  onChange={(event) => setReturnInventoryForm((current) => ({ ...current, quantity: event.target.value }))}
+                  className={listingFieldClassStatic}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Destinação</Label>
+                <div className="grid gap-2">
+                  {([
+                    ["RESTOCK", "Retornar ao estoque", "Peça recebida e aprovada para venda."],
+                    ["DAMAGED", "Produto avariado", "Registra o recebimento sem aumentar o estoque."],
+                    ["NOT_RETURNED", "Produto não retornado", "Registra que a mercadoria não foi recebida."],
+                  ] as const).map(([value, label, description]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={cn(
+                        "rounded-md border p-3 text-left transition-colors",
+                        returnInventoryForm.disposition === value ? "border-primary bg-primary/5" : "hover:bg-muted/40",
+                      )}
+                      onClick={() => setReturnInventoryForm((current) => ({ ...current, disposition: value }))}
+                    >
+                      <span className="block text-sm font-medium">{label}</span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">{description}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="return-inventory-note">
+                  Observação {returnInventoryForm.disposition === "RESTOCK" ? "(opcional)" : "(obrigatória)"}
+                </Label>
+                <Textarea
+                  id="return-inventory-note"
+                  value={returnInventoryForm.note}
+                  onChange={(event) => setReturnInventoryForm((current) => ({ ...current, note: event.target.value.slice(0, 500) }))}
+                  placeholder={returnInventoryForm.disposition === "DAMAGED" ? "Descreva a avaria encontrada..." : "Informe os detalhes da conferência..."}
+                  className={`min-h-24 ${listingFieldClassStatic}`}
+                />
+              </div>
+            </div>
+          </ScrollArea>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReturnInventoryClaim(null)} disabled={Boolean(actionKey)}>
+              Cancelar
+            </Button>
+            <Button onClick={() => void processReturnInventory()} disabled={Boolean(actionKey) || !returnInventoryForm.produtoId}>
+              {actionKey?.startsWith("return-inventory:") ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />}
+              Confirmar conferência
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={Boolean(selectedOrderDetails)} onOpenChange={(open) => !open && setSelectedOrderDetails(null)}>
         <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-5xl">
           <DialogHeader>
@@ -7456,9 +7810,37 @@ export default function MarketplacePage() {
                             <div className="mt-2 rounded-md border bg-background p-2 text-xs">
                               <div className="font-medium text-foreground">Devolução #{claim.returnId}</div>
                               <div>Status: {claim.returnStatus ? rawStatusLabel(claim.returnStatus) : "Aguardando atualização"}</div>
-                              {claim.returnTrackingNumber && <div>Rastreio: <span className="font-mono">{claim.returnTrackingNumber}</span></div>}
+                              {claim.returnShipmentStatus && <div>Etiqueta/envio: {rawStatusLabel(claim.returnShipmentStatus)}</div>}
+                              {claim.returnTrackingNumber ? (
+                                <div>Código de postagem/rastreio: <span className="font-mono font-medium text-foreground">{claim.returnTrackingNumber}</span></div>
+                              ) : (
+                                <div>Código de postagem: aguardando disponibilização pelo Mercado Livre.</div>
+                              )}
+                              {claim.returnShipmentId && <div>Envio da devolução: #{claim.returnShipmentId}</div>}
+                              {claim.returnQuantity && (
+                                <div>Quantidade devolvida: {claim.returnQuantity}{claim.returnTotalQuantity ? ` de ${claim.returnTotalQuantity}` : ""}</div>
+                              )}
+                              {(claim.returnDestinationName || claim.returnDestinationAddress) && (
+                                <div>Destino: {[claim.returnDestinationName, claim.returnDestinationAddress].filter(Boolean).join(" · ")}</div>
+                              )}
+                              <div className="mt-2 border-t pt-2">
+                                O reembolso e o recebimento físico são etapas diferentes. Só devolva ao estoque após conferir a peça.
+                              </div>
                             </div>
                           )}
+                          {(claim.inventoryDecisions ?? []).map((decision) => (
+                            <div key={decision.id} className="mt-2 rounded-md border border-emerald-500/30 bg-emerald-500/5 p-2 text-xs">
+                              <div className="font-medium text-foreground">Conferência registrada: {returnInventoryDispositionLabel(decision.disposition)}</div>
+                              <div>Quantidade conferida: {decision.quantity}</div>
+                              {decision.disposition === "RESTOCK" && (
+                                <div>
+                                  Reposto: {decision.restoredQuantity} · Saldo: {decision.stockBefore ?? "-"} → {decision.stockAfter ?? "-"}
+                                </div>
+                              )}
+                              {decision.note && <div>Observação: {decision.note}</div>}
+                              {decision.processedAt && <div>Registrado em: {formatDate(decision.processedAt)}</div>}
+                            </div>
+                          ))}
                           {Array.isArray(claim.availableActions) && claim.availableActions.length > 0 && (
                             <div className="mt-1 text-xs">
                               Ações disponíveis: {claim.availableActions.map((action: any) => rawStatusLabel(action?.action || action?.type || action?.name || action)).join(", ")}
@@ -7483,6 +7865,23 @@ export default function MarketplacePage() {
                                 );
                               })}
                             </div>
+                          )}
+                          {claim.returnId && (claim.inventoryItems ?? []).some((item) => {
+                            const processed = (claim.inventoryDecisions ?? [])
+                              .filter((decision) => decision.produtoId === item.produtoId)
+                              .reduce((sum, decision) => sum + Number(decision.quantity), 0);
+                            return processed < Number(item.soldQuantity);
+                          }) && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="mt-3 bg-transparent"
+                              onClick={() => openReturnInventoryDialog(claim)}
+                              disabled={Boolean(actionKey)}
+                            >
+                              <PackageCheck className="h-4 w-4" />
+                              Registrar conferência no ERP
+                            </Button>
                           )}
                         </div>
                       ))}

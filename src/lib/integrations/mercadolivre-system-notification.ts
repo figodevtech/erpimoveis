@@ -62,7 +62,32 @@ export function mercadoLivreSystemNotification(input: {
     };
   }
 
-  if (["items", "items_prices", "user-products-families", "stock-locations"].includes(topic)) {
+  if (topic === "stock-locations" || details.stockChange) {
+    const stockChange = details.stockChange ?? {};
+    const item = details.item ?? details.stock ?? details;
+    const itemId = text(stockChange.itemId ?? item?.id) || resourceId;
+    const itemTitle = clean(stockChange.itemTitle ?? item?.title ?? item?.name ?? item?.family_name);
+    const previousQuantity = stockQuantity(stockChange.previousQuantity);
+    const currentQuantity = stockQuantity(stockChange.currentQuantity ?? item?.available_quantity);
+    const delta = stockDelta(stockChange.delta, previousQuantity, currentQuantity);
+    return {
+      ...base,
+      priority: delta != null && delta > 0 ? "SUCCESS" : undefined,
+      title: delta != null && delta > 0 ? "Estoque adicionado no Mercado Livre" : "Estoque do Mercado Livre atualizado",
+      message: compactLines([
+        itemTitle,
+        labelValue("Anúncio", itemId),
+        joinParts([
+          labelValue("Estoque anterior", previousQuantity),
+          labelValue("Movimentação", formatStockDelta(delta)),
+          labelValue("Estoque atual", currentQuantity),
+        ]),
+      ], itemId ? `O estoque do anúncio ${itemId} recebeu uma atualização.` : "O estoque de um anúncio recebeu uma atualização."),
+      href: "/marketplace?canal=mercadolivre&secao=listings",
+    };
+  }
+
+  if (["items", "items_prices", "user-products-families"].includes(topic)) {
     const item = details.item ?? details.userProduct ?? details.stock ?? details;
     const itemId = text(item?.id) || resourceId;
     const itemTitle = clean(item?.title ?? item?.name ?? item?.family_name);
@@ -165,6 +190,24 @@ export function mercadoLivreSystemNotification(input: {
   }
 
   return null;
+}
+
+function stockQuantity(value: unknown) {
+  const quantity = Number(value);
+  return Number.isFinite(quantity) && quantity >= 0 ? Math.trunc(quantity) : null;
+}
+
+function stockDelta(value: unknown, previous: number | null, current: number | null) {
+  const delta = Number(value);
+  if (Number.isFinite(delta)) return Math.trunc(delta);
+  return previous != null && current != null ? current - previous : null;
+}
+
+function formatStockDelta(delta: number | null) {
+  if (delta == null) return null;
+  if (delta > 0) return `+${delta} adicionados`;
+  if (delta < 0) return `${Math.abs(delta)} removidos`;
+  return "Sem alteração de quantidade";
 }
 
 function notificationMetadata(topic: string, resource: string, resourceId: string | null, details: NotificationDetails) {

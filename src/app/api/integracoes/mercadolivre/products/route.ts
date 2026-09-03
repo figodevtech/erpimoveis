@@ -12,6 +12,11 @@ export async function GET(req: NextRequest) {
     await requireVendasAccess();
     const empresaId = await requireEmpresaId();
     const search = req.nextUrl.searchParams.get("search")?.trim() ?? "";
+    const requestedProductId = req.nextUrl.searchParams.get("productId");
+    const productId = requestedProductId ? Number(requestedProductId) : null;
+    if (requestedProductId && (!Number.isInteger(productId) || Number(productId) <= 0)) {
+      return NextResponse.json({ error: "productId invalido." }, { status: 400 });
+    }
     const page = Math.max(Number(req.nextUrl.searchParams.get("page") ?? 1), 1);
     const limit = Math.min(Math.max(Number(req.nextUrl.searchParams.get("limit") ?? 20), 1), 50);
     const from = (page - 1) * limit;
@@ -30,6 +35,7 @@ export async function GET(req: NextRequest) {
     if (search) {
       query = query.or(`titulo.ilike.%${search}%,referencia.ilike.%${search}%,tituloMarketplace.ilike.%${search}%`);
     }
+    if (productId) query = query.eq("id", productId);
 
     const { data: products, error, count } = await query;
     if (error) throw error;

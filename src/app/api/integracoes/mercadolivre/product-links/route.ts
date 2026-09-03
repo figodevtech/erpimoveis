@@ -3,6 +3,7 @@ import { requireVendasEdit } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { mercadoLivreApiGet } from "@/lib/integrations/mercadolivre";
+import { extractMercadoLivrePackageSnapshot } from "@/lib/integrations/mercadolivre-package";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -94,6 +95,7 @@ export async function POST(req: Request) {
     const userProduct = item?.user_product_id
       ? await mercadoLivreApiGet<any>(account.access_token, `/user-products/${encodeURIComponent(String(item.user_product_id))}`).catch(() => null)
       : null;
+    const packageSnapshot = extractMercadoLivrePackageSnapshot(item);
 
     const { data, error } = await supabaseAdmin
       .from("mercadolivre_product_link")
@@ -113,6 +115,7 @@ export async function POST(req: Request) {
           catalog_product_id: item?.catalog_product_id ?? userProduct?.catalog_product_id ?? null,
           user_product_enabled: Boolean(item?.family_name || item?.user_product_id),
           item_tags: Array.isArray(item?.tags) ? item.tags : [],
+          ...packageSnapshot,
           raw_item: item ?? {},
           updated_at: new Date().toISOString(),
         },
