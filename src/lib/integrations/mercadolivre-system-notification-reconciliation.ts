@@ -14,7 +14,7 @@ export async function reconcileMercadoLivreSystemNotifications() {
   const since = new Date(Date.now() - RECONCILIATION_HOURS * 60 * 60 * 1000).toISOString();
   const { data: events, error: eventsError } = await supabaseAdmin
     .from("mercadolivre_notification")
-    .select("id, topic, resource")
+    .select("id, topic, resource, raw_payload")
     .eq("status", "PROCESSADA")
     .gte("processed_at", since)
     .order("processed_at", { ascending: false })
@@ -22,7 +22,7 @@ export async function reconcileMercadoLivreSystemNotifications() {
   if (eventsError) throw eventsError;
 
   const candidates = (events ?? [])
-    .map((event) => mercadoLivreSystemNotification({
+    .map((event) => notificationFromSnapshot(event) ?? mercadoLivreSystemNotification({
       notificationId: Number(event.id),
       topic: String(event.topic ?? ""),
       resource: String(event.resource ?? ""),
@@ -42,4 +42,11 @@ export async function reconcileMercadoLivreSystemNotifications() {
   const missing = candidates.filter((item) => !existingIds.has(item.sourceEventId));
   if (!missing.length) return 0;
   return notifySalesUsersBatch(missing);
+}
+
+function notificationFromSnapshot(event: any) {
+  const snapshot = event?.raw_payload?._erp_notification;
+  if (!snapshot || typeof snapshot !== "object") return null;
+  if (!snapshot.title || !snapshot.message || !snapshot.source || !snapshot.sourceEventId) return null;
+  return snapshot as ReturnType<typeof mercadoLivreSystemNotification>;
 }

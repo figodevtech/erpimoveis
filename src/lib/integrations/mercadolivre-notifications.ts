@@ -193,45 +193,48 @@ async function processNotification(notificationId: number, attempts: number) {
 
     let finalStatus = "PROCESSADA";
     let finalError: string | null = null;
+    let notificationDetails: Record<string, unknown> | null = null;
+    let userNotification: ReturnType<typeof mercadoLivreSystemNotification> = null;
 
     if (topic === "orders_v2" || topic === "orders") {
-      await processOrder(account, accessToken, resource);
+      notificationDetails = await processOrder(account, accessToken, resource);
     } else if (topic === "shipments") {
-      await processShipment(account, accessToken, resource);
+      notificationDetails = await processShipment(account, accessToken, resource);
     } else if (topic === "items" || topic === "items_prices") {
-      await processItem(account, accessToken, resource, notificationId, topic);
+      notificationDetails = await processItem(account, accessToken, resource, notificationId, topic);
     } else if (topic === "user-products-families") {
-      await processUserProductFamily(account, accessToken, resource);
+      notificationDetails = await processUserProductFamily(account, accessToken, resource);
     } else if (topic === "stock-locations") {
-      await processUserProductStock(account, accessToken, resource);
+      notificationDetails = await processUserProductStock(account, accessToken, resource);
     } else if (topic.includes("claim") || topic.includes("reclama")) {
-      await processClaim(account, accessToken, resource);
+      notificationDetails = await processClaim(account, accessToken, resource);
     } else if (topic === "questions") {
-      await processQuestion(accessToken, resource);
+      notificationDetails = await processQuestion(accessToken, resource);
     } else if (topic === "messages" || topic === "messaging") {
-      await processMessage(accessToken, resource);
+      notificationDetails = await processMessage(account, accessToken, resource);
     } else if (topic === "payments") {
       // O estado financeiro já é reconciliado por orders_v2 e pelo cron. Apps
       // Mercado Livre e Mercado Pago devem permanecer separados desde 30/08/2026.
       finalStatus = "IGNORADA";
       finalError = "Pagamento acompanhado pelo pedido orders_v2; tópico payments não requer processamento separado.";
     } else if (topic.includes("feedback")) {
-      await processFeedback(account, accessToken, resource);
+      notificationDetails = await processFeedback(account, accessToken, resource);
     } else {
       finalStatus = "IGNORADA";
       finalError = `Tópico sem processador configurado: ${topic || "não informado"}.`;
     }
 
     if (finalStatus === "PROCESSADA") {
-      const userNotification = mercadoLivreSystemNotification({ notificationId, topic, resource });
+      userNotification = mercadoLivreSystemNotification({ notificationId, topic, resource, details: notificationDetails });
       if (userNotification) {
-        await notifySalesUsers(userNotification).then(async () => {
+        try {
+          await notifySalesUsers(userNotification);
           await processTelegramMarketplaceNotifications({ sourceEventId: userNotification.sourceEventId });
-        }).catch((notificationError) => {
+        } catch (notificationError) {
           // A central de avisos é complementar: uma falha nela não pode desfazer
           // a importação do pedido, envio ou anúncio já processado com sucesso.
           console.error("Falha ao criar notificação interna do Mercado Livre", notificationError);
-        });
+        }
       }
     }
 
@@ -244,6 +247,9 @@ async function processNotification(notificationId: number, attempts: number) {
         processed_at: new Date().toISOString(),
         next_retry_at: null,
         locked_at: null,
+        raw_payload: userNotification
+          ? { ...(notification.raw_payload ?? {}), _erp_notification: userNotification }
+          : notification.raw_payload,
       })
       .eq("id", notificationId);
     if (updateError) throw updateError;
@@ -265,14 +271,36 @@ async function processNotification(notificationId: number, attempts: number) {
 
 async function processQuestion(accessToken: string, resource: string) {
   if (!resource) throw new Error("Notificação de pergunta sem recurso.");
-  await mercadoLivreApiGet(accessToken, normalizeResource(resource));
+  const question = await mercadoLivreApiGet<any>(accessToken, normalizeResource(resource));
+  const itemId = String(question?.item_id ?? "").trim();
+  const item = itemId
+    ? await mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}`).catch(() => null)
+    : null;
+  return { question, item };
 }
 
-async function processMessage(accessToken: string, resource: string) {
+async function processMessage(account: Account, accessToken: string, resource: string) {
   if (!resource) throw new Error("Notificação de mensagem sem recurso.");
   const separator = resource.includes("?") ? "&" : "?";
   const path = resource.includes("tag=") ? resource : `${resource}${separator}tag=post_sale`;
-  await mercadoLivreApiGet(accessToken, normalizeResource(path));
+  const message = await mercadoLivreApiGet<any>(accessToken, normalizeResource(path));
+  const messages = Array.isArray(message?.messages) ? message.messages : [];
+  const latestMessage = messages[messages.length - 1] ?? message?.message ?? message;
+  const packId = latestMessage?.pack_id ?? message?.pack_id ?? latestMessage?.message_resources?.[0]?.id;
+  const orderId = latestMessage?.order_id ?? message?.order_id;
+  const { data: storedOrders, error } = await supabaseAdmin
+    .from("mercadolivre_order")
+    .select("id, ml_order_id, buyer_id, status, total_amount, currency_id, raw_order")
+    .eq("empresa_id", account.empresa_id)
+    .eq("account_id", account.id)
+    .order("date_created", { ascending: false })
+    .limit(30);
+  if (error) throw error;
+  const order = (storedOrders ?? []).find((candidate: any) =>
+    (orderId && String(candidate.ml_order_id) === String(orderId))
+    || (packId && String(candidate.raw_order?.pack_id ?? candidate.raw_order?.pack?.id ?? "") === String(packId)),
+  ) ?? null;
+  return { message, order };
 }
 
 async function processFeedback(account: Account, accessToken: string, resource: string) {
@@ -280,6 +308,7 @@ async function processFeedback(account: Account, accessToken: string, resource: 
   if (!orderId) throw new Error("Notificação de feedback sem order_id.");
   const order = await getMercadoLivreOrder(accessToken, orderId);
   await importMercadoLivreOrder({ ...account, access_token: accessToken }, order);
+  return { order };
 }
 
 async function processOrder(account: Account, accessToken: string, resource: string) {
@@ -287,6 +316,7 @@ async function processOrder(account: Account, accessToken: string, resource: str
   if (!orderId) throw new Error("Notificação de pedido sem order_id.");
   const order = await getMercadoLivreOrder(accessToken, orderId);
   await importMercadoLivreOrder({ ...account, access_token: accessToken }, order);
+  return { order };
 }
 
 async function processShipment(account: Account, accessToken: string, resource: string) {
@@ -298,7 +328,7 @@ async function processShipment(account: Account, accessToken: string, resource: 
   if (Number.isFinite(orderId) && orderId > 0) {
     const order = await getMercadoLivreOrder(accessToken, orderId);
     await importMercadoLivreOrder({ ...account, access_token: accessToken }, order);
-    return;
+    return { shipment, order };
   }
 
   const { data: storedOrders, error } = await supabaseAdmin
@@ -312,15 +342,18 @@ async function processShipment(account: Account, accessToken: string, resource: 
 
   // Um pack pode conter mais de uma order usando o mesmo shipment. Atualizamos
   // todas as vendas vinculadas para não deixar parte do carrinho desatualizada.
+  let relatedOrder: any = null;
   for (const storedOrder of storedOrders) {
     const mlOrderId = Number(storedOrder.ml_order_id);
     if (Number.isFinite(mlOrderId) && mlOrderId > 0) {
       const order = await getMercadoLivreOrder(accessToken, mlOrderId);
       await importMercadoLivreOrder({ ...account, access_token: accessToken }, order);
+      relatedOrder ??= order;
     } else if (storedOrder.venda_id) {
       await syncMercadoLivreShipmentForVenda(Number(storedOrder.venda_id));
     }
   }
+  return { shipment, order: relatedOrder };
 }
 
 async function processItem(
@@ -381,6 +414,7 @@ async function processItem(
     .eq("empresa_id", account.empresa_id)
     .eq("ml_item_id", itemId);
   if (error) throw error;
+  return { item, userProduct };
 }
 
 async function processUserProductFamily(account: Account, accessToken: string, resource: string) {
@@ -401,6 +435,7 @@ async function processUserProductFamily(account: Account, accessToken: string, r
     .eq("empresa_id", account.empresa_id)
     .eq("family_id", familyId);
   if (error) throw error;
+  return { userProduct: family };
 }
 
 async function processUserProductStock(account: Account, accessToken: string, resource: string) {
@@ -419,6 +454,7 @@ async function processUserProductStock(account: Account, accessToken: string, re
     .eq("empresa_id", account.empresa_id)
     .eq("user_product_id", decodeURIComponent(userProductId));
   if (error) throw error;
+  return { stock };
 }
 
 function getUserProductAvailableQuantity(stock: any) {
@@ -467,6 +503,7 @@ async function processClaim(account: Account, accessToken: string, resource: str
     { onConflict: "ml_claim_id" },
   );
   if (error) throw error;
+  return { claim, order };
 }
 
 async function insertOrGetNotification(payload: NotificationPayload, dedupeKey: string, accountId: number) {
@@ -590,7 +627,7 @@ async function findRelatedOrder(empresaId: number, accountId: number, claim: any
   const resourceId = Number(claim?.resource_id ?? claim?.resource?.id ?? 0);
   const { data, error } = await supabaseAdmin
     .from("mercadolivre_order")
-    .select("id, ml_order_id, ml_shipment_id")
+    .select("id, ml_order_id, ml_shipment_id, raw_order")
     .eq("empresa_id", empresaId)
     .eq("account_id", accountId)
     .order("created_at", { ascending: false })

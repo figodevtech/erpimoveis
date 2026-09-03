@@ -2300,13 +2300,13 @@ export default function MarketplacePage() {
     }
   }
 
-  async function loadQuestions(status = questionStatusFilter) {
+  async function loadQuestions(status = questionStatusFilter, options: { silent?: boolean } = {}) {
     if (!connected) {
       setQuestions([]);
       return;
     }
 
-    setLoadingQuestions(true);
+    if (!options.silent) setLoadingQuestions(true);
     try {
       const params = new URLSearchParams({ limit: "30" });
       if (status && status !== "all") params.set("status", status);
@@ -2320,9 +2320,11 @@ export default function MarketplacePage() {
       if (!response.ok) throw new Error(json?.error || "Falha ao carregar perguntas.");
       setQuestions(json.data ?? []);
     } catch (e: any) {
-      toast.error("Erro ao carregar perguntas", { description: marketplaceErrorMessage(e) });
+      if (!options.silent) {
+        toast.error("Erro ao carregar perguntas", { description: marketplaceErrorMessage(e) });
+      }
     } finally {
-      setLoadingQuestions(false);
+      if (!options.silent) setLoadingQuestions(false);
     }
   }
 
@@ -2804,8 +2806,8 @@ export default function MarketplacePage() {
     }
   }
 
-  async function loadChatConversations(orderDbId?: number) {
-    setLoadingChat(true);
+  async function loadChatConversations(orderDbId?: number, options: { silent?: boolean } = {}) {
+    if (!options.silent) setLoadingChat(true);
     try {
       const params = new URLSearchParams({ limit: "30" });
       if (orderDbId) params.set("orderDbId", String(orderDbId));
@@ -2824,9 +2826,11 @@ export default function MarketplacePage() {
       });
       if (data[0]?.orderDbId) setSelectedChatOrderId(data[0].orderDbId);
     } catch (e: any) {
-      toast.error("Erro ao carregar chat Mercado Livre", { description: marketplaceErrorMessage(e) });
+      if (!options.silent) {
+        toast.error("Erro ao carregar chat Mercado Livre", { description: marketplaceErrorMessage(e) });
+      }
     } finally {
-      setLoadingChat(false);
+      if (!options.silent) setLoadingChat(false);
     }
   }
 
@@ -3875,6 +3879,62 @@ export default function MarketplacePage() {
     loadQuestions(questionStatusFilter);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected, questionStatusFilter]);
+
+  useEffect(() => {
+    if (!connected) return;
+
+    let refreshing = false;
+    const refreshService = async (topic?: string) => {
+      if (refreshing || document.visibilityState !== "visible") return;
+      refreshing = true;
+      try {
+        const normalizedTopic = String(topic ?? "").toLowerCase();
+        const refreshEverything = !normalizedTopic;
+        const tasks: Promise<void>[] = [];
+
+        if (refreshEverything || normalizedTopic === "questions") {
+          tasks.push(loadQuestions(questionStatusFilter, { silent: true }));
+        }
+        if ((refreshEverything || normalizedTopic === "messages" || normalizedTopic === "messaging") && chatOpen) {
+          tasks.push(loadChatConversations(selectedChatOrderId ?? undefined, { silent: true }));
+        }
+        if (normalizedTopic.includes("claim") || normalizedTopic.includes("reclama")) {
+          tasks.push(loadClaims({ silent: true }));
+        }
+
+        await Promise.all(tasks);
+      } finally {
+        refreshing = false;
+      }
+    };
+
+    const handleSystemNotification = (event: Event) => {
+      const detail = (event as CustomEvent<Record<string, unknown>>).detail;
+      if (String(detail?.source ?? "") !== "MERCADOLIVRE_WEBHOOK") return;
+      const metadata = detail?.metadata as Record<string, unknown> | undefined;
+      void refreshService(String(metadata?.topic ?? ""));
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && (activeTab === "atendimento" || chatOpen)) {
+        void refreshService();
+      }
+    };
+
+    window.addEventListener("erp:system-notification", handleSystemNotification);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    const intervalId = window.setInterval(() => {
+      if (activeTab === "atendimento" || chatOpen) void refreshService();
+    }, 15_000);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("erp:system-notification", handleSystemNotification);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+    // As funcoes de carga usam o estado atual desta renderizacao. Recriar a
+    // assinatura quando conta, filtro ou contexto visual muda e intencional.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeAccount?.id, activeTab, chatOpen, connected, questionStatusFilter, selectedChatOrderId]);
 
   useEffect(() => {
     if (!connected || activeTab !== "orders") {

@@ -23,6 +23,45 @@ test("destaca reclamações como aviso de atendimento", () => {
   assert.match(notification?.href ?? "", /secao=atendimento/);
 });
 
+test("inclui a pergunta e o anúncio na notificação", () => {
+  const notification = mercadoLivreSystemNotification({
+    notificationId: 45,
+    topic: "questions",
+    resource: "/questions/456",
+    details: {
+      question: { id: 456, item_id: "MLB123", text: "Serve no modelo 2020?", status: "UNANSWERED", from: { id: 789 } },
+      item: { id: "MLB123", title: "Kit de suspensão dianteira" },
+    },
+  });
+  assert.match(notification?.title ?? "", /Kit de suspensão dianteira/);
+  assert.match(notification?.message ?? "", /Serve no modelo 2020/);
+  assert.match(notification?.message ?? "", /MLB123/);
+  assert.match(notification?.message ?? "", /789/);
+});
+
+test("inclui produto, quantidade, total e comprador na notificação do pedido", () => {
+  const notification = mercadoLivreSystemNotification({
+    notificationId: 46,
+    topic: "orders_v2",
+    resource: "/orders/123456",
+    details: {
+      order: {
+        id: 123456,
+        status: "paid",
+        total_amount: 149.9,
+        currency_id: "BRL",
+        buyer: { nickname: "CLIENTE_TESTE" },
+        payments: [{ status: "approved" }],
+        order_items: [{ quantity: 2, item: { title: "Pastilha de freio" } }],
+      },
+    },
+  });
+  assert.match(notification?.message ?? "", /Pastilha de freio \(2 un\.\)/);
+  assert.match(notification?.message ?? "", /149,90/);
+  assert.match(notification?.message ?? "", /CLIENTE_TESTE/);
+  assert.match(notification?.message ?? "", /Pagamento: aprovado/);
+});
+
 test("não cria aviso para tópico sem suporte", () => {
   assert.equal(mercadoLivreSystemNotification({ notificationId: 44, topic: "unknown", resource: "/unknown/1" }), null);
 });

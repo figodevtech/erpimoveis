@@ -12,6 +12,9 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { fetchRealtimeToken } from "@/components/chat/chat-api";
+import { storeChatRealtimeToken } from "@/lib/chat/realtime-token";
+import { supabaseBrowser } from "@/lib/supabase-browser";
 import { cn } from "@/lib/utils";
 
 type SystemNotification = {
@@ -22,6 +25,7 @@ type SystemNotification = {
   message: string;
   href: string | null;
   source: string;
+  metadata?: Record<string, unknown>;
   readAt: string | null;
   createdAt: string;
 };
@@ -82,6 +86,43 @@ export function NotificationCenter() {
       controller.abort();
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [load]);
+
+  React.useEffect(() => {
+    let disposed = false;
+    let channel: ReturnType<typeof supabaseBrowser.channel> | null = null;
+
+    const connect = async () => {
+      try {
+        const credentials = await fetchRealtimeToken();
+        if (disposed) return;
+        storeChatRealtimeToken(credentials);
+        await supabaseBrowser.realtime.setAuth(credentials.token);
+        if (disposed) return;
+
+        channel = supabaseBrowser
+          .channel(`system-notifications:${crypto.randomUUID()}`)
+          .on(
+            "postgres_changes",
+            { event: "INSERT", schema: "public", table: "system_notification" },
+            (payload) => {
+              const row = payload.new as Record<string, unknown>;
+              void load(undefined, true);
+              window.dispatchEvent(new CustomEvent("erp:system-notification", { detail: row }));
+            },
+          )
+          .subscribe();
+      } catch {
+        // A consulta periodica acima permanece ativa se o Realtime estiver
+        // indisponivel ou ainda nao tiver sido habilitado no banco deste ERP.
+      }
+    };
+
+    void connect();
+    return () => {
+      disposed = true;
+      if (channel) void supabaseBrowser.removeChannel(channel);
     };
   }, [load]);
 
@@ -265,17 +306,22 @@ function NotificationItem({ notification, dismissing, onClick, onDismiss }: {
         !notification.readAt && "border-primary/25 bg-primary/[0.045] shadow-primary/5",
       )}
     >
-      {!notification.readAt ? <span className="absolute -left-1 top-5 size-2.5 rounded-full bg-primary ring-2 ring-background" aria-label="Não lida" /> : null}
       <button type="button" className="flex min-h-[116px] w-full gap-3 rounded-xl p-4 pr-12 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" onClick={onClick}>
-      <span className={cn("flex size-10 shrink-0 items-center justify-center rounded-xl", iconClass(notification))}>
+      <span className={cn("relative flex size-10 shrink-0 items-center justify-center rounded-xl", iconClass(notification))}>
         <NotificationIcon notification={notification} />
+        {!notification.readAt ? (
+          <span
+            className="absolute -right-1 -top-1 size-3 rounded-full border-2 border-card bg-primary shadow-sm"
+            aria-label="Não lida"
+          />
+        ) : null}
       </span>
       <span className="flex min-h-[82px] min-w-0 flex-1 flex-col">
         <span className="flex items-start justify-between gap-3">
           <span className={cn("text-sm leading-snug", notification.readAt ? "font-medium" : "font-semibold")}>{notification.title}</span>
           <span className="shrink-0 text-[10px] text-muted-foreground">{safeRelativeDate(notification.createdAt)}</span>
         </span>
-        <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{notification.message}</span>
+        <span className="mt-1 whitespace-pre-line break-words text-xs leading-relaxed text-muted-foreground">{notification.message}</span>
         <span className="mt-auto block pt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/80">
           {notification.source === "MERCADOLIVRE_WEBHOOK" ? "Mercado Livre" : "Sistema"}
         </span>
