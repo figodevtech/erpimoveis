@@ -78,7 +78,7 @@ const ORDENAVEIS = new Set([
 const FORTALEZA_OFFSET = "-03:00";
 
 const TRANSACAO_FIELDS =
-  "id, descricao, descricao_pagamento, valor, valorLiquido, valor_base, valor_acrescimos, valor_descontos, valor_baixado, baixa_de_transacao_id, transferencia_id, adiantamento_id, eh_adiantamento, pagamento_multiplo_id, nomepagador, cpfcnpjpagador, pendente, data, competencia_em, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, fornecedor_id, banco_id, documento_tipo_id, documento_numero, documento_serie, documento_chave, documento_emitido_em, documento_valor, documento_observacao, bandeira_id, bandeira_parcelas, bandeira_taxa_percentual, bandeira_taxa_ajustada, created_at, updated_at";
+  "id, descricao, descricao_pagamento, valor, valorLiquido, valor_base, valor_acrescimos, valor_descontos, valor_baixado, baixa_de_transacao_id, transferencia_id, adiantamento_id, eh_adiantamento, pagamento_multiplo_id, nomepagador, cpfcnpjpagador, pendente, data, competencia_em, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, fornecedor_id, banco_id, documento_tipo_id, documento_numero, documento_serie, documento_chave, documento_emitido_em, documento_valor, documento_observacao, bandeira_id, bandeira_parcelas, bandeira_taxa_percentual, bandeira_taxa_ajustada, abonado, abonado_por, abonado_em, abono_motivo, created_at, updated_at";
 
 const BANCO_FIELDS =
   "id, titulo, tipo, agencia, contanumero, proprietario, valorinicial, empresa_id, created_at, updated_at";

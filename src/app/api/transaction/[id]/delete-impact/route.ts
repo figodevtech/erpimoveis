@@ -19,7 +19,7 @@ export async function GET(_: Request, { params }: Params) {
 
     const { data: transaction, error } = await supabaseAdmin
       .from("transacao")
-      .select("id, valor, valor_base, valor_acrescimos, tipo, pendente, ordemservicoid, vendaid, evento_financeiro_id, lancamento_id, adiantamento_id, eh_adiantamento, pagamento_multiplo_id, transferencia_id")
+      .select("id, valor, valor_base, valor_acrescimos, tipo, pendente, ordemservicoid, vendaid, evento_financeiro_id, lancamento_id, adiantamento_id, eh_adiantamento, pagamento_multiplo_id, transferencia_id, abonado, metodopagamento")
       .eq("id", id)
       .eq("is_deleted", false)
       .maybeSingle();
@@ -334,6 +334,13 @@ export async function GET(_: Request, { params }: Params) {
             // ele volta evita a surpresa de ver outro número depois.
             valorReaberto: Number(transaction.valor_base ?? transaction.valor ?? 0),
             acrescimos: Number(transaction.valor_acrescimos ?? 0),
+            // Abono nunca passou pelo banco — o aviso genérico de "sai do caixa,
+            // saldo do banco muda" é falso aqui, e o client troca o texto com isto.
+            abonado: transaction.abonado === true,
+            // Idem, e com um efeito a mais para avisar: estornar devolve o valor
+            // para a carteira do cliente.
+            creditoCliente:
+              String(transaction.metodopagamento ?? "").toUpperCase() === "CREDITO CLIENTE",
           }
         : null;
 

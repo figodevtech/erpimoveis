@@ -48,6 +48,23 @@ export async function POST(req: NextRequest) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dataPagamento)) {
       return NextResponse.json({ error: "Informe uma data de pagamento válida." }, { status: 400 });
     }
+    /*
+     * Crédito do cliente fica de fora do lote, de propósito.
+     *
+     * Ele consome a carteira de UM cliente, e o lote baixa dezenas de títulos
+     * que podem ser de clientes diferentes, cada um com saldo próprio. Aplicar
+     * a mesma forma a todos consumiria carteiras que ninguém conferiu. Um de
+     * cada vez é onde dá para ver o saldo antes de confirmar.
+     */
+    if (metodoPagamento.toUpperCase() === "CREDITO CLIENTE") {
+      return NextResponse.json(
+        {
+          error:
+            "Crédito do cliente não entra na baixa em lote: cada título consome a carteira de um cliente. Baixe um de cada vez.",
+        },
+        { status: 400 },
+      );
+    }
     if (!Number.isSafeInteger(bancoId) || bancoId <= 0 || !metodoPagamento) {
       return NextResponse.json(
         { error: "Banco e método de pagamento são obrigatórios." },

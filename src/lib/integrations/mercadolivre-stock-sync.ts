@@ -97,6 +97,7 @@ async function processStockSync(job: ReservedStockSync) {
       account.access_token,
       `/items/${encodeURIComponent(String(link.ml_item_id))}`,
     );
+    const quantityBefore = getConfirmedQuantity(itemBefore, link.ml_variation_id);
     const priceBefore = await getMercadoLivrePriceState(account.access_token, String(link.ml_item_id), itemBefore);
     const canSyncPrice = !priceBefore.automationActive && Number.isFinite(price) && price > 0;
     if (canSyncPrice) {
@@ -138,7 +139,16 @@ async function processStockSync(job: ReservedStockSync) {
       .update({
         status: item?.status ?? link.status,
         available_quantity: quantity,
-        raw_item: { ...(item ?? {}), _erp_price_state: priceAfter },
+        raw_item: {
+          ...(item ?? {}),
+          _erp_price_state: priceAfter,
+          _erp_stock_sync: {
+            previousQuantity: quantityBefore,
+            currentQuantity: quantity,
+            delta: quantity - quantityBefore,
+            synchronizedAt: new Date().toISOString(),
+          },
+        },
         updated_at: new Date().toISOString(),
       })
       .eq("id", link.id);

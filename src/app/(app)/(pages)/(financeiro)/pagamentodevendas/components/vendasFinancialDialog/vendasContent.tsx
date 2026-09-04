@@ -39,6 +39,7 @@ import {
   Eye,
   ExternalLink,
   FileText,
+  HandCoins,
   Loader,
   Loader2,
   Package,
@@ -53,9 +54,11 @@ import {
 } from "lucide-react";
 import { TransactionDeleteAlert } from "../../../components/transaction-delete-alert";
 import { estornarBaixa } from "../../../components/transaction-estorno-alert";
+import { TransactionAbonoAlert, abonarTransacao } from "../../../components/transaction-abono-alert";
 import { excluirPagamentoMultiplo } from "../../../components/pagamento-multiplo";
 import { toast } from "@/lib/toast";
 import { formatDate } from "@/utils/formatDate";
+import { saldoEmAberto } from "@/lib/financeiro/transacao";
 import { VendaComItens } from "@/app/(app)/(pages)/(vendas)/historicovendas/types";
 import {
   getVendaAnexoCategoriaLabel,
@@ -475,6 +478,23 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
           ? erro.message
           : "Não foi possível tirar do fluxo de caixa.",
       );
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  /**
+   * Perdoa um título a receber sem lançar nada no banco. A venda continua
+   * quitada; só não passa pelo fluxo de caixa.
+   */
+  const handleAbonar = async (id: number, motivo?: string) => {
+    setIsDeleting(true);
+    try {
+      await abonarTransacao(id, motivo);
+      handleGetTransactions(pagination.page);
+      toast.success("Cobrança abonada.");
+    } catch (erro) {
+      toast.error(erro instanceof Error ? erro.message : "Não foi possível abonar a cobrança.");
     } finally {
       setIsDeleting(false);
     }
@@ -1237,9 +1257,17 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
                                 </p>
                               </TableCell>
                               <TableCell className="px-3 tabular-nums text-muted-foreground">{formatDate(t.data)}</TableCell>
-                              <TableCell className="whitespace-normal px-3" title={`${t.banco?.titulo ?? "-"} - ${t.metodopagamento ?? "-"}`}>
-                                <p className="truncate font-medium text-foreground">{t.banco?.titulo || "Banco não informado"}</p>
-                                <p className="mt-0.5 truncate text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground">{t.metodopagamento || "Método não informado"}</p>
+                              <TableCell className="whitespace-normal px-3" title={t.abonado ? "Abonado" : `${t.banco?.titulo ?? "-"} - ${t.metodopagamento ?? "-"}`}>
+                                {t.abonado ? (
+                                  <p className="truncate font-medium text-muted-foreground">Abonado — não passou pelo banco</p>
+                                ) : t.metodopagamento === "CREDITO CLIENTE" ? (
+                                  <p className="truncate font-medium text-muted-foreground">Crédito do cliente — não passou pelo banco</p>
+                                ) : (
+                                  <>
+                                    <p className="truncate font-medium text-foreground">{t.banco?.titulo || "Banco não informado"}</p>
+                                    <p className="mt-0.5 truncate text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground">{t.metodopagamento || "Método não informado"}</p>
+                                  </>
+                                )}
                               </TableCell>
                               <TableCell className="px-3 text-right">
                                 <p className="font-bold tabular-nums text-foreground">{formatarEmReal(t.valor)}</p>
@@ -1285,6 +1313,24 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
                                       {podeEditarTransacao ? <Pencil className="mr-2 size-4" /> : <Eye className="mr-2 size-4" />}
                                       {podeEditarTransacao ? "Editar lançamento" : "Visualizar lançamento"}
                                     </DropdownMenuItem>
+                                    {canEdit &&
+                                      t.pendente === true &&
+                                      !t.adiantamento_id &&
+                                      !t.eh_adiantamento &&
+                                      !t.pagamento_multiplo &&
+                                      !t.pagamento_multiplo_id &&
+                                      t.evento_financeiro_id == null && (
+                                      <TransactionAbonoAlert
+                                        transactionId={t.id}
+                                        valor={saldoEmAberto(t)}
+                                        onAbonar={handleAbonar}
+                                      >
+                                        <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                                          <HandCoins className="mr-2 size-4" />
+                                          Abonar cobrança
+                                        </DropdownMenuItem>
+                                      </TransactionAbonoAlert>
+                                    )}
                                     <TransactionDeleteAlert transactionId={t.id} onDelete={handleDeleteTransaction} onDeleteGrupo={handleDeleteGrupo} onEstornar={handleEstornarBaixa}>
                                       <Button variant="ghost" className="h-9 w-full justify-start rounded-none px-2 text-destructive hover:bg-destructive/10 hover:text-destructive">
                                         {t.pagamento_multiplo || t.pendente === false ? (
@@ -1295,7 +1341,9 @@ export default function VendasContent({ vendaId, IsOpen }: VendasContentProps) {
                                         {t.pagamento_multiplo
                                           ? "Desfazer pagamento múltiplo"
                                           : t.pendente === false
-                                            ? "Estornar pagamento"
+                                            ? t.abonado
+                                              ? "Desfazer abono"
+                                              : "Estornar pagamento"
                                             : "Excluir lançamento"}
                                       </Button>
                                     </TransactionDeleteAlert>

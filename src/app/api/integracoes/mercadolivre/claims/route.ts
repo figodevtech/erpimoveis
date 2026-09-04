@@ -1,8 +1,9 @@
 ﻿import { NextResponse, type NextRequest } from "next/server";
-import { requireVendasAccess, requireVendasEdit } from "@/app/api/_authz/perms";
+import { requireAuthenticated, requireVendasAccess, requireVendasEdit } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { getMercadoLivreOrder, mercadoLivreTokenMetadata, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
 import { importMercadoLivreOrder } from "@/lib/integrations/mercadolivre-orders";
+import { normalizeMercadoLivreReturn } from "@/lib/integrations/mercadolivre-return";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -129,6 +130,42 @@ export async function POST(req: NextRequest) {
     const claimId = String(body?.claimId ?? "").trim();
     const action = String(body?.action ?? "").trim().toLowerCase();
     if (!claimId) return NextResponse.json({ error: "Informe a reclamação." }, { status: 400 });
+
+    if (action === "process_return_inventory") {
+      const produtoId = Number(body?.produtoId);
+      const quantity = Math.trunc(Number(body?.quantity));
+      const disposition = String(body?.disposition ?? "").trim().toUpperCase();
+      const note = String(body?.note ?? "").trim();
+      const requestKey = String(body?.requestKey ?? "").trim();
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestKey)) {
+        return NextResponse.json({ error: "Identificador da conferência inválido. Tente novamente." }, { status: 400 });
+      }
+      if (!Number.isInteger(produtoId) || produtoId <= 0) {
+        return NextResponse.json({ error: "Selecione o produto devolvido." }, { status: 400 });
+      }
+      if (!Number.isInteger(quantity) || quantity <= 0) {
+        return NextResponse.json({ error: "Informe uma quantidade devolvida válida." }, { status: 400 });
+      }
+      if (!["RESTOCK", "DAMAGED", "NOT_RETURNED"].includes(disposition)) {
+        return NextResponse.json({ error: "Selecione a destinação do produto devolvido." }, { status: 400 });
+      }
+      if (disposition !== "RESTOCK" && note.length < 3) {
+        return NextResponse.json({ error: "Informe uma observação sobre o produto que não voltou ao estoque." }, { status: 400 });
+      }
+      const session = await requireAuthenticated();
+      const { data, error } = await supabaseAdmin.rpc("processar_devolucao_mercadolivre_estoque", {
+        p_empresa_id: empresaId,
+        p_request_key: requestKey,
+        p_ml_claim_id: claimId,
+        p_produto_id: produtoId,
+        p_disposition: disposition,
+        p_quantity: quantity,
+        p_note: note || null,
+        p_processed_by: (session.user as any)?.id ?? null,
+      });
+      if (error) throw error;
+      return NextResponse.json({ ok: true, data });
+    }
 
     const actionConfig: Record<string, { availableNames: string[]; path: string }> = {
       refund: { availableNames: ["refund", "allow_refund"], path: "expected-resolutions/refund" },
@@ -290,36 +327,39 @@ function normalizeClaim(
 
 async function persistClaims(account: MercadoLivreAccount, claims: NormalizedClaim[]) {
   const nowIso = new Date().toISOString();
-  const rows = claims.map((claim) => ({
-    empresa_id: account.empresa_id,
-    account_id: account.id,
-    order_id: claim.orderDbId,
-    ml_order_id: claim.mlOrderId,
-    ml_shipment_id: claim.mlShipmentId,
-    ml_claim_id: claim.id,
-    status: claim.status,
-    stage: claim.stage,
-    claim_type: claim.type,
-    reason: claim.reason,
-    title: claim.title,
-    due_date: claim.dueDate,
-    closed_at: claim.closedAt,
-    resolution: claim.resolution,
-    available_actions: claim.availableActions,
-    players: claim.players,
-    resource: claim.resource,
-    raw_claim: claim.raw ?? {},
-    return_id: claim.returnData?.id ? String(claim.returnData.id) : null,
-    return_status: claim.returnData?.status ?? null,
-    return_tracking_number: claim.returnData?.tracking_number ?? claim.returnData?.shipment?.tracking_number ?? null,
-    return_shipment_id: toNullableNumber(claim.returnData?.shipment?.id ?? claim.returnData?.shipment_id),
-    raw_return: claim.returnData ?? {},
-    partial_refund_offers: claim.partialRefundOffers,
-    return_updated_at: Object.keys(claim.returnData ?? {}).length > 0 ? nowIso : null,
-    last_error: claim.error,
-    synced_at: nowIso,
-    updated_at: nowIso,
-  }));
+  const rows = claims.map((claim) => {
+    const returnSummary = normalizeMercadoLivreReturn(claim.returnData);
+    return {
+      empresa_id: account.empresa_id,
+      account_id: account.id,
+      order_id: claim.orderDbId,
+      ml_order_id: claim.mlOrderId,
+      ml_shipment_id: claim.mlShipmentId,
+      ml_claim_id: claim.id,
+      status: claim.status,
+      stage: claim.stage,
+      claim_type: claim.type,
+      reason: claim.reason,
+      title: claim.title,
+      due_date: claim.dueDate,
+      closed_at: claim.closedAt,
+      resolution: claim.resolution,
+      available_actions: claim.availableActions,
+      players: claim.players,
+      resource: claim.resource,
+      raw_claim: claim.raw ?? {},
+      return_id: returnSummary.id,
+      return_status: returnSummary.status,
+      return_tracking_number: returnSummary.trackingNumber,
+      return_shipment_id: returnSummary.shipmentId,
+      raw_return: claim.returnData ?? {},
+      partial_refund_offers: claim.partialRefundOffers,
+      return_updated_at: Object.keys(claim.returnData ?? {}).length > 0 ? nowIso : null,
+      last_error: claim.error,
+      synced_at: nowIso,
+      updated_at: nowIso,
+    };
+  });
 
   const { error } = await supabaseAdmin.from("mercadolivre_claim").upsert(rows, { onConflict: "ml_claim_id" });
   if (error) throw error;
@@ -355,10 +395,82 @@ async function getStoredClaims(empresaId: number, accountId: number, orderDbId: 
 
   const { data, error } = await query;
   if (error) throw error;
-  return data ?? [];
+  const claims = data ?? [];
+  if (!claims.length) return claims;
+
+  const orderIds = Array.from(new Set(claims.map((claim: any) => Number(claim.order_id)).filter((id) => Number.isInteger(id) && id > 0)));
+  const claimIds = claims.map((claim: any) => Number(claim.id)).filter((id) => Number.isInteger(id) && id > 0);
+  const ordersPromise = orderIds.length
+    ? supabaseAdmin.from("mercadolivre_order").select("id, venda_id").eq("empresa_id", empresaId).in("id", orderIds)
+    : Promise.resolve({ data: [], error: null });
+  const [{ data: orders, error: ordersError }, { data: decisions, error: decisionsError }] = await Promise.all([
+    ordersPromise,
+    supabaseAdmin
+      .from("mercadolivre_return_inventory")
+      .select("id, claim_id, produto_id, disposition, quantity, restored_quantity, stock_before, stock_after, note, processed_at")
+      .eq("empresa_id", empresaId)
+      .in("claim_id", claimIds),
+  ]);
+  if (ordersError) throw ordersError;
+  if (decisionsError) throw decisionsError;
+
+  const vendaByOrder = new Map((orders ?? []).map((order: any) => [Number(order.id), Number(order.venda_id)]));
+  const vendaIds = Array.from(new Set(Array.from(vendaByOrder.values()).filter((id) => Number.isInteger(id) && id > 0)));
+  const [{ data: saleItems, error: saleItemsError }, { data: deductions, error: deductionsError }] = vendaIds.length
+    ? await Promise.all([
+        supabaseAdmin
+          .from("vendaproduto")
+          .select("venda_id, produtoid, quantidade, produto:produtoid(id, titulo, referencia, unidade, estoque)")
+          .in("venda_id", vendaIds),
+        supabaseAdmin.from("vendaproduto_baixa").select("venda_id, produtoid, quantidade").in("venda_id", vendaIds),
+      ])
+    : [{ data: [], error: null }, { data: [], error: null }];
+  if (saleItemsError) throw saleItemsError;
+  if (deductionsError) throw deductionsError;
+
+  const deductionBySaleProduct = new Map(
+    (deductions ?? []).map((entry: any) => [`${entry.venda_id}:${entry.produtoid}`, Number(entry.quantidade ?? 0)]),
+  );
+  const itemsBySaleProduct = new Map<string, any>();
+  for (const entry of saleItems ?? []) {
+    const vendaId = Number((entry as any).venda_id);
+    const produtoId = Number((entry as any).produtoid);
+    const product = Array.isArray((entry as any).produto) ? (entry as any).produto[0] : (entry as any).produto;
+    const key = `${vendaId}:${produtoId}`;
+    const current = itemsBySaleProduct.get(key);
+    itemsBySaleProduct.set(key, {
+      produtoId,
+      title: product?.titulo ?? `Produto #${(entry as any).produtoid}`,
+      reference: product?.referencia ?? null,
+      unit: product?.unidade ?? null,
+      soldQuantity: Number(current?.soldQuantity ?? 0) + Number((entry as any).quantidade ?? 0),
+      deductedQuantity: deductionBySaleProduct.get(key) ?? 0,
+      currentStock: Number(product?.estoque ?? 0),
+    });
+  }
+  const itemsBySale = new Map<number, any[]>();
+  for (const [key, item] of itemsBySaleProduct.entries()) {
+    const vendaId = Number(key.split(":", 1)[0]);
+    itemsBySale.set(vendaId, [...(itemsBySale.get(vendaId) ?? []), item]);
+  }
+  const decisionsByClaim = new Map<number, any[]>();
+  for (const decision of decisions ?? []) {
+    const key = Number((decision as any).claim_id);
+    decisionsByClaim.set(key, [...(decisionsByClaim.get(key) ?? []), decision]);
+  }
+
+  return claims.map((claim: any) => {
+    const vendaId = vendaByOrder.get(Number(claim.order_id));
+    return {
+      ...claim,
+      inventory_items: vendaId ? itemsBySale.get(vendaId) ?? [] : [],
+      inventory_decisions: decisionsByClaim.get(Number(claim.id)) ?? [],
+    };
+  });
 }
 
 function normalizeStoredClaim(claim: any) {
+  const returnSummary = normalizeMercadoLivreReturn(claim.raw_return);
   return {
     id: String(claim.ml_claim_id),
     orderDbId: claim.order_id ?? null,
@@ -377,12 +489,31 @@ function normalizeStoredClaim(claim: any) {
     resource: claim.resource ?? null,
     raw: claim.raw_claim ?? {},
     returnData: claim.raw_return ?? {},
-    returnId: claim.return_id ?? null,
-    returnStatus: claim.return_status ?? null,
-    returnTrackingNumber: claim.return_tracking_number ?? null,
-    returnShipmentId: claim.return_shipment_id ?? null,
+    returnId: claim.return_id ?? returnSummary.id,
+    returnStatus: claim.return_status ?? returnSummary.status,
+    returnTrackingNumber: claim.return_tracking_number ?? returnSummary.trackingNumber,
+    returnShipmentId: claim.return_shipment_id ?? returnSummary.shipmentId,
+    returnShipmentStatus: returnSummary.shipmentStatus,
+    returnDestinationName: returnSummary.destinationName,
+    returnDestinationAddress: returnSummary.destinationAddress,
+    returnQuantity: returnSummary.returnQuantity,
+    returnTotalQuantity: returnSummary.totalQuantity,
     partialRefundOffers: Array.isArray(claim.partial_refund_offers) ? claim.partial_refund_offers : [],
     returnUpdatedAt: claim.return_updated_at ?? null,
+    inventoryItems: Array.isArray(claim.inventory_items) ? claim.inventory_items : [],
+    inventoryDecisions: Array.isArray(claim.inventory_decisions)
+      ? claim.inventory_decisions.map((decision: any) => ({
+          id: decision.id,
+          produtoId: decision.produto_id,
+          disposition: decision.disposition,
+          quantity: decision.quantity,
+          restoredQuantity: decision.restored_quantity,
+          stockBefore: decision.stock_before,
+          stockAfter: decision.stock_after,
+          note: decision.note,
+          processedAt: decision.processed_at,
+        }))
+      : [],
     error: claim.last_error ?? null,
     syncedAt: claim.synced_at ?? null,
   };
@@ -529,11 +660,6 @@ async function postPurchaseApiPost<T>(accessToken: string, path: string, body?: 
   } catch {
     return { message: text } as T;
   }
-}
-
-function toNullableNumber(value: unknown) {
-  const number = Number(value);
-  return Number.isFinite(number) && number > 0 ? number : null;
 }
 
 function friendlyError(error: any, fallback: string) {

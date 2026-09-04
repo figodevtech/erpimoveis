@@ -62,6 +62,28 @@ test("inclui produto, quantidade, total e comprador na notificação do pedido",
   assert.match(notification?.message ?? "", /Pagamento: aprovado/);
 });
 
+test("detalha estoque anterior, quantidade adicionada e estoque atual", () => {
+  const notification = mercadoLivreSystemNotification({
+    notificationId: 47,
+    topic: "stock-locations",
+    resource: "/user-products/MLBU123/stock",
+    details: {
+      stockChange: {
+        itemId: "MLB123",
+        itemTitle: "Bucha de para-choque",
+        previousQuantity: 4,
+        currentQuantity: 11,
+        delta: 7,
+      },
+    },
+  });
+  assert.equal(notification?.title, "Estoque adicionado no Mercado Livre");
+  assert.match(notification?.message ?? "", /Bucha de para-choque/);
+  assert.match(notification?.message ?? "", /Estoque anterior: 4/);
+  assert.match(notification?.message ?? "", /Movimentação: \+7 adicionados/);
+  assert.match(notification?.message ?? "", /Estoque atual: 11/);
+});
+
 test("não cria aviso para tópico sem suporte", () => {
   assert.equal(mercadoLivreSystemNotification({ notificationId: 44, topic: "unknown", resource: "/unknown/1" }), null);
 });

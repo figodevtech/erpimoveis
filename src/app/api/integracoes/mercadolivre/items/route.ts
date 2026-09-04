@@ -136,7 +136,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Selecione a logística do Mercado Envios." }, { status: 400 });
     }
     if (shippingMode === "me2" && (![widthCm, heightCm, lengthCm].every((value) => Number.isFinite(value) && value > 0) || !Number.isInteger(weightGrams) || weightGrams <= 0)) {
-      return NextResponse.json({ error: "Informe dimensões e peso para calcular o Mercado Envios." }, { status: 400 });
+      return NextResponse.json(
+        {
+          error: "Informe dimensões e peso válidos para calcular o Mercado Envios.",
+          fieldErrors: {
+            dimensions: "Comprimento, largura e altura devem ser maiores que zero; o peso deve ser informado em gramas inteiras.",
+          },
+        },
+        { status: 400 },
+      );
     }
 
     if (shippingMode === "custom" && (!customShippingDescription || !Number.isFinite(customShippingCost) || customShippingCost < 0 || !Number.isInteger(customShippingDeadlineDays) || customShippingDeadlineDays <= 0)) {

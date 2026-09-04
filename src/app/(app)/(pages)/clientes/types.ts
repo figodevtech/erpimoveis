@@ -64,6 +64,29 @@ export interface Customer {
    * `customerSelect` e os diálogos, que não pedem esse resumo.
    */
   divida?: DividaCliente | null
+  /**
+   * Crédito disponível na carteira do cliente. É o oposto da dívida: saldo a
+   * favor dele, que pode quitar uma cobrança pelo método Crédito Cliente.
+   * Só muda por movimento — ver `SaldoMovimentoCliente`.
+   */
+  saldo_credito?: number | null
+}
+
+/** Uma linha do razão do crédito do cliente. O razão nunca é reescrito. */
+export interface SaldoMovimentoCliente {
+  id: number
+  /** CREDITO entra na carteira; DEBITO sai dela. */
+  sentido: "CREDITO" | "DEBITO"
+  /** MANUAL é o ajuste feito aqui; TRANSACAO veio da baixa de um título. */
+  origem: "MANUAL" | "TRANSACAO"
+  acao: "REGISTRO" | "ESTORNO"
+  valor: number
+  saldo_anterior: number | null
+  saldo_resultante: number | null
+  transacao_id: number | null
+  motivo: string | null
+  created_by: string | null
+  created_at: string
 }
 
 export interface DividaCliente {

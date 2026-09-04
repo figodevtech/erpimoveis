@@ -49,6 +49,24 @@ interface ConcluidoAlertProps {
   onSuccess?: () => void;
 }
 
+/**
+ * A forma de pagamento que não é dinheiro: consome a carteira do cliente.
+ *
+ * Comparar com o valor do enum é o mesmo que a tela já faz para decidir
+ * parcelamento (BOLETO/CREDITO/PROMISSORIA). O que muda aqui é mais fundo:
+ * some o banco, o valor deixa de ser editável e entra a conferência do saldo.
+ */
+const CREDITO_CLIENTE = "CREDITO CLIENTE";
+
+type CreditoDoCliente = {
+  clienteId: number | null;
+  nome: string | null;
+  saldo: number;
+  valorTitulo: number;
+  suficiente: boolean;
+  sentido: "CREDITO" | "DEBITO";
+};
+
 export default function ConcluidoAlert({
   isAlertOpen,
   setIsAlertOpen,
@@ -68,6 +86,12 @@ export default function ConcluidoAlert({
   const [lancarNoCaixa, setLancarNoCaixa] = useState(false);
   const [valorLancado, setValorLancado] = useState(0);
   const [valorBaixa, setValorBaixa] = useState(0);
+  /**
+   * De quem é o título e quanto de crédito essa pessoa tem. Só é buscado quando
+   * a forma escolhida é Crédito do cliente — nas demais não muda nada na tela.
+   */
+  const [credito, setCredito] = useState<CreditoDoCliente | null>(null);
+  const [carregandoCredito, setCarregandoCredito] = useState(false);
 
   const { gruposPlanosDeConta, loadingPlanos } = usePlanosDeConta();
   const { centrosCusto, loadingCentrosCusto, errorCentrosCusto } = useCentrosCusto();
@@ -144,6 +168,51 @@ export default function ConcluidoAlert({
   }, [isAlertOpen]);
 
   /*
+   * O crédito do cliente troca as regras da tela: não há banco a escolher, o
+   * valor não é editável (quita o título inteiro ou nada) e o que precisa ser
+   * conferido antes é o saldo da carteira.
+   */
+  const ehCreditoCliente = String(selectedMetodo).toUpperCase() === CREDITO_CLIENTE;
+
+  useEffect(() => {
+    if (!isAlertOpen || !transaction || !ehCreditoCliente) {
+      setCredito(null);
+      return;
+    }
+
+    let ativo = true;
+    setCarregandoCredito(true);
+
+    fetch(`/api/transaction/${transaction.id}/credito-cliente`, { cache: "no-store" })
+      .then(async (resposta) => {
+        const corpo = await resposta.json().catch(() => ({}));
+        if (!resposta.ok) throw new Error(corpo?.error ?? "Falha ao consultar o crédito.");
+        if (ativo) setCredito(corpo.data as CreditoDoCliente);
+      })
+      .catch(() => {
+        if (ativo) setCredito(null);
+      })
+      .finally(() => {
+        if (ativo) setCarregandoCredito(false);
+      });
+
+    return () => {
+      ativo = false;
+    };
+  }, [isAlertOpen, transaction, ehCreditoCliente]);
+
+  /*
+   * Trocar para crédito do cliente devolve o valor ao saldo inteiro: ele quita
+   * o título todo, e um número menor digitado antes ficaria na tela dizendo
+   * algo que não vai acontecer.
+   */
+  useEffect(() => {
+    if (ehCreditoCliente && transaction) {
+      setValorBaixa(saldoEmAberto(transaction));
+    }
+  }, [ehCreditoCliente, transaction]);
+
+  /*
    * Título antecipado é o único que precisa escolher se a baixa move a conta.
    * Nos demais o banco é sempre gravado e não há nada a decidir — o servidor
    * inclusive recusa a bandeira fora deste caso.
@@ -165,24 +234,45 @@ export default function ConcluidoAlert({
 
   /*
    * Quanto de fato entra na conta, e quanto do título é quitado sem mover caixa.
-   * São dois números diferentes só em título antecipado; nos demais o segundo é
-   * sempre zero.
+   * São dois números diferentes só em título antecipado e no crédito do
+   * cliente, onde a conta nunca se move; nos demais o segundo é sempre zero.
    */
-  const entraNaConta = antecipado ? (lancarNoCaixa ? valorLancado : 0) : valorBaixa;
+  const entraNaConta = ehCreditoCliente
+    ? 0
+    : antecipado
+      ? (lancarNoCaixa ? valorLancado : 0)
+      : valorBaixa;
   const semCaixa = Math.round((valorBaixa - entraNaConta) * 100) / 100;
   const bancoEscolhido = banks.find((b) => String(b.id) === selectedBankId)?.titulo ?? "a conta escolhida";
 
   async function handleConfirmarPagamento() {
     if (!transaction || isSubmitting) return;
 
-    if (!selectedBankId) {
+    if (!selectedMetodo) {
+      toast.error("Selecione o método de pagamento para concluir a transação.");
+      return;
+    }
+
+    // Crédito do cliente não passa por conta nenhuma: pedir banco aqui seria
+    // pedir um dado que o servidor descarta.
+    if (!ehCreditoCliente && !selectedBankId) {
       toast.error("Selecione um banco para concluir a transação.");
       return;
     }
 
-    if (!selectedMetodo) {
-      toast.error("Selecione o método de pagamento para concluir a transação.");
-      return;
+    if (ehCreditoCliente) {
+      if (!credito?.clienteId) {
+        toast.error("Este lançamento não tem cliente vinculado.", {
+          description: "Informe o cliente nele antes de usar o crédito.",
+        });
+        return;
+      }
+      if (!credito.suficiente) {
+        toast.error("O cliente não tem crédito suficiente.", {
+          description: `Saldo de ${formatarEmReal(credito.saldo)} para um título de ${formatarEmReal(credito.valorTitulo)}.`,
+        });
+        return;
+      }
     }
 
     if (!dataPagamento) {
@@ -216,7 +306,10 @@ export default function ConcluidoAlert({
 
       await axios.post(`/api/transaction/${transaction.id}/baixar`, {
         dataPagamento,
-        bancoId: Number(selectedBankId),
+        // Sem banco no crédito do cliente: o servidor grava nulo de qualquer
+        // forma, e mandar um número aqui daria a impressão de que a conta se
+        // move.
+        bancoId: ehCreditoCliente ? null : Number(selectedBankId),
         metodoPagamento: selectedMetodo,
         planoContaId: selectedPlanoId ? Number(selectedPlanoId) : null,
         centroCustoId: selectedCentroCustoId ? Number(selectedCentroCustoId) : null,
@@ -233,8 +326,11 @@ export default function ConcluidoAlert({
          *
          * Sem filhas e pagando tudo, segue nulo: o título dá conta sozinho e não
          * há por que criar uma transação a mais.
+         *
+         * No crédito do cliente segue sempre nulo: ele quita o título inteiro,
+         * e a RPC dele nem aceita valor parcial.
          */
-        valor: parcial || jaTemBaixas ? valorBaixa : null,
+        valor: !ehCreditoCliente && (parcial || jaTemBaixas) ? valorBaixa : null,
       });
 
       toast.success("Transação concluída com sucesso!");
@@ -380,9 +476,14 @@ export default function ConcluidoAlert({
               id="baixa-valor"
               value={valorBaixa}
               onValueChange={setValorBaixa}
-              disabled={isSubmitting}
+              disabled={isSubmitting || ehCreditoCliente}
             />
-            {parcial ? (
+            {ehCreditoCliente ? (
+              <p className="text-xs text-muted-foreground">
+                O crédito do cliente quita o título inteiro — não dá para usar
+                só uma parte dele aqui.
+              </p>
+            ) : parcial ? (
               <p className="text-xs text-amber-700 dark:text-amber-400">
                 Baixa parcial: restam {formatarEmReal(restante)} em aberto neste
                 título depois desta.
@@ -491,6 +592,65 @@ export default function ConcluidoAlert({
             </div>
           ) : null}
 
+          {/*
+            No crédito do cliente o banco sai da tela, e não fica só avisando
+            que "não será gravado" como no antecipado: ali a conta ainda pode se
+            mover se a pessoa ligar o repasse; aqui nunca. Um campo obrigatório
+            que não vale para nada só atrapalha.
+          */}
+          {ehCreditoCliente ? (
+            <div className="min-w-0 space-y-2 sm:col-span-2">
+              <Label>Crédito do cliente</Label>
+              <div className="rounded-lg border bg-muted/30 p-3">
+                {carregandoCredito ? (
+                  <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Consultando o saldo do cliente...
+                  </p>
+                ) : !credito?.clienteId ? (
+                  <p className="text-sm text-destructive">
+                    Este lançamento não tem cliente vinculado. Informe o cliente
+                    nele antes de usar o crédito.
+                  </p>
+                ) : credito.sentido === "CREDITO" ? (
+                  <>
+                    <p className="text-sm text-foreground">
+                      <strong>{credito.nome}</strong> tem hoje{" "}
+                      <strong className="tabular-nums">{formatarEmReal(credito.saldo)}</strong> de
+                      crédito.
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Esta baixa <strong>acrescenta</strong> {formatarEmReal(credito.valorTitulo)}{" "}
+                      à carteira dele, em vez de sair dinheiro da conta.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm text-foreground">
+                      <strong>{credito.nome}</strong> tem{" "}
+                      <strong className="tabular-nums">{formatarEmReal(credito.saldo)}</strong> de
+                      crédito.
+                    </p>
+                    {credito.suficiente ? (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Sobram {formatarEmReal(credito.saldo - credito.valorTitulo)} depois de
+                        quitar este título.
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-xs text-destructive">
+                        Não cobre os {formatarEmReal(credito.valorTitulo)} deste título. Faltam{" "}
+                        {formatarEmReal(credito.valorTitulo - credito.saldo)}.
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Não passa por conta bancária: nada entra no fluxo de caixa nem no
+                extrato.
+              </p>
+            </div>
+          ) : (
           <div className="min-w-0 space-y-2">
             <Label>
               Banco / conta <span className="text-destructive">*</span>
@@ -529,8 +689,9 @@ export default function ConcluidoAlert({
               </p>
             ) : null}
           </div>
+          )}
 
-          <div className="min-w-0 space-y-2">
+          <div className={ehCreditoCliente ? "min-w-0 space-y-2 sm:col-span-2" : "min-w-0 space-y-2"}>
             <Label htmlFor="metodo-concluido">
               Método de pagamento <span className="text-destructive">*</span>
             </Label>
@@ -644,6 +805,21 @@ export default function ConcluidoAlert({
                       ? ", como uma transação própria ligada a este título."
                       : "."}
                   </>
+                ) : ehCreditoCliente && credito?.clienteId ? (
+                  <>
+                    <strong>A conta não se move.</strong>{" "}
+                    {credito.sentido === "CREDITO" ? (
+                      <>
+                        O crédito de <strong>{credito.nome}</strong> sobe para{" "}
+                        <strong>{formatarEmReal(credito.saldo + credito.valorTitulo)}</strong>.
+                      </>
+                    ) : (
+                      <>
+                        O crédito de <strong>{credito.nome}</strong> cai para{" "}
+                        <strong>{formatarEmReal(credito.saldo - credito.valorTitulo)}</strong>.
+                      </>
+                    )}
+                  </>
                 ) : (
                   <>
                     <strong>A conta não se move.</strong> Nada será lançado no extrato
@@ -679,7 +855,16 @@ export default function ConcluidoAlert({
             type="button"
             className="w-full sm:w-auto"
             onClick={handleConfirmarPagamento}
-            disabled={isSubmitting || isLoadingBanks || !!bankLoadError || !dataPagamento}
+            disabled={
+              isSubmitting ||
+              !dataPagamento ||
+              // O carregamento e o erro de bancos só travam quem precisa de banco.
+              (!ehCreditoCliente && (isLoadingBanks || !!bankLoadError)) ||
+              // Sem cliente resolvido ou sem saldo, confirmar só produziria a
+              // recusa do servidor.
+              (ehCreditoCliente &&
+                (carregandoCredito || !credito?.clienteId || !credito.suficiente))
+            }
           >
             {isSubmitting ? (
               <>

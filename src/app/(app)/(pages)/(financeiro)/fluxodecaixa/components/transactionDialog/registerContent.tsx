@@ -272,7 +272,8 @@ export default function RegisterContent({
     : null;
   const metodoPermiteParcelas =
     newTransaction.metodopagamento === Metodo_pagamento.BOLETO ||
-    newTransaction.metodopagamento === Metodo_pagamento.CREDITO;
+    newTransaction.metodopagamento === Metodo_pagamento.CREDITO ||
+    newTransaction.metodopagamento === Metodo_pagamento.PROMISSORIA;
   const canManageParcelas = metodoPermiteParcelas && !!newTransaction.pendente;
 
   const bandeiraSelecionada =
@@ -570,44 +571,16 @@ export default function RegisterContent({
     }));
   };
 
-  useEffect(() => {
-    if (!dialogOpen || !internalCompanyExpense) return;
-
-    setPagoPeloMesmo(false);
-    setClienteMesmoCache(undefined);
-    setSelectedCustomer(undefined);
-    setNewTransaction((prev) => ({
-      ...prev,
-      tipo: Tipo_transacao.DESPESA,
-      cliente_id: null,
-      nomepagador: "PRÓPRIA EMPRESA",
-      cpfcnpjpagador: "",
-    }));
-
-    void (async () => {
-      try {
-        const response = await axios.get("/api/config/empresa");
-        const empresa = response.data?.empresa;
-        if (!empresa) return;
-
-        setNewTransaction((prev) => ({
-          ...prev,
-          tipo: Tipo_transacao.DESPESA,
-          cliente_id: null,
-          nomepagador:
-            empresa.razaosocial || empresa.nomefantasia || "PRÓPRIA EMPRESA",
-          cpfcnpjpagador: empresa.cnpj || "",
-        }));
-      } catch {
-        toast.error("Não foi possível carregar os dados da empresa.");
-      }
-    })();
-  }, [
-    dialogOpen,
-    internalCompanyExpense,
-    setNewTransaction,
-    setSelectedCustomer,
-  ]);
+  /*
+   * O pagador de uma despesa da OS é de quem opera, não da empresa.
+   *
+   * Aqui um efeito buscava `/api/config/empresa` e plantava razão social e CNPJ
+   * da própria oficina em `nomepagador`/`cpfcnpjpagador`, e os campos abaixo
+   * nasciam travados. A premissa era que despesa de OS é sempre a empresa
+   * pagando — mas quem lança um evento financeiro precisa dizer para QUEM o
+   * dinheiro foi: o fornecedor da peça, o terceiro que fez o serviço. O campo
+   * volta a nascer vazio e livre, inclusive para escolher cliente ou fornecedor.
+   */
 
   useEffect(() => {
     if (!canUseMesmoCliente) {
@@ -2072,7 +2045,7 @@ export default function RegisterContent({
 
                   {selectedCustomer ? (
                     <Button
-                      disabled={pagoPeloMesmo || internalCompanyExpense}
+                      disabled={pagoPeloMesmo}
                       onClick={() => {
                         setNewTransaction({
                           ...newTransaction,
@@ -2090,7 +2063,7 @@ export default function RegisterContent({
                     </Button>
                   ) : selectedFornecedor ? (
                     <Button
-                      disabled={pagoPeloMesmo || internalCompanyExpense}
+                      disabled={pagoPeloMesmo}
                       onClick={limparFornecedor}
                       className="h-11 rounded-none hover:cursor-pointer sm:h-9"
                       variant={"ghost"}
@@ -2101,7 +2074,7 @@ export default function RegisterContent({
                   ) : (
                     <>
                       <Button
-                        disabled={pagoPeloMesmo || internalCompanyExpense}
+                        disabled={pagoPeloMesmo}
                         onClick={() => setIsCustomerSelectOpen(true)}
                         className="h-11 rounded-none hover:cursor-pointer sm:h-9"
                         variant={"outline"}
@@ -2110,7 +2083,7 @@ export default function RegisterContent({
                         Selecionar Cliente
                       </Button>
                       <Button
-                        disabled={pagoPeloMesmo || internalCompanyExpense}
+                        disabled={pagoPeloMesmo}
                         onClick={() => setIsFornecedorSelectOpen(true)}
                         className="h-11 rounded-none hover:cursor-pointer sm:h-9"
                         variant={"outline"}
@@ -2128,11 +2101,7 @@ export default function RegisterContent({
                     Nome do pagador/recebedor <span className="text-red-500">*</span>
                   </Label>
                   <Input
-                    disabled={
-                      Boolean(selectedCustomer) ||
-                      Boolean(selectedFornecedor) ||
-                      internalCompanyExpense
-                    }
+                    disabled={Boolean(selectedCustomer) || Boolean(selectedFornecedor)}
                     id="descricao"
                     value={newTransaction.nomepagador || ""}
                     onChange={(e) =>
@@ -2147,11 +2116,7 @@ export default function RegisterContent({
                     CPF/CNPJ do pagador/recebedor <span className="text-red-500">*</span>
                   </Label>
                   <Input
-                    disabled={
-                      Boolean(selectedCustomer) ||
-                      Boolean(selectedFornecedor) ||
-                      internalCompanyExpense
-                    }
+                    disabled={Boolean(selectedCustomer) || Boolean(selectedFornecedor)}
                     id="cpfcnpjpagador"
                     inputMode="numeric"
                     maxLength={18}

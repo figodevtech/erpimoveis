@@ -652,7 +652,7 @@ export function OrdensTabela({
         ...amounts,
         [method]: current.length === 0 ? confirmTotalCents / 100 : 0,
       }));
-      if (method === "CREDITO" || method === "BOLETO") {
+      if (method === "CREDITO" || method === "BOLETO" || method === "PROMISSORIA") {
         setConfirmPaymentInstallments((installments) => ({
           ...installments,
           [method]: 1,
@@ -2000,7 +2000,9 @@ export function OrdensTabela({
                             (option) => option.value === method,
                           )?.label ?? method;
                         const hasInstallments =
-                          method === "CREDITO" || method === "BOLETO";
+                          method === "CREDITO" ||
+                          method === "BOLETO" ||
+                          method === "PROMISSORIA";
 
                         return (
                           <div
@@ -2115,7 +2117,9 @@ export function OrdensTabela({
                       metodo: method,
                       valor: Number(confirmPaymentAmounts[method] ?? 0),
                       parcelas:
-                        method === "CREDITO" || method === "BOLETO"
+                        method === "CREDITO" ||
+                        method === "BOLETO" ||
+                        method === "PROMISSORIA"
                           ? Number(confirmPaymentInstallments[method] ?? 1)
                           : null,
                     }),

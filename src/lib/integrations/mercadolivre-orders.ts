@@ -10,6 +10,7 @@ import {
   type MercadoLivreOrderItem,
 } from "@/lib/integrations/mercadolivre";
 import { normalizeShipment, reconcileShipmentState, type MercadoLivreShipment } from "@/lib/integrations/mercadolivre-shipping";
+import { shouldWaitForMercadoLivreReturnInspection } from "@/lib/integrations/mercadolivre-return-policy";
 
 type MercadoLivreAccount = {
   id: number;
@@ -130,10 +131,7 @@ export async function importMercadoLivreOrder(account: MercadoLivreAccount, orde
   const shouldDecrementStock = mapOrderToVendaStatus(order) === "FINALIZADA";
   if (existing?.venda_id) {
     await upsertOrderRecord(account, order, existing.venda_id, shipment, existing);
-    await updateVendaOrderStatus(existing.venda_id, order);
-    if (mapOrderToVendaStatus(order) === "CANCELADA") {
-      await restoreMarketplaceStockDecrement(existing.venda_id);
-    }
+    await updateVendaOrderStatus(existing.venda_id, order, shipment);
     if (shouldDecrementStock) {
       await applyMarketplaceStockDecrement(existing.venda_id, account.empresa_id, order.order_items ?? []);
     }
@@ -527,17 +525,23 @@ async function updateVendaShipment(vendaId: number, shipment: ReturnType<typeof 
   if (error) throw error;
 }
 
-async function updateVendaOrderStatus(vendaId: number, order: MercadoLivreOrder) {
+async function updateVendaOrderStatus(vendaId: number, order: MercadoLivreOrder, shipment?: MercadoLivreShipment | null) {
   const status = mapOrderToVendaStatus(order);
   if (status === "CANCELADA") {
     const atual = await supabaseAdmin.from("venda").select("status").eq("id", vendaId).maybeSingle();
     if (atual.error) throw atual.error;
     if (!["CANCELADA", "CANCELADO"].includes(String(atual.data?.status ?? "").toUpperCase())) {
-      const cancelamento = await supabaseAdmin.rpc("cancelar_venda", {
-        p_venda_id: vendaId,
-        p_motivo: `Cancelado no Mercado Livre (pedido #${Number(order.id)}).`,
-        p_cancelada_by: null,
-      });
+      const cancellationReason = `Cancelado no Mercado Livre (pedido #${Number(order.id)}).`;
+      const cancelamento = shouldWaitForMercadoLivreReturnInspection(order, shipment)
+        ? await supabaseAdmin.rpc("cancelar_venda_marketplace_sem_repor_estoque", {
+            p_venda_id: vendaId,
+            p_motivo: `${cancellationReason} Estoque aguardando conferência da devolução.`,
+          })
+        : await supabaseAdmin.rpc("cancelar_venda", {
+            p_venda_id: vendaId,
+            p_motivo: cancellationReason,
+            p_cancelada_by: null,
+          });
       if (cancelamento.error) throw cancelamento.error;
     }
   }
@@ -567,29 +571,6 @@ async function applyMarketplaceStockDecrement(vendaId: number, empresaId: number
       p_quantidade_alvo: quantity,
     });
     if (error) throw error;
-  }
-}
-
-async function restoreMarketplaceStockDecrement(vendaId: number) {
-  const { data: baixas, error: baixasError } = await supabaseAdmin
-    .from("vendaproduto_baixa")
-    .select("produtoid, quantidade")
-    .eq("venda_id", vendaId);
-
-  if (baixasError) throw baixasError;
-  if (!baixas?.length) return;
-
-  for (const baixa of baixas) {
-    const produtoId = Number((baixa as any).produtoid);
-    const quantidade = Number((baixa as any).quantidade ?? 0);
-    if (!Number.isFinite(produtoId) || produtoId <= 0 || !Number.isFinite(quantidade) || quantidade <= 0) continue;
-
-    const { error: restoreError } = await supabaseAdmin.rpc("fn_sincronizar_baixa_estoque_marketplace", {
-      p_venda_id: vendaId,
-      p_produto_id: produtoId,
-      p_quantidade_alvo: 0,
-    });
-    if (restoreError) throw restoreError;
   }
 }
 

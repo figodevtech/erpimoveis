@@ -320,6 +320,7 @@ export async function POST(req: Request, { params }: Params) {
     };
 
     let rowsToInsert: any[] = [];
+    let parcelamentoId: number | null = null;
 
     if (futuro) {
       if (!parcelas.length) {
@@ -343,11 +344,35 @@ export async function POST(req: Request, { params }: Params) {
         );
       }
 
+      const descricaoBase =
+        text(financeiro?.descricaoTransacao ?? financeiro?.descricao) ?? "Compra de mercadorias";
+
+      /*
+       * Parcelamento de duas ou mais ganha grupo formal, como o lançamento
+       * avulso do fluxo de caixa já faz (`POST /api/transaction`).
+       *
+       * É o grupo que autoriza reparcelar depois: sem ele a aba de parcelas
+       * consegue reconstruir o conjunto pela descrição, mas não escrever nele —
+       * e a divisão da compra ficaria permanente. A descrição do grupo é a base,
+       * sem o sufixo, porque é dela que a renumeração é montada.
+       */
+      if (parcelas.length > 1) {
+        const { data: grupo, error: grupoError } = await supabaseAdmin
+          .from("transacao_parcelamento")
+          .insert({ descricao: descricaoBase })
+          .select("id")
+          .single();
+
+        if (grupoError) throw grupoError;
+        parcelamentoId = Number(grupo.id);
+      }
+
       rowsToInsert = parcelas.map((parcela: any, index: number) => {
         const valor = valoresParcelas[index];
         return {
           ...base,
-          descricao: `${text(financeiro?.descricaoTransacao ?? financeiro?.descricao) ?? "Compra de mercadorias"}${parcelas.length > 1 ? ` - Parcela ${index + 1}/${parcelas.length}` : ""}`,
+          ...(parcelamentoId != null ? { parcelamento_id: parcelamentoId } : {}),
+          descricao: `${descricaoBase}${parcelas.length > 1 ? ` - Parcela ${index + 1}/${parcelas.length}` : ""}`,
           valor,
           valorLiquido: valor,
           data:
@@ -391,7 +416,14 @@ export async function POST(req: Request, { params }: Params) {
       .insert(rowsToInsert)
       .select("id");
 
-    if (insertErr) throw insertErr;
+    if (insertErr) {
+      // As parcelas não entraram: o grupo criado acima ficaria sem nenhuma linha
+      // apontando para ele. Mesmo cuidado do lançamento avulso.
+      if (parcelamentoId != null) {
+        await supabaseAdmin.from("transacao_parcelamento").delete().eq("id", parcelamentoId);
+      }
+      throw insertErr;
+    }
 
     return NextResponse.json({
       success: true,

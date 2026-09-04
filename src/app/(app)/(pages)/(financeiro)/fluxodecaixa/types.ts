@@ -38,6 +38,12 @@ export enum Metodo_pagamento {
   DOC = "DOC",
   DINHEIRO = "DINHEIRO",
   PERMUTA = "PERMUTA",
+  PROMISSORIA = "PROMISSORIA",
+  /**
+   * Não é dinheiro: consome (ou abastece) a carteira de crédito do cliente. A
+   * baixa por aqui nunca grava banco, então nunca entra no Fluxo.
+   */
+  CREDITO_CLIENTE = "CREDITO CLIENTE",
 }
 
 export enum Banco_tipo {
@@ -258,6 +264,16 @@ export interface Transaction {
   /** Usuario que registrou/baixou o pagamento. */
   baixado_por?: string | null
   baixadoPor?: { id: string; nome: string | null } | null
+  /**
+   * Título a receber perdoado sem passar pelo banco. `pendente=false` e
+   * `banco_id=null`, igual ao título quitado por antecipação — a diferença é
+   * que aqui nenhum dinheiro entrou em lugar nenhum.
+   */
+  abonado?: boolean | null
+  abonado_por?: string | null
+  abonadoPor?: { id: string; nome: string | null } | null
+  abonado_em?: string | null
+  abono_motivo?: string | null
   /** Documento relacionado ao lançamento — nota, recibo ou comprovante. */
   documento_tipo_id?: number | null
   documento_numero?: string | null

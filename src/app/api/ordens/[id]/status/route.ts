@@ -190,7 +190,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
         }
 
         const aceitaParcelas =
-          pagamento.metodo === "CREDITO" || pagamento.metodo === "BOLETO";
+          pagamento.metodo === "CREDITO" ||
+          pagamento.metodo === "BOLETO" ||
+          pagamento.metodo === "PROMISSORIA";
         if (
           aceitaParcelas &&
           (!Number.isInteger(pagamento.parcelas) ||
@@ -198,7 +200,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
             Number(pagamento.parcelas) > 12)
         ) {
           return NextResponse.json(
-            { error: "As parcelas de Crédito ou Boleto devem estar entre 1 e 12." },
+            { error: "As parcelas de Crédito, Boleto ou Promissória devem estar entre 1 e 12." },
             { status: 400 },
           );
         }
@@ -208,10 +210,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
     if (
       parcelasPagamento !== null &&
       formaPagamento !== "CREDITO" &&
-      formaPagamento !== "BOLETO"
+      formaPagamento !== "BOLETO" &&
+      formaPagamento !== "PROMISSORIA"
     ) {
       return NextResponse.json(
-        { error: "Parcelamento disponível apenas para Crédito ou Boleto." },
+        { error: "Parcelamento disponível apenas para Crédito, Boleto ou Promissória." },
         { status: 400 },
       );
     }

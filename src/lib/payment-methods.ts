@@ -40,6 +40,9 @@ export function formatPaymentMethodLabel(value: string): string {
   if (normalized === "CREDITO") return "Crédito";
   if (normalized === "DEBITO") return "Débito";
   if (normalized === "PIX") return "Pix";
+  // "Credito Cliente", que é o que a capitalização genérica produziria, se lê
+  // como um tipo de cartão. O nome por extenso evita a confusão com "Crédito".
+  if (normalized === "CREDITO CLIENTE") return "Crédito do cliente";
   if (/^[A-Z]{2,4}$/.test(normalized)) return normalized;
 
   return normalized
