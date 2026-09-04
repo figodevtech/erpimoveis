@@ -6,6 +6,8 @@ export const revalidate = 0;
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
+  chaveComissaoDeServico,
+  comissoesConfirmadas,
   erroInterno,
   getMeUserId,
   isNextResponse,
@@ -32,6 +34,8 @@ import {
 const TETO_SERVICOS = 2000;
 
 const SELECT = `
+  ordemservicoid,
+  servicoid,
   valor_comissao,
   item:osservico!inner (
     subtotal,
@@ -71,9 +75,17 @@ export async function GET(req: Request) {
     const linhas = data ?? [];
     const totalServicos = count ?? linhas.length;
 
+    // A comissão se divide em duas leituras: a que já virou evento, e a que
+    // ainda depende de a OS andar. Somar tudo junto faz o total não bater com
+    // o que de fato foi gerado — e é o total que a pessoa confere.
+    const confirmadas = await comissoesConfirmadas(
+      linhas.map((registro) => Number((registro as Record<string, unknown>).ordemservicoid)),
+    );
+
     let valorTotal = 0;
     let valorComComissao = 0;
     let comissao = 0;
+    let comissaoConfirmada = 0;
 
     for (const registro of linhas) {
       const linha = registro as unknown as Record<string, unknown>;
@@ -85,7 +97,19 @@ export async function GET(req: Request) {
       // Sempre o que esta gravado no vinculo: em servico dividido ja e a fatia
       // desta pessoa, entao somar as linhas nao conta a comissao de ninguem duas
       // vezes.
-      comissao += num(linha.valor_comissao);
+      const daLinha = num(linha.valor_comissao);
+      comissao += daLinha;
+      if (
+        confirmadas.has(
+          chaveComissaoDeServico(
+            Number(linha.ordemservicoid),
+            Number(linha.servicoid),
+            userId,
+          ),
+        )
+      ) {
+        comissaoConfirmada += daLinha;
+      }
 
       // Serviço sem cadastro vinculado segue o default da coluna: gera comissão.
       if ((servico as { gera_comissao?: boolean } | null)?.gera_comissao !== false) {
@@ -99,6 +123,7 @@ export async function GET(req: Request) {
         valorTotal,
         valorComComissao,
         comissao,
+        comissaoConfirmada,
         parcial: totalServicos > linhas.length,
       },
       { headers: { "Cache-Control": "no-store" } },

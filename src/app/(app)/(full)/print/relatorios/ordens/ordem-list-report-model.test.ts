@@ -144,8 +144,9 @@ test("o fechamento cheio reserva duas linhas, e o enxuto continua numa", () => {
 });
 
 test("no modo de eventos o fechamento reserva sempre duas linhas", () => {
-  // As oito entradas somam 226mm numa OS comum e 248mm com valores altos,
-  // contra 176mm de folha: quebram em duas em qualquer cenário.
+  // As nove entradas somam 254mm numa OS comum e 279mm com valores altos,
+  // contra 176mm de folha: quebram em duas em qualquer cenário, e duas
+  // comportam 352mm.
   assert.equal(alturaDoFechamento(ordem(1, { budget: 8_000 }), "eventos"), MM_FECHAMENTO_DUPLO);
   assert.equal(alturaDoFechamento(ordem(2, { budget: 1_200_000 }), "eventos"), MM_FECHAMENTO_DUPLO);
   assert.notEqual(MM_FECHAMENTO_DUPLO, MM_FECHAMENTO);

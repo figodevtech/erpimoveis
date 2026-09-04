@@ -168,14 +168,20 @@ export function contarParcelasDoFechamento(ordem: OrderRow) {
  * Altura da linha de fechamento. Sai daqui e não do componente para o modelo e
  * o render nunca discordarem: quem mede e quem desenha leem a mesma conta.
  *
- * No modo de eventos são sempre oito entradas — receita e custo de produto e de
- * serviço, descontos, comissões, frete e o lucro real —, e com elas a conta
- * fecha: somando as sete com o sinal de cada uma chega-se ao lucro.
+ * No modo de eventos são sempre nove entradas — receita e custo de produto e de
+ * serviço, descontos, comissões de produto, comissões de serviço, frete e o
+ * lucro real —, e com elas a conta fecha: somando as oito com o sinal de cada
+ * uma chega-se ao lucro.
  *
- * Oito não cabem numa linha: medidas, somam 226mm numa OS comum e 248mm com
- * valores altos, contra 176mm de folha. Quebram em duas, e duas linhas medem
- * 5,66mm. Por isso o modo de eventos reserva sempre o fechamento duplo — não
- * depende do tamanho dos números, então não há caso extremo a adivinhar.
+ * Eram oito até a comissão passar a sair repartida entre produto e serviço: a
+ * comissão por criação cobra sobre os dois, e numa linha só não daria para ver
+ * de onde o valor veio.
+ *
+ * Nove não cabem numa linha: as oito de antes mediam 226mm numa OS comum e
+ * 248mm com valores altos, contra 176mm de folha, e a nona leva isso a 254mm e
+ * 279mm. Quebram em duas, que comportam 352mm e medem 5,66mm. Por isso o modo
+ * de eventos reserva sempre o fechamento duplo — não depende do tamanho dos
+ * números, então não há caso extremo a adivinhar.
  */
 export function alturaDoFechamento(ordem: OrderRow, modo: ModoDaFolha) {
   if (modo === "eventos") return MM_FECHAMENTO_DUPLO;

@@ -6,6 +6,8 @@ export const revalidate = 0;
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
+  chaveComissaoDeCriacao,
+  comissoesConfirmadas,
   erroInterno,
   getMeUserId,
   isNextResponse,
@@ -59,6 +61,7 @@ export async function GET(req: Request) {
       servicos: 0,
       servicosComComissao: 0,
       comissaoCriacao: 0,
+      comissaoCriacaoConfirmada: 0,
       total: 0,
       parcial: totalOrdens > linhas.length,
     };
@@ -75,7 +78,8 @@ export async function GET(req: Request) {
         .in("ordemservicoid", ids),
       // A comissão paga por ter aberto a ordem. Vem do snapshot, nunca de um
       // cálculo refeito aqui: é o mesmo número que o evento financeiro publica
-      // e que o financeiro lança no a pagar.
+      // e que o financeiro lança no a pagar. São várias linhas por OS — uma por
+      // item —, e o card mostra o total.
       //
       // O filtro por `usuarioid` não é redundante com o recorte das OS: o
       // criador é carimbado na primeira apuração e não acompanha troca de
@@ -83,7 +87,7 @@ export async function GET(req: Request) {
       // apurada em nome de quem a abriu.
       supabaseAdmin
         .from("os_comissao_criacao")
-        .select("valor_comissao")
+        .select("ordemservicoid, valor_comissao")
         .eq("usuarioid", userId)
         .in("ordemservicoid", ids),
     ]);
@@ -111,10 +115,21 @@ export async function GET(req: Request) {
       if (geraComissao !== false) servicosComComissao += subtotal;
     }
 
-    const comissaoCriacao = (comissaoRes.data ?? []).reduce(
-      (acc, item) => acc + num((item as Record<string, unknown>).valor_comissao),
-      0,
-    );
+    // A comissão se divide em duas leituras: a que já virou evento, e a que
+    // ainda depende de a OS andar. Somar tudo junto faz o total não bater com
+    // o que o financeiro tem a pagar — e é o total que a pessoa confere.
+    const confirmadas = await comissoesConfirmadas(ids);
+    let comissaoCriacao = 0;
+    let comissaoCriacaoConfirmada = 0;
+
+    for (const item of comissaoRes.data ?? []) {
+      const registro = item as Record<string, unknown>;
+      const valor = num(registro.valor_comissao);
+      comissaoCriacao += valor;
+      if (confirmadas.has(chaveComissaoDeCriacao(Number(registro.ordemservicoid), userId))) {
+        comissaoCriacaoConfirmada += valor;
+      }
+    }
 
     return NextResponse.json(
       {
@@ -123,6 +138,7 @@ export async function GET(req: Request) {
         servicos,
         servicosComComissao,
         comissaoCriacao,
+        comissaoCriacaoConfirmada,
         // `orcamentototal` já embute desconto e acréscimo da OS, por isso pode
         // não ser a soma exata de produtos + serviços.
         total: linhas.reduce((acc, linha) => acc + num((linha as Record<string, unknown>).orcamentototal), 0),

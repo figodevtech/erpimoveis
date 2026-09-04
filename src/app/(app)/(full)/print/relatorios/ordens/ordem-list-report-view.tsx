@@ -7,6 +7,7 @@ import { A4PdfActions } from "@/app/(app)/(full)/components/A4PdfActions";
 import { PrintDisplayOptionsMenu } from "@/app/(app)/(full)/components/PrintDisplayOptionsMenu";
 import { toast } from "@/lib/toast";
 import {
+  comissoesPorTipoDeItem,
   deducoesDaOs,
   somaOrigemNatureza,
   somarEventosDaOs,
@@ -122,14 +123,29 @@ const ROTULO_ORIGEM: Record<string, string> = {
  * sem a conta desandar. Valor zero mostra "+", só para ter um sinal.
  */
 function parcelasDasDeducoes(linhas: EventoDaOrdem[]) {
-  return deducoesDaOs(linhas).map(({ origem, valor }) => {
-    const sinal: 1 | -1 = valor < 0 ? -1 : 1;
-    return {
-      chave: `origem-${origem}`,
-      label: ROTULO_ORIGEM[origem] ?? origem,
-      valor,
-      sinal,
-    };
+  const comissoes = comissoesPorTipoDeItem(linhas);
+
+  return deducoesDaOs(linhas).flatMap(({ origem, valor }) => {
+    // A comissão sai em duas parcelas: a que veio dos produtos e a dos
+    // serviços. Numa linha só, uma OS com comissão por criação não deixaria ver
+    // de onde o valor saiu — e o líquido de produtos, no painel, já separa.
+    if (origem === "COMISSAO") {
+      // Comissão só abate: zerada, sai "− R$ 0,00" e não "+". As outras origens
+      // mantêm o sinal derivado do líquido, porque frete vai nos dois sentidos.
+      return [
+        { chave: "origem-COMISSAO-PRODUTOS", label: "Comissões produtos", valor: comissoes.produtos },
+        { chave: "origem-COMISSAO-SERVICOS", label: "Comissões serviços", valor: comissoes.servicos },
+      ].map((parcela) => ({ ...parcela, sinal: (parcela.valor > 0 ? 1 : -1) as 1 | -1 }));
+    }
+
+    return [
+      {
+        chave: `origem-${origem}`,
+        label: ROTULO_ORIGEM[origem] ?? origem,
+        valor,
+        sinal: (valor < 0 ? -1 : 1) as 1 | -1,
+      },
+    ];
   });
 }
 
@@ -226,6 +242,8 @@ type EventoDaOrdem = {
   descricao: string;
   detalhe: string;
   valor: number;
+  /** Quanto desta comissão veio de produto. Zero na de serviço. */
+  comissaoProdutos: number;
 };
 
 type CardFechamento = {
@@ -381,6 +399,11 @@ export function OrdemListReportView({
               descricao: String(abaEventos!.read(row, "Descrição") ?? "").trim(),
               detalhe: String(abaEventos!.read(row, "Detalhe") ?? "").trim(),
               valor: number(abaEventos!.read(row, "Valor (R$)")),
+              // Planilha de antes desta coluna devolve indefinido: `number`
+              // resolve para zero, e a comissão inteira volta a contar como
+              // serviço — que era o comportamento correto quando só existia a
+              // comissão de realização.
+              comissaoProdutos: number(abaEventos!.read(row, "Comissão de produtos (R$)")),
             });
             agrupados.set(osId, lista);
           });
@@ -1064,11 +1087,15 @@ function cardsDoResultado(
   totais: TotaisDosEventos,
   eventos: EventoDaOrdem[],
 ): CardFechamento[][] {
-  const liquidoProdutos = totais.receitaProdutos - totais.despesaProdutos;
+  // A comissão se reparte entre os dois blocos: a de realização é mão de obra
+  // do serviço, e a de criação cobra também sobre os produtos vendidos. Somar
+  // tudo em serviços inflava o líquido de produtos e afundava o de serviços na
+  // mesma medida — com o lucro real certo, que é o jeito mais difícil de notar.
+  const comissoes = comissoesPorTipoDeItem(eventos);
+  const liquidoProdutos = totais.receitaProdutos - totais.despesaProdutos + comissoes.produtos;
 
   const deducoes = deducoesDaOs(eventos);
-  const comissoes = deducoes.find((deducao) => deducao.origem === "COMISSAO")?.valor ?? 0;
-  const liquidoServicos = totais.receitaServicos - totais.despesaServicos + comissoes;
+  const liquidoServicos = totais.receitaServicos - totais.despesaServicos + comissoes.servicos;
 
   const freteReceita = somaOrigemNatureza(eventos, "FRETE", "RECEITA");
   const freteDespesa = somaOrigemNatureza(eventos, "FRETE", "DESPESA");
@@ -1080,6 +1107,18 @@ function cardsDoResultado(
   const tom = (valor: number) => (valor < 0 ? TOM_SUBTRACAO : TOM_SOMA);
   const sinalDe = (valor: number): 1 | -1 => (valor < 0 ? -1 : 1);
 
+  /*
+   * Comissão só abate — e zerada precisa continuar dizendo isso.
+   *
+   * `sinalDe`/`tom` tratam zero como soma, o que serve para frete e para as
+   * outras deduções, que podem ir nos dois sentidos. Comissão nunca é receita:
+   * com o par genérico, uma comissão em R$ 0,00 saía em verde e com "+", como
+   * se somasse à receita de produtos. É o número que o relatório mais mostra
+   * hoje, porque a comissão de criação só existe depois de a migração rodar.
+   */
+  const sinalDoAbatimento = (valor: number): 1 | -1 => (valor > 0 ? 1 : -1);
+  const tomDoAbatimento = (valor: number) => (valor > 0 ? TOM_SOMA : TOM_SUBTRACAO);
+
   return [
     [
       { chave: "ordens", label: "Ordens no recorte", value: String(quantasOrdens), valor: quantasOrdens },
@@ -1089,12 +1128,13 @@ function cardsDoResultado(
     [
       { chave: "receitaProdutos", label: "+ Receita de produtos", value: signedMoney(totais.receitaProdutos, 1), tone: TOM_SOMA, valor: totais.receitaProdutos },
       { chave: "custoProdutos", label: "− Custo de produtos", value: signedMoney(totais.despesaProdutos, -1), tone: TOM_SUBTRACAO, valor: totais.despesaProdutos },
+      { chave: "comissoesProdutos", label: `${sinalDoAbatimento(comissoes.produtos) < 0 ? "−" : "+"} Comissões de produtos`, value: signedMoney(comissoes.produtos, sinalDoAbatimento(comissoes.produtos)), tone: tomDoAbatimento(comissoes.produtos), valor: comissoes.produtos },
       { chave: "liquidoProdutos", label: "= Líquido de produtos", value: money(liquidoProdutos), tone: tom(liquidoProdutos), valor: liquidoProdutos },
     ],
     [
       { chave: "receitaServicos", label: "+ Receita de serviços", value: signedMoney(totais.receitaServicos, 1), tone: TOM_SOMA, valor: totais.receitaServicos },
       { chave: "custoServicos", label: "− Custo de serviços", value: signedMoney(totais.despesaServicos, -1), tone: TOM_SUBTRACAO, valor: totais.despesaServicos },
-      { chave: "comissoes", label: `${sinalDe(comissoes) < 0 ? "−" : "+"} Comissões`, value: signedMoney(comissoes, sinalDe(comissoes)), tone: tom(comissoes), valor: comissoes },
+      { chave: "comissoes", label: `${sinalDoAbatimento(comissoes.servicos) < 0 ? "−" : "+"} Comissões de serviços`, value: signedMoney(comissoes.servicos, sinalDoAbatimento(comissoes.servicos)), tone: tomDoAbatimento(comissoes.servicos), valor: comissoes.servicos },
       { chave: "liquidoServicos", label: "= Líquido de serviços", value: money(liquidoServicos), tone: tom(liquidoServicos), valor: liquidoServicos },
     ],
     [

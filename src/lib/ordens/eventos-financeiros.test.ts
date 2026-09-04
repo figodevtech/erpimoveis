@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  comissoesPorTipoDeItem,
   deducoesDaOs,
   eventosAtivos,
   margemDoLucro,
@@ -28,15 +29,44 @@ function evento(valores: Partial<EventoFinanceiroOs> & { id: number }): EventoFi
 
 const chaves = (eventos: EventoFinanceiroOs[]) => eventos.map((item) => item.id);
 
-test("no produto o custo vem antes da venda; no serviço a receita vem antes do custo", () => {
+test("a receita abre o bloco e as despesas vêm sob ela, em produto e em serviço", () => {
   const eventos = [
-    evento({ id: 1, origem: "PRODUTO", natureza: "RECEITA", produtoid: 7 }),
-    evento({ id: 2, origem: "PRODUTO", natureza: "DESPESA", produtoid: 7 }),
+    evento({ id: 1, origem: "PRODUTO", natureza: "DESPESA", produtoid: 7 }),
+    evento({ id: 2, origem: "PRODUTO", natureza: "RECEITA", produtoid: 7 }),
     evento({ id: 3, origem: "SERVICO", natureza: "DESPESA", servicoid: 4 }),
     evento({ id: 4, origem: "SERVICO", natureza: "RECEITA", servicoid: 4 }),
   ];
 
   assert.deepEqual(chaves(ordenarEventosDaOs(eventos)), [2, 1, 4, 3]);
+});
+
+test("a comissão de um produto fecha o bloco daquele produto", () => {
+  const eventos = [
+    evento({ id: 1, origem: "SERVICO", natureza: "RECEITA", servicoid: 4 }),
+    evento({ id: 2, origem: "COMISSAO", natureza: "DESPESA", produtoid: 7 }),
+    evento({ id: 3, origem: "PRODUTO", natureza: "RECEITA", produtoid: 7 }),
+    evento({ id: 4, origem: "PRODUTO", natureza: "DESPESA", produtoid: 7 }),
+  ];
+
+  // Produto: receita, custo, comissão. Depois o serviço.
+  assert.deepEqual(chaves(ordenarEventosDaOs(eventos)), [3, 4, 2, 1]);
+});
+
+test("a comissão de um produto avulso encontra a receita dele pela chave", () => {
+  const eventos = [
+    evento({
+      id: 1,
+      origem: "COMISSAO",
+      natureza: "DESPESA",
+      chave_origem: "CRIACAO:ccb0ca64-a5d8-4652-9e11-295282185021:A88",
+    }),
+    evento({ id: 2, origem: "PRODUTO", natureza: "RECEITA", chave_origem: "AVULSO:88" }),
+    evento({ id: 3, origem: "SERVICO", natureza: "RECEITA", servicoid: 4 }),
+  ];
+
+  // Avulso não tem produtoid: sem o vínculo pela chave, a comissão viraria um
+  // grupo de serviço inexistente e apareceria solta no fim da lista.
+  assert.deepEqual(chaves(ordenarEventosDaOs(eventos)), [2, 1, 3]);
 });
 
 test("produto vem antes de serviço, e o avulso fecha a lista", () => {
@@ -352,4 +382,82 @@ test("mover comissão para o bloco de serviços e separar o frete em bruto conti
     freteDespesa;
 
   assert.equal(somaDoPainel, totais.lucroReal);
+});
+
+test("comissão sem rateio conta inteira como serviço", () => {
+  const eventos = [
+    evento({ id: 1, origem: "COMISSAO", natureza: "DESPESA", valor: 50 }),
+    evento({ id: 2, origem: "COMISSAO", natureza: "DESPESA", valor: 30 }),
+  ];
+
+  assert.deepEqual(comissoesPorTipoDeItem(eventos), { produtos: 0, servicos: -80 });
+});
+
+test("comissão por item cai inteira no lado do seu item", () => {
+  const eventos = [
+    // 1% de 1080 em serviços + 0,5% de 450 em produtos.
+    { ...evento({ id: 1, origem: "COMISSAO", natureza: "DESPESA", valor: 13.05 }), comissaoProdutos: 2.25 },
+    // Realização, sem rateio.
+    evento({ id: 2, origem: "COMISSAO", natureza: "DESPESA", valor: 22.5 }),
+  ];
+
+  const comissoes = comissoesPorTipoDeItem(eventos);
+  assert.equal(comissoes.produtos, -2.25);
+  assert.equal(comissoes.servicos, -33.3); // 10,80 da criação + 22,50 da realização
+  assert.equal(comissoes.produtos + comissoes.servicos, -35.55);
+});
+
+test("comissão de produto corrigida à mão continua inteira em produtos", () => {
+  // Comissão por item: o evento é de um produto só, então a correção manual
+  // não muda de que lado ele conta — muda só o quanto.
+  const eventos = [
+    { ...evento({ id: 1, origem: "COMISSAO", natureza: "DESPESA", valor: 8 }), comissaoProdutos: 8 },
+  ];
+
+  const comissoes = comissoesPorTipoDeItem(eventos);
+  assert.equal(comissoes.produtos, -8);
+  assert.equal(comissoes.servicos, 0);
+});
+
+test("evento antigo que somava produto e serviço reparte na proporção", () => {
+  // Anterior a 20260904150000: um evento de criação cobria os dois. A migration
+  // cancela os que ainda estavam ativos, mas um já CONVERTIDO sobrevive — e a
+  // conta precisa continuar fechando para ele.
+  const eventos = [
+    { ...evento({ id: 1, origem: "COMISSAO", natureza: "DESPESA", valor: 13.05 }), comissaoProdutos: 2.25 },
+  ];
+
+  const comissoes = comissoesPorTipoDeItem(eventos);
+  assert.equal(comissoes.produtos, -2.25);
+  assert.equal(comissoes.servicos, -10.8);
+  assert.equal(comissoes.produtos + comissoes.servicos, -13.05);
+});
+
+test("comissão zerada não reparte nem inventa produto", () => {
+  const eventos = [
+    { ...evento({ id: 1, origem: "COMISSAO", natureza: "DESPESA", valor: 0 }), comissaoProdutos: 5 },
+  ];
+
+  assert.deepEqual(comissoesPorTipoDeItem(eventos), { produtos: 0, servicos: 0 });
+});
+
+test("o rateio da comissão fecha com o lucro real do painel", () => {
+  const eventos = [
+    evento({ id: 1, origem: "PRODUTO", natureza: "RECEITA", valor: 500 }),
+    evento({ id: 2, origem: "PRODUTO", natureza: "DESPESA", valor: 300 }),
+    evento({ id: 3, origem: "SERVICO", natureza: "RECEITA", valor: 1000 }),
+    evento({ id: 4, origem: "SERVICO", natureza: "DESPESA", valor: 100 }),
+    { ...evento({ id: 5, origem: "COMISSAO", natureza: "DESPESA", valor: 13.05 }), comissaoProdutos: 2.25 },
+    evento({ id: 6, origem: "COMISSAO", natureza: "DESPESA", valor: 22.5 }),
+  ];
+
+  const totais = somarEventosDaOs(eventos);
+  const comissoes = comissoesPorTipoDeItem(eventos);
+
+  const liquidoProdutos = totais.receitaProdutos - totais.despesaProdutos + comissoes.produtos;
+  const liquidoServicos = totais.receitaServicos - totais.despesaServicos + comissoes.servicos;
+
+  // Cancelado fica de fora dos dois lados, então a soma dos blocos e o lucro
+  // real continuam sendo o mesmo numero.
+  assert.equal(liquidoProdutos + liquidoServicos, totais.lucroReal);
 });

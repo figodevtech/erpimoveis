@@ -6,6 +6,8 @@ export const revalidate = 0;
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
+  chaveComissaoDeServico,
+  comissoesConfirmadas,
   erroInterno,
   getMeUserId,
   isNextResponse,
@@ -118,6 +120,10 @@ export async function GET(req: Request) {
       Number.isFinite,
     );
 
+    // Quais dessas comissões já existem como evento, e quais ainda são
+    // projeção do orçamento. Uma consulta para a página inteira.
+    const confirmadas = await comissoesConfirmadas(idsDeOs);
+
     const porServico = new Map<string, Array<Record<string, unknown>>>();
     if (idsDeOs.length) {
       const { data: vinculos, error: erroVinculos } = await supabaseAdmin
@@ -161,6 +167,14 @@ export async function GET(req: Request) {
         // O que este realizador ganhou nesta linha, como esta gravado.
         valorBase: num(linha.valor_base),
         valorComissao: num(linha.valor_comissao),
+        // A comissao ja existe como evento, ou ainda e projecao do orcamento?
+        comissaoConfirmada: confirmadas.has(
+          chaveComissaoDeServico(
+            Number(linha.ordemservicoid),
+            Number(linha.servicoid),
+            userId,
+          ),
+        ),
         realizadores: (porServico.get(`${linha.ordemservicoid}::${linha.servicoid}`) ?? []).map((vinculo) => {
           const usuario = primeiro(vinculo.usuario);
           return {
