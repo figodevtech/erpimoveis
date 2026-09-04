@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { retryMercadoLivreNotifications, syncMercadoLivreMissedFeeds } from "@/lib/integrations/mercadolivre-notifications";
+import { retryMercadoLivreNotifications } from "@/lib/integrations/mercadolivre-notifications";
 import { syncMercadoLivreOrders } from "@/lib/integrations/mercadolivre-orders";
 import {
   syncMercadoLivreListingMetricsHistory,
@@ -32,7 +32,6 @@ export async function GET(req: NextRequest) {
 
     runId = await startSyncRun(req);
 
-    const missedFeeds = await syncMercadoLivreMissedFeeds();
     const notifications = await retryMercadoLivreNotifications(30);
     const orders = await syncMercadoLivreOrders({ days: 2, limit: 50 });
     const items = await syncMercadoLivreProductLinks();
@@ -48,7 +47,6 @@ export async function GET(req: NextRequest) {
       ok: true,
       created,
       orders: summarize(orders),
-      missedFeeds: summarize(missedFeeds),
       notifications: summarize(notifications),
       items: summarize(items, "sync_error"),
       shipments: summarize(shipments),

@@ -46,61 +46,6 @@ export async function receiveMercadoLivreNotification(payload: NotificationPaylo
   return { duplicate: notification.duplicate, queued: true, notificationId: notification.id };
 }
 
-export async function syncMercadoLivreMissedFeeds(params?: { pageSize?: number; maxPages?: number }) {
-  const applicationId = String(process.env.MERCADOLIVRE_CLIENT_ID ?? "").trim();
-  if (!applicationId) throw new Error("MERCADOLIVRE_CLIENT_ID ausente para consultar notificações perdidas.");
-
-  const { data: accounts, error } = await supabaseAdmin
-    .from("mercadolivre_account")
-    .select("id, empresa_id, ml_user_id, access_token, refresh_token, expires_at")
-    .order("updated_at", { ascending: false });
-  if (error) throw error;
-
-  const knownUserIds = new Set((accounts ?? []).map((account) => Number(account.ml_user_id)).filter(Number.isFinite));
-  const pageSize = Math.min(Math.max(params?.pageSize ?? 50, 1), 100);
-  const maxPages = Math.min(Math.max(params?.maxPages ?? 20, 1), 100);
-  const results: Array<{ accountId: number; notificationId?: number; duplicate?: boolean; skipped?: string; error?: string }> = [];
-
-  for (const storedAccount of (accounts ?? []) as Account[]) {
-    try {
-      const accessToken = await ensureValidAccessToken(storedAccount);
-      let offset = 0;
-
-      for (let pageNumber = 0; pageNumber < maxPages; pageNumber += 1) {
-        const params = new URLSearchParams({ app_id: applicationId, offset: String(offset), limit: String(pageSize) });
-        const response = await mercadoLivreApiGet<{ messages?: unknown[] }>(accessToken, `/missed_feeds?${params.toString()}`);
-        const messages = Array.isArray(response.messages) ? response.messages : [];
-
-        for (const rawMessage of messages) {
-          const payload = normalizeMissedFeedPayload(rawMessage);
-          const mlUserId = toNullableNumber(payload?.user_id);
-          if (!payload || !mlUserId || !knownUserIds.has(mlUserId)) {
-            results.push({ accountId: storedAccount.id, skipped: "Notificação perdida sem conta vinculada neste ERP." });
-            continue;
-          }
-
-          const queued = await receiveMercadoLivreNotification(payload);
-          results.push({
-            accountId: storedAccount.id,
-            notificationId: Number(queued.notificationId),
-            duplicate: queued.duplicate,
-          });
-        }
-
-        if (messages.length < pageSize) break;
-        offset += messages.length;
-      }
-
-      // O feed é da aplicação; após uma consulta bem-sucedida, outra conta retornaria os mesmos eventos.
-      break;
-    } catch (feedError: any) {
-      results.push({ accountId: storedAccount.id, error: feedError?.message || "Falha ao consultar notificações perdidas." });
-    }
-  }
-
-  return results;
-}
-
 export async function retryMercadoLivreNotifications(limit = 50) {
   await requeueSupportedIgnoredNotifications();
   await ignoreOrphanedNotifications();
@@ -571,25 +516,6 @@ function buildDedupeKey(payload: NotificationPayload) {
   const eventMarker = payload.sent || payload.received || JSON.stringify(payload);
   const source = [payload.topic, payload.resource, payload.user_id, payload.application_id, eventMarker].map((value) => String(value ?? "")).join("|");
   return createHash("sha256").update(source).digest("hex");
-}
-
-function normalizeMissedFeedPayload(value: unknown): NotificationPayload | null {
-  if (!value || typeof value !== "object") return null;
-  const message = value as Record<string, unknown>;
-  let embedded: Record<string, unknown> = {};
-
-  if (typeof message.data === "string") {
-    try {
-      const parsed = JSON.parse(message.data);
-      if (parsed && typeof parsed === "object") embedded = parsed as Record<string, unknown>;
-    } catch {
-      embedded = {};
-    }
-  } else if (message.data && typeof message.data === "object") {
-    embedded = message.data as Record<string, unknown>;
-  }
-
-  return { ...message, ...embedded } as NotificationPayload;
 }
 
 function extractResourceId(resource: string) {
