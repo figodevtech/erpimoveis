@@ -42,9 +42,18 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json().catch(() => ({}));
 
+    // A OS é opcional: o painel da própria OS a informa e continua preso a ela,
+    // mas a lista do financeiro atravessa ordens — o boleto do terceirizado que
+    // cobra os serviços de três carros de uma vez. Sem ela, a ordem de cada
+    // despesa vem do próprio evento, e é o servidor quem descobre se são uma ou
+    // várias. Mesma regra na RPC.
+    const ordemServicoInformada = body?.ordemServicoId != null;
     const ordemServicoId = Number(body?.ordemServicoId);
-    if (!Number.isSafeInteger(ordemServicoId) || ordemServicoId <= 0) {
-      return NextResponse.json({ error: "Informe a ordem de serviço." }, { status: 400 });
+    if (
+      ordemServicoInformada
+      && (!Number.isSafeInteger(ordemServicoId) || ordemServicoId <= 0)
+    ) {
+      return NextResponse.json({ error: "A ordem de serviço informada é inválida." }, { status: 400 });
     }
 
     const eventosIds = [
@@ -90,8 +99,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    /** Despesa de OS: evento sem ordem (entrada fiscal, transação avulsa) não entra aqui. */
+    const foraDaOs = (evento: any) =>
+      ordemServicoInformada
+        ? Number(evento.ordemservicoid) !== ordemServicoId
+        : evento.ordemservicoid == null;
+
     const problema = (eventos ?? []).find((evento: any) => {
-      if (Number(evento.ordemservicoid) !== ordemServicoId) return true;
+      if (foraDaOs(evento)) return true;
       if (String(evento.natureza) !== "DESPESA") return true;
       if (String(evento.status) !== "ATIVO") return true;
       if (evento.transacaoid != null || evento.lancamento_id != null) return true;
@@ -101,8 +116,10 @@ export async function POST(req: NextRequest) {
 
     if (problema) {
       const motivo =
-        Number(problema.ordemservicoid) !== ordemServicoId
-          ? "não pertence a esta OS"
+        foraDaOs(problema)
+          ? ordemServicoInformada
+            ? "não pertence a esta OS"
+            : "não pertence a nenhuma OS"
           : String(problema.natureza) !== "DESPESA"
             ? "não é uma despesa"
             : problema.pode_gerar_transacao !== true
@@ -191,7 +208,7 @@ export async function POST(req: NextRequest) {
 
     const { data, error } = await supabaseAdmin.rpc("registrar_lancamento_de_eventos", {
       p_payload: {
-        ordemservicoid: ordemServicoId,
+        ordemservicoid: ordemServicoInformada ? ordemServicoId : null,
         eventos_ids: eventosIds,
         descricao: String(body?.descricao ?? "").trim() || null,
         data: paraDia(body?.data) ?? new Date().toISOString(),

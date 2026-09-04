@@ -1,7 +1,7 @@
 // src/app/(app)/(pages)/meu-perfil/components/indicadores-ordens.tsx
 "use client";
 
-import { Package, Percent, Sigma, Wrench } from "lucide-react";
+import { HandCoins, Package, Percent, Sigma, Wrench } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { motion } from "motion/react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -23,6 +23,21 @@ type Tile = {
 
 function montar(dados: IndicadoresOrdens): Tile[] {
   return [
+    // Só aparece para quem de fato recebe por criação. Um tile de R$ 0,00 na
+    // tela de todo mundo que abre OS sugeriria um pagamento que não existe —
+    // mesma razão pela qual o badge "Comissão" só marca o caso positivo.
+    ...(dados.comissaoCriacao > 0
+      ? [
+          {
+            chave: "comissao-criacao",
+            rotulo: "Comissão por criação",
+            icone: HandCoins,
+            valor: dados.comissaoCriacao,
+            tom: "text-emerald-600 dark:text-emerald-400",
+            nota: "O que você recebe por ter aberto estas ordens, sobre os serviços e produtos delas — independente de quem executou. Sai do valor já com o desconto da OS.",
+          } satisfies Tile,
+        ]
+      : []),
     {
       chave: "produtos",
       rotulo: "Produtos",
@@ -56,7 +71,9 @@ function montar(dados: IndicadoresOrdens): Tile[] {
   ];
 }
 
-const GRADE = "grid grid-cols-2 gap-2 xl:grid-cols-4";
+/** Cinco tiles quando ha comissao de criacao; quatro no caso comum. */
+const grade = (tiles: number) =>
+  `grid grid-cols-2 gap-2 ${tiles > 4 ? "xl:grid-cols-5" : "xl:grid-cols-4"}`;
 
 export function IndicadoresDeOrdens({
   dados,
@@ -67,7 +84,7 @@ export function IndicadoresDeOrdens({
 }) {
   if (!dados) {
     return (
-      <div className={GRADE}>
+      <div className={grade(4)}>
         {Array.from({ length: 4 }).map((_, indice) => (
           <div key={indice} className="rounded-lg border bg-card p-3">
             <Skeleton className="mb-2 h-3 w-24" />
@@ -78,15 +95,17 @@ export function IndicadoresDeOrdens({
     );
   }
 
+  const tiles = montar(dados);
+
   return (
     <motion.div
-      className={GRADE}
+      className={grade(tiles.length)}
       variants={containerDeLinhas}
       initial="oculto"
       animate="visivel"
       aria-busy={carregando}
     >
-      {montar(dados).map((tile) => {
+      {tiles.map((tile) => {
         const Icone = tile.icone;
 
         const conteudo = (

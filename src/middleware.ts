@@ -134,6 +134,7 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
   { prefix: "/fluxodecaixa", perm: PERMS.FINANCEIRO },
   { prefix: "/pagamentodeordens", perm: PERMS.FINANCEIRO },
   { prefix: "/pagamentodevendas", perm: PERMS.FINANCEIRO },
+  { prefix: "/eventos-financeiros", perm: PERMS.FINANCEIRO },
   { prefix: "/fiscal", perm: PERMS.FINANCEIRO_NOTAS_FISCAIS },
 
   { prefix: "/historicovendas", perm: PERMS.VENDAS },
@@ -176,6 +177,10 @@ const API_ACTION_PERMS: Array<{
   { prefix: "/api/veiculos", read: PERMS.VEICULOS, create: PERMS.VEICULOS_CRIAR, edit: PERMS.VEICULOS_EDITAR, delete: PERMS.VEICULOS_EXCLUIR },
   { prefix: "/api/venda", read: PERMS.VENDAS, create: PERMS.VENDAS_CRIAR, edit: PERMS.VENDAS_EDITAR, delete: PERMS.VENDAS_EXCLUIR },
   { prefix: "/api/transaction", read: PERMS.FINANCEIRO, create: PERMS.FINANCEIRO_CRIAR, edit: PERMS.FINANCEIRO_EDITAR, delete: PERMS.FINANCEIRO_EXCLUIR },
+  // A lista global de eventos financeiros de OS. As mesmas ações do painel da
+  // ordem, mas sob permissão do financeiro: quem lança o pagamento no caixa não
+  // precisa de acesso de edição à ordem inteira para corrigir uma despesa.
+  { prefix: "/api/eventos-financeiros", read: PERMS.FINANCEIRO, create: PERMS.FINANCEIRO_CRIAR, edit: PERMS.FINANCEIRO_EDITAR, delete: PERMS.FINANCEIRO_EXCLUIR },
   { prefix: "/api/pagamentos", read: PERMS.FINANCEIRO, create: PERMS.FINANCEIRO_CRIAR, edit: PERMS.FINANCEIRO_EDITAR, delete: PERMS.FINANCEIRO_EXCLUIR },
   { prefix: "/api/banks", read: PERMS.FINANCEIRO, create: PERMS.FINANCEIRO_CRIAR, edit: PERMS.FINANCEIRO_EDITAR, delete: PERMS.FINANCEIRO_EXCLUIR },
   { prefix: "/api/users", read: PERMS.USUARIOS, create: PERMS.USUARIOS_CRIAR, edit: PERMS.USUARIOS_EDITAR, delete: PERMS.USUARIOS_EXCLUIR },

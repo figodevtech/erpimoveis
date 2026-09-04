@@ -94,6 +94,17 @@ export type TotaisDosEventos = {
 /** Só o que a conta usa: quem tem os quatro campos pode somar. */
 export type EventoSomavel = Pick<EventoFinanceiroOs, "origem" | "natureza" | "status" | "valor">;
 
+export type OrdemComEventosSomaveis = {
+  status: string;
+  eventos: EventoSomavel[];
+};
+
+export type LucroRealDeStatus = {
+  status: string;
+  quantidadeOrdens: number;
+  lucroReal: number;
+};
+
 /**
  * Os totais do painel.
  *
@@ -132,6 +143,31 @@ export function somarEventosDaOs(eventos: EventoSomavel[]): TotaisDosEventos {
 
   totais.lucroReal = totais.receita - totais.despesa;
   return totais;
+}
+
+/**
+ * Divide o mesmo lucro real do painel pelas situações atuais das OS.
+ *
+ * A unidade de agrupamento é a ordem, não o evento: todos os lançamentos da
+ * OS acompanham o status dela. Isso permite separar o resultado que já está
+ * em `CONCLUIDO` do que ainda está em `PAGAMENTO`, sem inventar uma segunda
+ * fórmula de lucro. OS sem evento continuam na contagem e contribuem com zero.
+ */
+export function somarLucroRealPorStatus(ordens: OrdemComEventosSomaveis[]): LucroRealDeStatus[] {
+  const porStatus = new Map<string, LucroRealDeStatus>();
+
+  for (const ordem of ordens) {
+    const atual = porStatus.get(ordem.status) ?? {
+      status: ordem.status,
+      quantidadeOrdens: 0,
+      lucroReal: 0,
+    };
+    atual.quantidadeOrdens += 1;
+    atual.lucroReal += somarEventosDaOs(ordem.eventos).lucroReal;
+    porStatus.set(ordem.status, atual);
+  }
+
+  return [...porStatus.values()];
 }
 
 /**

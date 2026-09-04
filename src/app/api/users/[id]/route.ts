@@ -113,6 +113,9 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
       comissao_venda,
       comissaoPercent,
       comissao,
+      comissao_criacao_servico_percent: comissaoCriacaoServicoRaw,
+      comissao_criacao_produto_percent: comissaoCriacaoProdutoRaw,
+      comissao_criacao_somente_comissionaveis: comissaoCriacaoSomenteRaw,
       data_admissao: admissaoRaw,
       dataAdmissao,
       data_demissao: demissaoRaw,
@@ -182,6 +185,10 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
     const comissao_venda_percent = parseNumberOrNull(
       comissaoVendaRaw ?? comissaoVendaPercent ?? comissao_venda
     );
+    // Comissão por criação de OS: paga a quem abre a ordem, sobre o que ela
+    // contém. Independente da de realização (`comissao_percent`).
+    const comissao_criacao_servico_percent = parseNumberOrNull(comissaoCriacaoServicoRaw);
+    const comissao_criacao_produto_percent = parseNumberOrNull(comissaoCriacaoProdutoRaw);
     const data_admissao = parseDateOrNull(admissaoRaw ?? dataAdmissao);
     const data_demissao = parseDateOrNull(demissaoRaw ?? dataDemissao);
 
@@ -195,6 +202,20 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
       (comissao_venda_percent < 0 || comissao_venda_percent > 100)
     ) {
       throw new Error("Comissão de venda deve estar entre 0 e 100.");
+    }
+
+    if (
+      comissao_criacao_servico_percent != null &&
+      (comissao_criacao_servico_percent < 0 || comissao_criacao_servico_percent > 100)
+    ) {
+      throw new Error("Comissão de criação sobre serviços deve estar entre 0 e 100.");
+    }
+
+    if (
+      comissao_criacao_produto_percent != null &&
+      (comissao_criacao_produto_percent < 0 || comissao_criacao_produto_percent > 100)
+    ) {
+      throw new Error("Comissão de criação sobre produtos deve estar entre 0 e 100.");
     }
 
     // 5) update usuario
@@ -221,6 +242,15 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
       typeof comissao_venda !== "undefined"
     ) {
       updatePayload.comissao_venda_percent = comissao_venda_percent;
+    }
+    if (typeof comissaoCriacaoServicoRaw !== "undefined") {
+      updatePayload.comissao_criacao_servico_percent = comissao_criacao_servico_percent;
+    }
+    if (typeof comissaoCriacaoProdutoRaw !== "undefined") {
+      updatePayload.comissao_criacao_produto_percent = comissao_criacao_produto_percent;
+    }
+    if (typeof comissaoCriacaoSomenteRaw !== "undefined") {
+      updatePayload.comissao_criacao_somente_comissionaveis = comissaoCriacaoSomenteRaw === true;
     }
     if (typeof admissaoRaw !== "undefined" || typeof dataAdmissao !== "undefined")
       updatePayload.data_admissao = data_admissao;

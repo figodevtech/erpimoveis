@@ -46,6 +46,9 @@ async function carregarUsuarios(opts?: { onlyActive?: boolean; q?: string }) {
         "salario",
         "comissao_percent",
         "comissao_venda_percent",
+        "comissao_criacao_servico_percent",
+        "comissao_criacao_produto_percent",
+        "comissao_criacao_somente_comissionaveis",
         "data_admissao",
         "data_demissao",
         "perfil:perfilid(id,nome)",
@@ -77,6 +80,9 @@ async function carregarUsuarios(opts?: { onlyActive?: boolean; q?: string }) {
     salario: u.salario as number | null,
     comissao_percent: u.comissao_percent as number | null,
     comissao_venda_percent: u.comissao_venda_percent as number | null,
+    comissao_criacao_servico_percent: u.comissao_criacao_servico_percent as number | null,
+    comissao_criacao_produto_percent: u.comissao_criacao_produto_percent as number | null,
+    comissao_criacao_somente_comissionaveis: u.comissao_criacao_somente_comissionaveis === true,
     data_admissao: u.data_admissao as string | null,
     data_demissao: u.data_demissao as string | null,
 
@@ -136,6 +142,17 @@ export async function POST(req: Request) {
     const comissao_venda_percent = parseNumberOrNull(
       body.comissao_venda_percent ?? body.comissaoVendaPercent ?? body.comissao_venda
     );
+    // Comissão por criação de OS: paga a quem abre a ordem, sobre o que ela
+    // contém. Independente da de realização (`comissao_percent`).
+    const comissao_criacao_servico_percent = parseNumberOrNull(
+      body.comissao_criacao_servico_percent ?? body.comissaoCriacaoServicoPercent
+    );
+    const comissao_criacao_produto_percent = parseNumberOrNull(
+      body.comissao_criacao_produto_percent ?? body.comissaoCriacaoProdutoPercent
+    );
+    const comissao_criacao_somente_comissionaveis =
+      (body.comissao_criacao_somente_comissionaveis ??
+        body.comissaoCriacaoSomenteComissionaveis) === true;
     const data_admissao = parseDateOrNull(body.data_admissao ?? body.dataAdmissao);
     const data_demissao = parseDateOrNull(body.data_demissao ?? body.dataDemissao);
 
@@ -175,6 +192,20 @@ export async function POST(req: Request) {
       (comissao_venda_percent < 0 || comissao_venda_percent > 100)
     ) {
       throw new Error("Comissão de venda deve estar entre 0 e 100.");
+    }
+
+    if (
+      comissao_criacao_servico_percent != null &&
+      (comissao_criacao_servico_percent < 0 || comissao_criacao_servico_percent > 100)
+    ) {
+      throw new Error("Comissão de criação sobre serviços deve estar entre 0 e 100.");
+    }
+
+    if (
+      comissao_criacao_produto_percent != null &&
+      (comissao_criacao_produto_percent < 0 || comissao_criacao_produto_percent > 100)
+    ) {
+      throw new Error("Comissão de criação sobre produtos deve estar entre 0 e 100.");
     }
 
     let resolvedPerfilId: number | null = null;
@@ -232,6 +263,9 @@ export async function POST(req: Request) {
         salario,
         comissao_percent,
         comissao_venda_percent,
+        comissao_criacao_servico_percent,
+        comissao_criacao_produto_percent,
+        comissao_criacao_somente_comissionaveis,
         data_admissao,
         data_demissao,
         created_by: actorId,

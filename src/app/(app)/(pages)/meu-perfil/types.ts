@@ -86,6 +86,8 @@ export type MinhaOrdem = {
   veiculo: { id: number; placa: string | null; modelo: string | null; marca: string | null } | null;
   produtos: ItemOrdem[];
   servicos: ItemOrdem[];
+  /** O que coube a quem abriu esta OS. Zero quando não há comissão de criação. */
+  comissaoCriacao: number;
 };
 
 /**
@@ -112,6 +114,8 @@ export type IndicadoresOrdens = {
   produtos: number;
   servicos: number;
   servicosComComissao: number;
+  /** O que coube a quem abriu a ordem. Zero quando o usuário não recebe por criação. */
+  comissaoCriacao: number;
   total: number;
   parcial: boolean;
 };

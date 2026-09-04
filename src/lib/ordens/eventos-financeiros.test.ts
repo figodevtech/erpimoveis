@@ -9,6 +9,7 @@ import {
   outrasOrigensDaOs,
   somaOrigemNatureza,
   somarEventosDaOs,
+  somarLucroRealPorStatus,
   type EventoFinanceiroOs,
 } from "./eventos-financeiros";
 
@@ -96,6 +97,46 @@ test("evento cancelado não conta; convertido conta", () => {
 
   assert.deepEqual(chaves(eventosAtivos(eventos)), [2]);
   assert.equal(somarEventosDaOs(eventos).receita, 40);
+});
+
+test("lucro real por status reparte exatamente o total geral", () => {
+  const ordens = [
+    {
+      status: "CONCLUIDO",
+      eventos: [
+        evento({ id: 1, natureza: "RECEITA", valor: 1000 }),
+        evento({ id: 2, natureza: "DESPESA", valor: 600 }),
+      ],
+    },
+    {
+      status: "CONCLUIDO",
+      eventos: [
+        evento({ id: 3, natureza: "RECEITA", valor: 500 }),
+        evento({ id: 4, natureza: "DESPESA", valor: 100, status: "CANCELADO" }),
+      ],
+    },
+    {
+      status: "PAGAMENTO",
+      eventos: [
+        evento({ id: 5, natureza: "RECEITA", valor: 300 }),
+        evento({ id: 6, natureza: "DESPESA", valor: 80 }),
+      ],
+    },
+    { status: "SEM_COBRANCA", eventos: [] },
+  ];
+
+  const porStatus = somarLucroRealPorStatus(ordens);
+  assert.deepEqual(porStatus, [
+    { status: "CONCLUIDO", quantidadeOrdens: 2, lucroReal: 900 },
+    { status: "PAGAMENTO", quantidadeOrdens: 1, lucroReal: 220 },
+    { status: "SEM_COBRANCA", quantidadeOrdens: 1, lucroReal: 0 },
+  ]);
+
+  const lucroGeral = somarEventosDaOs(ordens.flatMap((ordem) => ordem.eventos)).lucroReal;
+  assert.equal(
+    porStatus.reduce((soma, grupo) => soma + grupo.lucroReal, 0),
+    lucroGeral,
+  );
 });
 
 test("os quatro subtotais não somam o lucro quando há comissão e frete", () => {

@@ -24,6 +24,9 @@ export type Usuario = {
   salario?: number | null;
   comissao_percent?: number | null;
   comissao_venda_percent?: number | null;
+  comissao_criacao_servico_percent?: number | null;
+  comissao_criacao_produto_percent?: number | null;
+  comissao_criacao_somente_comissionaveis?: boolean;
   data_admissao?: string | null;
   data_demissao?: string | null;
 };
@@ -39,6 +42,9 @@ export type UsuarioPayload = {
   salario?: number | null;
   comissao_percent?: number | null;
   comissao_venda_percent?: number | null;
+  comissao_criacao_servico_percent?: number | null;
+  comissao_criacao_produto_percent?: number | null;
+  comissao_criacao_somente_comissionaveis?: boolean;
   data_admissao?: string | null;
   data_demissao?: string | null;
 };
@@ -98,6 +104,16 @@ export async function buscarUsuarios(): Promise<Usuario[]> {
       comissao_percent: comissaoNorm != null ? Number(comissaoNorm) : null,
       comissao_venda_percent:
         comissaoVendaNorm != null ? Number(comissaoVendaNorm) : null,
+      comissao_criacao_servico_percent:
+        u.comissao_criacao_servico_percent != null
+          ? Number(u.comissao_criacao_servico_percent)
+          : null,
+      comissao_criacao_produto_percent:
+        u.comissao_criacao_produto_percent != null
+          ? Number(u.comissao_criacao_produto_percent)
+          : null,
+      comissao_criacao_somente_comissionaveis:
+        u.comissao_criacao_somente_comissionaveis === true,
       data_admissao: admissaoNorm ? String(admissaoNorm) : null,
       data_demissao: demissaoNorm ? String(demissaoNorm) : null,
     } as Usuario;
@@ -124,6 +140,10 @@ export async function criarUsuario(payload: UsuarioPayload) {
       salario: payload.salario ?? null,
       comissao_percent: payload.comissao_percent ?? null,
       comissao_venda_percent: payload.comissao_venda_percent ?? null,
+      comissao_criacao_servico_percent: payload.comissao_criacao_servico_percent ?? null,
+      comissao_criacao_produto_percent: payload.comissao_criacao_produto_percent ?? null,
+      comissao_criacao_somente_comissionaveis:
+        payload.comissao_criacao_somente_comissionaveis === true,
       data_admissao: payload.data_admissao ?? null,
       data_demissao: payload.data_demissao ?? null,
     }),
@@ -156,6 +176,10 @@ export async function atualizarUsuario(id: string | number, payload: UsuarioPayl
       salario: payload.salario ?? null,
       comissao_percent: payload.comissao_percent ?? null,
       comissao_venda_percent: payload.comissao_venda_percent ?? null,
+      comissao_criacao_servico_percent: payload.comissao_criacao_servico_percent ?? null,
+      comissao_criacao_produto_percent: payload.comissao_criacao_produto_percent ?? null,
+      comissao_criacao_somente_comissionaveis:
+        payload.comissao_criacao_somente_comissionaveis === true,
       data_admissao: payload.data_admissao ?? null,
       data_demissao: payload.data_demissao ?? null,
     }),

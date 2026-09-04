@@ -7,7 +7,14 @@
  * Mesmo mecanismo do `ContextoPagamentoMultiplo` — ver `pagamento-multiplo.tsx`.
  */
 export type ContextoLancamentoDeEventos = {
-  ordemServicoId: number;
+  /**
+   * A OS, quando o lançamento tem uma só.
+   *
+   * Ausente quando a seleção atravessa ordens — o boleto único do terceirizado
+   * que cobrou serviços de três carros. Aí a ordem de cada despesa vem do
+   * próprio evento, e quem descobre se são uma ou várias é o servidor.
+   */
+  ordemServicoId?: number;
   /** As despesas selecionadas. O servidor relê os valores; daqui vai só a escolha. */
   eventosIds: number[];
   onConcluido?: () => void;

@@ -9,6 +9,7 @@ import {
   MM_ORDEM,
   MM_ORDEM_CONTINUACAO,
   alturaDoFechamento,
+  alturaLucroRealPorStatus,
   capacidadeDaFolha,
   contarParcelasDoFechamento,
   MM_FILEIRA_PAINEL,
@@ -168,4 +169,15 @@ test("uma terceira fileira de cards reduz a primeira folha, e não corta a últi
     "o painel mais alto tem que tirar ordens da primeira folha",
   );
   assert.ok(comPainelAlto[0].length * MM_ORDEM <= tres);
+});
+
+test("os cards de lucro por status também reservam espaço na primeira folha", () => {
+  const alturaStatus = alturaLucroRealPorStatus(9);
+  const semStatus = capacidadeDaFolha(0, "simples", 4);
+  const comStatus = capacidadeDaFolha(0, "simples", 4, alturaStatus);
+  assert.equal(semStatus - comStatus, alturaStatus);
+
+  const ordens = Array.from({ length: 50 }, (_, i) => ({ ordem: ordem(i + 1), linhas: [] }));
+  const folhas = paginarOrdens(ordens, "simples", 4, alturaStatus);
+  assert.ok(folhas[0].length * MM_ORDEM <= comStatus);
 });

@@ -58,6 +58,7 @@ export async function GET(req: Request) {
       produtos: 0,
       servicos: 0,
       servicosComComissao: 0,
+      comissaoCriacao: 0,
       total: 0,
       parcial: totalOrdens > linhas.length,
     };
@@ -66,16 +67,30 @@ export async function GET(req: Request) {
       return NextResponse.json(vazio, { headers: { "Cache-Control": "no-store" } });
     }
 
-    const [produtosRes, servicosRes] = await Promise.all([
+    const [produtosRes, servicosRes, comissaoRes] = await Promise.all([
       supabaseAdmin.from("osproduto").select("subtotal").in("ordemservicoid", ids),
       supabaseAdmin
         .from("osservico")
         .select("subtotal, servico:servicoid ( gera_comissao )")
         .in("ordemservicoid", ids),
+      // A comissão paga por ter aberto a ordem. Vem do snapshot, nunca de um
+      // cálculo refeito aqui: é o mesmo número que o evento financeiro publica
+      // e que o financeiro lança no a pagar.
+      //
+      // O filtro por `usuarioid` não é redundante com o recorte das OS: o
+      // criador é carimbado na primeira apuração e não acompanha troca de
+      // titularidade, então uma OS pode ser do usuário hoje e ter a comissão
+      // apurada em nome de quem a abriu.
+      supabaseAdmin
+        .from("os_comissao_criacao")
+        .select("valor_comissao")
+        .eq("usuarioid", userId)
+        .in("ordemservicoid", ids),
     ]);
 
     if (produtosRes.error) throw produtosRes.error;
     if (servicosRes.error) throw servicosRes.error;
+    if (comissaoRes.error) throw comissaoRes.error;
 
     const produtos = (produtosRes.data ?? []).reduce(
       (acc, item) => acc + num((item as Record<string, unknown>).subtotal),
@@ -96,12 +111,18 @@ export async function GET(req: Request) {
       if (geraComissao !== false) servicosComComissao += subtotal;
     }
 
+    const comissaoCriacao = (comissaoRes.data ?? []).reduce(
+      (acc, item) => acc + num((item as Record<string, unknown>).valor_comissao),
+      0,
+    );
+
     return NextResponse.json(
       {
         ordens: totalOrdens,
         produtos,
         servicos,
         servicosComComissao,
+        comissaoCriacao,
         // `orcamentototal` já embute desconto e acréscimo da OS, por isso pode
         // não ser a soma exata de produtos + serviços.
         total: linhas.reduce((acc, linha) => acc + num((linha as Record<string, unknown>).orcamentototal), 0),

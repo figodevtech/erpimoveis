@@ -100,9 +100,28 @@ export const MM_CABECALHO_ITENS = 4.5;
 export const MM_FILEIRA_PAINEL = 12.5;
 export const COLUNAS_MAXIMAS_DO_PAINEL = 5;
 
-export function capacidadeDaFolha(indice: number, modo: ModoDaFolha, fileirasDoPainel = 2) {
+/** Quatro cards preservam os rótulos longos dos status numa folha A4. */
+export const COLUNAS_LUCRO_STATUS = 4;
+/** Margem superior + título + primeira linha de cards. */
+export const MM_LUCRO_STATUS_BASE = 16;
+/** Altura do card (10mm) mais o vão (2mm) de cada linha adicional. */
+export const MM_LUCRO_STATUS_FILEIRA_ADICIONAL = 12;
+
+export function alturaLucroRealPorStatus(quantidadeStatus: number) {
+  if (quantidadeStatus <= 0) return 0;
+  const fileiras = Math.ceil(quantidadeStatus / COLUNAS_LUCRO_STATUS);
+  return MM_LUCRO_STATUS_BASE + Math.max(0, fileiras - 1) * MM_LUCRO_STATUS_FILEIRA_ADICIONAL;
+}
+
+export function capacidadeDaFolha(
+  indice: number,
+  modo: ModoDaFolha,
+  fileirasDoPainel = 2,
+  alturaAdicionalPrimeira = 0,
+) {
   const painel = indice === 0 ? Math.max(0, fileirasDoPainel - 2) * MM_FILEIRA_PAINEL : 0;
-  const topo = (indice === 0 ? MM_TOPO_PRIMEIRA : MM_TOPO_DEMAIS) + painel;
+  const adicional = indice === 0 ? Math.max(0, alturaAdicionalPrimeira) : 0;
+  const topo = (indice === 0 ? MM_TOPO_PRIMEIRA : MM_TOPO_DEMAIS) + painel + adicional;
   return MM_FOLHA_UTIL - topo - MM_RODAPE_TOTAL - (modo === "simples" ? 0 : MM_CABECALHO_ITENS);
 }
 
@@ -168,6 +187,8 @@ export function paginarOrdens<L extends LinhaDaOrdem>(
   modo: ModoDaFolha,
   /** Quantas fileiras de cards a primeira folha vai imprimir. */
   fileirasDoPainel = 2,
+  /** Seções variáveis abaixo do painel, medidas em milímetros. */
+  alturaAdicionalPrimeira = 0,
 ): FatiaOrdem<L>[][] {
   const folhas: FatiaOrdem<L>[][] = [];
   let folha: FatiaOrdem<L>[] = [];
@@ -178,7 +199,7 @@ export function paginarOrdens<L extends LinhaDaOrdem>(
     folha = [];
     usado = 0;
   };
-  const limite = () => capacidadeDaFolha(folhas.length, modo, fileirasDoPainel);
+  const limite = () => capacidadeDaFolha(folhas.length, modo, fileirasDoPainel, alturaAdicionalPrimeira);
 
   for (const { ordem, linhas: itens } of ordens) {
     // Caminho simples: uma fatia por OS, custando exatamente MM_ORDEM — 15

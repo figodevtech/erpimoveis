@@ -38,6 +38,7 @@ import {
   CreditCard,
   MonitorCheck,
   ChartNoAxesCombined,
+  ListChecks,
   Send,
   FileText,
   Building2,
@@ -220,6 +221,12 @@ const data = {
           url: "/fiscal",
           icon: Receipt,
           perm: PERMS.FINANCEIRO_NOTAS_FISCAIS,
+        },
+        {
+          title: "Eventos de Ordens",
+          url: "/eventos-financeiros",
+          icon: ListChecks,
+          perm: PERMS.FINANCEIRO,
         },
         {
           title: "Pagamento de Ordens",

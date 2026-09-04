@@ -10,10 +10,13 @@ import {
   deducoesDaOs,
   somaOrigemNatureza,
   somarEventosDaOs,
+  somarLucroRealPorStatus,
   type TotaisDosEventos,
 } from "@/lib/ordens/eventos-financeiros";
 import {
   alturaDoFechamento,
+  alturaLucroRealPorStatus,
+  COLUNAS_LUCRO_STATUS,
   MM_CABECALHO_ITENS,
   MM_ESPACO_ORDEM,
   MM_ITEM,
@@ -539,6 +542,27 @@ export function OrdemListReportView({
   const eventosDoRecorte = useMemo(() => [...(eventosPorOs?.values() ?? [])].flat(), [eventosPorOs]);
 
   /**
+   * O lucro geral, repartido pelo status atual de cada OS.
+   *
+   * Cada grupo usa `somarEventosDaOs`, a mesma conta do card geral. A ordenação
+   * acompanha a distribuição: primeiro o status com mais ordens e, no empate,
+   * a sequência operacional conhecida pelo relatório.
+   */
+  const lucroRealPorStatus = useMemo(() => {
+    if (!eventosPorOs) return [];
+    const posicao = new Map(Object.keys(STATUS_LABEL).map((status, indice) => [status, indice]));
+    return somarLucroRealPorStatus(
+      rows.map((row) => ({ status: row.status, eventos: eventosPorOs.get(row.id) ?? [] })),
+    ).sort(
+      (a, b) =>
+        b.quantidadeOrdens - a.quantidadeOrdens ||
+        (posicao.get(a.status) ?? Number.MAX_SAFE_INTEGER) -
+          (posicao.get(b.status) ?? Number.MAX_SAFE_INTEGER) ||
+        statusLabel(a.status).localeCompare(statusLabel(b.status), "pt-BR"),
+    );
+  }, [eventosPorOs, rows]);
+
+  /**
    * O painel é o mesmo em qualquer modo — quatro fileiras fixas, sempre nas
    * mesmas posições. Não depende da opção marcada, e por isso os eventos vêm
    * já na busca inicial.
@@ -564,6 +588,7 @@ export function OrdemListReportView({
    * última ordem sairia cortada.
    */
   const fileirasDoPainel = Math.max(1, cards.length);
+  const alturaDaSecaoDeLucroPorStatus = alturaLucroRealPorStatus(lucroRealPorStatus.length);
 
   const pages = useMemo(
     () =>
@@ -571,8 +596,9 @@ export function OrdemListReportView({
         rows.map((ordem) => ({ ordem, linhas: linhasPorOs?.get(ordem.id) ?? [] })),
         modoEfetivo,
         fileirasDoPainel,
+        alturaDaSecaoDeLucroPorStatus,
       ),
-    [rows, linhasPorOs, modoEfetivo, fileirasDoPainel],
+    [rows, linhasPorOs, modoEfetivo, fileirasDoPainel, alturaDaSecaoDeLucroPorStatus],
   );
 
   /** Distribuição por status, do mais frequente ao menos — só o que couber. */
@@ -695,6 +721,45 @@ export function OrdemListReportView({
                         </span>
                       ))}
                     </div>
+                  )}
+
+                  {lucroRealPorStatus.length > 0 && (
+                    <section style={{ marginTop: "2mm" }}>
+                      <h2 className="flex h-[4mm] items-center text-[9px] font-semibold uppercase tracking-wide text-neutral-600">
+                        Lucro real por status
+                      </h2>
+                      <div
+                        className="grid gap-[2mm]"
+                        style={{
+                          gridTemplateColumns: `repeat(${Math.min(COLUNAS_LUCRO_STATUS, lucroRealPorStatus.length)}, minmax(0, 1fr))`,
+                        }}
+                      >
+                        {lucroRealPorStatus.map((grupo) => {
+                          const tom = STATUS_TOM[grupo.status] ?? SEM_TOM;
+                          return (
+                            <div
+                              key={grupo.status}
+                              className="flex h-[10mm] flex-col justify-between rounded border border-neutral-300 bg-neutral-50 px-2 py-1"
+                            >
+                              <div className="flex min-w-0 items-center gap-1 text-[7px] font-semibold uppercase text-neutral-600">
+                                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${tom.faixa}`} />
+                                <span className="min-w-0 flex-1 truncate">{statusLabel(grupo.status)}</span>
+                                <span className="shrink-0 tabular-nums text-neutral-500">
+                                  {grupo.quantidadeOrdens} OS
+                                </span>
+                              </div>
+                              <p
+                                className={`text-[12px] font-bold tabular-nums ${
+                                  grupo.lucroReal < 0 ? TOM_SUBTRACAO : "text-primary"
+                                }`}
+                              >
+                                {money(grupo.lucroReal)}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </section>
                   )}
                 </>
               ) : (

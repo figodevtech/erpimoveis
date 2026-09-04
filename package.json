@@ -25,6 +25,7 @@
     "db:test:entrada-fiscal-personalizada": "tsx scripts/db/test-entrada-fiscal-personalizada-migration.ts",
     "db:test:entrada-fiscal-hibrida": "tsx scripts/db/test-entrada-fiscal-hibrida-migration.ts",
     "db:validar:os-finalizado": "tsx scripts/db/validar-os-finalizado-em.ts",
+    "db:simular:comissao-criacao": "tsx scripts/db/simular-comissao-criacao.ts",
     "db:test:sql": "tsx scripts/db/test-sql.ts",
     "db:deploy": "tsx scripts/db/deploy.ts",
     "db:deploy:demo": "tsx scripts/db/deploy-demo.ts",

@@ -19,6 +19,7 @@ import {
   enviarConviteUsuario,
   definirSenhaUsuario,
   type Usuario,
+  type UsuarioPayload,
   type Perfil,
   type Setor,
 } from "../lib/api";
@@ -122,14 +123,10 @@ export default function GerenciamentoUsuarios() {
   };
 
   // criar/editar
-  const handleCreate = async (payload: {
-    nome: string;
-    email: string;
-    username: string;
-    perfilid?: number | null;
-    setorid?: number | null;
-    ativo?: boolean;
-  }) => {
+  // `UsuarioPayload`, e não uma lista curta escrita à mão: salário, comissões e
+  // datas sempre trafegaram por aqui, mas o tipo não os declarava — o objeto
+  // passava inteiro por acaso, e um campo novo dependia disso continuar valendo.
+  const handleCreate = async (payload: UsuarioPayload) => {
     try {
       await criarUsuario(payload);
       toast.success("Usuário criado.");
@@ -140,17 +137,7 @@ export default function GerenciamentoUsuarios() {
     }
   };
 
-  const handleUpdate = async (
-    id: string | number,
-    payload: {
-      nome: string;
-      email: string;
-      username: string;
-      perfilid?: number | null;
-      setorid?: number | null;
-      ativo?: boolean;
-    }
-  ) => {
+  const handleUpdate = async (id: string | number, payload: UsuarioPayload) => {
     try {
       await atualizarUsuario(id, payload);
       toast.success("Usuário atualizado.");

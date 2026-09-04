@@ -211,6 +211,19 @@ export function TabelaMinhasOrdens({ periodo, ativo, usuarioId }: { periodo: Per
                     </TableCell>
                     <TableCell className="text-right font-medium tabular-nums">
                       {formatarMoeda(ordem.valorTotal)}
+                      {/*
+                        Linha secundária, e não uma coluna: só quem recebe por
+                        criação tem este número, e uma nona coluna ficaria vazia
+                        para quase todo mundo.
+                      */}
+                      {ordem.comissaoCriacao > 0 ? (
+                        <span
+                          className="mt-0.5 block text-[11px] font-normal text-emerald-600 dark:text-emerald-400"
+                          title="Sua comissão por ter aberto esta OS."
+                        >
+                          {formatarMoeda(ordem.comissaoCriacao)} de comissão
+                        </span>
+                      ) : null}
                     </TableCell>
                   </LinhaAnimada>
 

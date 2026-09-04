@@ -803,7 +803,7 @@ export default function RegisterContent({
       // um total que já não corresponde a elas.
       if (lancamentoDeEventos) {
         const resposta = await axios.post("/api/lancamento-de-eventos", {
-          ordemServicoId: lancamentoDeEventos.ordemServicoId,
+          ordemServicoId: lancamentoDeEventos.ordemServicoId ?? null,
           eventosIds: lancamentoDeEventos.eventosIds,
           descricao: newTransaction.descricao ?? null,
           data: newTransaction.data ?? new Date(),

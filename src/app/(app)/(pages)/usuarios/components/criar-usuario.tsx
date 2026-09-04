@@ -44,6 +44,9 @@ type Payload = {
   salario?: number | null;
   comissao_percent?: number | null;
   comissao_venda_percent?: number | null;
+  comissao_criacao_servico_percent?: number | null;
+  comissao_criacao_produto_percent?: number | null;
+  comissao_criacao_somente_comissionaveis?: boolean;
   data_admissao?: string | null;
   data_demissao?: string | null;
 };
@@ -162,6 +165,9 @@ export function CriarUsuarioDialog({
   const [salario, setSalario] = useState("");
   const [comissao, setComissao] = useState("");
   const [comissaoVenda, setComissaoVenda] = useState("");
+  const [comissaoCriacaoServico, setComissaoCriacaoServico] = useState("");
+  const [comissaoCriacaoProduto, setComissaoCriacaoProduto] = useState("");
+  const [comissaoCriacaoSomente, setComissaoCriacaoSomente] = useState(false);
   const [dataAdmissao, setDataAdmissao] = useState("");
   const [dataDemissao, setDataDemissao] = useState("");
   const [saving, setSaving] = useState(false);
@@ -182,6 +188,12 @@ export function CriarUsuarioDialog({
     const cv = comissaoVenda.trim() ? Number(comissaoVenda) : 0;
     if (Number.isNaN(cv) || cv < 0 || cv > 100) return false;
 
+    const ccs = comissaoCriacaoServico.trim() ? Number(comissaoCriacaoServico) : 0;
+    if (Number.isNaN(ccs) || ccs < 0 || ccs > 100) return false;
+
+    const ccp = comissaoCriacaoProduto.trim() ? Number(comissaoCriacaoProduto) : 0;
+    if (Number.isNaN(ccp) || ccp < 0 || ccp > 100) return false;
+
     if (
       salarioNumber != null &&
       (Number.isNaN(salarioNumber) || salarioNumber < 0)
@@ -189,7 +201,16 @@ export function CriarUsuarioDialog({
       return false;
 
     return true;
-  }, [nome, email, username, comissao, comissaoVenda, salarioNumber]);
+  }, [
+    nome,
+    email,
+    username,
+    comissao,
+    comissaoVenda,
+    comissaoCriacaoServico,
+    comissaoCriacaoProduto,
+    salarioNumber,
+  ]);
 
   const handleSave = async () => {
     if (!canSave || saving) return;
@@ -208,6 +229,13 @@ export function CriarUsuarioDialog({
         comissao_venda_percent: comissaoVenda.trim()
           ? Number(comissaoVenda)
           : null,
+        comissao_criacao_servico_percent: comissaoCriacaoServico.trim()
+          ? Number(comissaoCriacaoServico)
+          : null,
+        comissao_criacao_produto_percent: comissaoCriacaoProduto.trim()
+          ? Number(comissaoCriacaoProduto)
+          : null,
+        comissao_criacao_somente_comissionaveis: comissaoCriacaoSomente,
         data_admissao: dataAdmissao || null,
         data_demissao: dataDemissao || null,
       });
@@ -222,6 +250,9 @@ export function CriarUsuarioDialog({
       setSalario("");
       setComissao("");
       setComissaoVenda("");
+      setComissaoCriacaoServico("");
+      setComissaoCriacaoProduto("");
+      setComissaoCriacaoSomente(false);
       setDataAdmissao("");
       setDataDemissao("");
     } finally {
@@ -383,6 +414,65 @@ export function CriarUsuarioDialog({
                     0 a 100. Aplicada sobre o valor das vendas realizadas no
                     PDV.
                   </p>
+                </div>
+
+                {/*
+                  Comissão por criação é outra coisa: paga a quem ABRE a ordem,
+                  sobre tudo que ela contém, mesmo que outra pessoa execute.
+                  Soma com a de realização quando a mesma pessoa faz as duas.
+                */}
+                <div className="space-y-4 rounded-xl border bg-muted/30 p-4">
+                  <div>
+                    <p className="text-sm font-medium">Comissão por criação de OS</p>
+                    <p className="text-xs text-muted-foreground">
+                      Paga por abrir a ordem, sobre os itens dela — independente de quem
+                      executa. Deixe em branco para não pagar por criação.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>Sobre serviços (%)</Label>
+                    <Input
+                      type="number"
+                      inputMode="decimal"
+                      placeholder="0"
+                      min={0}
+                      max={100}
+                      value={comissaoCriacaoServico}
+                      onChange={(e) =>
+                        setComissaoCriacaoServico(clampPercent(e.target.value))
+                      }
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>Sobre produtos (%)</Label>
+                    <Input
+                      type="number"
+                      inputMode="decimal"
+                      placeholder="0"
+                      min={0}
+                      max={100}
+                      value={comissaoCriacaoProduto}
+                      onChange={(e) =>
+                        setComissaoCriacaoProduto(clampPercent(e.target.value))
+                      }
+                    />
+                  </div>
+
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <Label>Só serviços que geram comissão</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Ligado, respeita a marca &quot;Gera comissão&quot; do cadastro do
+                        serviço. Desligado, conta todos os serviços da OS.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={comissaoCriacaoSomente}
+                      onCheckedChange={setComissaoCriacaoSomente}
+                    />
+                  </div>
                 </div>
               </TabsContent>
 
