@@ -25,6 +25,10 @@ type Liquidado = {
   sentido: "RECEBER" | "PAGAR";
   valorReaberto: number;
   acrescimos: number;
+  /** Nunca passou pelo banco — foi perdoado, não pago. Muda o aviso do estorno. */
+  abonado: boolean;
+  /** Pago com a carteira do cliente: estornar devolve o crédito para ela. */
+  creditoCliente: boolean;
 };
 /** Antecipação que pode ser desfeita: excluí-la reabre os títulos que liquidou. */
 type Adiantamento = {
@@ -154,7 +158,9 @@ export function TransactionDeleteAlert({
   const reabrePara = adiantamento?.sentido === "PAGAR" ? "a pagar" : "a receber";
 
   const titulo = podeEstornar
-    ? "Estornar pagamento liquidado"
+    ? liquidado?.abonado
+      ? "Desfazer abono"
+      : "Estornar pagamento liquidado"
     : travado
     ? "Esta transação não pode ser excluída"
     : falhou
@@ -187,9 +193,26 @@ export function TransactionDeleteAlert({
                   <span className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-amber-700 dark:text-amber-300">
                     <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
                     <span className="min-w-0">
-                      Este título está liquidado e o pagamento aparece no fluxo de caixa.
-                      O estorno retira a baixa do fluxo e devolve o título para{" "}
-                      <strong>{liquidado.sentido === "PAGAR" ? "a pagar" : "a receber"}</strong>.
+                      {liquidado.abonado ? (
+                        <>
+                          Este título foi <strong>abonado</strong> — nunca passou pelo banco
+                          nem pelo fluxo de caixa. Desfazer o abono devolve o título para{" "}
+                          <strong>{liquidado.sentido === "PAGAR" ? "a pagar" : "a receber"}</strong>.
+                        </>
+                      ) : liquidado.creditoCliente ? (
+                        <>
+                          Este título foi quitado com o <strong>crédito do cliente</strong>,
+                          sem passar por banco. O estorno devolve o valor para a carteira
+                          dele e o título volta para{" "}
+                          <strong>{liquidado.sentido === "PAGAR" ? "a pagar" : "a receber"}</strong>.
+                        </>
+                      ) : (
+                        <>
+                          Este título está liquidado e o pagamento aparece no fluxo de caixa.
+                          O estorno retira a baixa do fluxo e devolve o título para{" "}
+                          <strong>{liquidado.sentido === "PAGAR" ? "a pagar" : "a receber"}</strong>.
+                        </>
+                      )}
                     </span>
                   </span>
                   {liquidado.acrescimos > 0 ? (
@@ -294,7 +317,7 @@ export function TransactionDeleteAlert({
           */}
           {podeEstornar ? (
             <AlertDialogAction onClick={() => onEstornar?.(transactionId)}>
-              Estornar pagamento
+              {liquidado?.abonado ? "Desfazer abono" : "Estornar pagamento"}
             </AlertDialogAction>
           ) : travado ? null : (
             <AlertDialogAction

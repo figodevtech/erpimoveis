@@ -4,9 +4,9 @@ import type { PlannedPayment } from "@/lib/payment-methods";
 export const GARANTIA_MAX_CARACTERES = 500;
 export const PARCELAS_MAXIMAS = 12;
 
-/** Mesma regra da OS: só crédito e boleto parcelam. */
+/** Mesma regra da OS: só crédito, boleto e promissória parcelam. */
 export const formaAceitaParcelas = (metodo: string) =>
-  metodo === "CREDITO" || metodo === "BOLETO";
+  metodo === "CREDITO" || metodo === "BOLETO" || metodo === "PROMISSORIA";
 
 export type DadosParaFinanceiroBody = {
   pagamentosPrevistos?: unknown;
@@ -96,7 +96,7 @@ export async function normalizarDadosParaFinanceiro(
       parcelas = Number((item as PlannedPayment)?.parcelas ?? 1);
       if (!Number.isInteger(parcelas) || parcelas < 1 || parcelas > PARCELAS_MAXIMAS) {
         return {
-          erro: `As parcelas de Crédito ou Boleto devem estar entre 1 e ${PARCELAS_MAXIMAS}.`,
+          erro: `As parcelas de Crédito, Boleto ou Promissória devem estar entre 1 e ${PARCELAS_MAXIMAS}.`,
         };
       }
     }

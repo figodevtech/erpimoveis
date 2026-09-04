@@ -53,12 +53,12 @@ export const GARANTIA_MAX_CARACTERES = 500;
 export const PARCELAS_MAXIMAS = 12;
 
 /**
- * Parcelar é coisa de crédito e boleto: nos demais o dinheiro entra de uma vez,
- * e oferecer parcelas ali só produziria um número que ninguém honra. Mesma regra
- * da OS (ver `ordemservico_parcelas_compativel_forma`).
+ * Parcelar é coisa de crédito, boleto e promissória: nos demais o dinheiro
+ * entra de uma vez, e oferecer parcelas ali só produziria um número que
+ * ninguém honra. Mesma regra da OS (ver `ordemservico_parcelas_compativel_forma`).
  */
 export const formaAceitaParcelas = (metodo: string) =>
-  metodo === "CREDITO" || metodo === "BOLETO";
+  metodo === "CREDITO" || metodo === "BOLETO" || metodo === "PROMISSORIA";
 
 const paraCentavos = (valor: number) =>
   Math.round((Number.isFinite(valor) ? valor : 0) * 100);
@@ -161,7 +161,7 @@ export function validarDadosParaFinanceiro(
     if (formaAceitaParcelas(metodo)) {
       const parcelas = Number(dados.parcelas[metodo] ?? 1);
       if (!Number.isInteger(parcelas) || parcelas < 1 || parcelas > PARCELAS_MAXIMAS) {
-        return `As parcelas de Crédito ou Boleto devem estar entre 1 e ${PARCELAS_MAXIMAS}.`;
+        return `As parcelas de Crédito, Boleto ou Promissória devem estar entre 1 e ${PARCELAS_MAXIMAS}.`;
       }
     }
   }

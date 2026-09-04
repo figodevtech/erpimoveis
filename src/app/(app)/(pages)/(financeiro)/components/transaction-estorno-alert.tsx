@@ -50,6 +50,8 @@ export function TransactionEstornoAlert({
   sentido,
   valorReaberto,
   acrescimos = 0,
+  abonado = false,
+  creditoCliente = false,
   onEstornar,
 }: {
   children: ReactNode;
@@ -57,6 +59,10 @@ export function TransactionEstornoAlert({
   sentido: "RECEBER" | "PAGAR";
   valorReaberto: number;
   acrescimos?: number;
+  /** Nunca passou pelo banco — foi perdoado, não pago. Troca o aviso inteiro. */
+  abonado?: boolean;
+  /** Pago com a carteira do cliente: estornar devolve o crédito para ela. */
+  creditoCliente?: boolean;
   onEstornar: (id: number) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -67,15 +73,38 @@ export function TransactionEstornoAlert({
       <AlertDialogTrigger asChild>{children}</AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Tirar do fluxo de caixa?</AlertDialogTitle>
+          <AlertDialogTitle>
+            {abonado
+              ? "Desfazer abono?"
+              : creditoCliente
+                ? "Devolver o crédito ao cliente?"
+                : "Tirar do fluxo de caixa?"}
+          </AlertDialogTitle>
           <AlertDialogDescription asChild>
             <div className="space-y-3">
               <span className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-amber-700 dark:text-amber-300">
                 <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
                 <span className="min-w-0">
-                  O pagamento sai do caixa e o título volta a ficar{" "}
-                  <strong>{destino}</strong>, no vencimento original. O saldo do banco
-                  muda junto.
+                  {abonado ? (
+                    <>
+                      Este título foi <strong>abonado</strong> — nunca passou pelo
+                      banco nem pelo fluxo de caixa. Desfazer devolve o título para{" "}
+                      <strong>{destino}</strong>, no vencimento original.
+                    </>
+                  ) : creditoCliente ? (
+                    <>
+                      Este título foi quitado com o <strong>crédito do cliente</strong>.
+                      O valor volta para a carteira dele e o título fica{" "}
+                      <strong>{destino}</strong> de novo, no vencimento original. Nenhuma
+                      conta bancária se move.
+                    </>
+                  ) : (
+                    <>
+                      O pagamento sai do caixa e o título volta a ficar{" "}
+                      <strong>{destino}</strong>, no vencimento original. O saldo do
+                      banco muda junto.
+                    </>
+                  )}
                 </span>
               </span>
               {acrescimos > 0 ? (
@@ -90,7 +119,11 @@ export function TransactionEstornoAlert({
                 </span>
               )}
               <span className="block">
-                A baixa continua registrada no histórico, e o estorno entra ao lado dela.
+                {abonado
+                  ? "O abono continua registrado no histórico, e o estorno entra ao lado dele."
+                  : creditoCliente
+                    ? "A baixa continua no histórico, e a devolução entra como uma nova linha no extrato de crédito do cliente."
+                    : "A baixa continua registrada no histórico, e o estorno entra ao lado dela."}
               </span>
             </div>
           </AlertDialogDescription>
@@ -98,7 +131,11 @@ export function TransactionEstornoAlert({
         <AlertDialogFooter>
           <AlertDialogCancel>Cancelar</AlertDialogCancel>
           <AlertDialogAction onClick={() => onEstornar(transactionId)}>
-            Tirar do fluxo de caixa
+            {abonado
+              ? "Desfazer abono"
+              : creditoCliente
+                ? "Devolver o crédito"
+                : "Tirar do fluxo de caixa"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

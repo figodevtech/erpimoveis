@@ -81,6 +81,43 @@ export async function POST(req: NextRequest, ctx: Params) {
     if (Number.isNaN(pagoEm.getTime())) {
       return NextResponse.json({ error: "Informe uma data de pagamento válida." }, { status: 400 });
     }
+
+    /*
+     * Crédito do cliente não passa por conta nenhuma: quem paga é a carteira
+     * dele. Por isso não exige banco e vai para uma RPC própria — a baixa
+     * comum começa exigindo banco e carrega os caminhos de baixa parcial e de
+     * repasse do antecipado, que aqui não existem.
+     *
+     * O desvio mora aqui e não na tela: para quem opera continua sendo o mesmo
+     * diálogo, escolhendo a forma de pagamento na mesma lista.
+     */
+    if (metodoPagamento.toUpperCase() === "CREDITO CLIENTE") {
+      const { data, error } = await supabaseAdmin.rpc("baixar_com_credito_cliente", {
+        p_transacao_id: id,
+        p_pago_em: pagoEm.toISOString(),
+        p_plano_de_conta_id: Number.isSafeInteger(planoContaId) ? planoContaId : null,
+        p_centro_custo_id: Number.isSafeInteger(centroCustoId) ? centroCustoId : null,
+        p_baixado_por: (session?.user as any)?.id ?? null,
+      });
+
+      if (error) {
+        if (error.code === "23505") {
+          return NextResponse.json({ error: "Esta transação já foi baixada." }, { status: 409 });
+        }
+        // Saldo insuficiente, título sem cliente, título já pago em partes: a
+        // RPC recusa cada um com a mensagem pronta.
+        if (error.code === "22023") {
+          return NextResponse.json({ error: error.message }, { status: 400 });
+        }
+        if (error.code === "P0002") {
+          return NextResponse.json({ error: "Transação ou cliente não encontrado." }, { status: 404 });
+        }
+        throw error;
+      }
+
+      return NextResponse.json({ data });
+    }
+
     if (!Number.isSafeInteger(bancoId) || bancoId <= 0 || !metodoPagamento) {
       return NextResponse.json({ error: "Banco e método de pagamento são obrigatórios." }, { status: 400 });
     }

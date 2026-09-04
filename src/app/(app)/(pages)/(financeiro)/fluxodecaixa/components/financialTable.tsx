@@ -38,6 +38,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   FileText,
+  HandCoins,
   Loader,
   Loader2,
   MoreHorizontal,
@@ -50,6 +51,7 @@ import {
   Undo2,
 } from "lucide-react";
 import formatarEmReal from "@/utils/formatarEmReal";
+import { formatDate } from "@/utils/formatDate";
 import TransactionDialog from "./transactionDialog/transactionDialog";
 import {
   DropdownMenu,
@@ -67,6 +69,10 @@ import {
   TransactionEstornoAlert,
   estornarBaixa,
 } from "../../components/transaction-estorno-alert";
+import {
+  TransactionAbonoAlert,
+  abonarTransacao,
+} from "../../components/transaction-abono-alert";
 import { excluirPagamentoMultiplo } from "../../components/pagamento-multiplo";
 import { toast } from "@/lib/toast";
 import axios, { isAxiosError } from "axios";
@@ -75,6 +81,7 @@ import {
   type FluxoViewMode,
   VIEW_MODE_TABS,
   type Ordenacao,
+  Metodo_pagamento,
   Pagination,
   Tipo_transacao,
   Transaction,
@@ -407,6 +414,25 @@ export default function FinancialTable({
       toast.error(
         erro instanceof Error ? erro.message : "Não foi possível tirar do fluxo de caixa.",
       );
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  /**
+   * Perdoa um título a receber sem lançar nada no banco. A OS/venda continua
+   * quitada; só não passa pelo fluxo de caixa.
+   */
+  const handleAbonar = async (id: number, motivo?: string) => {
+    if (!canEdit) return;
+    setIsDeleting(true);
+    try {
+      await abonarTransacao(id, motivo);
+      handleGetTransactions(pagination.page, pagination.limit);
+      revalidarIndicadores();
+      toast.success("Cobrança abonada.");
+    } catch (erro) {
+      toast.error(erro instanceof Error ? erro.message : "Não foi possível abonar a cobrança.");
     } finally {
       setIsDeleting(false);
     }
@@ -925,6 +951,48 @@ export default function FinancialTable({
                         ) : null}
 
                         {/*
+                          Sem este badge o título abonado parece um liquidado
+                          qualquer que "esqueceu" de gravar o banco — e é
+                          justamente o contrário: nunca houve dinheiro para
+                          gravar.
+                        */}
+                        {t.abonado ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="inline-flex cursor-default items-center rounded-sm border border-slate-500/40 bg-slate-500/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-slate-600 dark:text-slate-400">
+                                Abonado
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" align="start">
+                              Cobrança perdoada
+                              {t.abonado_em ? `, em ${formatDate(t.abonado_em)}` : ""}. Não
+                              passou pelo banco.
+                              {t.abono_motivo ? ` Motivo: ${t.abono_motivo}` : ""}
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : null}
+
+                        {/*
+                          Também fica liquidado e sem banco, como o abonado — e
+                          pela mesma razão precisa se explicar: aqui quem pagou
+                          foi a carteira do cliente.
+                        */}
+                        {t.metodopagamento === Metodo_pagamento.CREDITO_CLIENTE ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="inline-flex cursor-default items-center rounded-sm border border-teal-600/40 bg-teal-600/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-teal-700 dark:text-teal-400">
+                                Crédito do cliente
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" align="start">
+                              {t.tipo === Tipo_transacao.RECEITA
+                                ? "Quitado com o crédito do cliente. O saldo da carteira dele caiu; nenhuma conta se moveu."
+                                : "Virou crédito na carteira do cliente em vez de sair dinheiro da conta."}
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : null}
+
+                        {/*
                           A perna de uma transferência. No Fluxo ela senta ao lado
                           de saques e depósitos comuns, mas o badge distingue o
                           movimento interno: a empresa não gastou nem faturou nada,
@@ -1126,6 +1194,33 @@ export default function FinancialTable({
                         )}
 
                         {/*
+                          Perdoar a cobrança em vez de cobrá-la. Só faz sentido
+                          numa receita ligada a OS/venda: é o saldo devedor do
+                          documento que o abono fecha. Antecipação e pagamento
+                          múltiplo ficam de fora pelo mesmo motivo da baixa —
+                          são liquidados em conjunto, não linha a linha.
+                        */}
+                        {canEdit &&
+                          t.pendente &&
+                          t.tipo === Tipo_transacao.RECEITA &&
+                          (t.ordemservicoid != null || t.vendaid != null) &&
+                          !t.adiantamento_id &&
+                          !t.eh_adiantamento &&
+                          t.pagamento_multiplo_id == null &&
+                          t.evento_financeiro_id == null && (
+                          <TransactionAbonoAlert
+                            transactionId={t.id}
+                            valor={saldoEmAberto(t)}
+                            onAbonar={handleAbonar}
+                          >
+                            <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                              <HandCoins className="mr-2 h-4 w-4" />
+                              Abonar cobrança
+                            </DropdownMenuItem>
+                          </TransactionAbonoAlert>
+                        )}
+
+                        {/*
                           Fica ao lado de "Pago" e é o seu inverso: um dá baixa,
                           o outro a desfaz. A antecipação não aparece aqui —
                           liquidada ela é, mas quem a desfaz é a exclusão, que
@@ -1165,11 +1260,19 @@ export default function FinancialTable({
                             sentido={t.tipo === Tipo_transacao.RECEITA ? "RECEBER" : "PAGAR"}
                             valorReaberto={Number(t.valor_base ?? t.valor ?? 0)}
                             acrescimos={Number(t.valor_acrescimos ?? 0)}
+                            abonado={t.abonado === true}
+                            creditoCliente={
+                              t.metodopagamento === Metodo_pagamento.CREDITO_CLIENTE
+                            }
                             onEstornar={handleEstornarBaixa}
                           >
                             <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
                               <Undo2 className="mr-2 h-4 w-4" />
-                              Excluir do fluxo de caixa
+                              {t.abonado
+                                ? "Desfazer abono"
+                                : t.metodopagamento === Metodo_pagamento.CREDITO_CLIENTE
+                                  ? "Devolver o crédito"
+                                  : "Excluir do fluxo de caixa"}
                             </DropdownMenuItem>
                           </TransactionEstornoAlert>
                         )}

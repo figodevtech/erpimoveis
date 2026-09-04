@@ -32,6 +32,7 @@ import {
   ArrowLeftRight,
   ShoppingBag,
   Gauge,
+  WalletCards,
   File,
 } from "lucide-react";
 import {
@@ -71,6 +72,7 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import CustomerRelationshipTabs from "./customerRelationshipTabs";
+import CustomerCreditoTab from "./customerCreditoTab";
 import SecondaryPhonesCard from "./secondaryPhonesCard";
 import { ItemHistoricoResumo } from "@/components/ordens/item-historico-resumo";
 import {
@@ -596,6 +598,15 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                     <span className="flex items-center gap-2">
                       <Gauge className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
                       Financeiro
+                    </span>
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="Credito"
+                    className="group h-11 flex-none rounded-xl border border-transparent px-3 text-xs font-medium whitespace-nowrap text-muted-foreground transition-[background-color,color,box-shadow] hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary dark:data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+                  >
+                    <span className="flex items-center gap-2">
+                      <WalletCards className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
+                      Crédito
                     </span>
                   </TabsTrigger>
                 </TabsList>
@@ -1467,6 +1478,7 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
               </div>
             </TabsContent>
             <CustomerRelationshipTabs customer={selectedCustomer} />
+            <CustomerCreditoTab customer={selectedCustomer} />
           </Tabs>
 
           <DialogShellFooter className="border-t px-4 py-3 sm:px-6">
