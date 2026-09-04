@@ -103,3 +103,32 @@ test("a OS vem do vínculo embutido quando a coluna não veio", () => {
   ]);
   assert.equal(linha.osId, 42);
 });
+
+test("a lista plana preserva a ordem cronológica recebida da API", () => {
+  const linhas = montarLinhas(
+    [
+      evento({ id: 9, data_evento: "2026-09-02T12:00:00.000Z" }),
+      evento({ id: 3, data_evento: "2026-09-01T12:00:00.000Z" }),
+    ],
+    { preservarOrdem: true },
+  );
+
+  assert.deepEqual(linhas.map((linha) => linha.id), [9, 3]);
+  assert.equal(linhas[0].dataEvento, "2026-09-02T12:00:00.000Z");
+});
+
+test("o agrupamento preserva a ordem das OS e organiza os itens dentro de cada bloco", () => {
+  const grupos = agruparPorOrdem(
+    montarLinhas(
+      [
+        evento({ id: 30, ordemservicoid: 20, origem: "COMISSAO", servicoid: 5 }),
+        evento({ id: 10, ordemservicoid: 20, natureza: "RECEITA", servicoid: 5 }),
+        evento({ id: 40, ordemservicoid: 10 }),
+      ],
+      { preservarOrdem: true },
+    ),
+  );
+
+  assert.deepEqual(grupos.map((grupo) => grupo.osId), [20, 10]);
+  assert.deepEqual(grupos[0].linhas.map((linha) => linha.id), [10, 30]);
+});

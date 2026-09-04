@@ -21,6 +21,7 @@ export type FiltrosDeEventos = {
   natureza: "" | "RECEITA" | "DESPESA";
   origem: string;
   osId: string;
+  usuarioId: string;
   dateFrom: string;
   dateTo: string;
 };
@@ -29,8 +30,16 @@ export const FILTROS_VAZIOS: FiltrosDeEventos = {
   natureza: "",
   origem: "",
   osId: "",
+  usuarioId: "",
   dateFrom: "",
   dateTo: "",
+};
+
+export type UsuarioDeEvento = {
+  id: string;
+  nome: string | null;
+  email: string | null;
+  ativo: boolean;
 };
 
 export const ORIGENS_DISPONIVEIS = [
@@ -49,6 +58,7 @@ export type TotaisDaFila = {
   liquido: number;
   quantidade: number;
   ordens: number;
+  selecionaveis: number;
 };
 
 export type Paginacao = {

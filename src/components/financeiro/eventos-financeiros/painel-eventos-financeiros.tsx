@@ -45,6 +45,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { ImpactoExclusaoEvento } from "@/lib/ordens/exclusao-evento-financeiro";
+import {
+  LIMITE_SELECAO_EVENTOS,
+  type EventoSelecionavelResumido,
+  type ResultadoSelecaoDeEventos,
+} from "@/lib/financeiro/eventos-financeiros-selection";
 import { toast } from "@/lib/toast";
 
 import type { EndpointsDeEventos } from "./endpoints";
@@ -81,6 +86,15 @@ function fmtDate(s?: string | null) {
   return isNaN(d.getTime()) ? "—" : d.toLocaleString();
 }
 
+function resumirEventoSelecionavel(linha: LinhaDeEvento): EventoSelecionavelResumido {
+  return {
+    id: linha.id,
+    osId: linha.osId,
+    descricao: linha.descricao,
+    valor: linha.valor,
+  };
+}
+
 type ParcelaDoLancamento = {
   id: number;
   descricao: string;
@@ -111,6 +125,9 @@ export function PainelEventosFinanceiros({
   onVisualizarProduto,
   transacoesConhecidas,
   vazio,
+  totalSelecionaveis,
+  escopoSelecao,
+  carregarSelecionaveisDoFiltro,
 }: {
   linhas: LinhaDeEvento[];
   endpoints: EndpointsDeEventos;
@@ -125,9 +142,18 @@ export function PainelEventosFinanceiros({
   /** Parcelas já carregadas, quando quem chama as tem. Só enriquece um aviso. */
   transacoesConhecidas?: Array<{ id: number; lancamento_id?: number | null }>;
   vazio?: React.ReactNode;
+  /** Total elegível em todas as páginas da fila global. */
+  totalSelecionaveis?: number;
+  /** Muda quando busca, filtros ou situação mudam; paginação fica de fora. */
+  escopoSelecao?: string;
+  /** Busca todos os candidatos do filtro global, independentemente da página. */
+  carregarSelecionaveisDoFiltro?: () => Promise<ResultadoSelecaoDeEventos>;
 }) {
   const [modoSelecao, setModoSelecao] = useState(false);
-  const [selecionados, setSelecionados] = useState<Set<number>>(new Set());
+  const [catalogoSelecionados, setCatalogoSelecionados] = useState<
+    Map<number, EventoSelecionavelResumido>
+  >(new Map());
+  const [carregandoTodos, setCarregandoTodos] = useState(false);
 
   const [eventoParaLancamento, setEventoParaLancamento] = useState<{
     ids: number[];
@@ -204,9 +230,13 @@ export function PainelEventosFinanceiros({
     () => linhas.filter((linha) => eventoSelecionavel(linha)),
     [linhas],
   );
+  const selecionados = useMemo(
+    () => new Set(catalogoSelecionados.keys()),
+    [catalogoSelecionados],
+  );
   const escolhidas = useMemo(
-    () => selecionaveis.filter((linha) => selecionados.has(linha.id)),
-    [selecionaveis, selecionados],
+    () => [...catalogoSelecionados.values()],
+    [catalogoSelecionados],
   );
   const totalSelecionado = useMemo(
     () => Math.round(escolhidas.reduce((soma, item) => soma + item.valor, 0) * 100) / 100,
@@ -219,39 +249,92 @@ export function PainelEventosFinanceiros({
 
   const sairDoModoSelecao = useCallback(() => {
     setModoSelecao(false);
-    setSelecionados(new Set());
+    setCatalogoSelecionados(new Map());
   }, []);
 
-  // Sem despesa elegível não há o que selecionar — a última pode ter acabado de
-  // ser lançada por outra aba.
+  // Busca, filtros e aba definem o conjunto. Paginar ou trocar a apresentação
+  // agrupada não define outro conjunto e, por isso, preserva as marcações.
   useEffect(() => {
-    if (modoSelecao && selecionaveis.length === 0) sairDoModoSelecao();
-  }, [modoSelecao, selecionaveis.length, sairDoModoSelecao]);
+    if (escopoSelecao !== undefined) sairDoModoSelecao();
+  }, [escopoSelecao, sairDoModoSelecao]);
 
-  // Poda a seleção quando os eventos recarregam: uma despesa lançada em outra
-  // aba continuaria marcada e entraria na soma. Devolve o Set anterior quando
-  // nada mudou, senão o estado novo a cada render reentraria neste efeito.
+  // Atualiza o resumo das linhas selecionadas que estão na página e remove uma
+  // que tenha deixado de ser elegível. IDs de outras páginas permanecem no
+  // catálogo; o servidor ainda revalida todos sob lock no lançamento.
   useEffect(() => {
-    setSelecionados((atual) => {
+    const porId = new Map(linhas.map((linha) => [linha.id, linha]));
+    setCatalogoSelecionados((atual) => {
       if (atual.size === 0) return atual;
-      const validos = new Set(selecionaveis.map((linha) => linha.id));
-      const proximo = new Set([...atual].filter((id) => validos.has(id)));
-      return proximo.size === atual.size ? atual : proximo;
+      let mudou = false;
+      const proximo = new Map(atual);
+      for (const [id, linhaAtual] of porId) {
+        if (!proximo.has(id)) continue;
+        if (!eventoSelecionavel(linhaAtual)) {
+          proximo.delete(id);
+          mudou = true;
+          continue;
+        }
+        const resumo = resumirEventoSelecionavel(linhaAtual);
+        const anterior = proximo.get(id);
+        if (
+          anterior?.osId !== resumo.osId
+          || anterior?.descricao !== resumo.descricao
+          || anterior?.valor !== resumo.valor
+        ) {
+          proximo.set(id, resumo);
+          mudou = true;
+        }
+      }
+      return mudou ? proximo : atual;
     });
-  }, [selecionaveis]);
+  }, [linhas]);
 
-  const alternarSelecao = useCallback((id: number) => {
-    setSelecionados((atual) => {
-      const proximo = new Set(atual);
-      if (proximo.has(id)) proximo.delete(id);
-      else proximo.add(id);
+  const alternarSelecao = useCallback((linha: LinhaDeEvento) => {
+    if (
+      !catalogoSelecionados.has(linha.id)
+      && catalogoSelecionados.size >= LIMITE_SELECAO_EVENTOS
+    ) {
+      toast.error(`Selecione no máximo ${LIMITE_SELECAO_EVENTOS} despesas por lançamento.`);
+      return;
+    }
+
+    setCatalogoSelecionados((atual) => {
+      const proximo = new Map(atual);
+      if (proximo.has(linha.id)) proximo.delete(linha.id);
+      else proximo.set(linha.id, resumirEventoSelecionavel(linha));
       return proximo;
     });
-  }, []);
+  }, [catalogoSelecionados]);
 
   const recarregar = useCallback(async () => {
     await onChanged();
   }, [onChanged]);
+
+  async function selecionarTodosDoFiltro() {
+    if (!carregarSelecionaveisDoFiltro) return;
+    setCarregandoTodos(true);
+    try {
+      const resultado = await carregarSelecionaveisDoFiltro();
+      if (resultado.total === 0) {
+        setCatalogoSelecionados(new Map());
+        toast.info("Nenhuma despesa elegível neste filtro.");
+        return;
+      }
+      if (resultado.total > resultado.limite || resultado.eventos.length !== resultado.total) {
+        throw new Error(
+          `Refine o filtro para selecionar no máximo ${resultado.limite} despesas.`,
+        );
+      }
+
+      setCatalogoSelecionados(
+        new Map(resultado.eventos.map((evento) => [evento.id, evento])),
+      );
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao selecionar as despesas do filtro.");
+    } finally {
+      setCarregandoTodos(false);
+    }
+  }
 
   /**
    * A descrição padrão do boleto.
@@ -260,7 +343,10 @@ export function PainelEventosFinanceiros({
    * nomear uma delas seria mentira — o que identifica o pagamento é quantas
    * despesas ele cobre.
    */
-  function descricaoDoLancamento(escolhidasAgora: LinhaDeEvento[], osIds: number[]) {
+  function descricaoDoLancamento(
+    escolhidasAgora: Array<Pick<EventoSelecionavelResumido, "descricao">>,
+    osIds: number[],
+  ) {
     if (escolhidasAgora.length === 1) return escolhidasAgora[0].descricao;
     if (osIds.length === 1) return `Despesas da OS #${osIds[0]} (${escolhidasAgora.length} lançamentos)`;
     return `Despesas de ${osIds.length} OS (${escolhidasAgora.length} lançamentos)`;
@@ -625,6 +711,9 @@ export function PainelEventosFinanceiros({
   }
 
   const grupos = useMemo(() => (agruparPorOs ? agruparPorOrdem(linhas) : []), [agruparPorOs, linhas]);
+  const quantidadeSelecionaveis = totalSelecionaveis ?? selecionaveis.length;
+  const todosDoFiltroSelecionados =
+    quantidadeSelecionaveis > 0 && escolhidas.length === quantidadeSelecionaveis;
 
   function renderLinha(linha: LinhaDeEvento) {
     const podeEditarLinha =
@@ -634,6 +723,7 @@ export function PainelEventosFinanceiros({
         // Comissão não tem origem corrigível: a taxa vem do perfil e o valor é
         // derivado. É por aqui ou lugar nenhum.
         || linha.origem === "COMISSAO");
+    const mostrarContextoDaOs = !agruparPorOs && osIdUnica == null;
 
     return (
       <div
@@ -648,7 +738,7 @@ export function PainelEventosFinanceiros({
               <Checkbox
                 checked={selecionados.has(linha.id)}
                 disabled={!eventoSelecionavel(linha)}
-                onCheckedChange={() => alternarSelecao(linha.id)}
+                onCheckedChange={() => alternarSelecao(linha)}
                 aria-label={`Selecionar ${linha.descricao}`}
                 title={motivoNaoSelecionavel(linha)}
                 className="hover:cursor-pointer"
@@ -672,6 +762,9 @@ export function PainelEventosFinanceiros({
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <p className="truncate text-sm font-medium">{linha.descricao}</p>
+              {mostrarContextoDaOs && linha.osId != null ? (
+                <Badge variant="secondary">OS #{linha.osId}</Badge>
+              ) : null}
               <Badge variant="outline">{linha.origem}</Badge>
               {/*
                 Azul e âmbar formam um par e só aparecem em quem de fato pode
@@ -714,6 +807,13 @@ export function PainelEventosFinanceiros({
               ) : null}
             </div>
             <p className="truncate text-xs text-muted-foreground">{linha.detalhe}</p>
+            {mostrarContextoDaOs ? (
+              <p className="mt-0.5 truncate text-[11px] text-muted-foreground/80">
+                {[linha.ordem?.cliente?.nomerazaosocial, fmtDate(linha.dataEvento)]
+                  .filter((valor) => valor && valor !== "—")
+                  .join(" · ")}
+              </p>
+            ) : null}
             {linha.isManual && linha.criadoPorNome ? (
               <p className="mt-0.5 truncate text-[11px] text-muted-foreground/80">
                 Adicionado por {linha.criadoPorNome}
@@ -866,10 +966,26 @@ export function PainelEventosFinanceiros({
           {modoSelecao ? (
             <>
               <p className="mr-auto text-sm text-muted-foreground">
-                {escolhidas.length} de {selecionaveis.length} despesa(s)
+                {escolhidas.length} de {quantidadeSelecionaveis} despesa(s)
                 {escolhidas.length > 0 ? ` · ${fmtMoney(totalSelecionado)}` : null}
-                {osDaSelecao.length > 1 ? ` · ${osDaSelecao.length} OS` : null}
+                {escolhidas.length > 0 ? ` · ${osDaSelecao.length} OS` : null}
               </p>
+              {carregarSelecionaveisDoFiltro ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={
+                    carregandoTodos
+                    || quantidadeSelecionaveis === 0
+                    || todosDoFiltroSelecionados
+                  }
+                  onClick={() => void selecionarTodosDoFiltro()}
+                >
+                  {carregandoTodos ? <Loader2 className="animate-spin" /> : <ListChecks />}
+                  {todosDoFiltroSelecionados ? "Todos selecionados" : "Selecionar todos do filtro"}
+                </Button>
+              ) : null}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button type="button" size="sm" disabled={escolhidas.length === 0}>
@@ -901,9 +1017,9 @@ export function PainelEventosFinanceiros({
                   size="sm"
                   variant="ghost"
                   aria-pressed={false}
-                  disabled={selecionaveis.length === 0}
+                  disabled={quantidadeSelecionaveis === 0}
                   title={
-                    selecionaveis.length === 0
+                    quantidadeSelecionaveis === 0
                       ? "Nenhuma despesa disponível para lançar."
                       : "Selecionar despesas para lançar juntas no financeiro"
                   }

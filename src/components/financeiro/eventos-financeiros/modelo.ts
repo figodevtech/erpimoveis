@@ -26,9 +26,11 @@ export type EventoFinanceiroBruto = {
   descricao: string;
   detalhe?: string | null;
   valor: number;
+  data_evento?: string | null;
   chave_origem?: string | null;
   produtoid?: number | null;
   servicoid?: number | null;
+  usuarioid?: string | null;
   /**
    * Saída de estoque que originou o consumo, quando existe.
    *
@@ -63,6 +65,7 @@ export type LinhaDeEvento = {
   descricao: string;
   detalhe: string;
   valor: number;
+  dataEvento: string | null;
   origem: string;
   natureza: "RECEITA" | "DESPESA";
   status: string;
@@ -82,15 +85,20 @@ export type LinhaDeEvento = {
   ordem: EventoFinanceiroBruto["ordem"];
 };
 
-export function montarLinhas(eventos: EventoFinanceiroBruto[]): LinhaDeEvento[] {
+export function montarLinhas(
+  eventos: EventoFinanceiroBruto[],
+  opcoes: { preservarOrdem?: boolean } = {},
+): LinhaDeEvento[] {
   const ativos = eventos.filter((evento) => evento.status !== "CANCELADO");
-  return ordenarEventosDaOs(ativos as any).map((evento: any) => ({
+  const ordenados = opcoes.preservarOrdem ? ativos : ordenarEventosDaOs(ativos as any);
+  return ordenados.map((evento: any) => ({
     id: evento.id,
     osId: evento.ordemservicoid ?? evento.ordem?.id ?? null,
     tipo: (evento.natureza === "RECEITA" ? "ENTRADA" : "SAIDA") as "ENTRADA" | "SAIDA",
     descricao: evento.descricao,
     detalhe: evento.detalhe || evento.origem,
     valor: Number(evento.valor || 0),
+    dataEvento: evento.data_evento ?? null,
     origem: evento.origem,
     natureza: evento.natureza,
     status: evento.status,
@@ -188,6 +196,10 @@ export function agruparPorOrdem(linhas: LinhaDeEvento[]): GrupoDeOs[] {
   }
   return [...grupos.values()].map((grupo) => ({
     ...grupo,
+    // A lista global chega agrupada por OS pelo servidor. Dentro de cada bloco,
+    // mantemos a leitura econômica da tela da OS: receita, custos e comissão do
+    // mesmo item permanecem juntos.
+    linhas: ordenarEventosDaOs(grupo.linhas),
     total: Math.round(grupo.total * 100) / 100,
   }));
 }

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -27,6 +28,8 @@ import { PainelEventosFinanceiros } from "@/components/financeiro/eventos-financ
 import { endpointsDoFinanceiro } from "@/components/financeiro/eventos-financeiros/endpoints";
 import type { LinhaDeEvento } from "@/components/financeiro/eventos-financeiros/modelo";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import type { ResultadoSelecaoDeEventos } from "@/lib/financeiro/eventos-financeiros-selection";
 
 import {
   FILTROS_VAZIOS,
@@ -35,6 +38,7 @@ import {
   type FiltrosDeEventos,
   type Paginacao,
   type SituacaoEvento,
+  type UsuarioDeEvento,
 } from "../types";
 
 const LIMIT_OPTIONS = [25, 50, 100, 200];
@@ -50,11 +54,18 @@ export function TabelaEventos({
   setBusca,
   filtros,
   setFiltros,
+  usuarios,
+  carregandoUsuarios,
+  agruparPorOs,
+  setAgruparPorOs,
   paginacao,
   irParaPagina,
   setLimit,
   recarregar,
   permissoes,
+  totalSelecionaveis,
+  escopoSelecao,
+  carregarSelecionaveisDoFiltro,
 }: {
   linhas: LinhaDeEvento[];
   isLoading: boolean;
@@ -64,11 +75,18 @@ export function TabelaEventos({
   setBusca: (valor: string) => void;
   filtros: FiltrosDeEventos;
   setFiltros: (valor: FiltrosDeEventos) => void;
+  usuarios: UsuarioDeEvento[];
+  carregandoUsuarios: boolean;
+  agruparPorOs: boolean;
+  setAgruparPorOs: (valor: boolean) => void;
   paginacao: Paginacao;
   irParaPagina: (pagina: number) => void;
   setLimit: (limite: number) => void;
   recarregar: () => void | Promise<void>;
   permissoes: { podeEditar: boolean; podeExcluir: boolean; podeLancar: boolean };
+  totalSelecionaveis: number;
+  escopoSelecao: string;
+  carregarSelecionaveisDoFiltro: () => Promise<ResultadoSelecaoDeEventos>;
 }) {
   const [filtroAberto, setFiltroAberto] = useState(false);
   // Rascunho: o filtro só vale quando o operador aplica, como no fluxo de caixa.
@@ -110,6 +128,20 @@ export function TabelaEventos({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <div className="flex h-9 items-center gap-2 rounded-md border px-3">
+              <Switch
+                id="agrupar-eventos-por-os"
+                checked={agruparPorOs}
+                onCheckedChange={setAgruparPorOs}
+              />
+              <Label
+                htmlFor="agrupar-eventos-por-os"
+                className="cursor-pointer whitespace-nowrap text-xs font-medium"
+              >
+                Agrupar por OS
+              </Label>
+            </div>
+
             <form
               className="relative"
               onSubmit={(event) => {
@@ -222,6 +254,38 @@ export function TabelaEventos({
                     />
                   </label>
 
+                  <label className="block text-sm font-medium">
+                    Usuário
+                    <Select
+                      value={rascunho.usuarioId || "TODOS"}
+                      onValueChange={(valor) =>
+                        setRascunho({
+                          ...rascunho,
+                          usuarioId: valor === "TODOS" ? "" : valor,
+                        })
+                      }
+                      disabled={carregandoUsuarios && usuarios.length === 0}
+                    >
+                      <SelectTrigger className="mt-1 w-full">
+                        <SelectValue
+                          placeholder={carregandoUsuarios ? "Carregando usuários..." : "Todos os usuários"}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="TODOS">Todos os usuários</SelectItem>
+                        {usuarios.map((usuario) => (
+                          <SelectItem key={usuario.id} value={usuario.id}>
+                            {usuario.nome || usuario.email || usuario.id}
+                            {usuario.ativo ? "" : " (inativo)"}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                      Pessoa vinculada ao evento, como o beneficiário de uma comissão.
+                    </span>
+                  </label>
+
                   <div className="grid grid-cols-2 gap-3">
                     <label className="block text-sm font-medium">
                       De
@@ -300,7 +364,10 @@ export function TabelaEventos({
             linhas={linhas}
             endpoints={ENDPOINTS}
             permissoes={permissoes}
-            agruparPorOs
+            agruparPorOs={agruparPorOs}
+            totalSelecionaveis={totalSelecionaveis}
+            escopoSelecao={escopoSelecao}
+            carregarSelecionaveisDoFiltro={carregarSelecionaveisDoFiltro}
             onChanged={recarregar}
             vazio={
               <p className="p-8 text-center text-sm text-muted-foreground">

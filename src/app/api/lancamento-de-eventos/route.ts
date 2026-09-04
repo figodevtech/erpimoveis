@@ -4,11 +4,11 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { requireFinanceiroCreate } from "@/app/api/_authz/perms";
 import { auth } from "@/lib/auth";
+import { LIMITE_SELECAO_EVENTOS } from "@/lib/financeiro/eventos-financeiros-selection";
 import { paraCentavos, paraReais } from "@/lib/financeiro/rateio";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 /** Teto de segurança: seleção maior que isso é engano, não operação. */
-const LIMITE_DESPESAS = 100;
 const LIMITE_PARCELAS = 60;
 
 type LinhaDaParcela = {
@@ -70,9 +70,9 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
-    if (eventosIds.length > LIMITE_DESPESAS) {
+    if (eventosIds.length > LIMITE_SELECAO_EVENTOS) {
       return NextResponse.json(
-        { error: `Selecione no máximo ${LIMITE_DESPESAS} despesas por lançamento.` },
+        { error: `Selecione no máximo ${LIMITE_SELECAO_EVENTOS} despesas por lançamento.` },
         { status: 400 },
       );
     }

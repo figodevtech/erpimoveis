@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { montarLinhas, type EventoFinanceiroBruto } from "@/components/financeiro/eventos-financeiros/modelo";
+import type { ResultadoSelecaoDeEventos } from "@/lib/financeiro/eventos-financeiros-selection";
 import formatarEmReal from "@/utils/formatarEmReal";
 
 import { TabelaEventos } from "./components/tabela-eventos";
@@ -16,6 +17,7 @@ import {
   type Paginacao,
   type SituacaoEvento,
   type TotaisDaFila,
+  type UsuarioDeEvento,
 } from "./types";
 
 /**
@@ -36,6 +38,7 @@ const TOTAIS_VAZIOS: TotaisDaFila = {
   liquido: 0,
   quantidade: 0,
   ordens: 0,
+  selecionaveis: 0,
 };
 
 function Cartao({
@@ -93,6 +96,9 @@ export default function EventosFinanceirosPage() {
   const [situacao, setSituacao] = useState<SituacaoEvento>("NAO_LANCADO");
   const [busca, setBusca] = useState("");
   const [filtros, setFiltros] = useState<FiltrosDeEventos>(FILTROS_VAZIOS);
+  const [agruparPorOs, setAgruparPorOs] = useState(true);
+  const [usuarios, setUsuarios] = useState<UsuarioDeEvento[]>([]);
+  const [carregandoUsuarios, setCarregandoUsuarios] = useState(true);
   const [paginacao, setPaginacao] = useState<Paginacao>({
     total: 0,
     page: 1,
@@ -109,23 +115,50 @@ export default function EventosFinanceirosPage() {
    */
   const buscaAtual = useRef(0);
 
+  const parametrosDaConsulta = useCallback(
+    (pagina: number, limite: number) => ({
+      page: pagina,
+      limit: limite,
+      situacao,
+      search: busca || undefined,
+      natureza: filtros.natureza || undefined,
+      origem: filtros.origem || undefined,
+      osId: filtros.osId || undefined,
+      usuarioId: filtros.usuarioId || undefined,
+      dateFrom: filtros.dateFrom || undefined,
+      dateTo: filtros.dateTo || undefined,
+      agruparPorOs: agruparPorOs ? "1" : "0",
+    }),
+    [agruparPorOs, busca, filtros, situacao],
+  );
+
+  useEffect(() => {
+    let ativo = true;
+    setCarregandoUsuarios(true);
+    axios
+      .get("/api/eventos-financeiros/usuarios")
+      .then((response) => {
+        if (ativo) setUsuarios(response.data?.usuarios ?? []);
+      })
+      .catch(() => {
+        if (ativo) setUsuarios([]);
+      })
+      .finally(() => {
+        if (ativo) setCarregandoUsuarios(false);
+      });
+
+    return () => {
+      ativo = false;
+    };
+  }, []);
+
   const buscarEventos = useCallback(
     async (pagina: number, limite: number) => {
       const estaBusca = ++buscaAtual.current;
       setIsLoading(true);
       try {
         const response = await axios.get("/api/eventos-financeiros", {
-          params: {
-            page: pagina,
-            limit: limite,
-            situacao,
-            search: busca || undefined,
-            natureza: filtros.natureza || undefined,
-            origem: filtros.origem || undefined,
-            osId: filtros.osId || undefined,
-            dateFrom: filtros.dateFrom || undefined,
-            dateTo: filtros.dateTo || undefined,
-          },
+          params: parametrosDaConsulta(pagina, limite),
         });
         if (estaBusca !== buscaAtual.current) return;
         setEventos(response.data?.data ?? []);
@@ -139,7 +172,7 @@ export default function EventosFinanceirosPage() {
         if (estaBusca === buscaAtual.current) setIsLoading(false);
       }
     },
-    [situacao, busca, filtros],
+    [parametrosDaConsulta],
   );
 
   // Mudou filtro, aba ou busca? A consulta recomeça da primeira página — a
@@ -166,7 +199,45 @@ export default function EventosFinanceirosPage() {
     await buscarEventos(paginacao.page, paginacao.limit);
   }, [buscarEventos, paginacao.page, paginacao.limit]);
 
-  const linhas = useMemo(() => montarLinhas(eventos), [eventos]);
+  const carregarSelecionaveisDoFiltro = useCallback(async (): Promise<ResultadoSelecaoDeEventos> => {
+    try {
+      const response = await axios.get("/api/eventos-financeiros", {
+        params: {
+          ...parametrosDaConsulta(1, 1),
+          selecionaveis: "1",
+        },
+      });
+      const data = Array.isArray(response.data?.data) ? response.data.data : [];
+      return {
+        eventos: data.map((evento: any) => ({
+          id: Number(evento.id),
+          osId: Number(evento.ordemservicoid),
+          descricao: String(evento.descricao ?? "Despesa"),
+          valor: Number(evento.valor ?? 0),
+        })),
+        total: Number(response.data?.total ?? data.length),
+        limite: Number(response.data?.limite ?? 500),
+      };
+    } catch (error: unknown) {
+      if (axios.isAxiosError(error)) {
+        throw new Error(error.response?.data?.error || "Erro ao selecionar as despesas do filtro.");
+      }
+      throw error;
+    }
+  }, [parametrosDaConsulta]);
+
+  // A API já entrega a página na ordem correta. No modo agrupado, cada bloco
+  // ordena seus próprios itens; no modo plano esta preservação mantém a
+  // cronologia entre OS diferentes.
+  const linhas = useMemo(
+    () => montarLinhas(eventos, { preservarOrdem: true }),
+    [eventos],
+  );
+
+  const escopoSelecao = useMemo(
+    () => JSON.stringify({ situacao, busca, filtros }),
+    [busca, filtros, situacao],
+  );
 
   const rotuloDoPeriodo =
     totais.ordens === 1 ? "em 1 ordem" : `em ${totais.ordens} ordens`;
@@ -214,11 +285,18 @@ export default function EventosFinanceirosPage() {
         setBusca={setBusca}
         filtros={filtros}
         setFiltros={setFiltros}
+        usuarios={usuarios}
+        carregandoUsuarios={carregandoUsuarios}
+        agruparPorOs={agruparPorOs}
+        setAgruparPorOs={setAgruparPorOs}
         paginacao={paginacao}
         irParaPagina={irParaPagina}
         setLimit={trocarLimite}
         recarregar={recarregar}
         permissoes={permissoes}
+        totalSelecionaveis={totais.selecionaveis}
+        escopoSelecao={escopoSelecao}
+        carregarSelecionaveisDoFiltro={carregarSelecionaveisDoFiltro}
       />
     </div>
   );
