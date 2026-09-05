@@ -15,6 +15,7 @@ const STATUS_LABELS: Record<string, string> = {
   ORCAMENTO_RECUSADO: "Orçamento recusado",
   EM_ANDAMENTO: "Em andamento",
   PAGAMENTO: "Aguardando pagamento",
+  FATURAMENTO: "Faturamento",
   SEM_COBRANCA: "Finalizada sem cobrança",
   CONCLUIDO: "Concluída",
   CANCELADO: "Cancelada",

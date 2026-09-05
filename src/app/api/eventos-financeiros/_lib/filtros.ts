@@ -59,7 +59,7 @@ export function lerFiltrosDeEventos(searchParams: URLSearchParams) {
     ? [
         `descricao.ilike.%${escapado}%`,
         `detalhe.ilike.%${escapado}%`,
-        ...(osDaBusca ? [`ordemservicoid.eq.${osDaBusca}`] : []),
+        ...(osDaBusca ? [`documento_id.eq.${osDaBusca}`] : []),
       ].join(",")
     : "";
 
@@ -68,13 +68,13 @@ export function lerFiltrosDeEventos(searchParams: URLSearchParams) {
     natureza,
     origem,
     osId: idPositivo(searchParams.get("osId")),
+    documentoTipo: ["OS", "VENDA"].includes(searchParams.get("documentoTipo") ?? "") ? searchParams.get("documentoTipo")! : "",
     clienteId: idPositivo(searchParams.get("clienteId")),
     usuarioId: usuarioIdValido(searchParams.get("usuarioId")),
     dateFrom: (searchParams.get("dateFrom") ?? "").trim(),
     dateTo: (searchParams.get("dateTo") ?? "").trim(),
     search,
     buscaEm,
-    agruparPorOs: searchParams.get("agruparPorOs") !== "0",
     selecionarTodos: searchParams.get("selecionaveis") === "1",
   };
 }
@@ -97,18 +97,15 @@ function aplicarSituacao<T extends { eq: any; is: any; neq: any }>(
   return query.neq("status", "CANCELADO");
 }
 
-/** Os filtros comuns. `ordem` precisa estar embutida na consulta recebida. */
+/** A view da fila já limita a consulta a OS válidas e comissões de vendas. */
 export function aplicarFiltrosDeEventos(query: any, filtros: FiltrosDeEventosApi) {
-  let q = aplicarSituacao(query, filtros.situacao)
-    // `source_type` é nulo em parte do histórico; a presença da OS é a
-    // identificação retrocompatível dos eventos desta tela.
-    .not("ordemservicoid", "is", null)
-    .eq("ordem.is_deleted", false);
+  let q = aplicarSituacao(query, filtros.situacao);
 
   if (filtros.natureza) q = q.eq("natureza", filtros.natureza);
   if (filtros.origem) q = q.eq("origem", filtros.origem);
   if (filtros.osId) q = q.eq("ordemservicoid", filtros.osId);
-  if (filtros.clienteId) q = q.eq("ordem.clienteid", filtros.clienteId);
+  if (filtros.clienteId) q = q.eq("cliente_id", filtros.clienteId);
+  if (filtros.documentoTipo) q = q.eq("documento_tipo", filtros.documentoTipo);
   if (filtros.usuarioId) q = q.eq("usuarioid", filtros.usuarioId);
   if (filtros.dateFrom) q = q.gte("data_evento", localDayStartToUtcIso(filtros.dateFrom));
   if (filtros.dateTo) q = q.lt("data_evento", localNextDayStartToUtcIso(filtros.dateTo));

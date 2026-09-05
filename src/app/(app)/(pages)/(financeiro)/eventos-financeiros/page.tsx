@@ -1,7 +1,7 @@
 "use client";
 
 import axios from "axios";
-import { ArrowDown, ArrowUp, ClipboardList, Wallet } from "lucide-react";
+import { AlertCircle, ArrowDownLeft, ArrowUpRight, ClipboardList, Wallet } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -9,6 +9,8 @@ import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { montarLinhas, type EventoFinanceiroBruto } from "@/components/financeiro/eventos-financeiros/modelo";
 import type { ResultadoSelecaoDeEventos } from "@/lib/financeiro/eventos-financeiros-selection";
 import formatarEmReal from "@/utils/formatarEmReal";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 
 import { TabelaEventos } from "./components/tabela-eventos";
 import {
@@ -21,7 +23,7 @@ import {
 } from "./types";
 
 /**
- * A fila de eventos financeiros das ordens.
+ * A fila de eventos financeiros de OS e comissões de vendas.
  *
  * A recepção lança despesa na OS o dia inteiro; quem transforma isso em título
  * no a pagar é o financeiro. Sem esta tela, o único caminho até um evento era
@@ -47,12 +49,14 @@ function Cartao({
   detalhe,
   icon: Icon,
   tom,
+  carregando,
 }: {
   titulo: string;
   valor: string;
   detalhe?: string;
   icon: React.ElementType;
   tom: "amber" | "red" | "emerald" | "sky";
+  carregando: boolean;
 }) {
   const tons = {
     amber: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
@@ -62,17 +66,17 @@ function Cartao({
   } as const;
 
   return (
-    <div className="rounded-xl border bg-card p-4 shadow-sm">
+    <div className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-sm sm:p-5">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <span className="text-sm font-medium text-muted-foreground">
           {titulo}
         </span>
         <div className={`rounded-lg p-2 ${tons[tom]}`}>
           <Icon className="size-4" />
         </div>
       </div>
-      <p className="mt-2 text-2xl font-bold tracking-tight tabular-nums">{valor}</p>
-      {detalhe ? <p className="mt-1 text-xs text-muted-foreground">{detalhe}</p> : null}
+      {carregando ? <Skeleton className="mt-3 h-8 w-full max-w-32" /> : <p className="mt-3 text-xl font-semibold tracking-tight tabular-nums sm:text-2xl">{valor}</p>}
+      {detalhe ? <p className="mt-2 text-xs text-muted-foreground">{detalhe}</p> : null}
     </div>
   );
 }
@@ -92,11 +96,11 @@ export default function EventosFinanceirosPage() {
 
   const [eventos, setEventos] = useState<EventoFinanceiroBruto[]>([]);
   const [totais, setTotais] = useState<TotaisDaFila>(TOTAIS_VAZIOS);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [erro, setErro] = useState<string | null>(null);
   const [situacao, setSituacao] = useState<SituacaoEvento>("NAO_LANCADO");
   const [busca, setBusca] = useState("");
   const [filtros, setFiltros] = useState<FiltrosDeEventos>(FILTROS_VAZIOS);
-  const [agruparPorOs, setAgruparPorOs] = useState(true);
   const [usuarios, setUsuarios] = useState<UsuarioDeEvento[]>([]);
   const [carregandoUsuarios, setCarregandoUsuarios] = useState(true);
   const [paginacao, setPaginacao] = useState<Paginacao>({
@@ -124,12 +128,12 @@ export default function EventosFinanceirosPage() {
       natureza: filtros.natureza || undefined,
       origem: filtros.origem || undefined,
       osId: filtros.osId || undefined,
+      documentoTipo: filtros.documentoTipo || undefined,
       usuarioId: filtros.usuarioId || undefined,
       dateFrom: filtros.dateFrom || undefined,
       dateTo: filtros.dateTo || undefined,
-      agruparPorOs: agruparPorOs ? "1" : "0",
     }),
-    [agruparPorOs, busca, filtros, situacao],
+    [busca, filtros, situacao],
   );
 
   useEffect(() => {
@@ -156,6 +160,7 @@ export default function EventosFinanceirosPage() {
     async (pagina: number, limite: number) => {
       const estaBusca = ++buscaAtual.current;
       setIsLoading(true);
+      setErro(null);
       try {
         const response = await axios.get("/api/eventos-financeiros", {
           params: parametrosDaConsulta(pagina, limite),
@@ -164,10 +169,11 @@ export default function EventosFinanceirosPage() {
         setEventos(response.data?.data ?? []);
         setTotais(response.data?.totais ?? TOTAIS_VAZIOS);
         setPaginacao((atual) => ({ ...atual, ...(response.data?.pagination ?? {}) }));
-      } catch {
+      } catch (error) {
         if (estaBusca !== buscaAtual.current) return;
         setEventos([]);
         setTotais(TOTAIS_VAZIOS);
+        setErro(axios.isAxiosError(error) ? error.response?.data?.error || "Não foi possível carregar os eventos financeiros." : "Não foi possível carregar os eventos financeiros.");
       } finally {
         if (estaBusca === buscaAtual.current) setIsLoading(false);
       }
@@ -211,7 +217,8 @@ export default function EventosFinanceirosPage() {
       return {
         eventos: data.map((evento: any) => ({
           id: Number(evento.id),
-          osId: Number(evento.ordemservicoid),
+          osId: evento.ordemservicoid == null ? null : Number(evento.ordemservicoid),
+          vendaId: evento.vendaid == null ? null : Number(evento.vendaid),
           descricao: String(evento.descricao ?? "Despesa"),
           valor: Number(evento.valor ?? 0),
         })),
@@ -226,9 +233,7 @@ export default function EventosFinanceirosPage() {
     }
   }, [parametrosDaConsulta]);
 
-  // A API já entrega a página na ordem correta. No modo agrupado, cada bloco
-  // ordena seus próprios itens; no modo plano esta preservação mantém a
-  // cronologia entre OS diferentes.
+  // Preserva a cronologia da API entre OS e vendas.
   const linhas = useMemo(
     () => montarLinhas(eventos, { preservarOrdem: true }),
     [eventos],
@@ -240,45 +245,66 @@ export default function EventosFinanceirosPage() {
   );
 
   const rotuloDoPeriodo =
-    totais.ordens === 1 ? "em 1 ordem" : `em ${totais.ordens} ordens`;
+    `em ${totais.ordens} OS e ${totais.vendas ?? 0} vendas`;
 
   return (
-    <div className="space-y-4 py-4">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="space-y-6 py-5">
+      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Eventos financeiros</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Confira as movimentações de OS e comissões de vendas e organize os lançamentos no financeiro.</p>
+        </div>
+        <span className="shrink-0 text-xs text-muted-foreground">Totais do filtro aplicado</span>
+      </div>
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <Cartao
           titulo={situacao === "NAO_LANCADO" ? "A lançar" : "Eventos"}
-          valor={String(totais.quantidade)}
+          valor={erro ? "—" : String(totais.quantidade)}
           detalhe={rotuloDoPeriodo}
           icon={ClipboardList}
           tom="amber"
+          carregando={isLoading}
         />
         <Cartao
           titulo="Despesas"
-          valor={formatarEmReal(totais.despesa)}
+          valor={erro ? "—" : formatarEmReal(totais.despesa)}
           detalhe={
             situacao === "NAO_LANCADO" ? "Ainda sem título no financeiro" : undefined
           }
-          icon={ArrowDown}
+          icon={ArrowUpRight}
           tom="red"
+          carregando={isLoading}
         />
         <Cartao
           titulo="Receitas"
-          valor={formatarEmReal(totais.receita)}
-          icon={ArrowUp}
+          valor={erro ? "—" : formatarEmReal(totais.receita)}
+          icon={ArrowDownLeft}
           tom="emerald"
+          detalhe="Receitas registradas no período"
+          carregando={isLoading}
         />
         <Cartao
           titulo="Resultado"
-          valor={formatarEmReal(totais.liquido)}
+          valor={erro ? "—" : formatarEmReal(totais.liquido)}
           detalhe="Receitas menos despesas do filtro"
           icon={Wallet}
           tom="sky"
+          carregando={isLoading}
         />
       </div>
+
+      {erro ? (
+        <div role="alert" className="flex flex-wrap items-center gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm">
+          <AlertCircle className="size-5 shrink-0 text-destructive" />
+          <p className="flex-1">{erro}</p>
+          <Button variant="outline" size="sm" onClick={() => void recarregar()}>Tentar novamente</Button>
+        </div>
+      ) : null}
 
       <TabelaEventos
         linhas={linhas}
         isLoading={isLoading}
+        erro={erro}
         situacao={situacao}
         setSituacao={setSituacao}
         busca={busca}
@@ -287,8 +313,6 @@ export default function EventosFinanceirosPage() {
         setFiltros={setFiltros}
         usuarios={usuarios}
         carregandoUsuarios={carregandoUsuarios}
-        agruparPorOs={agruparPorOs}
-        setAgruparPorOs={setAgruparPorOs}
         paginacao={paginacao}
         irParaPagina={irParaPagina}
         setLimit={trocarLimite}

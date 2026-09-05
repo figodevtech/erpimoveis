@@ -39,6 +39,7 @@ export type ItemVenda = {
 };
 
 export type MinhaVenda = {
+  comissao?: import("@/lib/vendas/comissao").ComissaoVendaSnapshot | null;
   id: number;
   status: string | null;
   canal: string | null;
@@ -98,6 +99,7 @@ export type MinhaOrdem = {
  * quando há frete ou desconto no meio.
  */
 export type IndicadoresVendas = {
+  comissao?: number;
   vendas: number;
   /** Soma dos itens, antes de desconto e frete. */
   produtos: number;

@@ -1,4 +1,5 @@
 "use client";
+import { useConfig } from "@/app/(app)/(pages)/config-context";
 
 import {
   AlertCircle,
@@ -337,10 +338,11 @@ export function FinanceiroOsTab({
     void carregar();
   }, [carregar]);
 
+  const config = useConfig();
   const statusAtual = String(payload?.ordem?.status ?? status).toUpperCase();
   const podeAdicionar =
     podeCriar &&
-    podeRegistrarPagamentoOs(statusAtual) &&
+    podeRegistrarPagamentoOs(statusAtual, config?.habilitar_faturamento_os) &&
     Number(payload?.resumo?.saldoDisponivelParaLancamento ?? 0) > 0;
   const transacoes = payload?.transacoes ?? [];
   const resumo = payload?.resumo;
@@ -516,7 +518,7 @@ export function FinanceiroOsTab({
                 disabled={!podeAdicionar}
                 className="w-full gap-2 sm:w-auto"
                 title={
-                  !podeRegistrarPagamentoOs(statusAtual)
+                  !podeRegistrarPagamentoOs(statusAtual, config?.habilitar_faturamento_os)
                     ? "Disponível somente após a aprovação e antes da conclusão da OS."
                     : undefined
                 }
@@ -528,7 +530,7 @@ export function FinanceiroOsTab({
         </div>
 
         {/* Informational Alerts */}
-        {!podeRegistrarPagamentoOs(statusAtual) ? (
+        {!podeRegistrarPagamentoOs(statusAtual, config?.habilitar_faturamento_os) ? (
           <div className="flex items-center gap-2 border-b bg-blue-500/10 px-4 py-2.5 text-xs font-medium text-blue-800 dark:text-blue-300">
             <Info className="size-4 shrink-0" />
             <span>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Boxes, Clock3, HandCoins, Loader2, ReceiptText, ShoppingBag, WalletCards, Wrench } from "lucide-react";
+import { Boxes, Clock3, HandCoins, Loader2, ReceiptText, ShoppingBag, WalletCards, Wrench, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -12,6 +12,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  FINANCEIRO_NOTIFICATION_EVENT_GROUPS,
+  FINANCEIRO_NOTIFICATION_EVENT_VALUES,
+  FINANCEIRO_ORIGEM_OPTIONS,
+  type FinanceiroNotificationEvent,
+  type FinanceiroOrigem,
+} from "@/lib/financeiro/telegram-financeiro-events";
 import {
   STOCK_NOTIFICATION_EVENT_GROUPS,
   STOCK_NOTIFICATION_EVENT_VALUES,
@@ -27,7 +34,7 @@ export const EVENT_GROUPS = [
   { label: "Entrada", description: "Abertura e triagem inicial", events: [["CRIADA", "OS criada"], ["AGUARDANDO_CHECKLIST", "Aguardando checklist"]] },
   { label: "Orçamento", description: "Preparação e decisão do cliente", events: [["ORCAMENTO", "Em orçamento"], ["APROVACAO_ORCAMENTO", "Aguardando aprovação"], ["ORCAMENTO_APROVADO", "Orçamento aprovado"], ["ORCAMENTO_RECUSADO", "Orçamento recusado"]] },
   { label: "Execução", description: "Andamento dos serviços", events: [["EM_ANDAMENTO", "Em andamento"]] },
-  { label: "Encerramento", description: "Pagamento, conclusão ou cancelamento", events: [["PAGAMENTO", "Aguardando pagamento"], ["SEM_COBRANCA", "Finalizada sem cobrança"], ["CONCLUIDO", "Concluída"], ["CANCELADO", "Cancelada"]] },
+  { label: "Encerramento", description: "Pagamento, conclusão ou cancelamento", events: [["PAGAMENTO", "Aguardando pagamento"], ["FATURAMENTO", "Enviada para faturamento"], ["SEM_COBRANCA", "Finalizada sem cobrança"], ["CONCLUIDO", "Concluída"], ["CANCELADO", "Cancelada"]] },
 ] as const;
 
 const STATUS_EVENTS = EVENT_GROUPS.flatMap((group) => group.events.map(([id]) => id)).filter((id) => id !== "CRIADA");
@@ -54,6 +61,10 @@ export type TelegramUser = {
   fiscalAccess: boolean;
   marketplaceAccess: boolean;
 };
+export type TelegramBank = {
+  id: number;
+  titulo: string;
+};
 export type TelegramRecipient = {
   usuarioId: string;
   user: TelegramUser | null;
@@ -77,6 +88,13 @@ export type TelegramRecipient = {
   selectedStockEvents: StockNotificationEvent[];
   selectedFiscalEvents: FiscalNotificationEvent[];
   notifyMarketplace: boolean;
+  selectedFinanceiroEvents: FinanceiroNotificationEvent[];
+  /** Zero é sem piso. */
+  financeiroMinimumValue: number;
+  /** Vazio é todas as origens. */
+  selectedFinanceiroOrigins: FinanceiroOrigem[];
+  /** Vazio é todas as contas. */
+  selectedFinanceiroBanks: number[];
 };
 export type RecipientFormData = {
   usuarioId: string;
@@ -95,6 +113,13 @@ export type RecipientFormData = {
   selectedStockEvents: StockNotificationEvent[];
   selectedFiscalEvents: FiscalNotificationEvent[];
   notifyMarketplace: boolean;
+  selectedFinanceiroEvents: FinanceiroNotificationEvent[];
+  /** Zero é sem piso. */
+  financeiroMinimumValue: number;
+  /** Vazio é todas as origens. */
+  selectedFinanceiroOrigins: FinanceiroOrigem[];
+  /** Vazio é todas as contas. */
+  selectedFinanceiroBanks: number[];
 };
 
 export function recipientEvents(recipient: TelegramRecipient) {
@@ -109,11 +134,12 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   recipient: TelegramRecipient | null;
   users: TelegramUser[];
+  banks: TelegramBank[];
   saving: boolean;
   onSave: (data: RecipientFormData) => Promise<void>;
 };
 
-export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, saving, onSave }: Props) {
+export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, banks, saving, onSave }: Props) {
   const [form, setForm] = useState<RecipientFormData>(() => recipient ? {
     usuarioId: recipient.usuarioId,
     telegramUsername: `@${recipient.telegramUsername}`,
@@ -131,6 +157,10 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
     selectedStockEvents: recipient.selectedStockEvents,
     selectedFiscalEvents: recipient.selectedFiscalEvents,
     notifyMarketplace: recipient.notifyMarketplace,
+    selectedFinanceiroEvents: recipient.selectedFinanceiroEvents,
+    financeiroMinimumValue: recipient.financeiroMinimumValue,
+    selectedFinanceiroOrigins: recipient.selectedFinanceiroOrigins,
+    selectedFinanceiroBanks: recipient.selectedFinanceiroBanks,
   } : {
     usuarioId: "",
     telegramUsername: "",
@@ -148,6 +178,10 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
     selectedStockEvents: [],
     selectedFiscalEvents: [],
     notifyMarketplace: false,
+    selectedFinanceiroEvents: [],
+    financeiroMinimumValue: 0,
+    selectedFinanceiroOrigins: [],
+    selectedFinanceiroBanks: [],
   });
 
   function setEvents(selectedEvents: readonly string[]) {
@@ -198,6 +232,48 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
     }));
   }
 
+  function setFinanceiroEvents(selectedFinanceiroEvents: readonly FinanceiroNotificationEvent[]) {
+    setForm((current) => ({ ...current, selectedFinanceiroEvents: [...selectedFinanceiroEvents] }));
+  }
+
+  function toggleFinanceiroEvent(event: FinanceiroNotificationEvent, checked: boolean) {
+    setForm((current) => ({
+      ...current,
+      selectedFinanceiroEvents: checked
+        ? Array.from(new Set([...current.selectedFinanceiroEvents, event]))
+        : current.selectedFinanceiroEvents.filter((item) => item !== event),
+    }));
+  }
+
+  function toggleFinanceiroGroup(events: readonly (readonly [FinanceiroNotificationEvent, string])[]) {
+    const ids = events.map(([id]) => id);
+    const allSelected = ids.every((id) => form.selectedFinanceiroEvents.includes(id));
+    setForm((current) => ({
+      ...current,
+      selectedFinanceiroEvents: allSelected
+        ? current.selectedFinanceiroEvents.filter((id) => !ids.includes(id))
+        : Array.from(new Set([...current.selectedFinanceiroEvents, ...ids])),
+    }));
+  }
+
+  function toggleFinanceiroOrigin(origem: FinanceiroOrigem, checked: boolean) {
+    setForm((current) => ({
+      ...current,
+      selectedFinanceiroOrigins: checked
+        ? Array.from(new Set([...current.selectedFinanceiroOrigins, origem]))
+        : current.selectedFinanceiroOrigins.filter((item) => item !== origem),
+    }));
+  }
+
+  function toggleFinanceiroBank(bankId: number, checked: boolean) {
+    setForm((current) => ({
+      ...current,
+      selectedFinanceiroBanks: checked
+        ? Array.from(new Set([...current.selectedFinanceiroBanks, bankId]))
+        : current.selectedFinanceiroBanks.filter((item) => item !== bankId),
+    }));
+  }
+
   function setFiscalEvents(selectedFiscalEvents: readonly FiscalNotificationEvent[]) {
     setForm((current) => ({ ...current, selectedFiscalEvents: [...selectedFiscalEvents] }));
   }
@@ -233,7 +309,8 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
     || form.notifyReceivableDaily
     || form.selectedStockEvents.length
     || form.selectedFiscalEvents.length
-    || form.notifyMarketplace,
+    || form.notifyMarketplace
+    || form.selectedFinanceiroEvents.length,
   );
   const valid = Boolean(
     form.usuarioId
@@ -243,7 +320,8 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
     && (!form.notifyReceivableDaily || financialAllowed)
     && (!form.selectedStockEvents.length || stockAllowed)
     && (!form.selectedFiscalEvents.length || fiscalAllowed)
-    && (!form.notifyMarketplace || marketplaceAllowed),
+    && (!form.notifyMarketplace || marketplaceAllowed)
+    && (!form.selectedFinanceiroEvents.length || financialAllowed),
   );
 
   return (
@@ -458,6 +536,136 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
                             Avisar mesmo quando não houver títulos
                           </label>
                         </div>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="space-y-3 rounded-lg border p-4">
+                    <div className="flex flex-wrap items-end justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><Zap className="size-4" /></span>
+                        <div>
+                          <Label>Avisos na hora do fluxo de caixa</Label>
+                          <p className="text-xs text-muted-foreground">Cada lançamento, baixa ou estorno vira uma mensagem no momento em que acontece.</p>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          disabled={!financialAllowed}
+                          onClick={() => setFinanceiroEvents(FINANCEIRO_NOTIFICATION_EVENT_VALUES)}
+                        >
+                          Selecionar todas
+                        </Button>
+                        <Button type="button" size="sm" variant="ghost" onClick={() => setFinanceiroEvents([])}>Limpar</Button>
+                      </div>
+                    </div>
+                    {!form.usuarioId ? (
+                      <p className="text-xs text-muted-foreground">Selecione o usuário para verificar o acesso financeiro.</p>
+                    ) : !financialAllowed ? (
+                      <p className="text-xs text-amber-700 dark:text-amber-400">Este usuário não possui a permissão Financeiro: visualizar.</p>
+                    ) : null}
+                    <Separator />
+                    <div className="space-y-2">
+                      {FINANCEIRO_NOTIFICATION_EVENT_GROUPS.map((group) => {
+                        const selectedCount = group.events.filter(([id]) => form.selectedFinanceiroEvents.includes(id)).length;
+                        const checked = selectedCount === group.events.length ? true : selectedCount > 0 ? "indeterminate" : false;
+                        return (
+                          <div key={group.id} className="rounded-md border bg-card">
+                            <div className="flex items-center gap-3 border-b bg-muted/40 px-3 py-2">
+                              <Checkbox
+                                checked={checked}
+                                disabled={!financialAllowed}
+                                onCheckedChange={() => toggleFinanceiroGroup(group.events)}
+                                aria-label={`Selecionar avisos de ${group.label}`}
+                              />
+                              <button
+                                type="button"
+                                className="flex flex-1 items-center justify-between gap-3 text-left disabled:cursor-not-allowed disabled:opacity-50"
+                                disabled={!financialAllowed}
+                                onClick={() => toggleFinanceiroGroup(group.events)}
+                              >
+                                <span>
+                                  <span className="block text-sm font-medium">{group.label}</span>
+                                  <span className="block text-xs text-muted-foreground">{group.description}</span>
+                                </span>
+                                <span className="text-xs text-muted-foreground">{selectedCount}/{group.events.length}</span>
+                              </button>
+                            </div>
+                            <div className="grid gap-1 p-2 sm:grid-cols-2">
+                              {group.events.map(([id, label]) => (
+                                <label key={id} className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-muted/50">
+                                  <Checkbox
+                                    checked={form.selectedFinanceiroEvents.includes(id)}
+                                    disabled={!financialAllowed}
+                                    onCheckedChange={(value) => toggleFinanceiroEvent(id, value === true)}
+                                  />
+                                  {label}
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {form.selectedFinanceiroEvents.length > 0 ? (
+                      <div className="space-y-4 border-t pt-4">
+                        <p className="text-xs text-muted-foreground">Filtros opcionais. Deixar em branco significa receber tudo.</p>
+                        <div className="space-y-2">
+                          <Label htmlFor="dialog-financeiro-minimo">Valor mínimo</Label>
+                          <Input
+                            id="dialog-financeiro-minimo"
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            className="md:w-56"
+                            value={form.financeiroMinimumValue}
+                            onChange={(event) => setForm((current) => ({
+                              ...current,
+                              financeiroMinimumValue: Math.max(0, Number(event.target.value) || 0),
+                            }))}
+                          />
+                          <p className="text-xs text-muted-foreground">Zero avisa qualquer valor.</p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Origens</Label>
+                          <div className="grid gap-1 sm:grid-cols-2">
+                            {FINANCEIRO_ORIGEM_OPTIONS.map(([id, label, description]) => (
+                              <label key={id} className="flex cursor-pointer items-start gap-3 rounded-md px-2 py-2 text-sm hover:bg-muted/50">
+                                <Checkbox
+                                  className="mt-0.5"
+                                  checked={form.selectedFinanceiroOrigins.includes(id)}
+                                  onCheckedChange={(value) => toggleFinanceiroOrigin(id, value === true)}
+                                />
+                                <span>
+                                  <span className="block">{label}</span>
+                                  <span className="block text-xs text-muted-foreground">{description}</span>
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                          <p className="text-xs text-muted-foreground">Nenhuma marcada avisa de todas. Desmarcar Ordem de serviço evita receber o mesmo pagamento pela OS e pelo financeiro.</p>
+                        </div>
+                        {banks.length > 0 ? (
+                          <div className="space-y-2">
+                            <Label>Contas bancárias</Label>
+                            <div className="grid max-h-44 gap-1 overflow-y-auto rounded-md border p-2 sm:grid-cols-2">
+                              {banks.map((bank) => (
+                                <label key={bank.id} className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-muted/50">
+                                  <Checkbox
+                                    checked={form.selectedFinanceiroBanks.includes(bank.id)}
+                                    onCheckedChange={(value) => toggleFinanceiroBank(bank.id, value === true)}
+                                  />
+                                  {bank.titulo}
+                                </label>
+                              ))}
+                            </div>
+                            <p className="text-xs text-muted-foreground">Nenhuma marcada avisa de todas. Lançamento que ainda não tem conta definida sempre passa.</p>
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>

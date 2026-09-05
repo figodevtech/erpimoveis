@@ -21,40 +21,11 @@ import { resolveOrdemCustomer } from "@/lib/ordens/customer-snapshot";
 const LOCAL_OFFSET = "-03:00";
 const PAGE_SIZE = 1000;
 
-/** Status válidos de OS. Filtro fora desta lista é descartado, não aplicado. */
-const STATUS_OS = new Set([
-  "AGUARDANDO_CHECKLIST",
-  "ORCAMENTO",
-  "APROVACAO_ORCAMENTO",
-  "ORCAMENTO_APROVADO",
-  "ORCAMENTO_RECUSADO",
-  "EM_ANDAMENTO",
-  "PAGAMENTO",
-  "SEM_COBRANCA",
-  "CONCLUIDO",
-  "CANCELADO",
-]);
+import { statusSelecionados } from "./status-filter";
 
 const PRIORIDADES = new Set(["ALTA", "NORMAL", "BAIXA"]);
 const ALVOS = new Set(["VEICULO", "PECA", "EQUIPAMENTO"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/**
- * Lista de status vinda da tela: `CONCLUIDO,PAGAMENTO`.
- *
- * Antes o filtro era um status só, e a pergunta mais comum do balcão — "tudo
- * que ainda não fechou" — exigia gerar um relatório por status e juntar à mão.
- */
-function statusSelecionados(valor: string | null) {
-  return [
-    ...new Set(
-      (valor ?? "")
-        .split(",")
-        .map((item) => item.trim().toUpperCase())
-        .filter((item) => STATUS_OS.has(item)),
-    ),
-  ];
-}
 
 function integer(value: string | null) {
   if (!value) return null;

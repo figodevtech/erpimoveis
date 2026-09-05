@@ -57,6 +57,7 @@ const OPEN_STATUSES: StatusOS[] = [
   "ORCAMENTO_APROVADO",
   "EM_ANDAMENTO",
   "PAGAMENTO",
+  "FATURAMENTO",
 ];
 
 const statusTabs: {
@@ -110,7 +111,7 @@ const statusTabs: {
     dot: "bg-indigo-500",
     active:
       "data-[state=active]:bg-indigo-500/15 data-[state=active]:text-indigo-800 data-[state=active]:ring-indigo-500/30",
-    statuses: ["PAGAMENTO"],
+    statuses: ["PAGAMENTO", "FATURAMENTO"],
   },
   {
     key: "FINALIZADAS",

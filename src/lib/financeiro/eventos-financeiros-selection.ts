@@ -8,6 +8,7 @@ export function excedeLimiteSelecaoDeEventos(quantidade: number) {
 export type EventoSelecionavelResumido = {
   id: number;
   osId: number | null;
+  vendaId?: number | null;
   descricao: string;
   valor: number;
 };

@@ -190,7 +190,7 @@ export async function GET(req: NextRequest) {
         : supabaseAdmin
             .from("ordemservico")
             .select(OS_SELECT)
-            .in("status", ["ORCAMENTO_APROVADO", "EM_ANDAMENTO", "PAGAMENTO", "CONCLUIDO"])
+            .in("status", ["ORCAMENTO_APROVADO", "EM_ANDAMENTO", "PAGAMENTO", "FATURAMENTO", "CONCLUIDO"])
             .eq("is_deleted", false)
             .is("migracao_referencia", null)
             .order("updatedat", { ascending: false })

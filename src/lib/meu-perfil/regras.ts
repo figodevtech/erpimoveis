@@ -7,7 +7,7 @@
 const FORTALEZA_OFFSET = "-03:00";
 const DATA_ISO = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-export const STATUS_OS_FINALIZADAS = ["PAGAMENTO", "CONCLUIDO"] as const;
+export const STATUS_OS_FINALIZADAS = ["PAGAMENTO", "FATURAMENTO", "CONCLUIDO"] as const;
 export const STATUS_VENDAS_REALIZADAS = ["PAGAMENTO", "FINALIZADA"] as const;
 export const STATUS_OS_EM_EXECUCAO = ["EM_ANDAMENTO"] as const;
 

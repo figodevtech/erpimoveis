@@ -132,3 +132,19 @@ test("o agrupamento preserva a ordem das OS e organiza os itens dentro de cada b
   assert.deepEqual(grupos.map((grupo) => grupo.osId), [20, 10]);
   assert.deepEqual(grupos[0].linhas.map((linha) => linha.id), [10, 30]);
 });
+
+test("OS e venda com o mesmo número permanecem em grupos distintos e lançáveis", () => {
+  const common = { origem: "COMISSAO", natureza: "DESPESA", status: "ATIVO", descricao: "Comissão", valor: 50, pode_gerar_transacao: true } as const;
+  const eventos: EventoFinanceiroBruto[] = [
+    { ...common, id: 1, ordemservicoid: 12 },
+    { ...common, id: 2, ordemservicoid: null, source_type: "VENDA", source_id: 12 },
+  ];
+  const linhas = montarLinhas(eventos);
+  const grupos = agruparPorOrdem(linhas);
+  assert.deepEqual(grupos.map((g) => g.rotulo), ["OS #12", "Venda #12"]);
+  assert.equal(grupos.length, 2);
+  assert.equal(grupos.reduce((soma, g) => soma + g.total, 0), 100);
+  assert.equal(linhas[1].osId, null);
+  assert.equal(linhas[1].vendaId, 12);
+  assert.ok(linhas.every(eventoSelecionavel));
+});

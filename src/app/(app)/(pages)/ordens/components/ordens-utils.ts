@@ -15,6 +15,7 @@ export const statusClasses: Record<string, string> = {
     "border-emerald-500/35 bg-emerald-100 text-emerald-900 dark:border-emerald-500/30 dark:bg-emerald-600/15 dark:text-emerald-300",
   EM_ANDAMENTO:
     "border-amber-500/35 bg-amber-100 text-amber-900 dark:border-amber-500/30 dark:bg-amber-600/15 dark:text-amber-300",
+  FATURAMENTO: "bg-cyan-500/15 text-cyan-700 dark:text-cyan-400 ring-cyan-500/30",
   PAGAMENTO:
     "border-indigo-500/35 bg-indigo-100 text-indigo-900 dark:border-indigo-500/30 dark:bg-indigo-600/15 dark:text-indigo-300",
   SEM_COBRANCA:

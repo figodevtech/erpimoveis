@@ -131,6 +131,7 @@ export function TabelaMinhasVendas({ periodo, ativo, usuarioId }: { periodo: Per
                     </TableCell>
                     <TableCell className="text-right font-medium tabular-nums">
                       {formatarMoeda(venda.valorTotal)}
+                      {venda.comissao ? <div className="text-xs font-normal text-violet-600 dark:text-violet-400">{formatarMoeda(venda.comissao.valor_comissao)} de comissão</div> : null}
                     </TableCell>
                   </LinhaAnimada>
 

@@ -5,6 +5,7 @@ export const revalidate = 0;
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { lerComissaoVenda } from "@/lib/vendas/comissao";
 import {
   comoLista,
   erroInterno,
@@ -35,6 +36,7 @@ const SELECT = `
   sub_total,
   valor_frete,
   forma_pagamento,
+  comissao:venda_comissao ( usuarioid, base, percentual, valor_comissao, integrada ),
   cliente:clienteid ( id, nomerazaosocial ),
   itens:vendaproduto (
     id,
@@ -113,6 +115,7 @@ export async function GET(req: Request) {
         subTotal: num(venda.sub_total),
         valorFrete: num(venda.valor_frete),
         valorTotal: num(venda.valortotal),
+        comissao: lerComissaoVenda(venda.comissao),
         cliente: relacaoNomeada(venda.cliente, "nomerazaosocial"),
         itens,
         quantidadeItens: itens.reduce((acc, item) => acc + item.quantidade, 0),

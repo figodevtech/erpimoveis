@@ -2,6 +2,7 @@ import type { RegrasDestaqueStatus } from "@/lib/ordens/destaque";
 
 export interface Config {
     id: number;
+    habilitar_faturamento_os: boolean;
     aviso_pagamento: boolean;
     checklist_obrigatorio: boolean;
     alerta_estoque_pdv: boolean;

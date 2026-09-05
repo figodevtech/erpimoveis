@@ -1,6 +1,9 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react"
+import { useSession } from "next-auth/react"
+import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants"
+import { VendaEventosFinanceiros } from "./venda-eventos-financeiros"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -10,6 +13,7 @@ import {
   Package,
   Hash,
   ShoppingCart,
+  ReceiptText,
   AlertCircle,
   Truck,
   FileText,
@@ -288,6 +292,7 @@ const TAB_ITEMS = [
   { value: "Geral", label: "Geral", icon: User },
   { value: "Entrega", label: "Entrega", icon: Truck },
   { value: "Financeiro", label: "Financeiro", icon: ShoppingCart },
+  { value: "Eventos", label: "Eventos financeiros", icon: ReceiptText },
   { value: "Produtos", label: "Produtos", icon: Package },
   { value: "Fiscal", label: "Fiscal", icon: FileText },
   { value: "Anexos", label: "Anexos", icon: Paperclip },
@@ -447,6 +452,8 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
   const [openCustomerSelect, setOpenCustomerSelect] = useState(false)
   const [openProductSelect, setOpenProductSelect] = useState(false)
   const [currentTab, setCurrentTab] = useState<string>("Geral")
+  const { data: session } = useSession()
+  const podeVerEventos = permissionSetHas((session?.user as any)?.permissoes, PERMS.FINANCEIRO)
   const [users, setUsers] = useState<Array<{ id: string; nome: string | null; email?: string }>>([])
   const [loadingUsers, setLoadingUsers] = useState(false)
   const [categoriasVenda, setCategoriasVenda] = useState<CategoriaVenda[]>([])
@@ -946,7 +953,7 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                     <div className="sticky top-0 z-10 mt-4 shrink-0">
                       <div className={isDesktop ? "overflow-x-auto px-6 pb-2" : "overflow-x-auto px-4 pb-2"}>
                         <TabsList className="h-auto min-w-full justify-start gap-1.5 rounded-2xl border bg-muted/40 p-1 backdrop-blur-sm">
-                          {TAB_ITEMS.map((tab) => {
+                          {TAB_ITEMS.filter((tab) => tab.value !== "Eventos" || podeVerEventos).map((tab) => {
                             const Icon = tab.icon
                             return (
                               <TabsTrigger
@@ -1381,6 +1388,8 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                           <div className="flex items-center justify-between"><span className="text-base font-semibold">Total financeiro</span><span className="text-xl font-bold text-primary">{formatCurrency(financialTotal)}</span></div>
                         </div>
                       </TabsContent>
+
+                      {podeVerEventos ? <TabsContent value="Eventos" className="m-0 space-y-6"><VendaEventosFinanceiros key={venda.id} vendaId={venda.id} /></TabsContent> : null}
 
                       <TabsContent value="Produtos" className="m-0 space-y-6">
                         <div className="flex flex-col gap-3 rounded-lg border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">

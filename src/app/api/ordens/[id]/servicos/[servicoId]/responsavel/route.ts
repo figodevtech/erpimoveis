@@ -26,7 +26,7 @@ function uniq(arr: string[]) {
  * tinham o seu. A condição aqui é a mesma que o orçamento usa.
  */
 async function reconciliarComissoes(ordemservicoid: number, status: string) {
-  if (!["EM_ANDAMENTO", "PAGAMENTO"].includes(status)) return null;
+  if (!["EM_ANDAMENTO", "PAGAMENTO", "FATURAMENTO"].includes(status)) return null;
 
   const { data: competencias, error: competenciasError } = await supabase
     .from("eventos_financeiros")

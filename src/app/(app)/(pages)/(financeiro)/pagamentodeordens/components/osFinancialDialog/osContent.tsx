@@ -239,7 +239,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
   const saldoDevedor = Math.max(0, totalFinanceiro - totalPago);
   const saldoDisponivel =
     resumoFinanceiro?.saldoDisponivelParaLancamento ?? saldoDevedor;
-  const bloqueioNovoPagamento = !podeRegistrarPagamentoOs(ordem?.status)
+  const bloqueioNovoPagamento = !podeRegistrarPagamentoOs(ordem?.status, config?.habilitar_faturamento_os)
     ? `A OS está ${ordem?.status?.toLowerCase()}: não é possível registrar pagamentos.`
     : saldoDisponivel <= 0
       ? "A OS já está quitada ou coberta por títulos pendentes."

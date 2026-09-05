@@ -75,6 +75,7 @@ const ROTULOS_STATUS_OS: Record<string, string> = {
   ORCAMENTO_RECUSADO: "Orçamento recusado",
   EM_ANDAMENTO: "Em andamento",
   PAGAMENTO: "Pagamento",
+  FATURAMENTO: "Faturamento",
   CONCLUIDO: "Concluído",
   SEM_COBRANCA: "Sem cobrança",
   CANCELADO: "Cancelado",

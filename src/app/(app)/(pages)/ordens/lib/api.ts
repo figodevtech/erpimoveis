@@ -48,6 +48,7 @@ export type StatusOSApi =
   | "AGUARDANDO_CHECKLIST"
   | "EM_ANDAMENTO"
   | "PAGAMENTO"
+  | "FATURAMENTO"
   | "CONCLUIDO"
   | "CANCELADO";
 

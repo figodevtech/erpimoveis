@@ -7,6 +7,19 @@ import {
   statusAposEncerrarExecucao,
 } from "./financeiro";
 
+test("faturamento opcional troca a fila de registros e preserva adiantamentos", () => {
+  for (const ativo of [false, true]) {
+    assert.equal(podeRegistrarPagamentoOs("ORCAMENTO_APROVADO", ativo), true);
+    assert.equal(podeRegistrarPagamentoOs("EM_ANDAMENTO", ativo), true);
+    assert.equal(podeRegistrarPagamentoOs("PAGAMENTO", ativo), !ativo);
+    assert.equal(podeRegistrarPagamentoOs("FATURAMENTO", ativo), ativo);
+    for (const status of ["ORCAMENTO", "CONCLUIDO", "SEM_COBRANCA", "CANCELADO"]) {
+      assert.equal(podeRegistrarPagamentoOs(status, ativo), false);
+    }
+  }
+  assert.equal(podeRegistrarPagamentoOs("FATURAMENTO"), false);
+});
+
 test("permite lançamento somente depois da aprovação e antes da conclusão", () => {
   assert.equal(podeRegistrarPagamentoOs("ORCAMENTO_APROVADO"), true);
   assert.equal(podeRegistrarPagamentoOs("EM_ANDAMENTO"), true);

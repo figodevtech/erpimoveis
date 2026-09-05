@@ -18,6 +18,7 @@ const CLASSES_POR_STATUS: Record<string, string> = {
   AGUARDANDO_CHECKLIST: "bg-sky-600/15 text-sky-700 dark:text-sky-400",
   EM_ANDAMENTO: "bg-amber-600/15 text-amber-700 dark:text-amber-400",
   PAGAMENTO: "bg-indigo-600/15 text-indigo-700 dark:text-indigo-400",
+  FATURAMENTO: "bg-cyan-600/15 text-cyan-800 dark:text-cyan-400",
   SEM_COBRANCA: "bg-cyan-600/15 text-cyan-700 dark:text-cyan-400",
   CONCLUIDO: "bg-green-600/15 text-green-700 dark:text-green-400",
   CANCELADO: "bg-red-600/15 text-red-700 dark:text-red-400",

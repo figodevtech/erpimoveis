@@ -60,6 +60,15 @@ export async function POST(req: NextRequest) {
     if (tipoEvento === "charge.paid") novoStatus = "PAGO";
     if (tipoEvento === "charge.refunded") novoStatus = "ESTORNADO";
 
+    if (pagamento.ordemservicoid && (novoStatus === "PAGO" || novoStatus === "ESTORNADO")) {
+      const { error } = await supabaseAdmin.rpc("confirmar_pagamento_stone_os", {
+        p_pagamento_id: pagamento.id, p_status: novoStatus,
+        p_evento: tipoEvento.toUpperCase(), p_payload: payload, p_registrar_receita: false,
+      });
+      if (error) throw error;
+      return NextResponse.json({ ok: true });
+    }
+
     // Atualiza pagamento
     await supabaseAdmin
       .from("pagamento")

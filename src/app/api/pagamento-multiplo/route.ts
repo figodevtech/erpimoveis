@@ -1,3 +1,4 @@
+import { buscarFaturamentoOsHabilitado } from "@/lib/ordens/faturamento-server";
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
@@ -91,9 +92,10 @@ export async function POST(req: NextRequest) {
 
     // O status é do documento, não do pagamento: uma OS concluída ou cancelada não
     // aceita lançamento novo, e deixar passar aqui só produziria erro no banco.
+    const faturamentoOs = tipoDocumento === "OS" && await buscarFaturamentoOsHabilitado();
     const bloqueados = documentos.filter((documento) =>
       tipoDocumento === "OS"
-        ? !podeRegistrarPagamentoOs(documento.status)
+        ? !podeRegistrarPagamentoOs(documento.status, faturamentoOs)
         : !STATUS_VENDA_ACEITA.has(documento.status),
     );
     if (bloqueados.length > 0) {

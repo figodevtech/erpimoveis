@@ -31,11 +31,10 @@ class ConsultaFalsa {
 
 const USUARIO_ID = "83d3fe33-95f5-4463-987d-258a95fc5f91";
 
-test("lê usuário, agrupamento e seleção global dos parâmetros", () => {
+test("lê usuário e seleção global dos parâmetros", () => {
   const filtros = lerFiltrosDeEventos(
     new URLSearchParams({
       usuarioId: USUARIO_ID,
-      agruparPorOs: "0",
       selecionaveis: "1",
       dateFrom: "2026-08-01",
       dateTo: "2026-08-31",
@@ -43,7 +42,6 @@ test("lê usuário, agrupamento e seleção global dos parâmetros", () => {
   );
 
   assert.equal(filtros.usuarioId, USUARIO_ID);
-  assert.equal(filtros.agruparPorOs, false);
   assert.equal(filtros.selecionarTodos, true);
 });
 

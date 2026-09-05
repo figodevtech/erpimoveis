@@ -1,3 +1,4 @@
+import { buscarFaturamentoOsHabilitado } from "@/lib/ordens/faturamento-server";
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
@@ -420,7 +421,7 @@ export async function POST(req: Request) {
       if (!os) {
         return NextResponse.json({ error: "Ordem de serviço não encontrada." }, { status: 404 });
       }
-      if (!podeRegistrarPagamentoOs(os.status)) {
+      if (!podeRegistrarPagamentoOs(os.status, await buscarFaturamentoOsHabilitado())) {
         return NextResponse.json(
           {
             error:

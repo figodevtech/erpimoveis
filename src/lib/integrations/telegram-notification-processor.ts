@@ -1,4 +1,5 @@
 import { processTelegramStockNotifications } from "@/lib/estoque/telegram-stock-notifications";
+import { processTelegramFinanceiroNotifications } from "@/lib/financeiro/telegram-financeiro-notifications";
 import { processTelegramFiscalNotifications } from "@/lib/fiscal/telegram-fiscal-notifications";
 import { getTelegramEnvironment } from "@/lib/integrations/telegram";
 import { processTelegramNotifications as processTelegramOrderNotifications } from "@/lib/ordens/telegram-notifications";
@@ -35,23 +36,27 @@ export async function processTelegramNotificationQueues() {
   const estoque = await safelyProcess("estoque", () => processTelegramStockNotifications());
   const fiscal = await safelyProcess("fiscal", () => processTelegramFiscalNotifications());
   const marketplace = await safelyProcess("marketplace", () => processTelegramMarketplaceNotifications());
-  const errors = [os.error, estoque.error, fiscal.error, marketplace.error].filter((error): error is string => Boolean(error));
+  const financeiro = await safelyProcess("financeiro", () => processTelegramFinanceiroNotifications());
+
+  // Cada fila nova entrava em quatro somas espalhadas. A lista é a fonte única:
+  // acrescentar uma fila aqui já a inclui em tudo que é totalizado abaixo.
+  const queues = [os, estoque, fiscal, marketplace, financeiro];
+  const errors = queues.map((queue) => queue.error).filter((error): error is string => Boolean(error));
+  const total = (field: keyof QueueResult) =>
+    queues.reduce((sum, queue) => sum + Number(queue[field] ?? 0), 0);
 
   return {
-    skipped: os.skipped === true && estoque.skipped === true && fiscal.skipped === true && marketplace.skipped === true,
+    skipped: queues.every((queue) => queue.skipped === true),
     events: Number(os.events ?? 0),
     deliveries: Number(os.deliveries ?? 0),
-    processedDeliveries:
-      Number(os.processedDeliveries ?? 0)
-      + Number(estoque.processedDeliveries ?? 0)
-      + Number(fiscal.processedDeliveries ?? 0)
-      + Number(marketplace.processedDeliveries ?? 0),
-    sent: Number(os.sent ?? 0) + Number(estoque.sent ?? 0) + Number(fiscal.sent ?? 0) + Number(marketplace.sent ?? 0),
-    failed: Number(os.failed ?? 0) + Number(estoque.failed ?? 0) + Number(fiscal.failed ?? 0) + Number(marketplace.failed ?? 0),
+    processedDeliveries: total("processedDeliveries"),
+    sent: total("sent"),
+    failed: total("failed"),
     errors,
     os,
     estoque,
     fiscal,
     marketplace,
+    financeiro,
   };
 }

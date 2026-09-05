@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireFinanceiroCreate, requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { fetchAllSupabaseRows } from "@/lib/supabase-pagination";
 import {
   comCriadoPor,
   criarEventoDaOs,
@@ -23,7 +24,7 @@ import {
 } from "./_lib/filtros";
 
 /**
- * Todos os eventos financeiros de OS num lugar só.
+ * Eventos financeiros de OS e comissões de vendas numa fila única.
  *
  * A recepção lança despesa na OS o dia inteiro; quem transforma isso em título
  * no a pagar é o financeiro. Sem esta lista, o único caminho até um evento era
@@ -38,11 +39,9 @@ const EVENTO_FIELDS =
   "id, ordemservicoid, origem, natureza, natureza_dre, status, descricao, detalhe, valor, "
   + "data_evento, competencia_em, produtoid, servicoid, chave_origem, dados_snapshot, is_manual, "
   + "created_by, usuarioid, pode_gerar_transacao, transacaoid, lancamento_id, consumo_saida_id, "
-  + "consumo_usoconsumo_saida_id, quantidade_snapshot";
+  + "consumo_usoconsumo_saida_id, quantidade_snapshot, source_type, source_id, documento_tipo, documento_id";
 
-const ORDEM_FIELDS =
-  "ordem:ordemservicoid!inner ( id, status, is_deleted, dataentrada, "
-  + "cliente:clienteid ( id, nomerazaosocial ) )";
+const ORDEM_FIELDS = "ordem, venda";
 
 const ORDENAVEIS = new Set(["data_evento", "valor", "ordemservicoid", "id"]);
 
@@ -66,9 +65,9 @@ export async function GET(req: NextRequest) {
       const consultaSelecionaveis = aplicarElegibilidadeDePagamento(
         aplicarFiltrosDeEventos(
           supabaseAdmin
-            .from("eventos_financeiros")
+            .from("eventos_financeiros_fila")
             .select(
-              "id, ordemservicoid, descricao, valor, ordem:ordemservicoid!inner ( id, is_deleted )",
+              "id, ordemservicoid, source_type, source_id, descricao, valor",
               { count: "exact" },
             ),
           filtros,
@@ -98,7 +97,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({
         data: (data ?? []).map((evento: any) => ({
           id: Number(evento.id),
-          ordemservicoid: Number(evento.ordemservicoid),
+          ordemservicoid: evento.ordemservicoid == null ? null : Number(evento.ordemservicoid),
+          vendaid: evento.source_type === "VENDA" ? Number(evento.source_id) : null,
           descricao: String(evento.descricao ?? "Despesa"),
           valor: Number(evento.valor ?? 0),
         })),
@@ -109,19 +109,12 @@ export async function GET(req: NextRequest) {
 
     let query = aplicarFiltrosDeEventos(
       supabaseAdmin
-        .from("eventos_financeiros")
+        .from("eventos_financeiros_fila")
         .select(`${EVENTO_FIELDS}, ${ORDEM_FIELDS}`, { count: "exact" }),
       filtros,
     );
 
-    query = filtros.agruparPorOs
-      ? query
-          .order("ordemservicoid", { ascending: false })
-          .order(ordenarPor, { ascending })
-          .order("id", { ascending: true })
-      : query
-          .order("data_evento", { ascending: false })
-          .order("id", { ascending: false });
+    query = query.order(ordenarPor, { ascending }).order("id", { ascending: false });
 
     query = query.range(from, to);
 
@@ -133,19 +126,11 @@ export async function GET(req: NextRequest) {
     // Os totais valem para o filtro inteiro, não para a página: o financeiro abre
     // a tela para saber quanto falta lançar, e o número da página responderia
     // outra pergunta. Vem sem `range` e só com as colunas da soma.
-    const { data: paraTotais, error: totaisError } = await aplicarFiltrosDeEventos(
-      // Os filtros de OS exigem que `ordem` seja um recurso embutido no
-      // PostgREST, ainda que seus campos não participem da soma.
-      supabaseAdmin
-        .from("eventos_financeiros")
-        .select(
-          "natureza, status, valor, ordemservicoid, pode_gerar_transacao, transacaoid, lancamento_id, ordem:ordemservicoid!inner ( id )",
-        ),
-      filtros,
-    );
-    if (totaisError) throw totaisError;
-
-    const linhas = paraTotais ?? [];
+    const linhas = await fetchAllSupabaseRows<any>(() => aplicarFiltrosDeEventos(
+      supabaseAdmin.from("eventos_financeiros_fila").select(
+        "id, natureza, status, valor, ordemservicoid, documento_tipo, documento_id, pode_gerar_transacao, transacaoid, lancamento_id",
+      ), filtros,
+    ).order("id", { ascending: true }));
     const somar = (natureza: string) =>
       Math.round(
         linhas
@@ -176,7 +161,8 @@ export async function GET(req: NextRequest) {
         despesa,
         liquido: Math.round((receita - despesa) * 100) / 100,
         quantidade: linhas.length,
-        ordens: new Set(linhas.map((linha: any) => linha.ordemservicoid)).size,
+        ordens: new Set(linhas.filter((linha: any) => linha.ordemservicoid != null).map((linha: any) => linha.ordemservicoid)).size,
+        vendas: new Set(linhas.filter((linha: any) => linha.documento_tipo === "VENDA").map((linha: any) => linha.documento_id)).size,
         selecionaveis,
       },
       filters: filtros,

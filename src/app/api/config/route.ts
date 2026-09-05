@@ -33,7 +33,8 @@ const CONFIG_SELECT_COMPLETO_SEM_SETOR_PADRAO = `${CONFIG_SELECT_BASE_SEM_SETOR_
 const CONFIG_SELECT_COMPLETO_LEGADO = `${CONFIG_SELECT_BASE_LEGADO}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
 const CONFIG_SELECT_SEM_MODO_BAIXA = `${CONFIG_SELECT_BASE_SEM_MODO_BAIXA}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
 const CONFIG_SELECT_SEM_DESTAQUE_STATUS = `${CONFIG_SELECT_BASE}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
-const CONFIG_SELECT_COMPLETO = `${CONFIG_SELECT_SEM_DESTAQUE_STATUS}, destaque_os_por_status`;
+const CONFIG_SELECT_SEM_FATURAMENTO = `${CONFIG_SELECT_SEM_DESTAQUE_STATUS}, destaque_os_por_status`;
+const CONFIG_SELECT_COMPLETO = `${CONFIG_SELECT_SEM_FATURAMENTO}, habilitar_faturamento_os`;
 
 function colunaNaoExiste(error: any) {
   return error?.code === "42703";
@@ -81,6 +82,7 @@ function comPadroesAgendamento(config: any) {
 
   return {
     ...config,
+    habilitar_faturamento_os: config.habilitar_faturamento_os === true,
     agendamento_intervalo_minutos: Number(config.agendamento_intervalo_minutos ?? 60),
     agendamento_hora_inicio: String(config.agendamento_hora_inicio ?? "08:00").slice(0, 5),
     agendamento_hora_fim: String(config.agendamento_hora_fim ?? "18:00").slice(0, 5),
@@ -114,6 +116,11 @@ async function buscarConfigAtual() {
 
   if (!error) return comPadroesAgendamento(data);
   if (!colunaNaoExiste(error)) throw error;
+
+  const semFaturamento = await supabase.from("config_geral")
+    .select(CONFIG_SELECT_SEM_FATURAMENTO).order("id", { ascending: false }).limit(1).maybeSingle();
+  if (!semFaturamento.error) return comPadroesAgendamento(semFaturamento.data);
+  if (!colunaNaoExiste(semFaturamento.error)) throw semFaturamento.error;
 
   const semDestaqueStatus = await supabase
     .from("config_geral")
@@ -208,6 +215,11 @@ async function criarConfigPadraoSeNaoExistir() {
 
   if (!error) return comPadroesAgendamento(data);
   if (!colunaNaoExiste(error)) throw error;
+
+  const semFaturamento = await supabase.from("config_geral")
+    .select(CONFIG_SELECT_SEM_FATURAMENTO).order("id", { ascending: false }).limit(1).maybeSingle();
+  if (!semFaturamento.error) return comPadroesAgendamento(semFaturamento.data);
+  if (!colunaNaoExiste(semFaturamento.error)) throw semFaturamento.error;
 
   const semDestaqueStatus = await supabase
     .from("config_geral")
@@ -318,6 +330,7 @@ export async function PUT(request: Request) {
       "produto_ncm_obrigatorio",
       "habilitar_edicao_transacoes",
       "permitir_produto_avulso_os",
+      "habilitar_faturamento_os",
     ];
 
     const patch: any = {};

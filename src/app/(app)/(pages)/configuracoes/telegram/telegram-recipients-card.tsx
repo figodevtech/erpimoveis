@@ -17,6 +17,7 @@ import {
   type RecipientFormData,
   type Scope,
   type TelegramRecipient,
+  type TelegramBank,
   type TelegramUser,
 } from "./telegram-recipient-dialog";
 
@@ -43,6 +44,7 @@ function recipientName(recipient: TelegramRecipient) {
 
 export function TelegramRecipientsCard({ integrationEnabled }: { integrationEnabled: boolean }) {
   const [users, setUsers] = useState<TelegramUser[]>([]);
+  const [banks, setBanks] = useState<TelegramBank[]>([]);
   const [recipients, setRecipients] = useState<TelegramRecipient[]>([]);
   const [loading, setLoading] = useState(true);
   const [action, setAction] = useState<string | null>(null);
@@ -59,6 +61,7 @@ export function TelegramRecipientsCard({ integrationEnabled }: { integrationEnab
       const body = await requestJson("/api/integracoes/telegram/destinatarios");
       setUsers(body.users ?? []);
       setRecipients(body.recipients ?? []);
+      setBanks(body.banks ?? []);
     } catch (error) { toast.error(errorMessage(error)); }
     finally { setLoading(false); }
   }, []);
@@ -121,6 +124,10 @@ export function TelegramRecipientsCard({ integrationEnabled }: { integrationEnab
           estoqueEventosSelecionados: data.selectedStockEvents,
           fiscalEventosSelecionados: data.selectedFiscalEvents,
           notificarMarketplace: data.notifyMarketplace,
+          financeiroEventosSelecionados: data.selectedFinanceiroEvents,
+          financeiroValorMinimo: data.financeiroMinimumValue,
+          financeiroOrigensSelecionadas: data.selectedFinanceiroOrigins,
+          financeiroBancosSelecionados: data.selectedFinanceiroBanks,
         }),
       });
       toast.success("Configuração de avisos salva.");
@@ -212,11 +219,12 @@ export function TelegramRecipientsCard({ integrationEnabled }: { integrationEnab
                  const eventCount = recipientEvents(recipient).length;
                  const stockEventCount = recipient.selectedStockEvents.length;
                  const fiscalEventCount = recipient.selectedFiscalEvents.length;
+                 const financeiroEventCount = recipient.selectedFinanceiroEvents.length;
                  const busy = action?.endsWith(recipient.usuarioId);
                 return <TableRow key={recipient.usuarioId}>
                   <TableCell><div className="font-medium">{recipientName(recipient)}</div><div className="text-xs text-muted-foreground">{recipient.user?.email || "—"}</div></TableCell>
                   <TableCell><div>@{recipient.telegramUsername}</div><div className="text-xs text-muted-foreground">{recipient.connected ? "Conta vinculada" : "Aguardando vínculo"}</div></TableCell>
-                  <TableCell><div className="flex flex-wrap gap-1">{eventCount > 0 ? <Badge variant="secondary">OS: {eventCount}</Badge> : null}{recipient.notifyFinancialDaily ? <Badge variant="outline">A pagar às {recipient.financialSummaryTime}</Badge> : null}{recipient.notifyReceivableDaily ? <Badge variant="outline">A receber às {recipient.receivableSummaryTime}</Badge> : null}{stockEventCount > 0 ? <Badge variant="outline">Estoque: {stockEventCount}</Badge> : null}{fiscalEventCount > 0 ? <Badge variant="outline">Fiscal: {fiscalEventCount}</Badge> : null}{recipient.notifyMarketplace ? <Badge variant="outline">Marketplace</Badge> : null}</div></TableCell>
+                  <TableCell><div className="flex flex-wrap gap-1">{eventCount > 0 ? <Badge variant="secondary">OS: {eventCount}</Badge> : null}{recipient.notifyFinancialDaily ? <Badge variant="outline">A pagar às {recipient.financialSummaryTime}</Badge> : null}{recipient.notifyReceivableDaily ? <Badge variant="outline">A receber às {recipient.receivableSummaryTime}</Badge> : null}{stockEventCount > 0 ? <Badge variant="outline">Estoque: {stockEventCount}</Badge> : null}{fiscalEventCount > 0 ? <Badge variant="outline">Fiscal: {fiscalEventCount}</Badge> : null}{financeiroEventCount > 0 ? <Badge variant="outline">Caixa: {financeiroEventCount}</Badge> : null}{recipient.notifyMarketplace ? <Badge variant="outline">Marketplace</Badge> : null}</div></TableCell>
                   <TableCell>{eventCount > 0 ? SCOPE_LABELS[recipient.scope] : "—"}</TableCell>
                   <TableCell><div className="flex flex-wrap gap-1"><Badge variant={recipient.active ? "outline" : "secondary"}>{recipient.active ? "Ativo" : "Pausado"}</Badge><Badge variant={recipient.connected ? "outline" : "secondary"}>{recipient.connected ? "Vinculado" : "Pendente"}</Badge></div></TableCell>
                   <TableCell className="text-right"><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" disabled={busy} aria-label={`Ações de ${recipientName(recipient)}`}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}</Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={() => openEdit(recipient)}><Edit3 className="mr-2 h-4 w-4" />Editar</DropdownMenuItem>{!recipient.connected ? <DropdownMenuItem onClick={() => generateLink(recipient)}><Link2 className="mr-2 h-4 w-4" />Gerar link</DropdownMenuItem> : <><DropdownMenuItem onClick={() => testRecipient(recipient)} disabled={!integrationEnabled}><Send className="mr-2 h-4 w-4" />Testar mensagem</DropdownMenuItem>{recipient.notifyFinancialDaily ? <DropdownMenuItem onClick={() => testFinancialSummary(recipient, "A_PAGAR")} disabled={!integrationEnabled}><Send className="mr-2 h-4 w-4" />Testar contas a pagar</DropdownMenuItem> : null}{recipient.notifyReceivableDaily ? <DropdownMenuItem onClick={() => testFinancialSummary(recipient, "A_RECEBER")} disabled={!integrationEnabled}><Send className="mr-2 h-4 w-4" />Testar contas a receber</DropdownMenuItem> : null}</>}<DropdownMenuSeparator /><DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => removeRecipient(recipient)}><Trash2 className="mr-2 h-4 w-4" />Remover</DropdownMenuItem></DropdownMenuContent></DropdownMenu></TableCell>
@@ -238,7 +246,7 @@ export function TelegramRecipientsCard({ integrationEnabled }: { integrationEnab
         </CardContent>
       </Card>
 
-      {dialogOpen ? <TelegramRecipientDialog open={dialogOpen} onOpenChange={setDialogOpen} recipient={dialogRecipient} users={availableUsers} saving={action === "save"} onSave={saveRecipient} /> : null}
+      {dialogOpen ? <TelegramRecipientDialog open={dialogOpen} onOpenChange={setDialogOpen} recipient={dialogRecipient} users={availableUsers} banks={banks} saving={action === "save"} onSave={saveRecipient} /> : null}
 
       <Dialog open={Boolean(link)} onOpenChange={(open) => { if (!open) setLink(null); }}>
         <DialogContent>

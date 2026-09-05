@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server";
 import { auth } from "@/lib/auth-edge";
 import { expandPermissions, normalizePermission, PERMS, permissionSetHas, type Permission } from "@/app/api/_authz/permission-constants";
 import { getDefaultRouteForPerms } from "@/app/api/_authz/default-route";
+import { permissionForAction } from "@/app/api/_authz/action-permission";
 
 const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
@@ -214,12 +215,7 @@ function matchApiActionRule(pathname: string, method: string) {
   );
   if (!rule) return null;
 
-  const normalizedMethod = method.toUpperCase();
-  if (normalizedMethod === "GET" || normalizedMethod === "HEAD" || normalizedMethod === "OPTIONS") return rule.read;
-  if (normalizedMethod === "POST") return rule.create ?? rule.edit ?? rule.read;
-  if (normalizedMethod === "PUT" || normalizedMethod === "PATCH") return rule.edit ?? rule.read;
-  if (normalizedMethod === "DELETE") return rule.delete ?? rule.edit ?? rule.read;
-  return rule.read;
+  return permissionForAction(pathname, method, rule);
 }
 
 function matchApiMutationRule(pathname: string, method: string) {

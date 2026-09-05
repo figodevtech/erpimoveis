@@ -82,6 +82,22 @@ export async function processarPagamentoConcluido(opts: {
     return;
   }
 
+  if (pagamento.ordemservicoid) {
+    const { error } = await supabaseAdmin.rpc("confirmar_pagamento_stone_os", {
+      p_pagamento_id: pagamento.id, p_status: novoStatus,
+      p_evento: `PAGAMENTO_${novoStatus}_${origem}`, p_payload: dadosWebhook ?? {},
+      p_registrar_receita: true,
+    });
+    if (error) throw error;
+    if (novoStatus === "PAGO") {
+      const { data: eventosNfe } = await supabaseAdmin.from("pagamento_evento")
+        .select("id").eq("pagamentoid", pagamento.id).eq("tipo", "EMITIR_NFE_PRODUTOS_QUANDO_PAGO");
+      if (eventosNfe?.length) await criarNotaFiscalStubParaOs(pagamento.ordemservicoid, pagamento.id);
+    }
+    if (pagamento.provider_tx_id) await fecharPedidoPos(pagamento.provider_tx_id);
+    return;
+  }
+
   // 2) Atualiza status do pagamento (PAGO/ESTORNADO/RECUSADO)
   const { error: errUpdatePag } = await supabaseAdmin
     .from("pagamento")

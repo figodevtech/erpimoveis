@@ -42,6 +42,7 @@ type DadosBasicos = {
     | "EM_ANDAMENTO"
     | "ORCAMENTO_APROVADO"
     | "PAGAMENTO"
+  | "FATURAMENTO"
     | "CONCLUIDO"
     | "CANCELADO";
   statusToken: "valido" | "expirado" | "usado";

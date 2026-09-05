@@ -65,6 +65,7 @@ const STATUS_LABELS: Record<string, string> = {
   AGUARDANDO_CHECKLIST: "Aguardando checklist",
   EM_ANDAMENTO: "Em andamento",
   PAGAMENTO: "Pagamento",
+  FATURAMENTO: "Faturamento",
   SEM_COBRANCA: "Sem cobrança",
   CONCLUIDO: "Concluído",
   CANCELADO: "Cancelado",

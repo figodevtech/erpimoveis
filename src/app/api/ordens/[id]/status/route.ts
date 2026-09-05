@@ -27,6 +27,7 @@ type DBStatusOS =
   | "ORCAMENTO_RECUSADO"
   | "EM_ANDAMENTO"
   | "PAGAMENTO"
+  | "FATURAMENTO"
   | "SEM_COBRANCA"
   | "CONCLUIDO"
   | "CANCELADO";
@@ -37,6 +38,7 @@ type FormaPagamento = PlannedPayment["metodo"];
 type Body = {
   status: DBStatusOS;
   semCobranca?: boolean;
+  transicaoFaturamento?: boolean;
   motivoSemCobranca?: string | null;
   formaPagamento?: FormaPagamento | null;
   parcelasPagamento?: number | null;
@@ -60,6 +62,19 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
 
     const body = (await req.json()) as Body;
     const status = body.status;
+    // Não reutilizar a finalização da execução para devolver uma OS: ela
+    // também salva condições comerciais que devem ser preservadas aqui.
+    if (status === "FATURAMENTO" || status === "PAGAMENTO") {
+      const atual = await supabaseAdmin.from("ordemservico").select("status")
+        .eq("id", osId).eq("is_deleted", false).maybeSingle();
+      if (atual.error) throw atual.error;
+      if (!atual.data) return NextResponse.json({ error: "OS não encontrada." }, { status: 404 });
+      if (status === "FATURAMENTO" || atual.data.status === "FATURAMENTO" || body.transicaoFaturamento) {
+        const result = await supabaseAdmin.rpc("transicionar_faturamento_os", { p_os_id: osId, p_status: status });
+        if (result.error) return NextResponse.json({ error: result.error.message }, { status: 409 });
+        return NextResponse.json({ ok: true, status: result.data.status });
+      }
+    }
     const semCobranca = Boolean(body.semCobranca);
     const motivoSemCobranca = (body.motivoSemCobranca ?? "").trim() || null;
     const formaPagamento = body.formaPagamento ?? null;
@@ -93,6 +108,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
     const statusesBloqueadosPorAvulso: DBStatusOS[] = [
       "EM_ANDAMENTO",
       "PAGAMENTO",
+  "FATURAMENTO",
       "SEM_COBRANCA",
       "CONCLUIDO",
     ];
@@ -434,7 +450,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
         error: err?.message || "Falha ao atualizar status",
         codigo: err?.codigo,
       },
-      { status: err?.statusCode || 500 },
+      { status: err?.statusCode || (["P0001", "23514"].includes(err?.code) ? 409 : 500) },
     );
   }
 }

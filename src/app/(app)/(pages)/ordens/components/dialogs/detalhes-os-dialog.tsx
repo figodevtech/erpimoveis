@@ -135,6 +135,7 @@ const statusClasses: Record<string, string> = {
   APROVACAO_ORCAMENTO: "bg-sky-600/15 text-sky-400",
   EM_ANDAMENTO: "bg-amber-600/15 text-amber-400",
   PAGAMENTO: "bg-indigo-600/15 text-indigo-400",
+  FATURAMENTO: "bg-cyan-600/15 text-cyan-500",
   SEM_COBRANCA: "bg-cyan-600/15 text-cyan-400",
   CONCLUIDO: "bg-green-600/15 text-green-400",
   CANCELADO: "bg-red-600/15 text-red-400",
@@ -1752,7 +1753,7 @@ export function OSDetalhesDialog({
                       Saída
                     </span>
                     <span className={`block text-xs font-semibold ${data?.os?.datasaida ? "text-foreground" : "text-amber-600"}`}>
-                      {data?.os?.datasaida ? fmtDate(data.os.datasaida) : ["PAGAMENTO", "CONCLUIDO", "SEM_COBRANCA"].includes(String(data?.os?.status ?? "")) ? "Saída não registrada" : "—"}
+                      {data?.os?.datasaida ? fmtDate(data.os.datasaida) : ["PAGAMENTO", "FATURAMENTO", "CONCLUIDO", "SEM_COBRANCA"].includes(String(data?.os?.status ?? "")) ? "Saída não registrada" : "—"}
                     </span>
                   </span>
                 </span>

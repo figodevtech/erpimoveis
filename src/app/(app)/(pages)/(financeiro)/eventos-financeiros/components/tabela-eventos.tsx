@@ -1,13 +1,12 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Filter, RefreshCw, Search, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Filter, Inbox, RefreshCw, Search, X } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -28,7 +27,6 @@ import { PainelEventosFinanceiros } from "@/components/financeiro/eventos-financ
 import { endpointsDoFinanceiro } from "@/components/financeiro/eventos-financeiros/endpoints";
 import type { LinhaDeEvento } from "@/components/financeiro/eventos-financeiros/modelo";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
 import type { ResultadoSelecaoDeEventos } from "@/lib/financeiro/eventos-financeiros-selection";
 
 import {
@@ -48,6 +46,7 @@ const ENDPOINTS = endpointsDoFinanceiro();
 export function TabelaEventos({
   linhas,
   isLoading,
+  erro,
   situacao,
   setSituacao,
   busca,
@@ -56,8 +55,6 @@ export function TabelaEventos({
   setFiltros,
   usuarios,
   carregandoUsuarios,
-  agruparPorOs,
-  setAgruparPorOs,
   paginacao,
   irParaPagina,
   setLimit,
@@ -69,6 +66,7 @@ export function TabelaEventos({
 }: {
   linhas: LinhaDeEvento[];
   isLoading: boolean;
+  erro: string | null;
   situacao: SituacaoEvento;
   setSituacao: (valor: SituacaoEvento) => void;
   busca: string;
@@ -77,8 +75,6 @@ export function TabelaEventos({
   setFiltros: (valor: FiltrosDeEventos) => void;
   usuarios: UsuarioDeEvento[];
   carregandoUsuarios: boolean;
-  agruparPorOs: boolean;
-  setAgruparPorOs: (valor: boolean) => void;
   paginacao: Paginacao;
   irParaPagina: (pagina: number) => void;
   setLimit: (limite: number) => void;
@@ -99,24 +95,34 @@ export function TabelaEventos({
   const [buscaLocal, setBuscaLocal] = useState(busca);
 
   const filtrosAtivos = Object.values(filtros).filter(Boolean).length;
+  const rotulos: Record<keyof FiltrosDeEventos, string> = {
+    documentoTipo: "Documento", natureza: "Natureza", origem: "Origem", osId: "OS",
+    usuarioId: "Pessoa", dateFrom: "De", dateTo: "Até",
+  };
+  function valorDoFiltro(chave: keyof FiltrosDeEventos, valor: string) {
+    if (chave === "usuarioId") return usuarios.find((usuario) => usuario.id === valor)?.nome || "Usuário selecionado";
+    if (chave === "dateFrom" || chave === "dateTo") return valor.split("-").reverse().join("/");
+    if (valor === "VENDA") return "Vendas";
+    if (valor === "OS") return "Ordens de serviço";
+    return valor.charAt(0) + valor.slice(1).toLowerCase().replaceAll("_", " ");
+  }
 
   return (
-    <Card className="overflow-hidden">
-      <CardHeader className="gap-3 border-b">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+    <Card className="gap-0 overflow-hidden rounded-xl py-0 shadow-sm">
+      <CardHeader className="grid-rows-1 gap-4 border-b px-4 py-4 sm:px-5">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div
-            role="tablist"
+            role="group"
             aria-label="Situação dos eventos"
-            className="flex w-fit rounded-lg border bg-muted/40 p-0.5"
+            className="flex w-full rounded-lg bg-muted/60 p-1 sm:w-fit"
           >
             {SITUACAO_TABS.map((tab) => (
               <button
                 key={tab.value}
-                role="tab"
                 type="button"
-                aria-selected={situacao === tab.value}
+                aria-pressed={situacao === tab.value}
                 onClick={() => setSituacao(tab.value)}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                className={`flex-1 whitespace-nowrap rounded-md px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex-none ${
                   situacao === tab.value
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
@@ -128,22 +134,8 @@ export function TabelaEventos({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex h-9 items-center gap-2 rounded-md border px-3">
-              <Switch
-                id="agrupar-eventos-por-os"
-                checked={agruparPorOs}
-                onCheckedChange={setAgruparPorOs}
-              />
-              <Label
-                htmlFor="agrupar-eventos-por-os"
-                className="cursor-pointer whitespace-nowrap text-xs font-medium"
-              >
-                Agrupar por OS
-              </Label>
-            </div>
-
             <form
-              className="relative"
+              className="relative flex min-w-0 basis-full gap-2 sm:min-w-64 sm:basis-auto"
               onSubmit={(event) => {
                 event.preventDefault();
                 setBusca(buscaLocal.trim());
@@ -153,14 +145,15 @@ export function TabelaEventos({
               <Input
                 value={buscaLocal}
                 onChange={(event) => setBuscaLocal(event.target.value)}
-                placeholder="Descrição ou #OS"
-                className="h-9 w-56 pl-8"
+                placeholder="Descrição, nº da OS ou venda"
+                aria-label="Buscar eventos financeiros"
+                className="h-9 min-w-0 pl-8 pr-8 sm:w-72"
               />
               {buscaLocal ? (
                 <button
                   type="button"
                   aria-label="Limpar busca"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  className="absolute right-[5.25rem] top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                   onClick={() => {
                     setBuscaLocal("");
                     setBusca("");
@@ -169,6 +162,7 @@ export function TabelaEventos({
                   <X className="size-4" />
                 </button>
               ) : null}
+              <Button type="submit" variant="outline" size="sm">Buscar</Button>
             </form>
 
             <Sheet
@@ -188,7 +182,7 @@ export function TabelaEventos({
                   ) : null}
                 </Button>
               </SheetTrigger>
-              <SheetContent className="flex flex-col gap-4">
+              <SheetContent className="flex flex-col gap-4 sm:max-w-md">
                 <SheetHeader>
                   <SheetTitle>Filtrar eventos</SheetTitle>
                   <SheetDescription>
@@ -197,6 +191,17 @@ export function TabelaEventos({
                 </SheetHeader>
 
                 <div className="space-y-4 overflow-y-auto px-4">
+                  <label className="block text-sm font-medium">
+                    Documento
+                    <Select value={rascunho.documentoTipo || "TODOS"} onValueChange={(valor) => setRascunho({ ...rascunho, documentoTipo: valor === "TODOS" ? "" : valor as "OS" | "VENDA" })}>
+                      <SelectTrigger className="mt-1 w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="TODOS">OS e vendas</SelectItem>
+                        <SelectItem value="OS">Ordens de serviço</SelectItem>
+                        <SelectItem value="VENDA">Vendas</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </label>
                   <label className="block text-sm font-medium">
                     Natureza
                     <Select
@@ -344,9 +349,21 @@ export function TabelaEventos({
             </Button>
           </div>
         </div>
+        {busca || filtrosAtivos > 0 ? (
+          <div className="flex flex-wrap items-center gap-2" aria-label="Filtros aplicados">
+            {busca ? <Badge variant="secondary" className="gap-2 py-1.5 font-normal">Busca: {busca}<button aria-label="Remover busca" onClick={() => { setBusca(""); setBuscaLocal(""); }}><X className="size-3.5" /></button></Badge> : null}
+            {(Object.entries(filtros) as [keyof FiltrosDeEventos, string][]).filter(([, valor]) => valor).map(([chave, valor]) => (
+              <Badge key={chave} variant="secondary" className="max-w-full gap-2 py-1.5 font-normal">
+                <span className="truncate">{rotulos[chave]}: {valorDoFiltro(chave, valor)}</span>
+                <button aria-label={`Remover filtro ${rotulos[chave]}`} onClick={() => setFiltros({ ...filtros, [chave]: "" })}><X className="size-3.5" /></button>
+              </Badge>
+            ))}
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setFiltros(FILTROS_VAZIOS); setBusca(""); setBuscaLocal(""); }}>Limpar filtros</Button>
+          </div>
+        ) : null}
       </CardHeader>
 
-      <CardContent className="p-4">
+      <CardContent className={`p-3 sm:p-5 ${isLoading && linhas.length > 0 ? "opacity-50" : ""}`} aria-busy={isLoading} inert={isLoading}>
         {isLoading && linhas.length === 0 ? (
           // Skeleton próprio, e não o `TableSkeleton`: aquele emite `TableRow` e
           // só funciona dentro de uma `<Table>`. Aqui as linhas são um grid.
@@ -359,22 +376,22 @@ export function TabelaEventos({
               </div>
             ))}
           </div>
-        ) : (
+        ) : erro ? <p className="p-8 text-center text-sm text-muted-foreground">A lista estará disponível após carregar os eventos.</p> : (
           <PainelEventosFinanceiros
             linhas={linhas}
             endpoints={ENDPOINTS}
             permissoes={permissoes}
-            agruparPorOs={agruparPorOs}
             totalSelecionaveis={totalSelecionaveis}
             escopoSelecao={escopoSelecao}
             carregarSelecionaveisDoFiltro={carregarSelecionaveisDoFiltro}
             onChanged={recarregar}
             vazio={
-              <p className="p-8 text-center text-sm text-muted-foreground">
-                {situacao === "NAO_LANCADO"
-                  ? "Nada pendente: todo evento financeiro das ordens já foi lançado no financeiro."
-                  : "Nenhum evento financeiro para este filtro."}
-              </p>
+              <div className="flex flex-col items-center px-5 py-14 text-center">
+                <span className="mb-4 rounded-2xl bg-muted p-4"><Inbox className="size-7 text-muted-foreground" /></span>
+                <p className="font-medium">{situacao === "NAO_LANCADO" ? "Nenhuma pendência neste filtro" : "Nenhum evento encontrado"}</p>
+                <p className="mt-1 max-w-sm text-sm text-muted-foreground">{situacao === "NAO_LANCADO" ? "Não há despesas aguardando lançamento. Consulte todos os eventos ou ajuste os filtros." : "Experimente outro período, documento ou termo de busca."}</p>
+                {situacao !== "TODOS" ? <Button variant="outline" size="sm" className="mt-4" onClick={() => setSituacao("TODOS")}>Ver todos os eventos</Button> : null}
+              </div>
             }
           />
         )}
@@ -382,9 +399,9 @@ export function TabelaEventos({
 
       <div className="flex flex-col items-center justify-between gap-3 border-t px-4 py-3 sm:flex-row">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>{paginacao.total} evento(s)</span>
+          <span>{erro ? "—" : `${paginacao.total === 0 ? 0 : (paginacao.page - 1) * paginacao.limit + 1}–${Math.min(paginacao.page * paginacao.limit, paginacao.total)} de ${paginacao.total}`} eventos</span>
           <Select value={String(paginacao.limit)} onValueChange={(valor) => setLimit(Number(valor))}>
-            <SelectTrigger className="h-8 w-[5.5rem]">
+            <SelectTrigger className="h-8 w-[5.5rem]" aria-label="Eventos por página">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

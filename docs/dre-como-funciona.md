@@ -114,6 +114,10 @@ Quando a venda é finalizada ou paga, o sistema registra:
 Venda em orçamento, aguardando aprovação ou recusada **não entra na DRE**. Só
 entra quando vira operação concluída.
 
+A comissão do vendedor também gera despesa pelo valor apurado em `venda_comissao`.
+A integração começa nas vendas de setembro de 2026; meses anteriores são preservados.
+Lançar ou pagar a comissão não cria uma segunda despesa na DRE.
+
 ### Lançamento do financeiro
 
 É por aqui que entram aluguel, salários, energia, contador, tarifas bancárias,

@@ -1,3 +1,4 @@
+import { useConfig } from "@/app/(app)/(pages)/config-context";
 import { StatusOS } from "@/app/(app)/(pages)/ordens/types";
 import {
   AlertDialog,
@@ -22,6 +23,7 @@ interface DeleteAlertProps{
   
 }
 export default function DeleteAlert({children, handleDeleteTransaction, isAlertOpen, setIsAlertOpen, idToDelete, statusOs}: DeleteAlertProps) {
+  const config = useConfig();
   return (
     <AlertDialog open={isAlertOpen} onOpenChange={setIsAlertOpen}>
       <AlertDialogTrigger asChild>
@@ -33,7 +35,7 @@ export default function DeleteAlert({children, handleDeleteTransaction, isAlertO
           <AlertDialogDescription>
             {statusOs === "CONCLUIDO" ?
             
-            "Ordem de Serviço já conluída. Tem certeza que deseja deletar a transação? Está ação não pode ser desfeita e retornará a OS para o status de PAGAMENTO EM ABERTO."
+            `A OS já está concluída. Excluir esta transação é irreversível. Se a cobertura ficar abaixo do total, a OS retornará para ${config?.habilitar_faturamento_os ? "Faturamento" : "Pagamento"}.`
             :
             "Esta ação não pode ser desfeita. Deletará a transação." 
           }

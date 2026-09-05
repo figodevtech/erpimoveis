@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { requireOSEdit } from "@/app/api/_authz/perms";
 
 type ParamsId = { id: string };
 
@@ -18,6 +19,8 @@ export async function POST(
         { status: 401 }
       );
     }
+
+    await requireOSEdit();
 
     const { id } = await params; // 👈 precisa aguardar o params
     const osId = Number(id);
@@ -63,7 +66,7 @@ export async function POST(
     console.error("POST /api/ordens/[id]/aprovar", err);
     return NextResponse.json(
       { error: err?.message || "Falha ao aprovar orçamento." },
-      { status: 500 }
+      { status: Number(err?.statusCode) || 500 }
     );
   }
 }

@@ -8,6 +8,7 @@ export type ServiceOrderCompletionRow = {
 
 const NON_OPEN_STATUSES = new Set([
   "PAGAMENTO",
+  "FATURAMENTO",
   "CONCLUIDO",
   "SEM_COBRANCA",
   "CANCELADO",

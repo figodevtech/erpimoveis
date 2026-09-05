@@ -6,8 +6,6 @@ export const revalidate = 0;
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
-  chaveComissaoDeCriacao,
-  comissoesConfirmadas,
   comoLista,
   erroInterno,
   getMeUserId,
@@ -111,12 +109,6 @@ export async function GET(req: Request) {
 
     if (error) throw error;
 
-    // Quais comissões de criação já existem como evento, e quais ainda são
-    // projeção do orçamento. Uma consulta para a página inteira.
-    const confirmadas = await comissoesConfirmadas(
-      (data ?? []).map((row) => Number((row as Record<string, unknown>).id)),
-    );
-
     const items = (data ?? []).map((row) => {
       const ordem = row as unknown as Record<string, unknown>;
 
@@ -188,10 +180,6 @@ export async function GET(req: Request) {
         produtos,
         servicos,
         comissaoCriacao,
-        // A comissão já existe como evento, ou ainda é projeção do orçamento?
-        comissaoCriacaoConfirmada: confirmadas.has(
-          chaveComissaoDeCriacao(Number(ordem.id), userId),
-        ),
       };
     });
 

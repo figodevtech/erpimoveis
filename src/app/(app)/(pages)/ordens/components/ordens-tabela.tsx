@@ -786,7 +786,8 @@ export function OrdensTabela({
     status: StatusOS,
     extras?: ExtrasStatusOS,
   ): Promise<boolean> {
-    const exigeRealizadores = status === "EM_ANDAMENTO" || status === "PAGAMENTO";
+    const transicaoFaturamento = status === "FATURAMENTO" || (status === "PAGAMENTO" && rows.some(r => r.id === id && r.status === "FATURAMENTO"));
+    const exigeRealizadores = !transicaoFaturamento && (status === "EM_ANDAMENTO" || status === "PAGAMENTO");
 
     const loadingToastId = exigeRealizadores
       ? toast.loading("Preparando atribuição de realizadores...", {
@@ -850,7 +851,7 @@ export function OrdensTabela({
       const r = await fetch(`/api/ordens/${id}/status`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status, ...extras }),
+        body: JSON.stringify({ status, transicaoFaturamento, ...extras }),
       });
 
       if (!r.ok) {
@@ -1279,7 +1280,7 @@ export function OrdensTabela({
                   const policy = buildPolicy(st);
                   const dataEntradaFmt = fmtDate((r as any).dataEntrada ?? (r as any).dataentrada);
                   const dataSaidaRaw = (r as any).dataSaida ?? (r as any).datasaida;
-                  const isSaidaConcluida = ["PAGAMENTO", "CONCLUIDO", "SEM_COBRANCA"].includes(String(r.status ?? "").toUpperCase());
+                  const isSaidaConcluida = ["PAGAMENTO", "FATURAMENTO", "CONCLUIDO", "SEM_COBRANCA"].includes(String(r.status ?? "").toUpperCase());
                   // O destaque manual é a palavra final: quem marcou a OS à mão
                   // sabe de algo que a regra do status não sabe.
                   const regraDestaque = regrasDestaque[st];
@@ -1756,7 +1757,7 @@ export function OrdensTabela({
                         <TableCell>
                           {((r as any).dataSaida ?? (r as any).datasaida)
                             ? fmtDate((r as any).dataSaida ?? (r as any).datasaida)
-                            : ["PAGAMENTO", "CONCLUIDO", "SEM_COBRANCA"].includes(String(r.status ?? "").toUpperCase())
+                            : ["PAGAMENTO", "FATURAMENTO", "CONCLUIDO", "SEM_COBRANCA"].includes(String(r.status ?? "").toUpperCase())
                               ? <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300">Saída não registrada</Badge>
                               : "—"}
                         </TableCell>

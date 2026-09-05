@@ -13,6 +13,7 @@ export type StatusOS =
   | "ORCAMENTO_RECUSADO"
   | "EM_ANDAMENTO"
   | "PAGAMENTO"
+  | "FATURAMENTO"
   | "SEM_COBRANCA"
   | "CONCLUIDO"
   | "CANCELADO"

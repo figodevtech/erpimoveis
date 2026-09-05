@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
     // mensagem em português antes de chegar ao banco.
     const { data: eventos, error: erroEventos } = await supabaseAdmin
       .from("eventos_financeiros")
-      .select("id, ordemservicoid, natureza, status, transacaoid, lancamento_id, pode_gerar_transacao, valor, descricao")
+      .select("id, ordemservicoid, source_type, source_id, origem, natureza, status, transacaoid, lancamento_id, pode_gerar_transacao, valor, descricao")
       .in("id", eventosIds);
 
     if (erroEventos) throw erroEventos;
@@ -99,11 +99,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    /** Despesa de OS: evento sem ordem (entrada fiscal, transação avulsa) não entra aqui. */
+    /** Aceita despesas de OS e comissões de vendas; entradas e transações avulsas ficam fora. */
     const foraDaOs = (evento: any) =>
       ordemServicoInformada
         ? Number(evento.ordemservicoid) !== ordemServicoId
-        : evento.ordemservicoid == null;
+        : evento.ordemservicoid == null && !(evento.source_type === "VENDA" && evento.origem === "COMISSAO" && evento.source_id != null);
 
     const problema = (eventos ?? []).find((evento: any) => {
       if (foraDaOs(evento)) return true;
@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
         foraDaOs(problema)
           ? ordemServicoInformada
             ? "não pertence a esta OS"
-            : "não pertence a nenhuma OS"
+            : "não pertence a uma OS ou comissão de venda"
           : String(problema.natureza) !== "DESPESA"
             ? "não é uma despesa"
             : problema.pode_gerar_transacao !== true

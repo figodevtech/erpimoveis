@@ -54,7 +54,6 @@ import { toast } from "@/lib/toast";
 
 import type { EndpointsDeEventos } from "./endpoints";
 import {
-  agruparPorOrdem,
   eventoSelecionavel,
   motivoNaoSelecionavel,
   podeOferecerExclusao,
@@ -63,18 +62,10 @@ import {
 } from "./modelo";
 
 /**
- * O painel de eventos financeiros de OS.
- *
- * Mesma lista e mesmas ações em dois lugares: dentro do dialog da ordem, com os
- * eventos de uma OS só, e na fila do financeiro, com os de todas — agrupados por
- * ordem. Antes vivia inline no dialog de detalhes, o que deixava a tela nova
- * sem saída: ou reimplementava as dez ações, ou nascia capenga.
- *
- * O que muda entre os dois usos passa por props — a família de rota
- * (`endpoints`), quem pode o quê (`permissoes`) e se agrupa por OS. Tudo o
- * mais é igual, de propósito.
+ * Lista e ações compartilhadas pela fila geral e pelos diálogos de OS e venda.
+ * As permissões e os endpoints vêm do contexto. Eventos derivados de vendas
+ * são consultados aqui; seus valores são alterados na origem.
  */
-
 function fmtMoney(v: number | null | undefined) {
   if (v == null || isNaN(Number(v))) return "—";
   return Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -90,6 +81,7 @@ function resumirEventoSelecionavel(linha: LinhaDeEvento): EventoSelecionavelResu
   return {
     id: linha.id,
     osId: linha.osId,
+    vendaId: linha.vendaId,
     descricao: linha.descricao,
     valor: linha.valor,
   };
@@ -118,8 +110,8 @@ export function PainelEventosFinanceiros({
   linhas,
   endpoints,
   permissoes,
-  agruparPorOs = false,
   osIdUnica,
+  vendaIdUnica,
   onChanged,
   acoesExtras,
   onVisualizarProduto,
@@ -132,9 +124,10 @@ export function PainelEventosFinanceiros({
   linhas: LinhaDeEvento[];
   endpoints: EndpointsDeEventos;
   permissoes: PermissoesDoPainel;
-  agruparPorOs?: boolean;
   /** A OS, quando o painel é de uma só. Habilita o "Novo lançamento". */
   osIdUnica?: number;
+  /** Oculta a coluna de documento quando a lista está dentro da venda. */
+  vendaIdUnica?: number;
   onChanged: () => void | Promise<void>;
   /** Botões do dono da tela, ao lado dos do painel (ex.: Consumo de estoque). */
   acoesExtras?: React.ReactNode;
@@ -243,7 +236,7 @@ export function PainelEventosFinanceiros({
     [escolhidas],
   );
   const osDaSelecao = useMemo(
-    () => [...new Set(escolhidas.map((linha) => linha.osId).filter((id): id is number => id != null))],
+    () => escolhidas.some((linha) => linha.vendaId != null) ? [] : [...new Set(escolhidas.map((linha) => linha.osId).filter((id): id is number => id != null))],
     [escolhidas],
   );
 
@@ -252,8 +245,7 @@ export function PainelEventosFinanceiros({
     setCatalogoSelecionados(new Map());
   }, []);
 
-  // Busca, filtros e aba definem o conjunto. Paginar ou trocar a apresentação
-  // agrupada não define outro conjunto e, por isso, preserva as marcações.
+  // Busca, filtros e aba definem o conjunto. Paginar preserva as marcações.
   useEffect(() => {
     if (escopoSelecao !== undefined) sairDoModoSelecao();
   }, [escopoSelecao, sairDoModoSelecao]);
@@ -349,7 +341,7 @@ export function PainelEventosFinanceiros({
   ) {
     if (escolhidasAgora.length === 1) return escolhidasAgora[0].descricao;
     if (osIds.length === 1) return `Despesas da OS #${osIds[0]} (${escolhidasAgora.length} lançamentos)`;
-    return `Despesas de ${osIds.length} OS (${escolhidasAgora.length} lançamentos)`;
+    return `Despesas de OS e vendas (${escolhidasAgora.length} lançamentos)`;
   }
 
   function lancarSelecao() {
@@ -710,7 +702,6 @@ export function PainelEventosFinanceiros({
     }
   }
 
-  const grupos = useMemo(() => (agruparPorOs ? agruparPorOrdem(linhas) : []), [agruparPorOs, linhas]);
   const quantidadeSelecionaveis = totalSelecionaveis ?? selecionaveis.length;
   const todosDoFiltroSelecionados =
     quantidadeSelecionaveis > 0 && escolhidas.length === quantidadeSelecionaveis;
@@ -718,127 +709,73 @@ export function PainelEventosFinanceiros({
   function renderLinha(linha: LinhaDeEvento) {
     const podeEditarLinha =
       permissoes.podeEditar
+      && linha.vendaId == null
       && (linha.tipo === "ENTRADA"
         || linha.isManual
         // Comissão não tem origem corrigível: a taxa vem do perfil e o valor é
         // derivado. É por aqui ou lugar nenhum.
         || linha.origem === "COMISSAO");
-    const mostrarContextoDaOs = !agruparPorOs && osIdUnica == null;
+    const mostrarContextoDaOs = osIdUnica == null && vendaIdUnica == null;
+
+    const cliente = linha.ordem?.cliente?.nomerazaosocial || linha.venda?.cliente?.nomerazaosocial;
+    const documento = linha.vendaId != null ? `Venda #${linha.vendaId}` : linha.osId != null ? `OS #${linha.osId}` : "Sem documento";
+    const origem = ({ COMISSAO: "Comissão", PRODUTO: "Produto", SERVICO: "Serviço", AVULSO: "Avulso", DESCONTO: "Desconto", FRETE: "Frete", CONSUMO: "Consumo", ENTRADA_FISCAL: "Entrada fiscal" } as Record<string, string>)[linha.origem] || linha.origem;
+    const situacao = linha.status === "CONVERTIDO" ? "Lançado" : linha.podeGerarTransacao ? "A lançar" : "Automático";
+    const classeSituacao = linha.status === "CONVERTIDO"
+      ? "border-sky-500/20 bg-sky-500/10 text-sky-700 dark:text-sky-300"
+      : linha.podeGerarTransacao
+        ? "border-amber-500/20 bg-amber-500/10 text-amber-800 dark:text-amber-300"
+        : "border-border bg-muted/50 text-muted-foreground";
+    const temAcoes = podeEditarLinha || (linha.produtoid && onVisualizarProduto)
+      || linha.status === "CONVERTIDO"
+      || (permissoes.podeEditar && linha.vendaId == null && (podeSincronizar(linha) || linha.origem === "FRETE" || linha.origem === "SERVICO"))
+      || (permissoes.podeLancar && eventoSelecionavel(linha))
+      || (permissoes.podeExcluir && podeOferecerExclusao(linha));
 
     return (
       <div
         key={linha.id}
-        className="grid gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_130px_130px] sm:items-center"
+        data-evento-id={linha.id}
+        data-documento={documento}
+        className={`relative grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-3 px-4 py-4 transition-colors lg:items-center ${mostrarContextoDaOs ? "lg:grid-cols-[minmax(0,1fr)_160px_106px_136px_32px]" : "lg:grid-cols-[minmax(0,1fr)_106px_136px_32px]"} ${selecionados.has(linha.id) ? "bg-primary/5" : "hover:bg-muted/30"}`}
       >
-        <div className="flex min-w-0 items-start gap-3">
-          {modoSelecao ? (
-            // O checkbox ocupa o lugar da seta, no mesmo tamanho: entrar no modo
-            // de seleção não faz a lista inteira saltar para o lado.
-            <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center">
-              <Checkbox
-                checked={selecionados.has(linha.id)}
-                disabled={!eventoSelecionavel(linha)}
-                onCheckedChange={() => alternarSelecao(linha)}
-                aria-label={`Selecionar ${linha.descricao}`}
-                title={motivoNaoSelecionavel(linha)}
-                className="hover:cursor-pointer"
-              />
-            </span>
-          ) : (
-            <span
-              className={
-                linha.tipo === "ENTRADA"
-                  ? "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                  : "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-red-500/15 text-red-600 dark:text-red-400"
-              }
-            >
-              {linha.tipo === "ENTRADA" ? (
-                <ArrowUp className="size-3.5" />
-              ) : (
-                <ArrowDown className="size-3.5" />
-              )}
-            </span>
-          )}
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="truncate text-sm font-medium">{linha.descricao}</p>
-              {mostrarContextoDaOs && linha.osId != null ? (
-                <Badge variant="secondary">OS #{linha.osId}</Badge>
-              ) : null}
-              <Badge variant="outline">{linha.origem}</Badge>
-              {/*
-                Azul e âmbar formam um par e só aparecem em quem de fato pode
-                virar transação. Evento automático — custo de produto, desconto —
-                não gera lançamento nenhum, então um badge ali só sugeriria uma
-                pendência que não existe.
-              */}
-              {linha.status === "CONVERTIDO" ? (
-                <Badge
-                  variant="outline"
-                  className="border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-400"
-                  title="Já virou transação no financeiro."
-                >
-                  Lançado
-                </Badge>
-              ) : linha.podeGerarTransacao ? (
-                <Badge
-                  variant="outline"
-                  className="border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400"
-                  title="Ainda não foi lançado no financeiro."
-                >
-                  Não lançado
-                </Badge>
-              ) : null}
-              {linha.comissaoAjustada ? (
-                <Badge
-                  variant="outline"
-                  title="O valor desta comissão foi corrigido à mão e não acompanha mais o recálculo automático."
-                >
-                  Comissão ajustada
-                </Badge>
-              ) : null}
-              {linha.competenciaFechada ? (
-                <Badge
-                  variant="outline"
-                  title="A competência deste lançamento é de um mês anterior. Alterar o valor recalcula a DRE daquele período."
-                >
-                  Mês fechado
-                </Badge>
-              ) : null}
+        <div className="col-span-2 flex min-w-0 items-start gap-3 pr-9 lg:col-span-1 lg:pr-0">
+          <span className={`flex size-9 shrink-0 items-center justify-center rounded-xl ${modoSelecao ? "bg-muted/50" : linha.tipo === "ENTRADA" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-rose-500/10 text-rose-600 dark:text-rose-400"}`}>
+            {modoSelecao ? (
+              <Checkbox checked={selecionados.has(linha.id)} disabled={!eventoSelecionavel(linha)} onCheckedChange={() => alternarSelecao(linha)} aria-label={`Selecionar ${linha.descricao}`} title={motivoNaoSelecionavel(linha)} />
+            ) : linha.tipo === "ENTRADA" ? <ArrowUp className="size-4" /> : <ArrowDown className="size-4" />}
+          </span>
+          <div className="min-w-0 space-y-1">
+            <p className="text-sm font-medium leading-snug [overflow-wrap:anywhere]" title={linha.descricao}>{linha.descricao}</p>
+            <p className="truncate text-xs text-muted-foreground" title={linha.detalhe}>{linha.detalhe}</p>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+              <span>{origem}</span>
+              {linha.dataEvento ? <><span aria-hidden="true">·</span><time dateTime={linha.dataEvento}>{new Date(linha.dataEvento).toLocaleDateString("pt-BR")}</time></> : null}
+              {linha.isManual && linha.criadoPorNome ? <><span aria-hidden="true">·</span><span>Por {linha.criadoPorNome}</span></> : null}
+              {linha.comissaoAjustada ? <Badge variant="outline" className="text-[10px]">Comissão ajustada</Badge> : null}
+              {linha.competenciaFechada ? <span title="Evento de competência anterior. Alterar o valor recalcula a DRE daquele período.">· Competência anterior</span> : null}
             </div>
-            <p className="truncate text-xs text-muted-foreground">{linha.detalhe}</p>
-            {mostrarContextoDaOs ? (
-              <p className="mt-0.5 truncate text-[11px] text-muted-foreground/80">
-                {[linha.ordem?.cliente?.nomerazaosocial, fmtDate(linha.dataEvento)]
-                  .filter((valor) => valor && valor !== "—")
-                  .join(" · ")}
-              </p>
-            ) : null}
-            {linha.isManual && linha.criadoPorNome ? (
-              <p className="mt-0.5 truncate text-[11px] text-muted-foreground/80">
-                Adicionado por {linha.criadoPorNome}
-              </p>
-            ) : linha.tipo === "SAIDA" && !linha.isManual ? (
-              <p className="mt-0.5 truncate text-[11px] text-muted-foreground/80">
-                Gerado automaticamente
-              </p>
-            ) : null}
+            {mostrarContextoDaOs ? <p className="text-xs text-muted-foreground lg:hidden"><span className="font-medium text-foreground">{documento}</span>{cliente ? ` · ${cliente}` : ""}</p> : null}
           </div>
         </div>
-        <div className="flex items-center justify-between sm:block sm:text-right">
-          <span className="text-xs text-muted-foreground sm:hidden">Valor</span>
-          <span
-            className={
-              linha.tipo === "ENTRADA"
-                ? "text-sm text-emerald-600 dark:text-emerald-400"
-                : "text-sm text-red-600 dark:text-red-400"
-            }
-          >
+        {mostrarContextoDaOs ? (
+          <div className="hidden min-w-0 space-y-1 lg:block">
+            <Badge variant="outline" className={linha.vendaId != null ? "border-violet-500/20 bg-violet-500/5 font-medium text-violet-700 dark:text-violet-300" : "bg-muted/40 font-medium"}>{documento}</Badge>
+            <p className="truncate text-xs text-muted-foreground" title={cliente || undefined}>{cliente || "Cliente não informado"}</p>
+          </div>
+        ) : null}
+        <div className="col-start-1 lg:col-start-auto">
+          <Badge variant="outline" className={`gap-1.5 whitespace-nowrap px-2 py-1 text-[11px] font-medium ${classeSituacao}`} title={situacao === "Automático" ? "Compõe o resultado; não precisa gerar um título no financeiro." : situacao === "Lançado" ? "Título criado no financeiro. Consulte a transação para verificar o pagamento." : "Despesa disponível para lançar no financeiro."}>
+            <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />{situacao}
+          </Badge>
+        </div>
+        <div className="col-start-2 row-start-2 text-right lg:col-start-auto lg:row-start-auto">
+          <span className={`whitespace-nowrap text-sm font-semibold tabular-nums ${linha.tipo === "ENTRADA" ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"}`}>
             {linha.tipo === "ENTRADA" ? "+" : "−"} {fmtMoney(linha.valor)}
           </span>
+          <p className="mt-0.5 text-[10px] text-muted-foreground">{linha.tipo === "ENTRADA" ? "Receita" : "Despesa"}</p>
         </div>
-        <div className="flex items-center justify-end gap-1 sm:text-right">
-          <span className="mr-auto text-xs text-muted-foreground sm:hidden">Ações</span>
+        <div className="absolute right-3 top-3 flex items-center justify-end lg:static">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -846,8 +783,8 @@ export function PainelEventosFinanceiros({
                 variant="ghost"
                 size="icon"
                 className="size-8"
-                aria-label="Abrir ações do evento"
-                disabled={modoSelecao}
+                aria-label={`Ações de ${linha.descricao}`}
+                disabled={modoSelecao || !temAcoes}
               >
                 <MoreHorizontal className="size-4" />
               </Button>
@@ -887,6 +824,7 @@ export function PainelEventosFinanceiros({
                 </DropdownMenuItem>
               ) : null}
               {permissoes.podeEditar
+                && linha.vendaId == null
                 && (linha.origem === "SERVICO" || linha.origem === "FRETE")
                 && linha.tipo === "ENTRADA"
                 && linha.status === "ATIVO"
@@ -898,12 +836,12 @@ export function PainelEventosFinanceiros({
                     : "Adicionar despesa ao serviço"}
                 </DropdownMenuItem>
               ) : null}
-              {linha.origem === "FRETE" && linha.tipo === "ENTRADA" ? (
+              {linha.vendaId == null && linha.origem === "FRETE" && linha.tipo === "ENTRADA" ? (
                 <DropdownMenuLabel className="whitespace-normal text-xs font-normal text-muted-foreground">
                   Para remover esta receita, edite o orçamento da OS e zere o frete.
                 </DropdownMenuLabel>
               ) : null}
-              {permissoes.podeEditar && podeSincronizar(linha) && linha.tipo === "SAIDA" ? (
+              {permissoes.podeEditar && linha.vendaId == null && podeSincronizar(linha) && linha.tipo === "SAIDA" ? (
                 <DropdownMenuItem
                   disabled={sincronizandoId === linha.id}
                   onSelect={() => void sincronizar(linha, "sincronizar-ultimo-custo", "custo do produto")}
@@ -912,7 +850,7 @@ export function PainelEventosFinanceiros({
                   Sincronizar custo do produto
                 </DropdownMenuItem>
               ) : null}
-              {permissoes.podeEditar && podeSincronizar(linha) && linha.tipo === "ENTRADA" ? (
+              {permissoes.podeEditar && linha.vendaId == null && podeSincronizar(linha) && linha.tipo === "ENTRADA" ? (
                 <DropdownMenuItem
                   disabled={sincronizandoId === linha.id}
                   onSelect={() => void sincronizar(linha, "sincronizar-valor-venda", "valor de venda")}
@@ -952,23 +890,24 @@ export function PainelEventosFinanceiros({
   }
 
   const cabecalhoDaTabela = (
-    <div className="hidden grid-cols-[minmax(0,1fr)_130px_130px] gap-3 border-b bg-muted/50 px-4 py-2 text-xs font-medium text-muted-foreground sm:grid">
-      <span>Lançamento</span>
+    <div className={`hidden gap-4 border-b bg-muted/40 px-4 py-3 text-[11px] font-medium text-muted-foreground lg:grid ${osIdUnica == null && vendaIdUnica == null ? "grid-cols-[minmax(0,1fr)_160px_106px_136px_32px]" : "grid-cols-[minmax(0,1fr)_106px_136px_32px]"}`}>
+      <span>Evento</span>
+      {osIdUnica == null && vendaIdUnica == null ? <span>Documento / cliente</span> : null}
+      <span>Situação</span>
       <span className="text-right">Valor</span>
-      <span className="text-right">Ações</span>
+      <span className="sr-only">Ações</span>
     </div>
   );
 
   return (
     <div className="space-y-4">
       {permissoes.podeEditar || permissoes.podeLancar ? (
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className={`flex flex-wrap items-center justify-end gap-2 rounded-lg border p-3 ${modoSelecao ? "border-primary/20 bg-primary/5" : "bg-muted/20"}`}>
           {modoSelecao ? (
             <>
               <p className="mr-auto text-sm text-muted-foreground">
                 {escolhidas.length} de {quantidadeSelecionaveis} despesa(s)
                 {escolhidas.length > 0 ? ` · ${fmtMoney(totalSelecionado)}` : null}
-                {escolhidas.length > 0 ? ` · ${osDaSelecao.length} OS` : null}
               </p>
               {carregarSelecionaveisDoFiltro ? (
                 <Button
@@ -986,31 +925,16 @@ export function PainelEventosFinanceiros({
                   {todosDoFiltroSelecionados ? "Todos selecionados" : "Selecionar todos do filtro"}
                 </Button>
               ) : null}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button type="button" size="sm" disabled={escolhidas.length === 0}>
-                    Executar
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-72">
-                  <DropdownMenuLabel>Ações em massa</DropdownMenuLabel>
-                  <DropdownMenuItem onSelect={() => lancarSelecao()}>
-                    Lançar no financeiro ({escolhidas.length}) — {fmtMoney(totalSelecionado)}
-                  </DropdownMenuItem>
-                  {osDaSelecao.length > 1 ? (
-                    <DropdownMenuLabel className="whitespace-normal text-xs font-normal text-muted-foreground">
-                      A seleção cobre {osDaSelecao.length} ordens. O pagamento será um só, e cada
-                      despesa continua ligada à sua OS.
-                    </DropdownMenuLabel>
-                  ) : null}
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <Button type="button" size="sm" disabled={escolhidas.length === 0} onClick={lancarSelecao}>
+                Lançar selecionadas
+              </Button>
               <Button type="button" size="sm" variant="ghost" onClick={sairDoModoSelecao}>
                 Cancelar
               </Button>
             </>
           ) : (
             <>
+              <p className="mr-auto text-xs text-muted-foreground">{quantidadeSelecionaveis} despesa(s) disponível(is) para lançamento</p>
               {permissoes.podeLancar ? (
                 <Button
                   type="button"
@@ -1025,7 +949,7 @@ export function PainelEventosFinanceiros({
                   }
                   onClick={() => setModoSelecao(true)}
                 >
-                  <ListChecks /> Selecionar
+                  <ListChecks /> Selecionar despesas
                 </Button>
               ) : null}
               {acoesExtras}
@@ -1046,32 +970,6 @@ export function PainelEventosFinanceiros({
               Nenhum lançamento disponível.
             </p>
           )}
-        </div>
-      ) : agruparPorOs ? (
-        <div className="space-y-3">
-          {grupos.map((grupo) => (
-            <div key={grupo.osId} className="overflow-hidden rounded-xl border bg-card">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/40 px-4 py-2.5">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <span className="text-sm font-semibold">OS #{grupo.osId}</span>
-                  {grupo.cliente ? (
-                    <span className="truncate text-sm text-muted-foreground">{grupo.cliente}</span>
-                  ) : null}
-                  {grupo.status ? (
-                    <Badge variant="outline" className="text-[10px]">
-                      {grupo.status}
-                    </Badge>
-                  ) : null}
-                </div>
-                <span className="text-xs text-muted-foreground">
-                  {grupo.linhas.length} lançamento(s)
-                  {grupo.total > 0 ? ` · ${fmtMoney(grupo.total)} em despesas` : ""}
-                </span>
-              </div>
-              {cabecalhoDaTabela}
-              <div className="divide-y">{grupo.linhas.map(renderLinha)}</div>
-            </div>
-          ))}
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border bg-card">

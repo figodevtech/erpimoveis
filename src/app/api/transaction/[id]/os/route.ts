@@ -95,69 +95,8 @@ export async function DELETE(_: Request, ctx: Params) {
       );
     }
 
-    // 3) Se era RECEITA vinculada a OS, revalidar status da OS após a exclusão
-    if (osId && isReceita && tx.evento_financeiro_id == null) {
-      // 3.1 Orçamento e status atuais
-      const { data: os, error: osErr } = await supabaseAdmin
-        .from("ordemservico")
-        .select("id, orcamentototal, status, acrescimo_financeiro_tipo, acrescimo_financeiro_valor")
-        .eq("id", osId)
-        .maybeSingle();
-
-      if (!osErr && os && os.orcamentototal != null) {
-        const orcCents = toCents(
-          calculateFinancialTotal(
-            os.orcamentototal,
-            os.acrescimo_financeiro_tipo,
-            os.acrescimo_financeiro_valor,
-          ),
-        );
-
-        if (orcCents > 0) {
-          // 3.2 Soma das RECEITAS restantes
-          const { data: receitas, error: recErr } = await supabaseAdmin
-            .from("transacao")
-            .select("valor")
-            .eq("ordemservicoid", osId)
-            .eq("tipo", "RECEITA")
-            .is("evento_financeiro_id", null)
-            .eq("is_deleted", false);
-
-          if (!recErr) {
-            const somaCents =
-              receitas?.reduce((acc, t) => acc + toCents(t.valor), 0) ?? 0;
-
-            const statusAtual = String(os.status ?? "").toUpperCase();
-            const estavaConcluida =
-              statusAtual === STATUS_CONCLUIDO ||
-              statusAtual === STATUS_CONCLUIDA;
-
-            // 3.3 Se estava concluída e a soma ficou menor que o orçamento → volta para PAGAMENTO
-            if (estavaConcluida && somaCents < orcCents) {
-              const { error: updErr } = await supabaseAdmin
-                .from("ordemservico")
-                .update({
-                  status: STATUS_PAGAMENTO,
-                  updatedat: new Date().toISOString(),
-                })
-                .eq("id", osId);
-
-              if (updErr) {
-                // Não invalida o DELETE; apenas loga
-                console.error(
-                  "Falha ao reabrir OS para PAGAMENTO após deletar transação:",
-                  updErr
-                );
-              }
-            }
-          } else {
-            console.error("Erro ao somar receitas da OS após delete:", recErr);
-          }
-        }
-      } else if (osErr) {
-        console.error("Erro ao buscar OS após delete:", osErr);
-      }
-    }
+    // O trigger da exclusão recalcula a OS atomicamente, incluindo rateios e
+    // o modo de faturamento. Não sobrescrever sua decisão em outra requisição.
     // 3) Se era VENDA vinculada a VENDA, revalidar status da VENDA após a exclusão
     if (vendaId && isReceita) {
       // 3.1 Orçamento e status atuais

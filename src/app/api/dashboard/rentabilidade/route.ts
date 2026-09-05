@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireDashboardAccess } from "@/app/api/_authz/perms";
 import { carregarFatiasRateadas } from "@/lib/financeiro/rateio-documentos";
 import { valorLiquidoEfetivo } from "@/lib/financeiro/transacao";
-import { calcularBaseLiquidaDosItens } from "@/lib/ordens/totais";
+import { lerComissaoVenda } from "@/lib/vendas/comissao";
 import { fetchAllSupabaseRows, fetchAllSupabaseRowsByChunks } from "@/lib/supabase-pagination";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 const ZONE = "America/Fortaleza";
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-const STATUS_OPERACIONAIS = ["ORCAMENTO_APROVADO", "EM_ANDAMENTO", "PAGAMENTO", "CONCLUIDO", "SEM_COBRANCA"];
+const STATUS_OPERACIONAIS = ["ORCAMENTO_APROVADO", "EM_ANDAMENTO", "PAGAMENTO", "FATURAMENTO", "CONCLUIDO", "SEM_COBRANCA"];
 const ORIGENS = new Set(["TODAS", "OS", "PDV", "MERCADO_LIVRE"]);
 
 const num = (value: unknown) => {
@@ -154,7 +154,7 @@ export async function GET(request: Request) {
           supabaseAdmin
             .from("venda")
             .select(
-              "id,status,valortotal,sub_total,valor_frete,datavenda,createdat,comissao_venda_percent_aplicada,cliente:clienteid(nomerazaosocial)",
+              "id,status,valortotal,sub_total,valor_frete,datavenda,createdat,comissao:venda_comissao(base,percentual,valor_comissao),cliente:clienteid(nomerazaosocial)",
             )
             .gte("datavenda", `${inicio}T00:00:00-03:00`)
             .lte("datavenda", `${fim}T23:59:59-03:00`)
@@ -407,12 +407,8 @@ export async function GET(request: Request) {
       const recebidoBruto = receitasPagas.reduce((sum, tx) => sum + num(tx.valor), 0);
       const recebidoLiquido = receitasPagas.reduce((sum, tx) => sum + valorLiquidoEfetivo(tx), 0);
       const taxas = Math.max(0, recebidoBruto - recebidoLiquido);
-      // O frete sai da base: é repasse de transporte, não venda de produto. É a
-      // mesma base que `calcularBaseLiquidaDosItens` já define para desconto e
-      // margem — só o lado das vendas não a usava. A comissão da OS, logo acima,
-      // não passa por aqui: ela vem de `valor_comissao` já gravado.
-      const baseComissao = calcularBaseLiquidaDosItens(faturamento, venda.valor_frete);
-      const comissao = (baseComissao * num(venda.comissao_venda_percent_aplicada)) / 100;
+      // A comiss?o ? lida do snapshot, como nos relat?rios e na Central Pessoal.
+      const comissao = lerComissaoVenda(venda.comissao)?.valor_comissao ?? 0;
       const lucroPrevisto = faturamento - custoProdutos - comissao - taxas;
       const lucroRealizado = recebidoLiquido - custoProdutos - comissao;
       const cliente: any = relation(venda.cliente);

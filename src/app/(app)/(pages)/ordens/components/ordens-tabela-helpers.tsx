@@ -73,8 +73,8 @@ export function buildPolicy(st: StatusOS) {
     showSendToApproval: st === "ORCAMENTO" || st === "ORCAMENTO_RECUSADO",
     showStart: st === "ORCAMENTO_APROVADO",
     showSendToPayment: st === "EM_ANDAMENTO",
-    showReceivePayment: st === "PAGAMENTO",
-    showStonePayment: st === "PAGAMENTO",
+    showReceivePayment: ["PAGAMENTO", "FATURAMENTO"].includes(st),
+    showStonePayment: ["PAGAMENTO", "FATURAMENTO"].includes(st),
   };
 }
 

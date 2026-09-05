@@ -19,6 +19,7 @@ type DBStatusOS =
   | "ORCAMENTO"
   | "EM_ANDAMENTO"
   | "PAGAMENTO"
+  | "FATURAMENTO"
   | "SEM_COBRANCA"
   | "CONCLUIDO"
   | "CANCELADO"
