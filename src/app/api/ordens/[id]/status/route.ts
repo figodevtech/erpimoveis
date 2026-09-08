@@ -63,13 +63,21 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
 
     const body = (await req.json()) as Body;
     const status = body.status;
+    let preservarCondicoes = false;
     // Não reutilizar a finalização da execução para devolver uma OS: ela
     // também salva condições comerciais que devem ser preservadas aqui.
     if (status === "FATURAMENTO" || status === "PAGAMENTO") {
-      const atual = await supabaseAdmin.from("ordemservico").select("status")
+      const atual = await supabaseAdmin.from("ordemservico").select("status, pagamentos_previstos, forma_pagamento")
         .eq("id", osId).eq("is_deleted", false).maybeSingle();
       if (atual.error) throw atual.error;
       if (!atual.data) return NextResponse.json({ error: "OS não encontrada." }, { status: 404 });
+      // Uma mudança de etapa sem edição financeira mantém o acordo já salvo,
+      // inclusive nas OS anteriores à ativação do modo de faturamento.
+      const possuiCondicoes = Boolean(atual.data.forma_pagamento) ||
+        (Array.isArray(atual.data.pagamentos_previstos) && atual.data.pagamentos_previstos.length > 0);
+      const alterouCondicoes = ["pagamentosPrevistos", "formaPagamento", "parcelasPagamento", "descricaoFinanceiro", "garantia"]
+        .some(campo => Object.prototype.hasOwnProperty.call(body, campo));
+      preservarCondicoes = status === "FATURAMENTO" && possuiCondicoes && !alterouCondicoes;
       if (status !== "FATURAMENTO" && (atual.data.status === "FATURAMENTO" || body.transicaoFaturamento)) {
         const result = await supabaseAdmin.rpc("transicionar_faturamento_os", { p_os_id: osId, p_status: status });
         if (result.error) return NextResponse.json({ error: result.error.message }, { status: 409 });
@@ -280,6 +288,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
 
     const updateData: any = { status };
     let statusFinal: DBStatusOS = status;
+    if (preservarCondicoes) {
+      const result = await supabaseAdmin.rpc("transicionar_faturamento_os", { p_os_id: osId, p_status: status });
+      if (result.error) return NextResponse.json({ error: result.error.message }, { status: 409 });
+      return NextResponse.json({ ok: true, status: result.data.status });
+    }
 
     if (status === "FATURAMENTO" || (status === "PAGAMENTO" && !faturamentoAtivo)) {
       const resumoRes = await supabaseAdmin.rpc("resumo_financeiro_os", {

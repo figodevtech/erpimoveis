@@ -584,6 +584,10 @@ export function OrdensTabela({
   const [confirmGarantia, setConfirmGarantia] = useState("");
   const [confirmSaldoCents, setConfirmSaldoCents] = useState<number | null>(null);
   const [loadingConfirmSaldo, setLoadingConfirmSaldo] = useState(false);
+  const [confirmCondicoesOriginais, setConfirmCondicoesOriginais] = useState<string | null>(null);
+  const [erroConfirmSaldo, setErroConfirmSaldo] = useState(false);
+  const assinaturaCondicoes = (methods: string[], amounts: Partial<Record<string, number>>, installments: Partial<Record<string, number>>, descricao: string) =>
+    JSON.stringify([methods.map(method => [method, amounts[method] ?? 0, installments[method] ?? null]), descricao]);
 
   const confirmTotalCents = confirmSaldoCents ?? moneyToCents(calculateFinancialTotal(
       confirmRow?.orcamentototal,
@@ -608,11 +612,15 @@ export function OrdensTabela({
     if (!confirmOpen || !confirmRow?.id || !confirmCondicoes) {
       setConfirmSaldoCents(null);
       setLoadingConfirmSaldo(false);
+      setErroConfirmSaldo(false);
+      setConfirmCondicoesOriginais(null);
       return;
     }
 
     const controller = new AbortController();
     setLoadingConfirmSaldo(true);
+    setErroConfirmSaldo(false);
+    setConfirmCondicoesOriginais(null);
     void fetch(`/api/ordens/${confirmRow.id}`, {
       cache: "no-store",
       signal: controller.signal,
@@ -620,12 +628,30 @@ export function OrdensTabela({
       .then(async (response) => {
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload?.error || "Falha ao consultar o saldo da OS.");
+        if (controller.signal.aborted) return;
         setConfirmSaldoCents(
           moneyToCents(payload?.resumoFinanceiro?.saldoDisponivelParaLancamento ?? 0),
         );
+        if (confirmDestino !== "FATURAMENTO") return;
+        const previstos: Array<{ metodo: string; valor: number; parcelas?: number | null }> =
+          Array.isArray(payload.os?.pagamentos_previstos) && payload.os.pagamentos_previstos.length
+            ? payload.os.pagamentos_previstos
+            : payload.os?.forma_pagamento
+              ? [{ metodo: payload.os.forma_pagamento, valor: Number(payload?.resumoFinanceiro?.saldoDisponivelParaLancamento ?? 0), parcelas: payload.os.parcelas_pagamento }]
+              : [];
+        const methods = previstos.map(p => p.metodo);
+        const amounts = Object.fromEntries(previstos.map(p => [p.metodo, Number(p.valor)]));
+        const installments = Object.fromEntries(previstos.filter(p => p.parcelas != null).map(p => [p.metodo, Number(p.parcelas)]));
+        const descricao = payload.os?.descricao_financeiro ?? "";
+        setConfirmPaymentMethods(methods);
+        setConfirmPaymentAmounts(amounts);
+        setConfirmPaymentInstallments(installments);
+        setConfirmDescricaoFinanceiro(descricao);
+        if (previstos.length) setConfirmCondicoesOriginais(assinaturaCondicoes(methods, amounts, installments, descricao));
       })
       .catch((error) => {
         if (error?.name !== "AbortError") {
+          setErroConfirmSaldo(true);
           toast.error(error?.message || "Falha ao consultar o saldo da OS.");
         }
       })
@@ -634,7 +660,7 @@ export function OrdensTabela({
       });
 
     return () => controller.abort();
-  }, [confirmOpen, confirmRow?.id, confirmCondicoes]);
+  }, [confirmOpen, confirmRow?.id, confirmCondicoes, confirmDestino]);
 
   const toggleConfirmPaymentMethod = (method: PaymentMethodOption) => {
     setConfirmPaymentMethods((current) => {
@@ -1923,7 +1949,9 @@ export function OrdensTabela({
                   : <>Esta ação encerra a execução da OS <b>#{confirmRow?.id}</b>. Se pagamentos ou títulos já cobrirem todo o valor, ela será concluída; caso contrário, aguardará pagamento. {config?.habilitar_faturamento_os ? "As condições de pagamento serão informadas ao enviar para faturamento." : ""}</>}
               </AlertDialogDescription>
             </AlertDialogHeader>
-            <div className="space-y-4 py-2 bg-card rounded-2xl p-4">
+            <fieldset disabled={loadingConfirmSaldo || erroConfirmSaldo} className="space-y-4 py-2 bg-card rounded-2xl p-4">
+              {confirmDestino === "FATURAMENTO" && confirmCondicoesOriginais && <p className="text-sm text-muted-foreground">As condições já registradas foram carregadas. Se enviar sem alterações, todos os dados de pagamento serão preservados.</p>}
+              {erroConfirmSaldo && <p className="text-sm text-destructive">Não foi possível carregar os dados da OS. Feche e abra novamente para tentar de novo.</p>}
               <div className="space-y-2">
                 {confirmCondicoes && <>
                 <Label>Formas de pagamento</Label>
@@ -2112,14 +2140,20 @@ export function OrdensTabela({
                   {confirmGarantia.length}/500
                 </p>
               </div>}
-            </div>
+            </fieldset>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancelar</AlertDialogCancel>
               <AlertDialogAction
-                disabled={loadingConfirmSaldo}
+                disabled={loadingConfirmSaldo || erroConfirmSaldo}
                 onClick={async (event) => {
                   event.preventDefault();
                   if (!confirmRow) return;
+                  if (confirmDestino === "FATURAMENTO" && confirmCondicoesOriginais !== null &&
+                    confirmCondicoesOriginais === assinaturaCondicoes(confirmPaymentMethods, confirmPaymentAmounts, confirmPaymentInstallments, confirmDescricaoFinanceiro)) {
+                    const updated = await setStatus(confirmRow.id, confirmDestino);
+                    if (updated) setConfirmOpen(false);
+                    return;
+                  }
 
                   if (!confirmCondicoes) {
                     const updated = await setStatus(confirmRow.id, "PAGAMENTO", { garantia: confirmGarantia.trim() || null });
