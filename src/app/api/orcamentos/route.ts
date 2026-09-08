@@ -10,6 +10,7 @@ import { requireOrcamentosAccess, requireOrcamentosCreate } from "@/app/api/_aut
 import { normalizarAlvoOrcamento } from "@/lib/orcamentos/alvo";
 import { normalizarItens, OrcamentoInvalidoError } from "@/lib/orcamentos/itens";
 import { gravarItensDoOrcamento } from "@/lib/orcamentos/persistencia";
+import { idDeBusca } from "@/lib/busca-numerica";
 
 const SITUACOES = ["ABERTO", "CONVERTIDO"] as const;
 type Situacao = (typeof SITUACOES)[number];
@@ -119,8 +120,8 @@ export async function GET(req: NextRequest) {
     if (dateFrom) query = query.gte("created_at", dateFrom);
     if (dateTo) query = query.lte("created_at", dateTo);
     if (busca) {
-      const numero = Number(busca.replace(/\D/g, ""));
-      query = Number.isFinite(numero) && numero > 0
+      const numero = idDeBusca(busca);
+      query = numero !== null
         ? query.or(`descricao.ilike.%${busca}%,id.eq.${numero}`)
         : query.ilike("descricao", `%${busca}%`);
     }

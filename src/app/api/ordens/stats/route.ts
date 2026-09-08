@@ -31,22 +31,24 @@ const ALL_STATUSES: StatusOS[] = [
   "CANCELADO",
 ];
 
-async function countByStatus(status: StatusOS) {
-  const { count, error } = await supabaseAdmin
-    .from("ordemservico")
-    .select("*", { count: "exact", head: true })
-    .eq("status", status);
+type LinhaContagem = { status_os: string | null; total: number | string | null };
 
-  if (error) throw error;
-  return count ?? 0;
-}
-
+// Uma varredura agrupada no lugar de onze COUNT(*) paralelos: status ausente na
+// resposta simplesmente nao tem OS, e o contador dele fica zero.
 export async function GET() {
   try {
-    const counts = await Promise.all(ALL_STATUSES.map((s) => countByStatus(s)));
+    const { data, error } = await supabaseAdmin.rpc("ordens_contagem_por_status");
+    if (error) throw error;
 
-    const counters = ALL_STATUSES.reduce((acc, status, idx) => {
-      acc[status] = counts[idx] ?? 0;
+    const totais = new Map<string, number>(
+      ((data ?? []) as LinhaContagem[]).map((linha) => [
+        String(linha.status_os ?? ""),
+        Number(linha.total) || 0,
+      ])
+    );
+
+    const counters = ALL_STATUSES.reduce((acc, status) => {
+      acc[status] = totais.get(status) ?? 0;
       return acc;
     }, {} as Record<StatusOS, number>);
 

@@ -63,7 +63,7 @@ export async function GET(req: Request) {
      * ignorancia. Agora cada contagem que falhou vem como `null`, e a tela sabe
      * que aquele recorte esta indisponivel.
      */
-    const [pendencias, semCusto, semDespesa] = await Promise.all([
+    const [pendencias, semCusto, semDespesa, modo] = await Promise.all([
       supabaseAdmin.rpc("dre_pendencias", {
         p_de: `${de}T00:00:00.000Z`,
         p_ate: `${ate}T23:59:59.999Z`,
@@ -83,6 +83,13 @@ export async function GET(req: Request) {
         .eq("natureza_dre", "DESPESA")
         .gte("competencia_em", `${de}T00:00:00.000Z`)
         .lte("competencia_em", `${ate}T23:59:59.999Z`),
+      /*
+       * Em LEGADO a soma resolve pelo mapeamento de grupo e ignora a
+       * classificação da conta. A tela precisa saber disso para avisar antes:
+       * sem o aviso, quem classifica uma conta pela fila não vê o total mexer e
+       * conclui que gravou errado.
+       */
+      supabaseAdmin.rpc("dre_modo_apuracao"),
     ]);
 
     type LinhaPendencia = {
@@ -124,6 +131,12 @@ export async function GET(req: Request) {
           semDespesaOperacional: semDespesa.error ? null : (semDespesa.count ?? 0) === 0,
           gruposSemDestino: filaIndisponivel ? null : grupoSemDestino?.quantidade ?? 0,
           filaIndisponivel,
+        },
+        implantacao: {
+          // `null` quando a leitura falhou: a tela cala em vez de afirmar um
+          // estado que não conferiu.
+          estado: modo.error ? null : (modo.data?.[0]?.estado ?? null),
+          vigenciaInicio: modo.error ? null : (modo.data?.[0]?.vigencia_inicio ?? null),
         },
         pendencias: {
           indisponivel: filaIndisponivel,

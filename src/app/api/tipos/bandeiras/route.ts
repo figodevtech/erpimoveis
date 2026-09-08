@@ -20,11 +20,10 @@ import {
  *
  * Serve dois consumidores bem diferentes:
  *   - Configuracoes > Tipos, que lista tudo para manter o cadastro;
- *   - o dialog de transacao, que pergunta pelo par (conta, forma de pagamento)
- *     e so quer as ativas.
+ *   - o dialog de transacao, que carrega as ativas durante a abertura e filtra
+ *     por conta e forma de pagamento localmente, sem novas buscas a cada troca.
  *
- * Por isso os filtros `banco_id` e `metodopagamento`: sem eles o dialog puxaria
- * o catalogo inteiro a cada abertura para descartar quase tudo no cliente.
+ * Os filtros opcionais `banco_id` e `metodopagamento` continuam disponíveis.
  */
 export async function GET(req: NextRequest) {
   try {

@@ -22,6 +22,7 @@ import {
 } from "../../types";
 import EditContent from "./editContent";
 import RegisterContent from "./registerContent";
+import type { ContextoConciliacaoOfx } from "./conciliacao-ofx";
 
 interface TransactionDialogProps {
   children?: ReactNode;
@@ -52,6 +53,8 @@ interface TransactionDialogProps {
    * formulário, outro alvo.
    */
   lancamentoDeEventos?: ContextoLancamentoDeEventos;
+  /** Prepara uma criação OFX no mesmo formulário, sem gravar uma transação avulsa. */
+  conciliacaoOfx?: ContextoConciliacaoOfx;
 }
 
 type SementeProps = Pick<
@@ -120,7 +123,7 @@ function sementeDaTransacao({
     };
   }
 
-  return {};
+  return { metodopagamento: initialMetodoPagamento, ...initialTransaction };
 }
 
 export default function TransactionDialog({
@@ -140,6 +143,7 @@ export default function TransactionDialog({
   pagamentoMultiplo,
   lancamentoDeEventos,
   maximumAmount,
+  conciliacaoOfx,
 }: TransactionDialogProps) {
   const semente: SementeProps = {
     osId,
@@ -154,7 +158,15 @@ export default function TransactionDialog({
   );
   const [selectedCustomer, setSelectedCustomer] = useState<
     TransactionCustomer | undefined
-  >(undefined);
+  >(() =>
+    conciliacaoOfx && initialTransaction?.cliente_id
+      ? {
+          id: initialTransaction.cliente_id,
+          nome: initialTransaction.nomepagador ?? "",
+          cpfcnpj: initialTransaction.cpfcnpjpagador ?? "",
+        }
+      : undefined,
+  );
 
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const config = useConfig();
@@ -237,6 +249,7 @@ export default function TransactionDialog({
       pagamentoMultiplo={pagamentoMultiplo}
       lancamentoDeEventos={lancamentoDeEventos}
       maximumAmount={maximumAmount}
+      conciliacaoOfx={conciliacaoOfx}
     />
   );
 

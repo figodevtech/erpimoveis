@@ -1,281 +1,326 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import axios from "axios";
-import { ArrowLeft, FileText, Loader2 } from "lucide-react";
-
+import { FileText, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
   TableCell,
+  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import formatarEmReal from "@/utils/formatarEmReal";
+import { formatarDia, mensagemDeErro } from "./apresentacao";
+import type { ImportacaoResumida } from "./types";
 
-import { reais, type ImportacaoResumida, type MovimentoGravado } from "./types";
-
-/**
- * O histórico de extratos importados, e o que aconteceu com cada linha deles.
- *
- * É onde se responde "de onde veio esta movimentação?": o arquivo, o período,
- * quem importou, e o movimento original com FITID e MEMO ao lado da transação
- * que ele virou.
- */
 export function HistoricoImportacoes({
   onAbrirPendencias,
+  onImportar,
+  bancos,
 }: {
-  onAbrirPendencias: (importacaoId: number) => void;
+  onAbrirPendencias: (id: number) => void;
+  onImportar: () => void;
+  bancos: { id: number; titulo: string }[];
 }) {
-  const [importacoes, setImportacoes] = useState<ImportacaoResumida[]>([]);
-  const [carregando, setCarregando] = useState(false);
-  const [aberta, setAberta] = useState<number | null>(null);
-  const [movimentos, setMovimentos] = useState<MovimentoGravado[]>([]);
-  const [carregandoDetalhe, setCarregandoDetalhe] = useState(false);
-
-  const carregar = useCallback(async () => {
-    setCarregando(true);
-    try {
-      const resposta = await axios.get("/api/financeiro/conciliacao/ofx?limit=30");
-      setImportacoes(resposta.data?.data ?? []);
-    } catch (erro) {
-      console.error("Erro ao carregar importações:", erro);
-    } finally {
-      setCarregando(false);
-    }
-  }, []);
-
+  const [pagina, setPagina] = useState(1);
+  const [bancoId, setBancoId] = useState("TODOS");
+  const [tentativa, setTentativa] = useState(0);
+  const [estado, setEstado] = useState<{
+    carregando: boolean;
+    erro: string | null;
+    items: ImportacaoResumida[];
+    paginas: number;
+  }>({ carregando: true, erro: null, items: [], paginas: 1 });
   useEffect(() => {
-    void carregar();
-  }, [carregar]);
-
-  const abrir = useCallback(async (id: number) => {
-    setAberta(id);
-    setCarregandoDetalhe(true);
-    try {
-      const resposta = await axios.get(`/api/financeiro/conciliacao/ofx/${id}`);
-      setMovimentos(resposta.data?.data?.movimentos ?? []);
-    } catch (erro) {
-      console.error("Erro ao carregar a importação:", erro);
-      setMovimentos([]);
-    } finally {
-      setCarregandoDetalhe(false);
-    }
-  }, []);
-
-  if (aberta != null) {
-    const importacao = importacoes.find((item) => item.id === aberta) ?? null;
-    const pendentes = movimentos.filter((movimento) => movimento.status === "PENDENTE").length;
-
+    const controller = new AbortController();
+    axios
+      .get<{ data: ImportacaoResumida[]; pagination: { totalPages: number } }>(
+        "/api/financeiro/conciliacao/ofx",
+        {
+          params: {
+            page: pagina,
+            limit: 20,
+            bancoId: bancoId === "TODOS" ? undefined : bancoId,
+          },
+          signal: controller.signal,
+        },
+      )
+      .then((res) => {
+        if (!controller.signal.aborted)
+          setEstado({
+            carregando: false,
+            erro: null,
+            items: res.data.data,
+            paginas: Math.max(1, res.data.pagination.totalPages),
+          });
+      })
+      .catch((e) => {
+        if (!axios.isCancel(e))
+          setEstado({
+            carregando: false,
+            erro: mensagemDeErro(
+              e,
+              "Não foi possível carregar as importações.",
+            ),
+            items: [],
+            paginas: 1,
+          });
+      });
+    return () => controller.abort();
+  }, [pagina, bancoId, tentativa]);
+  function carregando() {
+    setEstado((e) => ({ ...e, carregando: true, erro: null }));
+  }
+  function progresso(i: ImportacaoResumida) {
+    const resolvidos = i.situacoes.conciliados + i.situacoes.ignorados;
+    const total = resolvidos + i.situacoes.pendentes;
     return (
-      <div className="space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="hover:cursor-pointer"
-            onClick={() => setAberta(null)}
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Voltar
-          </Button>
-          {pendentes > 0 ? (
-            <Button
-              type="button"
-              size="sm"
-              className="hover:cursor-pointer"
-              onClick={() => onAbrirPendencias(aberta)}
-            >
-              Resolver {pendentes} em aberto
-            </Button>
-          ) : null}
-        </div>
-
-        {importacao ? (
-          <div className="rounded-lg border bg-muted/30 p-3 text-xs">
-            <p className="text-sm font-medium">{importacao.arquivo_nome}</p>
-            <p className="text-muted-foreground">
-              {importacao.banco?.titulo ?? "Conta removida"} ·{" "}
-              {importacao.periodo_inicio && importacao.periodo_fim
-                ? `${formatarDia(importacao.periodo_inicio)} a ${formatarDia(importacao.periodo_fim)}`
-                : "período não informado"}{" "}
-              · importado em {new Date(importacao.created_at).toLocaleString("pt-BR")}
-              {importacao.usuario ? ` por ${importacao.usuario}` : ""}
-            </p>
-          </div>
-        ) : null}
-
-        {carregandoDetalhe ? (
-          <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Carregando movimentos…
+      <div className="min-w-28 space-y-1">
+        <p className="text-xs">
+          {resolvidos} resolvidos · {i.situacoes.pendentes} pendentes
+        </p>
+        <Progress
+          aria-label={`Progresso de ${i.arquivo_nome}`}
+          value={total ? (resolvidos / total) * 100 : 100}
+          className="h-1.5"
+        />
+        <p className="text-[10px] text-muted-foreground">
+          {i.situacoes.ignorados} ignorados incluídos
+        </p>
+      </div>
+    );
+  }
+  function status(i: ImportacaoResumida) {
+    return (
+      <Badge
+        variant="outline"
+        className={
+          i.situacoes.pendentes
+            ? "text-amber-700 dark:text-amber-300"
+            : "text-emerald-700 dark:text-emerald-300"
+        }
+      >
+        {i.situacoes.pendentes ? "Em andamento" : "Concluída"}
+      </Badge>
+    );
+  }
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 className="text-base font-semibold">Histórico de importações</h3>
+          <p className="text-xs text-muted-foreground">
+            Retome uma conciliação ou consulte os movimentos resolvidos.
           </p>
-        ) : (
-          <div className="max-h-[50vh] overflow-y-auto">
+        </div>
+        <Select
+          value={bancoId}
+          onValueChange={(id) => {
+            carregando();
+            setBancoId(id);
+            setPagina(1);
+          }}
+        >
+          <SelectTrigger
+            className="w-full sm:w-64"
+            aria-label="Filtrar histórico por conta"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="TODOS">Todas as contas</SelectItem>
+            {bancos.map((b) => (
+              <SelectItem key={b.id} value={String(b.id)}>
+                {b.titulo}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {estado.carregando ? (
+        <div role="status" className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Carregando importações…
+          </p>
+          {Array.from({ length: 5 }, (_, i) => (
+            <Skeleton key={i} className="h-16" />
+          ))}
+        </div>
+      ) : estado.erro ? (
+        <div role="alert" className="rounded-lg border p-5">
+          <p className="text-sm text-destructive">{estado.erro}</p>
+          <Button
+            variant="outline"
+            className="mt-3"
+            onClick={() => {
+              carregando();
+              setTentativa((n) => n + 1);
+            }}
+          >
+            Tentar novamente
+          </Button>
+        </div>
+      ) : !estado.items.length ? (
+        <div className="rounded-lg border border-dashed px-4 py-10 text-center">
+          <History className="mx-auto mb-3 size-8 text-muted-foreground" />
+          <p className="font-medium">Nenhuma conciliação bancária encontrada</p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Importe um arquivo OFX para comparar seu extrato bancário com o
+            financeiro do ERP.
+          </p>
+          <Button className="mt-4" onClick={onImportar}>
+            Importar OFX
+          </Button>
+        </div>
+      ) : (
+        <>
+          <div className="hidden rounded-lg border md:block">
             <Table className="text-xs">
-              <TableHeader>
-                <TableRow className="font-bold">
-                  <TableCell>Data</TableCell>
-                  <TableCell>Descrição do extrato</TableCell>
-                  <TableCell className="text-right">Valor</TableCell>
-                  <TableCell>Situação</TableCell>
-                  <TableCell>Transação</TableCell>
+              <TableHeader className="bg-muted/30">
+                <TableRow>
+                  <TableHead>Arquivo / Conta</TableHead>
+                  <TableHead>Período</TableHead>
+                  <TableHead>Movimentos</TableHead>
+                  <TableHead>Progresso</TableHead>
+                  <TableHead>Situação</TableHead>
+                  <TableHead>Importado em / Usuário</TableHead>
+                  <TableHead>
+                    <span className="sr-only">Ações</span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {movimentos.map((movimento) => (
-                  <TableRow key={movimento.id}>
-                    <TableCell className="whitespace-nowrap">
-                      {formatarDia(movimento.data_postagem)}
-                    </TableCell>
-                    <TableCell className="max-w-[280px]">
-                      <span className="block truncate">
-                        {movimento.memo ?? movimento.nome ?? "Sem descrição"}
-                      </span>
-                      {movimento.fitid ? (
-                        <span className="text-[11px] text-muted-foreground">
-                          FITID {movimento.fitid}
+                {estado.items.map((i) => (
+                  <TableRow key={i.id}>
+                    <TableCell className="max-w-60">
+                      <button
+                        className="block w-full text-left hover:underline"
+                        onClick={() => onAbrirPendencias(i.id)}
+                      >
+                        <span className="flex items-center gap-2 font-medium">
+                          <FileText className="size-4 shrink-0 text-muted-foreground" />
+                          <span className="truncate">{i.arquivo_nome}</span>
                         </span>
-                      ) : null}
-                    </TableCell>
-                    <TableCell
-                      className={`whitespace-nowrap text-right ${
-                        Number(movimento.valor_centavos) > 0
-                          ? "text-emerald-600 dark:text-emerald-400"
-                          : "text-red-600 dark:text-red-400"
-                      }`}
-                    >
-                      {formatarEmReal(reais(Number(movimento.valor_centavos)))}
+                      </button>
+                      <p className="mt-1 truncate text-muted-foreground">
+                        {i.banco?.titulo ?? "Conta removida"}
+                      </p>
                     </TableCell>
                     <TableCell>
-                      <EstadoDoMovimento status={movimento.status} acao={movimento.acao_conciliacao} />
+                      {formatarDia(i.periodo_inicio)}
+                      <br />
+                      {formatarDia(i.periodo_fim)}
                     </TableCell>
                     <TableCell>
-                      {movimento.transacao_id ? (
-                        <span>
-                          #{movimento.transacao_id}
-                          {movimento.titulo_origem_id &&
-                          movimento.titulo_origem_id !== movimento.transacao_id
-                            ? ` (título #${movimento.titulo_origem_id})`
-                            : ""}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
+                      {i.quantidade_importados} novos
+                      {i.quantidade_repetidos > 0 && (
+                        <p className="text-muted-foreground">
+                          {i.quantidade_repetidos} já conhecidos
+                        </p>
                       )}
+                    </TableCell>
+                    <TableCell>{progresso(i)}</TableCell>
+                    <TableCell>{status(i)}</TableCell>
+                    <TableCell>
+                      {new Date(i.created_at).toLocaleDateString("pt-BR")}
+                      <p className="text-muted-foreground">
+                        {i.usuario ?? "Usuário não informado"}
+                      </p>
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => onAbrirPendencias(i.id)}
+                      >
+                        {i.situacoes.pendentes
+                          ? "Continuar"
+                          : "Ver conciliação"}
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </div>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      {carregando ? (
-        <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Carregando importações…
-        </p>
-      ) : importacoes.length === 0 ? (
-        <p className="py-6 text-sm text-muted-foreground">
-          Nenhum extrato importado até agora.
-        </p>
-      ) : (
-        <div className="max-h-[55vh] overflow-y-auto">
-          <Table className="text-xs">
-            <TableHeader>
-              <TableRow className="font-bold">
-                <TableCell>Conta</TableCell>
-                <TableCell>Arquivo</TableCell>
-                <TableCell>Período</TableCell>
-                <TableCell className="text-right">Movimentos</TableCell>
-                <TableCell className="text-right">Conciliados</TableCell>
-                <TableCell className="text-right">Em aberto</TableCell>
-                <TableCell>Importado em</TableCell>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {importacoes.map((importacao) => (
-                <TableRow
-                  key={importacao.id}
-                  onClick={() => void abrir(importacao.id)}
-                  className="hover:cursor-pointer"
+          <div className="space-y-3 md:hidden">
+            {estado.items.map((i) => (
+              <div key={i.id} className="space-y-3 rounded-lg border p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="break-all text-sm font-medium">
+                    {i.arquivo_nome}
+                  </p>
+                  {status(i)}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {i.banco?.titulo ?? "Conta removida"} ·{" "}
+                  {formatarDia(i.periodo_inicio)} → {formatarDia(i.periodo_fim)}
+                </p>
+                {progresso(i)}
+                <p className="text-xs text-muted-foreground">
+                  {i.quantidade_importados} novos · {i.quantidade_repetidos} já
+                  conhecidos
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {new Date(i.created_at).toLocaleDateString("pt-BR")} ·{" "}
+                  {i.usuario ?? "Usuário não informado"}
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => onAbrirPendencias(i.id)}
                 >
-                  <TableCell>{importacao.banco?.titulo ?? "—"}</TableCell>
-                  <TableCell className="max-w-[220px]">
-                    <span className="flex items-center gap-1.5">
-                      <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      <span className="truncate">{importacao.arquivo_nome}</span>
-                    </span>
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap">
-                    {importacao.periodo_inicio && importacao.periodo_fim
-                      ? `${formatarDia(importacao.periodo_inicio)} – ${formatarDia(importacao.periodo_fim)}`
-                      : "—"}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {importacao.quantidade_importados}
-                    {importacao.quantidade_repetidos > 0 ? (
-                      <span className="text-muted-foreground">
-                        {" "}
-                        (+{importacao.quantidade_repetidos} repetidos)
-                      </span>
-                    ) : null}
-                  </TableCell>
-                  <TableCell className="text-right">{importacao.situacoes.conciliados}</TableCell>
-                  <TableCell className="text-right">{importacao.situacoes.pendentes}</TableCell>
-                  <TableCell className="whitespace-nowrap">
-                    {new Date(importacao.created_at).toLocaleDateString("pt-BR")}
-                    {importacao.usuario ? ` · ${importacao.usuario}` : ""}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+                  {i.situacoes.pendentes
+                    ? "Continuar conciliação"
+                    : "Ver conciliação"}
+                </Button>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+            <span>
+              Página {pagina} de {estado.paginas}
+            </span>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={pagina === 1}
+                onClick={() => {
+                  carregando();
+                  setPagina((p) => p - 1);
+                }}
+              >
+                Anterior
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={pagina === estado.paginas}
+                onClick={() => {
+                  carregando();
+                  setPagina((p) => p + 1);
+                }}
+              >
+                Próxima
+              </Button>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
-}
-
-function EstadoDoMovimento({ status, acao }: { status: string; acao: string | null }) {
-  const aparencia =
-    status === "CONCILIADO"
-      ? "border-sky-600/40 bg-sky-600/10 text-sky-700 dark:text-sky-400"
-      : status === "IGNORADO"
-        ? "border-slate-500/40 bg-slate-500/10 text-slate-600 dark:text-slate-400"
-        : "border-amber-600/40 bg-amber-600/10 text-amber-700 dark:text-amber-400";
-
-  const rotulo =
-    status === "CONCILIADO"
-      ? acao === "CRIAR"
-        ? "Criado"
-        : acao === "BAIXA_PARCIAL"
-          ? "Baixa parcial"
-          : acao === "LIQUIDAR"
-            ? "Baixado"
-            : "Vinculado"
-      : status === "IGNORADO"
-        ? "Ignorado"
-        : "Em aberto";
-
-  return (
-    <span
-      className={`inline-flex items-center rounded-sm border px-1.5 py-px text-[10px] font-medium uppercase tracking-wide ${aparencia}`}
-    >
-      {rotulo}
-    </span>
-  );
-}
-
-/** Data em `yyyy-mm-dd` não tem fuso: montar como Date puro a moveria um dia. */
-function formatarDia(valor: string): string {
-  const [ano, mes, dia] = String(valor).slice(0, 10).split("-");
-  return `${dia}/${mes}/${ano}`;
 }

@@ -15,6 +15,7 @@
 /playwright/.auth/
 /artifacts/captures/
 /artifacts/playwright/
+/artifacts/ofx-ui/
 
 # next.js
 /.next/

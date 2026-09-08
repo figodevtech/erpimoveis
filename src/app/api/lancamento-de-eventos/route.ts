@@ -7,6 +7,7 @@ import { auth } from "@/lib/auth";
 import { LIMITE_SELECAO_EVENTOS } from "@/lib/financeiro/eventos-financeiros-selection";
 import { paraCentavos, paraReais } from "@/lib/financeiro/rateio";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { erroDeBancoNoLancamento } from "@/lib/financeiro/banco-lancamento";
 
 /** Teto de segurança: seleção maior que isso é engano, não operação. */
 const LIMITE_PARCELAS = 60;
@@ -196,7 +197,7 @@ export async function POST(req: NextRequest) {
     }
 
     const pendente = body?.pendente !== false;
-    if (!pendente && !Number.isSafeInteger(Number(body?.bancoId))) {
+    if (erroDeBancoNoLancamento({ pendente, banco_id: body?.bancoId })) {
       return NextResponse.json(
         { error: "Informe o banco que pagou a despesa." },
         { status: 400 },

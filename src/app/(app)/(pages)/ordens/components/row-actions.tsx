@@ -189,7 +189,12 @@ export function RowActions<TRow extends RowBase>({
       <DropdownMenuContent align="end">
         <DropdownMenuLabel>Ações</DropdownMenuLabel>
         {canEdit && config?.habilitar_faturamento_os && (st === "PAGAMENTO" || st === "FATURAMENTO") && (
-          <DropdownMenuItem onClick={() => setTransicao(st === "PAGAMENTO" ? "FATURAMENTO" : "PAGAMENTO")}>
+          <DropdownMenuItem onClick={() => {
+            if (st === "PAGAMENTO") {
+              setConfirmRow(row);
+              setConfirmOpen(true);
+            } else setTransicao("PAGAMENTO");
+          }}>
             <Send className="mr-2 h-4 w-4" />
             {st === "PAGAMENTO" ? "Enviar para faturamento" : "Devolver para pagamento"}
           </DropdownMenuItem>

@@ -9,6 +9,7 @@ import { requireOSAccess } from "@/app/api/_authz/perms";
 import { carregarAutores } from "@/lib/movement-authors";
 import { resolveOrdemVehicle } from "@/lib/ordens/vehicle-snapshot";
 import { resolveOrdemCustomer } from "@/lib/ordens/customer-snapshot";
+import { idDeBusca } from "@/lib/busca-numerica";
 
 type Prioridade = "ALTA" | "NORMAL" | "BAIXA" | null;
 type AlvoTipo = "VEICULO" | "PECA" | "EQUIPAMENTO" | null;
@@ -446,7 +447,6 @@ export async function GET(req: Request) {
 
       if (q) {
         const like = `%${q}%`;
-        const onlyDigits = q.replace(/\D/g, "");
 
         // aplica filtros nos embeds (isso preenche cFilter/vFilter/pFilter quando casar)
         query = query.or(`nomerazaosocial.ilike.${like},telefone.ilike.${like},email.ilike.${like}`, {
@@ -476,7 +476,8 @@ export async function GET(req: Request) {
           `vFilter.not.is.null`,
           `pFilter.not.is.null`,
         ];
-        if (onlyDigits) topOr.push(`id.eq.${Number(onlyDigits)}`);
+        const idNumerico = idDeBusca(q);
+        if (idNumerico !== null) topOr.push(`id.eq.${idNumerico}`);
 
         query = query.or(topOr.join(","));
       }

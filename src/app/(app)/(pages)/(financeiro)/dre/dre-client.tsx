@@ -21,7 +21,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import type { LinhaDre, PeriodoDre, RespostaDre } from "./types";
+import type { LinhaDre, PendenciaDre, PeriodoDre, RespostaDre } from "./types";
+import { PendenciasDialog } from "./components/pendencias-dialog";
+
+/**
+ * Motivos que descrevem estado legítimo, não defeito. Aparecem na tabela quando
+ * a tarja já está aberta, mas não a abrem sozinhos.
+ */
+const MOTIVOS_INFORMATIVOS = new Set(["EVENTO_OS_EM_ABERTO"]);
 
 const MOEDA = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const brl = (v: number) => MOEDA.format(Number.isFinite(v) ? v : 0);
@@ -162,6 +169,14 @@ export function DreClient() {
   const [erro, setErro] = useState<string | null>(null);
   const [expandidas, setExpandidas] = useState<ReadonlySet<number>>(new Set());
   const [detalhe, setDetalhe] = useState<LinhaDre | null>(null);
+  const [pendenciaAberta, setPendenciaAberta] = useState<PendenciaDre | null>(null);
+  /*
+   * Recarregamento silencioso. Depois de corrigir uma pendência o relatório
+   * precisa ser refeito, mas sem voltar ao esqueleto: quem acabou de gravar está
+   * olhando o número que quer ver mudar, e piscar a tela inteira esconde
+   * justamente isso.
+   */
+  const [versao, setVersao] = useState(0);
 
   const chave = `${periodo.de}|${periodo.ate}`;
   const [carregado, setCarregado] = useState("");
@@ -191,7 +206,7 @@ export function DreClient() {
       });
 
     return () => controller.abort();
-  }, [chave, periodo.ate, periodo.de]);
+  }, [chave, periodo.ate, periodo.de, versao]);
 
   const alternar = useCallback((id: number) => {
     setExpandidas((atual) => {
@@ -204,13 +219,28 @@ export function DreClient() {
 
   const alertas = dados?.alertas;
   const pendencias = dados?.pendencias;
+  /*
+   * A tarja precisa nascer da fila, não só dos cinco alertas nomeados. Enquanto
+   * dependia deles, um motivo sem alerta próprio — evento órfão, por exemplo —
+   * só aparecia de carona: bastava cadastrar o custo dos itens para a tarja
+   * sumir levando junto R$ 121 mil que continuavam fora do relatório.
+   *
+   * OS em execução é a exceção. Competência nula ali é estado legítimo, então
+   * ela informa quando a tarja já está aberta, mas não a abre sozinha — senão
+   * toda oficina com serviço em andamento veria "resultado incompleto" o ano
+   * inteiro, e o aviso viraria paisagem.
+   */
+  const pendenciasQueAlertam = (pendencias?.porMotivo ?? []).filter(
+    (linha) => !MOTIVOS_INFORMATIVOS.has(linha.motivo),
+  );
   const temAlerta =
     !!alertas &&
     (alertas.semDespesaOperacional === true ||
       (alertas.itensSemCusto ?? 0) > 0 ||
       (alertas.lancamentosSemClassificacao ?? 0) > 0 ||
       (alertas.gruposSemDestino ?? 0) > 0 ||
-      alertas.filaIndisponivel);
+      alertas.filaIndisponivel ||
+      pendenciasQueAlertam.length > 0);
 
   return (
     <MotionConfig reducedMotion="user">
@@ -301,8 +331,23 @@ export function DreClient() {
                   </thead>
                   <tbody>
                     {pendencias.porMotivo.map((linha) => (
-                      <tr key={linha.motivo} className="border-t border-amber-500/20">
-                        <td className="py-1 pr-3">{linha.descricao}</td>
+                      <tr
+                        key={linha.motivo}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Ver os ${linha.quantidade} item(ns): ${linha.descricao}`}
+                        onClick={() => setPendenciaAberta(linha)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setPendenciaAberta(linha);
+                          }
+                        }}
+                        className="cursor-pointer border-t border-amber-500/20 outline-none hover:bg-amber-500/10 focus-visible:bg-amber-500/10"
+                      >
+                        <td className="py-1 pr-3 underline decoration-dotted underline-offset-2">
+                          {linha.descricao}
+                        </td>
                         <td className="py-1 pr-3 text-right tabular-nums">{linha.quantidade}</td>
                         <td className="py-1 text-right tabular-nums">
                           {linha.valor === null ? "—" : brl(linha.valor)}
@@ -388,6 +433,14 @@ export function DreClient() {
         )}
 
         <DetalheLinha linha={detalhe} periodo={periodo} onFechar={() => setDetalhe(null)} />
+
+        <PendenciasDialog
+          pendencia={pendenciaAberta}
+          periodo={periodo}
+          emLegado={dados?.implantacao?.estado === "LEGADO"}
+          onFechar={() => setPendenciaAberta(null)}
+          onCorrigido={() => setVersao((n) => n + 1)}
+        />
       </div>
     </MotionConfig>
   );

@@ -2,7 +2,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getPaymentMethodValues } from "@/lib/payment-methods-server";
-import { normalizarTexto, somarDias } from "@/lib/financeiro/ofx/normalize";
+import { normalizarTexto } from "@/lib/financeiro/ofx/normalize";
 import { calcularFingerprints, hashDoArquivo } from "@/lib/financeiro/ofx/fingerprint";
 import {
   analisarMovimento,
@@ -20,9 +20,6 @@ import { ErroDeOfx, type OfxExtrato, type OfxMovimento } from "@/lib/financeiro/
  * A decisão de negócio de cada linha continua em `matcher.ts`, que é puro. Aqui
  * só se busca o que ele precisa.
  */
-
-/** Quanto antes e depois do extrato ainda pode existir um título correspondente. */
-const FOLGA_EM_DIAS = 15;
 
 /** Teto de arquivo aceito. Extrato de um mês tem alguns KB; 5 MB é folga larga. */
 const TAMANHO_MAXIMO = 5 * 1024 * 1024;
@@ -157,32 +154,32 @@ export function sugerirConta(
 /**
  * As transações que podem corresponder a alguma linha do extrato.
  *
- * Uma consulta só para o período inteiro, e a comparação linha a linha acontece
- * em memória: são poucas centenas de registros, e ir ao banco por movimento
- * seria trinta e quatro viagens para responder a mesma pergunta.
+ * Carrega os candidatos em páginas e compara as linhas em memória, sem uma
+ * consulta por movimento. Nenhum candidato é limitado por data, seja título
+ * em aberto ou movimento já liquidado.
  *
  * Título pendente entra mesmo sem banco — conta a pagar nasce sem conta, e a
  * conta é justamente o que a baixa vai definir.
  */
 export async function carregarCandidatos(
   bancoId: number,
-  periodoInicio: string,
-  periodoFim: string,
 ): Promise<CandidatoTransacao[]> {
-  const de = somarDias(periodoInicio, -FOLGA_EM_DIAS);
-  const ate = somarDias(periodoFim, FOLGA_EM_DIAS);
+  const candidatos: CandidatoTransacao[] = [];
+  const tamanhoPagina = 500;
+  for (let inicio = 0; ; inicio += tamanhoPagina) {
+    const { data, error } = await supabaseAdmin
+      .from("transacao")
+      .select(CAMPOS_CANDIDATO)
+      .eq("is_deleted", false)
+      .or(`pendente.eq.true,banco_id.eq.${bancoId}`)
+      .order("id", { ascending: true })
+      .range(inicio, inicio + tamanhoPagina - 1);
 
-  const { data, error } = await supabaseAdmin
-    .from("transacao")
-    .select(CAMPOS_CANDIDATO)
-    .eq("is_deleted", false)
-    .gte("data_dia", de)
-    .lte("data_dia", ate)
-    .or(`banco_id.eq.${bancoId},pendente.eq.true`)
-    .limit(5000);
-
-  if (error) throw error;
-  return (data ?? []) as unknown as CandidatoTransacao[];
+    if (error) throw error;
+    const pagina = (data ?? []) as unknown as CandidatoTransacao[];
+    candidatos.push(...pagina);
+    if (pagina.length < tamanhoPagina) return candidatos;
+  }
 }
 
 /** Os movimentos que já existem nesta conta, por fingerprint. */
@@ -242,12 +239,8 @@ export async function analisarExtrato(
   bancoId: number,
 ): Promise<MovimentoAnalisado[]> {
   const { extrato, fingerprints } = arquivo;
-  const periodoInicio = extrato.cabecalho.periodoInicio ?? extrato.movimentos[0].dataPostagem;
-  const periodoFim =
-    extrato.cabecalho.periodoFim ?? extrato.movimentos[extrato.movimentos.length - 1].dataPostagem;
-
   const [candidatos, jaImportados, metodos] = await Promise.all([
-    carregarCandidatos(bancoId, periodoInicio, periodoFim),
+    carregarCandidatos(bancoId),
     carregarJaImportados(bancoId, fingerprints),
     getPaymentMethodValues(),
   ]);
@@ -257,7 +250,7 @@ export async function analisarExtrato(
    * foi conciliado, dois débitos iguais no mesmo dia receberiam a MESMA
    * sugestão, e o segundo só descobriria o conflito ao gravar.
    */
-  const jaConciliadas = await carregarTransacoesConciliadas(bancoId, periodoInicio, periodoFim);
+  const jaConciliadas = await carregarTransacoesConciliadas(bancoId);
   const disponiveis = candidatos.filter((candidato) => !jaConciliadas.has(candidato.id));
 
   return extrato.movimentos.map((movimento, indice) => {
@@ -279,27 +272,27 @@ export async function analisarExtrato(
 /** Transações desta conta que já respondem por algum movimento de extrato. */
 export async function carregarTransacoesConciliadas(
   bancoId: number,
-  periodoInicio: string,
-  periodoFim: string,
 ): Promise<Set<number>> {
-  const { data, error } = await supabaseAdmin
-    .from("ofx_movimento")
-    .select("transacao_id, titulo_origem_id")
-    .eq("banco_id", bancoId)
-    .eq("status", "CONCILIADO")
-    .gte("data_postagem", somarDias(periodoInicio, -FOLGA_EM_DIAS))
-    .lte("data_postagem", somarDias(periodoFim, FOLGA_EM_DIAS));
-
-  if (error) throw error;
-
   const ids = new Set<number>();
-  for (const linha of data ?? []) {
-    if (linha.transacao_id != null) ids.add(Number(linha.transacao_id));
-    // O título de uma baixa PARCIAL continua em aberto e pode receber outro
-    // movimento — por isso só o título de baixa integral sai da lista, e essa
-    // linha já saiu junto com `transacao_id`.
+  const tamanhoPagina = 500;
+  for (let inicio = 0; ; inicio += tamanhoPagina) {
+    const { data, error } = await supabaseAdmin
+      .from("ofx_movimento")
+      .select("transacao_id")
+      .eq("banco_id", bancoId)
+      .eq("status", "CONCILIADO")
+      .order("id", { ascending: true })
+      .range(inicio, inicio + tamanhoPagina - 1);
+
+    if (error) throw error;
+    const pagina = data ?? [];
+    for (const linha of pagina) {
+      if (linha.transacao_id != null) ids.add(Number(linha.transacao_id));
+      // Na baixa parcial, só a transação filha fica indisponível;
+      // o título de origem pode receber outro pagamento.
+    }
+    if (pagina.length < tamanhoPagina) return ids;
   }
-  return ids;
 }
 
 /** Os números que a tela mostra no cabeçalho da análise. */
@@ -395,10 +388,9 @@ export async function reanalisarMovimentosGravados(
     }));
   }
 
-  const datas = pendentes.map((linha) => String(linha.data_postagem).slice(0, 10)).sort();
   const [candidatos, conciliadas, metodos] = await Promise.all([
-    carregarCandidatos(bancoId, datas[0], datas[datas.length - 1]),
-    carregarTransacoesConciliadas(bancoId, datas[0], datas[datas.length - 1]),
+    carregarCandidatos(bancoId),
+    carregarTransacoesConciliadas(bancoId),
     getPaymentMethodValues(),
   ]);
   const disponiveis = candidatos.filter((candidato) => !conciliadas.has(candidato.id));

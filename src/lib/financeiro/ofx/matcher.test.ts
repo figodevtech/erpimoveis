@@ -114,9 +114,27 @@ test("título abonado ou quitado por crédito do cliente não é movimento de ca
   assert.equal(casarComFluxo(movimento(), [abonado, antecipado], BANCO).length, 0);
 });
 
-test("liquidada com mais de três dias de diferença sai da janela", () => {
-  const distante = transacao({ data_dia: "2026-08-10", data: "2026-08-10T15:00:00.000Z" });
-  assert.equal(casarComFluxo(movimento(), [distante], BANCO).length, 0);
+test("transações liquidadas conciliam sem limite de diferença entre as datas", () => {
+  for (const tipo of ["DESPESA", "RECEITA"]) {
+    for (const dia of ["2026-08-10", "2026-08-31", "2020-01-01"]) {
+      const distante = transacao({ tipo, data_dia: dia, data: `${dia}T15:00:00.000Z` });
+      const extrato = movimento({ valorCentavos: tipo === "RECEITA" ? 583_569 : -583_569 });
+      const analise = analisarMovimento(extrato, [distante], BANCO);
+      assert.equal(analise.situacao, "MATCH_EXATO");
+      assert.equal(analise.acaoSugerida, "VINCULAR");
+      assert.equal(analise.sugestoes[0].transacaoId, distante.id);
+      assert.equal(casarComFluxo(extrato, [{ ...distante, banco_id: 99 }], BANCO).length, 0);
+      assert.equal(casarComFluxo(extrato, [{ ...distante, valor: 100 }], BANCO).length, 0);
+    }
+  }
+});
+
+test("movimentos de mesmo valor em datas distantes continuam exigindo escolha", () => {
+  const antiga = transacao({ id: 60, data_dia: "2020-01-01" });
+  const analise = analisarMovimento(movimento(), [transacao(), antiga], BANCO);
+  assert.equal(analise.situacao, "AMBIGUO");
+  assert.equal(analise.acaoSugerida, null);
+  assert.deepEqual(analise.sugestoes.map((s) => s.transacaoId), [1, 60]);
 });
 
 /* --------------------------------------------------------- Títulos */
@@ -214,7 +232,28 @@ test("movimento maior que o saldo não é candidato a nada", () => {
   assert.equal(casarComTitulos(movimento(), [titulo]).length, 0);
 });
 
-test("título vencido há muito tempo sai da janela", () => {
+test("pagamentos e recebimentos atrasados continuam candidatos sem limite de dias", () => {
+  for (const tipo of ["DESPESA", "RECEITA"]) {
+    for (const data of ["2026-07-19", "2026-06-01", "2020-01-01"]) {
+      const antigo = transacao({
+        id: 43,
+        tipo,
+        pendente: true,
+        banco_id: null,
+        data_dia: data,
+        data: `${data}T15:00:00.000Z`,
+      });
+      const extrato = movimento({ valorCentavos: tipo === "RECEITA" ? 583_569 : -583_569 });
+      const analise = analisarMovimento(extrato, [antigo], BANCO);
+      assert.equal(analise.situacao, "MATCH_PROVAVEL");
+      assert.equal(analise.acaoSugerida, "LIQUIDAR");
+      assert.equal(analise.sugestoes[0].transacaoId, antigo.id);
+      assert.ok(analise.sugestoes[0].diferencaEmDias > 15);
+    }
+  }
+});
+
+test("busca de título antigo aceita baixa parcial e continua exigindo saldo e direção", () => {
   const antigo = transacao({
     id: 43,
     pendente: true,
@@ -222,7 +261,13 @@ test("título vencido há muito tempo sai da janela", () => {
     data_dia: "2026-06-01",
     data: "2026-06-01T15:00:00.000Z",
   });
-  assert.equal(casarComTitulos(movimento(), [antigo]).length, 0);
+  const pagamento = movimento({ valorCentavos: -100_000 });
+  const sugestoes = casarComTitulos(pagamento, [antigo]);
+  assert.equal(sugestoes.length, 1);
+  assert.equal(sugestoes[0].parcial, true);
+  assert.equal(casarComTitulos(pagamento, [{ ...antigo, valor: 999 }]).length, 0);
+  assert.equal(casarComTitulos(pagamento, [{ ...antigo, tipo: "RECEITA" }]).length, 0);
+  assert.equal(casarComTitulos(pagamento, [{ ...antigo, abonado: true }]).length, 0);
 });
 
 test("título de antecipação vai para revisão manual, não para baixa", () => {

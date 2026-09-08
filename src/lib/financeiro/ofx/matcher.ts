@@ -101,10 +101,6 @@ export interface AnaliseDeMovimento {
   observacao: string | null;
 }
 
-/** Janela máxima entre o extrato e o vencimento de um título candidato. */
-const JANELA_TITULO_EM_DIAS = 15;
-/** Janela máxima entre o extrato e um movimento já liquidado. */
-const JANELA_FLUXO_EM_DIAS = 3;
 /** Abaixo disto o candidato é ruído, não sugestão. */
 const SCORE_MINIMO = 60;
 /** Diferença que ainda deixa dois candidatos empatados na prática. */
@@ -232,11 +228,10 @@ export function casarComFluxo(
     if (liquido !== alvo) continue;
 
     const dias = diferencaEmDias(movimento.dataPostagem, diaDa(candidato));
-    if (dias > JANELA_FLUXO_EM_DIAS) continue;
 
     // Mesmo dia é o caso normal: o Fluxo grava a data do pagamento, e o extrato
-    // mostra o mesmo dia. Um ou dois dias de diferença acontece com PIX virado
-    // e com compensação, e ainda é o mesmo movimento.
+    // mostra o mesmo dia. A diferença de datas só ordena as sugestões;
+    // não impede conciliar um lançamento registrado em outra data.
     const score = dias === 0 ? 100 : dias === 1 ? 92 : 85;
     sugestoes.push(sugestaoDe(candidato, "FLUXO", score, dias, false, liquido));
   }
@@ -269,7 +264,6 @@ export function casarComTitulos(
     if (alvo > saldo) continue;
 
     const dias = diferencaEmDias(movimento.dataPostagem, diaDa(candidato));
-    if (dias > JANELA_TITULO_EM_DIAS) continue;
 
     const parcial = alvo < saldo;
 

@@ -9,6 +9,7 @@ import { distribuirPorPesos } from "@/lib/financeiro/rateio";
 import { aplicarCamposDocumento, erroDeDocumento } from "./_lib/documento";
 import { aplicarCamposBandeira, erroDeBandeira, resolverBandeira } from "./_lib/bandeira";
 import { filtroDeBusca } from "./_lib/busca";
+import { erroDeBancoNoLancamento } from "@/lib/financeiro/banco-lancamento";
 
 const WRITABLE_FIELDS = new Set([
   "ordemservicoid",
@@ -404,6 +405,11 @@ export async function POST(req: Request) {
     }
 
     const payload = sanitizeTransacaoPayload(json, { strict: true });
+
+    const problemaNoBanco = erroDeBancoNoLancamento(payload);
+    if (problemaNoBanco) {
+      return NextResponse.json({ error: problemaNoBanco }, { status: 400 });
+    }
 
     const problemaNoDocumento = erroDeDocumento(payload);
     if (problemaNoDocumento) {

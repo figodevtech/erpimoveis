@@ -7,7 +7,12 @@ export type SituacaoMovimento =
   | "SEM_CORRESPONDENCIA"
   | "REVISAO_MANUAL";
 
-export type AcaoConciliacao = "VINCULAR" | "LIQUIDAR" | "BAIXA_PARCIAL" | "CRIAR" | "IGNORAR";
+export type AcaoConciliacao =
+  | "VINCULAR"
+  | "LIQUIDAR"
+  | "BAIXA_PARCIAL"
+  | "CRIAR"
+  | "IGNORAR";
 
 export interface SugestaoMatch {
   transacaoId: number;
@@ -50,6 +55,10 @@ export interface MovimentoAnalisado {
   jaImportado: boolean;
   movimentoId: number | null;
   statusGravado: string | null;
+  transacaoId?: number | null;
+  tituloOrigemId?: number | null;
+  acaoGravada?: string | null;
+  conciliadoEm?: string | null;
 }
 
 export interface ContaBancaria {
@@ -78,7 +87,11 @@ export interface PreviewDoExtrato {
   arquivo: {
     nome: string;
     hash: string;
-    jaImportado: { id: number; arquivo_nome: string; created_at: string } | null;
+    jaImportado: {
+      id: number;
+      arquivo_nome: string;
+      created_at: string;
+    } | null;
   };
   conta: ContaBancaria;
   contaSugerida: ContaBancaria | null;
@@ -115,6 +128,11 @@ export interface Decisao {
     categoria_id?: number | null;
     plano_de_conta_id?: number | null;
     centro_custo_id?: number | null;
+    cliente_id?: number | null;
+    fornecedor_id?: number | null;
+    nomepagador?: string | null;
+    cpfcnpjpagador?: string | null;
+    competencia_em?: string | null;
   } | null;
   observacao?: string | null;
 }
@@ -142,6 +160,7 @@ export interface MovimentoGravado {
   refnum: string | null;
   tipo_ofx: string | null;
   data_postagem: string;
+  data_disponivel?: string | null;
   valor: number | string;
   valor_centavos: number | string;
   nome: string | null;
@@ -165,25 +184,29 @@ export const APARENCIA_DA_SITUACAO: Record<
   { rotulo: string; classe: string }
 > = {
   MATCH_EXATO: {
-    rotulo: "Já no fluxo",
+    rotulo: "Encontrado",
     classe:
       "border-emerald-600/40 bg-emerald-600/10 text-emerald-700 dark:text-emerald-400",
   },
   MATCH_PROVAVEL: {
     rotulo: "Provável",
-    classe: "border-amber-600/40 bg-amber-600/10 text-amber-700 dark:text-amber-400",
+    classe:
+      "border-amber-600/40 bg-amber-600/10 text-amber-700 dark:text-amber-400",
   },
   AMBIGUO: {
     rotulo: "Ambíguo",
-    classe: "border-orange-600/40 bg-orange-600/10 text-orange-700 dark:text-orange-400",
+    classe:
+      "border-orange-600/40 bg-orange-600/10 text-orange-700 dark:text-orange-400",
   },
   SEM_CORRESPONDENCIA: {
     rotulo: "Não encontrado",
-    classe: "border-slate-500/40 bg-slate-500/10 text-slate-600 dark:text-slate-400",
+    classe:
+      "border-slate-500/40 bg-slate-500/10 text-slate-600 dark:text-slate-400",
   },
   REVISAO_MANUAL: {
     rotulo: "Revisão manual",
-    classe: "border-violet-600/40 bg-violet-600/10 text-violet-700 dark:text-violet-400",
+    classe:
+      "border-violet-600/40 bg-violet-600/10 text-violet-700 dark:text-violet-400",
   },
 };
 
@@ -198,4 +221,31 @@ export const ROTULO_DA_ACAO: Record<AcaoConciliacao, string> = {
 /** Reais a partir dos centavos que a API devolve. */
 export function reais(centavos: number): number {
   return centavos / 100;
+}
+
+export interface ImportacaoDetalhada
+  extends Omit<ImportacaoResumida, "situacoes" | "usuario"> {
+  saldo_inicial: number | string | null;
+  saldo_final: number | string | null;
+  bank_id_ofx: string | null;
+  agencia_ofx: string | null;
+  conta_ofx: string | null;
+}
+
+export interface ResultadoDecisao {
+  movimentoId: number;
+  fingerprint: string | null;
+  ok: boolean;
+  acao: Decisao["acao"];
+  transacaoId: number | null;
+  erro: string | null;
+}
+
+export interface ResultadoConciliacao {
+  importacaoId?: number;
+  quantidadeImportados?: number;
+  quantidadeRepetidos?: number;
+  conciliados: number;
+  falhas: ResultadoDecisao[];
+  resultados: ResultadoDecisao[];
 }

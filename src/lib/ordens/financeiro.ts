@@ -117,3 +117,7 @@ export function calcularResumoFinanceiroOs({
 export function statusAposEncerrarExecucao(quitada: boolean) {
   return quitada ? "CONCLUIDO" : "PAGAMENTO";
 }
+
+export function informarCondicoesPagamentoOs(statusDestino: string, habilitarFaturamento: boolean) {
+  return statusDestino === (habilitarFaturamento ? "FATURAMENTO" : "PAGAMENTO");
+}

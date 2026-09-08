@@ -16,9 +16,16 @@ DECLARE
   v_linha        record;
   v_resultado    record;
   v_total        integer;
+  v_soma         bigint;
   v_antes        numeric;
   v_depois       numeric;
   v_aceitou      boolean;
+  v_template     integer;
+  v_usuario      uuid;
+  v_os           integer;
+  v_tx2          bigint;
+  v_grupo_fora   integer;
+  v_conta_fora   integer;
   v_de           constant timestamptz := TIMESTAMPTZ '2026-08-01';
   v_ate          constant timestamptz := TIMESTAMPTZ '2026-08-31 23:59:59';
 BEGIN
@@ -106,6 +113,204 @@ BEGIN
   END;
   IF v_aceitou THEN
     RAISE EXCEPTION 'Motivo desconhecido deveria abortar.';
+  END IF;
+
+  -- ------------------------------------ a fila respeita a regra de evento
+  -- O que o sistema decidiu manter fora do resultado nao e pendencia. Enquanto
+  -- TRANSACAO_SEM_EVENTO so perguntava "existe evento?", ele acusava parcela de
+  -- OS, compra com entrada fiscal, carga de migracao e conta em grupo excluido
+  -- — no Demir, 1.005 dos 1.024 itens da fila eram o comportamento correto.
+  SELECT id INTO v_template FROM public.dre_template WHERE ativo ORDER BY versao DESC LIMIT 1;
+  SELECT id INTO v_usuario FROM public.usuario ORDER BY id LIMIT 1;
+
+  -- Avulsa pura: o gatilho gera o evento dela. Sem o evento, ENTRA na fila.
+  INSERT INTO public.transacao
+    (tipo, valor, data, competencia_em, banco_id, plano_de_conta_id, categoria_id,
+     descricao, nomepagador, cpfcnpjpagador)
+  VALUES ('DESPESA', 500, now(), TIMESTAMPTZ '2026-08-12', v_banco, v_conta, v_categoria,
+          'ZZF4 avulsa pura', 'FIXTURE F4', '00000000000')
+  RETURNING id INTO v_tx2;
+
+  DELETE FROM public.eventos_financeiros
+   WHERE source_type = 'TRANSACAO' AND source_id = v_tx2;
+
+  SELECT * INTO v_linha FROM public.dre_pendencias(v_de, v_ate) p
+   WHERE p.motivo = 'TRANSACAO_SEM_EVENTO';
+  IF coalesce(v_linha.quantidade, 0) < 1 THEN
+    RAISE EXCEPTION 'Transacao avulsa sem evento deveria entrar na fila.';
+  END IF;
+  v_total := v_linha.quantidade;
+
+  -- Saldo de abertura de outro sistema: nao gera evento de proposito.
+  INSERT INTO public.transacao
+    (tipo, valor, data, competencia_em, banco_id, plano_de_conta_id, categoria_id,
+     descricao, nomepagador, cpfcnpjpagador, origem)
+  VALUES ('DESPESA', 9999, now(), TIMESTAMPTZ '2026-08-12', v_banco, v_conta, v_categoria,
+          'ZZF4 carga de migracao', 'FIXTURE F4', '00000000000', 'ORIGEM_MIGRACAO');
+
+  SELECT * INTO v_linha FROM public.dre_pendencias(v_de, v_ate) p
+   WHERE p.motivo = 'TRANSACAO_SEM_EVENTO';
+  IF coalesce(v_linha.quantidade, 0) <> v_total THEN
+    RAISE EXCEPTION 'Carga de migracao nao deveria entrar na fila; a contagem foi de % para %.',
+      v_total, v_linha.quantidade;
+  END IF;
+
+  -- Conta em grupo excluido do resultado: idem.
+  INSERT INTO public.planosdecontagrupos (codigo, nome)
+  VALUES ('ZZF4X', 'Grupo fora do resultado da Fase 4') RETURNING id INTO v_grupo_fora;
+  INSERT INTO public.planosdeconta (codigo, nome, grupo_id)
+  VALUES ('ZZF4X.1', 'Conta fora do resultado', v_grupo_fora) RETURNING id INTO v_conta_fora;
+  INSERT INTO public.dre_mapeamento
+    (template_id, origem_tipo, origem_id, exclui_do_resultado, ativo, observacao)
+  VALUES (v_template, 'PLANO_GRUPO', v_grupo_fora, true, true, 'Fixture: fora do resultado.');
+
+  INSERT INTO public.transacao
+    (tipo, valor, data, competencia_em, banco_id, plano_de_conta_id, categoria_id,
+     descricao, nomepagador, cpfcnpjpagador)
+  VALUES ('DESPESA', 8888, now(), TIMESTAMPTZ '2026-08-12', v_banco, v_conta_fora, v_categoria,
+          'ZZF4X fora do resultado', 'FIXTURE F4', '00000000000');
+
+  SELECT * INTO v_linha FROM public.dre_pendencias(v_de, v_ate) p
+   WHERE p.motivo = 'TRANSACAO_SEM_EVENTO';
+  IF coalesce(v_linha.quantidade, 0) <> v_total THEN
+    RAISE EXCEPTION 'Conta em grupo excluido nao deveria entrar na fila; veio %.',
+      v_linha.quantidade;
+  END IF;
+
+  -- Fila e sincronizacao tem de responder a MESMA pergunta. Se as duas leituras
+  -- divergirem, volta o problema que esta correcao veio resolver.
+  IF NOT public.transacao_gera_evento_de_resultado(v_tx2) THEN
+    RAISE EXCEPTION 'A avulsa pura deveria gerar evento pela regra.';
+  END IF;
+
+  IF public.transacao_gera_evento_de_resultado(
+       (SELECT id FROM public.transacao
+         WHERE descricao = 'ZZF4 carga de migracao' ORDER BY id DESC LIMIT 1)) THEN
+    RAISE EXCEPTION 'Carga de migracao nao deveria gerar evento pela regra.';
+  END IF;
+
+  IF public.transacao_gera_evento_de_resultado(
+       (SELECT id FROM public.transacao
+         WHERE descricao = 'ZZF4X fora do resultado' ORDER BY id DESC LIMIT 1)) THEN
+    RAISE EXCEPTION 'Conta em grupo excluido nao deveria gerar evento pela regra.';
+  END IF;
+
+  -- Transacao inexistente nao gera evento nenhum: `false`, nao erro.
+  IF public.transacao_gera_evento_de_resultado(-1) THEN
+    RAISE EXCEPTION 'Transacao inexistente nao deveria gerar evento.';
+  END IF;
+
+  INSERT INTO public.ordemservico (usuariocriadorid) VALUES (v_usuario) RETURNING id INTO v_os;
+
+  -- ------------------------------- competencia ausente deixa de ser um so
+  -- OS em execucao ainda nao tem competencia porque o carimbo vem do
+  -- encerramento: estado legitimo, motivo proprio.
+  INSERT INTO public.eventos_financeiros
+    (origem, natureza, valor, chave_origem, status, source_type, source_id,
+     natureza_dre, is_manual, descricao)
+  VALUES ('SERVICO', 'RECEITA', 321, 'zzf4-os', 'ATIVO', 'ORDEM_SERVICO', v_os,
+          'RECEITA', true, 'ZZF4 OS em execucao');
+
+  SELECT * INTO v_linha FROM public.dre_pendencias(v_de, v_ate) p
+   WHERE p.motivo = 'EVENTO_OS_EM_ABERTO';
+  IF coalesce(v_linha.valor, 0) < 321 THEN
+    RAISE EXCEPTION 'Evento de OS em execucao deveria ter motivo proprio; veio %.', v_linha.valor;
+  END IF;
+
+  -- A MESMA situacao pela via antiga: `ordemservicoid` preenchido e o par
+  -- source_type/source_id vazio, que e como `sincronizar_eventos_financeiros_os`
+  -- grava ate hoje. Ler so `source_id` classificava esses eventos como orfaos —
+  -- no Demir, 132 servicos em andamento apareceram como buraco de R$ 121 mil.
+  INSERT INTO public.eventos_financeiros
+    (ordemservicoid, origem, natureza, valor, chave_origem, status,
+     natureza_dre, is_manual, descricao)
+  VALUES (v_os, 'SERVICO', 'RECEITA', 123, 'zzf4-os-legado', 'ATIVO',
+          'RECEITA', true, 'ZZF4 OS em execucao pela via antiga');
+
+  SELECT * INTO v_linha FROM public.dre_pendencias(v_de, v_ate) p
+   WHERE p.motivo = 'EVENTO_OS_EM_ABERTO';
+  IF coalesce(v_linha.valor, 0) < 444 THEN
+    RAISE EXCEPTION
+      'A via antiga (ordemservicoid) deveria contar como OS em execucao; veio %.', v_linha.valor;
+  END IF;
+
+  -- Sem fonte nao ha de onde herdar periodo: isso e buraco, nao espera.
+  INSERT INTO public.eventos_financeiros
+    (origem, natureza, valor, chave_origem, status, natureza_dre, is_manual, descricao)
+  VALUES ('PRODUTO', 'RECEITA', 654, 'zzf4-orfao', 'ATIVO', 'RECEITA', true, 'ZZF4 orfao');
+
+  SELECT * INTO v_linha FROM public.dre_pendencias(v_de, v_ate) p
+   WHERE p.motivo = 'EVENTO_SEM_FONTE';
+  IF coalesce(v_linha.valor, 0) < 654 THEN
+    RAISE EXCEPTION 'Evento sem fonte deveria ter motivo proprio; veio %.', v_linha.valor;
+  END IF;
+
+  -- Os tres motivos particionam o conjunto: nenhum evento sem competencia pode
+  -- ficar de fora nem ser contado duas vezes.
+  SELECT count(*) INTO v_total
+    FROM public.eventos_financeiros e
+   WHERE e.status IN ('ATIVO', 'CONVERTIDO') AND e.competencia_em IS NULL;
+
+  SELECT coalesce(sum(p.quantidade), 0) INTO v_soma
+    FROM public.dre_pendencias(v_de, v_ate) p
+   WHERE p.motivo IN ('EVENTO_OS_EM_ABERTO', 'EVENTO_SEM_FONTE', 'EVENTO_SEM_COMPETENCIA');
+
+  IF v_soma <> v_total THEN
+    RAISE EXCEPTION
+      'Os tres motivos de competencia ausente deveriam somar os % evento(s); somaram %.',
+      v_total, v_soma;
+  END IF;
+
+  -- --------------------------------------------- item vendido sem custo
+  -- Antes era contagem avulsa na rota da DRE: a tarja dizia "6 itens" e nao
+  -- sabia dizer quais. Na fila, ganha lista — e a lista e o que torna o aviso
+  -- acionavel.
+  INSERT INTO public.eventos_financeiros
+    (origem, natureza, natureza_dre, valor, chave_origem, status, competencia_em,
+     is_manual, descricao, quantidade_snapshot, dados_snapshot)
+  VALUES ('PRODUTO', 'DESPESA', 'CUSTO', 0, 'zzf4-sem-custo', 'ATIVO',
+          TIMESTAMPTZ '2026-08-14', true, 'ZZF4 item vendido sem custo', 2,
+          '{"custo_nao_informado": true}'::jsonb);
+
+  SELECT * INTO v_linha FROM public.dre_pendencias(v_de, v_ate) p
+   WHERE p.motivo = 'ITEM_SEM_CUSTO';
+  IF coalesce(v_linha.quantidade, 0) < 1 THEN
+    RAISE EXCEPTION 'A fila deveria acusar item vendido sem custo.';
+  END IF;
+  v_total := v_linha.quantidade;
+
+  SELECT count(*) INTO v_soma
+    FROM public.dre_pendencias_itens('ITEM_SEM_CUSTO', v_de, v_ate, 100, 0);
+  IF v_soma <> v_total THEN
+    RAISE EXCEPTION
+      'A lista de ITEM_SEM_CUSTO deveria ter os mesmos % item(ns) da contagem; veio %.',
+      v_total, v_soma;
+  END IF;
+
+  -- Informar o custo tira da fila. E o que a tela promete ao usuario.
+  UPDATE public.eventos_financeiros
+     SET valor = 50,
+         dados_snapshot = dados_snapshot || '{"custo_nao_informado": false}'::jsonb
+   WHERE chave_origem = 'zzf4-sem-custo';
+
+  SELECT * INTO v_linha FROM public.dre_pendencias(v_de, v_ate) p
+   WHERE p.motivo = 'ITEM_SEM_CUSTO';
+  IF coalesce(v_linha.quantidade, 0) <> v_total - 1 THEN
+    RAISE EXCEPTION 'Informar o custo deveria tirar o item da fila; ficaram %.',
+      v_linha.quantidade;
+  END IF;
+
+  -- A tela precisa conseguir abrir os motivos novos.
+  SELECT count(*) INTO v_total
+    FROM public.dre_pendencias_itens('EVENTO_SEM_FONTE', v_de, v_ate, 100, 0);
+  IF v_total < 1 THEN
+    RAISE EXCEPTION 'O detalhe de EVENTO_SEM_FONTE veio vazio.';
+  END IF;
+
+  SELECT count(*) INTO v_total
+    FROM public.dre_pendencias_itens('EVENTO_OS_EM_ABERTO', v_de, v_ate, 100, 0);
+  IF v_total < 1 THEN
+    RAISE EXCEPTION 'O detalhe de EVENTO_OS_EM_ABERTO veio vazio.';
   END IF;
 
   -- ------------------------------------------------------------ lote
