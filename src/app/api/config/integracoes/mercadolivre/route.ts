@@ -9,7 +9,7 @@ import {
   selectMercadoLivreShippingAddressSummary,
   type MercadoLivreShippingAddress,
 } from "@/lib/integrations/mercadolivre-address";
-import { unregisterMercadoLivrePlatformAccount } from "@/lib/integrations/mercadolivre-platform";
+import { registerMercadoLivrePlatformAccount, unregisterMercadoLivrePlatformAccount } from "@/lib/integrations/mercadolivre-platform";
 import { validateMercadoLivreQuantityTiers } from "@/lib/integrations/mercadolivre-quantity-pricing";
 import {
   parseMercadoLivreSellerProfile,
@@ -36,6 +36,14 @@ export async function GET() {
     let shippingAddressError: string | null = null;
     let shippingAddressNotice: string | null = null;
     if (data) {
+      await registerMercadoLivrePlatformAccount({
+        mlUserId: Number(data.ml_user_id),
+        nickname: data.nickname,
+        siteId: data.site_id,
+      }).catch((platformError: unknown) => {
+        console.warn("Falha ao sincronizar conta Mercado Livre com a Figo Central", errorMessage(platformError, "Erro desconhecido."));
+      });
+
       try {
         const account = await getValidMercadoLivreAccount(empresaId);
         const [shippingResult, profileResult, addressResult] = await Promise.allSettled([
