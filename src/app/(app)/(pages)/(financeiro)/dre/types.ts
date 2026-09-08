@@ -25,13 +25,35 @@ export type RespostaDre = {
   template: { id: number; codigo: string; nome: string; versao: number };
   linhas: LinhaDre[];
   indicadores: Record<string, number>;
+  /**
+   * `null` significa que aquele recorte não pôde ser apurado — diferente de
+   * zero. Uma tela que trata os dois igual anuncia "sem pendências" quando o
+   * que houve foi uma falha de consulta.
+   */
   alertas: {
-    lancamentosSemClassificacao: number;
-    itensSemCusto: number;
-    semDespesaOperacional: boolean;
-    gruposSemDestino: number;
+    lancamentosSemClassificacao: number | null;
+    valorSemClassificacao: number | null;
+    itensSemCusto: number | null;
+    semDespesaOperacional: boolean | null;
+    gruposSemDestino: number | null;
+    filaIndisponivel: boolean;
+  };
+  pendencias: {
+    indisponivel: boolean;
+    itens: number | null;
+    valor: number | null;
+    porMotivo: PendenciaDre[];
   };
   atualizadoEm: string;
+};
+
+export type PendenciaDre = {
+  motivo: string;
+  descricao: string;
+  /** CADASTRO não depende do período; PERIODO e GERAL dependem. */
+  escopo: string;
+  quantidade: number;
+  valor: number | null;
 };
 
 export type PeriodoDre = { de: string; ate: string };

@@ -1,88 +1,81 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuthenticated } from "@/app/api/_authz/perms";
+import { requireAuthenticated, requireConfigEdit } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { mensagemDoErro, statusDoErro } from "@/lib/financeiro/plano-contas/erros";
+import { mapearGrupo, type LinhaVisaoGrupo } from "./_mapa";
 
-
-async function ensureAuth() {
-  await requireAuthenticated();
-}
-
-function mapGroup(row: any) {
-  return {
-    id: Number(row.id),
-    codigo: String(row.codigo ?? ""),
-    nome: String(row.nome ?? ""),
-    descricao: (row.descricao as string | null) ?? null,
-    ativo: typeof row.ativo === "boolean" ? row.ativo : true,
-  };
+async function listar(competencia: string | null) {
+  const { data, error } = await supabaseAdmin.rpc("plano_contas_grupos_visao", {
+    p_competencia: competencia && /^\d{4}-\d{2}-\d{2}$/.test(competencia) ? competencia : null,
+  });
+  if (error) throw error;
+  return (data ?? []) as LinhaVisaoGrupo[];
 }
 
 export async function GET(req: NextRequest) {
   try {
-    await ensureAuth();
-    const ativo = new URL(req.url).searchParams.get("ativo");
-    let query = supabaseAdmin
-      .from("planosdecontagrupos")
-      .select("id, codigo, nome, descricao, ativo")
-      .order("codigo", { ascending: true })
-      .order("nome", { ascending: true });
-    if (ativo === "true") query = query.eq("ativo", true);
-    if (ativo === "false") query = query.eq("ativo", false);
+    await requireAuthenticated();
 
-    const { data, error } = await query;
-    if (error) throw error;
-    return NextResponse.json({ items: (data ?? []).map(mapGroup) });
-  } catch (error: any) {
-    console.error("[/api/tipos/grupos-planos-de-conta GET] error:", error);
-    const message = String(error?.message ?? "");
+    const url = new URL(req.url);
+    const ativo = url.searchParams.get("ativo");
+
+    let linhas = await listar(url.searchParams.get("competencia"));
+    if (ativo === "true") linhas = linhas.filter((l) => l.ativo);
+    if (ativo === "false") linhas = linhas.filter((l) => !l.ativo);
+
+    return NextResponse.json({ items: linhas.map(mapearGrupo) });
+  } catch (error) {
+    console.error("[/api/tipos/grupos-planos-de-conta GET]", error);
     return NextResponse.json(
-      { error: error?.message ?? "Erro ao carregar grupos de planos de conta" },
-      { status: /auth|unauth|não autenticado/i.test(message) ? 401 : 500 },
+      { error: mensagemDoErro(error, "Erro ao carregar grupos de planos de conta") },
+      { status: statusDoErro(error) },
     );
   }
 }
 
+/**
+ * Um grupo novo deveria nascer com classificação — é ela que as contas herdam.
+ * Criar sem classificação continua permitido, e o grupo aparece como pendente:
+ * recusar aqui impediria a oficina de organizar o cadastro antes de decidir o
+ * destino, e transformaria uma pendência visível numa porta fechada.
+ */
 export async function POST(req: NextRequest) {
   try {
-    await ensureAuth();
+    await requireConfigEdit();
+
     const body = await req.json().catch(() => ({}));
     const codigo = String(body.codigo ?? "").trim();
     const nome = String(body.nome ?? "").trim();
-    const descricao = String(body.descricao ?? "").trim();
 
     if (!codigo) return NextResponse.json({ error: "Código do grupo é obrigatório." }, { status: 400 });
     if (!nome) return NextResponse.json({ error: "Nome do grupo é obrigatório." }, { status: 400 });
 
-    const now = new Date().toISOString();
-    const { data, error } = await supabaseAdmin
-      .from("planosdecontagrupos")
-      .insert({
-        codigo,
-        nome,
-        descricao: descricao || null,
-        ativo: typeof body.ativo === "boolean" ? body.ativo : true,
-        createdat: now,
-        updatedat: now,
-      })
-      .select("id, codigo, nome, descricao, ativo")
-      .maybeSingle();
+    const { data, error } = await supabaseAdmin.rpc("plano_contas_salvar_grupo", {
+      p_id: null,
+      p_codigo: codigo,
+      p_nome: nome,
+      p_descricao: body.descricao ?? null,
+      p_ativo: typeof body.ativo === "boolean" ? body.ativo : true,
+      p_classificacao_id: body.classificacao_id ? Number(body.classificacao_id) : null,
+      p_versao_esperada: null,
+      p_vigencia_inicio: body.vigencia_inicio ?? null,
+      p_usuario: null,
+      p_justificativa: body.justificativa ?? null,
+    });
     if (error) throw error;
-    if (!data) return NextResponse.json({ error: "Falha ao criar grupo." }, { status: 500 });
 
-    return NextResponse.json({ item: mapGroup(data) }, { status: 201 });
-  } catch (error: any) {
-    console.error("[/api/tipos/grupos-planos-de-conta POST] error:", error);
-    const message = String(error?.message ?? "");
-    const status = /auth|unauth|não autenticado/i.test(message)
-      ? 401
-      : /duplicate|unique|planosdecontagrupos_(codigo|nome)_unique/i.test(message)
-        ? 409
-        : 500;
+    const id = Number((data as { id?: number } | null)?.id);
+    const linha = (await listar(null)).find((l) => Number(l.grupo_id) === id);
+    if (!linha) return NextResponse.json({ error: "Falha ao criar grupo." }, { status: 500 });
+
+    return NextResponse.json({ item: mapearGrupo(linha) }, { status: 201 });
+  } catch (error) {
+    console.error("[/api/tipos/grupos-planos-de-conta POST]", error);
     return NextResponse.json(
-      { error: status === 409 ? "Já existe um grupo com este código ou nome." : error?.message ?? "Erro ao criar grupo" },
-      { status },
+      { error: mensagemDoErro(error, "Erro ao criar grupo") },
+      { status: statusDoErro(error) },
     );
   }
 }

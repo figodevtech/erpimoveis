@@ -55,6 +55,8 @@ type DetalhesPagamento = {
   autorizacao: string | null;
   bandeira: string | null;
   valor: number;
+  financeiroPendente: boolean;
+  financeiroErro: string | null;
 };
 
 const STATUS_FINAIS = ["PAGO", "ESTORNADO", "RECUSADO", "CANCELADO"];
@@ -87,9 +89,39 @@ export default function OsStonePaymentDialog({
   const [detalhesPagamento, setDetalhesPagamento] =
     useState<DetalhesPagamento | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
+  const [conciliando, setConciliando] = useState(false);
 
   // Controle do polling com ref para evitar múltiplos intervals
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    if (!open || !osId) return;
+    let ativo = true;
+    fetch(`/api/pagamentos/stone/pendencias?osId=${osId}`, { cache: "no-store" })
+      .then(async response => {
+        if (!response.ok) return;
+        const data = await response.json();
+        if (ativo && data.pagamentos?.[0]) {
+          setPagamentoId(Number(data.pagamentos[0].id));
+          await carregarPagamento(Number(data.pagamentos[0].id));
+        }
+      }).catch(() => {});
+    return () => { ativo = false; };
+  }, [open, osId]);
+
+  async function conciliarPagamento() {
+    if (!pagamentoId) return;
+    setConciliando(true);
+    try {
+      const response = await fetch(`/api/pagamentos/${pagamentoId}/conciliar`, { method: "PUT" });
+      const data = await response.json();
+      if (!response.ok) toast.error(data.financeiro_erro || data.erro || "Não foi possível conciliar o pagamento.");
+      await carregarPagamento(pagamentoId);
+      handleGetOrdens();
+    } catch {
+      toast.error("Não foi possível conferir o registro financeiro. Tente novamente.");
+    } finally { setConciliando(false); }
+  }
 
   function limparIntervalo() {
     if (pollingRef.current) {
@@ -321,6 +353,8 @@ export default function OsStonePaymentDialog({
         autorizacao: pagamento.autorizacao ?? null,
         bandeira: pagamento.bandeira ?? null,
         valor: Number(pagamento.valor ?? 0),
+        financeiroPendente: pagamento.financeiro_pendente === true,
+        financeiroErro: pagamento.financeiro_erro ?? null,
       });
 
       setStatusPagamento((statusAntigo) => {
@@ -644,6 +678,17 @@ export default function OsStonePaymentDialog({
                   Pagamento ID:{" "}
                   <span className="font-mono">{pagamentoId}</span>
                 </p>
+              )}
+
+              {detalhesPagamento?.financeiroPendente && (
+                <div className="my-2 rounded border border-amber-400/40 bg-amber-50 p-3 text-xs text-amber-950">
+                  <p className="font-medium">{statusPagamento === "ESTORNADO" ? "Estorno confirmado na Stone" : "Pagamento confirmado na Stone"} — registro financeiro pendente</p>
+                  <p className="mt-1">{detalhesPagamento.financeiroErro}</p>
+                  {statusPagamento === "PAGO" && <p className="mt-1">Ao encaminhar a OS para Faturamento, o sistema tentará registrar o recebimento automaticamente.</p>}
+                  <Button type="button" variant="outline" size="sm" className="mt-2" disabled={conciliando} onClick={conciliarPagamento}>
+                    {conciliando ? "Conferindo..." : "Tentar registro financeiro novamente"}
+                  </Button>
+                </div>
               )}
 
               {detalhesPagamento && (

@@ -31,7 +31,37 @@ type PlanoContaComboboxProps = {
   clearLabel?: string;
   onClear?: () => void;
   onValueChange: (value: string, plano: Plano_de_conta) => void;
+  /**
+   * Natureza do lançamento. Quando informada, uma conta que não a aceita fica
+   * bloqueada aqui — antes do envio. A rota e o banco repetem a validação,
+   * porque esta tela não é a única forma de gravar.
+   */
+  natureza?: "RECEITA" | "DESPESA";
 };
+
+/** Explicação curta do destino, para quem lança não precisar saber a linha de cor. */
+function textoDoDestino(plano: Plano_de_conta) {
+  const destino = plano.destino;
+  if (!destino) return null;
+  if (destino.situacao === "CLASSIFICADO" && destino.linha_codigo) {
+    return `DRE: ${destino.linha_nome ?? destino.linha_codigo}`;
+  }
+  if (destino.situacao === "EXCLUIDO") {
+    return `Fora da DRE${destino.motivo ? `: ${destino.motivo}` : ""}`;
+  }
+  return "Sem classificação: ficará como pendência na DRE";
+}
+
+/**
+ * `naturezas` vazio significa que o cadastro ainda não tem classificação, ou que
+ * a resposta veio de uma versão antiga da API. Nos dois casos não há base para
+ * bloquear — e bloquear sem base impediria o lançamento do dia a dia.
+ */
+function incompativel(plano: Plano_de_conta, natureza?: "RECEITA" | "DESPESA") {
+  if (!natureza) return false;
+  const aceitas = plano.classificacao?.naturezas ?? [];
+  return aceitas.length > 0 && !aceitas.includes(natureza);
+}
 
 function normalizeSearch(value: string) {
   return value
@@ -51,6 +81,7 @@ export function PlanoContaCombobox({
   clearLabel = "Sem seleção",
   onClear,
   onValueChange,
+  natureza,
 }: PlanoContaComboboxProps) {
   const [open, setOpen] = useState(false);
   const selected = useMemo(
@@ -82,6 +113,16 @@ export function PlanoContaCombobox({
             : <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />}
         </Button>
       </PopoverTrigger>
+      {selected && textoDoDestino(selected) ? (
+        <p
+          className={cn(
+            "mt-1 truncate text-xs",
+            selected.destino?.situacao === "PENDENTE" ? "text-destructive" : "text-muted-foreground",
+          )}
+        >
+          {textoDoDestino(selected)}
+        </p>
+      ) : null}
       <PopoverContent
         align="start"
         className="w-[var(--radix-popover-trigger-width)] min-w-[280px] max-w-[calc(100vw-1rem)] p-0"
@@ -113,27 +154,43 @@ export function PlanoContaCombobox({
             ) : null}
             {groups.map(({ grupo, planos }) => (
               <CommandGroup key={grupo.id} heading={`${grupo.codigo} - ${grupo.nome}`}>
-                {planos.map((plano) => (
-                  <CommandItem
-                    key={plano.id}
-                    value={`${grupo.codigo} ${grupo.nome} ${plano.codigo ?? ""} ${plano.nome} ${plano.descricao ?? ""} ${plano.id}`}
-                    onSelect={() => {
-                      onValueChange(String(plano.id), plano);
-                      setOpen(false);
-                    }}
-                    className="min-w-0"
-                  >
-                    <Check
-                      className={cn(
-                        "h-4 w-4 shrink-0",
-                        String(plano.id) === value ? "opacity-100" : "opacity-0",
-                      )}
-                    />
-                    <span className="min-w-0 truncate">
-                      {plano.codigo ? `${plano.codigo} - ${plano.nome}` : plano.nome}
-                    </span>
-                  </CommandItem>
-                ))}
+                {planos.map((plano) => {
+                  const bloqueada = incompativel(plano, natureza);
+                  const destino = textoDoDestino(plano);
+                  return (
+                    <CommandItem
+                      key={plano.id}
+                      value={`${grupo.codigo} ${grupo.nome} ${plano.codigo ?? ""} ${plano.nome} ${plano.descricao ?? ""} ${plano.id}`}
+                      disabled={bloqueada}
+                      onSelect={() => {
+                        if (bloqueada) return;
+                        onValueChange(String(plano.id), plano);
+                        setOpen(false);
+                      }}
+                      className="min-w-0 items-start"
+                    >
+                      <Check
+                        className={cn(
+                          "mt-0.5 h-4 w-4 shrink-0",
+                          String(plano.id) === value ? "opacity-100" : "opacity-0",
+                        )}
+                      />
+                      <span className="flex min-w-0 flex-col">
+                        <span className="min-w-0 truncate">
+                          {plano.codigo ? `${plano.codigo} - ${plano.nome}` : plano.nome}
+                        </span>
+                        {bloqueada ? (
+                          <span className="text-xs text-destructive">
+                            {plano.classificacao?.nome} não aceita lançamento de{" "}
+                            {natureza === "RECEITA" ? "receita" : "despesa"}
+                          </span>
+                        ) : destino ? (
+                          <span className="truncate text-xs text-muted-foreground">{destino}</span>
+                        ) : null}
+                      </span>
+                    </CommandItem>
+                  );
+                })}
               </CommandGroup>
             ))}
           </CommandList>

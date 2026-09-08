@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, useCallback } from "react";
 import { useForm } from "react-hook-form";
+import { prepararConfigParaSalvar } from "@/lib/config/faturamento-patch";
 import { toast } from "@/lib/toast";
 import {
   Settings,
@@ -821,7 +822,7 @@ export default function ConfigGeralPage() {
   const [garantiaFiscalDisponivel, setGarantiaFiscalDisponivel] =
     useState(false);
 
-  const { handleSubmit, setValue, watch, reset } = useForm<Partial<Config>>({
+  const { handleSubmit, setValue, watch, reset, formState: { dirtyFields, defaultValues } } = useForm<Partial<Config>>({
     defaultValues: {
       checklist_obrigatorio: false,
       alerta_estoque_pdv: false,
@@ -988,11 +989,19 @@ export default function ConfigGeralPage() {
       const response = await fetch("/api/config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
+        body: JSON.stringify(prepararConfigParaSalvar(values,
+          dirtyFields.habilitar_faturamento_os === true,
+          defaultValues?.habilitar_faturamento_os === true)),
       });
 
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Erro ao salvar");
+
+      // A configuração geral já foi salva, mesmo que uma integração fiscal
+      // falhe depois. Atualiza imediatamente o formulário e o restante do app.
+      reset(data.config);
+      setLinhasDestaque(regrasParaLinhas(data.config.destaque_os_por_status));
+      window.dispatchEvent(new CustomEvent("erpoficina:config-updated", { detail: data.config }));
 
       if (garantiaFiscalDisponivel) {
         const [nfeResponse, nfseResponse] = await Promise.all([
@@ -1050,14 +1059,6 @@ export default function ConfigGeralPage() {
       }
 
       toast.success("Configurações atualizadas com sucesso!");
-      reset(data.config);
-      setLinhasDestaque(regrasParaLinhas(data.config.destaque_os_por_status));
-      // Sem isso o resto do app segue com a config antiga em sessionStorage
-      // até o próximo reload — e o destaque por status só apareceria na lista
-      // de OS depois de recarregar a página.
-      window.dispatchEvent(
-        new CustomEvent("erpoficina:config-updated", { detail: data.config }),
-      );
     } catch (error: any) {
       toast.error(error.message || "Erro ao salvar configurações");
     } finally {

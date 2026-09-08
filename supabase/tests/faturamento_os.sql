@@ -133,15 +133,17 @@ BEGIN
   PERFORM pg_temp.status_os(v_os,'CONCLUIDO');
   PERFORM pg_temp.status_os(v_outro,'CONCLUIDO');
 
-  -- Stone não deixa o pagamento marcado como pago quando o registro é bloqueado.
+  -- Stone preserva a confirmação externa enquanto aguarda o encaminhamento.
   v_outro:=pg_temp.nova_os_teste();
   UPDATE public.ordemservico SET status='PAGAMENTO' WHERE id=v_outro;
   INSERT INTO public.pagamento(ordemservicoid,valor,status,metodo) VALUES(v_outro,10000,'CRIADO','PIX') RETURNING id INTO v_pag;
-  v_erro:=false;
-  BEGIN PERFORM public.confirmar_pagamento_stone_os(v_pag,'PAGO','TESTE','{}');
-  EXCEPTION WHEN SQLSTATE 'P0001' THEN v_erro:=true; END;
-  IF NOT v_erro OR (SELECT status FROM public.pagamento WHERE id=v_pag)<>'CRIADO' THEN RAISE EXCEPTION 'Stone deixou confirmação parcial.'; END IF;
+  PERFORM public.confirmar_pagamento_stone_os(v_pag,'PAGO','TESTE','{}');
+  IF NOT EXISTS(SELECT 1 FROM public.pagamento WHERE id=v_pag AND status='PAGO' AND financeiro_pendente AND transacao_os_id IS NULL) THEN
+    RAISE EXCEPTION 'Stone perdeu confirmação enquanto a OS aguarda faturamento.';
+  END IF;
+  PERFORM pg_temp.status_os(v_outro,'PAGAMENTO');
   PERFORM public.transicionar_faturamento_os(v_outro,'FATURAMENTO');
+  PERFORM pg_temp.status_os(v_outro,'CONCLUIDO');
   PERFORM public.confirmar_pagamento_stone_os(v_pag,'PAGO','TESTE','{}');
   PERFORM public.confirmar_pagamento_stone_os(v_pag,'PAGO','TESTE','{}');
   PERFORM pg_temp.status_os(v_outro,'CONCLUIDO');

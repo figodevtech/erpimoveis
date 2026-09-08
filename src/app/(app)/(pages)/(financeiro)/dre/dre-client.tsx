@@ -203,12 +203,14 @@ export function DreClient() {
   }, []);
 
   const alertas = dados?.alertas;
+  const pendencias = dados?.pendencias;
   const temAlerta =
     !!alertas &&
-    (alertas.semDespesaOperacional ||
-      alertas.itensSemCusto > 0 ||
-      alertas.lancamentosSemClassificacao > 0 ||
-      alertas.gruposSemDestino > 0);
+    (alertas.semDespesaOperacional === true ||
+      (alertas.itensSemCusto ?? 0) > 0 ||
+      (alertas.lancamentosSemClassificacao ?? 0) > 0 ||
+      (alertas.gruposSemDestino ?? 0) > 0 ||
+      alertas.filaIndisponivel);
 
   return (
     <MotionConfig reducedMotion="user">
@@ -259,14 +261,26 @@ export function DreClient() {
               Este resultado está incompleto
             </p>
             <ul className="mt-1.5 ml-6 list-disc space-y-0.5 text-muted-foreground">
-              {alertas?.semDespesaOperacional && (
+              {alertas?.filaIndisponivel && (
+                <li>
+                  Não foi possível apurar as pendências deste período. O relatório pode estar incompleto sem que
+                  este aviso saiba dizer quanto.
+                </li>
+              )}
+              {alertas?.semDespesaOperacional === true && (
                 <li>Nenhuma despesa operacional foi lançada no período — o lucro aparece maior do que é.</li>
+              )}
+              {alertas?.itensSemCusto === null && (
+                <li>Não foi possível conferir itens vendidos sem custo cadastrado.</li>
               )}
               {(alertas?.itensSemCusto ?? 0) > 0 && (
                 <li>{alertas?.itensSemCusto} item(ns) vendido(s) sem custo cadastrado — a margem está superestimada.</li>
               )}
               {(alertas?.lancamentosSemClassificacao ?? 0) > 0 && (
-                <li>{alertas?.lancamentosSemClassificacao} lançamento(s) sem classificação ficaram fora do relatório.</li>
+                <li>
+                  {alertas?.lancamentosSemClassificacao} lançamento(s) sem classificação, somando{" "}
+                  {brl(alertas?.valorSemClassificacao ?? 0)}, ficaram fora do relatório.
+                </li>
               )}
               {(alertas?.gruposSemDestino ?? 0) > 0 && (
                 <li>
@@ -275,6 +289,30 @@ export function DreClient() {
                 </li>
               )}
             </ul>
+            {pendencias && !pendencias.indisponivel && pendencias.porMotivo.length > 0 && (
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full min-w-[28rem] text-left text-xs">
+                  <thead className="text-muted-foreground">
+                    <tr>
+                      <th className="py-1 pr-3 font-medium">Pendência</th>
+                      <th className="py-1 pr-3 text-right font-medium">Itens</th>
+                      <th className="py-1 text-right font-medium">Valor</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendencias.porMotivo.map((linha) => (
+                      <tr key={linha.motivo} className="border-t border-amber-500/20">
+                        <td className="py-1 pr-3">{linha.descricao}</td>
+                        <td className="py-1 pr-3 text-right tabular-nums">{linha.quantidade}</td>
+                        <td className="py-1 text-right tabular-nums">
+                          {linha.valor === null ? "—" : brl(linha.valor)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </motion.div>
         )}
 

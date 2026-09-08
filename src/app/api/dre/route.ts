@@ -57,16 +57,17 @@ export async function GET(req: Request) {
      * 20260811210000 soma ATIVO e CONVERTIDO. Enquanto ficou so em ATIVO, a
      * tarja "periodo sem despesa operacional" podia aparecer com a despesa ja
      * contada no total — o alerta contradizia o numero ao lado dele.
+     *
+     * Uma consulta que falha NAO vira zero. Antes, `count ?? 0` transformava
+     * erro em "nenhuma pendencia", que e a pior resposta: parece completude e e
+     * ignorancia. Agora cada contagem que falhou vem como `null`, e a tela sabe
+     * que aquele recorte esta indisponivel.
      */
-    const [pendencias, semCusto, semDespesa, gruposAtivos, gruposMapeados] = await Promise.all([
-      supabaseAdmin
-        .from("eventos_financeiros")
-        .select("id", { count: "exact", head: true })
-        .in("status", ["ATIVO", "CONVERTIDO"])
-        .eq("source_type", "TRANSACAO")
-        .is("dre_linha_id", null)
-        .gte("competencia_em", `${de}T00:00:00.000Z`)
-        .lte("competencia_em", `${ate}T23:59:59.999Z`),
+    const [pendencias, semCusto, semDespesa] = await Promise.all([
+      supabaseAdmin.rpc("dre_pendencias", {
+        p_de: `${de}T00:00:00.000Z`,
+        p_ate: `${ate}T23:59:59.999Z`,
+      }),
       supabaseAdmin
         .from("eventos_financeiros")
         .select("id", { count: "exact", head: true })
@@ -82,20 +83,32 @@ export async function GET(req: Request) {
         .eq("natureza_dre", "DESPESA")
         .gte("competencia_em", `${de}T00:00:00.000Z`)
         .lte("competencia_em", `${ate}T23:59:59.999Z`),
-      // Grupo sem mapeamento nao e um problema do periodo: e do cadastro. Um
-      // grupo criado sem linha correspondente fica invisivel na tela — os
-      // lancamentos dele so aparecem como "sem classificacao" depois que
-      // alguem ja lancou algo nele. Este alerta cobre o intervalo antes disso.
-      supabaseAdmin.from("planosdecontagrupos").select("id").eq("ativo", true),
-      supabaseAdmin
-        .from("dre_mapeamento")
-        .select("origem_id")
-        .eq("origem_tipo", "PLANO_GRUPO")
-        .eq("ativo", true),
     ]);
 
-    const idsMapeados = new Set((gruposMapeados.data ?? []).map((linha) => linha.origem_id));
-    const gruposSemDestino = (gruposAtivos.data ?? []).filter((grupo) => !idsMapeados.has(grupo.id)).length;
+    type LinhaPendencia = {
+      motivo: string;
+      descricao: string;
+      escopo: string;
+      quantidade: number | string;
+      valor: number | string | null;
+    };
+
+    const filaIndisponivel = Boolean(pendencias.error);
+    if (pendencias.error) console.error("[GET /api/dre] fila de pendencias", pendencias.error);
+
+    const fila = filaIndisponivel
+      ? []
+      : ((pendencias.data ?? []) as LinhaPendencia[]).map((linha) => ({
+          motivo: linha.motivo,
+          descricao: linha.descricao,
+          escopo: linha.escopo,
+          quantidade: Number(linha.quantidade ?? 0),
+          valor: linha.valor === null ? null : Number(linha.valor),
+        }));
+
+    const doMotivo = (motivo: string) => fila.find((linha) => linha.motivo === motivo) ?? null;
+    const semLinha = doMotivo("EVENTO_SEM_LINHA");
+    const grupoSemDestino = doMotivo("GRUPO_SEM_DESTINO");
 
     return NextResponse.json(
       {
@@ -104,15 +117,25 @@ export async function GET(req: Request) {
         linhas: dre.linhas,
         indicadores: dre.indicadorPorCodigo,
         alertas: {
-          lancamentosSemClassificacao: pendencias.count ?? 0,
-          itensSemCusto: semCusto.count ?? 0,
-          semDespesaOperacional: (semDespesa.count ?? 0) === 0,
-          gruposSemDestino,
+          // `null` significa "nao foi possivel apurar", diferente de zero.
+          lancamentosSemClassificacao: filaIndisponivel ? null : semLinha?.quantidade ?? 0,
+          valorSemClassificacao: filaIndisponivel ? null : semLinha?.valor ?? 0,
+          itensSemCusto: semCusto.error ? null : semCusto.count ?? 0,
+          semDespesaOperacional: semDespesa.error ? null : (semDespesa.count ?? 0) === 0,
+          gruposSemDestino: filaIndisponivel ? null : grupoSemDestino?.quantidade ?? 0,
+          filaIndisponivel,
+        },
+        pendencias: {
+          indisponivel: filaIndisponivel,
+          itens: filaIndisponivel ? null : fila.reduce((total, linha) => total + linha.quantidade, 0),
+          valor: filaIndisponivel ? null : fila.reduce((total, linha) => total + (linha.valor ?? 0), 0),
+          porMotivo: fila,
         },
         atualizadoEm: new Date().toISOString(),
       },
       { headers: { "Cache-Control": "no-store" } },
     );
+
   } catch (e) {
     const mensagem = e instanceof Error ? e.message : "Erro ao calcular a DRE";
     const status = /forbidden|permiss|autentic/i.test(mensagem) ? 403 : 500;

@@ -5,9 +5,13 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { criarPedidoPos } from "@/lib/payments/pagarme-connect";
+import { requireFinanceiroCreate } from "@/app/api/_authz/perms";
+import { buscarFaturamentoOsHabilitado } from "@/lib/ordens/faturamento-server";
+import { podeRegistrarPagamentoOs } from "@/lib/ordens/financeiro";
 
 export async function POST(req: NextRequest) {
   try {
+    await requireFinanceiroCreate();
     const body = await req.json();
 
     const {
@@ -46,12 +50,19 @@ export async function POST(req: NextRequest) {
       .select(
         `
         id,
+        status,
         clienteid,
         cliente:clienteid (id, nomerazaosocial, email)
       `
       )
       .eq("id", ordemServicoId)
+      .eq("is_deleted", false)
       .maybeSingle();
+    if (errOs) throw errOs;
+    if (!osDados) return NextResponse.json({ erro: "OS não encontrada." }, { status: 404 });
+    if (!podeRegistrarPagamentoOs(osDados.status, await buscarFaturamentoOsHabilitado())) {
+      return NextResponse.json({ erro: "A OS não está disponível para cobrança. Confira o status e encaminhe para Faturamento quando necessário." }, { status: 409 });
+    }
 
     let nomeCliente: string | undefined;
     let emailCliente: string | undefined | null;
@@ -145,7 +156,7 @@ export async function POST(req: NextRequest) {
           e?.message ||
           "Erro inesperado ao criar pedido para a maquineta Stone.",
       },
-      { status: 500 }
+      { status: e?.statusCode || 500 }
     );
   }
 }

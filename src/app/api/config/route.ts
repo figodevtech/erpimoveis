@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { requireConfigEdit } from "@/app/api/_authz/perms";
 import { normalizarRegrasDestaque } from "@/lib/ordens/destaque";
+import { validarAlteracaoFaturamento } from "@/lib/config/faturamento-patch";
 
 // Evita cache no App Router
 export const revalidate = 0;
@@ -446,15 +447,23 @@ export async function PUT(request: Request) {
     }
 
     const atual = await criarConfigPadraoSeNaoExistir();
+    const alteracao = validarAlteracaoFaturamento(patch.habilitar_faturamento_os,
+      body.habilitar_faturamento_os_anterior, atual.habilitar_faturamento_os);
+    const conflito = () => respostaJSON({ error: "A configuração de faturamento mudou. Recarregue a página e confira o modo antes de salvar." }, 409);
+    if (alteracao === "conflito") return conflito();
+    if (alteracao === "omitir") delete patch.habilitar_faturamento_os;
+    if (Object.keys(patch).length === 0) return respostaJSON({ config: atual });
 
-    const { data, error } = await supabase
+    let update = supabase
       .from("config_geral")
       .update(patch)
-      .eq("id", atual.id)
-      .select("*")
-      .single();
+      .eq("id", atual.id);
+    // A comparação faz parte do mesmo UPDATE que devolve as OS ao desativar.
+    if (alteracao === "comparar") update = update.eq("habilitar_faturamento_os", body.habilitar_faturamento_os_anterior);
+    const { data, error } = await update.select("*").single();
 
     if (error) {
+      if (error.code === "PGRST116" && alteracao === "comparar") return conflito();
       console.error("Supabase update error:", error);
       if (colunaNaoExiste(error)) {
         return respostaJSON(

@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { identificadoresStone, statusDoEventoStone } from "@/lib/payments/stone-webhook";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -28,10 +29,9 @@ export async function POST(req: NextRequest) {
 
     console.log("Webhook recebido:", tipoEvento, dados?.id);
 
-    const codigoPagarme =
-      dados?.id || dados?.code || dados?.order?.id || dados?.order?.code;
+    const codigosPagarme = identificadoresStone(dados);
 
-    if (!codigoPagarme) {
+    if (!codigosPagarme.length) {
       return NextResponse.json(
         { ok: false, erro: "Sem identificador da transação" },
         { status: 400 }
@@ -39,15 +39,17 @@ export async function POST(req: NextRequest) {
     }
 
     // Localiza pagamento pelo provider_tx_id
-    const { data: pagamentos } = await supabaseAdmin
+    const { data: pagamentos, error: buscaError } = await supabaseAdmin
       .from("pagamento")
       .select("*")
-      .eq("provider_tx_id", codigoPagarme)
-      .limit(1);
+      .in("provider_tx_id", codigosPagarme)
+      .limit(2);
+    if (buscaError) throw buscaError;
+    if ((pagamentos?.length ?? 0) > 1) throw new Error("Identificadores Stone vinculados a mais de um pagamento.");
 
     const pagamento = pagamentos?.[0];
     if (!pagamento) {
-      console.warn("Pagamento não encontrado para webhook:", codigoPagarme);
+      console.warn("Pagamento não encontrado para webhook:", codigosPagarme);
       await supabaseAdmin.from("pagamento_evento").insert({
         tipo: "WEBHOOK_DESCONHECIDO",
         payload,
@@ -56,11 +58,10 @@ export async function POST(req: NextRequest) {
     }
 
     // Define novo status
-    let novoStatus: string = pagamento.status || "CRIADO";
-    if (tipoEvento === "charge.paid") novoStatus = "PAGO";
-    if (tipoEvento === "charge.refunded") novoStatus = "ESTORNADO";
+    const novoStatus = statusDoEventoStone(tipoEvento);
+    if (!novoStatus) return NextResponse.json({ ok: true });
 
-    if (pagamento.ordemservicoid && (novoStatus === "PAGO" || novoStatus === "ESTORNADO")) {
+    if (pagamento.ordemservicoid) {
       const { error } = await supabaseAdmin.rpc("confirmar_pagamento_stone_os", {
         p_pagamento_id: pagamento.id, p_status: novoStatus,
         p_evento: tipoEvento.toUpperCase(), p_payload: payload, p_registrar_receita: false,

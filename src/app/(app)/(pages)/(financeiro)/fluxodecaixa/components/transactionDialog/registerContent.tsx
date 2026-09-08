@@ -1634,6 +1634,13 @@ export default function RegisterContent({
                     loading={loadingPlanos}
                     groups={gruposPlanosDeConta}
                     value={newTransaction.plano_de_conta_id?.toString() || ""}
+                    natureza={
+                      newTransaction.tipo === Tipo_transacao.RECEITA
+                        ? "RECEITA"
+                        : newTransaction.tipo === Tipo_transacao.DESPESA
+                          ? "DESPESA"
+                          : undefined
+                    }
                     placeholder="Selecione"
                     onValueChange={(_, selected) => {
                       setNewTransaction({

@@ -1,239 +1,191 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuthenticated } from "@/app/api/_authz/perms";
+import { requireConfigEdit } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { mensagemDoErro, statusDoErro } from "@/lib/financeiro/plano-contas/erros";
+import { mapearConta, type LinhaVisaoConta } from "../_mapa";
 
-
-async function ensureAuth() {
-  await requireAuthenticated();
+function parseId(valor: string): number | null {
+  const id = Number(valor);
+  return Number.isInteger(id) && id > 0 ? id : null;
 }
 
-function parseId(paramId: string): number | null {
-  const n = Number(paramId);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return n;
+async function relerConta(id: number) {
+  const { data, error } = await supabaseAdmin.rpc("plano_contas_visao", { p_competencia: null });
+  if (error) throw error;
+  return ((data ?? []) as LinhaVisaoConta[]).find((l) => Number(l.conta_id) === id) ?? null;
 }
 
-// PUT /api/tipos/planos-de-conta/[id]
-export async function PUT(
-  req: NextRequest,
-  context: { params: Promise<{ id: string }> },
-) {
+/**
+ * PUT /api/tipos/planos-de-conta/[id]
+ *
+ * `versao_registro` do corpo é a versão que a tela leu. Se outra pessoa salvou
+ * no meio, a RPC devolve PT409 e a rota responde 409 — em vez de sobrescrever
+ * calada o que o outro gravou.
+ *
+ * Omitir `classificacao_id` não apaga a exceção: sem o campo, mantemos a que
+ * está gravada. Só um `null` explícito remove.
+ */
+export async function PUT(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    await ensureAuth();
+    await requireConfigEdit();
 
-    const { id } = await context.params;
-    const planoId = parseId(id);
-    if (!planoId) {
-      return NextResponse.json({ error: "ID inválido." }, { status: 400 });
-    }
+    const { id: bruto } = await context.params;
+    const id = parseId(bruto);
+    if (!id) return NextResponse.json({ error: "ID inválido." }, { status: 400 });
 
     const body = await req.json().catch(() => ({}));
-    const { codigo, nome, descricao, ativo, grupo_id } = body as {
-      codigo?: string | null;
-      nome?: string;
-      descricao?: string | null;
-      ativo?: boolean;
-      grupo_id?: number | string | null;
-    };
+    const nome = String(body.nome ?? "").trim();
+    const grupoId = Number(body.grupo_id);
 
-    if (!nome?.trim()) {
-      return NextResponse.json(
-        { error: "Nome do plano de conta é obrigatório." },
-        { status: 400 },
-      );
+    if (!nome) {
+      return NextResponse.json({ error: "Nome do plano de conta é obrigatório." }, { status: 400 });
     }
-
-    const grupoId = Number(grupo_id);
     if (!Number.isInteger(grupoId) || grupoId <= 0) {
-      return NextResponse.json(
-        { error: "Grupo do plano de conta é obrigatório." },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "Grupo do plano de conta é obrigatório." }, { status: 400 });
     }
 
-    const { data: grupo, error: grupoError } = await supabaseAdmin
-      .from("planosdecontagrupos")
-      .select("id")
-      .eq("id", grupoId)
-      .maybeSingle();
-    if (grupoError) throw grupoError;
-    if (!grupo) {
-      return NextResponse.json({ error: "Grupo de plano de conta não encontrado." }, { status: 404 });
+    const atual = await relerConta(id);
+    if (!atual) return NextResponse.json({ error: "Plano de conta não encontrado." }, { status: 404 });
+
+    const temClassificacao = Object.prototype.hasOwnProperty.call(body, "classificacao_id");
+    let classificacaoId: number | null = null;
+    if (temClassificacao) {
+      classificacaoId = body.classificacao_id ? Number(body.classificacao_id) : null;
+    } else if (atual.classificacao_especifica) {
+      const { data } = await supabaseAdmin
+        .from("classificacoes_resultado")
+        .select("id")
+        .eq("codigo", atual.classificacao_especifica)
+        .maybeSingle();
+      classificacaoId = data ? Number(data.id) : null;
     }
 
-    const now = new Date().toISOString();
-
-    const payload: Record<string, any> = {
-      codigo: codigo?.trim() || null,
-      nome: nome.trim(),
-      descricao: descricao?.trim() || null,
-      grupo_id: grupoId,
-      updatedat: now,
-    };
-
-    if (typeof ativo === "boolean") {
-      payload.ativo = ativo;
-    }
-
-    const { data, error } = await supabaseAdmin
-      .from("planosdeconta")
-      .update(payload)
-      .eq("id", planoId)
-      .select(`
-        id,
-        codigo,
-        nome,
-        descricao,
-        ativo,
-        grupo_id,
-        grupo:planosdecontagrupos!planosdeconta_grupo_id_fkey!inner (
-          id,
-          codigo,
-          nome,
-          descricao,
-          ativo
-        )
-      `)
-      .maybeSingle();
-
+    const { error } = await supabaseAdmin.rpc("plano_contas_salvar_conta", {
+      p_id: id,
+      p_codigo: body.codigo ?? null,
+      p_nome: nome,
+      p_descricao: body.descricao ?? null,
+      p_ativo: typeof body.ativo === "boolean" ? body.ativo : null,
+      p_grupo_id: grupoId,
+      p_classificacao_id: classificacaoId,
+      p_versao_esperada: Number.isInteger(Number(body.versao_registro))
+        ? Number(body.versao_registro)
+        : null,
+      p_vigencia_inicio: body.vigencia_inicio ?? null,
+      p_usuario: null,
+      p_justificativa: body.justificativa ?? null,
+    });
     if (error) throw error;
-    if (!data) {
-      return NextResponse.json(
-        { error: "Plano de conta não encontrado." },
-        { status: 404 },
-      );
-    }
 
-    const item = {
-      id: data.id as number,
-      codigo: (data.codigo as string | null) ?? null,
-      nome: data.nome as string,
-      descricao: (data.descricao as string | null) ?? null,
-      grupo_id: data.grupo_id as number,
-      grupo: Array.isArray(data.grupo) ? data.grupo[0] ?? null : data.grupo,
-      icone: "other",
-      codigo_sistema: null,
-      ativo: typeof data.ativo === "boolean" ? (data.ativo as boolean) : true,
-    };
+    const linha = await relerConta(id);
+    if (!linha) return NextResponse.json({ error: "Plano de conta não encontrado." }, { status: 404 });
 
-    return NextResponse.json({ item });
-  } catch (e: any) {
-    console.error("[/api/tipos/planos-de-conta/:id PUT] error:", e);
-    const msg = String(e?.message ?? "");
-    const status = /auth|unauth|não autenticado/i.test(msg)
-      ? 401
-      : /duplicate|unique|planosdeconta_(grupo_nome|codigo)_unique/i.test(msg)
-        ? 409
-        : 500;
-
+    return NextResponse.json({ item: mapearConta(linha) });
+  } catch (error) {
+    console.error("[/api/tipos/planos-de-conta/:id PUT]", error);
     return NextResponse.json(
-      {
-        error: e?.message ?? "Erro ao atualizar plano de conta",
-      },
-      { status },
+      { error: mensagemDoErro(error, "Erro ao atualizar plano de conta") },
+      { status: statusDoErro(error) },
     );
   }
 }
 
-// PATCH /api/tipos/planos-de-conta/[id] -> altera apenas 'ativo'
-export async function PATCH(
-  req: NextRequest,
-  context: { params: Promise<{ id: string }> },
-) {
+/** PATCH altera apenas `ativo`, passando pela mesma RPC para versionar o registro. */
+export async function PATCH(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    await ensureAuth();
+    await requireConfigEdit();
 
-    const { id } = await context.params;
-    const planoId = parseId(id);
-    if (!planoId) {
-      return NextResponse.json({ error: "ID inválido." }, { status: 400 });
-    }
+    const { id: bruto } = await context.params;
+    const id = parseId(bruto);
+    if (!id) return NextResponse.json({ error: "ID inválido." }, { status: 400 });
 
     const body = await req.json().catch(() => ({}));
-    const { ativo } = body as { ativo?: boolean };
-
-    if (typeof ativo !== "boolean") {
-      return NextResponse.json(
-        { error: "Campo 'ativo' deve ser boolean." },
-        { status: 400 },
-      );
+    if (typeof body.ativo !== "boolean") {
+      return NextResponse.json({ error: "Campo 'ativo' deve ser boolean." }, { status: 400 });
     }
 
-    const now = new Date().toISOString();
+    const atual = await relerConta(id);
+    if (!atual) return NextResponse.json({ error: "Plano de conta não encontrado." }, { status: 404 });
 
-    const { data, error } = await supabaseAdmin
-      .from("planosdeconta")
-      .update({ ativo, updatedat: now })
-      .eq("id", planoId)
-      .select(`id, nome, descricao, ativo`)
-      .maybeSingle();
+    const { data: classificacao } = atual.classificacao_especifica
+      ? await supabaseAdmin
+          .from("classificacoes_resultado")
+          .select("id")
+          .eq("codigo", atual.classificacao_especifica)
+          .maybeSingle()
+      : { data: null };
 
+    const { error } = await supabaseAdmin.rpc("plano_contas_salvar_conta", {
+      p_id: id,
+      p_codigo: atual.conta_codigo,
+      p_nome: atual.conta_nome,
+      p_descricao: atual.conta_descricao,
+      p_ativo: body.ativo,
+      p_grupo_id: Number(atual.grupo_id),
+      p_classificacao_id: classificacao ? Number(classificacao.id) : null,
+      p_versao_esperada: Number.isInteger(Number(body.versao_registro))
+        ? Number(body.versao_registro)
+        : null,
+      p_vigencia_inicio: null,
+      p_usuario: null,
+      p_justificativa: null,
+    });
     if (error) throw error;
-    if (!data) {
-      return NextResponse.json(
-        { error: "Plano de conta não encontrado." },
-        { status: 404 },
-      );
-    }
 
-    const item = {
-      id: data.id as number,
-      nome: data.nome as string,
-      descricao: (data.descricao as string | null) ?? null,
-      icone: "other",
-      codigo_sistema: null,
-      ativo: typeof data.ativo === "boolean" ? (data.ativo as boolean) : true,
-    };
+    const linha = await relerConta(id);
+    if (!linha) return NextResponse.json({ error: "Plano de conta não encontrado." }, { status: 404 });
 
-    return NextResponse.json({ item });
-  } catch (e: any) {
-    console.error("[/api/tipos/planos-de-conta/:id PATCH] error:", e);
-    const msg = String(e?.message ?? "");
-    const status = /auth|unauth|não autenticado/i.test(msg) ? 401 : 500;
-
+    return NextResponse.json({ item: mapearConta(linha) });
+  } catch (error) {
+    console.error("[/api/tipos/planos-de-conta/:id PATCH]", error);
     return NextResponse.json(
-      {
-        error: e?.message ?? "Erro ao atualizar status do plano de conta",
-      },
-      { status },
+      { error: mensagemDoErro(error, "Erro ao atualizar status do plano de conta") },
+      { status: statusDoErro(error) },
     );
   }
 }
 
-// DELETE /api/tipos/planos-de-conta/[id]
-export async function DELETE(
-  req: NextRequest,
-  context: { params: Promise<{ id: string }> },
-) {
+/**
+ * DELETE só remove cadastro que nunca foi usado.
+ *
+ * A FK de `transacao.plano_de_conta_id` é ON DELETE SET NULL: apagar uma conta
+ * usada não dava erro, deixava os lançamentos sem conta e sem aviso. A partir
+ * daqui, o caminho para tirar uma conta de circulação é inativá-la.
+ */
+export async function DELETE(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    await ensureAuth();
+    await requireConfigEdit();
 
-    const { id } = await context.params;
-    const planoId = parseId(id);
-    if (!planoId) {
-      return NextResponse.json({ error: "ID inválido." }, { status: 400 });
+    const { id: bruto } = await context.params;
+    const id = parseId(bruto);
+    if (!id) return NextResponse.json({ error: "ID inválido." }, { status: 400 });
+
+    const { data: uso, error: erroUso } = await supabaseAdmin
+      .rpc("plano_contas_uso_da_conta", { p_conta_id: id })
+      .maybeSingle();
+    if (erroUso) throw erroUso;
+
+    const transacoes = Number((uso as { transacoes?: number } | null)?.transacoes ?? 0);
+    if (transacoes > 0) {
+      return NextResponse.json(
+        {
+          error: `Esta conta tem ${transacoes} lançamento(s) e não pode ser excluída. Inative-a para tirá-la das listas sem perder o histórico.`,
+        },
+        { status: 409 },
+      );
     }
 
-    const { error } = await supabaseAdmin
-      .from("planosdeconta")
-      .delete()
-      .eq("id", planoId);
-
+    const { error } = await supabaseAdmin.from("planosdeconta").delete().eq("id", id);
     if (error) throw error;
 
     return new NextResponse(null, { status: 204 });
-  } catch (e: any) {
-    console.error("[/api/tipos/planos-de-conta/:id DELETE] error:", e);
-    const msg = String(e?.message ?? "");
-    const status = /auth|unauth|não autenticado/i.test(msg) ? 401 : 500;
-
+  } catch (error) {
+    console.error("[/api/tipos/planos-de-conta/:id DELETE]", error);
     return NextResponse.json(
-      {
-        error: e?.message ?? "Erro ao deletar plano de conta",
-      },
-      { status },
+      { error: mensagemDoErro(error, "Erro ao deletar plano de conta") },
+      { status: statusDoErro(error) },
     );
   }
 }
