@@ -135,6 +135,16 @@ export interface Decisao {
     competencia_em?: string | null;
   } | null;
   observacao?: string | null;
+  /**
+   * Conciliação N:1 — as linhas do extrato que respondem juntas por este
+   * lançamento, quando o banco quebrou em duas o que a empresa lançou numa só.
+   *
+   * Inclui a própria `fingerprint`. Ausente ou com um elemento é o caso de
+   * sempre. A mesma decisão fica guardada sob a chave de cada participante, para
+   * a tabela mostrar as linhas decididas; o envio manda uma cópia só.
+   */
+  grupo?: string[] | null;
+  movimentoIds?: number[] | null;
 }
 
 export interface ImportacaoResumida {
@@ -234,7 +244,10 @@ export interface ImportacaoDetalhada
 
 export interface ResultadoDecisao {
   movimentoId: number;
+  /** Todas as linhas do ato. Uma, no caso de sempre. */
+  movimentoIds?: number[];
   fingerprint: string | null;
+  fingerprints?: string[];
   ok: boolean;
   acao: Decisao["acao"];
   transacaoId: number | null;

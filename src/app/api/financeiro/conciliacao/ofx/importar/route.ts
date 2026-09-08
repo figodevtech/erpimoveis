@@ -11,6 +11,7 @@ import { analisarExtrato, lerArquivoEnviado } from "../_lib/analise";
 import {
   ACOES_DE_EDICAO,
   aplicarDecisao,
+  chavesDaDecisao,
   normalizarDecisao,
   type Decisao,
   type ResultadoDecisao,
@@ -120,23 +121,36 @@ export async function POST(req: Request) {
 
     const resultados: ResultadoDecisao[] = [];
     for (const decisao of decisoes) {
-      const movimentoId =
-        decisao.movimentoId ??
-        (decisao.fingerprint ? porFingerprint.get(decisao.fingerprint) : undefined);
+      const chaves = chavesDaDecisao(decisao);
+      const movimentoIds = chaves
+        .map((chave) => porFingerprint.get(chave))
+        .filter((valor): valor is number => valor != null);
 
-      if (!movimentoId) {
+      /*
+       * O grupo é tudo ou nada.
+       *
+       * Se uma das linhas não entrou no arquivo — repetida de outro extrato, por
+       * exemplo —, conciliar as que sobraram fecharia o lançamento com uma soma
+       * menor do que ele. Melhor deixar o ato inteiro em aberto e dizer por quê.
+       */
+      if (!movimentoIds.length || movimentoIds.length !== chaves.length) {
         resultados.push({
-          movimentoId: 0,
+          movimentoId: movimentoIds[0] ?? 0,
+          movimentoIds,
           fingerprint: decisao.fingerprint ?? null,
+          fingerprints: chaves,
           ok: false,
           acao: decisao.acao,
           transacaoId: null,
-          erro: "Este movimento não faz parte do arquivo importado.",
+          erro:
+            chaves.length > 1
+              ? "Alguma das linhas conciliadas juntas não faz parte do arquivo importado."
+              : "Este movimento não faz parte do arquivo importado.",
         });
         continue;
       }
 
-      resultados.push(await aplicarDecisao(movimentoId, decisao, usuarioId));
+      resultados.push(await aplicarDecisao(movimentoIds, decisao, usuarioId));
     }
 
     return NextResponse.json({
@@ -145,7 +159,11 @@ export async function POST(req: Request) {
         quantidadeMovimentos: (registro as any)?.quantidade_movimentos ?? 0,
         quantidadeImportados: (registro as any)?.quantidade_importados ?? 0,
         quantidadeRepetidos: (registro as any)?.quantidade_repetidos ?? 0,
-        conciliados: resultados.filter((resultado) => resultado.ok).length,
+        // Linhas do extrato, nao atos: uma conciliacao N:1 resolve duas de uma vez,
+        // e a tela diz "movimentos processados".
+        conciliados: resultados
+          .filter((resultado) => resultado.ok)
+          .reduce((total, resultado) => total + resultado.movimentoIds.length, 0),
         falhas: resultados.filter((resultado) => !resultado.ok),
         resultados,
       },

@@ -57,7 +57,16 @@ export function MovimentoDialog({
 }: Props) {
   return (
     <Dialog open={aberto} onOpenChange={setAberto}>
-      <DialogContent className="flex max-h-[94dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl">
+      {/*
+        Clique fora aqui é sempre acidente: a revisão tem forma de pagamento
+        escolhida e busca manual feita para perder. Esc e o X continuam fechando
+        — a tela tem "Confirmar" e "Deixar em aberto" à vista, e travar todas as
+        saídas prenderia o usuário dentro do dialog.
+      */}
+      <DialogContent
+        className="flex max-h-[94dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl"
+        onInteractOutside={(evento) => evento.preventDefault()}
+      >
         <DialogHeader className="shrink-0 border-b bg-muted/20 px-5 py-4 pr-12 sm:px-6 sm:pr-12">
           <p className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-primary">
             <ArrowLeftRight className="size-3.5" />

@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { analisarMovimento, casarComFluxo, casarComTitulos, type CandidatoTransacao } from "./matcher";
+import {
+  analisarMovimento,
+  casarComFluxo,
+  casarComTitulos,
+  motivoDeIncompatibilidade,
+  type CandidatoTransacao,
+} from "./matcher";
 import type { OfxMovimento } from "./types";
 
 const BANCO = 7;
@@ -303,4 +309,96 @@ test("o Fluxo é consultado antes dos títulos, nunca depois", () => {
   const analise = analisarMovimento(movimento(), [liquidada, titulo], BANCO);
   assert.equal(analise.situacao, "MATCH_EXATO");
   assert.equal(analise.sugestoes[0].transacaoId, 50);
+});
+
+/* ------------------------------------------ Motivo da incompatibilidade */
+
+test("compatível não tem motivo: null é o par de virar sugestão", () => {
+  // O contrato que a tela usa para decidir se a linha é clicável. Se um dia ele
+  // divergir de casarComFluxo, o seletor oferece o que o banco vai recusar.
+  const candidato = transacao();
+  assert.equal(motivoDeIncompatibilidade(movimento(), candidato, BANCO, "FLUXO"), null);
+  assert.equal(casarComFluxo(movimento(), [candidato], BANCO).length, 1);
+});
+
+test("no Fluxo, cada recusa tem a sua frase", () => {
+  const casos: Array<[Partial<CandidatoTransacao>, RegExp]> = [
+    [{ pendente: true }, /título em aberto/i],
+    [{ abonado: true }, /abonado/i],
+    [{ banco_id: 99 }, /outra conta bancária/i],
+    [{ adiantamento_id: 5, valor_baixado: 0 }, /antecipação/i],
+    [{ tipo: "RECEITA" }, /sentido oposto/i],
+    [{ valor: 1234.56 }, /valor difere/i],
+  ];
+
+  for (const [alteracao, esperado] of casos) {
+    const candidato = transacao(alteracao);
+    const motivo = motivoDeIncompatibilidade(movimento(), candidato, BANCO, "FLUXO");
+    assert.match(motivo ?? "", esperado);
+    // Toda frase corresponde a um candidato que casarComFluxo de fato descarta.
+    assert.equal(casarComFluxo(movimento(), [candidato], BANCO).length, 0);
+  }
+});
+
+test("o motivo de valor mostra os dois números, extrato e transação", () => {
+  const motivo =
+    motivoDeIncompatibilidade(movimento(), transacao({ valor: 5000 }), BANCO, "FLUXO") ?? "";
+  assert.match(motivo, /5\.835,69/);
+  assert.match(motivo, /5\.000,00/);
+});
+
+test("venda no cartão com taxa é compatível, e não vira motivo de valor", () => {
+  // O caso que obriga a comparação pelo líquido: R$ 1.000 de venda, R$ 30 de
+  // taxa, R$ 970 no extrato.
+  const credito = movimento({ valorCentavos: 97_000, tipoOfx: "CREDIT" });
+  const venda = transacao({ tipo: "RECEITA", valor: 1000, valorLiquido: 970 });
+  assert.equal(motivoDeIncompatibilidade(credito, venda, BANCO, "FLUXO"), null);
+});
+
+test("no título, cada recusa tem a sua frase", () => {
+  const pix = movimento({ valorCentavos: -100_000 });
+  const base: Partial<CandidatoTransacao> = { pendente: true, valor: 1000 };
+  const casos: Array<[Partial<CandidatoTransacao>, RegExp]> = [
+    [{ pendente: false }, /já baixado/i],
+    [{ abonado: true }, /abonado/i],
+    [{ eh_adiantamento: true }, /antecipação ou pagamento múltiplo/i],
+    [{ pagamento_multiplo_id: 3 }, /antecipação ou pagamento múltiplo/i],
+    [{ tipo: "RECEITA" }, /sentido oposto/i],
+    [{ valor: 800 }, /saldo de/i],
+  ];
+
+  for (const [alteracao, esperado] of casos) {
+    const candidato = transacao({ ...base, ...alteracao });
+    assert.match(motivoDeIncompatibilidade(pix, candidato, BANCO, "TITULO") ?? "", esperado);
+  }
+});
+
+test("título com saldo suficiente é compatível, inclusive para baixa parcial", () => {
+  const pix = movimento({ valorCentavos: -40_000 });
+  const titulo = transacao({ pendente: true, valor: 1000, banco_id: null });
+
+  assert.equal(motivoDeIncompatibilidade(pix, titulo, BANCO, "TITULO"), null);
+  const sugestoes = casarComTitulos(pix, [titulo]);
+  assert.equal(sugestoes.length, 1);
+  assert.equal(sugestoes[0].parcial, true);
+});
+
+test("título já pago em parte é medido pelo saldo, não pelo valor cheio", () => {
+  const pix = movimento({ valorCentavos: -60_000 });
+  const titulo = transacao({ pendente: true, valor: 1000, valor_baixado: 600 });
+
+  // Saldo de R$ 400: um movimento de R$ 600 não cabe mais.
+  const motivo = motivoDeIncompatibilidade(pix, titulo, BANCO, "TITULO") ?? "";
+  assert.match(motivo, /saldo de/i);
+  assert.match(motivo, /400,00/);
+  assert.equal(casarComTitulos(pix, [titulo]).length, 0);
+});
+
+test("a mesma transação pode ser incompatível num lado e compatível no outro", () => {
+  // Título em aberto: não serve como movimento já no Fluxo, serve como baixa.
+  const pix = movimento({ valorCentavos: -100_000 });
+  const titulo = transacao({ pendente: true, valor: 1000 });
+
+  assert.match(motivoDeIncompatibilidade(pix, titulo, BANCO, "FLUXO") ?? "", /título em aberto/i);
+  assert.equal(motivoDeIncompatibilidade(pix, titulo, BANCO, "TITULO"), null);
 });

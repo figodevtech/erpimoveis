@@ -95,3 +95,46 @@ test("barra invertida e neutralizada antes das aspas", () => {
   const filtro = filtroDeBusca('c:\\nota') ?? "";
   assert.ok(filtro.includes('descricao.ilike."*c:\\\\nota*"'));
 });
+
+test("os: e venda: procuram o vinculo, e mais nada", () => {
+  assert.equal(filtroDeBusca("os:1204"), "ordemservicoid.eq.1204");
+  assert.equal(filtroDeBusca("OS 1204"), "ordemservicoid.eq.1204");
+  assert.equal(filtroDeBusca("os#1204"), "ordemservicoid.eq.1204");
+  assert.equal(filtroDeBusca("  venda: 45 "), "vendaid.eq.45");
+  assert.equal(filtroDeBusca("VENDA45"), "vendaid.eq.45");
+});
+
+test("prefixo sem numero atras continua sendo texto", () => {
+  // "os" sozinho e artigo, nao prefixo: melhor procurar pelo texto do que
+  // devolver lista vazia, que e a mesma escolha do "#".
+  for (const termo of ["os", "os pneus", "venda de pecas", "venda"]) {
+    const filtro = filtroDeBusca(termo) ?? "";
+    assert.ok(filtro.includes("descricao.ilike."), `"${termo}" deveria virar texto`);
+    assert.ok(!filtro.includes("ordemservicoid.eq"));
+    assert.ok(!filtro.includes("vendaid.eq"));
+  }
+});
+
+test("numero puro procura o lancamento, a OS e a venda ao mesmo tempo", () => {
+  // Quem digita "1204" na conciliacao quase sempre esta com a OS na mao. As
+  // tres sao condicoes do mesmo `or`: somam resultado, nao estreitam.
+  const filtro = filtroDeBusca("1204") ?? "";
+  assert.ok(filtro.includes("id.eq.1204"));
+  assert.ok(filtro.includes("ordemservicoid.eq.1204"));
+  assert.ok(filtro.includes("vendaid.eq.1204"));
+  assert.ok(filtro.includes("descricao.ilike."));
+});
+
+test("numero que nao cabe no integer nao vai para OS nem venda", () => {
+  // As duas colunas sao integer: um numero maior derrubaria a consulta inteira.
+  const filtro = filtroDeBusca("1234567890") ?? "";
+  assert.ok(filtro.includes("id.eq.1234567890"));
+  assert.ok(!filtro.includes("ordemservicoid.eq"));
+  assert.ok(!filtro.includes("vendaid.eq"));
+
+  assert.ok(!(filtroDeBusca("os:1234567890") ?? "").includes("ordemservicoid.eq"));
+});
+
+test("# continua procurando so o lancamento, sem OS nem venda", () => {
+  assert.equal(filtroDeBusca("#1204"), "id.eq.1204");
+});

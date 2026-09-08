@@ -1,7 +1,17 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { AlertTriangle, History, Landmark, Upload } from "lucide-react";
+import { AlertTriangle, History, Landmark, Upload, X } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -28,6 +38,7 @@ import { decisaoDeNovaTransacao, transacaoInicialOfx } from "./nova-transacao";
 import { MovimentoDetalhes } from "./movimento-detalhes";
 import { OfxUpload } from "./ofx-upload";
 import { ConciliacaoTabela } from "./conciliacao-tabela";
+import { GrupoDialog } from "./grupo-dialog";
 import {
   ConciliacaoConfirmacao,
   ConciliacaoResultado,
@@ -57,6 +68,9 @@ function CentralConciliacao({ aberto, setAberto, onConcluido }: Props) {
   const [detalhes, setDetalhes] = useState<MovimentoAnalisado | null>(null);
   const [confirmacao, setConfirmacao] = useState(false);
   const [trocarArquivo, setTrocarArquivo] = useState(false);
+  const [confirmarSaida, setConfirmarSaida] = useState(false);
+  /** As linhas escolhidas para uma conciliação N:1, enquanto o dialog decide. */
+  const [agrupamento, setAgrupamento] = useState<MovimentoAnalisado[]>([]);
   const retornoFoco = useRef<HTMLElement | null>(null);
   const criando =
     edicao &&
@@ -100,13 +114,41 @@ function CentralConciliacao({ aberto, setAberto, onConcluido }: Props) {
     <Dialog
       open={aberto}
       onOpenChange={(v) => {
-        if (!bloqueado) setAberto(v);
+        /*
+         * Nada fecha esta tela por acidente.
+         *
+         * Analisar um extrato e decidir movimento a movimento leva minutos, e
+         * nada disso é gravado antes de "confirmar o lote": um clique fora ou um
+         * Esc distraído jogava fora o trabalho inteiro, sem aviso e sem volta. O
+         * único caminho de saída é o X do cabeçalho, que pergunta antes.
+         */
+        if (!v) {
+          if (!bloqueado) setConfirmarSaida(true);
+          return;
+        }
+        setAberto(true);
       }}
     >
       <DialogContent
         className="flex max-h-[calc(100dvh-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(1280px,calc(100vw-2rem))]"
-        showCloseButton={!bloqueado}
+        // O X embutido é um `DialogPrimitive.Close`: fecharia sem passar pela
+        // confirmação. Quem fecha é o botão do cabeçalho, logo abaixo.
+        showCloseButton={false}
+        onInteractOutside={(evento) => evento.preventDefault()}
+        onEscapeKeyDown={(evento) => evento.preventDefault()}
       >
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label="Fechar conciliação"
+          title="Fechar conciliação"
+          disabled={bloqueado}
+          onClick={() => setConfirmarSaida(true)}
+          className="absolute top-3 right-3 z-20 size-8 hover:cursor-pointer"
+        >
+          <X className="size-4" />
+        </Button>
         <div className="shrink-0 border-b px-4 py-4 pr-12 sm:px-6 sm:pr-12">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <DialogHeader className="text-left">
@@ -348,6 +390,7 @@ function CentralConciliacao({ aberto, setAberto, onConcluido }: Props) {
                       acao: "IGNORAR",
                     })
                   }
+                  onAgrupar={setAgrupamento}
                 />
               )}
             </div>
@@ -511,6 +554,41 @@ function CentralConciliacao({ aberto, setAberto, onConcluido }: Props) {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        <GrupoDialog
+          linhas={agrupamento}
+          aberto={agrupamento.length > 1}
+          setAberto={(valor) => {
+            if (!valor) setAgrupamento([]);
+          }}
+          bancoId={Number(c.bancoId)}
+          conta={conta}
+          onConfirmar={(base) => {
+            c.agrupar(agrupamento, base);
+            setAgrupamento([]);
+          }}
+        />
+        <AlertDialog open={confirmarSaida} onOpenChange={setConfirmarSaida}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Sair da conciliação?</AlertDialogTitle>
+              <AlertDialogDescription>
+                As escolhas ainda não confirmadas serão descartadas. As
+                conciliações já registradas permanecem no histórico.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Continuar conciliando</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  setConfirmarSaida(false);
+                  setAberto(false);
+                }}
+              >
+                Sair e descartar
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   );

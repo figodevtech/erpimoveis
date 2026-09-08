@@ -34,6 +34,28 @@ const CAMPOS_TEXTO = [
 ] as const;
 
 /**
+ * Vinculos que o usuario chama pelo numero do documento, e nao por texto.
+ *
+ * `os:123` e `venda:45` procuram a ordem de servico 123 e a venda 45 — e mais
+ * nada, do mesmo jeito que `#123` procura o lancamento. Sao os dois numeros que
+ * a tela mostra ao lado da transacao e que a busca manual da conciliacao ja
+ * prometia no seu placeholder ("Descricao, pagador, OS ou venda...") sem nunca
+ * ter cumprido: OS e venda nao sao coluna de texto, entao o `ilike` nunca as
+ * alcancou.
+ *
+ * O separador e opcional para o termo digitado no ritmo de quem fala: `os:123`,
+ * `os 123` e `os#123` sao a mesma pergunta. Sem numero atras, o termo cai no
+ * caminho de texto — "os" sozinho e artigo, nao prefixo.
+ *
+ * Nove digitos porque as duas colunas sao `integer`: um numero maior derrubaria
+ * a consulta inteira no lugar de nao achar nada.
+ */
+const PREFIXOS_DE_VINCULO: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^os\s*[:#]?\s*(\d{1,9})$/i, "ordemservicoid"],
+  [/^venda\s*[:#]?\s*(\d{1,9})$/i, "vendaid"],
+] as const;
+
+/**
  * Escapa o termo para dentro de um `or()` do PostgREST.
  *
  * A lista de condicoes e separada por virgula e agrupada por parenteses, entao
@@ -68,6 +90,11 @@ export function filtroDeBusca(termo: string): string | null {
   const porId = /^#\s*(\d{1,15})$/.exec(limpo);
   if (porId) return `id.eq.${porId[1]}`;
 
+  for (const [padraoDoVinculo, campo] of PREFIXOS_DE_VINCULO) {
+    const porVinculo = padraoDoVinculo.exec(limpo);
+    if (porVinculo) return `${campo}.eq.${porVinculo[1]}`;
+  }
+
   const padrao = paraPadrao(limpo);
   const condicoes = CAMPOS_TEXTO.map((campo) => `${campo}.ilike.${padrao}`);
 
@@ -93,6 +120,22 @@ export function filtroDeBusca(termo: string): string | null {
    */
   if (/^\d{1,15}$/.test(limpo)) {
     condicoes.push(`id.eq.${limpo}`);
+  }
+
+  /*
+   * O numero solto tambem procura a OS e a venda.
+   *
+   * Quem digita "1204" na conciliacao quase sempre esta com a OS na mao, nao com
+   * o id do lancamento — e ate aqui so o id respondia. Sao condicoes de
+   * igualdade dentro do mesmo `or`, entao elas somam resultado em vez de
+   * estreitar: o "1204" continua achando a nota 1204 pelo texto.
+   *
+   * O teto de nove digitos e o mesmo de `PREFIXOS_DE_VINCULO`, e pela mesma
+   * razao: as duas colunas sao `integer`.
+   */
+  if (/^\d{1,9}$/.test(limpo)) {
+    condicoes.push(`ordemservicoid.eq.${limpo}`);
+    condicoes.push(`vendaid.eq.${limpo}`);
   }
 
   return condicoes.join(",");

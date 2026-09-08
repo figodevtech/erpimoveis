@@ -16,7 +16,7 @@ import type {
   MovimentoAnalisado,
   ResultadoConciliacao,
 } from "./types";
-import { descricaoMovimento } from "./apresentacao";
+import { chavesDaDecisao, descricaoMovimento, ehAgrupada } from "./apresentacao";
 
 const rotulos = {
   VINCULAR: "Vínculos com transações existentes",
@@ -49,8 +49,14 @@ export function ConciliacaoConfirmacao({
   erro: string | null;
 }) {
   const contagens = { VINCULAR: 0, LIQUIDAR: 0, CRIAR: 0, IGNORAR: 0 };
-  const porChave = new Map(decisoes.map((d) => [d.fingerprint, d]));
+  // Uma conciliação N:1 responde por várias linhas: indexar só pela primeira
+  // deixaria as outras fora do filtro de "ignorar" e do total de dinheiro.
+  const porChave = new Map(
+    decisoes.flatMap((d) => chavesDaDecisao(d).map((chave) => [chave, d] as const)),
+  );
   for (const d of decisoes) contagens[d.acao]++;
+  const agrupadas = decisoes.filter(ehAgrupada);
+  const linhasAgrupadas = agrupadas.reduce((total, d) => total + (d.grupo?.length ?? 0), 0);
   const financeiras = linhas.filter(
     (m) => porChave.get(m.fingerprint)?.acao !== "IGNORAR",
   );
@@ -95,6 +101,14 @@ export function ConciliacaoConfirmacao({
             </div>
           ))}
         </dl>
+        {agrupadas.length > 0 && (
+          <p className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-xs">
+            {linhasAgrupadas} linhas do extrato são conciliadas juntas, em{" "}
+            {agrupadas.length}{" "}
+            {agrupadas.length === 1 ? "lançamento" : "lançamentos"} do ERP. A
+            soma de cada grupo é conferida contra o valor do lançamento.
+          </p>
+        )}
         <div className="grid grid-cols-2 gap-3 border-t pt-3 text-sm">
           <div>
             <p className="text-xs text-muted-foreground">

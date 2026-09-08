@@ -2,13 +2,17 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   comoMovimentoAnalisado,
+  chavesDaDecisao,
   conflitosDeSelecao,
   dataDaTransacao,
   decisaoCompleta,
   decisoesIniciais,
+  decisoesUnicas,
+  ehAgrupada,
   descricaoMovimento,
   formatarDia,
   resolvido,
+  semDecisoesDe,
 } from "./apresentacao";
 import type { Decisao, MovimentoAnalisado, MovimentoGravado } from "./types";
 
@@ -154,4 +158,89 @@ test("tratamento visual preserva o texto original e a auditoria da conciliação
   assert.equal(convertido.transacaoId, 7);
   assert.equal(convertido.tituloOrigemId, 5);
   assert.equal(convertido.acaoGravada, "BAIXA_PARCIAL");
+});
+
+/* ------------------------------------------------- conciliação N:1 */
+
+/** Uma decisão de grupo, guardada sob a chave de cada participante. */
+const emGrupo = (chaves: string[], extra: Partial<Decisao> = {}): Decisao[] => {
+  const decisao: Decisao = {
+    fingerprint: chaves[0],
+    acao: "VINCULAR",
+    transacaoId: 1342,
+    grupo: chaves,
+    ...extra,
+  };
+  return chaves.map(() => decisao);
+};
+
+test("a decisão de grupo responde por todas as linhas, e a comum só pela sua", () => {
+  const [decisao] = emGrupo(["a", "b"]);
+  assert.deepEqual(chavesDaDecisao(decisao), ["a", "b"]);
+  assert.equal(ehAgrupada(decisao), true);
+
+  const sozinha: Decisao = { fingerprint: "c", acao: "IGNORAR" };
+  assert.deepEqual(chavesDaDecisao(sozinha), ["c"]);
+  assert.equal(ehAgrupada(sozinha), false);
+  assert.equal(ehAgrupada(undefined), false);
+});
+
+test("o grupo é enviado uma vez só, não uma por participante", () => {
+  // A mesma decisão está sob "a" e sob "b". Mandar as duas faria a segunda
+  // chegar depois de o banco já ter marcado as linhas, e voltar como
+  // "movimento já resolvido".
+  assert.equal(decisoesUnicas(emGrupo(["a", "b"])).length, 1);
+  assert.equal(decisoesUnicas(emGrupo(["a", "b", "c"])).length, 1);
+});
+
+test("grupos distintos e decisões comuns continuam sendo atos separados", () => {
+  const misturado = [
+    ...emGrupo(["a", "b"]),
+    ...emGrupo(["c", "d"], { transacaoId: 99 }),
+    { fingerprint: "e", acao: "IGNORAR" } as Decisao,
+  ];
+  assert.equal(decisoesUnicas(misturado).length, 3);
+});
+
+test("uma conciliação N:1 não é conflito consigo mesma", () => {
+  // Duas linhas para a mesma transação são o ato, não duas reivindicações dela.
+  assert.equal(conflitosDeSelecao(emGrupo(["a", "b"])).size, 0);
+});
+
+test("dois grupos na mesma transação são conflito, e todas as linhas são marcadas", () => {
+  const conflito = conflitosDeSelecao([
+    ...emGrupo(["a", "b"]),
+    ...emGrupo(["c", "d"]),
+  ]);
+  assert.deepEqual([...conflito].sort(), ["a", "b", "c", "d"]);
+});
+
+test("um grupo e um vínculo solto na mesma transação também colidem", () => {
+  const conflito = conflitosDeSelecao([
+    ...emGrupo(["a", "b"]),
+    { fingerprint: "z", acao: "VINCULAR", transacaoId: 1342 },
+  ]);
+  assert.deepEqual([...conflito].sort(), ["a", "b", "z"]);
+});
+
+test("desfazer uma linha do grupo desfaz o ato inteiro", () => {
+  // Apagar só a chave pedida deixaria a outra linha apontando para uma decisão
+  // que ainda promete conciliá-la, e a soma enviada não seria a montada.
+  const [decisao] = emGrupo(["a", "b"]);
+  const mapa: Record<string, Decisao> = {
+    a: decisao,
+    b: decisao,
+    c: { fingerprint: "c", acao: "IGNORAR" },
+  };
+
+  assert.deepEqual(Object.keys(semDecisoesDe(mapa, ["b"])), ["c"]);
+  assert.deepEqual(Object.keys(semDecisoesDe(mapa, ["a"])), ["c"]);
+  assert.deepEqual(Object.keys(semDecisoesDe(mapa, ["c"])).sort(), ["a", "b"]);
+  assert.deepEqual(Object.keys(semDecisoesDe(mapa, ["inexistente"])).sort(), ["a", "b", "c"]);
+});
+
+test("desfazer não mexe no mapa original", () => {
+  const mapa: Record<string, Decisao> = { a: { fingerprint: "a", acao: "IGNORAR" } };
+  semDecisoesDe(mapa, ["a"]);
+  assert.deepEqual(Object.keys(mapa), ["a"]);
 });

@@ -44,11 +44,24 @@ export interface Decisao {
   centroCustoId?: number | null;
   nova?: NovaTransacao | null;
   observacao?: string | null;
+  /**
+   * Conciliação N:1 — as linhas do extrato que respondem juntas por um
+   * lançamento só, quando o banco quebra em duas o que a empresa lançou numa.
+   *
+   * `grupo` são as fingerprints, e serve à importação, onde os movimentos ainda
+   * não têm id. `movimentoIds` serve à importação já gravada. Uma decisão de uma
+   * linha só chega com os dois vazios — é o mesmo caminho, com um elemento.
+   */
+  grupo?: string[] | null;
+  movimentoIds?: number[] | null;
 }
 
 export interface ResultadoDecisao {
+  /** O primeiro do ato. `movimentoIds` tem todos. */
   movimentoId: number;
+  movimentoIds: number[];
   fingerprint: string | null;
+  fingerprints: string[];
   ok: boolean;
   acao: AcaoDecisao;
   transacaoId: number | null;
@@ -59,6 +72,36 @@ function inteiroOuNulo(valor: unknown): number | null {
   if (valor == null || valor === "") return null;
   const numero = Number(valor);
   return Number.isSafeInteger(numero) && numero > 0 ? numero : null;
+}
+
+/**
+ * Teto do tamanho de um grupo.
+ *
+ * Não há razão de negócio para um lançamento responder por dezenas de linhas do
+ * extrato, e o limite impede que um corpo de requisição peça uma trava sobre
+ * meia tabela de movimentos.
+ */
+const MAXIMO_POR_GRUPO = 50;
+
+function textosUnicos(valor: unknown): string[] | null {
+  if (!Array.isArray(valor)) return null;
+  const limpos = valor
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, MAXIMO_POR_GRUPO);
+  const unicos = [...new Set(limpos)];
+  return unicos.length ? unicos : null;
+}
+
+function inteirosUnicos(valor: unknown): number[] | null {
+  if (!Array.isArray(valor)) return null;
+  const limpos = valor
+    .map((item) => inteiroOuNulo(item))
+    .filter((item): item is number => item != null)
+    .slice(0, MAXIMO_POR_GRUPO);
+  const unicos = [...new Set(limpos)];
+  return unicos.length ? unicos : null;
 }
 
 /**
@@ -88,8 +131,19 @@ export function normalizarDecisao(bruta: any): Decisao | null {
       ? bruta.fingerprint.trim()
       : undefined;
 
+  /*
+   * O grupo entra pela própria fingerprint junto: uma decisão de duas linhas
+   * chega com as duas, e o dono da decisão não é caso especial. Assim a rota
+   * resolve o conjunto inteiro de uma vez, sem ter que lembrar de somar o dono
+   * aos outros.
+   */
+  const grupo = textosUnicos(bruta.grupo);
+  const movimentoIds = inteirosUnicos(bruta.movimentoIds);
+
   return {
     fingerprint,
+    grupo,
+    movimentoIds,
     movimentoId: inteiroOuNulo(bruta.movimentoId) ?? undefined,
     acao,
     transacaoId,
@@ -106,6 +160,24 @@ export function normalizarDecisao(bruta: any): Decisao | null {
         ? bruta.observacao.trim().slice(0, 500)
         : null,
   };
+}
+
+/**
+ * As linhas do extrato que esta decisão resolve, pelas fingerprints.
+ *
+ * O grupo já inclui a própria — quem monta a decisão manda o conjunto inteiro —,
+ * então uma decisão de uma linha só cai na fingerprint sozinha e o resto do
+ * caminho não precisa distinguir os dois casos.
+ */
+export function chavesDaDecisao(decisao: Decisao): string[] {
+  if (decisao.grupo?.length) return decisao.grupo;
+  return decisao.fingerprint ? [decisao.fingerprint] : [];
+}
+
+/** Os ids das linhas que esta decisão resolve, numa importação já gravada. */
+export function idsDaDecisao(decisao: Decisao): number[] {
+  if (decisao.movimentoIds?.length) return decisao.movimentoIds;
+  return decisao.movimentoId ? [decisao.movimentoId] : [];
 }
 
 /** Traduz a recusa do banco para uma frase que serve na tela. */
@@ -126,14 +198,26 @@ function mensagemDoErro(error: { code?: string; message?: string }): string {
   return "Não foi possível conciliar o movimento.";
 }
 
-/** Executa uma decisão. A atomicidade é da RPC; aqui só se relata o resultado. */
+/**
+ * Executa uma decisão. A atomicidade é da RPC; aqui só se relata o resultado.
+ *
+ * `movimentoIds` é o ato inteiro: uma linha no caso de sempre, várias quando o
+ * banco quebrou em duas o que o ERP lançou numa só. A RPC confere a soma e
+ * grava as linhas todas de uma vez — se qualquer uma falhar, nenhuma é marcada.
+ */
 export async function aplicarDecisao(
-  movimentoId: number,
+  movimentoIds: number[],
   decisao: Decisao,
   usuarioId: string | null,
 ): Promise<ResultadoDecisao> {
-  const { data, error } = await supabaseAdmin.rpc("conciliar_movimento_ofx", {
-    p_movimento_id: movimentoId,
+  const fingerprints = decisao.grupo?.length
+    ? decisao.grupo
+    : decisao.fingerprint
+      ? [decisao.fingerprint]
+      : [];
+
+  const { data, error } = await supabaseAdmin.rpc("conciliar_movimentos_ofx", {
+    p_movimento_ids: movimentoIds,
     p_acao: decisao.acao,
     p_transacao_id: decisao.transacaoId ?? null,
     p_valor: decisao.valor ?? null,
@@ -147,8 +231,10 @@ export async function aplicarDecisao(
 
   if (error) {
     return {
-      movimentoId,
+      movimentoId: movimentoIds[0] ?? 0,
+      movimentoIds,
       fingerprint: decisao.fingerprint ?? null,
+      fingerprints,
       ok: false,
       acao: decisao.acao,
       transacaoId: null,
@@ -157,8 +243,10 @@ export async function aplicarDecisao(
   }
 
   return {
-    movimentoId,
+    movimentoId: movimentoIds[0] ?? 0,
+    movimentoIds,
     fingerprint: decisao.fingerprint ?? null,
+    fingerprints,
     ok: true,
     acao: decisao.acao,
     transacaoId: (data as any)?.transacao_id ?? null,

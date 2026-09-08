@@ -1,0 +1,1310 @@
+OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+<OFX>
+    <SIGNONMSGSRSV1>
+        <SONRS>
+            <STATUS>
+                <CODE>0
+                <SEVERITY>INFO
+            </STATUS>
+            <DTSERVER>20260901151411[-3:GMT]
+            <LANGUAGE>ENG
+            <FI>
+                <ORG>SANTANDER
+                <FID>SANTANDER
+            </FI>
+        </SONRS>
+    </SIGNONMSGSRSV1>
+    <BANKMSGSRSV1>
+        <STMTTRNRS>
+            <TRNUID>1
+            <STATUS>
+                <CODE>0
+                <SEVERITY>INFO
+            </STATUS>
+            <STMTRS>
+                <CURDEF>BRL
+                <BANKACCTFROM>
+                    <BANKID>033
+                    <ACCTID>4188130032815
+                    <ACCTTYPE>CHECKING
+                </BANKACCTFROM>
+                <BANKTRANLIST>
+                    <DTSTART>20260803000000[-3:GMT]
+                    <DTEND>20260831000000[-3:GMT]
+                    <STMTTRN>
+                        <TRNTYPE>CREDIT
+                        <DTPOSTED>20260803000000[-3:GMT]
+                        <TRNAMT>2500,00
+                        <FITID>4188130032815202609011514110
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX RECEBIDO     09257999475
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260803000000[-3:GMT]
+                        <TRNAMT>-161,01
+                        <FITID>4188130032815202609011514111
+                        <CHECKNUM>0000000700
+                        <PAYEEID>0
+                        <MEMO>IOF IMPOSTO OPERACOES FINANCEIRAS     CONTRATO 290000000700
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260803000000[-3:GMT]
+                        <TRNAMT>-743,16
+                        <FITID>4188130032815202609011514112
+                        <CHECKNUM>0000000700
+                        <PAYEEID>0
+                        <MEMO>PREST. DE EMPREST. FINANCIAMENTO     CONTRATO 290000000700
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260803000000[-3:GMT]
+                        <TRNAMT>-152,04
+                        <FITID>4188130032815202609011514113
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>IOF IMPOSTO OPERACOES FINANCEIRAS     PERIODO: 01/07 A 31/07/26
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260803000000[-3:GMT]
+                        <TRNAMT>-119,17
+                        <FITID>4188130032815202609011514114
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>IOF ADICIONAL - AUTOMATICO     PERIODO: 01/07 A 31/07/26
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>-95,00
+                        <FITID>4188130032815202609011514115
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>TARIFA ADIANTAMENTO DEPOSITANTE     31/07/2026
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>CREDIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>1000,00
+                        <FITID>4188130032815202609011514116
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX RECEBIDO     07980788478
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>CREDIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>4800,00
+                        <FITID>4188130032815202609011514117
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX RECEBIDO     04144085430
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>CREDIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>400000,00
+                        <FITID>4188130032815202609011514118
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX RECEBIDO     17201364000132
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>-71000,00
+                        <FITID>4188130032815202609011514119
+                        <CHECKNUM>13544840
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     EDUARDO  EDMIR MECANICA L
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>-18000,00
+                        <FITID>41881300328152026090115141110
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     MINEIRO TRATORPECAS
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>-20000,00
+                        <FITID>41881300328152026090115141111
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     AUTO ELETRICA DEMIR
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>CREDIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>6500,00
+                        <FITID>41881300328152026090115141112
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX RECEBIDO     07762021469
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>-321,85
+                        <FITID>41881300328152026090115141113
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     CIA BRA DE DIS AUTO SA
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>-687,50
+                        <FITID>41881300328152026090115141114
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     PARAIBA TURBO DIESEL COME
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>-478,62
+                        <FITID>41881300328152026090115141115
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     PARAIBA TURBO DIESEL COME
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>-314,39
+                        <FITID>41881300328152026090115141116
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     AMERICAN ATACADO
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>-311,36
+                        <FITID>41881300328152026090115141117
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     AMERICAN ATACADO
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>-318,77
+                        <FITID>41881300328152026090115141118
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     CHIPTRONIC ELETRON BRASIL
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>-504,90
+                        <FITID>41881300328152026090115141119
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     NACIONAL TURBO DIESEL COM
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>-351,61
+                        <FITID>41881300328152026090115141120
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     WURTH DO BRASIL PECAS DE
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>-2896,28
+                        <FITID>41881300328152026090115141121
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     BANCO VOTORANTIM S/A
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>-8634,71
+                        <FITID>41881300328152026090115141122
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     C E C INSTALACAO E MANUTE
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>-326,95
+                        <FITID>41881300328152026090115141123
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     BR 101 PROD AUTOMOTIV LTD
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>-177,38
+                        <FITID>41881300328152026090115141124
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     EKKO PARTS DISTRIBUIDORA
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>-913,09
+                        <FITID>41881300328152026090115141125
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     EVATRON COML ELETRONICA L
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>-667,98
+                        <FITID>41881300328152026090115141126
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     NACIONAL TURBO DIESEL COM
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>-300,96
+                        <FITID>41881300328152026090115141127
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     EKKO PARTS DISTRIBUIDORA
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>-526,21
+                        <FITID>41881300328152026090115141128
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     BR 101 PROD AUTOMOTIV LTD
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>-6372,00
+                        <FITID>41881300328152026090115141129
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     ELEWE VENDAS CONSULTORIA
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260804000000[-3:GMT]
+                        <TRNAMT>-281,45
+                        <FITID>41881300328152026090115141130
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     POSTOS DE COMBUSTIVEIS PI
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260805000000[-3:GMT]
+                        <TRNAMT>-29,70
+                        <FITID>41881300328152026090115141131
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>TARIFA AVULSA ENVIO PIX
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260805000000[-3:GMT]
+                        <TRNAMT>-7500,00
+                        <FITID>41881300328152026090115141132
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     SERGIO ENDRISSI SANCHES
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260805000000[-3:GMT]
+                        <TRNAMT>-3500,00
+                        <FITID>41881300328152026090115141133
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     GLEYDSON NASCIMENTO SILVA
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260805000000[-3:GMT]
+                        <TRNAMT>-14000,00
+                        <FITID>41881300328152026090115141134
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     EDMIR DE LIMA MARTINS
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260806000000[-3:GMT]
+                        <TRNAMT>-29,70
+                        <FITID>41881300328152026090115141135
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>TARIFA AVULSA ENVIO PIX
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260806000000[-3:GMT]
+                        <TRNAMT>-10000,00
+                        <FITID>41881300328152026090115141136
+                        <CHECKNUM>07524388
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     RONALDO ALFREDO DE OLIVEI
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260806000000[-3:GMT]
+                        <TRNAMT>-1754,61
+                        <FITID>41881300328152026090115141137
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     LUIZ FELIPE REGIS DOS SAN
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260806000000[-3:GMT]
+                        <TRNAMT>-349,83
+                        <FITID>41881300328152026090115141138
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     MARIA EDUARDA AMANCIO DE
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260806000000[-3:GMT]
+                        <TRNAMT>-30000,00
+                        <FITID>41881300328152026090115141139
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     DVA CONSTRUTORA
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260806000000[-3:GMT]
+                        <TRNAMT>-5000,00
+                        <FITID>41881300328152026090115141140
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     ERLON DA SILVA MELO
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>CREDIT
+                        <DTPOSTED>20260806000000[-3:GMT]
+                        <TRNAMT>2000,00
+                        <FITID>41881300328152026090115141141
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX RECEBIDO     12301739000112
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260806000000[-3:GMT]
+                        <TRNAMT>-2000,00
+                        <FITID>41881300328152026090115141142
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     ALEXBIM PROJETOS E GESTAO
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>CREDIT
+                        <DTPOSTED>20260806000000[-3:GMT]
+                        <TRNAMT>0,03
+                        <FITID>41881300328152026090115141143
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>RENDIMENTO LIQUIDO DE CONTAMAX     7000 RENDIMENTO LIQUIDO DE CONTAMAX     
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-237,00
+                        <FITID>41881300328152026090115141144
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>TARIFA MENSALIDADE PACOTE SERVICOS     JULHO / 2026
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-44,50
+                        <FITID>41881300328152026090115141145
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>TARIFA AVULSA ENVIO PIX
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-716,62
+                        <FITID>41881300328152026090115141146
+                        <CHECKNUM>0007931826
+                        <PAYEEID>0
+                        <MEMO>MENSALIDADE DE SEGURO     PARC 009/012 INCENDIO EMP
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-9800,00
+                        <FITID>41881300328152026090115141147
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     NORTE EQUIPAMENTOS E SERV
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-260,00
+                        <FITID>41881300328152026090115141148
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     GILBERTO NASCIMENTO VASCO
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-150,00
+                        <FITID>41881300328152026090115141149
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     SEVERINO EUDES NUNES DA C
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-15914,13
+                        <FITID>41881300328152026090115141150
+                        <CHECKNUM>155837
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DARF EM CANAIS     INTERNET TRIBUTOS FEDERAI
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-7739,51
+                        <FITID>41881300328152026090115141151
+                        <CHECKNUM>155918
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DARF EM CANAIS     INTERNET TRIBUTOS FEDERAI
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-50,00
+                        <FITID>41881300328152026090115141152
+                        <CHECKNUM>16174298
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     PATRICIA MAIA DE LIMA
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-1000,00
+                        <FITID>41881300328152026090115141153
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     JOSE MARTINS
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-50,00
+                        <FITID>41881300328152026090115141154
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     ALEXANDRO ALVES DOS SANTO
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-214,22
+                        <FITID>41881300328152026090115141155
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     GROUP SINTERCOM LTDA
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-329,00
+                        <FITID>41881300328152026090115141156
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     PARAIBA TURBO DIESEL COME
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-331,00
+                        <FITID>41881300328152026090115141157
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     PARAIBA TURBO DIESEL COME
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-1004,00
+                        <FITID>41881300328152026090115141158
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     PARAIBA TURBO DIESEL COME
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-3024,95
+                        <FITID>41881300328152026090115141159
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     POTENCIAL ELETRODIESEL MA
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-1680,00
+                        <FITID>41881300328152026090115141160
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     PARAIBA TURBO DIESEL COME
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-1520,00
+                        <FITID>41881300328152026090115141161
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     PARAIBA TURBO DIESEL COME
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-411,46
+                        <FITID>41881300328152026090115141162
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     ASF COMERCIO DE FERRO E F
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-213,25
+                        <FITID>41881300328152026090115141163
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     AMERICAN ATACADO
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-2856,13
+                        <FITID>41881300328152026090115141164
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     JBM DIESEL PARTS COMERCIO
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-524,22
+                        <FITID>41881300328152026090115141165
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     UNIDAS
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-416,51
+                        <FITID>41881300328152026090115141166
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     AMERICAN ATACADO
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-256,04
+                        <FITID>41881300328152026090115141167
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     AUTO NORTE DIST DE PECAS
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-494,92
+                        <FITID>41881300328152026090115141168
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     COSTA E COSTA DISTRIBUIDO
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-1430,74
+                        <FITID>41881300328152026090115141169
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     INGA TECNOLOGIA AUTOMOTIV
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-500,00
+                        <FITID>41881300328152026090115141170
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     NACIONAL TURBO
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-3479,62
+                        <FITID>41881300328152026090115141171
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     H C COM REPRESENT EIRELI
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-2058,33
+                        <FITID>41881300328152026090115141172
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     ROBSON DA SILVA GONCALVES
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-4594,50
+                        <FITID>41881300328152026090115141173
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     JBM DIESEL PARTS COMERCIO
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-347,54
+                        <FITID>41881300328152026090115141174
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     CIA BRA DE DIS AUTO SA
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-5700,00
+                        <FITID>41881300328152026090115141175
+                        <CHECKNUM>16392251
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     EDUARDO  EDMIR MECANICA L
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>-1,44
+                        <FITID>41881300328152026090115141176
+                        <CHECKNUM>193946
+                        <PAYEEID>0
+                        <MEMO>TARIFA MANUTENCAO TIT VENCIDO
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>CREDIT
+                        <DTPOSTED>20260807000000[-3:GMT]
+                        <TRNAMT>0,09
+                        <FITID>41881300328152026090115141177
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>RENDIMENTO LIQUIDO DE CONTAMAX     7000 RENDIMENTO LIQUIDO DE CONTAMAX     
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260810000000[-3:GMT]
+                        <TRNAMT>-27,29
+                        <FITID>41881300328152026090115141178
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>TARIFA AVULSA ENVIO PIX
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>CREDIT
+                        <DTPOSTED>20260810000000[-3:GMT]
+                        <TRNAMT>73,49
+                        <FITID>41881300328152026090115141179
+                        <CHECKNUM>11460832
+                        <PAYEEID>0
+                        <MEMO>PIX RECEBIDO     19620192000167
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>CREDIT
+                        <DTPOSTED>20260810000000[-3:GMT]
+                        <TRNAMT>6198,39
+                        <FITID>41881300328152026090115141180
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX RECEBIDO     36072732000134
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260810000000[-3:GMT]
+                        <TRNAMT>-3000,00
+                        <FITID>41881300328152026090115141181
+                        <CHECKNUM>17470853
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     EDUARDO  EDMIR MECANICA L
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260811000000[-3:GMT]
+                        <TRNAMT>-2200,00
+                        <FITID>41881300328152026090115141182
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     MARCIA DA SILVA
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260811000000[-3:GMT]
+                        <TRNAMT>-222,75
+                        <FITID>41881300328152026090115141183
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     NORTE EQUIPAMENTOS E SERV
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>CREDIT
+                        <DTPOSTED>20260811000000[-3:GMT]
+                        <TRNAMT>0,01
+                        <FITID>41881300328152026090115141184
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>RENDIMENTO LIQUIDO DE CONTAMAX     7000 RENDIMENTO LIQUIDO DE CONTAMAX     
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260812000000[-3:GMT]
+                        <TRNAMT>-13,02
+                        <FITID>41881300328152026090115141185
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>TARIFA AVULSA ENVIO PIX
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260814000000[-3:GMT]
+                        <TRNAMT>-641,23
+                        <FITID>41881300328152026090115141186
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     RECEITA FEDERAL
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260814000000[-3:GMT]
+                        <TRNAMT>-504,44
+                        <FITID>41881300328152026090115141187
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     RECEITA FEDERAL
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260814000000[-3:GMT]
+                        <TRNAMT>-11177,50
+                        <FITID>41881300328152026090115141188
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     RECEITA FEDERAL
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260814000000[-3:GMT]
+                        <TRNAMT>-3643,45
+                        <FITID>41881300328152026090115141189
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     RECEITA FEDERAL
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260814000000[-3:GMT]
+                        <TRNAMT>-4800,00
+                        <FITID>41881300328152026090115141190
+                        <CHECKNUM>16171887
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     EDUARDO EDMIR MECANICA LT
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>CREDIT
+                        <DTPOSTED>20260814000000[-3:GMT]
+                        <TRNAMT>0,23
+                        <FITID>41881300328152026090115141191
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>RENDIMENTO LIQUIDO DE CONTAMAX     7000 RENDIMENTO LIQUIDO DE CONTAMAX     
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260817000000[-3:GMT]
+                        <TRNAMT>-813,54
+                        <FITID>41881300328152026090115141192
+                        <CHECKNUM>0008261147
+                        <PAYEEID>0
+                        <MEMO>MENSALIDADE DE SEGURO     PARC 005/012 INCENDIO EMP
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260817000000[-3:GMT]
+                        <TRNAMT>-7360,88
+                        <FITID>41881300328152026090115141193
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     CEF MATRIZ
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260817000000[-3:GMT]
+                        <TRNAMT>-6000,00
+                        <FITID>41881300328152026090115141194
+                        <CHECKNUM>17303669
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     EDUARDO EDMIR MECANICA LT
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260817000000[-3:GMT]
+                        <TRNAMT>-2,88
+                        <FITID>41881300328152026090115141195
+                        <CHECKNUM>193946
+                        <PAYEEID>0
+                        <MEMO>TARIFA MANUTENCAO TIT VENCIDO
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>CREDIT
+                        <DTPOSTED>20260817000000[-3:GMT]
+                        <TRNAMT>0,23
+                        <FITID>41881300328152026090115141196
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>RENDIMENTO LIQUIDO DE CONTAMAX     7000 RENDIMENTO LIQUIDO DE CONTAMAX     
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260818000000[-3:GMT]
+                        <TRNAMT>-652,86
+                        <FITID>41881300328152026090115141197
+                        <CHECKNUM>0001802782
+                        <PAYEEID>0
+                        <MEMO>MENSALIDADE DE SEGURO     PARC 008/012 VIDA GRUPO
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260818000000[-3:GMT]
+                        <TRNAMT>-10,08
+                        <FITID>41881300328152026090115141198
+                        <CHECKNUM>193946
+                        <PAYEEID>0
+                        <MEMO>TARIFA MANUTENCAO TIT VENCIDO
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>CREDIT
+                        <DTPOSTED>20260818000000[-3:GMT]
+                        <TRNAMT>0,01
+                        <FITID>41881300328152026090115141199
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>RENDIMENTO LIQUIDO DE CONTAMAX     7000 RENDIMENTO LIQUIDO DE CONTAMAX     
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260819000000[-3:GMT]
+                        <TRNAMT>-476,91
+                        <FITID>418813003281520260901151411100
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     RIBEIRO S ELETRONICS LTDA
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260819000000[-3:GMT]
+                        <TRNAMT>-3483,33
+                        <FITID>418813003281520260901151411101
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     RIBEIRO S ELETRONICS LTDA
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260819000000[-3:GMT]
+                        <TRNAMT>-373,78
+                        <FITID>418813003281520260901151411102
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     PARAIBA DISTRIBUIDORA DE
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260819000000[-3:GMT]
+                        <TRNAMT>-598,26
+                        <FITID>418813003281520260901151411103
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     TECNOMOTOR DISTRIBUIDORA
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260819000000[-3:GMT]
+                        <TRNAMT>-424,19
+                        <FITID>418813003281520260901151411104
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     COMPANHIA BRASILEIRA
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260819000000[-3:GMT]
+                        <TRNAMT>-826,12
+                        <FITID>418813003281520260901151411105
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     LUIZ GERALDO MERCURI CIA
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260819000000[-3:GMT]
+                        <TRNAMT>-214,91
+                        <FITID>418813003281520260901151411106
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     AUTO NORTE DIST DE PECAS
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260819000000[-3:GMT]
+                        <TRNAMT>-614,41
+                        <FITID>418813003281520260901151411107
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     UNIDAS
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260819000000[-3:GMT]
+                        <TRNAMT>-8634,71
+                        <FITID>418813003281520260901151411108
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     C E C INSTALACAO E MANUTE
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260819000000[-3:GMT]
+                        <TRNAMT>-558,42
+                        <FITID>418813003281520260901151411109
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     PARAIBA DISTRIBUIDORA DE
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260819000000[-3:GMT]
+                        <TRNAMT>-913,09
+                        <FITID>418813003281520260901151411110
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     EVATRON COML ELETRONICA L
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260819000000[-3:GMT]
+                        <TRNAMT>-235,40
+                        <FITID>418813003281520260901151411111
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PAGAMENTO DE BOLETO OUTROS BANCOS     CARTEC AUTOMOTIVO LTDA
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>CREDIT
+                        <DTPOSTED>20260819000000[-3:GMT]
+                        <TRNAMT>0,39
+                        <FITID>418813003281520260901151411112
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>RENDIMENTO LIQUIDO DE CONTAMAX     7000 RENDIMENTO LIQUIDO DE CONTAMAX     
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260820000000[-3:GMT]
+                        <TRNAMT>-13,06
+                        <FITID>418813003281520260901151411113
+                        <CHECKNUM>0001848717
+                        <PAYEEID>0
+                        <MEMO>MENSALIDADE DE SEGURO     PARC 002/012 AP
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260820000000[-3:GMT]
+                        <TRNAMT>-15283,14
+                        <FITID>418813003281520260901151411114
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>DEBITO AUT. FAT.CARTAO MASTER CARD     FINAL 2402
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260820000000[-3:GMT]
+                        <TRNAMT>-1,44
+                        <FITID>418813003281520260901151411115
+                        <CHECKNUM>193946
+                        <PAYEEID>0
+                        <MEMO>TARIFA MANUTENCAO TIT VENCIDO
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>CREDIT
+                        <DTPOSTED>20260820000000[-3:GMT]
+                        <TRNAMT>0,40
+                        <FITID>418813003281520260901151411116
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>RENDIMENTO LIQUIDO DE CONTAMAX     7000 RENDIMENTO LIQUIDO DE CONTAMAX     
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>CREDIT
+                        <DTPOSTED>20260821000000[-3:GMT]
+                        <TRNAMT>10,76
+                        <FITID>418813003281520260901151411117
+                        <CHECKNUM>14001923
+                        <PAYEEID>0
+                        <MEMO>PIX RECEBIDO     55942312000106
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260821000000[-3:GMT]
+                        <TRNAMT>-21548,40
+                        <FITID>418813003281520260901151411118
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     NT SERVICOS
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>CREDIT
+                        <DTPOSTED>20260821000000[-3:GMT]
+                        <TRNAMT>0,04
+                        <FITID>418813003281520260901151411119
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>RENDIMENTO LIQUIDO DE CONTAMAX     7000 RENDIMENTO LIQUIDO DE CONTAMAX     
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260824000000[-3:GMT]
+                        <TRNAMT>-9,90
+                        <FITID>418813003281520260901151411120
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>TARIFA AVULSA ENVIO PIX     21/08/2026
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>CREDIT
+                        <DTPOSTED>20260824000000[-3:GMT]
+                        <TRNAMT>9,37
+                        <FITID>418813003281520260901151411121
+                        <CHECKNUM>14011886
+                        <PAYEEID>0
+                        <MEMO>PIX RECEBIDO     55942312000106
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260825000000[-3:GMT]
+                        <TRNAMT>-10020,74
+                        <FITID>418813003281520260901151411122
+                        <CHECKNUM>15271716
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     DYOGO DIOMEDES MACENA DE
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>CREDIT
+                        <DTPOSTED>20260825000000[-3:GMT]
+                        <TRNAMT>8000,00
+                        <FITID>418813003281520260901151411123
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX RECEBIDO     12260723000109
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>CREDIT
+                        <DTPOSTED>20260825000000[-3:GMT]
+                        <TRNAMT>1200,00
+                        <FITID>418813003281520260901151411124
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX RECEBIDO     12260723000109
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>CREDIT
+                        <DTPOSTED>20260825000000[-3:GMT]
+                        <TRNAMT>1200,00
+                        <FITID>418813003281520260901151411125
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX RECEBIDO     12260723000109
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260825000000[-3:GMT]
+                        <TRNAMT>-1545,88
+                        <FITID>418813003281520260901151411126
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     RECEITA FEDERAL
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260825000000[-3:GMT]
+                        <TRNAMT>-6662,14
+                        <FITID>418813003281520260901151411127
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     CEF MATRIZ
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260825000000[-3:GMT]
+                        <TRNAMT>-7134,84
+                        <FITID>418813003281520260901151411128
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX ENVIADO     RECEITA FEDERAL
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260826000000[-3:GMT]
+                        <TRNAMT>-16,00
+                        <FITID>418813003281520260901151411129
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>TARIFA EXTRATO INTELIGENTE     24/08/2026
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>CREDIT
+                        <DTPOSTED>20260826000000[-3:GMT]
+                        <TRNAMT>1,84
+                        <FITID>418813003281520260901151411130
+                        <CHECKNUM>13291587
+                        <PAYEEID>0
+                        <MEMO>PIX RECEBIDO     55942312000106
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260826000000[-3:GMT]
+                        <TRNAMT>-0,29
+                        <FITID>418813003281520260901151411131
+                        <CHECKNUM>193946
+                        <PAYEEID>0
+                        <MEMO>TARIFA MANUTENCAO TIT VENCIDO
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260828000000[-3:GMT]
+                        <TRNAMT>-400,00
+                        <FITID>418813003281520260901151411132
+                        <CHECKNUM>234051
+                        <PAYEEID>0
+                        <MEMO>COMPRA CARTAO DEB MC     28/08 POSTO PICHILAU
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>CREDIT
+                        <DTPOSTED>20260831000000[-3:GMT]
+                        <TRNAMT>8000,00
+                        <FITID>418813003281520260901151411133
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>PIX RECEBIDO     12260723000109
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260831000000[-3:GMT]
+                        <TRNAMT>-25716,05
+                        <FITID>418813003281520260901151411134
+                        <CHECKNUM>0000014700
+                        <PAYEEID>0
+                        <MEMO>DEBITO EMPRESTIMO     PARC 013/030 300000014700
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260831000000[-3:GMT]
+                        <TRNAMT>-1,44
+                        <FITID>418813003281520260901151411135
+                        <CHECKNUM>193946
+                        <PAYEEID>0
+                        <MEMO>TARIFA MANUTENCAO TIT VENCIDO
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260831000000[-3:GMT]
+                        <TRNAMT>-1324,04
+                        <FITID>418813003281520260901151411136
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>JUROS SALDO UTILIZ ATE LIMITE     PERIODO: 30/07 A 29/08/26
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260831000000[-3:GMT]
+                        <TRNAMT>-1601,41
+                        <FITID>418813003281520260901151411137
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>JUROS SALDO UTILIZ PERIODO EXCESSO     PERIODO: 30/07 A 29/08/26
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260831000000[-3:GMT]
+                        <TRNAMT>-99,52
+                        <FITID>418813003281520260901151411138
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>JUROS DE MORA - ATRASO     PERIODO: 30/07 A 29/08/26
+                    </STMTTRN>
+                    <STMTTRN>
+                        <TRNTYPE>DEBIT
+                        <DTPOSTED>20260831000000[-3:GMT]
+                        <TRNAMT>-1411,92
+                        <FITID>418813003281520260901151411139
+                        <CHECKNUM>00000000
+                        <PAYEEID>0
+                        <MEMO>MULTA MORATORIA - ATRASO     PERIODO: 30/07 A 29/08/26
+                    </STMTTRN>
+                </BANKTRANLIST>
+                <LEDGERBAL>
+                    <BALAMT>-56484,07
+                    <DTASOF>20260901151411[-3:GMT]
+                </LEDGERBAL>
+            </STMTRS>
+        </STMTTRNRS>
+    </BANKMSGSRSV1>
+</OFX>

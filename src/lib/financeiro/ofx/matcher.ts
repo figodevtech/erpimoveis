@@ -24,7 +24,15 @@ import {
   valorLiquidoEfetivo,
 } from "@/lib/financeiro/transacao";
 
-import { diferencaEmDias, normalizarTexto, reaisParaCentavos, similaridadeDeTexto } from "./normalize";
+import formatarEmReal from "@/utils/formatarEmReal";
+
+import {
+  centavosParaReais,
+  diferencaEmDias,
+  normalizarTexto,
+  reaisParaCentavos,
+  similaridadeDeTexto,
+} from "./normalize";
 import { metodoCompativel, textoDoMovimento } from "./payment-method";
 import type { OfxMovimento } from "./types";
 
@@ -296,6 +304,105 @@ function exigeRevisaoManual(candidato: CandidatoTransacao): boolean {
     candidato.eh_adiantamento === true ||
     candidato.pagamento_multiplo_id != null
   );
+}
+
+/** O tipo da transação, como o usuário lê na tela. */
+function artigoDoTipo(tipo: string): string {
+  switch (String(tipo ?? "").toUpperCase()) {
+    case "RECEITA":
+      return "uma receita";
+    case "DESPESA":
+      return "uma despesa";
+    case "DEPOSITO":
+      return "um depósito";
+    case "SAQUE":
+      return "um saque";
+    default:
+      return `um lançamento do tipo ${tipo}`;
+  }
+}
+
+/**
+ * Por que esta transação NÃO serve para o movimento — em português, para a tela.
+ *
+ * Existe porque a busca manual, ao filtrar os incompatíveis em silêncio, deixava
+ * o usuário sem resposta: ele via "Nenhuma transação compatível" e não sabia se
+ * a transação existia, se estava em outra conta ou se o valor diferia pela taxa
+ * da maquineta. Mostrar a linha com o motivo responde a pergunta que ele de fato
+ * tem.
+ *
+ * As condições são as MESMAS de `casarComFluxo` e `casarComTitulos`, na mesma
+ * ordem: aqui a frase ocupa o lugar do `continue` de lá. Se uma guarda mudar
+ * naquelas duas funções, tem que mudar aqui junto — do contrário a tela oferece
+ * uma linha que o banco vai recusar, ou esconde uma que serviria.
+ *
+ * As frases são o par das exceções de `conciliar_movimento_ofx`, para o motivo
+ * lido no seletor ser o mesmo que apareceria ao confirmar o lote.
+ *
+ * `null` significa compatível.
+ */
+export function motivoDeIncompatibilidade(
+  movimento: OfxMovimento,
+  candidato: CandidatoTransacao,
+  bancoId: number,
+  origem: "FLUXO" | "TITULO",
+): string | null {
+  const alvo = Math.abs(movimento.valorCentavos);
+  const sentidoDoExtrato = movimentoEhEntrada(movimento) ? "uma entrada" : "uma saída";
+
+  if (origem === "FLUXO") {
+    // Espelha `ehMovimentoDeCaixa`, que decide as quatro primeiras de uma vez.
+    if (candidato.pendente) {
+      return "Ainda é título em aberto. Procure em “Títulos em aberto” para dar baixa com este movimento.";
+    }
+    if (candidato.abonado === true) {
+      return "Título abonado: não movimentou conta nenhuma.";
+    }
+    if (Number(candidato.banco_id ?? 0) !== bancoId) {
+      return "Está em outra conta bancária, não na conta deste extrato.";
+    }
+    if (candidato.adiantamento_id != null && !antecipadoComLancamento(candidato)) {
+      return "Quitado por antecipação, sem repasse: quem moveu a conta foi o lançamento da antecipação.";
+    }
+    if (!sentidoCombina(movimento, candidato)) {
+      return `Sentido oposto: o extrato mostra ${sentidoDoExtrato} e a transação é ${artigoDoTipo(candidato.tipo)}.`;
+    }
+
+    const liquido = reaisParaCentavos(valorLiquidoEfetivo(candidato));
+    if (liquido !== alvo) {
+      return `Valor difere: o extrato mostra ${formatarEmReal(centavosParaReais(alvo))} e a transação movimenta ${formatarEmReal(centavosParaReais(liquido))}.`;
+    }
+
+    return null;
+  }
+
+  if (!candidato.pendente) {
+    return "Título já baixado. Se ele é este movimento, procure em “Fluxo de caixa · mesma conta”.";
+  }
+  if (candidato.abonado === true) {
+    return "Título abonado: não há o que baixar.";
+  }
+  /*
+   * Antecipação e pagamento múltiplo são liquidados em conjunto, por regras
+   * próprias. A busca manual já os deixava de fora — a diferença é que agora
+   * ela diz isso, em vez de a linha simplesmente não aparecer.
+   */
+  if (exigeRevisaoManual(candidato)) {
+    return "Antecipação ou pagamento múltiplo: a baixa é feita pelo fluxo próprio, não pela conciliação.";
+  }
+  if (!sentidoCombina(movimento, candidato)) {
+    return `Sentido oposto: o extrato mostra ${sentidoDoExtrato} e o título é ${artigoDoTipo(candidato.tipo)}.`;
+  }
+
+  const saldo = reaisParaCentavos(saldoEmAberto(candidato));
+  if (saldo <= 0) {
+    return "Título sem saldo em aberto.";
+  }
+  if (alvo > saldo) {
+    return `Saldo de ${formatarEmReal(centavosParaReais(saldo))} é menor que o movimento de ${formatarEmReal(centavosParaReais(alvo))}.`;
+  }
+
+  return null;
 }
 
 /**

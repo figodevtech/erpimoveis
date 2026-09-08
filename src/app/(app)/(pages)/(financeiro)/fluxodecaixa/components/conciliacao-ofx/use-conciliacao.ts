@@ -3,12 +3,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import {
+  chavesDaDecisao,
   comoMovimentoAnalisado,
   conflitosDeSelecao,
   decisaoCompleta,
   decisoesIniciais,
+  decisoesUnicas,
   mensagemDeErro,
   resolvido,
+  semDecisoesDe,
 } from "./apresentacao";
 import type {
   Decisao,
@@ -136,14 +139,27 @@ export function useConciliacao(onConcluido: () => void) {
   }
 
   const selecao = useMemo(() => {
+    /*
+     * Marcar uma linha de uma conciliação N:1 marca o ato inteiro.
+     *
+     * As duas são gravadas juntas de qualquer forma — a decisão carrega as duas.
+     * Mostrar meia conciliação selecionada mentiria sobre o que vai ser aplicado,
+     * e faria o contador do rodapé falar de uma linha quando duas serão escritas.
+     */
+    const comGrupos = new Set(marcadas);
+    for (const chave of marcadas) {
+      const decisao = decisoes[chave];
+      if (decisao) for (const membro of chavesDaDecisao(decisao)) comGrupos.add(membro);
+    }
+
     const linhas =
       sessao?.movimentos.filter(
-        (m) => marcadas.has(m.fingerprint) && !resolvido(m),
+        (m) => comGrupos.has(m.fingerprint) && !resolvido(m),
       ) ?? [];
     const completas = linhas.filter((m) =>
       decisaoCompleta(decisoes[m.fingerprint]),
     );
-    const enviar = completas.map((m) => decisoes[m.fingerprint]);
+    const enviar = decisoesUnicas(completas.map((m) => decisoes[m.fingerprint]));
     return {
       linhas,
       enviar,
@@ -247,9 +263,10 @@ export function useConciliacao(onConcluido: () => void) {
           : s,
       );
     setDecisoes((atual) => {
-      const proximo = { ...atual };
+      // Decidir sobre uma linha desfaz o grupo em que ela estivesse: ela passou
+      // a responder por si, e as demais voltam a ficar em aberto.
+      const proximo = semDecisoesDe(atual, [m.fingerprint]);
       if (d) proximo[m.fingerprint] = d;
-      else delete proximo[m.fingerprint];
       return proximo;
     });
     setMarcadas((atual) => {
@@ -258,6 +275,40 @@ export function useConciliacao(onConcluido: () => void) {
       else proximo.delete(m.fingerprint);
       return proximo;
     });
+  }
+
+  /**
+   * Conciliação N:1: várias linhas do extrato para um lançamento só.
+   *
+   * A mesma decisão fica guardada sob a chave de cada participante — é o que faz
+   * a tabela mostrar as duas linhas decididas e o cancelamento de qualquer uma
+   * desfazer o ato inteiro. O envio manda uma cópia só.
+   */
+  function agrupar(linhas: MovimentoAnalisado[], base: Omit<Decisao, "fingerprint">) {
+    if (ocupado) return;
+    const alvos = linhas.filter((m) => !resolvido(m));
+    if (alvos.length < 2) return;
+
+    const grupo = alvos.map((m) => m.fingerprint);
+    const ids = alvos
+      .map((m) => m.movimentoId)
+      .filter((id): id is number => id != null);
+
+    const decisao: Decisao = {
+      ...base,
+      fingerprint: grupo[0],
+      grupo,
+      // Só serve à importação já gravada. Meia lista seria pior que nenhuma: a
+      // rota resolveria o ato por um conjunto menor do que o escolhido.
+      movimentoIds: ids.length === alvos.length ? ids : undefined,
+    };
+
+    setDecisoes((atual) => {
+      const proximo = semDecisoesDe(atual, grupo);
+      for (const chave of grupo) proximo[chave] = decisao;
+      return proximo;
+    });
+    setMarcadas((atual) => new Set([...atual, ...grupo]));
   }
   function marcarVarios(chaves: string[], marcar: boolean) {
     if (ocupado) return;
@@ -273,7 +324,11 @@ export function useConciliacao(onConcluido: () => void) {
   function ignorarSelecionados() {
     if (ocupado) return;
     setDecisoes((atual) => {
-      const proximo = { ...atual };
+      // Ignorar é decisão de cada linha por si: desfaz os grupos que houvesse.
+      const proximo = semDecisoesDe(
+        atual,
+        selecao.linhas.map((m) => m.fingerprint),
+      );
       for (const m of selecao.linhas)
         proximo[m.fingerprint] = {
           fingerprint: m.fingerprint,
@@ -293,19 +348,28 @@ export function useConciliacao(onConcluido: () => void) {
     setResultado(null);
     setUltimaOperacao(null);
   }
-  const falhas = useMemo(
-    () =>
-      new Map(
-        (ultimaOperacao?.falhas ?? []).map((f) => [
-          f.fingerprint ??
-            sessao?.movimentos.find((m) => m.movimentoId === f.movimentoId)
-              ?.fingerprint ??
-            "",
-          f.erro ?? "Não foi possível processar este movimento.",
-        ]),
-      ),
-    [ultimaOperacao, sessao],
-  );
+  const falhas = useMemo(() => {
+    const mapa = new Map<string, string>();
+    for (const f of ultimaOperacao?.falhas ?? []) {
+      const erro = f.erro ?? "Não foi possível processar este movimento.";
+      // Numa conciliação N:1 nenhuma linha foi gravada: o erro é das duas, e
+      // marcar só a primeira deixaria a outra parecendo resolvida.
+      const chaves = f.fingerprints?.length
+        ? f.fingerprints
+        : [
+            f.fingerprint ??
+              (f.movimentoIds ?? [f.movimentoId])
+                .map(
+                  (id) =>
+                    sessao?.movimentos.find((m) => m.movimentoId === id)?.fingerprint,
+                )
+                .find(Boolean) ??
+              "",
+          ];
+      for (const chave of chaves) if (chave) mapa.set(chave, erro);
+    }
+    return mapa;
+  }, [ultimaOperacao, sessao]);
   return {
     arquivo,
     setArquivo,
@@ -325,6 +389,7 @@ export function useConciliacao(onConcluido: () => void) {
     analisar,
     confirmar,
     decidir,
+    agrupar,
     marcarVarios,
     ignorarSelecionados,
     limpar,

@@ -1,10 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import axios from "axios";
+/**
+ * Procurar no ERP a transação que corresponde a uma linha do extrato.
+ *
+ * A lista mora no seletor genérico de transações; aqui fica só o que é da
+ * conciliação: onde procurar, o que já se sabe do movimento e a tradução da
+ * transação escolhida para uma sugestão de correspondência.
+ *
+ * O que esta tela fazia antes — pedir 50 linhas quaisquer e filtrar por valor no
+ * navegador — deixava a transação certa fora do alcance quando ela não caía
+ * naquelas 50 linhas, e a mensagem "nenhuma transação compatível nesta página"
+ * não dizia se ela existia. Agora o filtro de valor vai ao servidor junto com
+ * todos os demais, e o que não serve aparece com o motivo em vez de sumir.
+ */
+
+import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -12,19 +25,39 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "@/lib/toast";
+import formatarEmReal from "@/utils/formatarEmReal";
+import TransactionSelect, {
+  type TransactionFiltros,
+} from "@/app/(app)/components/transactionSelect";
 import {
   casarComFluxo,
   casarComTitulos,
+  motivoDeIncompatibilidade,
   type CandidatoTransacao,
 } from "@/lib/financeiro/ofx/matcher";
-import {
-  dataDaTransacao,
-  explicacaoMatch,
-  mensagemDeErro,
-} from "./apresentacao";
-import type { MovimentoAnalisado, SugestaoMatch } from "./types";
-import formatarEmReal from "@/utils/formatarEmReal";
+
+import type { Transaction } from "../../types";
+import { formatarDia } from "./apresentacao";
+import { reais, type MovimentoAnalisado, type SugestaoMatch } from "./types";
+
+type Origem = "FLUXO" | "TITULO";
+
+/**
+ * A transação da lista, vista pelas regras de comparação.
+ *
+ * O matcher espera o fornecedor com um `nome`; a rota devolve `nomerazaosocial`.
+ * A conversão vive aqui porque é do formato, não da regra.
+ */
+function paraCandidato(transacao: Transaction): CandidatoTransacao {
+  return {
+    ...transacao,
+    data: String(transacao.data),
+    fornecedor: transacao.fornecedor
+      ? { nome: transacao.fornecedor.nomerazaosocial ?? transacao.fornecedor.nomefantasia ?? null }
+      : null,
+  } as CandidatoTransacao;
+}
 
 export function BuscaManual({
   movimento,
@@ -33,192 +66,149 @@ export function BuscaManual({
 }: {
   movimento: MovimentoAnalisado;
   bancoId: number;
-  onSelecionar: (s: SugestaoMatch) => void;
+  onSelecionar: (sugestao: SugestaoMatch) => void;
 }) {
-  const [texto, setTexto] = useState("");
-  const [consulta, setConsulta] = useState({
-    busca: "",
-    origem: "FLUXO",
-    pagina: 1,
-    tentativa: 0,
-  });
-  const [estado, setEstado] = useState<{
-    carregando: boolean;
-    erro: string | null;
-    sugestoes: SugestaoMatch[];
-    paginas: number;
-  }>({ carregando: true, erro: null, sugestoes: [], paginas: 1 });
-  useEffect(() => {
-    const controller = new AbortController();
-    const fluxo = consulta.origem === "FLUXO";
-    axios
-      .get<{
-        data: (CandidatoTransacao & {
-          fornecedor?: { nomerazaosocial?: string; nome?: string } | null;
-        })[];
-        pagination: { totalPages: number };
-      }>("/api/transaction", {
-        params: {
-          search: consulta.busca || undefined,
-          page: consulta.pagina,
-          limit: 50,
-          tipos:
-            movimento.valorCentavos > 0 ? "RECEITA,DEPOSITO" : "DESPESA,SAQUE",
-          pendente: !fluxo,
-          bancoId: fluxo ? bancoId : undefined,
-          comBanco: fluxo ? true : undefined,
-        },
-        signal: controller.signal,
-      })
-      .then((res) => {
-        if (controller.signal.aborted) return;
-        const candidatos = res.data.data
-          .filter(
-            (c) =>
-              fluxo ||
-              (c.adiantamento_id == null &&
-                !c.eh_adiantamento &&
-                c.pagamento_multiplo_id == null),
-          )
-          .map((c) => ({
-            ...c,
-            fornecedor: c.fornecedor
-              ? { nome: c.fornecedor.nomerazaosocial ?? c.fornecedor.nome }
-              : null,
-          }));
-        const sugestoes = fluxo
-          ? casarComFluxo(movimento, candidatos, bancoId)
-          : casarComTitulos(movimento, candidatos);
-        setEstado({
-          carregando: false,
-          erro: null,
-          sugestoes,
-          paginas: res.data.pagination.totalPages,
-        });
-      })
-      .catch((e) => {
-        if (!axios.isCancel(e))
-          setEstado({
-            carregando: false,
-            erro: mensagemDeErro(e, "Não foi possível buscar transações."),
-            sugestoes: [],
-            paginas: 1,
-          });
+  const [origem, setOrigem] = useState<Origem>("FLUXO");
+  const [seletorAberto, setSeletorAberto] = useState(false);
+
+  const entrada = movimento.valorCentavos > 0;
+  const alvoEmCentavos = Math.abs(movimento.valorCentavos);
+  const alvo = reais(alvoEmCentavos);
+  const tipos = entrada ? "RECEITA,DEPOSITO" : "DESPESA,SAQUE";
+
+  /*
+   * O escopo que a barra de filtros não pode desfazer.
+   *
+   * São as condições que definem a pergunta: no Fluxo, dinheiro que já passou
+   * por ESTA conta; nos títulos, obrigação ainda em aberto. Deixá-las editáveis
+   * só ofereceria linhas que a conciliação vai recusar.
+   *
+   * `comBanco` no Fluxo não é redundante com `bancoId`: é ele que traz de volta
+   * as baixas parciais, que a rota esconde por padrão.
+   */
+  const filtrosFixos: Partial<TransactionFiltros> = useMemo(
+    () =>
+      origem === "FLUXO"
+        ? { tipos, pendente: false, bancoId: String(bancoId), comBanco: true }
+        : { tipos, pendente: true },
+    [origem, tipos, bancoId],
+  );
+
+  /*
+   * O valor já vem preenchido: é o filtro que faz a transação certa aparecer na
+   * primeira página em vez de ficar perdida na paginação.
+   *
+   * PISO, nunca teto — nos dois lados. O filtro do servidor é sobre o valor
+   * BRUTO, e o que a conciliação compara é o líquido (no Fluxo) ou o saldo (no
+   * título); os dois só descem em relação ao bruto. Um teto de R$ 970 cortaria
+   * exatamente a venda de R$ 1.000 no cartão que entrou na conta como R$ 970 —
+   * o caso que mais precisa ser encontrado.
+   *
+   * Ordenar pelo valor crescente resolve o resto: o valor exato vem primeiro, e
+   * logo atrás os que têm taxa ou saldo parcial.
+   */
+  const filtrosIniciais: Partial<TransactionFiltros> = useMemo(
+    () => ({ valorMin: alvo, ordenarPor: "valor" as const, ordem: "asc" as const }),
+    [alvo],
+  );
+
+  const avaliarLinha = (transacao: Transaction) => {
+    const candidato = paraCandidato(transacao);
+    const motivo = motivoDeIncompatibilidade(movimento, candidato, bancoId, origem);
+    if (motivo) return { compativel: false, motivo };
+
+    // A nota avisa antes do clique o que a confirmação vai fazer: baixar em
+    // parte não é o mesmo que quitar.
+    const sugestao =
+      origem === "FLUXO"
+        ? casarComFluxo(movimento, [candidato], bancoId)[0]
+        : casarComTitulos(movimento, [candidato])[0];
+
+    return {
+      compativel: true,
+      nota: sugestao?.parcial
+        ? `Baixa parcial: quita ${formatarEmReal(alvo)} de ${formatarEmReal(reais(sugestao.valorCentavos))}.`
+        : null,
+    };
+  };
+
+  /**
+   * A sugestão sai da própria regra de negócio, nunca montada à mão.
+   *
+   * Rodar o matcher sobre a única linha escolhida faz score, diferença de dias e
+   * `parcial` saírem certos sem duplicar aqui o que `casarComFluxo` e
+   * `casarComTitulos` já sabem.
+   */
+  const escolher = (transacao: Transaction) => {
+    const candidato = paraCandidato(transacao);
+    const sugestao =
+      origem === "FLUXO"
+        ? casarComFluxo(movimento, [candidato], bancoId)[0]
+        : casarComTitulos(movimento, [candidato])[0];
+
+    if (!sugestao) {
+      // Só chega aqui se a linha tiver mudado no servidor entre a busca e o
+      // clique — a lista não deixa escolher incompatível.
+      toast.error("Esta transação não corresponde mais ao movimento", {
+        description: "Refaça a busca para ver a situação atual.",
       });
-    return () => controller.abort();
-  }, [consulta, movimento, bancoId]);
-  function buscar(patch: Partial<typeof consulta>) {
-    setEstado((e) => ({ ...e, carregando: true, erro: null }));
-    setConsulta((q) => ({ ...q, ...patch }));
-  }
+      return;
+    }
+
+    onSelecionar(sugestao);
+  };
+
   return (
     <section className="space-y-3 rounded-lg border p-3">
-      <h3 className="text-sm font-semibold">Procurar transação no ERP</h3>
-      <form
-        className="flex gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          buscar({
-            busca: texto,
-            pagina: 1,
-            tentativa: consulta.tentativa + 1,
-          });
-        }}
-      >
-        <Input
-          aria-label="Busca manual de transações"
-          value={texto}
-          onChange={(e) => setTexto(e.target.value)}
-          placeholder="Descrição, pagador, OS ou venda..."
-        />
-        <Button type="submit" variant="outline" aria-label="Buscar transações">
-          <Search className="size-4" />
-        </Button>
-      </form>
-      <Select
-        value={consulta.origem}
-        onValueChange={(origem) => buscar({ origem, pagina: 1 })}
-      >
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="text-sm font-semibold">Procurar transação no ERP</h3>
+        <span className="text-xs text-muted-foreground">
+          {entrada ? "Entrada" : "Saída"} de {formatarEmReal(alvo)}
+        </span>
+      </div>
+
+      <Select value={origem} onValueChange={(valor) => setOrigem(valor as Origem)}>
         <SelectTrigger className="w-full" aria-label="Onde procurar">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="FLUXO">Fluxo de Caixa · mesma conta</SelectItem>
-          <SelectItem value="TITULO">
-            Contas a pagar / receber em aberto
-          </SelectItem>
+          <SelectItem value="TITULO">Contas a pagar / receber em aberto</SelectItem>
         </SelectContent>
       </Select>
+
       <p className="text-xs text-muted-foreground">
-        {consulta.origem === "FLUXO"
+        {origem === "FLUXO"
           ? "Mesma conta, valor e direção, sem limite de diferença entre as datas."
           : "Mesma direção e saldo suficiente, sem limite de dias entre o vencimento e o pagamento ou recebimento. Antecipações e pagamentos múltiplos são resolvidos nos fluxos próprios."}{" "}
         A confirmação revalida a disponibilidade da transação.
       </p>
-      {estado.carregando ? (
-        <div role="status" className="space-y-2">
-          <span className="text-xs text-muted-foreground">
-            Buscando transações…
-          </span>
-          <Skeleton className="h-20" />
-          <Skeleton className="h-20" />
-        </div>
-      ) : estado.erro ? (
-        <p role="alert" className="text-sm text-destructive">
-          {estado.erro}
-        </p>
-      ) : estado.sugestoes.length ? (
-        <div className="max-h-64 space-y-2 overflow-y-auto">
-          {estado.sugestoes.map((s) => (
-            <button
-              key={s.transacaoId}
-              type="button"
-              className="w-full space-y-1 rounded-lg border p-3 text-left hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-ring"
-              onClick={() => onSelecionar(s)}
-            >
-              <p className="text-sm font-medium">
-                {s.descricao || `Transação #${s.transacaoId}`}
-              </p>
-              <p className="text-xs">
-                {s.contraparte} · {dataDaTransacao(s.data)} ·{" "}
-                {formatarEmReal(s.valorCentavos / 100)}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {explicacaoMatch(s)}
-              </p>
-              <p className="text-xs text-primary">Selecionar para comparar</p>
-            </button>
-          ))}
-        </div>
-      ) : (
-        <p className="py-3 text-sm text-muted-foreground">
-          Nenhuma transação compatível nesta página. Refine a busca
-          {estado.paginas > 1 ? " ou consulte a próxima página" : ""}.
-        </p>
-      )}
-      <div className="flex items-center justify-between gap-2 text-xs">
-        <span>
-          Página {consulta.pagina} de {Math.max(1, estado.paginas)}
-        </span>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={estado.carregando || consulta.pagina === 1}
-            onClick={() => buscar({ pagina: consulta.pagina - 1 })}
-          >
-            Anterior
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={estado.carregando || consulta.pagina >= estado.paginas}
-            onClick={() => buscar({ pagina: consulta.pagina + 1 })}
-          >
-            Próxima
-          </Button>
-        </div>
-      </div>
+
+      <Button
+        type="button"
+        variant="outline"
+        className="w-full justify-start hover:cursor-pointer"
+        onClick={() => setSeletorAberto(true)}
+      >
+        <Search className="size-4" />
+        Procurar transação
+      </Button>
+
+      <TransactionSelect
+        open={seletorAberto}
+        setOpen={setSeletorAberto}
+        onSelect={escolher}
+        title={
+          origem === "FLUXO"
+            ? "Procurar no Fluxo de Caixa desta conta"
+            : "Procurar título em aberto"
+        }
+        description={`Movimento do extrato: ${entrada ? "entrada" : "saída"} de ${formatarEmReal(alvo)} em ${formatarDia(movimento.dataPostagem)}. O que não puder ser conciliado aparece na lista com o motivo.`}
+        filtrosFixos={filtrosFixos}
+        filtrosIniciais={filtrosIniciais}
+        avaliarLinha={avaliarLinha}
+        emptyHint="Use “Ampliar busca” para procurar sem a faixa de valor — a transação pode estar com valor diferente do extrato."
+      />
     </section>
   );
 }

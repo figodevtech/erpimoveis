@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CheckCircle2, MoreHorizontal, Search } from "lucide-react";
+import { CheckCircle2, Layers, MoreHorizontal, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -31,6 +31,7 @@ import formatarEmReal from "@/utils/formatarEmReal";
 import { type Decisao, type MovimentoAnalisado } from "./types";
 import {
   decisaoCompleta,
+  ehAgrupada,
   descricaoMovimento,
   explicacaoMatch,
   formatarDia,
@@ -82,6 +83,7 @@ export function ConciliacaoTabela({
   onEditar,
   onDetalhes,
   onIgnorar,
+  onAgrupar,
 }: {
   movimentos: MovimentoAnalisado[];
   decisoes: Record<string, Decisao>;
@@ -93,6 +95,7 @@ export function ConciliacaoTabela({
   onEditar: (m: MovimentoAnalisado, modo?: "CRIAR" | "BUSCAR") => void;
   onDetalhes: (m: MovimentoAnalisado) => void;
   onIgnorar: (m: MovimentoAnalisado) => void;
+  onAgrupar: (linhas: MovimentoAnalisado[]) => void;
 }) {
   const [filtro, setFiltro] = useState<Filtro>("TODOS");
   const [tipo, setTipo] = useState("TODOS");
@@ -159,6 +162,22 @@ export function ConciliacaoTabela({
       decisoes[m.fingerprint]?.acao === "VINCULAR" &&
       decisaoCompleta(decisoes[m.fingerprint]),
   );
+  /*
+   * As linhas marcadas que podem virar uma conciliação N:1.
+   *
+   * Vale sobre o extrato inteiro, não sobre a página: as duas linhas do mesmo
+   * fato costumam estar lado a lado, mas nada garante isso — e perder a seleção
+   * ao paginar seria pior do que não ter o recurso.
+   */
+  const marcadosParaAgrupar = movimentos.filter(
+    (m) => marcadas.has(m.fingerprint) && !resolvido(m),
+  );
+  const somaDoGrupo = marcadosParaAgrupar.reduce((total, m) => total + m.valorCentavos, 0);
+  const mesmoSentido =
+    marcadosParaAgrupar.length > 0 &&
+    marcadosParaAgrupar.every((m) => m.valorCentavos > 0 === marcadosParaAgrupar[0].valorCentavos > 0);
+  const podeAgrupar = marcadosParaAgrupar.length > 1 && mesmoSentido;
+
   function filtrar(f: Filtro) {
     setFiltro(f);
     setPagina(1);
@@ -229,6 +248,25 @@ export function ConciliacaoTabela({
       </>
     );
   }
+  /**
+   * O aviso de que esta linha não responde sozinha.
+   *
+   * Sem ele, a linha de R$ 161,01 apareceria conciliada com um lançamento de
+   * R$ 904,17 e pareceria erro. Dizer que ela divide o lançamento com outra
+   * explica a diferença antes de alguém tentar "corrigir".
+   */
+  function notaDoGrupo(m: MovimentoAnalisado) {
+    const d = decisoes[m.fingerprint];
+    if (resolvido(m) || !ehAgrupada(d)) return null;
+    const total = d?.grupo?.length ?? 0;
+    return (
+      <p className="mt-1 text-[11px] text-primary">
+        Conciliada junto com {total - 1} outra{total > 2 ? "s" : ""} linha
+        {total > 2 ? "s" : ""} do extrato
+      </p>
+    );
+  }
+
   function acoes(m: MovimentoAnalisado) {
     return (
       <div className="flex items-center justify-end gap-1">
@@ -427,6 +465,33 @@ export function ConciliacaoTabela({
           Selecionar todos os encontrados ({encontrados.length})
         </Button>
       )}
+      {marcadosParaAgrupar.length > 1 && (
+        <div className="flex flex-col gap-2 rounded-lg border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 text-xs">
+            <p className="font-medium">
+              {marcadosParaAgrupar.length} linhas selecionadas ·{" "}
+              <span className="tabular-nums">
+                {formatarEmReal(Math.abs(somaDoGrupo) / 100)}
+              </span>
+            </p>
+            <p className="text-muted-foreground">
+              {mesmoSentido
+                ? "Se estas linhas são um único lançamento no ERP, concilie-as juntas pela soma."
+                : "Para conciliar juntas, selecione só entradas ou só saídas — o extrato precisa mostrar as duas pontas separadas."}
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="shrink-0 hover:cursor-pointer"
+            disabled={bloqueado || !podeAgrupar}
+            onClick={() => onAgrupar(marcadosParaAgrupar)}
+          >
+            <Layers className="size-4" />
+            Conciliar juntas
+          </Button>
+        </div>
+      )}
       {filtrados.length === 0 ? (
         <div className="rounded-lg border border-dashed p-8 text-center">
           <p className="text-sm text-muted-foreground">
@@ -523,6 +588,7 @@ export function ConciliacaoTabela({
                     </TableCell>
                     <TableCell className="max-w-[230px]">
                       {correspondencia(m)}
+                      {notaDoGrupo(m)}
                     </TableCell>
                     <TableCell>{acoes(m)}</TableCell>
                   </TableRow>
@@ -564,7 +630,10 @@ export function ConciliacaoTabela({
                   </button>
                   <ValorMovimento centavos={m.valorCentavos} />
                 </div>
-                <div className="min-w-0">{correspondencia(m)}</div>
+                <div className="min-w-0">
+                  {correspondencia(m)}
+                  {notaDoGrupo(m)}
+                </div>
                 {falhas.has(m.fingerprint) && (
                   <p className="text-xs text-destructive">
                     {falhas.get(m.fingerprint)}

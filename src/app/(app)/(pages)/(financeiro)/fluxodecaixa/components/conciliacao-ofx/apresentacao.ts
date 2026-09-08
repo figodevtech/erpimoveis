@@ -126,10 +126,65 @@ export function mensagemDeErro(erro: unknown, padrao: string): string {
   return erro instanceof Error ? erro.message : padrao;
 }
 
+/**
+ * As linhas do extrato que esta decisão resolve. Inclui a própria.
+ *
+ * Uma decisão comum resolve a sua linha; uma conciliação N:1 resolve todas as do
+ * grupo, e fica guardada sob a chave de cada uma para a tabela mostrar as duas
+ * como decididas.
+ */
+export function chavesDaDecisao(d: Decisao): string[] {
+  return d.grupo?.length ? d.grupo : [d.fingerprint];
+}
+
+/** A decisão responde por mais de uma linha do extrato? */
+export function ehAgrupada(d?: Decisao | null): boolean {
+  return (d?.grupo?.length ?? 0) > 1;
+}
+
+/**
+ * Uma cópia por ato de conciliação.
+ *
+ * A decisão de um grupo está repetida sob cada participante; enviar todas faria
+ * a segunda chegar ao banco depois de a primeira já ter marcado as linhas, e ela
+ * voltaria como "movimento já resolvido".
+ */
+export function decisoesUnicas(decisoes: Decisao[]): Decisao[] {
+  const vistos = new Set<string>();
+  const unicas: Decisao[] = [];
+  for (const d of decisoes) {
+    const chave = [...chavesDaDecisao(d)].sort().join("|");
+    if (vistos.has(chave)) continue;
+    vistos.add(chave);
+    unicas.push(d);
+  }
+  return unicas;
+}
+
+/**
+ * Tira do mapa as decisões que tocam qualquer uma destas linhas — inteiras.
+ *
+ * Apagar só a chave pedida deixaria as outras linhas do grupo apontando para uma
+ * decisão que ainda promete conciliá-las: a tabela mostraria como decidido um
+ * ato que perdeu um pedaço, e a soma enviada não seria a que o usuário montou.
+ */
+export function semDecisoesDe(
+  decisoes: Record<string, Decisao>,
+  chaves: string[],
+): Record<string, Decisao> {
+  const proximo = { ...decisoes };
+  for (const chave of chaves) {
+    const decisao = proximo[chave];
+    if (!decisao) continue;
+    for (const membro of chavesDaDecisao(decisao)) delete proximo[membro];
+  }
+  return proximo;
+}
+
 /** Conflitos de vínculo são bloqueados antes do envio; baixas parciais podem compartilhar título. */
 export function conflitosDeSelecao(decisoes: Decisao[]): Set<string> {
   const grupos = new Map<number, Decisao[]>();
-  for (const d of decisoes) {
+  for (const d of decisoesUnicas(decisoes)) {
     if (!d.transacaoId || (d.acao !== "VINCULAR" && d.acao !== "LIQUIDAR"))
       continue;
     const grupo = grupos.get(d.transacaoId) ?? [];
@@ -142,7 +197,9 @@ export function conflitosDeSelecao(decisoes: Decisao[]): Set<string> {
       grupo.length > 1 &&
       grupo.some((d) => d.acao === "VINCULAR" || !d.valor)
     ) {
-      grupo.forEach((d) => conflitos.add(d.fingerprint));
+      // Todas as linhas do ato entram em conflito, não só a que o carrega: é o
+      // conjunto inteiro que o usuário precisa enxergar marcado na tabela.
+      grupo.forEach((d) => chavesDaDecisao(d).forEach((chave) => conflitos.add(chave)));
     }
   }
   return conflitos;
